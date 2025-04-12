@@ -1,0 +1,2 @@
+[console_scripts]
+fastmda = FastMDAnalysis.cli:main

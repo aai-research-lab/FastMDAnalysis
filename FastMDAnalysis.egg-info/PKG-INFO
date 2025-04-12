@@ -1,0 +1,50 @@
+Metadata-Version: 2.2
+Name: FastMDAnalysis
+Version: 0.1.0
+Summary: Fast Molecular Dynamics Trajectory Analysis
+Home-page: https://github.com/ainaadekunle/FastMDAnalysis
+Author: Adekunle Aina
+Author-email: aaina@csudh.edu
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: mdtraj>=1.9.7
+Requires-Dist: numpy>=1.21.0
+Requires-Dist: matplotlib>=3.5.0
+Requires-Dist: scikit-learn>=1.0.0
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
+
+# FastMDAnalysis
+
+FastMDAnalysis is a Python package for fast and automated MD trajectory analysis using MDTraj. It provides a user-friendly Python API as well as a command-line interface to perform standard analyses including:
+
+- Root-Mean-Square Deviation (RMSD)
+- Root-Mean-Square Fluctuation (RMSF)
+- Radius of Gyration (Rg)
+- Hydrogen Bonds
+- Cluster Analysis (using DBSCAN)
+- Secondary Structure
+
+## Installation
+
+You can install FastMDAnalysis using pip:
+
+```bash
+pip install .
+
+Or install in editable mode:
+
+
+```bash
+pip install -e .
+
