@@ -1,6 +1,6 @@
 # FastMDAnalysis
 
-FastMDAnalysis is a Python package for fast and automated MD trajectory analysis using MDTraj. It provides a user-friendly Python API as well as a command-line interface (CLI) to perform standard analyses including:
+FastMDAnalysis is a software for fast and automated MD trajectory analysis. It provides a user-friendly Python API as well as a command-line interface (CLI) built on top MDTraj and Matplotlib packages to perform standard analyses including:
 
 - **rmsd**: Root-Mean-Square Deviation analysis
 - **rmsf**: Root-Mean-Square Fluctuation analysis
