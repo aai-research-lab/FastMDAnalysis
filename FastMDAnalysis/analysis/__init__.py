@@ -7,5 +7,7 @@ from .rmsf import RMSFAnalysis
 from .rg import RGAnalysis
 from .hbonds import HBondsAnalysis
 from .cluster import ClusterAnalysis
-from .secondary_structure import SecondaryStructureAnalysis
-from .dimred import DimRedAnalysis  # Add this line to include the new module
+from .ss import SSAnalysis  # Changed from secondary_structure to ss; class renamed to SSAnalysis
+from .dimred import DimRedAnalysis
+from .sasa import SASAAnalysis
+
