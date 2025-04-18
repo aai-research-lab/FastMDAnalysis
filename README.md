@@ -46,8 +46,8 @@ from FastMDAnalysis import FastMDAnalysis
 
 fastmda = FastMDAnalysis("traj.dcd", "top.pdb")
 
-# Run RMSD analysis (uses the default frames and atom selection unless overridden):
-rmsd_analysis = fastmda.rmsd(ref=0)
+# Run RMSD analysis 
+rmsd_analysis = fastmda.rmsd()
 
 # Optionally retrieve rmsd data 
 print("RMSD Data:", rmsd_analysis.data)
