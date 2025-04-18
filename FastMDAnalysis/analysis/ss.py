@@ -1,11 +1,18 @@
 """
 SS Analysis Module
+
 Computes secondary structure assignments for each frame using DSSP.
-Saves the assignments to a text file, automatically generates a heatmap plot,
-and writes an ss_README.md file that explains the secondary structure (SS) letter codes.
-The heatmap uses a discrete colormap with very distinct colors,
-and the residue index axis is labeled with whole numbers starting from 1.
-Users can replot with custom options via keyword arguments.
+Saves the SS assignments to a text file and automatically generates a heatmap plot.
+The heatmap uses a discrete colormap with very distinct colors so that each SS letter is easily differentiated.
+The colorbar tick labels display the SS letter codes.
+The residue index axis is labeled with whole numbers starting at 1.
+An ss_README.md file is also generated to explain the SS letter codes.
+
+Usage:
+    from FastMDAnalysis import SSAnalysis
+    analysis = SSAnalysis(trajectory, atoms="protein")
+    analysis.run()         # Computes SS and generates default plots and README file.
+    analysis.plot()        # Replot if needed with customization options.
 """
 
 import numpy as np
@@ -18,15 +25,22 @@ from pathlib import Path
 from .base import BaseAnalysis, AnalysisError
 
 class SSAnalysis(BaseAnalysis):
-    def __init__(self, trajectory, **kwargs):
+    def __init__(self, trajectory, atoms: str = None, **kwargs):
         """
         Initialize SS analysis.
 
-        Args:
-            trajectory: Input MD trajectory.
-            kwargs: Additional base analysis arguments.
+        Parameters
+        ----------
+        trajectory : mdtraj.Trajectory
+            The MD trajectory to analyze.
+        atoms : str, optional
+            An MDTraj atom selection string to specify which atoms to consider.
+            If None, all atoms are used.
+        kwargs : dict
+            Additional keyword arguments passed to BaseAnalysis.
         """
         super().__init__(trajectory, **kwargs)
+        self.atoms = atoms
         self.data = None
 
     def _generate_readme(self):
@@ -55,22 +69,30 @@ class SSAnalysis(BaseAnalysis):
 
     def run(self) -> dict:
         """
-        Compute secondary structure assignments using DSSP.
-        Save the assignments to a text file, automatically generate a heatmap plot,
-        and write the ss_README.md file.
+        Compute SS assignments using DSSP.
+        Saves the results to a text file, generates a discrete heatmap plot,
+        and writes an ss_README.md file explaining the SS letter codes.
+
+        Returns
+        -------
+        dict
+            A dictionary containing the SS assignments with key "ss_data".
         """
         try:
+            # Compute DSSP assignments for each frame.
             dssp = md.compute_dssp(self.traj)
             self.data = dssp  # shape: (n_frames, n_residues)
             self.results = {"ss_data": self.data}
-            # Save the secondary structure assignments.
+
+            # Save the SS assignments to a file.
             data_path = self.outdir / "ss.dat"
             with open(data_path, "w") as f:
                 for frame_idx, ss in enumerate(dssp):
                     f.write(f"Frame {frame_idx}: {', '.join(ss)}\n")
-            # Generate the README file.
+
+            # Generate the ss_README.md file.
             self._generate_readme()
-            # Automatically generate and save the default heatmap plot.
+            # Automatically generate the default heatmap plot.
             self.plot()
             return self.results
         except Exception as e:
@@ -78,37 +100,43 @@ class SSAnalysis(BaseAnalysis):
 
     def plot(self, data=None, **kwargs):
         """
-        Plot a heatmap of SS assignments over frames. The heatmap uses a discrete colormap
-        with distinct colors so that each secondary structure letter can be easily differentiated.
-        The colorbar tick labels show the SS letter codes, and the y-axis (residue index)
-        is labeled with whole numbers starting from 1.
-        
-        Optional keyword arguments include:
-          - title (str): Plot title (default: "SS Heatmap").
-          - xlabel (str): X-axis label (default: "Frame").
-          - ylabel (str): Y-axis label (default: "Residue Index").
-          - cmap (str): Colormap (default: a custom discrete colormap).
-          - filename (str): Base filename for saving the plot (default: "ss").
-        
-        Returns:
-            The file path (Path object) to the saved plot.
+        Generate a heatmap plot of SS assignments over frames.
+
+        The heatmap displays a discrete colormap where each color corresponds to a specific SS code.
+        The colorbar tick labels show the corresponding SS letters.
+        The y-axis tick labels represent residue indices as whole numbers starting from 1.
+
+        Parameters
+        ----------
+        data : array-like, optional
+            SS data to plot. If None, uses self.data.
+        kwargs : dict
+            Customizable options:
+              - title: Plot title (default "SS Heatmap").
+              - xlabel: X-axis label (default "Frame").
+              - ylabel: Y-axis label (default "Residue Index").
+              - filename: Base filename for the plot (default "ss").
+              - cmap: Optionally override the discrete colormap.
+
+        Returns
+        -------
+        Path
+            The file path to the saved plot.
         """
         if data is None:
             data = self.data
         if data is None:
             raise AnalysisError("No SS data available to plot. Please run analysis first.")
-        
-        # Define a mapping from SS letters to numeric values.
+
+        # Map SS letters to numeric values.
         mapping = {"H": 1, "B": 2, "E": 3, "G": 4, "I": 5, "T": 6, "S": 7, "C": 0, " ": 0}
-        # Convert the SS letters to a numeric array.
         numeric = np.array([[mapping.get(s, 0) for s in frame] for frame in data])
         
-        # Create a discrete colormap with very distinct colors.
-        # For 8 levels (0 to 7), we choose 8 distinct colors.
+        # Define a discrete colormap with 8 distinct colors.
         from matplotlib.colors import ListedColormap, BoundaryNorm
         distinct_colors = ['#AAAAAA', '#FF0000', '#FFA500', '#0000FF', '#008000', '#FF00FF', '#FFFF00', '#00FFFF']
-        cmap = ListedColormap(distinct_colors)
-        boundaries = np.arange(-0.5, 8, 1)  # boundaries for 0 to 7
+        cmap = kwargs.get("cmap", ListedColormap(distinct_colors))
+        boundaries = np.arange(-0.5, 8, 1)
         norm = BoundaryNorm(boundaries, cmap.N)
         
         title = kwargs.get("title", "SS Heatmap")
@@ -122,11 +150,11 @@ class SSAnalysis(BaseAnalysis):
         plt.xlabel(xlabel)
         plt.ylabel(ylabel)
         cbar = plt.colorbar(im, ticks=np.arange(0, 8))
-        # Set the colorbar tick labels to the corresponding SS letters.
+        # Define tick labels corresponding to the mapped values.
         tick_labels = ["C", "H", "B", "E", "G", "I", "T", "S"]
         cbar.set_ticklabels(tick_labels)
         cbar.set_label("SS Code")
-        # Ensure the y-axis shows residue indices as whole numbers, starting at 1.
+        # Ensure y-axis tick labels are whole numbers starting from 1.
         n_residues = numeric.shape[1]
         plt.yticks(ticks=np.arange(n_residues), labels=np.arange(1, n_residues + 1))
         

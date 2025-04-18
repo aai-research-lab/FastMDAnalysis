@@ -1,44 +1,217 @@
 """
 Cluster Analysis Module
 
-Performs clustering on an MD trajectory using selected atoms (default: protein C-alpha atoms).
-Supports one or more clustering methods including 'dbscan' and 'kmeans'.
+Performs clustering on an MD trajectory using a specified set of atoms.
+By default, the atom selection is "protein and name CA" (unless overridden).
+Supports three clustering methods:
+  - dbscan: Uses a precomputed RMSD distance matrix.
+  - kmeans: Uses the flattened coordinates of selected atoms.
+  - hierarchical: Uses hierarchical clustering (Ward linkage) to generate a dendrogram and assign clusters.
 
-For DBSCAN, parameters 'eps' and 'min_samples' are used.
-For KMeans, parameter 'n_clusters' must be provided.
+For DBSCAN, parameters `eps` and `min_samples` are used.
+For KMeans and hierarchical clustering, parameter `n_clusters` must be provided.
 
-The module computes a pairwise RMSD distance matrix (using the selected atoms),
-forces matrix symmetry, applies the specified clustering algorithm(s),
-saves the clustering results and distance (or coordinate) data,
-and generates a bar plot showing cluster populations.
+This module computes a pairwise RMSD distance matrix (if needed) using the selected atoms,
+forces the matrix to be symmetric, and applies the specified clustering algorithm.
+It then generates:
+  - A bar plot of cluster populations with distinct colors.
+  - Two trajectory projection plots:
+      * A histogram-style plot where each frame is represented as a vertical bar (fixed height) colored by its cluster.
+      * A scatter plot where each frame is plotted at y = 0 (with the y-axis suppressed) and colored by its cluster.
+  - For DBSCAN, a heatmap plot of the RMSD distance matrix with an accompanying colorbar.
+  - For hierarchical clustering, an additional dendrogram plot with branches and x-tick labels colored 
+    according to the final clusters; if a branch contains heterogeneous clusters, it is colored gray.
+  
+All computed data and plots are saved, and their file paths are stored in the results dictionary.
 """
 
+import logging
 from pathlib import Path
 import numpy as np
 import mdtraj as md
 from sklearn.cluster import DBSCAN, KMeans
 
-# Import plotting libraries.
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap, BoundaryNorm
+from matplotlib.cm import ScalarMappable
+
+from scipy.cluster.hierarchy import dendrogram, fcluster, linkage
 
 from .base import BaseAnalysis, AnalysisError
 
+# Setup logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+def adjust_labels(labels):
+    """
+    Adjust clustering labels so they are 1-based.
+    
+    Parameters
+    ----------
+    labels : array-like
+        Original cluster labels.
+        
+    Returns
+    -------
+    np.ndarray
+        1-based cluster labels.
+    """
+    labels = np.array(labels)
+    if labels.min() < 1:
+        shift = 1 - labels.min()
+        logger.debug("Adjusting labels with shift: %d", shift)
+        return labels + shift
+    return labels
+
+def get_cluster_cmap(n_clusters: int):
+    """
+    Return a categorical colormap for clustering.
+    
+    For n_clusters <= 12, uses a predefined set of 12 visually distinct colors 
+    (avoiding similar reds/blues and without gray). Otherwise, falls back to "nipy_spectral".
+    
+    Parameters
+    ----------
+    n_clusters : int
+        Number of clusters.
+        
+    Returns
+    -------
+    ListedColormap or Colormap
+        A colormap instance.
+    """
+    predefined_colors = [
+        '#1f77b4',  # Blue
+        '#ff7f0e',  # Orange
+        '#2ca02c',  # Green
+        '#d62728',  # Bright Red
+        '#9467bd',  # Purple
+        '#8c564b',  # Brown
+        '#e377c2',  # Pink
+        '#bcbd22',  # Olive
+        '#17becf',  # Cyan
+        '#e41a1c',  # Distinct Red
+        '#377eb8',  # Different Blue
+        '#f781bf'   # Magenta-ish
+    ]
+    if n_clusters <= len(predefined_colors):
+        logger.debug("Using predefined colormap for %d clusters", n_clusters)
+        return ListedColormap(predefined_colors[:n_clusters])
+    else:
+        logger.debug("Using fallback colormap for %d clusters", n_clusters)
+        return plt.cm.get_cmap("nipy_spectral", n_clusters)
+
+def get_discrete_norm(unique_labels):
+    """
+    Create a BoundaryNorm for discrete 1-based cluster labels.
+    
+    Parameters
+    ----------
+    unique_labels : array-like
+        Sorted unique 1-based cluster labels.
+        
+    Returns
+    -------
+    BoundaryNorm
+        A norm object.
+    """
+    boundaries = np.arange(unique_labels[0] - 0.5, unique_labels[-1] + 0.5 + 1, 1)
+    logger.debug("Discrete boundaries: %s", boundaries)
+    return BoundaryNorm(boundaries, len(boundaries) - 1)
+
+def get_leaves(linkage_matrix, idx, n_obs):
+    """
+    Recursively obtain the leaves (original observation indices) for a given internal node index.
+    
+    Parameters
+    ----------
+    linkage_matrix : ndarray
+        The linkage matrix.
+    idx : int
+        Internal node index (or observation index).
+    n_obs : int
+        Number of original observations.
+        
+    Returns
+    -------
+    list of int
+        List of leaf indices.
+    """
+    try:
+        if idx < n_obs:
+            return [idx]
+        else:
+            left = int(linkage_matrix[idx - n_obs, 0])
+            right = int(linkage_matrix[idx - n_obs, 1])
+            return get_leaves(linkage_matrix, left, n_obs) + get_leaves(linkage_matrix, right, n_obs)
+    except IndexError as exc:
+        logger.error("Index error in get_leaves: idx=%d, n_obs=%d, linkage_matrix.shape=%s", idx, n_obs, linkage_matrix.shape)
+        return []
+
+def dendrogram_link_color_func_factory(linkage_matrix, final_labels):
+    """
+    Create a link_color_func for the dendrogram.
+    
+    For a branch, if all its leaves share the same final (1-based) cluster label, return that color;
+    otherwise, return gray.
+    
+    Parameters
+    ----------
+    linkage_matrix : ndarray
+        The linkage matrix.
+    final_labels : ndarray
+        The final 1-based cluster labels.
+        
+    Returns
+    -------
+    function
+        A function mapping a linkage index to a color.
+    """
+    n_obs = len(final_labels)
+    def link_color_func(i):
+        branch_index = i + n_obs
+        leaves = get_leaves(linkage_matrix, branch_index, n_obs)
+        if not leaves:
+            logger.error("No leaves for branch index %d", branch_index)
+            return "#808080"
+        branch_labels = final_labels[leaves]
+        if np.all(branch_labels == branch_labels[0]):
+            unique = np.sort(np.unique(final_labels))
+            cmap_local = get_cluster_cmap(len(unique))
+            norm_local = get_discrete_norm(unique)
+            color = cmap_local(norm_local(branch_labels[0]))
+            logger.debug("Branch %d: all leaves in cluster %d (color %s)", i, branch_labels[0], color)
+            return color
+        else:
+            logger.debug("Branch %d: heterogeneous clusters %s", i, branch_labels)
+            return "#808080"
+    return link_color_func
 
 class ClusterAnalysis(BaseAnalysis):
-    def __init__(self, trajectory, methods='dbscan', eps: float = 0.5, min_samples: int = 5, n_clusters: int = None, **kwargs):
+    def __init__(self, trajectory, methods='dbscan', eps: float = 0.5, min_samples: int = 5,
+                 n_clusters: int = None, atoms: str = None, **kwargs):
         """
-        Initialize the clustering analysis.
-
-        Args:
-            trajectory: MD trajectory (an mdtraj.Trajectory object).
-            methods (str or list): Clustering method(s) to use. Options: 'dbscan', 'kmeans'.
-                                   Default is 'dbscan'. You may also pass a list to run more than one.
-            eps (float): Maximum distance between two samples for DBSCAN.
-            min_samples (int): Minimum number of samples required in a neighborhood for DBSCAN.
-            n_clusters (int): Number of clusters for KMeans (required if 'kmeans' is used).
-            kwargs: Additional base analysis arguments.
+        Initialize clustering analysis.
+        
+        Parameters
+        ----------
+        trajectory : mdtraj.Trajectory
+            Trajectory to analyze.
+        methods : str or list
+            Clustering methods to use ("dbscan", "kmeans", "hierarchical").
+        eps : float, optional
+            DBSCAN epsilon (default: 0.5).
+        min_samples : int, optional
+            DBSCAN minimum samples (default: 5).
+        n_clusters : int, optional
+            Number of clusters (required for kmeans and hierarchical).
+        atoms : str, optional
+            MDTraj atom selection string.
+        kwargs : dict
+            Additional parameters passed to BaseAnalysis.
         """
         super().__init__(trajectory, **kwargs)
         if isinstance(methods, str):
@@ -46,121 +219,249 @@ class ClusterAnalysis(BaseAnalysis):
         elif isinstance(methods, list):
             self.methods = [m.lower() for m in methods]
         else:
-            raise AnalysisError("Parameter 'methods' must be a string or list of strings.")
+            raise AnalysisError("Parameter 'methods' must be a string or a list of strings.")
         self.eps = eps
         self.min_samples = min_samples
         self.n_clusters = n_clusters
-        self.atom_indices = self._validate_indices()
-        self.results = {}  # To store the results for each clustering method
-
-    def _validate_indices(self) -> np.ndarray:
-        """Validate and return atom indices for protein C-alpha atoms."""
-        indices = self.traj.topology.select("protein and name CA")
-        if indices is None or len(indices) == 0:
-            raise AnalysisError("No valid C-alpha atoms found for clustering.")
-        return indices
+        self.atoms = atoms
+        self.atom_indices = (self.traj.topology.select(self.atoms)
+                             if self.atoms is not None else None)
+        if self.atoms is not None and (self.atom_indices is None or len(self.atom_indices) == 0):
+            raise AnalysisError(f"No atoms found with the selection: '{self.atoms}'")
+        self.results = {}
+        logger.info("ClusterAnalysis initialized with methods: %s", self.methods)
 
     def _calculate_rmsd_matrix(self) -> np.ndarray:
-        """
-        Calculate the pairwise RMSD matrix between frames based on the selected atoms.
-        
-        For each frame, the RMSD to all other frames is computed.
-        The matrix is forced to be symmetric by averaging it with its transpose.
-        """
+        """Calculate the pairwise RMSD matrix between frames."""
+        logger.info("Calculating RMSD matrix...")
         n_frames = self.traj.n_frames
         distances = np.zeros((n_frames, n_frames))
         for i in range(n_frames):
             ref_frame = self.traj[i]
-            distances[i] = md.rmsd(self.traj, ref_frame, atom_indices=self.atom_indices)
-        distances = (distances + distances.T) / 2.0
-        return distances
+            if self.atom_indices is not None:
+                distances[i] = md.rmsd(self.traj, ref_frame, atom_indices=self.atom_indices)
+            else:
+                distances[i] = md.rmsd(self.traj, ref_frame)
+        logger.debug("RMSD matrix shape: %s", distances.shape)
+        return (distances + distances.T) / 2.0
+
+    def _plot_population(self, labels, filename, **kwargs):
+        """Plot cluster populations as a bar plot with distinct colors."""
+        logger.info("Plotting population bar plot...")
+        unique = np.sort(np.unique(labels))
+        counts = np.array([np.sum(labels == u) for u in unique])
+        cmap = get_cluster_cmap(len(unique))
+        norm = get_discrete_norm(unique)
+        colors = [cmap(norm(u)) for u in unique]
+        fig = plt.figure(figsize=(10, 6))
+        plt.bar(unique, counts, width=0.8, color=colors)
+        plt.title(kwargs.get("title", "Cluster Populations"))
+        plt.xlabel(kwargs.get("xlabel", "Cluster ID"))
+        plt.ylabel(kwargs.get("ylabel", "Number of Frames"))
+        plt.xticks(unique)
+        plt.grid(alpha=0.3)
+        return self._save_plot(fig, filename)
+
+    def _plot_cluster_trajectory_histogram(self, labels, filename, **kwargs):
+        """Plot a histogram-style view of cluster assignments across frames."""
+        logger.info("Plotting trajectory histogram...")
+        unique = np.sort(np.unique(labels))
+        cmap = get_cluster_cmap(len(unique))
+        norm = get_discrete_norm(unique)
+        image_data = np.array(labels).reshape(1, -1)
+        fig, ax = plt.subplots(figsize=(12, 4))
+        im = ax.imshow(image_data, aspect="auto", interpolation="nearest", cmap=cmap, norm=norm)
+        ax.set_title(kwargs.get("title", "Cluster Trajectory Histogram"))
+        ax.set_xlabel(kwargs.get("xlabel", "Frame"))
+        ax.set_yticks([])
+        cbar = fig.colorbar(im, ax=ax, orientation="vertical", ticks=unique)
+        cbar.ax.set_yticklabels([str(u) for u in unique])
+        cbar.set_label("Cluster")
+        return self._save_plot(fig, filename)
+
+    def _plot_cluster_trajectory_scatter(self, labels, filename, **kwargs):
+        """Plot a scatter view of cluster assignments for each frame."""
+        logger.info("Plotting trajectory scatter...")
+        frames = np.arange(len(labels))
+        y_values = np.zeros_like(frames)
+        unique = np.sort(np.unique(labels))
+        cmap = get_cluster_cmap(len(unique))
+        norm = get_discrete_norm(unique)
+        fig, ax = plt.subplots(figsize=(10, 4))
+        ax.scatter(frames, y_values, c=labels, s=100, cmap=cmap, norm=norm, marker="o")
+        ax.set_title(kwargs.get("title", "Cluster Trajectory Scatter Plot"))
+        ax.set_xlabel(kwargs.get("xlabel", "Frame"))
+        ax.set_yticks([])
+        sm = ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])
+        cbar = fig.colorbar(sm, ax=ax, orientation="vertical", ticks=unique)
+        cbar.ax.set_yticklabels([str(u) for u in unique])
+        cbar.set_label("Cluster")
+        return self._save_plot(fig, filename)
+
+    def _plot_distance_matrix(self, distances, filename, **kwargs):
+        """Plot the RMSD distance matrix as a heatmap."""
+        logger.info("Plotting distance matrix heatmap...")
+        fig = plt.figure(figsize=(10, 8))
+        im = plt.imshow(distances, aspect="auto", interpolation="none", cmap=kwargs.get("cmap", "viridis"))
+        plt.title(kwargs.get("title", "RMSD Distance Matrix"))
+        plt.xlabel(kwargs.get("xlabel", "Frame"))
+        plt.ylabel(kwargs.get("ylabel", "Frame"))
+        cbar = plt.colorbar(im, ax=plt.gca())
+        cbar.set_label("RMSD (nm)")
+        return self._save_plot(fig, filename)
+
+    def _plot_dendrogram(self, linkage_matrix, labels, filename, **kwargs):
+        """
+        Plot a dendrogram for hierarchical clustering.
+        
+        Uses n_obs = linkage_matrix.shape[0] + 1 as the number of observations.
+        Passes explicit labels (0, 1, ..., n_obs-1) to ensure a valid leaf order.
+        Remaps these indices to the final 1-based cluster labels.
+        """
+        logger.info("Plotting dendrogram...")
+        n_obs = linkage_matrix.shape[0] + 1
+        logger.debug("n_obs (number of observations for dendrogram): %d", n_obs)
+        explicit_labels = np.arange(n_obs)
+        def color_func(i):
+            branch_index = i + n_obs
+            leaves = get_leaves(linkage_matrix, branch_index, n_obs)
+            if not leaves:
+                logger.error("No leaves found for branch index %d", branch_index)
+                return "#808080"
+            branch_labels = labels[leaves]
+            if np.all(branch_labels == branch_labels[0]):
+                unique = np.sort(np.unique(labels))
+                cmap_local = get_cluster_cmap(len(unique))
+                norm_local = get_discrete_norm(unique)
+                color = cmap_local(norm_local(branch_labels[0]))
+                logger.debug("Branch %d: uniform cluster %d, color %s", i, branch_labels[0], color)
+                return color
+            else:
+                logger.debug("Branch %d: heterogeneous clusters %s", i, branch_labels)
+                return "#808080"
+        try:
+            fig, ax = plt.subplots(figsize=(12, 6))
+            dendro = dendrogram(linkage_matrix, ax=ax, labels=explicit_labels, link_color_func=color_func)
+            leaf_order = dendro["leaves"]
+            logger.debug("Dendrogram leaf order: %s", leaf_order)
+            new_labels = []
+            for i in leaf_order:
+                if i < len(labels):
+                    new_labels.append(str(labels[i]))
+                else:
+                    logger.error("Leaf index %d is out of bounds for labels of length %d", i, len(labels))
+                    new_labels.append("NA")
+            ax.set_xticklabels(new_labels, rotation=90)
+            unique = np.sort(np.unique(labels))
+            cmap_local = get_cluster_cmap(len(unique))
+            norm_local = get_discrete_norm(unique)
+            for tick, i in zip(ax.get_xticklabels(), leaf_order):
+                if i < len(labels):
+                    tick.set_color(cmap_local(norm_local(labels[i])))
+            ax.set_title(kwargs.get("title", "Hierarchical Clustering Dendrogram"))
+            ax.set_xlabel(kwargs.get("xlabel", "Frame (Cluster Assignment)"))
+            ax.set_ylabel(kwargs.get("ylabel", "Distance"))
+            return self._save_plot(fig, filename)
+        except Exception as e:
+            logger.exception("Error during dendrogram plotting:")
+            raise
+
+    def _save_plot(self, fig, name: str):
+        """Save the figure to a PNG file in the output directory."""
+        plot_path = self.outdir / f"{name}.png"
+        fig.savefig(plot_path, bbox_inches="tight")
+        logger.info("Plot saved to %s", plot_path)
+        return plot_path
 
     def run(self) -> dict:
         """
-        Run the clustering analysis using the specified method(s).
-
-        Returns:
-            A dictionary containing clustering results for each method.
-            For each method, results include cluster labels, associated data, and the population plot file.
+        Perform clustering analysis using the specified methods.
+        
+        Returns a dictionary with keys for each method ("dbscan", "kmeans", "hierarchical") and values containing:
+          - "labels": 1-based cluster labels.
+          - "pop_plot": Path to the population bar plot.
+          - "trajectory_histogram": Path to the histogram-style trajectory plot.
+          - "trajectory_scatter": Path to the scatter plot trajectory.
+          - "distance_matrix_plot": (DBSCAN only) Path to the distance matrix heatmap.
+          - "dendrogram_plot": (Hierarchical only) Path to the dendrogram plot.
         """
-        distances = self._calculate_rmsd_matrix()
-        if distances.shape != (self.traj.n_frames, self.traj.n_frames):
-            raise AnalysisError("Invalid distance matrix shape.")
-        if np.any(np.isnan(distances)):
-            raise AnalysisError("Distance matrix contains NaN values.")
+        try:
+            logger.info("Starting clustering analysis...")
+            results = {}
+            distances = None
+            if "dbscan" in self.methods:
+                logger.info("Computing RMSD matrix for DBSCAN...")
+                distances = self._calculate_rmsd_matrix()
 
-        # Run clustering for each requested method.
-        for method in self.methods:
-            if method == 'dbscan':
-                dbscan = DBSCAN(eps=self.eps, min_samples=self.min_samples, metric='precomputed')
-                labels = dbscan.fit_predict(distances)
-                self.results['dbscan'] = {
-                    'labels': labels,
-                    'distance_matrix': distances
-                }
-                self._save_data(labels.reshape(-1, 1), "cluster_labels_dbscan")
-                self._save_data(distances, "cluster_distance_matrix_dbscan")
-                plot_path = self._plot_population(labels, "dbscan_clusters_population")
-                self.results['dbscan']['pop_plot'] = plot_path
-            elif method == 'kmeans':
-                if self.n_clusters is None:
-                    raise AnalysisError("n_clusters must be provided for KMeans clustering.")
-                # For KMeans, use flattened coordinates of the selected atoms.
-                X = self.traj.xyz[:, self.atom_indices, :]  # shape: (n_frames, n_sel, 3)
-                X_flat = X.reshape(X.shape[0], -1)
-                kmeans = KMeans(n_clusters=self.n_clusters, random_state=42)
-                labels = kmeans.fit_predict(X_flat)
-                self.results['kmeans'] = {
-                    'labels': labels,
-                    'coordinates': X_flat
-                }
-                self._save_data(labels.reshape(-1, 1), "cluster_labels_kmeans")
-                self._save_data(X_flat, "cluster_coordinates_kmeans")
-                plot_path = self._plot_population(labels, "kmeans_clusters_population")
-                self.results['kmeans']['pop_plot'] = plot_path
-            else:
-                raise AnalysisError(f"Unknown clustering method: {method}")
+            X_flat = None
+            if any(method in self.methods for method in ["kmeans", "hierarchical"]):
+                logger.info("Computing feature matrix for KMeans/Hierarchical...")
+                if self.atom_indices is not None:
+                    X = self.traj.xyz[:, self.atom_indices, :]
+                else:
+                    X = self.traj.xyz
+                X_flat = X.reshape(self.traj.n_frames, -1)
+                logger.debug("Feature matrix shape: %s", X_flat.shape)
+
+            for method in self.methods:
+                logger.info("Running method: %s", method)
+                if method == "dbscan":
+                    dbscan = DBSCAN(eps=self.eps, min_samples=self.min_samples, metric="precomputed")
+                    labels = dbscan.fit_predict(distances)
+                    labels = adjust_labels(labels)
+                    logger.info("DBSCAN produced %d labels.", len(labels))
+                    method_res = {"labels": labels, "distance_matrix": distances}
+                    method_res["pop_plot"] = self._plot_population(labels, "dbscan_pop")
+                    method_res["trajectory_histogram"] = self._plot_cluster_trajectory_histogram(labels, "dbscan_traj_hist")
+                    method_res["trajectory_scatter"] = self._plot_cluster_trajectory_scatter(labels, "dbscan_traj_scatter")
+                    method_res["distance_matrix_plot"] = self._plot_distance_matrix(distances, "dbscan_distance_matrix")
+                    results["dbscan"] = method_res
+
+                elif method == "kmeans":
+                    if self.n_clusters is None:
+                        raise AnalysisError("For KMeans clustering, n_clusters must be provided.")
+                    kmeans = KMeans(n_clusters=self.n_clusters, random_state=42)
+                    labels = kmeans.fit_predict(X_flat)
+                    labels = adjust_labels(labels)
+                    logger.info("KMeans produced %d labels.", len(labels))
+                    method_res = {"labels": labels, "coordinates": X_flat}
+                    method_res["pop_plot"] = self._plot_population(labels, "kmeans_pop")
+                    method_res["trajectory_histogram"] = self._plot_cluster_trajectory_histogram(labels, "kmeans_traj_hist")
+                    method_res["trajectory_scatter"] = self._plot_cluster_trajectory_scatter(labels, "kmeans_traj_scatter")
+                    results["kmeans"] = method_res
+
+                elif method == "hierarchical":
+                    if self.n_clusters is None:
+                        raise AnalysisError("For hierarchical clustering, n_clusters must be provided.")
+                    logger.info("Computing linkage matrix for hierarchical clustering...")
+                    linkage_matrix = linkage(X_flat, method='ward')
+                    from scipy.cluster.hierarchy import fcluster
+                    labels = fcluster(linkage_matrix, t=self.n_clusters, criterion='maxclust')
+                    labels = adjust_labels(labels)
+                    logger.info("Hierarchical clustering produced %d labels.", len(labels))
+                    if len(labels) != self.traj.n_frames:
+                        logger.warning("Number of labels (%d) does not match number of frames (%d)", len(labels), self.traj.n_frames)
+                    method_res = {"labels": labels, "linkage": linkage_matrix}
+                    method_res["pop_plot"] = self._plot_population(labels, "hierarchical_pop")
+                    method_res["trajectory_histogram"] = self._plot_cluster_trajectory_histogram(labels, "hierarchical_traj_hist")
+                    method_res["trajectory_scatter"] = self._plot_cluster_trajectory_scatter(labels, "hierarchical_traj_scatter")
+                    method_res["dendrogram_plot"] = self._plot_dendrogram(linkage_matrix, labels, "hierarchical_dendrogram")
+                    results["hierarchical"] = method_res
+
+                else:
+                    raise AnalysisError(f"Unknown clustering method: {method}")
+
+            self.results = results
+            logger.info("Clustering analysis complete.")
+            return results
+
+        except Exception as e:
+            logger.exception("Clustering failed:")
+            raise AnalysisError(f"Clustering failed: {str(e)}")
+
+    def plot(self, **kwargs):
+        if not self.results:
+            raise AnalysisError("No clustering results available. Run the analysis first.")
         return self.results
-
-    def _plot_population(self, labels, filename, **kwargs):
-        """
-        Generate a bar plot showing cluster populations from the given labels.
-        """
-        unique, counts = np.unique(labels, return_counts=True)
-        title = kwargs.get('title', "Cluster Populations")
-        xlabel = kwargs.get('xlabel', "Cluster ID")
-        ylabel = kwargs.get('ylabel', "Number of Frames")
-        color = kwargs.get('color', None)
-        fig = plt.figure(figsize=(10, 6))
-        plt.bar(unique, counts, width=0.8, color=color)
-        plt.title(title)
-        plt.xlabel(xlabel)
-        plt.ylabel(ylabel)
-        plt.xticks(unique)
-        plt.grid(alpha=0.3)
-        plot_path = self._save_plot(fig, filename)
-        plt.close(fig)
-        return plot_path
-
-    def plot(self, method=None, **kwargs):
-        """
-        Generic plot method for clustering analysis.
-        This method overrides the BaseAnalysis plot() method.
-        
-        If 'method' is not specified, the default is the first clustering method used.
-        It returns the cluster population bar plot for that method.
-        
-        Args:
-            method (str): The clustering method for which to generate the plot (e.g. 'dbscan' or 'kmeans').
-            kwargs: Additional keyword arguments to customize the population plot.
-        
-        Returns:
-            Path: The file path to the saved population plot.
-        """
-        if method is None:
-            method = self.methods[0]
-        if method not in self.results:
-            raise AnalysisError(f"No clustering result for method: {method}")
-        labels = self.results[method]['labels']
-        return self._plot_population(labels, f"{method}_clusters_population", **kwargs)
 

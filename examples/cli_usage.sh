@@ -1,85 +1,78 @@
 #!/bin/bash
 # Example CLI usage for FastMDAnalysis
+# This script demonstrates how to run various MD analyses using the fastmda CLI command.
+# Global options --frames and --atoms allow you to specify a frame selection and default atom selection for all analyses.
+# Make sure that the fastmda command is available in your PATH (via module load or proper installation).
 
-# Ensure that the FastMDAnalysis CLI command ("fastmda") is available in your PATH.
-# You may need to add the package's bin directory to your PATH.
+# Example frame selection: "0,-1,10" selects frames from the first frame to the last frame with a stride of 10.
+# Example atom selection: "protein" uses all protein atoms.
 
 ###############################################
 # RMSD Analysis:
-# Computes the RMSD of each frame relative to the reference frame (default frame index: 0)
+# Computes RMSD vs. frame using a reference frame (default index 0).
 ###############################################
 echo "Running RMSD analysis..."
-fastmda rmsd -traj path/to/trajectory.dcd -top path/to/topology.pdb -o rmsd_output --ref 0
+fastmda rmsd -traj path/to/trajectory.dcd -top path/to/topology.pdb -o rmsd_output --frames 0,-1,10 --atoms "protein" --ref 0
 echo "RMSD analysis completed. Output in rmsd_output/"
 
 ###############################################
 # RMSF Analysis:
-# Computes the per-atom RMSF. The example uses "c-alpha" atoms.
+# Computes per-atom RMSF; uses the default atom selection or can override with --selection.
 ###############################################
 echo "Running RMSF analysis..."
-fastmda rmsf -traj path/to/trajectory.dcd -top path/to/topology.pdb -o rmsf_output --selection "c-alpha"
+fastmda rmsf -traj path/to/trajectory.dcd -top path/to/topology.pdb -o rmsf_output --frames 0,-1,10 --atoms "protein"
 echo "RMSF analysis completed. Output in rmsf_output/"
 
 ###############################################
-# Radius of Gyration (rg) Analysis:
+# Radius of Gyration (RG) Analysis:
 ###############################################
 echo "Running Radius of Gyration analysis..."
-fastmda rg -traj path/to/trajectory.dcd -top path/to/topology.pdb -o rg_output
-echo "Rg analysis completed. Output in rg_output/"
+fastmda rg -traj path/to/trajectory.dcd -top path/to/topology.pdb -o rg_output --frames 0,-1,10 --atoms "protein"
+echo "RG analysis completed. Output in rg_output/"
 
 ###############################################
-# Hydrogen Bonds (hbonds) Analysis:
+# Hydrogen Bonds (HBonds) Analysis:
 ###############################################
 echo "Running Hydrogen Bonds analysis..."
-fastmda hbonds -traj path/to/trajectory.dcd -top path/to/topology.pdb -o hbonds_output
-echo "H-Bonds analysis completed. Output in hbonds_output/"
+fastmda hbonds -traj path/to/trajectory.dcd -top path/to/topology.pdb -o hbonds_output --frames 0,-1,10
+echo "HBonds analysis completed. Output in hbonds_output/"
 
 ###############################################
-# Cluster Analysis:
-# Example with DBSCAN:
+# Cluster Analysis (DBSCAN):
 ###############################################
 echo "Running Cluster analysis with DBSCAN..."
-fastmda cluster -traj path/to/trajectory.dcd -top path/to/topology.pdb -o cluster_output --methods dbscan --eps 0.5 --min_samples 5
+fastmda cluster -traj path/to/trajectory.dcd -top path/to/topology.pdb -o cluster_output --frames 0,-1,10 --atoms "protein" --methods dbscan --eps 0.5 --min_samples 5
 echo "DBSCAN clustering completed. Check cluster_output/"
 
 ###############################################
-# Cluster Analysis:
-# Example with KMeans:
+# Cluster Analysis (KMeans):
 ###############################################
 echo "Running Cluster analysis with KMeans..."
-fastmda cluster -traj path/to/trajectory.dcd -top path/to/topology.pdb -o cluster_output --methods kmeans --n_clusters 5
+fastmda cluster -traj path/to/trajectory.dcd -top path/to/topology.pdb -o cluster_output --frames 0,-1,10 --atoms "protein" --methods kmeans --n_clusters 5
 echo "KMeans clustering completed. Check cluster_output/"
 
 ###############################################
-# Cluster Analysis:
-# Example with both DBSCAN and KMeans:
+# Secondary Structure (SS) Analysis:
 ###############################################
-echo "Running Cluster analysis with both DBSCAN and KMeans..."
-fastmda cluster -traj path/to/trajectory.dcd -top path/to/topology.pdb -o cluster_output --methods dbscan kmeans --n_clusters 5
-echo "Combined clustering completed. Check cluster_output/"
-
-###############################################
-# Secondary Structure (ss) Analysis:
-###############################################
-echo "Running Secondary Structure (ss) analysis..."
-fastmda ss -traj path/to/trajectory.dcd -top path/to/topology.pdb -o ss_output
+echo "Running Secondary Structure analysis..."
+fastmda ss -traj path/to/trajectory.dcd -top path/to/topology.pdb -o ss_output --frames 0,-1,10 --atoms "protein"
 echo "SS analysis completed. Output in ss_output/"
 
 ###############################################
 # SASA Analysis:
-# Computes Total SASA per frame, per-residue SASA, and average per-residue SASA.
+# Computes Total SASA vs. frame, per-residue SASA heatmap, and average per-residue SASA.
 ###############################################
 echo "Running SASA analysis..."
-fastmda sasa -traj path/to/trajectory.dcd -top path/to/topology.pdb -o sasa_output --probe_radius 0.14
+fastmda sasa -traj path/to/trajectory.dcd -top path/to/topology.pdb -o sasa_output --frames 0,-1,10 --atoms "protein" --probe_radius 0.14
 echo "SASA analysis completed. Output in sasa_output/"
 
 ###############################################
-# Dimensionality Reduction (dimred) Analysis:
-# Runs all available methods (PCA, MDS, t-SNE) using default atom selection.
+# Dimensionality Reduction Analysis:
+# Runs specified methods (e.g., PCA and t-SNE) using an atom selection for the feature matrix.
 ###############################################
 echo "Running Dimensionality Reduction analysis..."
-fastmda dimred -traj path/to/trajectory.dcd -top path/to/topology.pdb -o dimred_output --methods all --atom_selection "protein and name CA"
-echo "Dimensionality reduction analysis completed. Output in dimred_output/"
+fastmda dimred -traj path/to/trajectory.dcd -top path/to/topology.pdb -o dimred_output --frames 0,-1,10 --atoms "protein" --methods pca tsne --atom_selection "protein and name CA"
+echo "Dimensionality Reduction analysis completed. Output in dimred_output/"
 
 echo "All analyses have been executed."
 

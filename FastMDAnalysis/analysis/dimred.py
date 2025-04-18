@@ -6,22 +6,22 @@ This module computes 2D embeddings of an MD trajectory using one or more methods
   - MDS
   - t-SNE
 
-The analysis uses a default atom selection ("protein and name CA") to build a feature matrix by
-flattening the 3D coordinates of the selected atoms. For each chosen method, a 2D embedding is computed,
-saved to a file, and a default scatter plot is generated.
+It uses a default atom selection ("protein and name CA") to construct a feature matrix by
+flattening the 3D coordinates of the selected atoms. For each chosen method, a 2D embedding
+is computed, the embedding data are saved, and a scatter plot is generated where points
+are colored by frame index.
 
 Usage Example (API):
     from FastMDAnalysis import FastMDAnalysis
-    
+
     fastmda = FastMDAnalysis()
-    
-    # Run all dimensionality reduction methods (PCA, MDS, t-SNE) using the default atom selection.
-    analysis = fastmda.dimred("protein_traj.dcd", "protein.pdb", methods=["all"])
+    # Run dimensionality reduction using all available methods.
+    analysis = fastmda.dimred("path/to/trajectory.dcd", "path/to/topology.pdb", methods=["all"])
     data = analysis.data
-    
-    # Replot the embeddings with custom options.
-    analysis.plot(data, title="Custom DimRed Plot", xlabel="X Component", ylabel="Y Component",
-                  marker="s", cmap="plasma")
+    # Replot embeddings with custom options.
+    custom_plots = analysis.plot(data, title="Custom DimRed Plot", xlabel="X Component",
+                                 ylabel="Y Component", marker="s", cmap="plasma")
+    print("Scatter plots generated for:", custom_plots)
 """
 
 import numpy as np
@@ -43,16 +43,21 @@ class DimRedAnalysis(BaseAnalysis):
         """
         Initialize the Dimensionality Reduction analysis.
 
-        Args:
-            trajectory (mdtraj.Trajectory): The MD trajectory.
-            methods (str or list): Which reduction methods to use.
-                Options: 'pca', 'mds', 'tsne'. If "all" (default), all three are used.
-            atom_selection (str): MDTraj selection string to choose atoms.
-                Default is "protein and name CA".
-            kwargs: Additional arguments passed to BaseAnalysis.
+        Parameters
+        ----------
+        trajectory : mdtraj.Trajectory
+            The MD trajectory to analyze.
+        methods : str or list
+            Which dimensionality reduction method(s) to use.
+            Options: 'pca', 'mds', 'tsne'. If "all" (default), all three are applied.
+        atom_selection : str
+            MDTraj selection string to choose atoms for building the feature matrix.
+            Default is "protein and name CA".
+        kwargs : dict
+            Additional keyword arguments passed to BaseAnalysis.
         """
         super().__init__(trajectory, **kwargs)
-        # Determine which methods to run.
+        # Process the methods parameter.
         if isinstance(methods, str):
             if methods.lower() == "all":
                 self.methods = ["pca", "mds", "tsne"]
@@ -65,29 +70,30 @@ class DimRedAnalysis(BaseAnalysis):
             else:
                 self.methods = methods_lower
         else:
-            raise AnalysisError("Parameter 'methods' must be a string or list of strings.")
-        
+            raise AnalysisError("Parameter 'methods' must be a string or a list of strings.")
+
         self.atom_selection = atom_selection
         self.atom_indices = self.traj.topology.select(self.atom_selection)
         if self.atom_indices is None or len(self.atom_indices) == 0:
-            raise AnalysisError("No atoms found using the specified atom selection for dimensionality reduction.")
+            raise AnalysisError("No atoms found using the given atom selection for dimensionality reduction.")
         self.results = {}
         self.data = None  # Will hold a dictionary with embeddings.
 
     def run(self) -> dict:
         """
-        Compute 2D embeddings using the selected methods.
+        Compute 2D embeddings using the selected dimensionality reduction methods.
 
-        The coordinates of the selected atoms are flattened into a feature matrix. Then for each method:
-          - PCA, MDS, and t-SNE are applied separately.
-          - The 2D embedding is saved to the output directory.
-          - The embedding is stored in the results dictionary.
-          - A default scatter plot is automatically generated for each method.
-        
-        Returns:
-            dict: A dictionary with keys 'pca', 'mds', and/or 'tsne' mapping to the corresponding 2D arrays.
+        The coordinates of the selected atoms are flattened to create a feature matrix.
+        For each method, the 2D embedding is computed and stored in the results.
+        Each embedding is saved to disk, and default scatter plots are generated.
+
+        Returns
+        -------
+        dict
+            A dictionary with keys corresponding to each method (e.g. "pca", "mds", "tsne")
+            mapping to the 2D embedding arrays.
         """
-        # Extract coordinates of selected atoms.
+        # Create the feature matrix from the selected atoms.
         X = self.traj.xyz[:, self.atom_indices, :]  # shape: (n_frames, n_atoms, 3)
         X_flat = X.reshape(self.traj.n_frames, -1)    # shape: (n_frames, n_atoms*3)
         
@@ -117,21 +123,27 @@ class DimRedAnalysis(BaseAnalysis):
 
     def plot(self, data=None, method=None, **kwargs):
         """
-        Generate scatter plots for the computed 2D embeddings.
+        Generate scatter plots for the 2D embeddings.
 
-        Args:
-            data (dict, optional): A dictionary with embeddings. If not provided, uses self.data.
-            method (str, optional): If specified, only replot the embedding for that method ('pca', 'mds', or 'tsne').
-                                    Otherwise, generate plots for all computed methods.
-            kwargs: Custom plot options; for instance:
-                - title (str): Title of the plot.
-                - xlabel (str): Label for the x-axis.
-                - ylabel (str): Label for the y-axis.
-                - marker (str): Marker style (default: 'o').
-                - cmap (str): Matplotlib colormap (default: 'viridis').
+        Parameters
+        ----------
+        data : dict, optional
+            A dictionary of embeddings (e.g., with keys "pca", "mds", "tsne"). If not provided, self.data is used.
+        method : str, optional
+            If specified, only the embedding for that method ('pca', 'mds', or 'tsne') is re-plotted.
+            Otherwise, scatter plots are generated for all embeddings.
+        kwargs : dict
+            Custom plot options such as:
+                - title: Plot title.
+                - xlabel: Label for the x-axis.
+                - ylabel: Label for the y-axis.
+                - marker: Marker style (default: 'o').
+                - cmap: Matplotlib colormap (default: 'viridis').
 
-        Returns:
-            If 'method' is specified, returns the plot file path for that method.
+        Returns
+        -------
+        dict or str
+            If method is specified, returns the plot file path (str) for that method.
             Otherwise, returns a dictionary mapping each method to its plot file path.
         """
         if data is None:
@@ -147,7 +159,7 @@ class DimRedAnalysis(BaseAnalysis):
             cmap = kwargs.get("cmap", "viridis")
             
             fig = plt.figure(figsize=(10, 8))
-            # Color points by frame index.
+            # Color points using the frame index.
             colors = np.arange(self.traj.n_frames)
             sc = plt.scatter(embedding[:, 0], embedding[:, 1], c=colors, cmap=cmap, marker=marker)
             plt.title(title)
@@ -159,7 +171,7 @@ class DimRedAnalysis(BaseAnalysis):
             plot_path = self._save_plot(fig, f"dimred_{method_name}")
             plt.close(fig)
             return plot_path
-
+        
         plot_paths = {}
         if method:
             m = method.lower()

@@ -1,21 +1,33 @@
 """
-Utility functions for FastMDAnalysis.
+Utility Functions for FastMDAnalysis
+
+Provides functions to load trajectories and create dummy trajectories for testing.
 """
 
 import mdtraj as md
 from pathlib import Path
 import numpy as np
 
-def load_trajectory(traj_path: str, top: str):
+def load_trajectory(traj_path: str, top: str) -> md.Trajectory:
     """
-    Load a trajectory using MDTraj.
-    
-    Args:
-        traj_path (str): Path to the trajectory file.
-        top (str): Path to the topology file.
-    
-    Returns:
-        md.Trajectory: The loaded trajectory.
+    Load an MD trajectory using MDTraj from the provided file paths.
+
+    Parameters
+    ----------
+    traj_path : str
+        Path to the trajectory file (e.g., DCD, XTC).
+    top : str
+        Path to the topology file (e.g., PDB).
+
+    Returns
+    -------
+    md.Trajectory
+        The loaded trajectory.
+
+    Raises
+    ------
+    Exception
+        If the trajectory cannot be loaded.
     """
     try:
         traj = md.load(traj_path, top=top)
@@ -23,27 +35,31 @@ def load_trajectory(traj_path: str, top: str):
     except Exception as e:
         raise Exception(f"Error loading trajectory: {e}")
 
-
-def create_dummy_trajectory(n_frames: int = 5, n_atoms: int = 10):
+def create_dummy_trajectory(n_frames: int = 5, n_atoms: int = 10) -> md.Trajectory:
     """
     Create a dummy MDTraj Trajectory for testing purposes.
-    The topology is built with a single chain with each residue containing one CA atom.
 
-    Args:
-        n_frames (int): Number of frames.
-        n_atoms (int): Number of atoms.
-    
-    Returns:
-        md.Trajectory: A dummy trajectory object.
+    This function builds a topology with a single chain where each residue contains one CA atom,
+    and creates random coordinates for the specified number of frames and atoms.
+
+    Parameters
+    ----------
+    n_frames : int, optional
+        Number of frames in the dummy trajectory. Default is 5.
+    n_atoms : int, optional
+        Number of atoms (residues) in each frame. Default is 10.
+
+    Returns
+    -------
+    md.Trajectory
+        A dummy trajectory object.
     """
-    import mdtraj as md
-    import numpy as np
     from mdtraj.core.topology import Topology
 
     # Create dummy coordinates: shape (n_frames, n_atoms, 3)
     xyz = np.random.rand(n_frames, n_atoms, 3)
     
-    # Create a simple topology.
+    # Create a simple topology with one chain; each residue has one CA atom.
     top = Topology()
     chain = top.add_chain()
     for i in range(n_atoms):
