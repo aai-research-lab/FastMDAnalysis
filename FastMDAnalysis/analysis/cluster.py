@@ -16,12 +16,12 @@ forces the matrix to be symmetric, and applies the specified clustering algorith
 It then generates:
   - A bar plot of cluster populations with distinct colors.
   - Two trajectory projection plots:
-      * A histogram-style plot where each frame is represented as a vertical bar (fixed height) colored by its cluster.
-      * A scatter plot where each frame is plotted at y = 0 (with the y-axis suppressed) and colored by its cluster.
+      * A histogram-style plot where each frame is represented as a vertical bar colored by its cluster.
+      * A scatter plot where each frame is plotted at y = 0 and colored by its cluster.
   - For DBSCAN, a heatmap plot of the RMSD distance matrix with an accompanying colorbar.
-  - For hierarchical clustering, an additional dendrogram plot with branches and x-tick labels colored 
-    according to the final clusters; if a branch contains heterogeneous clusters, it is colored gray.
-  
+  - For hierarchical clustering, a dendrogram plot with branches and x-tick labels colored 
+    according to the final clusters (branches that are not homogeneous are colored gray).
+
 All computed data and plots are saved, and their file paths are stored in the results dictionary.
 """
 
@@ -34,14 +34,14 @@ from sklearn.cluster import DBSCAN, KMeans
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.colors import ListedColormap, BoundaryNorm
+from matplotlib.colors import ListedColormap, BoundaryNorm, to_hex
 from matplotlib.cm import ScalarMappable
 
 from scipy.cluster.hierarchy import dendrogram, fcluster, linkage
 
 from .base import BaseAnalysis, AnalysisError
 
-# Setup logger
+# Setup logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -70,7 +70,7 @@ def get_cluster_cmap(n_clusters: int):
     """
     Return a categorical colormap for clustering.
     
-    For n_clusters <= 12, uses a predefined set of 12 visually distinct colors 
+    For n_clusters ≤ 12, uses a predefined set of 12 visually distinct colors
     (avoiding similar reds/blues and without gray). Otherwise, falls back to "nipy_spectral".
     
     Parameters
@@ -122,40 +122,43 @@ def get_discrete_norm(unique_labels):
     logger.debug("Discrete boundaries: %s", boundaries)
     return BoundaryNorm(boundaries, len(boundaries) - 1)
 
-def get_leaves(linkage_matrix, idx, n_obs):
+def get_leaves(linkage_matrix, idx, N):
     """
-    Recursively obtain the leaves (original observation indices) for a given internal node index.
+    Recursively obtain the leaves (original observation indices) for a given index.
     
     Parameters
     ----------
     linkage_matrix : ndarray
-        The linkage matrix.
+        The linkage matrix of shape (N-1, 4).
     idx : int
-        Internal node index (or observation index).
-    n_obs : int
-        Number of original observations.
+        An index which may be an original observation (if idx < N) or an internal node (if idx ≥ N).
+    N : int
+        The number of original observations.
         
     Returns
     -------
     list of int
-        List of leaf indices.
+        List of original observation indices.
     """
+    if idx < N:
+        return [idx]
+    # Valid internal nodes are from N to 2*N-2.
+    if idx >= 2 * N - 1:
+        logger.error("Index %d exceeds maximum allowed internal index %d", idx, 2 * N - 1)
+        return []
     try:
-        if idx < n_obs:
-            return [idx]
-        else:
-            left = int(linkage_matrix[idx - n_obs, 0])
-            right = int(linkage_matrix[idx - n_obs, 1])
-            return get_leaves(linkage_matrix, left, n_obs) + get_leaves(linkage_matrix, right, n_obs)
+        left = int(linkage_matrix[idx - N, 0])
+        right = int(linkage_matrix[idx - N, 1])
+        return get_leaves(linkage_matrix, left, N) + get_leaves(linkage_matrix, right, N)
     except IndexError as exc:
-        logger.error("Index error in get_leaves: idx=%d, n_obs=%d, linkage_matrix.shape=%s", idx, n_obs, linkage_matrix.shape)
+        logger.error("Index error in get_leaves: idx=%d, N=%d, linkage_matrix.shape=%s", idx, N, linkage_matrix.shape)
         return []
 
 def dendrogram_link_color_func_factory(linkage_matrix, final_labels):
     """
     Create a link_color_func for the dendrogram.
     
-    For a branch, if all its leaves share the same final (1-based) cluster label, return that color;
+    For a given branch, if all leaves share the same final (1-based) cluster label, return that color;
     otherwise, return gray.
     
     Parameters
@@ -163,30 +166,31 @@ def dendrogram_link_color_func_factory(linkage_matrix, final_labels):
     linkage_matrix : ndarray
         The linkage matrix.
     final_labels : ndarray
-        The final 1-based cluster labels.
+        Final 1-based cluster labels.
         
     Returns
     -------
     function
         A function mapping a linkage index to a color.
     """
-    n_obs = len(final_labels)
+    N = len(final_labels)
     def link_color_func(i):
-        branch_index = i + n_obs
-        leaves = get_leaves(linkage_matrix, branch_index, n_obs)
+        leaves = get_leaves(linkage_matrix, i, N)
         if not leaves:
-            logger.error("No leaves for branch index %d", branch_index)
+            logger.error("No leaves found for branch index %d", i)
             return "#808080"
         branch_labels = final_labels[leaves]
         if np.all(branch_labels == branch_labels[0]):
             unique = np.sort(np.unique(final_labels))
             cmap_local = get_cluster_cmap(len(unique))
             norm_local = get_discrete_norm(unique)
-            color = cmap_local(norm_local(branch_labels[0]))
-            logger.debug("Branch %d: all leaves in cluster %d (color %s)", i, branch_labels[0], color)
-            return color
+            # Convert RGBA tuple to hex string.
+            color_val = cmap_local(norm_local(branch_labels[0]))
+            color_hex = to_hex(color_val)
+            logger.debug("Internal node %d: uniform cluster %d, color %s", i, branch_labels[0], color_hex)
+            return color_hex
         else:
-            logger.debug("Branch %d: heterogeneous clusters %s", i, branch_labels)
+            logger.debug("Internal node %d: heterogeneous clusters %s", i, branch_labels)
             return "#808080"
     return link_color_func
 
@@ -211,7 +215,7 @@ class ClusterAnalysis(BaseAnalysis):
         atoms : str, optional
             MDTraj atom selection string.
         kwargs : dict
-            Additional parameters passed to BaseAnalysis.
+            Additional arguments passed to BaseAnalysis.
         """
         super().__init__(trajectory, **kwargs)
         if isinstance(methods, str):
@@ -300,7 +304,7 @@ class ClusterAnalysis(BaseAnalysis):
         return self._save_plot(fig, filename)
 
     def _plot_distance_matrix(self, distances, filename, **kwargs):
-        """Plot the RMSD distance matrix as a heatmap."""
+        """Plot the RMSD distance matrix as a heatmap with a colorbar."""
         logger.info("Plotting distance matrix heatmap...")
         fig = plt.figure(figsize=(10, 8))
         im = plt.imshow(distances, aspect="auto", interpolation="none", cmap=kwargs.get("cmap", "viridis"))
@@ -315,30 +319,32 @@ class ClusterAnalysis(BaseAnalysis):
         """
         Plot a dendrogram for hierarchical clustering.
         
-        Uses n_obs = linkage_matrix.shape[0] + 1 as the number of observations.
-        Passes explicit labels (0, 1, ..., n_obs-1) to ensure a valid leaf order.
-        Remaps these indices to the final 1-based cluster labels.
+        Uses N = len(labels) as the number of original observations.
+        Passes explicit labels (0, 1, ..., N-1) to dendrogram to ensure valid leaf order.
+        Remaps these indices to the final 1-based cluster labels and colors the x-tick labels accordingly.
         """
         logger.info("Plotting dendrogram...")
-        n_obs = linkage_matrix.shape[0] + 1
-        logger.debug("n_obs (number of observations for dendrogram): %d", n_obs)
-        explicit_labels = np.arange(n_obs)
+        N = len(labels)
+        logger.debug("N (number of observations) = %d", N)
+        explicit_labels = np.arange(N)
         def color_func(i):
-            branch_index = i + n_obs
-            leaves = get_leaves(linkage_matrix, branch_index, n_obs)
+            # i should be a valid internal node index
+            leaves = get_leaves(linkage_matrix, i, N)
             if not leaves:
-                logger.error("No leaves found for branch index %d", branch_index)
+                logger.error("No leaves found for internal node %d", i)
                 return "#808080"
             branch_labels = labels[leaves]
             if np.all(branch_labels == branch_labels[0]):
                 unique = np.sort(np.unique(labels))
                 cmap_local = get_cluster_cmap(len(unique))
                 norm_local = get_discrete_norm(unique)
-                color = cmap_local(norm_local(branch_labels[0]))
-                logger.debug("Branch %d: uniform cluster %d, color %s", i, branch_labels[0], color)
-                return color
+                color_val = cmap_local(norm_local(branch_labels[0]))
+                # Convert RGBA tuple to hex string
+                color_hex = to_hex(color_val)
+                logger.debug("Internal node %d: uniform cluster %d, color %s", i, branch_labels[0], color_hex)
+                return color_hex
             else:
-                logger.debug("Branch %d: heterogeneous clusters %s", i, branch_labels)
+                logger.debug("Internal node %d: heterogeneous clusters %s", i, branch_labels)
                 return "#808080"
         try:
             fig, ax = plt.subplots(figsize=(12, 6))
@@ -350,7 +356,7 @@ class ClusterAnalysis(BaseAnalysis):
                 if i < len(labels):
                     new_labels.append(str(labels[i]))
                 else:
-                    logger.error("Leaf index %d is out of bounds for labels of length %d", i, len(labels))
+                    logger.error("Leaf index %d out of bounds (len(labels)=%d)", i, len(labels))
                     new_labels.append("NA")
             ax.set_xticklabels(new_labels, rotation=90)
             unique = np.sort(np.unique(labels))
@@ -368,7 +374,7 @@ class ClusterAnalysis(BaseAnalysis):
             raise
 
     def _save_plot(self, fig, name: str):
-        """Save the figure to a PNG file in the output directory."""
+        """Save the matplotlib figure to a PNG file in the output directory."""
         plot_path = self.outdir / f"{name}.png"
         fig.savefig(plot_path, bbox_inches="tight")
         logger.info("Plot saved to %s", plot_path)
@@ -441,7 +447,7 @@ class ClusterAnalysis(BaseAnalysis):
                     labels = adjust_labels(labels)
                     logger.info("Hierarchical clustering produced %d labels.", len(labels))
                     if len(labels) != self.traj.n_frames:
-                        logger.warning("Number of labels (%d) does not match number of frames (%d)", len(labels), self.traj.n_frames)
+                        logger.warning("Mismatch: number of labels (%d) != number of frames (%d)", len(labels), self.traj.n_frames)
                     method_res = {"labels": labels, "linkage": linkage_matrix}
                     method_res["pop_plot"] = self._plot_population(labels, "hierarchical_pop")
                     method_res["trajectory_histogram"] = self._plot_cluster_trajectory_histogram(labels, "hierarchical_traj_hist")
