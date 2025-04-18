@@ -36,42 +36,28 @@ pip install -e .
 
 Instantiate a FastMDAnalysis object with your trajectory and topology file paths. Optionally, specify frame selection and atom selection. Frame selection is provided as a tuple (start, stop, stride). Negative indices (e.g., -1 for the last frame) are supported. If no options are provided, the entire trajectory and all atoms are used by default.
 
-#### Example:
+#### Examples:
+
+
+- **RMSD Analysis:**
 
 ```python
 from FastMDAnalysis import FastMDAnalysis
 
-# Load the trajectory from file, selecting frames 0 to the last frame with a stride of 10,
-# and use only "protein" atoms as the default selection.
-fastmda = FastMDAnalysis("path/to/trajectory.dcd", "path/to/topology.pdb", frames=(0, -1, 10), atoms="protein")
+fastmda = FastMDAnalysis("traj.dcd", "top.pdb")
 
 # Run RMSD analysis (uses the default frames and atom selection unless overridden):
 rmsd_analysis = fastmda.rmsd(ref=0)
+
+# Optionally retrieve rmsd data 
 print("RMSD Data:", rmsd_analysis.data)
-rmsd_plot_file = rmsd_analysis.plot()
-print("RMSD plot saved to:", rmsd_plot_file)
 
-# Run Secondary Structure (SS) analysis:
-ss_analysis = fastmda.ss()
-print("SS Data:", ss_analysis.data)
-ss_plot = ss_analysis.plot()
-print("SS plot saved to:", ss_plot)
+# Optionally customize rmsd plot
+rmsd_analysis.plot()
 
-# Run SASA analysis with a probe radius of 0.14 nm:
-sasa_analysis = fastmda.sasa(probe_radius=0.14)
-print("SASA Data:", sasa_analysis.data)
-sasa_plots = sasa_analysis.plot(option="all")
-print("SASA plots saved to:", sasa_plots)
-
-# Run Dimensionality Reduction using PCA and t-SNE:
-dimred_analysis = fastmda.dimred(methods=["pca", "tsne"], atom_selection="protein and name CA")
-print("DimRed Data:", dimred_analysis.data)
-dimred_plots = dimred_analysis.plot()
-print("DimRed plots saved to:", dimred_plots)
 ```
 
 ### Command-Line Interface (CLI)
-
 After installation, you can run FastMDAnalysis from the command line using the fastmda command. Global options allow you to specify the trajectory, topology, frame selection, and atom selection.
 
 #### Examples:
@@ -79,7 +65,7 @@ After installation, you can run FastMDAnalysis from the command line using the f
 - **RMSD Analysis:**
 
 ```bash
-fastmda rmsd -traj path/to/trajectory.dcd -top path/to/topology.pdb -o rmsd_output --frames 0,-1,10 --atoms "protein" --ref 0
+fastmda rmsd -traj traj.dcd -top top.pdb 
 ```
 
 ## License
