@@ -12,7 +12,7 @@ trajectory and default atom selection unless overridden.
 
 import mdtraj as md
 from .analysis import rmsd, rmsf, rg, hbonds, cluster, ss, dimred, sasa
-from .utils import load_trajectory, create_dummy_trajectory
+from .utils import load_trajectory # Extended utility supporting multiple files.
 
 # Expose analysis classes.
 RMSDAnalysis = rmsd.RMSDAnalysis
