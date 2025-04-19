@@ -1,6 +1,6 @@
 # FastMDAnalysis Package Structure
 
-This document explains the organization of the FastMDAnalysis package. The directory tree **`tree`** summarizes the layout of the code, tests, data, and supporting files.
+This document explains the organization of the FastMDAnalysis package. The [**`directory tree`**](./tree) summarizes the layout of the code, tests, data, and supporting files.
 
 
 ## Detailed Description
