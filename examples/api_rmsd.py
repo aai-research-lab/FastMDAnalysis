@@ -16,8 +16,8 @@ from FastMDAnalysis import FastMDAnalysis
 
 def main():
     # Specify the trajectory and topology file paths.
-    traj_path = "protein_traj.dcd"
-    top_path  = "protein.pdb"
+    traj_path = "traj.dcd"
+    top_path  = "top.pdb"
     
     # Instantiate FastMDAnalysis.
     # 'frames' is specified as (start, stop, stride). Negative indices are allowed;

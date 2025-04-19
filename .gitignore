@@ -7,3 +7,9 @@ FastMDAnalysis.egg-info/
 # Python cache
 __pycache__/
 *.pyc
+
+# Output files
+*_output/
+
+# Note
+NOTE

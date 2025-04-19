@@ -57,7 +57,9 @@ class FastMDAnalysis:
 
     def __init__(self, traj_file, top_file, frames=None, atoms=None):
         # Load the full trajectory.
-        self.full_traj = md.load(traj_file, top=top_file)
+        #self.full_traj = md.load(traj_file, top=top_file)
+        self.full_traj = load_trajectory(traj_file, top_file)
+
 
         # Subset frames if a frames iterable is provided.
         if frames is not None:
