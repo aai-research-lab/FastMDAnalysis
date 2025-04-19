@@ -7,8 +7,6 @@ FastMDAnalysis/ ├── FastMDAnalysis/ │ ├── init.py # Package initia
 
 ## Detailed Description
 
-
-```css
 - **FastMDAnalysis/**  
   This is the core package directory:
   - **`__init__.py`** initializes the package, loads the trajectory via the extended `load_trajectory` function (which now supports multiple input types), and exposes the analysis classes (rmsd, rmsf, rg, hbonds, cluster, ss, sasa, dimred).
@@ -45,4 +43,3 @@ FastMDAnalysis/ ├── FastMDAnalysis/ │ ├── init.py # Package initia
 You can save this file as `STRUCTURE.md` in the root directory of your repository and reference it in your README or documentation.
 
 Enjoy building with FastMDAnalysis!
-```
