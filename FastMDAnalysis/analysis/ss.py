@@ -143,7 +143,7 @@ class SSAnalysis(BaseAnalysis):
         xlabel = kwargs.get("xlabel", "Frame")
         ylabel = kwargs.get("ylabel", "Residue Index")
         filename = kwargs.get("filename", "ss")
-        
+
         fig = plt.figure(figsize=(12, 8))
         im = plt.imshow(numeric.T, aspect="auto", interpolation="none", cmap=cmap, norm=norm)
         plt.title(title)
@@ -157,7 +157,21 @@ class SSAnalysis(BaseAnalysis):
         # Ensure y-axis tick labels are whole numbers starting from 1.
         n_residues = numeric.shape[1]
         plt.yticks(ticks=np.arange(n_residues), labels=np.arange(1, n_residues + 1))
-        
+
+        legend_lines = [
+            "C = Coil / Loop",
+            "H = Alpha helix",
+            "B = Isolated beta-bridge",
+            "E = Extended strand",
+            "G = 3-10 helix",
+            "I = Pi helix",
+            "T = Turn",
+            "S = Bend",
+        ]
+        legend_text = " | ".join(legend_lines)
+        fig.text(0.5, -0.08, legend_text, ha="center", va="top", fontsize=10)
+        plt.tight_layout(rect=[0, 0.05, 1, 1])
+
         plot_path = self._save_plot(fig, filename)
         plt.close(fig)
         return plot_path

@@ -102,7 +102,7 @@ class RMSDAnalysis(BaseAnalysis):
         title = kwargs.get("title", f"RMSD vs Frame (Reference Frame: {self.ref_frame})")
         xlabel = kwargs.get("xlabel", "Frame")
         ylabel = kwargs.get("ylabel", "RMSD (nm)")
-        color = kwargs.get("color", None)
+        color = kwargs.get("color", "#000000")
         linestyle = kwargs.get("linestyle", "-")
 
         fig = plt.figure(figsize=(10, 6))

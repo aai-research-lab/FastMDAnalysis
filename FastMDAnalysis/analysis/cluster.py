@@ -175,15 +175,19 @@ class ClusterAnalysis(BaseAnalysis):
         logger.debug("RMSD matrix shape: %s", distances.shape)
         return (distances + distances.T) / 2.0
 
-    def _plot_population(self, labels, filename, **kwargs):
+    def _plot_population(self, labels, filename, monochrome=False, **kwargs):
         """Generate and save a population bar plot."""
         logger.info("Plotting population bar plot...")
         unique = np.sort(np.unique(labels))
         counts = np.array([np.sum(labels == u) for u in unique])
-        cmap = get_cluster_cmap(len(unique))
-        norm = get_discrete_norm(unique)
         fig = plt.figure(figsize=(10, 6))
-        plt.bar(unique, counts, width=0.8, color=[cmap(norm(u)) for u in unique])
+        if monochrome:
+            color = kwargs.get("color", "#000000")
+            plt.bar(unique, counts, width=0.8, color=color)
+        else:
+            cmap = get_cluster_cmap(len(unique))
+            norm = get_discrete_norm(unique)
+            plt.bar(unique, counts, width=0.8, color=[cmap(norm(u)) for u in unique])
         plt.title(kwargs.get("title", "Cluster Populations"))
         plt.xlabel(kwargs.get("xlabel", "Cluster ID"))
         plt.ylabel(kwargs.get("ylabel", "Number of Frames"))
@@ -191,13 +195,20 @@ class ClusterAnalysis(BaseAnalysis):
         plt.grid(alpha=0.3)
         return self._save_plot(fig, filename)
 
-    def _plot_cluster_trajectory_histogram(self, labels, filename, **kwargs):
+    def _plot_cluster_trajectory_histogram(self, labels, filename, monochrome=False, **kwargs):
         """Generate and save a cluster trajectory histogram plot."""
         logger.info("Plotting trajectory histogram...")
         unique = np.sort(np.unique(labels))
-        cmap = get_cluster_cmap(len(unique))
-        norm = get_discrete_norm(unique)
         image_data = np.array(labels).reshape(1, -1)
+        if monochrome:
+            from matplotlib.colors import ListedColormap, BoundaryNorm
+            color = kwargs.get("color", "#000000")
+            cmap = ListedColormap([color])
+            boundaries = np.array([unique[0] - 0.5, unique[-1] + 0.5]) if unique.size > 1 else np.array([unique[0] - 0.5, unique[0] + 0.5])
+            norm = BoundaryNorm(boundaries, cmap.N)
+        else:
+            cmap = get_cluster_cmap(len(unique))
+            norm = get_discrete_norm(unique)
         fig, ax = plt.subplots(figsize=(12, 4))
         im = ax.imshow(image_data, aspect="auto", interpolation="nearest", cmap=cmap, norm=norm)
         ax.set_title(kwargs.get("title", "Cluster Trajectory Histogram"))
@@ -208,22 +219,29 @@ class ClusterAnalysis(BaseAnalysis):
         cbar.set_label("Cluster")
         return self._save_plot(fig, filename)
 
-    def _plot_cluster_trajectory_scatter(self, labels, filename, **kwargs):
+    def _plot_cluster_trajectory_scatter(self, labels, filename, monochrome=False, **kwargs):
         """Generate and save a cluster trajectory scatter plot."""
         logger.info("Plotting trajectory scatter...")
         frames = np.arange(len(labels))
-        cmap = get_cluster_cmap(len(np.sort(np.unique(labels))))
-        norm = get_discrete_norm(np.sort(np.unique(labels)))
         fig, ax = plt.subplots(figsize=(10, 4))
-        ax.scatter(frames, np.zeros_like(frames), c=labels, s=100, cmap=cmap, norm=norm, marker="o")
+        if monochrome:
+            color = kwargs.get("color", "#000000")
+            ax.scatter(frames, np.zeros_like(frames), c=color, s=100, marker="o")
+        else:
+            unique = np.sort(np.unique(labels))
+            cmap = get_cluster_cmap(len(unique))
+            norm = get_discrete_norm(unique)
+            ax.scatter(frames, np.zeros_like(frames), c=labels, s=100, cmap=cmap, norm=norm, marker="o")
         ax.set_title(kwargs.get("title", "Cluster Trajectory Scatter Plot"))
         ax.set_xlabel(kwargs.get("xlabel", "Frame"))
         ax.set_yticks([])
-        sm = ScalarMappable(cmap=cmap, norm=norm)
-        sm.set_array([])
-        cbar = fig.colorbar(sm, ax=ax, orientation="vertical", ticks=np.sort(np.unique(labels)))
-        cbar.ax.set_yticklabels([str(u) for u in np.sort(np.unique(labels))])
-        cbar.set_label("Cluster")
+        if not monochrome:
+            sm = ScalarMappable(cmap=cmap, norm=norm)
+            sm.set_array([])
+            unique = np.sort(np.unique(labels))
+            cbar = fig.colorbar(sm, ax=ax, orientation="vertical", ticks=unique)
+            cbar.ax.set_yticklabels([str(u) for u in unique])
+            cbar.set_label("Cluster")
         return self._save_plot(fig, filename)
 
     def _plot_distance_matrix(self, distances, filename, **kwargs):
@@ -316,9 +334,9 @@ class ClusterAnalysis(BaseAnalysis):
                     labels = adjust_labels(labels)
                     logger.info("DBSCAN produced %d labels.", len(labels))
                     method_res = {"labels": labels, "distance_matrix": distances}
-                    method_res["pop_plot"] = self._plot_population(labels, "dbscan_pop")
-                    method_res["trajectory_histogram"] = self._plot_cluster_trajectory_histogram(labels, "dbscan_traj_hist")
-                    method_res["trajectory_scatter"] = self._plot_cluster_trajectory_scatter(labels, "dbscan_traj_scatter")
+                    method_res["pop_plot"] = self._plot_population(labels, "dbscan_pop", monochrome=True)
+                    method_res["trajectory_histogram"] = self._plot_cluster_trajectory_histogram(labels, "dbscan_traj_hist", monochrome=True)
+                    method_res["trajectory_scatter"] = self._plot_cluster_trajectory_scatter(labels, "dbscan_traj_scatter", monochrome=True)
                     method_res["distance_matrix_plot"] = self._plot_distance_matrix(distances, "dbscan_distance_matrix")
                     results["dbscan"] = method_res
                 elif method == "kmeans":

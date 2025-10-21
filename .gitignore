@@ -12,6 +12,8 @@ __pycache__/
 
 # Output files
 *_output/
+demos/
+slides/FastMDAnalysis_demo_slides.pptx
 
 # Note
 NOTE

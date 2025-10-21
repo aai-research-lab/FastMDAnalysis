@@ -100,7 +100,7 @@ class RGAnalysis(BaseAnalysis):
         title = kwargs.get("title", "Radius of Gyration vs Frame")
         xlabel = kwargs.get("xlabel", "Frame")
         ylabel = kwargs.get("ylabel", "Radius of Gyration (nm)")
-        color = kwargs.get("color", None)
+        color = kwargs.get("color", "#000000")
         linestyle = kwargs.get("linestyle", "-")
 
         fig = plt.figure(figsize=(10, 6))

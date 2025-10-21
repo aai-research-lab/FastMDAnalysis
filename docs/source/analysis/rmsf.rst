@@ -39,16 +39,16 @@ Usage
 
    from FastMDAnalysis import FastMDAnalysis
 
-   fastmda = FastMDAnalysis("traj.dcd", "top.pdb")
-   rmsf = fastmda.rmsf(atoms="protein and name CA")
-   data = rmsf.run()["rmsf"]
-   rmsf.plot(color="#2ca02c", title="Cα RMSF")
+  fastmda = FastMDAnalysis("traj.dcd", "top.pdb")
+  rmsf = fastmda.rmsf(atoms="protein and name CA")
+  data = rmsf.run()["rmsf"]
+  rmsf.plot(title="Cα RMSF")
 
 **CLI**
 
 .. code-block:: bash
 
-   fastmda rmsf -traj traj.dcd -top top.pdb --selection "protein and name CA" -o analysis/rmsf
+  fastmda rmsf -traj traj.dcd -top top.pdb --atom_selection "protein and name CA" -o analysis/rmsf
 
 Outputs
 -------

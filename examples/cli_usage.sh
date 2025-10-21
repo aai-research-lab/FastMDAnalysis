@@ -12,50 +12,50 @@
 # Computes RMSD vs. frame using a reference frame (default index 0).
 ###############################################
 echo "Running RMSD analysis..."
-fastmda rmsd -traj path/to/trajectory.dcd -top path/to/topology.pdb -o rmsd_output --frames 0,-1,10 --atoms "protein" --ref 0
+fastmda rmsd -traj path/to/trajectory.dcd -top path/to/topology.pdb -o rmsd_output --frames 0,-1,10 --atoms "protein" --ref 0 --atom_selection "protein and name CA"
 echo "RMSD analysis completed. Output in rmsd_output/"
 
 ###############################################
 # RMSF Analysis:
-# Computes per-atom RMSF; uses the default atom selection or can override with --selection.
+# Computes per-atom RMSF; uses the default atom selection or can override with --atom_selection.
 ###############################################
 echo "Running RMSF analysis..."
-fastmda rmsf -traj path/to/trajectory.dcd -top path/to/topology.pdb -o rmsf_output --frames 0,-1,10 --atoms "protein"
+fastmda rmsf -traj path/to/trajectory.dcd -top path/to/topology.pdb -o rmsf_output --frames 0,-1,10 --atoms "protein" --atom_selection "protein and name CA"
 echo "RMSF analysis completed. Output in rmsf_output/"
 
 ###############################################
 # Radius of Gyration (RG) Analysis:
 ###############################################
 echo "Running Radius of Gyration analysis..."
-fastmda rg -traj path/to/trajectory.dcd -top path/to/topology.pdb -o rg_output --frames 0,-1,10 --atoms "protein"
+fastmda rg -traj path/to/trajectory.dcd -top path/to/topology.pdb -o rg_output --frames 0,-1,10 --atoms "protein" --atom_selection "protein"
 echo "RG analysis completed. Output in rg_output/"
 
 ###############################################
 # Hydrogen Bonds (HBonds) Analysis:
 ###############################################
 echo "Running Hydrogen Bonds analysis..."
-fastmda hbonds -traj path/to/trajectory.dcd -top path/to/topology.pdb -o hbonds_output --frames 0,-1,10
+fastmda hbonds -traj path/to/trajectory.dcd -top path/to/topology.pdb -o hbonds_output --frames 0,-1,10 --atom_selection "protein"
 echo "HBonds analysis completed. Output in hbonds_output/"
 
 ###############################################
 # Cluster Analysis (DBSCAN):
 ###############################################
 echo "Running Cluster analysis with DBSCAN..."
-fastmda cluster -traj path/to/trajectory.dcd -top path/to/topology.pdb -o cluster_output --frames 0,-1,10 --atoms "protein" --methods dbscan --eps 0.5 --min_samples 5
+fastmda cluster -traj path/to/trajectory.dcd -top path/to/topology.pdb -o cluster_output --frames 0,-1,10 --atoms "protein" --atom_selection "protein and name CA" --methods dbscan kmeans hierarchical --eps 0.4 --min_samples 8 --n_clusters 4
 echo "DBSCAN clustering completed. Check cluster_output/"
 
 ###############################################
 # Cluster Analysis (KMeans):
 ###############################################
 echo "Running Cluster analysis with KMeans..."
-fastmda cluster -traj path/to/trajectory.dcd -top path/to/topology.pdb -o cluster_output --frames 0,-1,10 --atoms "protein" --methods kmeans --n_clusters 5
+fastmda cluster -traj path/to/trajectory.dcd -top path/to/topology.pdb -o cluster_output --frames 0,-1,10 --atoms "protein" --atom_selection "protein and name CA" --methods kmeans hierarchical --n_clusters 4
 echo "KMeans clustering completed. Check cluster_output/"
 
 ###############################################
 # Secondary Structure (SS) Analysis:
 ###############################################
 echo "Running Secondary Structure analysis..."
-fastmda ss -traj path/to/trajectory.dcd -top path/to/topology.pdb -o ss_output --frames 0,-1,10 --atoms "protein"
+fastmda ss -traj path/to/trajectory.dcd -top path/to/topology.pdb -o ss_output --frames 0,-1,10 --atoms "protein" --atom_selection "protein"
 echo "SS analysis completed. Output in ss_output/"
 
 ###############################################
@@ -63,7 +63,7 @@ echo "SS analysis completed. Output in ss_output/"
 # Computes Total SASA vs. frame, per-residue SASA heatmap, and average per-residue SASA.
 ###############################################
 echo "Running SASA analysis..."
-fastmda sasa -traj path/to/trajectory.dcd -top path/to/topology.pdb -o sasa_output --frames 0,-1,10 --atoms "protein" --probe_radius 0.14
+fastmda sasa -traj path/to/trajectory.dcd -top path/to/topology.pdb -o sasa_output --frames 0,-1,10 --atoms "protein" --atom_selection "protein" --probe_radius 0.14
 echo "SASA analysis completed. Output in sasa_output/"
 
 ###############################################
@@ -71,7 +71,7 @@ echo "SASA analysis completed. Output in sasa_output/"
 # Runs specified methods (e.g., PCA and t-SNE) using an atom selection for the feature matrix.
 ###############################################
 echo "Running Dimensionality Reduction analysis..."
-fastmda dimred -traj path/to/trajectory.dcd -top path/to/topology.pdb -o dimred_output --frames 0,-1,10 --atoms "protein" --methods pca tsne --atom_selection "protein and name CA"
+fastmda dimred -traj path/to/trajectory.dcd -top path/to/topology.pdb -o dimred_output --frames 0,-1,10 --atoms "protein" --methods pca mds tsne --atom_selection "protein and name CA"
 echo "Dimensionality Reduction analysis completed. Output in dimred_output/"
 
 echo "All analyses have been executed."
