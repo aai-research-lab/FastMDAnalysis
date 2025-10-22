@@ -103,7 +103,6 @@ class SSAnalysis(BaseAnalysis):
         table.auto_set_font_size(False)
         table.set_fontsize(11)
         table.scale(1, 1.4)
-        # Keep code column narrow and align text to left to prevent overlap in the description column.
         for cell in table.get_celld().values():
             cell.get_text().set_ha("left")
             cell.get_text().set_va("center")
