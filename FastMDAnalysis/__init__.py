@@ -269,7 +269,7 @@ class FastMDAnalysis:
         analysis.run()
         return analysis
 
-    def dimred(self, methods="all", atom_selection=None, **kwargs):
+    def dimred(self, methods="all", atoms=None, **kwargs):
         """
         Run dimensionality reduction analysis on the stored trajectory.
 
@@ -278,7 +278,7 @@ class FastMDAnalysis:
         methods : str or list
             Dimensionality reduction methods to use (options: "pca", "mds", "tsne").
             If "all" or if "all" is in the provided list, all available methods are applied.
-        atom_selection : str, optional
+        atoms : str, optional
             Atom selection for constructing the feature matrix. If not provided, uses the default atom selection.
         kwargs : dict
             Additional keyword arguments for DimRedAnalysis.
@@ -288,11 +288,13 @@ class FastMDAnalysis:
         DimRedAnalysis
             A DimRedAnalysis instance containing the computed 2D embeddings.
         """
-        if atom_selection is None:
-            atom_selection = self.default_atoms
+        selection = self._get_atoms(atoms)
         from .analysis import dimred
-        analysis = dimred.DimRedAnalysis(self.traj, methods=methods,
-                                         atom_selection=atom_selection, **kwargs)
+        if selection is not None:
+            analysis = dimred.DimRedAnalysis(self.traj, methods=methods,
+                                             atoms=selection, **kwargs)
+        else:
+            analysis = dimred.DimRedAnalysis(self.traj, methods=methods, **kwargs)
         analysis.run()
         return analysis
 

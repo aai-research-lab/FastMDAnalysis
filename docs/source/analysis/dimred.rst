@@ -13,7 +13,7 @@ Feature Matrix
 
 - By default the analysis selects ``"protein and name CA"`` atoms and flattens
   the resulting coordinates into a ``(n_frames, n_atoms * 3)`` matrix.
-- Supply ``atom_selection`` to override the default (for example, include ligand
+- Supply ``atoms`` to override the default (for example, include ligand
   heavy atoms when probing binding pathways).
 
 Available Methods
@@ -45,7 +45,7 @@ Usage
    from FastMDAnalysis import FastMDAnalysis
 
    fastmda = FastMDAnalysis("traj.dcd", "top.pdb")
-   dimred = fastmda.dimred(methods=["pca", "tsne"], atom_selection="protein and resname LIG")
+  dimred = fastmda.dimred(methods=["pca", "tsne"], atoms="protein and resname LIG")
    embeddings = dimred.run()
    dimred.plot(method="pca", cmap="viridis")
 
@@ -53,8 +53,8 @@ Usage
 
 .. code-block:: bash
 
-   fastmda dimred -traj traj.dcd -top top.pdb --methods pca tsne \
-      --atom_selection "protein and resname LIG" -o analysis/dimred
+  fastmda dimred -traj traj.dcd -top top.pdb --methods pca tsne \
+    --atoms "protein and resname LIG" -o analysis/dimred
 
 Outputs
 -------

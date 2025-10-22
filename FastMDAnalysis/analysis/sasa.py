@@ -152,11 +152,14 @@ class SASAAnalysis(BaseAnalysis):
         title = kwargs.get("title_total", "Total SASA vs. Frame")
         xlabel = kwargs.get("xlabel_total", "Frame")
         ylabel = kwargs.get("ylabel_total", "Total SASA (nm²)")
-        color = kwargs.get("color_total", "#000000")
+        color = kwargs.get("color_total")
         linestyle = kwargs.get("linestyle_total", "-")
 
         fig = plt.figure(figsize=(10, 6))
-        plt.plot(frames, total_sasa, marker="o", linestyle=linestyle, color=color)
+        plot_kwargs = {"marker": "o", "linestyle": linestyle}
+        if color is not None:
+            plot_kwargs["color"] = color
+        plt.plot(frames, total_sasa, **plot_kwargs)
         plt.title(title)
         plt.xlabel(xlabel)
         plt.ylabel(ylabel)
@@ -194,10 +197,13 @@ class SASAAnalysis(BaseAnalysis):
         title = kwargs.get("title_avg", "Average per-Residue SASA")
         xlabel = kwargs.get("xlabel_avg", "Residue")
         ylabel = kwargs.get("ylabel_avg", "Average SASA (nm²)")
-        color = kwargs.get("color_avg", "#000000")
+        color = kwargs.get("color_avg")
 
         fig = plt.figure(figsize=(12, 6))
-        plt.bar(residues, average_sasa.flatten(), color=color)
+        bar_kwargs = {}
+        if color is not None:
+            bar_kwargs["color"] = color
+        plt.bar(residues, average_sasa.flatten(), **bar_kwargs)
         plt.title(title)
         plt.xlabel(xlabel)
         plt.ylabel(ylabel)

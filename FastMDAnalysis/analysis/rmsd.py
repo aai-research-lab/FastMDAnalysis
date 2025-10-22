@@ -102,11 +102,14 @@ class RMSDAnalysis(BaseAnalysis):
         title = kwargs.get("title", f"RMSD vs Frame (Reference Frame: {self.ref_frame})")
         xlabel = kwargs.get("xlabel", "Frame")
         ylabel = kwargs.get("ylabel", "RMSD (nm)")
-        color = kwargs.get("color", "#000000")
+        color = kwargs.get("color")
         linestyle = kwargs.get("linestyle", "-")
 
         fig = plt.figure(figsize=(10, 6))
-        plt.plot(frames, data, marker="o", linestyle=linestyle, color=color)
+        plot_kwargs = {"marker": "o", "linestyle": linestyle}
+        if color is not None:
+            plot_kwargs["color"] = color
+        plt.plot(frames, data, **plot_kwargs)
         plt.title(title)
         plt.xlabel(xlabel)
         plt.ylabel(ylabel)

@@ -107,11 +107,14 @@ class RMSFAnalysis(BaseAnalysis):
         title = kwargs.get("title", "RMSF per Atom")
         xlabel = kwargs.get("xlabel", "Atom Index")
         ylabel = kwargs.get("ylabel", "RMSF (nm)")
-        color = kwargs.get("color", "#000000")
+        color = kwargs.get("color")
         tick_step = kwargs.get("tick_step", 5)
 
         fig = plt.figure(figsize=(10, 6))
-        plt.bar(x, data.flatten(), color=color)
+        bar_kwargs = {}
+        if color is not None:
+            bar_kwargs["color"] = color
+        plt.bar(x, data.flatten(), **bar_kwargs)
         plt.title(title)
         plt.xlabel(xlabel)
         plt.ylabel(ylabel)

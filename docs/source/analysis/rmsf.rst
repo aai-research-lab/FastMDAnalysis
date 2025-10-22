@@ -48,7 +48,7 @@ Usage
 
 .. code-block:: bash
 
-  fastmda rmsf -traj traj.dcd -top top.pdb --atom_selection "protein and name CA" -o analysis/rmsf
+  fastmda rmsf -traj traj.dcd -top top.pdb --atoms "protein and name CA" -o analysis/rmsf
 
 Outputs
 -------

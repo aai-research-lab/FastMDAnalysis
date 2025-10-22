@@ -110,11 +110,14 @@ class HBondsAnalysis(BaseAnalysis):
         title = kwargs.get("title", "Hydrogen Bonds per Frame")
         xlabel = kwargs.get("xlabel", "Frame")
         ylabel = kwargs.get("ylabel", "Number of H-Bonds")
-        color = kwargs.get("color", "#000000")
+        color = kwargs.get("color")
         linestyle = kwargs.get("linestyle", "-")
 
         fig = plt.figure(figsize=(10, 6))
-        plt.plot(frames, data.flatten(), marker="o", linestyle=linestyle, color=color)
+        plot_kwargs = {"marker": "o", "linestyle": linestyle}
+        if color is not None:
+            plot_kwargs["color"] = color
+        plt.plot(frames, data.flatten(), **plot_kwargs)
         plt.title(title)
         plt.xlabel(xlabel)
         plt.ylabel(ylabel)

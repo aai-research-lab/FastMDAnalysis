@@ -25,7 +25,6 @@ Usage Example (API):
 """
 
 import numpy as np
-import mdtraj as md
 
 import matplotlib
 matplotlib.use('Agg')
@@ -34,12 +33,10 @@ import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 from sklearn.manifold import MDS, TSNE
 
-from pathlib import Path
-
 from .base import BaseAnalysis, AnalysisError
 
 class DimRedAnalysis(BaseAnalysis):
-    def __init__(self, trajectory, methods="all", atom_selection="protein and name CA", **kwargs):
+    def __init__(self, trajectory, methods="all", atoms="protein and name CA", **kwargs):
         """
         Initialize the Dimensionality Reduction analysis.
 
@@ -50,7 +47,7 @@ class DimRedAnalysis(BaseAnalysis):
         methods : str or list
             Which dimensionality reduction method(s) to use.
             Options: 'pca', 'mds', 'tsne'. If "all" (default), all three are applied.
-        atom_selection : str
+        atoms : str, optional
             MDTraj selection string to choose atoms for building the feature matrix.
             Default is "protein and name CA".
         kwargs : dict
@@ -72,10 +69,15 @@ class DimRedAnalysis(BaseAnalysis):
         else:
             raise AnalysisError("Parameter 'methods' must be a string or a list of strings.")
 
-        self.atom_selection = atom_selection
-        self.atom_indices = self.traj.topology.select(self.atom_selection)
-        if self.atom_indices is None or len(self.atom_indices) == 0:
-            raise AnalysisError("No atoms found using the given atom selection for dimensionality reduction.")
+        self.atoms = atoms
+        if self.atoms is not None:
+            self.atom_indices = self.traj.topology.select(self.atoms)
+            if self.atom_indices is None or len(self.atom_indices) == 0:
+                raise AnalysisError("No atoms found using the given atom selection for dimensionality reduction.")
+            self._feature_traj = self.traj.atom_slice(self.atom_indices)
+        else:
+            self.atom_indices = None
+            self._feature_traj = self.traj
         self.results = {}
         self.data = None  # Will hold a dictionary with embeddings.
 
@@ -94,8 +96,8 @@ class DimRedAnalysis(BaseAnalysis):
             mapping to the 2D embedding arrays.
         """
         # Create the feature matrix from the selected atoms.
-        X = self.traj.xyz[:, self.atom_indices, :]  # shape: (n_frames, n_atoms, 3)
-        X_flat = X.reshape(self.traj.n_frames, -1)    # shape: (n_frames, n_atoms*3)
+        X = self._feature_traj.xyz  # shape: (n_frames, n_atoms_selected, 3)
+        X_flat = X.reshape(self._feature_traj.n_frames, -1)  # shape: (n_frames, n_atoms_selected*3)
         
         for method in self.methods:
             if method == "pca":

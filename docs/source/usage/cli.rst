@@ -41,14 +41,14 @@ Quick-reference table
 ================  =========================================  ===============================
 Subcommand        Highlights                                   Extra options
 ================  =========================================  ===============================
-``rmsd``          Reference frame alignment, RMSD vs. time     ``--ref`` ``--atom_selection``
-``rmsf``          Per-atom/per-residue flexibility             ``--atom_selection``
-``rg``            Radius of gyration timeseries                ``--atom_selection``
-``hbonds``        Baker–Hubbard hydrogen bonds                 ``--atom_selection``
-``ss``            DSSP-based secondary structure               ``--atom_selection``
-``sasa``          Shrake–Rupley solvent exposure               ``--probe_radius`` ``--atom_selection``
-``cluster``       DBSCAN / KMeans / hierarchical clustering    ``--methods`` ``--n_clusters`` ``--atom_selection``
-``dimred``        PCA / MDS / t-SNE embeddings                 ``--methods`` ``--atom_selection``
+``rmsd``          Reference frame alignment, RMSD vs. time     ``--ref`` ``--atoms``
+``rmsf``          Per-atom/per-residue flexibility             ``--atoms``
+``rg``            Radius of gyration timeseries                ``--atoms``
+``hbonds``        Baker–Hubbard hydrogen bonds                 ``--atoms``
+``ss``            DSSP-based secondary structure               ``--atoms``
+``sasa``          Shrake–Rupley solvent exposure               ``--probe_radius`` ``--atoms``
+``cluster``       DBSCAN / KMeans / hierarchical clustering    ``--methods`` ``--n_clusters`` ``--atoms``
+``dimred``        PCA / MDS / t-SNE embeddings                 ``--methods`` ``--atoms``
 ================  =========================================  ===============================
 
 Example session
@@ -87,7 +87,7 @@ Example session
 		--trajectory data/ubiquitin.dcd \
 		--topology data/ubiquitin.pdb \
 		--methods pca mds tsne \
-		--atom_selection "protein and name CA"
+		--atoms "protein and name CA"
 
 	This yields ``dimred_output/pca_embedding.dat``, ``dimred_output/mds_embedding.dat``,
 	and ``dimred_output/tsne_embedding.dat`` alongside matching ``.png`` scatter plots

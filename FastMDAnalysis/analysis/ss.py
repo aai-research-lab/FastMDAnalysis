@@ -6,7 +6,7 @@ Saves the SS assignments to a text file and automatically generates a heatmap pl
 The heatmap uses a discrete colormap with very distinct colors so that each SS letter is easily differentiated.
 The colorbar tick labels display the SS letter codes.
 The residue index axis is labeled with whole numbers starting at 1.
-An ss_README.md file is also generated to explain the SS letter codes.
+An ss_README.md file and companion PNG are also generated to explain the SS letter codes.
 
 Usage:
     from FastMDAnalysis import SSAnalysis
@@ -23,6 +23,19 @@ import matplotlib.pyplot as plt
 
 from pathlib import Path
 from .base import BaseAnalysis, AnalysisError
+
+
+SS_CODE_ROWS = [
+    ("H", "Alpha helix"),
+    ("B", "Isolated beta-bridge"),
+    ("E", "Extended strand (beta sheet)"),
+    ("G", "3-10 helix"),
+    ("I", "Pi helix"),
+    ("T", "Turn"),
+    ("S", "Bend"),
+    ("C or (space)", "Coil / Loop (no regular secondary structure)"),
+]
+
 
 class SSAnalysis(BaseAnalysis):
     def __init__(self, trajectory, atoms: str = None, **kwargs):
@@ -67,11 +80,44 @@ class SSAnalysis(BaseAnalysis):
             f.write(content)
         return readme_path
 
+    def _generate_reference_image(self):
+        """Create a PNG table summarizing the SS letter codes for quick reference."""
+        fig, ax = plt.subplots(figsize=(10, 4.5))
+        ax.axis("off")
+        fig.suptitle("Secondary Structure (SS) Letter Codes", fontsize=14, fontweight="bold", y=0.95)
+        fig.text(
+            0.5,
+            0.88,
+            "DSSP codes used in the FastMDAnalysis SS heatmap.",
+            ha="center",
+            va="center",
+            fontsize=10,
+        )
+        table = ax.table(
+            cellText=SS_CODE_ROWS,
+            colLabels=["Code", "Description"],
+            colWidths=[0.18, 0.82],
+            loc="center",
+            cellLoc="left",
+        )
+        table.auto_set_font_size(False)
+        table.set_fontsize(11)
+        table.scale(1, 1.4)
+        # Keep code column narrow and align text to left to prevent overlap in the description column.
+        for cell in table.get_celld().values():
+            cell.get_text().set_ha("left")
+            cell.get_text().set_va("center")
+            cell.get_text().set_wrap(True)
+        image_path = self._save_plot(fig, "ss_letter_codes")
+        plt.close(fig)
+        return image_path
+
     def run(self) -> dict:
         """
         Compute SS assignments using DSSP.
         Saves the results to a text file, generates a discrete heatmap plot,
-        and writes an ss_README.md file explaining the SS letter codes.
+        writes an ss_README.md file explaining the SS letter codes,
+        and saves a PNG of the SS code table for quick reference.
 
         Returns
         -------
@@ -91,7 +137,12 @@ class SSAnalysis(BaseAnalysis):
                     f.write(f"Frame {frame_idx}: {', '.join(ss)}\n")
 
             # Generate the ss_README.md file.
-            self._generate_readme()
+            readme_path = self._generate_readme()
+            codes_png_path = self._generate_reference_image()
+            self.results.update({
+                "ss_readme": readme_path,
+                "ss_codes_plot": codes_png_path,
+            })
             # Automatically generate the default heatmap plot.
             self.plot()
             return self.results
@@ -158,19 +209,7 @@ class SSAnalysis(BaseAnalysis):
         n_residues = numeric.shape[1]
         plt.yticks(ticks=np.arange(n_residues), labels=np.arange(1, n_residues + 1))
 
-        legend_lines = [
-            "C = Coil / Loop",
-            "H = Alpha helix",
-            "B = Isolated beta-bridge",
-            "E = Extended strand",
-            "G = 3-10 helix",
-            "I = Pi helix",
-            "T = Turn",
-            "S = Bend",
-        ]
-        legend_text = " | ".join(legend_lines)
-        fig.text(0.5, -0.08, legend_text, ha="center", va="top", fontsize=10)
-        plt.tight_layout(rect=[0, 0.05, 1, 1])
+        plt.tight_layout()
 
         plot_path = self._save_plot(fig, filename)
         plt.close(fig)

@@ -53,7 +53,7 @@ Usage
 
 .. code-block:: bash
 
-   fastmda rmsd -traj traj.dcd -top top.pdb --ref 0 --atom_selection "protein and name CA" \
+   fastmda rmsd -traj traj.dcd -top top.pdb --ref 0 --atoms "protein and name CA" \
       --frames 0,-1,5 -o analysis/rmsd
 
 Outputs

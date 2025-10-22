@@ -11,37 +11,37 @@ OUTPUT_PPTX = ROOT / "slides" / "FastMDAnalysis_demo_slides.pptx"
 
 COMMANDS = {
     "rmsd": (
-        'fastmda rmsd -traj data/trp_cage.dcd -top data/trp_cage.pdb '
-        '--ref 0 --atom_selection "protein and name CA" --frames 0,-1,10 -o demos/rmsd'
+    'fastmda rmsd -traj data/trp_cage.dcd -top data/trp_cage.pdb '
+    '--ref 0 --atoms "protein and name CA" --frames 0,-1,10 -o demos/rmsd'
     ),
     "rmsf": (
-        'fastmda rmsf -traj data/trp_cage.dcd -top data/trp_cage.pdb '
-        '--atom_selection "protein and name CA" --frames 0,-1,10 -o demos/rmsf'
+    'fastmda rmsf -traj data/trp_cage.dcd -top data/trp_cage.pdb '
+    '--atoms "protein and name CA" --frames 0,-1,10 -o demos/rmsf'
     ),
     "rg": (
-        'fastmda rg -traj data/trp_cage.dcd -top data/trp_cage.pdb '
-        '--atom_selection "protein" --frames 0,-1,10 -o demos/rg'
+    'fastmda rg -traj data/trp_cage.dcd -top data/trp_cage.pdb '
+    '--atoms "protein" --frames 0,-1,10 -o demos/rg'
     ),
     "hbonds": (
-        'fastmda hbonds -traj data/trp_cage.dcd -top data/trp_cage.pdb '
-        '--atom_selection "protein" --frames 0,-1,10 -o demos/hbonds'
+    'fastmda hbonds -traj data/trp_cage.dcd -top data/trp_cage.pdb '
+    '--atoms "protein" --frames 0,-1,10 -o demos/hbonds'
     ),
     "sasa": (
-        'fastmda sasa -traj data/trp_cage.dcd -top data/trp_cage.pdb '
-        '--atom_selection "protein" --probe_radius 0.14 --frames 0,-1,10 -o demos/sasa'
+    'fastmda sasa -traj data/trp_cage.dcd -top data/trp_cage.pdb '
+    '--atoms "protein" --probe_radius 0.14 --frames 0,-1,10 -o demos/sasa'
     ),
     "ss": (
-        'fastmda ss -traj data/trp_cage.dcd -top data/trp_cage.pdb '
-        '--atom_selection "protein" --frames 0,-1,10 -o demos/ss'
+    'fastmda ss -traj data/trp_cage.dcd -top data/trp_cage.pdb '
+    '--atoms "protein" --frames 0,-1,10 -o demos/ss'
     ),
     "cluster": (
-        'fastmda cluster -traj data/trp_cage.dcd -top data/trp_cage.pdb '
-        '--atom_selection "protein and name CA" --methods dbscan kmeans hierarchical --eps 0.40 '
+    'fastmda cluster -traj data/trp_cage.dcd -top data/trp_cage.pdb '
+    '--atoms "protein and name CA" --methods dbscan kmeans hierarchical --eps 0.40 '
         '--min_samples 8 --n_clusters 4 --frames 0,-1,10 -o demos/cluster'
     ),
     "dimred": (
-        'fastmda dimred -traj data/trp_cage.dcd -top data/trp_cage.pdb '
-        '--methods pca mds tsne --atom_selection "protein and name CA" '
+    'fastmda dimred -traj data/trp_cage.dcd -top data/trp_cage.pdb '
+    '--methods pca mds tsne --atoms "protein and name CA" '
         '--frames 0,-1,10 -o demos/dimred'
     ),
 }

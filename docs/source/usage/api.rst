@@ -103,7 +103,7 @@ Dimensionality reduction leans on scikit-learn as well:
 
 .. code-block:: python
 
-	dim = fastmda.dimred(methods=["pca", "tsne"], atom_selection="protein")
+	dim = fastmda.dimred(methods=["pca", "tsne"], atoms="protein")
 	embeddings = dict(dim.results)
 	pca_coords = embeddings["pca"]["embedding"]
 

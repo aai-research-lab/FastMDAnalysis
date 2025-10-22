@@ -84,7 +84,7 @@ def main():
     # ---------------------------
     # Run Dimensionality Reduction Analysis (using PCA and t-SNE)
     # ---------------------------
-    dimred_analysis = fastmda.dimred(methods=["pca", "tsne"], atom_selection="protein and name CA")
+    dimred_analysis = fastmda.dimred(methods=["pca", "tsne"], atoms="protein and name CA")
     print("Dimensionality Reduction Data:", dimred_analysis.data)
     dimred_plots = dimred_analysis.plot()
     print("Dimensionality Reduction plots saved to:", dimred_plots)
