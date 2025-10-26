@@ -1,131 +1,172 @@
+# FastMDAnalysis/src/fastmdanalysis/analysis/hbonds.py
 """
 Hydrogen Bonds Analysis Module
 
-Detects hydrogen bonds in an MD trajectory using the Baker-Hubbard algorithm.
-If an atom selection is provided (via the 'atoms' parameter), the trajectory is subset accordingly.
-The analysis computes the number of hydrogen bonds for each frame, saves the resulting data,
-and automatically generates a default plot of hydrogen bonds versus frame.
-Users can later replot the data with customizable plotting options.
+Detects hydrogen bonds in an MD trajectory using the Baker–Hubbard algorithm.
+
+Behavior
+--------
+- Optional atom selection via MDTraj DSL (e.g., "protein").
+- Counts H-bonds **per frame** by running Baker–Hubbard on each frame.
+- Saves:
+    * hbonds_counts.dat  : (frame, n_hbonds)
+    * hbonds.png         : line plot of H-bonds vs frame
+- Returns in `results`:
+    * "hbonds_counts": (T, 1) array (n_hbonds per frame)
+    * "hbonds_per_frame": list of lists of (donor, hydrogen, acceptor) indices per frame
 """
+
 from __future__ import annotations
 
+from typing import Dict, List, Tuple, Optional
 import numpy as np
 import mdtraj as md
+import logging
+
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 
 from .base import BaseAnalysis, AnalysisError
 
-class HBondsAnalysis(BaseAnalysis):
-    def __init__(self, trajectory, atoms: str = None, **kwargs):
-        """
-        Initialize Hydrogen Bonds analysis.
+logger = logging.getLogger(__name__)
 
+
+class HBondsAnalysis(BaseAnalysis):
+    def __init__(self, trajectory, atoms: Optional[str] = None, **kwargs):
+        """
         Parameters
         ----------
         trajectory : mdtraj.Trajectory
-            The MD trajectory to analyze.
-        atoms : str, optional
-            An MDTraj atom selection string specifying which atoms to use.
-            If provided, the trajectory will be subset using this selection.
-            If None, all atoms in the trajectory are used.
+            Trajectory to analyze.
+        atoms : str or None
+            MDTraj atom selection string to subset the trajectory. If None, use all atoms.
         kwargs : dict
-            Additional keyword arguments passed to BaseAnalysis.
+            Passed to BaseAnalysis (e.g., output directory).
         """
         super().__init__(trajectory, **kwargs)
         self.atoms = atoms
-        self.data = None
+        self.data: Optional[np.ndarray] = None
+        self.results: Dict[str, object] = {}
 
-    def run(self) -> dict:
+    def _subset_traj(self):
+        """Return a trajectory possibly sliced by atom selection."""
+        if self.atoms:
+            sel = self.traj.topology.select(self.atoms)
+            if sel is None or len(sel) == 0:
+                raise AnalysisError(f"No atoms selected using: '{self.atoms}'")
+            return self.traj.atom_slice(sel)
+        return self.traj
+
+    def run(self) -> Dict[str, object]:
         """
-        Compute hydrogen bonds for each frame using the Baker-Hubbard algorithm.
-
-        If an atom selection is provided, only the selected atoms are used for the calculation.
-        The algorithm returns an array of detected hydrogen bonds (tuples),
-        and we count the number of hydrogen bonds per frame.
+        Compute hydrogen bonds per frame using Baker–Hubbard.
 
         Returns
         -------
         dict
-            A dictionary containing:
-              "hbonds_counts": a column vector with the number of H-bonds per frame,
-              "raw_hbonds": the raw hydrogen bond data as returned by md.baker_hubbard.
+            {
+              "hbonds_counts": (T, 1) array of per-frame counts,
+              "hbonds_per_frame": list[ list[tuple(int,int,int)] ]
+            }
         """
         try:
-            # If an atom selection is provided, subset the trajectory accordingly.
-            if self.atoms is not None:
-                atom_indices = self.traj.topology.select(self.atoms)
-                if atom_indices is None or len(atom_indices) == 0:
-                    raise AnalysisError(f"No atoms selected using the selection: '{self.atoms}'")
-                subtraj = self.traj.atom_slice(atom_indices)
-            else:
-                subtraj = self.traj
+            subtraj = self._subset_traj()
 
-            subtraj.topology.create_standard_bonds()
-            # Use the Baker-Hubbard algorithm to detect hydrogen bonds.
-            hbonds = md.baker_hubbard(subtraj, periodic=False)
-            counts = np.zeros(self.traj.n_frames, dtype=int)
-            for bond in hbonds:
-                # bond[0] is the frame index where the H-bond is detected.
-                frame_index = bond[0]
-                counts[frame_index] += 1
+            # Ensure standard bonds exist (required by some topologies for H-bond detection).
+            try:
+                subtraj.topology.create_standard_bonds()
+            except Exception:
+                # Not all topologies need this; ignore if unsupported.
+                pass
 
+            T = subtraj.n_frames
+            counts = np.zeros(T, dtype=int)
+            hbonds_per_frame: List[List[Tuple[int, int, int]]] = []
+
+            # Robust approach: evaluate per frame (correct and fast for typical test-sized data).
+            for i in range(T):
+                hb = md.baker_hubbard(subtraj[i], periodic=False)
+                hb_list = [(int(d), int(h), int(a)) for (d, h, a) in hb]
+                hbonds_per_frame.append(hb_list)
+                counts[i] = len(hb_list)
+
+            # Store results
             self.data = counts.reshape(-1, 1)
-            self.results = {"hbonds_counts": self.data, "raw_hbonds": hbonds}
+            self.results = {
+                "hbonds_counts": self.data,
+                "hbonds_per_frame": hbonds_per_frame,
+            }
 
-            # Save the hydrogen bonds counts.
-            self._save_data(self.data, "hbonds_counts")
+            # Save data and plot
+            # Two-column table: frame index, n_hbonds
+            frames = np.arange(T, dtype=int).reshape(-1, 1)
+            self._save_data(
+                np.hstack([frames, self.data]),
+                "hbonds_counts",
+                header="frame n_hbonds",
+                fmt="%d",
+            )
+
+            self.plot()  # ensure figure is produced by default
             return self.results
+
+        except AnalysisError:
+            raise
         except Exception as e:
             raise AnalysisError(f"Hydrogen bonds analysis failed: {e}")
 
-    def plot(self, data=None, **kwargs):
+    def plot(self, data: Optional[np.ndarray] = None, **kwargs):
         """
-        Generate a plot of hydrogen bonds versus frame.
+        Generate a plot of hydrogen bonds vs frame.
 
         Parameters
         ----------
-        data : array-like, optional
-            The hydrogen bond count data to plot. If None, uses the data computed by run().
+        data : (T, 1) array-like, optional
+            If None, uses data from `run()`.
         kwargs : dict
-            Customizable matplotlib-style keyword arguments. For example:
-                - title: Plot title (default: "Hydrogen Bonds per Frame").
-                - xlabel: x-axis label (default: "Frame").
-                - ylabel: y-axis label (default: "Number of H-Bonds").
-                - color: Line or marker color.
-                - linestyle: Line style (default: "-" for solid line).
+            Matplotlib options:
+              - title (str): default "Hydrogen Bonds per Frame"
+              - xlabel (str): default "Frame"
+              - ylabel (str): default "Number of H-Bonds"
+              - color (str): line/marker color
+              - linestyle (str): default "-"
+              - marker (str): default "o"
 
         Returns
         -------
         Path
-            The file path to the saved plot.
+            File path to the saved plot.
         """
         if data is None:
             data = self.data
         if data is None:
-            raise AnalysisError("No hydrogen bonds data available to plot. Please run analysis first.")
+            raise AnalysisError("No hydrogen bonds data to plot. Run the analysis first.")
 
-        frames = np.arange(len(data))
+        y = np.asarray(data).reshape(-1)
+        x = np.arange(y.size)
+
         title = kwargs.get("title", "Hydrogen Bonds per Frame")
         xlabel = kwargs.get("xlabel", "Frame")
         ylabel = kwargs.get("ylabel", "Number of H-Bonds")
-        color = kwargs.get("color")
+        color = kwargs.get("color", None)
         linestyle = kwargs.get("linestyle", "-")
+        marker = kwargs.get("marker", "o")
 
-        fig = plt.figure(figsize=(10, 6))
-        plot_kwargs = {"marker": "o", "linestyle": linestyle}
+        fig, ax = plt.subplots(figsize=(10, 6))
+        line_kwargs = {"linestyle": linestyle, "marker": marker}
         if color is not None:
-            plot_kwargs["color"] = color
-        plt.plot(frames, data.flatten(), **plot_kwargs)
-        plt.title(title)
-        plt.xlabel(xlabel)
-        plt.ylabel(ylabel)
-        plt.grid(alpha=0.3)
-        ax = plt.gca()
-        ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-        plot_path = self._save_plot(fig, "hbonds")
-        plt.close(fig)
-        return plot_path
+            line_kwargs["color"] = color
 
+        ax.plot(x, y, **line_kwargs)
+        ax.set_title(title)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.grid(alpha=0.3)
+        ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+
+        fig.tight_layout()
+        outpath = self._save_plot(fig, "hbonds")
+        plt.close(fig)
+        return outpath

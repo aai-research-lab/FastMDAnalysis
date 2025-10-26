@@ -1,0 +1,27 @@
+name: test
+on: [push, pull_request]
+jobs:
+  test:
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: 
+          python-version: ${{ matrix.python-version }}
+      
+      # Install dependencies
+      - run: pip install -U build pytest pytest-cov
+      - run: python -m build
+      - run: pip install dist/*.whl
+      
+      # Run tests with coverage
+      - run: pytest -q --cov=fastmdanalysis --cov-report=xml
+      
+      # Upload to Codecov (no token needed)
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml

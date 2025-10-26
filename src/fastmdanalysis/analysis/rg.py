@@ -1,119 +1,147 @@
+# FastMDAnalysis/src/fastmdanalysis/analysis/rg.py
 """
 Radius of Gyration (RG) Analysis Module
 
 Calculates the radius of gyration for each frame of an MD trajectory.
-This analysis accepts an optional atom selection string so that the RG can be computed on a subset
-of atoms. If no atom selection is provided, the calculation is done on the entire trajectory.
-The computed RG values are saved to a file and a default plot of RG vs. frame is automatically generated.
-Users can replot the data with customizable plotting options.
+Optionally accepts an MDTraj atom selection string so RG can be computed on a subset
+of atoms. If no selection is provided, the calculation uses all atoms.
+
+Outputs
+-------
+- rg.dat  : (N, 1) array of RG values per frame (nm)
+- rg.png  : line plot of RG vs frame
+
+Notes
+-----
+- Units are nanometers (nm), consistent with MDTraj.
 """
+
 from __future__ import annotations
 
+from typing import Optional, Dict
+import logging
 import numpy as np
 import mdtraj as md
+
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from .base import BaseAnalysis, AnalysisError
 
-class RGAnalysis(BaseAnalysis):
-    def __init__(self, trajectory, atoms: str = None, **kwargs):
-        """
-        Initialize RG analysis.
+logger = logging.getLogger(__name__)
 
+
+class RGAnalysis(BaseAnalysis):
+    def __init__(self, trajectory, atoms: Optional[str] = None, **kwargs):
+        """
         Parameters
         ----------
         trajectory : mdtraj.Trajectory
             The MD trajectory to analyze.
         atoms : str, optional
-            An MDTraj atom selection string specifying which atoms to use for the analysis.
-            For example, "protein and name CA". If None, all atoms are used.
+            MDTraj atom selection string (e.g., "protein and name CA").
+            If None, all atoms are used.
         kwargs : dict
-            Additional keyword arguments passed to BaseAnalysis.
+            Passed to BaseAnalysis (e.g., output directory).
         """
         super().__init__(trajectory, **kwargs)
         self.atoms = atoms
-        self.data = None
+        self.data: Optional[np.ndarray] = None
+        self.results: Dict[str, np.ndarray] = {}
 
-    def run(self) -> dict:
+    def _subset_traj(self):
+        """Return trajectory sliced by atom selection if provided."""
+        if self.atoms:
+            sel = self.traj.topology.select(self.atoms)
+            if sel is None or len(sel) == 0:
+                raise AnalysisError(f"No atoms selected using: '{self.atoms}'")
+            return self.traj.atom_slice(sel)
+        return self.traj
+
+    def run(self) -> Dict[str, np.ndarray]:
         """
-        Compute the radius of gyration for each frame.
-
-        If an atom selection is provided, the trajectory is subset accordingly using atom_slice.
-        The computed RG values are then saved and a default plot is generated.
+        Compute the radius of gyration (nm) for each frame.
 
         Returns
         -------
         dict
-            A dictionary with the key "rg" mapping to a column vector of RG values.
+            {"rg": (N, 1) array of RG values per frame in nm}
         """
         try:
-            # If an atom selection is specified, subset the trajectory.
-            if self.atoms is not None:
-                atom_indices = self.traj.topology.select(self.atoms)
-                if atom_indices is None or len(atom_indices) == 0:
-                    raise AnalysisError(f"No atoms selected using the selection: '{self.atoms}'")
-                subtraj = self.traj.atom_slice(atom_indices)
-            else:
-                subtraj = self.traj
+            subtraj = self._subset_traj()
+            logger.info(
+                "RG: starting (atoms=%s, n_frames=%d, n_atoms=%d)",
+                self.atoms if self.atoms else "ALL",
+                subtraj.n_frames,
+                subtraj.n_atoms,
+            )
 
-            # Compute the radius of gyration for each frame using the (possibly) subset trajectory.
-            rg_values = md.compute_rg(subtraj)
-            self.data = rg_values.reshape(-1, 1)
+            rg_values = md.compute_rg(subtraj)  # shape (N,), units nm
+            self.data = np.asarray(rg_values, dtype=float).reshape(-1, 1)
             self.results = {"rg": self.data}
 
-            # Save the computed data.
-            self._save_data(self.data, "rg")
-            # Automatically generate and save the default plot.
+            # Save data and default plot
+            self._save_data(self.data, "rg", header="rg_nm", fmt="%.6f")
             self.plot()
+
+            logger.info("RG: done.")
             return self.results
+
+        except AnalysisError:
+            raise
         except Exception as e:
             raise AnalysisError(f"Radius of gyration analysis failed: {e}")
 
-    def plot(self, data=None, **kwargs):
+    def plot(self, data: Optional[np.ndarray] = None, **kwargs):
         """
         Generate a plot of radius of gyration versus frame number.
 
         Parameters
         ----------
         data : array-like, optional
-            The RG data to plot. If None, uses the data computed by run().
+            RG data to plot; if None, uses data from `run()`.
         kwargs : dict
-            Customizable matplotlib-style keyword arguments, including:
-                - title: Plot title (default: "Radius of Gyration vs Frame").
-                - xlabel: x-axis label (default: "Frame").
-                - ylabel: y-axis label (default: "Radius of Gyration (nm)").
-                - color: Line or marker color.
-                - linestyle: Line style (default: "-").
+            Matplotlib options:
+              - title (str): default "Radius of Gyration vs Frame"
+              - xlabel (str): default "Frame"
+              - ylabel (str): default "Radius of Gyration (nm)"
+              - color (str): line/marker color
+              - linestyle (str): default "-"
+              - marker (str): default "o"
 
         Returns
         -------
         pathlib.Path
-            The file path to the saved plot.
+            Path to the saved plot.
         """
         if data is None:
             data = self.data
         if data is None:
-            raise AnalysisError("No RG data available to plot. Please run analysis first.")
+            raise AnalysisError("No RG data available to plot. Run the analysis first.")
 
-        frames = np.arange(len(data))
+        y = np.asarray(data, dtype=float).reshape(-1)
+        x = np.arange(y.size, dtype=int)
+
         title = kwargs.get("title", "Radius of Gyration vs Frame")
         xlabel = kwargs.get("xlabel", "Frame")
         ylabel = kwargs.get("ylabel", "Radius of Gyration (nm)")
-        color = kwargs.get("color")
+        color = kwargs.get("color", None)
         linestyle = kwargs.get("linestyle", "-")
+        marker = kwargs.get("marker", "o")
 
-        fig = plt.figure(figsize=(10, 6))
-        plot_kwargs = {"marker": "o", "linestyle": linestyle}
+        fig, ax = plt.subplots(figsize=(10, 6))
+        line_kwargs = {"linestyle": linestyle, "marker": marker}
         if color is not None:
-            plot_kwargs["color"] = color
-        plt.plot(frames, data, **plot_kwargs)
-        plt.title(title)
-        plt.xlabel(xlabel)
-        plt.ylabel(ylabel)
-        plt.grid(alpha=0.3)
-        plot_path = self._save_plot(fig, "rg")
-        plt.close(fig)
-        return plot_path
+            line_kwargs["color"] = color
 
+        ax.plot(x, y, **line_kwargs)
+        ax.set_title(title)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.grid(alpha=0.3)
+        fig.tight_layout()
+
+        out = self._save_plot(fig, "rg")
+        plt.close(fig)
+        return out

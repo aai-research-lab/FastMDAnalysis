@@ -1,216 +1,274 @@
+# FastMDAnalysis/src/fastmdanalysis/analysis/sasa.py
 """
 SASA Analysis Module
 
-Computes the Solvent Accessible Surface Area (SASA) for an MD trajectory.
-This module uses MDTraj's Shrake–Rupley algorithm with a specified probe radius to compute SASA.
-It calculates three types of SASA data:
-  1. Total SASA vs. Frame: The sum of per-residue SASA values for each frame.
-  2. Per-Residue SASA vs. Frame: A 2D array showing each residue’s SASA across frames (heatmap).
-  3. Average per-Residue SASA: The average SASA value for each residue over all frames.
+Computes Solvent Accessible Surface Area (SASA) for an MD trajectory using
+MDTraj's Shrake–Rupley algorithm.
 
-If an atom selection string is provided (via the constructor or overridden in method calls),
-only those atoms are used for the analysis. Otherwise, the entire trajectory is used.
+Outputs
+-------
+Data tables (.dat):
+  - total_sasa.dat              : (T, 1) total SASA per frame (nm^2)
+  - residue_sasa.dat            : (T, R) per-residue SASA per frame (rows=frames, cols=residues; nm^2)
+  - average_residue_sasa.dat    : (R, 1) mean SASA per residue across frames (nm^2)
 
-The computed data are saved to files and default plots are generated automatically.
-Users may later replot individual outputs with customizable options.
+Figures (.png):
+  - total_sasa.png              : total SASA vs frame
+  - residue_sasa.png            : heatmap (residue index × frame)
+  - average_residue_sasa.png    : bar plot per residue
 """
+
 from __future__ import annotations
 
+from typing import Dict, Optional
+import logging
 import numpy as np
 import mdtraj as md
+
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from pathlib import Path
 from .base import BaseAnalysis, AnalysisError
 
-class SASAAnalysis(BaseAnalysis):
-    def __init__(self, trajectory, probe_radius: float = 0.14, atoms: str = None, **kwargs):
-        """
-        Initialize SASA analysis.
+logger = logging.getLogger(__name__)
 
+
+def _auto_tick_step(n: int, max_ticks: int) -> int:
+    if n <= 0:
+        return 1
+    if n <= max_ticks:
+        return 1
+    return int(np.ceil(n / float(max_ticks)))
+
+
+class SASAAnalysis(BaseAnalysis):
+    def __init__(self, trajectory, probe_radius: float = 0.14, atoms: Optional[str] = None, **kwargs):
+        """
         Parameters
         ----------
         trajectory : mdtraj.Trajectory
-            The MD trajectory to analyze.
-        probe_radius : float, optional
-            The probe radius (in nm) for the Shrake–Rupley algorithm (default: 0.14).
-        atoms : str, optional
-            An MDTraj atom selection string (e.g., "protein", "protein and name CA") specifying which atoms to use.
-            If None, all atoms are used.
+            Trajectory to analyze.
+        probe_radius : float
+            Probe radius in nm (default 0.14 nm).
+        atoms : str or None
+            MDTraj atom selection string. If None, uses all atoms.
         kwargs : dict
-            Additional keyword arguments passed to BaseAnalysis.
+            Passed to BaseAnalysis (e.g., output directory).
         """
         super().__init__(trajectory, **kwargs)
-        self.probe_radius = probe_radius
+        self.probe_radius = float(probe_radius)
         self.atoms = atoms
-        self.data = None
+        self.data: Optional[Dict[str, np.ndarray]] = None
+        self.results: Dict[str, np.ndarray] = {}
 
-    def run(self) -> dict:
+    # --------------------------------------------------------------------- run
+
+    def run(self) -> Dict[str, np.ndarray]:
         """
-        Compute SASA using MDTraj's Shrake–Rupley algorithm.
-
-        If an atom selection is provided, the trajectory is subset accordingly.
-        Computes:
-          - total_sasa: a 1D array with the sum of SASA for each frame.
-          - residue_sasa: a 2D array (n_frames x n_residues) of per-residue SASA.
-          - average_residue_sasa: a 1D array with the average SASA per residue over all frames.
-
-        Saves all computed datasets to files and automatically generates default plots.
+        Compute SASA datasets and generate default plots.
 
         Returns
         -------
         dict
-            Dictionary with keys "total_sasa", "residue_sasa", and "average_residue_sasa".
+            {
+              "total_sasa": (T,),
+              "residue_sasa": (T, R),
+              "average_residue_sasa": (R,)
+            }
         """
         try:
-            # Subset trajectory if a specific atom selection is given.
-            if self.atoms is not None:
-                atom_indices = self.traj.topology.select(self.atoms)
-                if atom_indices is None or len(atom_indices) == 0:
+            # Subset trajectory by atom selection if provided
+            if self.atoms:
+                sel = self.traj.topology.select(self.atoms)
+                if sel is None or len(sel) == 0:
                     raise AnalysisError(f"No atoms selected using the selection: '{self.atoms}'")
-                subtraj = self.traj.atom_slice(atom_indices)
+                subtraj = self.traj.atom_slice(sel)
             else:
                 subtraj = self.traj
 
-            # Compute per-residue SASA (returns an array of shape (n_frames, n_residues)).
-            residue_sasa = md.shrake_rupley(subtraj, probe_radius=self.probe_radius, mode='residue')
-            # Total SASA per frame is the sum over residues.
-            total_sasa = residue_sasa.sum(axis=1)
-            # Average per-residue SASA is computed over frames.
-            average_residue_sasa = residue_sasa.mean(axis=0)
+            T = subtraj.n_frames
+            logger.info(
+                "SASA: starting (atoms=%s, n_frames=%d, n_atoms=%d, probe=%.3f nm)",
+                self.atoms if self.atoms else "ALL",
+                T, subtraj.n_atoms, self.probe_radius
+            )
 
-            # Store the computed data.
+            # --- Compute per-residue SASA (robust to MDTraj versions)
+            residue_sasa = None
+            try:
+                # Newer MDTraj versions support mode="residue"
+                residue_sasa = md.shrake_rupley(subtraj, probe_radius=self.probe_radius, mode="residue")
+                # shape (T, R)
+            except TypeError:
+                # Fallback: compute per-atom SASA then sum by residue
+                atom_sasa = md.shrake_rupley(subtraj, probe_radius=self.probe_radius)  # (T, A)
+                # Map atoms -> residue index (0..R-1 within subtraj topology)
+                atom_res = np.array([a.residue.index for a in subtraj.topology.atoms], dtype=int)
+                R = int(max(atom_res) + 1) if atom_res.size else 0
+                residue_sasa = np.zeros((T, R), dtype=np.float32)
+                for r in range(R):
+                    residue_sasa[:, r] = atom_sasa[:, atom_res == r].sum(axis=1)
+
+            if residue_sasa.ndim != 2:
+                raise AnalysisError("Unexpected residue_sasa shape; expected 2D (T, R).")
+            T2, R = residue_sasa.shape
+            if T2 != T:
+                raise AnalysisError("residue_sasa frame dimension mismatch.")
+
+            total_sasa = residue_sasa.sum(axis=1)                  # (T,)
+            average_residue_sasa = residue_sasa.mean(axis=0)       # (R,)
+
             self.data = {
-                "total_sasa": total_sasa,                       # shape: (n_frames,)
-                "residue_sasa": residue_sasa,                   # shape: (n_frames, n_residues)
-                "average_residue_sasa": average_residue_sasa    # shape: (n_residues,)
+                "total_sasa": total_sasa,
+                "residue_sasa": residue_sasa,
+                "average_residue_sasa": average_residue_sasa,
             }
             self.results = self.data
 
-            # Save the computed data to files.
-            self._save_data(total_sasa.reshape(-1, 1), "total_sasa")
-            self._save_data(residue_sasa, "residue_sasa")
-            self._save_data(average_residue_sasa.reshape(-1, 1), "average_residue_sasa")
+            # Save data
+            self._save_data(total_sasa.reshape(-1, 1), "total_sasa", header="total_sasa_nm2", fmt="%.6f")
+            # Rows=frames, Cols=residue index (1-based)
+            self._save_data(
+                residue_sasa,
+                "residue_sasa",
+                header="residue_sasa_nm2 (rows=frames, cols=residue index 1..R)",
+                fmt="%.6f"
+            )
+            self._save_data(average_residue_sasa.reshape(-1, 1), "average_residue_sasa", header="avg_residue_sasa_nm2", fmt="%.6f")
 
-            # Generate default plots for all SASA outputs.
+            # Default plots
             self.plot()
-            return self.data
+
+            logger.info("SASA: done.")
+            return self.results
+
+        except AnalysisError:
+            raise
         except Exception as e:
             raise AnalysisError(f"SASA analysis failed: {e}")
 
-    def plot(self, data=None, option="all", **kwargs):
+    # -------------------------------------------------------------------- plot
+
+    def plot(self, data: Optional[Dict[str, np.ndarray]] = None, option: str = "all", **kwargs):
         """
         Replot SASA analysis outputs with customizable options.
 
         Parameters
         ----------
-        data : dict, optional
-            A dictionary containing SASA data (with keys "total_sasa", "residue_sasa", "average_residue_sasa").
-            If None, the internal self.data is used.
-        option : str, optional
-            Which plot to generate. Options:
-                "total"   - Replot total SASA vs. frame.
-                "residue" - Replot per-residue SASA vs. frame heatmap.
-                "average" - Replot average per-residue SASA as a bar plot.
-                "all"     - Generate all plots. (Default)
-        kwargs : dict
-            Customizable plot options. For each type you can define:
-              - For total SASA plot: title_total, xlabel_total, ylabel_total.
-              - For residue SASA heatmap: title_residue, xlabel_residue, ylabel_residue, cmap (colormap).
-              - For average SASA plot: title_avg, xlabel_avg, ylabel_avg.
+        data : dict or None
+            If None, uses self.data.
+        option : {'all','total','residue','average'}
+            Which plots to generate.
 
         Returns
         -------
-        dict or str
-            If option is "all", returns a dictionary with keys "total", "residue", "average"
-            mapping to file paths for each plot. If one option is specified, returns the file path as a string.
+        dict | str
+            Dict of paths for "all" else a single path.
         """
         if data is None:
             data = self.data
         if data is None:
-            raise AnalysisError("No SASA data available. Please run the analysis first.")
+            raise AnalysisError("No SASA data available. Run the analysis first.")
 
         plots = {}
-
-        if option in ["all", "total"]:
+        if option in ("all", "total"):
             plots["total"] = self._plot_total_sasa(data["total_sasa"], **kwargs)
-        if option in ["all", "residue"]:
+        if option in ("all", "residue"):
             plots["residue"] = self._plot_residue_sasa(data["residue_sasa"], **kwargs)
-        if option in ["all", "average"]:
+        if option in ("all", "average"):
             plots["average"] = self._plot_average_residue_sasa(data["average_residue_sasa"], **kwargs)
-        
-        if option == "all":
-            return plots
-        else:
-            # option is a string like "total", "residue", or "average"
-            return plots[option]
 
-    def _plot_total_sasa(self, total_sasa, **kwargs):
-        """Generate a plot for Total SASA vs. Frame."""
-        frames = np.arange(self.traj.n_frames)
-        title = kwargs.get("title_total", "Total SASA vs. Frame")
+        return plots if option == "all" else plots[option]
+
+    def _plot_total_sasa(self, total_sasa: np.ndarray, **kwargs):
+        """Total SASA vs frame."""
+        x = np.arange(total_sasa.shape[0], dtype=int)
+        title = kwargs.get("title_total", "Total SASA vs Frame")
         xlabel = kwargs.get("xlabel_total", "Frame")
         ylabel = kwargs.get("ylabel_total", "Total SASA (nm²)")
-        color = kwargs.get("color_total")
+        color = kwargs.get("color_total", None)
         linestyle = kwargs.get("linestyle_total", "-")
+        marker = kwargs.get("marker_total", "o")
 
-        fig = plt.figure(figsize=(10, 6))
-        plot_kwargs = {"marker": "o", "linestyle": linestyle}
+        fig, ax = plt.subplots(figsize=(10, 6))
+        line_kwargs = {"linestyle": linestyle, "marker": marker}
         if color is not None:
-            plot_kwargs["color"] = color
-        plt.plot(frames, total_sasa, **plot_kwargs)
-        plt.title(title)
-        plt.xlabel(xlabel)
-        plt.ylabel(ylabel)
-        plt.grid(alpha=0.3)
-        plot_path = self._save_plot(fig, "total_sasa")
-        plt.close(fig)
-        return plot_path
+            line_kwargs["color"] = color
 
-    def _plot_residue_sasa(self, residue_sasa, **kwargs):
-        """Generate a heatmap for Per-Residue SASA vs. Frame."""
-        title = kwargs.get("title_residue", "Per-Residue SASA vs. Frame")
+        ax.plot(x, total_sasa, **line_kwargs)
+        ax.set_title(title)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.grid(alpha=0.3)
+        fig.tight_layout()
+        out = self._save_plot(fig, "total_sasa")
+        plt.close(fig)
+        return out
+
+    def _plot_residue_sasa(self, residue_sasa: np.ndarray, **kwargs):
+        """Per-residue SASA heatmap (rows=residues, cols=frames)."""
+        title = kwargs.get("title_residue", "Per-Residue SASA vs Frame")
         xlabel = kwargs.get("xlabel_residue", "Frame")
         ylabel = kwargs.get("ylabel_residue", "Residue Index")
         cmap = kwargs.get("cmap", "viridis")
-        
-        fig = plt.figure(figsize=(12, 8))
-        # Transpose so that rows become residues and columns become frames.
-        im = plt.imshow(residue_sasa.T, aspect="auto", interpolation="none", cmap=cmap)
-        plt.title(title)
-        plt.xlabel(xlabel)
-        plt.ylabel(ylabel)
-        cbar = plt.colorbar(im)
-        cbar.set_label("SASA (nm²)")
-        # Set y-axis tick labels to whole numbers starting from 1.
-        n_residues = residue_sasa.shape[1]
-        plt.yticks(ticks=np.arange(n_residues), labels=np.arange(1, n_residues + 1))
-        plot_path = self._save_plot(fig, "residue_sasa")
-        plt.close(fig)
-        return plot_path
+        max_y_ticks = kwargs.get("max_y_ticks", 40)
+        tick_step = kwargs.get("tick_step", None)  # overrides max_y_ticks if provided
 
-    def _plot_average_residue_sasa(self, average_sasa, **kwargs):
-        """Generate a bar plot for Average per-Residue SASA."""
-        n_residues = average_sasa.shape[0]
-        residues = np.arange(1, n_residues + 1)
+        # Prepare data: (R, T), origin at lower so residue 1 is at bottom
+        R = residue_sasa.shape[1]
+        data = residue_sasa.T  # (R, T)
+
+        fig, ax = plt.subplots(figsize=(12, 8))
+        im = ax.imshow(data, aspect="auto", interpolation="none", cmap=cmap, origin="lower")
+        ax.set_title(title)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        cbar = fig.colorbar(im, ax=ax)
+        cbar.set_label("SASA (nm²)")
+
+        # Y ticks: 1-based residue indices with thinning
+        step = tick_step if tick_step is not None else _auto_tick_step(R, max_y_ticks)
+        ticks = np.arange(0, R, step, dtype=int)
+        labels = (ticks + 1).astype(int).tolist()
+        ax.set_yticks(ticks)
+        ax.set_yticklabels([str(v) for v in labels])
+
+        fig.tight_layout()
+        out = self._save_plot(fig, "residue_sasa")
+        plt.close(fig)
+        return out
+
+    def _plot_average_residue_sasa(self, average_sasa: np.ndarray, **kwargs):
+        """Average per-residue SASA bar plot."""
+        R = int(average_sasa.shape[0])
+        x = np.arange(R, dtype=int)
         title = kwargs.get("title_avg", "Average per-Residue SASA")
         xlabel = kwargs.get("xlabel_avg", "Residue")
         ylabel = kwargs.get("ylabel_avg", "Average SASA (nm²)")
-        color = kwargs.get("color_avg")
+        color = kwargs.get("color_avg", None)
+        max_x_ticks = kwargs.get("max_x_ticks", 40)
+        tick_step = kwargs.get("tick_step_avg", None)
 
-        fig = plt.figure(figsize=(12, 6))
+        fig, ax = plt.subplots(figsize=(12, 6))
         bar_kwargs = {}
         if color is not None:
             bar_kwargs["color"] = color
-        plt.bar(residues, average_sasa.flatten(), **bar_kwargs)
-        plt.title(title)
-        plt.xlabel(xlabel)
-        plt.ylabel(ylabel)
-        plt.xticks(residues)
-        plt.grid(alpha=0.3)
-        plot_path = self._save_plot(fig, "average_residue_sasa")
-        plt.close(fig)
-        return plot_path
+        ax.bar(x + 1, average_sasa.flatten(), **bar_kwargs)  # 1-based residue labels on axis
 
+        ax.set_title(title)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.grid(axis="y", alpha=0.3)
+
+        # X ticks thinning (1-based labels)
+        step = tick_step if tick_step is not None else _auto_tick_step(R, max_x_ticks)
+        ticks = np.arange(0, R, step, dtype=int)
+        labels = (ticks + 1).astype(int).tolist()
+        ax.set_xticks(ticks + 1)
+        ax.set_xticklabels([str(v) for v in labels], rotation=45, ha="right")
+
+        fig.tight_layout()
+        out = self._save_plot(fig, "average_residue_sasa")
+        plt.close(fig)
+        return out

@@ -18,10 +18,19 @@ trajectory and default atom selection unless overridden.
 from __future__ import annotations
 
 from typing import Optional, Tuple, Union, Sequence
+import logging
 
-import mdtraj as md  # noqa: F401  (kept for users importing mdtraj via package)
+import mdtraj as md  # noqa: F401
 from .analysis import rmsd, rmsf, rg, hbonds, cluster, ss, dimred, sasa
 from .utils import load_trajectory  # Extended utility supporting multiple files.
+
+# -----------------------------------------------------------------------------
+# Package logging: install a NullHandler so library users don't get warnings.
+# The CLI configures handlers/levels; library users can configure logging as well.
+# -----------------------------------------------------------------------------
+_pkg_logger = logging.getLogger("fastmdanalysis")
+if not _pkg_logger.handlers:
+    _pkg_logger.addHandler(logging.NullHandler())
 
 # Expose analysis classes.
 RMSDAnalysis = rmsd.RMSDAnalysis
@@ -32,6 +41,18 @@ ClusterAnalysis = cluster.ClusterAnalysis
 SSAnalysis = ss.SSAnalysis
 DimRedAnalysis = dimred.DimRedAnalysis
 SASAAnalysis = sasa.SASAAnalysis
+
+__all__ = [
+    "FastMDAnalysis",
+    "RMSDAnalysis",
+    "RMSFAnalysis",
+    "RGAnalysis",
+    "HBondsAnalysis",
+    "ClusterAnalysis",
+    "SSAnalysis",
+    "DimRedAnalysis",
+    "SASAAnalysis",
+]
 
 
 def _normalize_frames(
@@ -234,5 +255,3 @@ class FastMDAnalysis:
 # Bind analyze method to FastMDAnalysis
 from .analysis.analyze import analyze as _analyze  # noqa: E402
 FastMDAnalysis.analyze = _analyze  # adds the bound method
-
-

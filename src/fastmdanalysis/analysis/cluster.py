@@ -1,35 +1,28 @@
+# FastMDAnalysis/src/fastmdanalysis/analysis/cluster.py
 """
 Cluster Analysis Module
 
 Performs clustering on an MD trajectory using a specified set of atoms.
-By default, the atom selection is "protein and name CA" (unless overridden).
-Supports three clustering methods:
-  - dbscan: Uses a precomputed RMSD distance matrix.
-  - kmeans: Uses the flattened coordinates of selected atoms.
-  - hierarchical: Uses hierarchical clustering (Ward linkage) to generate a dendrogram and assign clusters.
+By default, all methods are run:
+  - dbscan: Uses a precomputed RMSD distance matrix (nm).
+  - kmeans: Uses flattened coordinates (optionally PCA upstream in future).
+  - hierarchical: Ward linkage over flattened coordinates.
 
-For DBSCAN, parameters `eps` and `min_samples` are used.
-For KMeans and hierarchical clustering, parameter `n_clusters` must be provided.
-
-This module computes a pairwise RMSD distance matrix (if needed) using the selected atoms,
-forces the matrix to be symmetric, and applies the specified clustering algorithm.
-It then generates:
-  - A bar plot of cluster populations with distinct colors.
-  - Two trajectory projection plots:
-      * A histogram-style plot where each frame is represented as a vertical bar colored by its cluster.
-      * A scatter plot where each frame is plotted at y = 0 and colored by its cluster.
-  - For DBSCAN, a heatmap plot of the RMSD distance matrix with an accompanying colorbar.
-  - For hierarchical clustering, a dendrogram plot with branches and x-tick labels colored 
-    according to the final clusters (branches that are not homogeneous are colored gray).
-
-All computed data and plots are saved, and their file paths are stored in the results dictionary.
+Key behaviors:
+- DBSCAN labels are relabeled to compact positive integers 1..K; if noise exists (-1 in raw),
+  it is mapped to K+1 so external consumers always see 1,2,3,... (no negatives).
+- Raw sklearn labels (-1 for noise) are also saved for provenance.
+- Extensive logging aids debugging and parameter tuning.
 """
+
 from __future__ import annotations
 
 import logging
-from pathlib import Path
+from typing import Dict, Optional, Tuple, Sequence, Union
+
 import numpy as np
 import mdtraj as md
+
 from sklearn.cluster import DBSCAN, KMeans
 
 import matplotlib
@@ -42,53 +35,75 @@ from scipy.cluster.hierarchy import dendrogram, fcluster, linkage
 
 from .base import BaseAnalysis, AnalysisError
 
-# Use the module-specific logger (its configuration is set by the CLI)
+# Module logger (configured by CLI / caller)
 logger = logging.getLogger(__name__)
 
-def adjust_labels(labels):
-    """Convert cluster labels to 1-based numbering."""
-    labels = np.array(labels)
-    if labels.min() < 1:
-        shift = 1 - labels.min()
-        logger.debug("Adjusting labels with shift: %d", shift)
-        return labels + shift
-    return labels
+# ----------------------------- Label helpers ----------------------------------
+
+def relabel_compact_positive(
+    labels_raw: np.ndarray,
+    start: int = 1,
+    noise_as_last: bool = True
+) -> Tuple[np.ndarray, Dict[int, int], Optional[int]]:
+    """
+    Map labels to contiguous positive integers 1..K; optionally map noise (-1) to K+1.
+
+    Parameters
+    ----------
+    labels_raw : array-like of int
+        sklearn-style labels (DBSCAN uses -1 for noise).
+    start : int
+        First compact label (default 1).
+    noise_as_last : bool
+        If True and noise present, it is mapped to K+1.
+
+    Returns
+    -------
+    labels_compact : np.ndarray
+        Positive labels 1..K (and K+1 for noise if present).
+    mapping : dict
+        Mapping from original non-negative labels to compact labels.
+    noise_label : Optional[int]
+        The compact label used for noise (None if no noise).
+    """
+    raw = np.asarray(labels_raw, dtype=int)
+    uniq_nonneg = sorted([u for u in np.unique(raw) if u >= 0])
+    mapping = {u: (i + start) for i, u in enumerate(uniq_nonneg)}
+
+    labels = np.empty_like(raw)
+    for u, m in mapping.items():
+        labels[raw == u] = m
+
+    noise_label = None
+    if np.any(raw == -1):
+        noise_label = start + len(uniq_nonneg)
+        labels[raw == -1] = noise_label
+    return labels, mapping, noise_label
+
+# ----------------------------- Colormaps/Norms --------------------------------
 
 def get_cluster_cmap(n_clusters: int):
-    """
-    Return a categorical colormap for clustering.
-    
-    Uses a predefined set of 12 visually distinct colors for n_clusters ≤ 12; otherwise falls back to nipy_spectral.
-    """
     predefined_colors = [
-        '#1f77b4',  # Blue
-        '#ff7f0e',  # Orange
-        '#2ca02c',  # Green
-        '#d62728',  # Red
-        '#9467bd',  # Purple
-        '#8c564b',  # Brown
-        '#e377c2',  # Pink
-        '#bcbd22',  # Olive
-        '#17becf',  # Cyan
-        '#e41a1c',  # Distinct Red
-        '#377eb8',  # Different Blue
-        '#f781bf'   # Magenta-ish
+        '#1f77b4','#ff7f0e','#2ca02c','#d62728',
+        '#9467bd','#8c564b','#e377c2','#bcbd22',
+        '#17becf','#e41a1c','#377eb8','#f781bf'
     ]
     if n_clusters <= len(predefined_colors):
         logger.debug("Using predefined colormap for %d clusters", n_clusters)
         return ListedColormap(predefined_colors[:n_clusters])
-    else:
-        logger.debug("Using fallback colormap for %d clusters", n_clusters)
-        return plt.cm.get_cmap("nipy_spectral", n_clusters)
+    logger.debug("Using fallback colormap for %d clusters", n_clusters)
+    return plt.cm.get_cmap("nipy_spectral", n_clusters)
 
 def get_discrete_norm(unique_labels):
-    """Return a BoundaryNorm for the discrete cluster labels."""
-    boundaries = np.arange(unique_labels[0] - 0.5, unique_labels[-1] + 0.5 + 1, 1)
+    unique_labels = np.asarray(unique_labels, dtype=int)
+    unique_labels.sort()
+    boundaries = np.arange(unique_labels[0] - 0.5, unique_labels[-1] + 1.5, 1)
     logger.debug("Discrete boundaries: %s", boundaries)
     return BoundaryNorm(boundaries, len(boundaries) - 1)
 
+# ----------------------------- Dendrogram helpers -----------------------------
+
 def get_leaves(linkage_matrix, idx, N):
-    """Recursively retrieve the leaves (original frame indices) from the linkage matrix."""
     if idx < N:
         return [idx]
     if idx >= 2 * N - 1:
@@ -103,10 +118,6 @@ def get_leaves(linkage_matrix, idx, N):
         return []
 
 def dendrogram_link_color_func_factory(linkage_matrix, final_labels):
-    """
-    Return a link_color_func that assigns a hex color if all leaves share the same cluster label,
-    or gray if they are heterogeneous.
-    """
     N = len(final_labels)
     def link_color_func(i):
         leaves = get_leaves(linkage_matrix, i, N)
@@ -121,63 +132,98 @@ def dendrogram_link_color_func_factory(linkage_matrix, final_labels):
             color_hex = to_hex(cmap_local(norm_local(branch_labels[0])))
             logger.debug("Internal node %d: uniform cluster %d, color %s", i, branch_labels[0], color_hex)
             return color_hex
-        else:
-            logger.debug("Internal node %d: heterogeneous clusters %s", i, branch_labels)
-            return "#808080"
+        logger.debug("Internal node %d: heterogeneous clusters %s", i, branch_labels)
+        return "#808080"
     return link_color_func
 
+# ------------------------------- Core class -----------------------------------
+
 class ClusterAnalysis(BaseAnalysis):
-    def __init__(self, trajectory, methods='dbscan', eps: float = 0.5,
-                 min_samples: int = 5, n_clusters: int = None, atoms: str = None, **kwargs):
+    def __init__(
+        self,
+        trajectory,
+        methods: Union[str, Sequence[str]] = "all",
+        eps: float = 0.2,
+        min_samples: int = 5,
+        n_clusters: Optional[int] = None,
+        atoms: Optional[str] = None,
+        **kwargs
+    ):
         """
-        Initialize clustering analysis.
-        
         Parameters
         ----------
-        trajectory : mdtraj.Trajectory
-            Trajectory to analyze.
-        methods : str or list
-            Clustering method(s) ("dbscan", "kmeans", "hierarchical").
-        eps : float, optional
-            DBSCAN epsilon (default: 0.5).
-        min_samples : int, optional
+        methods : {"all"} | str | list[str]
+            Which clustering methods to run. Default "all" expands to
+            ["dbscan", "kmeans", "hierarchical"].
+        eps : float
+            DBSCAN epsilon in **nm** (MDTraj RMSD units). 0.2 nm ≈ 2 Å is a good starting point.
+        min_samples : int
             DBSCAN minimum samples (default: 5).
         n_clusters : int, optional
-            Number of clusters (required for kmeans and hierarchical).
+            If None and methods include kmeans/hierarchical, defaults to 3.
         atoms : str, optional
-            MDTraj atom selection string.
-        kwargs : dict
-            Additional arguments.
+            MDTraj atom selection string used to slice the trajectory for all methods.
         """
         super().__init__(trajectory, **kwargs)
+
+        # Normalize methods
         if isinstance(methods, str):
-            self.methods = [methods.lower()]
-        elif isinstance(methods, list):
-            self.methods = [m.lower() for m in methods]
+            methods_norm = [methods.lower()]
         else:
-            raise AnalysisError("Parameter 'methods' must be a string or a list of strings.")
-        self.eps = eps
-        self.min_samples = min_samples
-        self.n_clusters = n_clusters
+            methods_norm = [m.lower() for m in methods]
+
+        if "all" in methods_norm:
+            self.methods = ["dbscan", "kmeans", "hierarchical"]
+        else:
+            self.methods = methods_norm
+
+        self.eps = float(eps)
+        self.min_samples = int(min_samples)
+        self.n_clusters = int(n_clusters) if (n_clusters is not None and int(n_clusters) > 0) else None
         self.atoms = atoms
+
         self.atom_indices = self.traj.topology.select(self.atoms) if self.atoms is not None else None
         if self.atoms and (self.atom_indices is None or len(self.atom_indices) == 0):
             raise AnalysisError(f"No atoms found with the selection: '{self.atoms}'")
-        self.results = {}
+
+        self.results: Dict[str, Dict] = {}
+
+    # ----------------------------- Distances/Features --------------------------
 
     def _calculate_rmsd_matrix(self) -> np.ndarray:
-        """Calculate a symmetric pairwise RMSD matrix using the selected atoms."""
+        """Compute a symmetric pairwise RMSD matrix (nm) over frames."""
         logger.info("Calculating RMSD matrix...")
-        n_frames = self.traj.n_frames
-        distances = np.zeros((n_frames, n_frames))
-        for i in range(n_frames):
-            ref_frame = self.traj[i]
-            distances[i] = md.rmsd(self.traj, ref_frame, atom_indices=self.atom_indices) if self.atom_indices is not None else md.rmsd(self.traj, ref_frame)
-        logger.debug("RMSD matrix shape: %s", distances.shape)
-        return (distances + distances.T) / 2.0
+        T = self.traj.n_frames
+        D = np.empty((T, T), dtype=np.float32)
+        for i in range(T):
+            ref = self.traj[i]
+            if self.atom_indices is not None:
+                D[:, i] = md.rmsd(self.traj, ref, atom_indices=self.atom_indices)
+            else:
+                D[:, i] = md.rmsd(self.traj, ref)
+        D = 0.5 * (D + D.T)
+        np.fill_diagonal(D, 0.0)
+        logger.debug("RMSD matrix: shape=%s min=%.4f max=%.4f nm", D.shape, float(D.min()), float(D.max()))
+        return D
+
+    def _distance_diagnostics(self, D: np.ndarray) -> Dict[str, float]:
+        tri = D[np.triu_indices_from(D, k=1)]
+        if tri.size == 0:
+            return {"p25": 0.0, "p50": 0.0, "p75": 0.0, "p90": 0.0, "max": 0.0}
+        diags = {
+            "p25": float(np.percentile(tri, 25)),
+            "p50": float(np.percentile(tri, 50)),
+            "p75": float(np.percentile(tri, 75)),
+            "p90": float(np.percentile(tri, 90)),
+            "max": float(np.max(tri)),
+        }
+        logger.info("RMSD percentiles (nm): p25=%.3f p50=%.3f p75=%.3f p90=%.3f max=%.3f",
+                    diags["p25"], diags["p50"], diags["p75"], diags["p90"], diags["max"])
+        return diags
+
+    # ----------------------------- Plotting helpers ----------------------------
 
     def _plot_population(self, labels, filename, **kwargs):
-        """Generate and save a population bar plot."""
         logger.info("Plotting population bar plot...")
         unique = np.sort(np.unique(labels))
         counts = np.array([np.sum(labels == u) for u in unique])
@@ -186,14 +232,13 @@ class ClusterAnalysis(BaseAnalysis):
         norm = get_discrete_norm(unique)
         plt.bar(unique, counts, width=0.8, color=[cmap(norm(u)) for u in unique])
         plt.title(kwargs.get("title", "Cluster Populations"))
-        plt.xlabel(kwargs.get("xlabel", "Cluster ID"))
+        plt.xlabel(kwargs.get("xlabel", "Cluster ID (compact)"))
         plt.ylabel(kwargs.get("ylabel", "Number of Frames"))
         plt.xticks(unique)
         plt.grid(alpha=0.3)
         return self._save_plot(fig, filename)
 
     def _plot_cluster_trajectory_histogram(self, labels, filename, **kwargs):
-        """Generate and save a cluster trajectory histogram plot."""
         logger.info("Plotting trajectory histogram...")
         unique = np.sort(np.unique(labels))
         image_data = np.array(labels).reshape(1, -1)
@@ -206,11 +251,10 @@ class ClusterAnalysis(BaseAnalysis):
         ax.set_yticks([])
         cbar = fig.colorbar(im, ax=ax, orientation="vertical", ticks=unique)
         cbar.ax.set_yticklabels([str(u) for u in unique])
-        cbar.set_label("Cluster")
+        cbar.set_label("Cluster (compact)")
         return self._save_plot(fig, filename)
 
     def _plot_cluster_trajectory_scatter(self, labels, filename, **kwargs):
-        """Generate and save a cluster trajectory scatter plot."""
         logger.info("Plotting trajectory scatter...")
         frames = np.arange(len(labels))
         fig, ax = plt.subplots(figsize=(10, 4))
@@ -223,18 +267,16 @@ class ClusterAnalysis(BaseAnalysis):
         ax.set_yticks([])
         sm = ScalarMappable(cmap=cmap, norm=norm)
         sm.set_array([])
-        unique = np.sort(np.unique(labels))
         cbar = fig.colorbar(sm, ax=ax, orientation="vertical", ticks=unique)
         cbar.ax.set_yticklabels([str(u) for u in unique])
-        cbar.set_label("Cluster")
+        cbar.set_label("Cluster (compact)")
         return self._save_plot(fig, filename)
 
     def _plot_distance_matrix(self, distances, filename, **kwargs):
-        """Generate and save an RMSD distance matrix heatmap."""
         logger.info("Plotting distance matrix heatmap...")
         fig = plt.figure(figsize=(10, 8))
         im = plt.imshow(distances, aspect="auto", interpolation="none", cmap=kwargs.get("cmap", "viridis"))
-        plt.title(kwargs.get("title", "RMSD Distance Matrix"))
+        plt.title(kwargs.get("title", "RMSD Distance Matrix (nm)"))
         plt.xlabel(kwargs.get("xlabel", "Frame"))
         plt.ylabel(kwargs.get("ylabel", "Frame"))
         cbar = plt.colorbar(im, ax=plt.gca())
@@ -242,7 +284,6 @@ class ClusterAnalysis(BaseAnalysis):
         return self._save_plot(fig, filename)
 
     def _plot_dendrogram(self, linkage_matrix, labels, filename, **kwargs):
-        """Generate and save a dendrogram for hierarchical clustering."""
         logger.info("Plotting dendrogram...")
         N = len(labels)
         explicit_labels = np.arange(N)
@@ -259,27 +300,22 @@ class ClusterAnalysis(BaseAnalysis):
                 color_hex = to_hex(cmap_local(norm_local(branch_labels[0])))
                 logger.debug("Internal node %d: uniform cluster %d, color %s", i, branch_labels[0], color_hex)
                 return color_hex
-            else:
-                logger.debug("Internal node %d: heterogeneous clusters %s", i, branch_labels)
-                return "#808080"
-        try:
-            fig, ax = plt.subplots(figsize=(12, 6))
-            dendro = dendrogram(linkage_matrix, ax=ax, labels=explicit_labels, link_color_func=color_func)
-            new_labels = [str(labels[i]) if i < len(labels) else "NA" for i in dendro["leaves"]]
-            ax.set_xticklabels(new_labels, rotation=90)
-            unique = np.sort(np.unique(labels))
-            cmap_local = get_cluster_cmap(len(unique))
-            norm_local = get_discrete_norm(unique)
-            for tick, i in zip(ax.get_xticklabels(), dendro["leaves"]):
-                if i < len(labels):
-                    tick.set_color(cmap_local(norm_local(labels[i])))
-            ax.set_title(kwargs.get("title", "Hierarchical Clustering Dendrogram"))
-            ax.set_xlabel(kwargs.get("xlabel", "Frame (Cluster Assignment)"))
-            ax.set_ylabel(kwargs.get("ylabel", "Distance"))
-            return self._save_plot(fig, filename)
-        except Exception as e:
-            logger.exception("Error during dendrogram plotting:")
-            raise
+            logger.debug("Internal node %d: heterogeneous clusters %s", i, branch_labels)
+            return "#808080"
+        fig, ax = plt.subplots(figsize=(12, 6))
+        dendro = dendrogram(linkage_matrix, ax=ax, labels=explicit_labels, link_color_func=color_func)
+        new_labels = [str(labels[i]) if i < len(labels) else "NA" for i in dendro["leaves"]]
+        ax.set_xticklabels(new_labels, rotation=90)
+        unique = np.sort(np.unique(labels))
+        cmap_local = get_cluster_cmap(len(unique))
+        norm_local = get_discrete_norm(unique)
+        for tick, i in zip(ax.get_xticklabels(), dendro["leaves"]):
+            if i < len(labels):
+                tick.set_color(cmap_local(norm_local(labels[i])))
+        ax.set_title(kwargs.get("title", "Hierarchical Clustering Dendrogram"))
+        ax.set_xlabel(kwargs.get("xlabel", "Frame (Cluster Assignment)"))
+        ax.set_ylabel(kwargs.get("ylabel", "Distance"))
+        return self._save_plot(fig, filename)
 
     def _save_plot(self, fig, name: str):
         """Save the figure as a PNG file in the output directory and log its path."""
@@ -287,6 +323,8 @@ class ClusterAnalysis(BaseAnalysis):
         fig.savefig(plot_path, bbox_inches="tight")
         logger.info("Plot saved to %s", plot_path)
         return plot_path
+
+    # --------------------------------- Run ------------------------------------
 
     def run(self) -> dict:
         """
@@ -298,109 +336,129 @@ class ClusterAnalysis(BaseAnalysis):
 
         try:
             logger.info("Starting clustering analysis...")
-            results = {}
-            distances = None
+            results: Dict[str, Dict] = {}
+
+            D = None
+            diags = None
             if "dbscan" in self.methods:
-                logger.info("Computing RMSD matrix for DBSCAN...")
-                distances = self._calculate_rmsd_matrix()
+                D = self._calculate_rmsd_matrix()
+                diags = self._distance_diagnostics(D)
+                if self.eps >= diags["p90"]:
+                    logger.warning("DBSCAN eps=%.3f nm >= p90=%.3f nm — likely to merge clusters.", self.eps, diags["p90"])
+                elif self.eps <= diags["p25"]:
+                    logger.warning("DBSCAN eps=%.3f nm <= p25=%.3f nm — likely to mark many frames as noise.", self.eps, diags["p25"])
 
             X_flat = None
-            if any(method in self.methods for method in ["kmeans", "hierarchical"]):
-                logger.info("Computing feature matrix for KMeans/Hierarchical...")
+            need_centroid = any(m in self.methods for m in ["kmeans", "hierarchical"])
+            if need_centroid:
                 X = self.traj.xyz[:, self.atom_indices, :] if self.atom_indices is not None else self.traj.xyz
                 X_flat = X.reshape(self.traj.n_frames, -1)
                 logger.debug("Feature matrix shape: %s", X_flat.shape)
+                # Default n_clusters if not provided
+                if self.n_clusters is None or self.n_clusters < 1:
+                    self.n_clusters = 3
+                    logger.info("n_clusters not provided; defaulting to %d for kmeans/hierarchical.", self.n_clusters)
 
             for method in self.methods:
-                logger.info("Running method: %s", method)
-                if method == "dbscan":
-                    dbscan = DBSCAN(eps=self.eps, min_samples=self.min_samples, metric="precomputed")
-                    labels = dbscan.fit_predict(distances)
-                    labels = adjust_labels(labels)
-                    logger.info("DBSCAN produced %d labels.", len(labels))
-                    frame_indices = np.arange(len(labels), dtype=int)
-                    label_table = np.column_stack((frame_indices, labels))
-                    method_res = {"labels": labels, "distance_matrix": distances}
-                    method_res["labels_file"] = self._save_data(
-                        label_table,
-                        "dbscan_labels",
-                        header="frame cluster",
-                        fmt="%d",
-                    )
-                    method_res["distance_matrix_file"] = self._save_data(
-                        distances,
-                        "dbscan_distance_matrix",
-                        header="RMSD distance matrix",
-                        fmt="%.6f",
-                    )
-                    method_res["pop_plot"] = self._plot_population(labels, "dbscan_pop")
-                    method_res["trajectory_histogram"] = self._plot_cluster_trajectory_histogram(labels, "dbscan_traj_hist")
-                    method_res["trajectory_scatter"] = self._plot_cluster_trajectory_scatter(labels, "dbscan_traj_scatter")
-                    method_res["distance_matrix_plot"] = self._plot_distance_matrix(distances, "dbscan_distance_matrix")
-                    results["dbscan"] = method_res
-                elif method == "kmeans":
-                    if self.n_clusters is None:
-                        raise AnalysisError("For KMeans clustering, n_clusters must be provided.")
-                    kmeans = KMeans(n_clusters=self.n_clusters, random_state=42)
-                    labels = kmeans.fit_predict(X_flat)
-                    labels = adjust_labels(labels)
-                    logger.info("KMeans produced %d labels.", len(labels))
-                    frame_indices = np.arange(len(labels), dtype=int)
-                    label_table = np.column_stack((frame_indices, labels))
-                    method_res = {"labels": labels, "coordinates": X_flat}
-                    method_res["labels_file"] = self._save_data(
-                        label_table,
-                        "kmeans_labels",
-                        header="frame cluster",
-                        fmt="%d",
-                    )
-                    method_res["coordinates_file"] = self._save_data(
-                        X_flat,
-                        "kmeans_coordinates",
-                        header="Flattened coordinates",
-                        fmt="%.6f",
-                    )
-                    method_res["pop_plot"] = self._plot_population(labels, "kmeans_pop")
-                    method_res["trajectory_histogram"] = self._plot_cluster_trajectory_histogram(labels, "kmeans_traj_hist")
-                    method_res["trajectory_scatter"] = self._plot_cluster_trajectory_scatter(labels, "kmeans_traj_scatter")
-                    results["kmeans"] = method_res
-                elif method == "hierarchical":
-                    if self.n_clusters is None:
-                        raise AnalysisError("For hierarchical clustering, n_clusters must be provided.")
-                    logger.info("Computing linkage matrix for hierarchical clustering...")
-                    linkage_matrix = linkage(X_flat, method="ward")
-                    from scipy.cluster.hierarchy import fcluster
-                    labels = fcluster(linkage_matrix, t=self.n_clusters, criterion="maxclust")
-                    labels = adjust_labels(labels)
-                    logger.info("Hierarchical clustering produced %d labels.", len(labels))
-                    if len(labels) != self.traj.n_frames:
-                        logger.warning("Mismatch: number of labels (%d) != number of frames (%d)", len(labels), self.traj.n_frames)
-                    frame_indices = np.arange(len(labels), dtype=int)
-                    label_table = np.column_stack((frame_indices, labels))
-                    method_res = {"labels": labels, "linkage": linkage_matrix}
-                    method_res["labels_file"] = self._save_data(
-                        label_table,
-                        "hierarchical_labels",
-                        header="frame cluster",
-                        fmt="%d",
-                    )
-                    method_res["linkage_file"] = self._save_data(
-                        linkage_matrix,
-                        "hierarchical_linkage",
-                        header="cluster1 cluster2 distance sample_count",
-                        fmt="%.6f",
-                    )
-                    method_res["pop_plot"] = self._plot_population(labels, "hierarchical_pop")
-                    method_res["trajectory_histogram"] = self._plot_cluster_trajectory_histogram(labels, "hierarchical_traj_hist")
-                    method_res["trajectory_scatter"] = self._plot_cluster_trajectory_scatter(labels, "hierarchical_traj_scatter")
-                    method_res["dendrogram_plot"] = self._plot_dendrogram(linkage_matrix, labels, "hierarchical_dendrogram")
-                    results["hierarchical"] = method_res
+                key = method.lower()
+                logger.info("Running method: %s", key)
+
+                if key == "dbscan":
+                    if D is None:
+                        D = self._calculate_rmsd_matrix()
+                        diags = self._distance_diagnostics(D)
+
+                    db = DBSCAN(eps=self.eps, min_samples=self.min_samples, metric="precomputed")
+                    labels_raw = db.fit_predict(D).astype(int, copy=False)   # sklearn: -1=noise
+                    labels_compact, mapping, noise_label = relabel_compact_positive(labels_raw, start=1, noise_as_last=True)
+                    n_clusters = int(len(set(labels_compact)) - (1 if noise_label is not None else 0))
+
+                    logger.info("DBSCAN clusters (excluding noise): %d", n_clusters)
+                    if noise_label is not None:
+                        logger.info("DBSCAN noise mapped to compact label %d.", noise_label)
+
+                    frame_idx = np.arange(labels_compact.size, dtype=int)
+                    results["dbscan"] = {
+                        "labels_raw": labels_raw,              # may contain -1
+                        "labels": labels_compact,              # 1..K (noise -> K+1 if present)
+                        "n_clusters": n_clusters,
+                        "eps_nm": float(self.eps),
+                        "min_samples": int(self.min_samples),
+                        "distance_percentiles_nm": diags or {},
+                        "distance_matrix": D,
+                        "labels_file_compact": self._save_data(
+                            np.column_stack((frame_idx, labels_compact)),
+                            "dbscan_labels_compact",
+                            header="frame label(1..K; noise=K+1)", fmt="%d",
+                        ),
+                        "labels_file_raw": self._save_data(
+                            np.column_stack((frame_idx, labels_raw)),
+                            "dbscan_labels_raw",
+                            header="frame label_raw(-1=noise)", fmt="%d",
+                        ),
+                    }
+                    # Plots use compact labels so colorbars show 1..K(+1)
+                    results["dbscan"]["pop_plot"] = self._plot_population(labels_compact, "dbscan_pop")
+                    results["dbscan"]["trajectory_histogram"] = self._plot_cluster_trajectory_histogram(labels_compact, "dbscan_traj_hist")
+                    results["dbscan"]["trajectory_scatter"] = self._plot_cluster_trajectory_scatter(labels_compact, "dbscan_traj_scatter")
+                    results["dbscan"]["distance_matrix_plot"] = self._plot_distance_matrix(D, "dbscan_distance_matrix")
+
+                elif key == "kmeans":
+                    if self.n_clusters is None or self.n_clusters < 1:
+                        raise AnalysisError("For KMeans clustering, n_clusters must be provided and >=1.")
+                    km = KMeans(n_clusters=int(self.n_clusters), random_state=42, n_init=10)
+                    labels0 = km.fit_predict(X_flat).astype(int, copy=False)  # 0..K-1
+                    labels = labels0 + 1                                      # 1..K
+                    frame_idx = np.arange(labels.size, dtype=int)
+                    results["kmeans"] = {
+                        "labels": labels,
+                        "n_clusters": int(self.n_clusters),
+                        "inertia_": float(km.inertia_),
+                        "labels_file": self._save_data(
+                            np.column_stack((frame_idx, labels)), "kmeans_labels",
+                            header="frame label(1..K)", fmt="%d",
+                        ),
+                        "coordinates_file": self._save_data(
+                            X_flat, "kmeans_coordinates",
+                            header="Flattened coordinates", fmt="%.6f",
+                        ),
+                    }
+                    results["kmeans"]["pop_plot"] = self._plot_population(labels, "kmeans_pop")
+                    results["kmeans"]["trajectory_histogram"] = self._plot_cluster_trajectory_histogram(labels, "kmeans_traj_hist")
+                    results["kmeans"]["trajectory_scatter"] = self._plot_cluster_trajectory_scatter(labels, "kmeans_traj_scatter")
+
+                elif key == "hierarchical":
+                    if self.n_clusters is None or self.n_clusters < 1:
+                        raise AnalysisError("For hierarchical clustering, n_clusters must be provided and >=1.")
+                    logger.info("Computing Ward linkage for hierarchical clustering...")
+                    Z = linkage(X_flat, method="ward")
+                    labels = fcluster(Z, t=int(self.n_clusters), criterion="maxclust").astype(int, copy=False)  # 1..K
+                    frame_idx = np.arange(labels.size, dtype=int)
+                    results["hierarchical"] = {
+                        "labels": labels,
+                        "n_clusters": int(self.n_clusters),
+                        "linkage": Z,
+                        "labels_file": self._save_data(
+                            np.column_stack((frame_idx, labels)), "hierarchical_labels",
+                            header="frame label(1..K)", fmt="%d",
+                        ),
+                        "linkage_file": self._save_data(
+                            Z, "hierarchical_linkage",
+                            header="cluster1 cluster2 distance sample_count", fmt="%.6f",
+                        ),
+                    }
+                    results["hierarchical"]["pop_plot"] = self._plot_population(labels, "hierarchical_pop")
+                    results["hierarchical"]["trajectory_histogram"] = self._plot_cluster_trajectory_histogram(labels, "hierarchical_traj_hist")
+                    results["hierarchical"]["trajectory_scatter"] = self._plot_cluster_trajectory_scatter(labels, "hierarchical_traj_scatter")
+                    results["hierarchical"]["dendrogram_plot"] = self._plot_dendrogram(Z, labels, "hierarchical_dendrogram")
+
                 else:
                     raise AnalysisError(f"Unknown clustering method: {method}")
 
             self.results = results
             logger.info("Clustering analysis complete.")
             return results
+
         except Exception as e:
             logger.exception("Clustering failed:")
             raise AnalysisError(f"Clustering failed: {str(e)}")
@@ -409,4 +467,3 @@ class ClusterAnalysis(BaseAnalysis):
         if not self.results:
             raise AnalysisError("No clustering results available. Run the analysis first.")
         return self.results
-
