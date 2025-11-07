@@ -1,0 +1,271 @@
+[
+  {
+    "name": "RMSD",
+    "shape_match": true,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0,
+    "rmse": 0.0,
+    "mismatch_count": 0,
+    "fastmda_stats": {
+      "min": 0.0,
+      "max": 0.3269995152950287,
+      "mean": 0.22029754385352135,
+      "std": 0.026069823556473033
+    },
+    "ref_stats": {
+      "min": 0.0,
+      "max": 0.3269995152950287,
+      "mean": 0.22029754519462585,
+      "std": 0.026069823652505875
+    },
+    "fastmda_shape": "(500,)",
+    "ref_shape": "(500,)",
+    "status": "pass",
+    "detail": "Excellent agreement (RMSE=0.00e+00)",
+    "backend": "mdtraj",
+    "metric": "rmsd"
+  },
+  {
+    "name": "RMSF",
+    "shape_match": true,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0,
+    "rmse": 0.0,
+    "mismatch_count": 0,
+    "fastmda_stats": {
+      "min": 0.037400707602500916,
+      "max": 0.4667855501174927,
+      "mean": 0.1346993270379148,
+      "std": 0.07502094443938515
+    },
+    "ref_stats": {
+      "min": 0.037400707602500916,
+      "max": 0.4667855501174927,
+      "mean": 0.13469931483268738,
+      "std": 0.07502094656229019
+    },
+    "fastmda_shape": "(304,)",
+    "ref_shape": "(304,)",
+    "status": "pass",
+    "detail": "Excellent agreement (RMSE=0.00e+00)",
+    "backend": "mdtraj",
+    "metric": "rmsf"
+  },
+  {
+    "name": "Radius of Gyration",
+    "shape_match": true,
+    "max_abs_diff": 1.4123052172188011e-08,
+    "mean_abs_diff": 1.975171656454222e-09,
+    "rmse": 2.7062743740563174e-09,
+    "mismatch_count": 0,
+    "fastmda_stats": {
+      "min": 0.718919018731294,
+      "max": 0.7924635427675598,
+      "mean": 0.7505652145576569,
+      "std": 0.013901543952003017
+    },
+    "ref_stats": {
+      "min": 0.7189190179450762,
+      "max": 0.7924635433976966,
+      "mean": 0.7505652144050708,
+      "std": 0.013901544014326028
+    },
+    "fastmda_shape": "(500,)",
+    "ref_shape": "(500,)",
+    "status": "pass",
+    "detail": "Excellent agreement (RMSE=2.71e-09)",
+    "backend": "mdtraj",
+    "metric": "rg"
+  },
+  {
+    "name": "Hydrogen Bonds",
+    "backend": "mdtraj",
+    "metric": "hbond_count",
+    "status": "info",
+    "detail": "FastMDA found data, MDTraj found 25 unique bonds",
+    "shape_match": true,
+    "fastmda_stats": {
+      "min": 16.0,
+      "max": 38.0,
+      "mean": 26.476,
+      "std": 3.755186280332841
+    },
+    "ref_stats": {
+      "count": 25
+    },
+    "fastmda_shape": "(500,)",
+    "ref_shape": "(25,)"
+  },
+  {
+    "name": "Secondary Structure",
+    "backend": "mdtraj",
+    "metric": "dssp",
+    "status": "pass",
+    "detail": "Match rate: 100.00% (10000/10000 elements)",
+    "shape_match": true,
+    "fastmda_shape": "(500, 20)",
+    "ref_shape": "(500, 20)",
+    "fastmda_stats": {},
+    "ref_stats": {},
+    "max_abs_diff": NaN,
+    "mean_abs_diff": NaN,
+    "rmse": NaN,
+    "mismatch_count": 0
+  },
+  {
+    "name": "SASA (total)",
+    "shape_match": true,
+    "max_abs_diff": 0.09748268127441406,
+    "mean_abs_diff": 0.00021208191174082458,
+    "rmse": 0.004362152889370918,
+    "mismatch_count": 16,
+    "fastmda_stats": {
+      "min": 18.019351959228516,
+      "max": 21.029521942138672,
+      "mean": 19.36692237854004,
+      "std": 0.5638094544410706
+    },
+    "ref_stats": {
+      "min": 18.019351959228516,
+      "max": 21.029521942138672,
+      "mean": 19.36673355102539,
+      "std": 0.5637862086296082
+    },
+    "fastmda_shape": "(500,)",
+    "ref_shape": "(500,)",
+    "status": "pass",
+    "detail": "Good agreement (RMSE=4.36e-03)",
+    "backend": "mdtraj",
+    "metric": "total_sasa"
+  },
+  {
+    "name": "SASA (per-residue)",
+    "shape_match": true,
+    "max_abs_diff": 0.09748435020446777,
+    "mean_abs_diff": 1.060354679793818e-05,
+    "rmse": 0.0009753204649314284,
+    "mismatch_count": 14,
+    "fastmda_stats": {
+      "min": 0.0,
+      "max": 2.2547380924224854,
+      "mean": 0.9683461785316467,
+      "std": 0.49494802951812744
+    },
+    "ref_stats": {
+      "min": 0.0,
+      "max": 2.2547380924224854,
+      "mean": 0.9683367013931274,
+      "std": 0.4949375092983246
+    },
+    "fastmda_shape": "(500, 20)",
+    "ref_shape": "(500, 20)",
+    "status": "pass",
+    "detail": "Good agreement (RMSE=9.75e-04)",
+    "backend": "mdtraj",
+    "metric": "residue_sasa"
+  },
+  {
+    "name": "SASA (avg per-residue)",
+    "shape_match": true,
+    "max_abs_diff": 0.00019311904907226562,
+    "mean_abs_diff": 1.0415911674499512e-05,
+    "rmse": 4.320220250519924e-05,
+    "mismatch_count": 8,
+    "fastmda_stats": {
+      "min": 0.01771492138504982,
+      "max": 1.8496006727218628,
+      "mean": 0.968346118927002,
+      "std": 0.47307711839675903
+    },
+    "ref_stats": {
+      "min": 0.01771492138504982,
+      "max": 1.8495981693267822,
+      "mean": 0.9683367013931274,
+      "std": 0.4730648696422577
+    },
+    "fastmda_shape": "(20,)",
+    "ref_shape": "(20,)",
+    "status": "pass",
+    "detail": "Excellent agreement (RMSE=4.32e-05)",
+    "backend": "mdtraj",
+    "metric": "avg_residue_sasa"
+  },
+  {
+    "name": "Clustering (kmeans)",
+    "shape_match": true,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0,
+    "rmse": 0.0,
+    "mismatch_count": 0,
+    "fastmda_stats": {
+      "min": 1.0,
+      "max": 3.0,
+      "mean": 2.096,
+      "std": 0.7285492433597061
+    },
+    "ref_stats": {
+      "min": 1.0,
+      "max": 3.0,
+      "mean": 2.096,
+      "std": 0.7285492433597061
+    },
+    "fastmda_shape": "(500,)",
+    "ref_shape": "(500,)",
+    "status": "pass",
+    "detail": "Excellent agreement (RMSE=0.00e+00)",
+    "backend": "sklearn",
+    "metric": "cluster_kmeans"
+  },
+  {
+    "name": "Clustering (dbscan)",
+    "shape_match": true,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0,
+    "rmse": 0.0,
+    "mismatch_count": 0,
+    "fastmda_stats": {
+      "min": 0.0,
+      "max": 0.0,
+      "mean": 0.0,
+      "std": 0.0
+    },
+    "ref_stats": {
+      "min": 0.0,
+      "max": 0.0,
+      "mean": 0.0,
+      "std": 0.0
+    },
+    "fastmda_shape": "(500,)",
+    "ref_shape": "(500,)",
+    "status": "pass",
+    "detail": "Excellent agreement (RMSE=0.00e+00)",
+    "backend": "sklearn",
+    "metric": "cluster_dbscan"
+  },
+  {
+    "name": "Clustering (hierarchical)",
+    "shape_match": true,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0,
+    "rmse": 0.0,
+    "mismatch_count": 0,
+    "fastmda_stats": {
+      "min": 1.0,
+      "max": 3.0,
+      "mean": 1.826,
+      "std": 0.8507196953168534
+    },
+    "ref_stats": {
+      "min": 1.0,
+      "max": 3.0,
+      "mean": 1.826,
+      "std": 0.8507196953168534
+    },
+    "fastmda_shape": "(500,)",
+    "ref_shape": "(500,)",
+    "status": "pass",
+    "detail": "Excellent agreement (RMSE=0.00e+00)",
+    "backend": "sklearn",
+    "metric": "cluster_hierarchical"
+  }
+]

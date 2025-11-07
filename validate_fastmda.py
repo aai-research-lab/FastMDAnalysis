@@ -545,30 +545,37 @@ def validate_sasa(fastmda: FastMDAnalysis, traj: md.Trajectory) -> List[Dict[str
     
     # MDTraj SASA
     try:
-        # MDTraj SASA - compute on the full selected trajectory
-        mdtraj_total = md.shrake_rupley(traj, probe_radius=0.14, mode='atom')
-        # Sum over atoms to get total per frame
-        mdtraj_total_sum = np.sum(mdtraj_total, axis=1)
-        
-        # Compare total SASA
-        if fmda_total is not None:
+        mdtraj_residue = None
+        mdtraj_total_sum = None
+        try:
+            mdtraj_residue = md.shrake_rupley(traj, probe_radius=0.14, mode='residue')
+            mdtraj_total_sum = np.sum(mdtraj_residue, axis=1)
+        except TypeError:
+            mdtraj_atom = md.shrake_rupley(traj, probe_radius=0.14, mode='atom')
+            mdtraj_total_sum = np.sum(mdtraj_atom, axis=1)
+            atom_res = np.array([atom.residue.index for atom in traj.topology.atoms], dtype=int)
+            residue_count = int(atom_res.max()) + 1 if atom_res.size else 0
+            mdtraj_residue = np.zeros((traj.n_frames, residue_count), dtype=np.float32)
+            for r in range(residue_count):
+                mask = atom_res == r
+                if np.any(mask):
+                    mdtraj_residue[:, r] = mdtraj_atom[:, mask].sum(axis=1)
+
+        if fmda_total is not None and mdtraj_total_sum is not None:
             comparison = compare_arrays(fmda_total, mdtraj_total_sum, 'SASA (total)')
             comparison['backend'] = 'mdtraj'
             comparison['metric'] = 'total_sasa'
             results.append(comparison)
             print(f"  SASA (total) vs MDTraj: {comparison['status']} - {comparison['detail']}")
-        
-        # Compare per-residue SASA
-        try:
-            mdtraj_residue = md.shrake_rupley(traj, probe_radius=0.14, mode='residue')
+
+        if mdtraj_residue is not None:
             if fmda_residue is not None:
                 comparison = compare_arrays(fmda_residue, mdtraj_residue, 'SASA (per-residue)')
                 comparison['backend'] = 'mdtraj'
                 comparison['metric'] = 'residue_sasa'
                 results.append(comparison)
                 print(f"  SASA (residue) vs MDTraj: {comparison['status']} - {comparison['detail']}")
-            
-            # Compare average per-residue
+
             mdtraj_avg = np.mean(mdtraj_residue, axis=0)
             if fmda_avg_residue is not None:
                 comparison = compare_arrays(fmda_avg_residue, mdtraj_avg, 'SASA (avg per-residue)')
@@ -576,9 +583,7 @@ def validate_sasa(fastmda: FastMDAnalysis, traj: md.Trajectory) -> List[Dict[str
                 comparison['metric'] = 'avg_residue_sasa'
                 results.append(comparison)
                 print(f"  SASA (avg residue) vs MDTraj: {comparison['status']} - {comparison['detail']}")
-        except Exception as e:
-            print(f"  Error computing per-residue SASA with MDTraj: {e}")
-        
+
     except Exception as e:
         print(f"  Error comparing with MDTraj: {e}")
         results.append({
