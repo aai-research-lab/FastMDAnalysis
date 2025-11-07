@@ -2,8 +2,8 @@
 """
 FastMDAnalysis Performance Benchmark
 
-This script benchmarks FastMDAnalysis using the CLI with RMSD, RMSF, RG, and Clustering
-analyses on the TrpCage dataset with 500 frames (frames 0:-1,10).
+This script benchmarks FastMDAnalysis using the CLI with RMSD, RMSF, RG, and Cluster
+analyses on the TrpCage dataset with 500 frames (frames 0,-1,10).
 
 It measures:
 - Total runtime (computation + plotting)
@@ -207,7 +207,7 @@ def create_benchmark_plots(result):
         f.write("=" * 70 + "\n\n")
         f.write(f"Dataset: TrpCage (500 frames with frames=0,-1,10)\n")
         f.write(f"Analyses: RMSD, RMSF, RG, Cluster\n")
-        f.write(f"CLI Command: fastmda analyze -traj traj.dcd -top top.pdb --frames 0,-1,10 --include cluster rmsd rg rmsf\n\n")
+        f.write(f"CLI Command: fastmda analyze -traj <traj.dcd> -top <top.pdb> --frames 0,-1,10 --include cluster rmsd rg rmsf\n\n")
         f.write("Results:\n")
         f.write("-" * 70 + "\n")
         f.write(f"Runtime (computation + plotting): {format_time(result['runtime'])}\n")

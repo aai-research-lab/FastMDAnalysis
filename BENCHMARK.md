@@ -11,7 +11,7 @@ The benchmark measures FastMDAnalysis performance on the following metrics:
 
 ## Dataset
 
-- **TrpCage**: 500 frames selected using `frames=(0, -1, 10)` from 4999 total frames
+- **TrpCage**: 500 frames selected using `--frames 0,-1,10` from 4999 total frames
 - **Atom Selection**: All atoms (default)
 
 ## Analyses Performed
@@ -45,8 +45,10 @@ python benchmark_performance.py
 The benchmark executes the following single-line command (1 LOC):
 
 ```bash
-fastmda analyze -traj traj.dcd -top top.pdb --frames 0,-1,10 --include cluster rmsd rg rmsf
+fastmda analyze -traj <traj.dcd> -top <top.pdb> --frames 0,-1,10 --include cluster rmsd rg rmsf
 ```
+
+Where `<traj.dcd>` and `<top.pdb>` are the trajectory and topology files (e.g., from TrpCage dataset).
 
 ## Expected Output
 
@@ -65,7 +67,7 @@ FastMDAnalysis Performance Benchmark Results
 
 Dataset: TrpCage (500 frames with frames=0,-1,10)
 Analyses: RMSD, RMSF, RG, Cluster
-CLI Command: fastmda analyze -traj traj.dcd -top top.pdb --frames 0,-1,10 --include cluster rmsd rg rmsf
+CLI Command: fastmda analyze -traj <traj.dcd> -top <top.pdb> --frames 0,-1,10 --include cluster rmsd rg rmsf
 
 Results:
 ----------------------------------------------------------------------
@@ -116,7 +118,7 @@ To benchmark additional analyses or datasets:
 
 Example with different parameters:
 ```bash
-fastmda analyze -traj traj.dcd -top top.pdb --frames 0,1000,5 --atoms "protein" --include rmsd rmsf rg hbonds ss sasa
+fastmda analyze -traj <traj.dcd> -top <top.pdb> --frames 0,1000,5 --atoms "protein" --include rmsd rmsf rg hbonds ss sasa
 ```
 
 ## License
