@@ -135,7 +135,22 @@ Secondary Structure: 100% match with MDTraj DSSP ✓
 SASA (total): Good agreement (RMSE~1e-04) ✓
 SASA (per-residue): Excellent agreement (RMSE~3e-05) ✓
 SASA (avg per-residue): Excellent agreement (RMSE~1e-06) ✓
+Clustering (KMeans): Excellent agreement (RMSE=0.00e+00) ✓
+Clustering (DBSCAN): Excellent agreement (RMSE=0.00e+00) ✓
+Clustering (Hierarchical): Excellent agreement (RMSE=0.00e+00) ✓
 ```
+
+## Clustering Validation Details
+
+Clustering validation compares FastMDAnalysis results against direct sklearn calls:
+
+- **KMeans**: Validates against sklearn.cluster.KMeans with the same parameters (random_state=42, n_init=10). Labels are compared after accounting for 0-based (sklearn) vs 1-based (FastMDAnalysis) indexing.
+
+- **DBSCAN**: Validates against sklearn.cluster.DBSCAN with precomputed RMSD distance matrix. Raw labels (before FastMDAnalysis relabeling) are compared to ensure exact match.
+
+- **Hierarchical**: Validates against scipy.cluster.hierarchy linkage with ward method and fcluster. Labels should match exactly since the algorithm is deterministic.
+
+All three methods should achieve RMSE=0.00e+00, indicating perfect agreement with sklearn.
 
 ## Requirements
 
@@ -150,7 +165,8 @@ The validation script requires:
 
 - MDAnalysis comparisons are currently commented out in the RMSD validation for performance reasons
 - Hydrogen bonds validation provides informational counts rather than direct comparison
-- Dimensionality reduction and clustering results are validated for correct shape/format rather than exact values (due to randomness in algorithms)
+- Dimensionality reduction results are validated for correct shape/format rather than exact values (due to randomness in algorithms)
+- **Clustering results are validated against sklearn directly** - FastMDAnalysis and sklearn should produce identical labels with the same parameters and data
 - Some analyses may require trajectory bonds to be defined; the script handles these cases gracefully
 
 ## Troubleshooting

@@ -642,9 +642,14 @@ def validate_dimred(fastmda: FastMDAnalysis, traj: md.Trajectory) -> List[Dict[s
 
 def validate_clustering(fastmda: FastMDAnalysis, traj: md.Trajectory) -> List[Dict[str, Any]]:
     """
-    Validate Clustering calculation.
+    Validate Clustering calculation against sklearn.
     
-    Note: Like dimred, clustering results can vary, but we check expected properties.
+    FastMDAnalysis uses sklearn for clustering, so we validate by comparing
+    against direct sklearn calls using the same parameters and data.
+    
+    For clustering, we compare the raw sklearn labels directly (exact match expected).
+    Since clustering algorithms use deterministic procedures (with fixed random_state
+    for KMeans), the labels should be identical.
     
     Args:
         fastmda: FastMDAnalysis instance
@@ -653,39 +658,125 @@ def validate_clustering(fastmda: FastMDAnalysis, traj: md.Trajectory) -> List[Di
     Returns:
         List of comparison results
     """
+    from sklearn.cluster import DBSCAN, KMeans
+    from scipy.cluster.hierarchy import linkage, fcluster
+    
     results = []
     
     print("Validating Clustering...")
     
+    # Clustering parameters to use
+    n_clusters = 3
+    eps = 0.5
+    min_samples = 2
+    
     # FastMDAnalysis Clustering
     try:
         fmda_cluster = fastmda.cluster(methods=['kmeans', 'dbscan', 'hierarchical'], 
-                                       n_clusters=3, eps=0.5, min_samples=2)
+                                       n_clusters=n_clusters, eps=eps, min_samples=min_samples)
         
-        if hasattr(fmda_cluster, 'results') and isinstance(fmda_cluster.results, dict):
-            for method, data in fmda_cluster.results.items():
-                if data is not None and 'labels' in data:
-                    labels = data['labels']
-                    n_clusters = len(np.unique(labels))
-                    result = {
+        if not hasattr(fmda_cluster, 'results') or not isinstance(fmda_cluster.results, dict):
+            results.append({
+                'name': 'Clustering',
+                'backend': 'sklearn',
+                'status': 'error',
+                'detail': 'FastMDAnalysis cluster results have unexpected format'
+            })
+            return results
+        
+        # Prepare data for sklearn validation
+        # IMPORTANT: We must use the same trajectory data that FastMDAnalysis used
+        # FastMDAnalysis uses its internal self.traj, so we should use that too
+        # to ensure we're comparing apples to apples
+        X_flat = fastmda.traj.xyz.reshape(fastmda.traj.n_frames, -1)
+        
+        # Prepare RMSD distance matrix for DBSCAN
+        # IMPORTANT: md.rmsd() MODIFIES the trajectory by aligning frames!
+        # We must work with a copy to avoid corrupting the original trajectory
+        traj_copy = fastmda.traj.slice(range(fastmda.traj.n_frames), copy=True)
+        D = np.empty((traj_copy.n_frames, traj_copy.n_frames), dtype=np.float32)
+        for i in range(traj_copy.n_frames):
+            ref = traj_copy[i]
+            D[:, i] = md.rmsd(traj_copy, ref)
+        D = 0.5 * (D + D.T)
+        np.fill_diagonal(D, 0.0)
+        
+        # Validate each clustering method
+        for method, data in fmda_cluster.results.items():
+            if data is None or 'labels' not in data:
+                results.append({
+                    'name': f'Clustering ({method})',
+                    'backend': 'sklearn',
+                    'metric': f'cluster_{method}',
+                    'status': 'error',
+                    'detail': f'No labels found in {method} results'
+                })
+                continue
+            
+            fmda_labels = data['labels']
+            
+            # Run sklearn directly with the same parameters
+            if method == 'kmeans':
+                # FastMDAnalysis uses random_state=42, n_init=10
+                km = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+                sklearn_labels_raw = km.fit_predict(X_flat)
+                # FastMDAnalysis shifts labels from 0-based to 1-based
+                sklearn_labels = sklearn_labels_raw + 1
+                
+            elif method == 'dbscan':
+                # FastMDAnalysis uses precomputed distance matrix
+                db = DBSCAN(eps=eps, min_samples=min_samples, metric="precomputed")
+                sklearn_labels_raw = db.fit_predict(D)
+                # FastMDAnalysis has custom relabeling for DBSCAN
+                # We compare the raw labels (before relabeling) which should match exactly
+                if 'labels_raw' not in data:
+                    # This should not happen - FastMDAnalysis always stores labels_raw for DBSCAN
+                    results.append({
                         'name': f'Clustering ({method})',
-                        'backend': 'FastMDAnalysis',
+                        'backend': 'sklearn',
                         'metric': f'cluster_{method}',
-                        'status': 'pass' if len(labels) == traj.n_frames else 'fail',
-                        'detail': f'{n_clusters} clusters found, {len(labels)} labels',
-                        'shape_match': True,
-                        'fastmda_stats': {'n_clusters': n_clusters, 'n_labels': len(labels)},
-                        'fastmda_shape': str(labels.shape),
-                        'ref_shape': 'N/A (sklearn-based)'
-                    }
-                    results.append(result)
-                    print(f"  Clustering ({method}): {result['status']} - {result['detail']}")
+                        'status': 'error',
+                        'detail': 'DBSCAN labels_raw not found in FastMDAnalysis results'
+                    })
+                    continue
+                
+                fmda_labels_raw = data['labels_raw']
+                comparison = compare_arrays(fmda_labels_raw, sklearn_labels_raw, f'Clustering ({method})')
+                comparison['backend'] = 'sklearn'
+                comparison['metric'] = f'cluster_{method}'
+                results.append(comparison)
+                print(f"  Clustering ({method}): {comparison['status']} - {comparison['detail']}")
+                continue
+                    
+            elif method == 'hierarchical':
+                # FastMDAnalysis uses ward linkage and fcluster
+                Z = linkage(X_flat, method="ward")
+                sklearn_labels = fcluster(Z, t=n_clusters, criterion="maxclust")
+                
+            else:
+                results.append({
+                    'name': f'Clustering ({method})',
+                    'backend': 'sklearn',
+                    'metric': f'cluster_{method}',
+                    'status': 'error',
+                    'detail': f'Unknown clustering method: {method}'
+                })
+                continue
+            
+            # Compare labels
+            comparison = compare_arrays(fmda_labels, sklearn_labels, f'Clustering ({method})')
+            comparison['backend'] = 'sklearn'
+            comparison['metric'] = f'cluster_{method}'
+            results.append(comparison)
+            print(f"  Clustering ({method}): {comparison['status']} - {comparison['detail']}")
+            
     except Exception as e:
+        import traceback
         results.append({
             'name': 'Clustering',
-            'backend': 'FastMDAnalysis',
+            'backend': 'sklearn',
             'status': 'error',
-            'detail': f'Error: {str(e)}'
+            'detail': f'Error: {str(e)}\n{traceback.format_exc()}'
         })
     
     return results

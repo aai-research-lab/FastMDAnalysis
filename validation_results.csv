@@ -7,6 +7,6 @@ Secondary Structure,mdtraj,dssp,pass,True,nan,nan,nan,0,Match rate: 100.00% (100
 SASA (total),mdtraj,total_sasa,pass,True,0.00202178955078125,1.8108368749381043e-05,0.00015039568825159222,244,Good agreement (RMSE=1.50e-04),18.019351959228516,21.029521942138672,19.36737060546875,0.5636588931083679,18.019351959228516,21.029521942138672,19.36737823486328,0.5636696815490723,"(500,)","(500,)"
 SASA (per-residue),mdtraj,residue_sasa,pass,True,0.0012578964233398438,8.551120913580235e-07,3.050028499274049e-05,13,Excellent agreement (RMSE=3.05e-05),0.0,2.2547380924224854,0.9683685302734375,0.4949585795402527,0.0,2.2547380924224854,0.9683688282966614,0.494958758354187,"(500, 20)","(500, 20)"
 SASA (avg per-residue),mdtraj,avg_residue_sasa,pass,True,2.6226043701171875e-06,8.55326675264223e-07,1.3694158269572654e-06,8,Excellent agreement (RMSE=1.37e-06),0.017715340480208397,1.8496462106704712,0.968368649482727,0.47308820486068726,0.017715340480208397,1.8496437072753906,0.9683690071105957,0.47308826446533203,"(20,)","(20,)"
-Clustering (kmeans),FastMDAnalysis,cluster_kmeans,pass,True,,,,,"3 clusters found, 500 labels",,,,,,,,,"(500,)",N/A (sklearn-based)
-Clustering (dbscan),FastMDAnalysis,cluster_dbscan,pass,True,,,,,"1 clusters found, 500 labels",,,,,,,,,"(500,)",N/A (sklearn-based)
-Clustering (hierarchical),FastMDAnalysis,cluster_hierarchical,pass,True,,,,,"3 clusters found, 500 labels",,,,,,,,,"(500,)",N/A (sklearn-based)
+Clustering (kmeans),sklearn,cluster_kmeans,pass,True,0.0,0.0,0.0,0,Excellent agreement (RMSE=0.00e+00),1.0,3.0,2.096,0.7285492433597061,1.0,3.0,2.096,0.7285492433597061,"(500,)","(500,)"
+Clustering (dbscan),sklearn,cluster_dbscan,pass,True,0.0,0.0,0.0,0,Excellent agreement (RMSE=0.00e+00),0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,"(500,)","(500,)"
+Clustering (hierarchical),sklearn,cluster_hierarchical,pass,True,0.0,0.0,0.0,0,Excellent agreement (RMSE=0.00e+00),1.0,3.0,1.826,0.8507196953168534,1.0,3.0,1.826,0.8507196953168534,"(500,)","(500,)"
