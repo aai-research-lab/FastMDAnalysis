@@ -57,7 +57,7 @@ The benchmark produces a summary table showing:
 Library              Runtime         Memory          LOC        Status
 ----------------------------------------------------------------------
 FastMDAnalysis       ~15s            ~192 MB         8          ✓
-MDTraj               ~3s             ~20 MB          31         ✓
+MDTraj               ~3s             ~20 MB          28         ✓
 MDAnalysis           ~0.4s           ~4 MB           36         ✓
 ```
 
@@ -72,7 +72,7 @@ MDAnalysis           ~0.4s           ~4 MB           36         ✓
 
 2. **Simplified API**
    - FastMDAnalysis: 8 lines of code
-   - MDTraj: 31 lines of code
+   - MDTraj: 28 lines of code
    - MDAnalysis: 36+ lines (partial implementation)
    - Full MDAnalysis implementation: ~60+ lines
 
@@ -90,7 +90,7 @@ MDAnalysis           ~0.4s           ~4 MB           36         ✓
 
 The benchmark demonstrates that FastMDAnalysis provides:
 - **Comparable computational performance** to direct MDTraj usage
-- **Significantly simpler API** (8 LOC vs 31-60+ LOC)
+- **Significantly simpler API** (8 LOC vs 28-60+ LOC)
 - **Automatic visualization** and organized output
 - **Complete analysis suite** in a single call
 
