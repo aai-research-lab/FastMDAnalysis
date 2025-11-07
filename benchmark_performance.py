@@ -35,6 +35,9 @@ warnings.filterwarnings('ignore', message='Unlikely unit cell vectors detected')
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 warnings.filterwarnings('ignore', category=UserWarning)
 
+# Constants
+ANGSTROM_TO_NM = 10.0  # Conversion factor from Angstroms to nanometers
+
 # Import FastMDAnalysis components
 try:
     sys.path.insert(0, str(Path(__file__).parent / 'src'))
@@ -54,6 +57,24 @@ try:
 except ImportError:
     HAS_MDANALYSIS = False
     warnings.warn("MDAnalysis not available - MDAnalysis benchmark will be skipped")
+
+
+def apply_frame_selection(traj, frames):
+    """
+    Apply frame selection to a trajectory.
+    
+    Args:
+        traj: MDTraj trajectory object
+        frames: Tuple of (start, stop, stride)
+        
+    Returns:
+        Sliced trajectory
+    """
+    start, stop, stride = frames
+    if stop == -1 or stop is None:
+        return traj[start::stride]
+    else:
+        return traj[start:stop:stride]
 
 
 def format_memory(bytes_val):
@@ -155,11 +176,7 @@ def benchmark_mdtraj(traj_file, top_file, frames):
     # ============================================
     # Load trajectory with frame selection
     traj = md.load(traj_file, top=top_file)
-    start, stop, stride = frames
-    if stop == -1 or stop is None:
-        traj = traj[start::stride]
-    else:
-        traj = traj[start:stop:stride]
+    traj = apply_frame_selection(traj, frames)
     
     # Select protein atoms
     atom_indices = traj.topology.select('protein')
@@ -199,13 +216,13 @@ def benchmark_mdtraj(traj_file, top_file, frames):
     print(f"✓ MDTraj completed successfully")
     print(f"  Runtime: {format_time(runtime)}")
     print(f"  Peak Memory: {format_memory(peak)}")
-    print(f"  Lines of Code: 31")
+    print(f"  Lines of Code: 28")
     
     return {
         'name': 'MDTraj',
         'runtime': runtime,
         'memory_peak': peak,
-        'loc': 31,
+        'loc': 28,
         'success': True
     }
 
@@ -261,7 +278,7 @@ def benchmark_mdanalysis(traj_file, top_file, frames):
         for ts in u.trajectory[frame_list]:
             current_coords = protein.positions
             # Compute RMSD in Angstroms, convert to nm
-            rmsd_val = mda_rms.rmsd(current_coords, ref_coords, center=True) / 10.0
+            rmsd_val = mda_rms.rmsd(current_coords, ref_coords, center=True) / ANGSTROM_TO_NM
             rmsd_results.append(rmsd_val)
         rmsd_data = np.array(rmsd_results)
         
@@ -272,12 +289,12 @@ def benchmark_mdanalysis(traj_file, top_file, frames):
         coordinates = np.array(coordinates)
         avg_coords = np.mean(coordinates, axis=0)
         rmsf_data = np.sqrt(np.mean((coordinates - avg_coords) ** 2, axis=0))
-        rmsf_data = np.linalg.norm(rmsf_data, axis=1) / 10.0  # Convert to nm
+        rmsf_data = np.linalg.norm(rmsf_data, axis=1) / ANGSTROM_TO_NM  # Convert to nm
         
         # Radius of Gyration
         rg_results = []
         for ts in u.trajectory[frame_list]:
-            rg_val = protein.radius_of_gyration() / 10.0  # Convert to nm
+            rg_val = protein.radius_of_gyration() / ANGSTROM_TO_NM  # Convert to nm
             rg_results.append(rg_val)
         rg_data = np.array(rg_results)
         
@@ -289,7 +306,7 @@ def benchmark_mdanalysis(traj_file, top_file, frames):
         # ============================================
         # (End LOC count - 36 lines for partial analysis)
         
-    except Exception as e:
+    except (ImportError, AttributeError, ValueError, RuntimeError) as e:
         end_time = time.time()
         current, peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
@@ -376,7 +393,7 @@ def print_summary(results):
     print("-" * 70)
     print("• FastMDAnalysis ~ MDTraj computational performance (shared backend)")
     print("  - Additional FastMDA time is from plotting and file I/O features")
-    print("• FastMDAnalysis provides simplest API (8 LOC vs 31-36+ LOC)")
+    print("• FastMDAnalysis provides simplest API (8 LOC vs 28-36+ LOC)")
     print("• FastMDAnalysis automatically generates publication-quality figures")
     print("• MDAnalysis benchmarked on subset of analyses only:")
     print("  - Includes: RMSD, RMSF, Rg")
@@ -430,7 +447,7 @@ def main():
             'name': 'MDTraj',
             'runtime': 0,
             'memory_peak': 0,
-            'loc': 31,
+            'loc': 28,
             'success': False,
             'error': str(e)
         })
