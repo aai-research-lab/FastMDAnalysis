@@ -48,8 +48,9 @@ python benchmark_with_visualization.py
 ```
 
 This generates:
-- `benchmark_results.png` - Bar chart comparison
-- `benchmark_comparison.png` - Detailed table comparison
+- `benchmark_results.png` - Bar chart comparison (runtime + LOC for all 3 libraries)
+- `benchmark_comparison.png` - Detailed table comparison with statistics
+- `combined_preview.png` - Combined preview of both visualizations
 - `benchmark_presentation.pptx` - 5-slide PowerPoint presentation
 
 ## Results
@@ -59,27 +60,26 @@ This generates:
 | Library | Runtime (avg) | Std Dev | LOC |
 |---------|---------------|---------|-----|
 | **FastMDAnalysis** | ~0.28s | ±0.01s | 1 (CLI) |
-| **MDTraj** | ~0.27s | ±0.01s | 50 |
-| **MDAnalysis** | ~0.45s | ±0.02s | 60 |
+| **MDTraj** | ~0.28s | ±0.01s | 50 |
+| **MDAnalysis** | ~0.31s | ±0.05s | 60 |
 
-**FastMDA/MDTraj ratio: 0.89x** - FastMDA is actually slightly faster!
+**FastMDA/MDTraj ratio: 0.99x** - FastMDA and MDTraj have essentially identical performance!
 
 ## Key Insights
 
 ### 1. FastMDAnalysis = MDTraj Performance
 - FastMDA uses MDTraj as its backend
-- Pure computational performance is nearly identical (~0.25s vs ~0.28s)
-- FastMDA is actually slightly faster due to initialization optimizations
+- Pure computational performance is nearly identical (~0.28s)
 - **This confirms FastMDA uses MDTraj efficiently**
 
-### 2. MDAnalysis is Slower
+### 2. MDAnalysis is Slightly Slower
 - MDAnalysis uses a different computational approach
-- ~2x slower than MDTraj/FastMDA for these analyses
+- ~10% slower than MDTraj/FastMDA for these analyses (~0.31s vs ~0.28s)
 - This is expected and matches known performance characteristics
 
 ### 3. FastMDA's High-Level API
 - **1 LOC** (single CLI command) vs 50-60 LOC for equivalent functionality
-- Pure computation measured here: ~0.25s
+- Pure computation measured here: ~0.28s
 - FastMDA's convenience features (automatic plotting, file organization) add overhead when used
 - For exploratory analysis, the convenience is worth the extra time
 
@@ -106,7 +106,7 @@ The benchmark demonstrates that:
 1. **Computational Core is Efficient**
    - FastMDA's core computation matches MDTraj (same backend)
    - No performance bugs or inefficiencies in the backend usage
-   - ~0.25s for RMSD, RMSF, RG, and 3 clustering methods
+   - ~0.28s for RMSD, RMSF, RG, and 3 clustering methods
 
 2. **Convenience Features Add Time**
    - Automatic plotting: ~2-3 seconds (multiple plots per analysis)

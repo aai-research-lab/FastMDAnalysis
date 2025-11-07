@@ -381,6 +381,49 @@ def create_detailed_comparison_chart(results):
     
     return output_file
 
+def create_combined_preview(img_files):
+    """Create combined preview showing all benchmark visualizations"""
+    try:
+        from PIL import Image
+    except ImportError:
+        print("Warning: Pillow not installed. Skipping combined preview generation.")
+        print("Install with: pip install Pillow")
+        return None
+    
+    print("Creating combined preview...")
+    
+    # Load images
+    images = []
+    for img_file in img_files:
+        if Path(img_file).exists():
+            images.append(Image.open(img_file))
+    
+    if len(images) == 0:
+        print("Warning: No images found to combine")
+        return None
+    
+    # Calculate combined size
+    widths, heights = zip(*(img.size for img in images))
+    max_width = max(widths)
+    total_height = sum(heights) + 50 * (len(images) - 1)  # 50px spacing between images
+    
+    # Create new image with white background
+    combined = Image.new('RGB', (max_width, total_height), color='white')
+    
+    # Paste images
+    y_offset = 0
+    for img in images:
+        # Center image horizontally if it's narrower
+        x_offset = (max_width - img.width) // 2
+        combined.paste(img, (x_offset, y_offset))
+        y_offset += img.height + 50
+    
+    output_file = 'combined_preview.png'
+    combined.save(output_file, dpi=(300, 300))
+    print(f"✓ Saved: {output_file}")
+    
+    return output_file
+
 def create_presentation_slides(results):
     """Create PowerPoint presentation slides"""
     try:
@@ -575,9 +618,17 @@ def main():
     print("GENERATING VISUALIZATIONS")
     print("="*70)
     
-    create_benchmark_visualization(results)
-    create_detailed_comparison_chart(results)
+    img_files = []
+    img_file1 = create_benchmark_visualization(results)
+    if img_file1:
+        img_files.append(img_file1)
+    
+    img_file2 = create_detailed_comparison_chart(results)
+    if img_file2:
+        img_files.append(img_file2)
+    
     create_presentation_slides(results)
+    create_combined_preview(img_files)
     
     print("\n" + "="*70)
     print("BENCHMARK COMPLETE")
@@ -585,6 +636,7 @@ def main():
     print("\nGenerated files:")
     print("  • benchmark_results.png - Bar chart comparison")
     print("  • benchmark_comparison.png - Detailed table comparison")
+    print("  • combined_preview.png - Combined preview of all visualizations")
     print("  • benchmark_presentation.pptx - PowerPoint slides (if python-pptx installed)")
     print("="*70)
 
