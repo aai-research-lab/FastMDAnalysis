@@ -4,6 +4,7 @@ FastMDAnalysis Benchmark with Visualization
 
 Benchmarks FastMDAnalysis, MDTraj, and MDAnalysis on pure computation
 and generates visualization PNG files and presentation slides.
+Runs each benchmark 10 times and averages the results for accuracy.
 """
 
 import sys
@@ -31,6 +32,37 @@ try:
 except ImportError:
     HAS_MDANALYSIS = False
 
+# Tool colors and configuration
+TOOL_COLORS = {
+    "fastmdanalysis": {"primary": "#4472C4", "secondary": "#9DC3E6"},
+    "mdtraj": {"primary": "#ED7D31", "secondary": "#F4B183"},
+    "mdanalysis": {"primary": "#A5A5A5", "secondary": "#D9D9D9"}
+}
+
+TOOL_ORDER = ["fastmdanalysis", "mdtraj", "mdanalysis"]
+
+def label_for_tool(tool):
+    """Get proper label for tool name"""
+    labels = {
+        "fastmdanalysis": "FastMDAnalysis",
+        "mdtraj": "MDTraj",
+        "mdanalysis": "MDAnalysis"
+    }
+    return labels.get(tool.lower(), tool)
+
+# Configure matplotlib styling
+plt.rcParams.update({
+    "axes.labelsize": 18,
+    "axes.titlesize": 20,
+    "figure.titlesize": 20,
+    "legend.fontsize": 15,
+    "xtick.labelsize": 16,
+    "ytick.labelsize": 16
+})
+
+# Number of benchmark iterations for averaging
+NUM_ITERATIONS = 10
+
 def format_time(seconds):
     """Format time in human-readable form."""
     if seconds < 60:
@@ -40,13 +72,9 @@ def format_time(seconds):
         secs = seconds % 60
         return f"{mins}m {secs:.3f}s"
 
-def benchmark_fastmda():
-    """FastMDA pure computation"""
+def benchmark_fastmda_single():
+    """FastMDA pure computation - single run"""
     from fastmdanalysis import FastMDAnalysis
-    
-    print("\n" + "="*70)
-    print("FastMDAnalysis - Pure Computation")
-    print("="*70)
     
     start = time.time()
     
@@ -73,18 +101,31 @@ def benchmark_fastmda():
     linkage_matrix = linkage(condensed_dist, method='ward')
     
     runtime = time.time() - start
-    
-    print(f"Runtime: {format_time(runtime)}")
-    print("="*70)
-    
-    return {'name': 'FastMDAnalysis', 'runtime': runtime, 'loc': 1}
+    return runtime
 
-def benchmark_mdtraj():
-    """MDTraj pure computation"""
+def benchmark_fastmda():
+    """FastMDA pure computation - averaged over multiple runs"""
     print("\n" + "="*70)
-    print("MDTraj - Pure Computation")
+    print("FastMDAnalysis - Pure Computation")
+    print("="*70)
+    print(f"Running {NUM_ITERATIONS} iterations...")
+    
+    runtimes = []
+    for i in range(NUM_ITERATIONS):
+        runtime = benchmark_fastmda_single()
+        runtimes.append(runtime)
+        print(f"  Iteration {i+1}/{NUM_ITERATIONS}: {format_time(runtime)}")
+    
+    avg_runtime = np.mean(runtimes)
+    std_runtime = np.std(runtimes)
+    
+    print(f"\nAverage Runtime: {format_time(avg_runtime)} (±{std_runtime:.4f}s)")
     print("="*70)
     
+    return {'name': 'FastMDAnalysis', 'runtime': avg_runtime, 'std': std_runtime, 'loc': 1}
+
+def benchmark_mdtraj_single():
+    """MDTraj pure computation - single run"""
     start = time.time()
     
     traj = md.load(TrpCage.traj, top=TrpCage.top)
@@ -112,22 +153,34 @@ def benchmark_mdtraj():
     linkage_matrix = linkage(condensed_dist, method='ward')
     
     runtime = time.time() - start
+    return runtime
+
+def benchmark_mdtraj():
+    """MDTraj pure computation - averaged over multiple runs"""
+    print("\n" + "="*70)
+    print("MDTraj - Pure Computation")
+    print("="*70)
+    print(f"Running {NUM_ITERATIONS} iterations...")
     
-    print(f"Runtime: {format_time(runtime)}")
+    runtimes = []
+    for i in range(NUM_ITERATIONS):
+        runtime = benchmark_mdtraj_single()
+        runtimes.append(runtime)
+        print(f"  Iteration {i+1}/{NUM_ITERATIONS}: {format_time(runtime)}")
+    
+    avg_runtime = np.mean(runtimes)
+    std_runtime = np.std(runtimes)
+    
+    print(f"\nAverage Runtime: {format_time(avg_runtime)} (±{std_runtime:.4f}s)")
     print("="*70)
     
-    return {'name': 'MDTraj', 'runtime': runtime, 'loc': 50}
+    return {'name': 'MDTraj', 'runtime': avg_runtime, 'std': std_runtime, 'loc': 50}
 
-def benchmark_mdanalysis():
-    """MDAnalysis pure computation"""
+def benchmark_mdanalysis_single():
+    """MDAnalysis pure computation - single run"""
     if not HAS_MDANALYSIS:
-        print("\nMDAnalysis not available - skipping")
         return None
         
-    print("\n" + "="*70)
-    print("MDAnalysis - Pure Computation")
-    print("="*70)
-    
     start = time.time()
     
     u = mda.Universe(TrpCage.top, TrpCage.traj)
@@ -164,30 +217,62 @@ def benchmark_mdanalysis():
     linkage_matrix = linkage(distances, method='ward')
     
     runtime = time.time() - start
+    return runtime
+
+def benchmark_mdanalysis():
+    """MDAnalysis pure computation - averaged over multiple runs"""
+    if not HAS_MDANALYSIS:
+        print("\nMDAnalysis not available - skipping")
+        return None
+        
+    print("\n" + "="*70)
+    print("MDAnalysis - Pure Computation")
+    print("="*70)
+    print(f"Running {NUM_ITERATIONS} iterations...")
     
-    print(f"Runtime: {format_time(runtime)}")
+    runtimes = []
+    for i in range(NUM_ITERATIONS):
+        runtime = benchmark_mdanalysis_single()
+        if runtime is None:
+            return None
+        runtimes.append(runtime)
+        print(f"  Iteration {i+1}/{NUM_ITERATIONS}: {format_time(runtime)}")
+    
+    avg_runtime = np.mean(runtimes)
+    std_runtime = np.std(runtimes)
+    
+    print(f"\nAverage Runtime: {format_time(avg_runtime)} (±{std_runtime:.4f}s)")
     print("="*70)
     
-    return {'name': 'MDAnalysis', 'runtime': runtime, 'loc': 60}
+    return {'name': 'MDAnalysis', 'runtime': avg_runtime, 'std': std_runtime, 'loc': 60}
 
 def create_benchmark_visualization(results):
-    """Create comprehensive benchmark visualization"""
+    """Create comprehensive benchmark visualization with proper styling"""
     print("\nCreating benchmark visualization...")
     
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
     
-    # Extract data
-    names = [r['name'] for r in results]
-    runtimes = [r['runtime'] for r in results]
-    locs = [r['loc'] for r in results]
+    # Ensure results are in the correct order
+    results_ordered = []
+    for tool_key in TOOL_ORDER:
+        for r in results:
+            if r['name'].lower().replace(" ", "") == tool_key.replace(" ", ""):
+                results_ordered.append(r)
+                break
     
-    colors = ['#2E86AB', '#A23B72', '#F18F01']
+    # Extract data
+    names = [label_for_tool(r['name']) for r in results_ordered]
+    runtimes = [r['runtime'] for r in results_ordered]
+    locs = [r['loc'] for r in results_ordered]
+    
+    # Get colors in order
+    colors = [TOOL_COLORS[tool_key]["primary"] for tool_key in TOOL_ORDER[:len(results_ordered)]]
     
     # Runtime comparison
     ax1 = axes[0]
-    bars1 = ax1.bar(names, runtimes, color=colors, alpha=0.8, edgecolor='black', linewidth=1.5)
-    ax1.set_ylabel('Runtime (seconds)', fontsize=12, fontweight='bold')
-    ax1.set_title('Pure Computation Performance', fontsize=14, fontweight='bold')
+    bars1 = ax1.bar(names, runtimes, color=colors, alpha=0.9, edgecolor='black', linewidth=1.5)
+    ax1.set_ylabel('Runtime (seconds)')
+    ax1.set_title('Pure Computation Performance')
     ax1.grid(axis='y', alpha=0.3, linestyle='--')
     
     # Add value labels
@@ -195,13 +280,13 @@ def create_benchmark_visualization(results):
         height = bar.get_height()
         ax1.text(bar.get_x() + bar.get_width()/2., height,
                 f'{runtime:.3f}s',
-                ha='center', va='bottom', fontsize=10, fontweight='bold')
+                ha='center', va='bottom', fontsize=14, fontweight='bold')
     
     # LOC comparison
     ax2 = axes[1]
-    bars2 = ax2.bar(names, locs, color=colors, alpha=0.8, edgecolor='black', linewidth=1.5)
-    ax2.set_ylabel('Lines of Code', fontsize=12, fontweight='bold')
-    ax2.set_title('Code Complexity', fontsize=14, fontweight='bold')
+    bars2 = ax2.bar(names, locs, color=colors, alpha=0.9, edgecolor='black', linewidth=1.5)
+    ax2.set_ylabel('Lines of Code')
+    ax2.set_title('Code Complexity')
     ax2.grid(axis='y', alpha=0.3, linestyle='--')
     ax2.set_yscale('log')
     
@@ -210,10 +295,10 @@ def create_benchmark_visualization(results):
         height = bar.get_height()
         ax2.text(bar.get_x() + bar.get_width()/2., height,
                 f'{loc}',
-                ha='center', va='bottom', fontsize=10, fontweight='bold')
+                ha='center', va='bottom', fontsize=14, fontweight='bold')
     
     plt.suptitle('FastMDAnalysis Performance Benchmark\nTrpCage (500 frames) - RMSD, RMSF, RG, Cluster',
-                 fontsize=16, fontweight='bold', y=1.02)
+                 fontweight='bold')
     plt.tight_layout()
     
     output_file = 'benchmark_results.png'
@@ -224,54 +309,61 @@ def create_benchmark_visualization(results):
     return output_file
 
 def create_detailed_comparison_chart(results):
-    """Create detailed comparison chart"""
+    """Create detailed comparison chart with proper styling"""
     print("Creating detailed comparison chart...")
     
     fig, ax = plt.subplots(figsize=(12, 8))
     
-    names = [r['name'] for r in results]
-    runtimes = [r['runtime'] for r in results]
-    locs = [r['loc'] for r in results]
+    # Ensure results are in the correct order
+    results_ordered = []
+    for tool_key in TOOL_ORDER:
+        for r in results:
+            if r['name'].lower().replace(" ", "") == tool_key.replace(" ", ""):
+                results_ordered.append(r)
+                break
     
-    # Normalize data for radar-like comparison
-    max_runtime = max(runtimes)
-    max_loc = max(locs)
+    names = [label_for_tool(r['name']) for r in results_ordered]
+    runtimes = [r['runtime'] for r in results_ordered]
+    locs = [r['loc'] for r in results_ordered]
+    stds = [r.get('std', 0) for r in results_ordered]
     
     # Create comparison table
     table_data = []
-    table_data.append(['Library', 'Runtime', 'LOC', 'Performance\nRatio'])
+    table_data.append(['Library', 'Runtime (avg)', 'Std Dev', 'LOC', 'Performance\nRatio'])
     
     baseline_runtime = runtimes[1] if len(runtimes) > 1 else runtimes[0]  # MDTraj as baseline
     
-    for name, runtime, loc in zip(names, runtimes, locs):
+    for name, runtime, std, loc in zip(names, runtimes, stds, locs):
         ratio = runtime / baseline_runtime
-        table_data.append([name, f'{runtime:.3f}s', str(loc), f'{ratio:.2f}x'])
+        table_data.append([name, f'{runtime:.3f}s', f'±{std:.4f}s', str(loc), f'{ratio:.2f}x'])
     
     # Create table
     table = ax.table(cellText=table_data, cellLoc='center', loc='center',
-                     colWidths=[0.3, 0.2, 0.15, 0.25])
+                     colWidths=[0.25, 0.2, 0.2, 0.15, 0.2])
     table.auto_set_font_size(False)
     table.set_fontsize(11)
     table.scale(1, 2.5)
     
     # Style header row
-    for i in range(4):
+    for i in range(5):
         cell = table[(0, i)]
-        cell.set_facecolor('#2E86AB')
+        cell.set_facecolor('#4472C4')
         cell.set_text_props(weight='bold', color='white')
     
-    # Style data rows
-    colors = ['#E8F4F8', '#FFF4E6', '#FFE6F0']
+    # Style data rows with tool colors
     for i in range(1, len(table_data)):
-        for j in range(4):
+        tool_key = TOOL_ORDER[i-1] if i-1 < len(TOOL_ORDER) else TOOL_ORDER[-1]
+        row_color = TOOL_COLORS[tool_key]["secondary"]
+        
+        for j in range(5):
             cell = table[(i, j)]
-            cell.set_facecolor(colors[i-1])
+            cell.set_facecolor(row_color)
             cell.set_edgecolor('black')
             cell.set_linewidth(1.5)
     
     ax.axis('off')
-    ax.set_title('FastMDAnalysis Benchmark Comparison\nPure Computation (No Plotting/File I/O)',
-                 fontsize=16, fontweight='bold', pad=20)
+    ax.set_title(f'FastMDAnalysis Benchmark Comparison\nPure Computation (No Plotting/File I/O)\nAveraged over {NUM_ITERATIONS} iterations',
+                 fontweight='bold', pad=20)
     
     # Add footer notes
     footer_text = (
@@ -451,6 +543,7 @@ def main():
     print("Dataset: TrpCage, 500 frames (frames 0,-1,10)")
     print("Analyses: RMSD, RMSF, RG, Cluster (KMeans, DBSCAN, Hierarchical)")
     print("Measurement: Pure computation (no plotting/file I/O in timing)")
+    print(f"Iterations: {NUM_ITERATIONS} runs per library (averaged)")
     print("="*70)
     
     results = []
@@ -464,10 +557,11 @@ def main():
     
     # Summary
     print("\n" + "="*70)
-    print("SUMMARY")
+    print("SUMMARY (AVERAGED OVER {} ITERATIONS)".format(NUM_ITERATIONS))
     print("="*70)
     for result in results:
-        print(f"{result['name']:20s}: {format_time(result['runtime']):>10s}  (LOC: {result['loc']})")
+        std_str = f" (±{result['std']:.4f}s)" if 'std' in result else ""
+        print(f"{result['name']:20s}: {format_time(result['runtime']):>10s}{std_str}  (LOC: {result['loc']})")
     print("="*70)
     
     fastmda_time = results[0]['runtime']

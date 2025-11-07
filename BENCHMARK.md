@@ -5,8 +5,9 @@ This benchmark compares FastMDAnalysis, MDTraj, and MDAnalysis on **pure computa
 ## Overview
 
 The benchmark measures performance on the following:
-- **Runtime**: Pure computation time only (no plotting, no file I/O)
+- **Runtime**: Pure computation time averaged over 10 iterations (no plotting, no file I/O)
 - **Lines of Code (LOC)**: Code complexity for equivalent functionality
+- **Standard Deviation**: Consistency of performance across multiple runs
 
 ## Dataset
 
@@ -26,28 +27,40 @@ All three libraries perform the same analyses:
 ### Prerequisites
 
 ```bash
-pip install mdtraj numpy scikit-learn scipy MDAnalysis
+pip install mdtraj numpy scikit-learn scipy MDAnalysis matplotlib python-pptx
 ```
 
 ### Running the Benchmark
 
+#### Pure Computation Only (No Visualization)
 ```bash
 # Set PYTHONPATH to include FastMDAnalysis src directory (if not installed)
 export PYTHONPATH=/path/to/FastMDAnalysis/src:$PYTHONPATH
 
-# Run the benchmark
+# Run the benchmark (console output only)
 python benchmark_performance.py
 ```
 
+#### With Visualizations (PNG + PowerPoint)
+```bash
+# Run the benchmark with PNG charts and PowerPoint slides
+python benchmark_with_visualization.py
+```
+
+This generates:
+- `benchmark_results.png` - Bar chart comparison
+- `benchmark_comparison.png` - Detailed table comparison
+- `benchmark_presentation.pptx` - 5-slide PowerPoint presentation
+
 ## Results
 
-### Pure Computation (No Overhead)
+### Pure Computation (Averaged over 10 iterations)
 
-| Library | Runtime | LOC |
-|---------|---------|-----|
-| **FastMDAnalysis** | ~0.25s | 1 (CLI) |
-| **MDTraj** | ~0.28s | 50 |
-| **MDAnalysis** | ~0.55s | 60 |
+| Library | Runtime (avg) | Std Dev | LOC |
+|---------|---------------|---------|-----|
+| **FastMDAnalysis** | ~0.28s | ±0.01s | 1 (CLI) |
+| **MDTraj** | ~0.27s | ±0.01s | 50 |
+| **MDAnalysis** | ~0.45s | ±0.02s | 60 |
 
 **FastMDA/MDTraj ratio: 0.89x** - FastMDA is actually slightly faster!
 
