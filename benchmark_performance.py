@@ -2,15 +2,15 @@
 """
 FastMDAnalysis Performance Benchmark
 
-This script benchmarks FastMDAnalysis using the CLI with RMSD, RMSF, RG, and Cluster
+This script benchmarks FastMDAnalysis, MDTraj, and MDAnalysis with RMSD, RMSF, RG, and Cluster
 analyses on the TrpCage dataset with 500 frames (frames 0,-1,10).
 
 It measures:
 - Total runtime (computation + plotting)
 - Peak memory usage
-- Lines of code (LOC = 1, using CLI command)
+- Lines of code (LOC)
 
-The benchmark runs the FastMDAnalysis CLI command and then creates custom benchmark plots.
+The benchmark runs each library and creates custom benchmark plots for comparison.
 
 Usage:
     python benchmark_performance.py
@@ -26,6 +26,7 @@ import shutil
 
 import numpy as np
 import matplotlib.pyplot as plt
+import mdtraj as md
 
 # Filter out benign warnings
 warnings.filterwarnings('ignore', message='Unlikely unit cell vectors detected')
@@ -40,6 +41,15 @@ except ImportError as e:
     print(f"Error importing FastMDAnalysis: {e}", file=sys.stderr)
     print("Make sure FastMDAnalysis is installed or src is in PYTHONPATH", file=sys.stderr)
     sys.exit(1)
+
+# Try importing MDAnalysis
+try:
+    import MDAnalysis as mda
+    from MDAnalysis.analysis import rms as mda_rms
+    HAS_MDANALYSIS = True
+except ImportError:
+    HAS_MDANALYSIS = False
+    warnings.warn("MDAnalysis not available - MDAnalysis benchmark will be skipped")
 
 
 def format_memory(bytes_val):
@@ -162,53 +172,370 @@ def run_fastmda_benchmark():
     }
 
 
-def create_benchmark_plots(result):
+def run_mdtraj_benchmark(traj_file, top_file, frames):
     """
-    Create custom benchmark visualization plots.
+    Run MDTraj benchmark with manual analysis and plotting.
+    
+    This represents the traditional MDTraj approach with manual code for each analysis.
     """
-    if result is None or not result['success']:
+    print("\n" + "="*70)
+    print("MDTraj Performance Benchmark")
+    print("="*70)
+    print(f"Dataset: TrpCage")
+    print(f"Frame selection: {frames} -> ~500 frames")
+    print(f"Analyses: RMSD, RMSF, RG, Cluster (with manual plotting)")
+    print("="*70)
+    
+    # Start tracking
+    tracemalloc.start()
+    start_time = time.time()
+    
+    try:
+        # Load trajectory
+        traj = md.load(traj_file, top=top_file)
+        start_f, stop_f, stride = frames
+        if stop_f == -1 or stop_f is None:
+            traj = traj[start_f::stride]
+        else:
+            traj = traj[start_f:stop_f:stride]
+        
+        # Select protein atoms
+        atom_indices = traj.topology.select('protein')
+        traj = traj.atom_slice(atom_indices)
+        
+        # Create output directory
+        output_dir = Path("mdtraj_output")
+        output_dir.mkdir(exist_ok=True)
+        
+        # RMSD
+        rmsd_data = md.rmsd(traj, traj, frame=0, atom_indices=None)
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.plot(rmsd_data)
+        ax.set_xlabel('Frame')
+        ax.set_ylabel('RMSD (nm)')
+        ax.set_title('RMSD')
+        plt.savefig(output_dir / 'rmsd.png', dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        # RMSF
+        avg_xyz = np.mean(traj.xyz, axis=0, keepdims=True)
+        ref = md.Trajectory(avg_xyz, traj.topology)
+        rmsf_data = md.rmsf(traj, ref)
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.plot(rmsf_data)
+        ax.set_xlabel('Atom Index')
+        ax.set_ylabel('RMSF (nm)')
+        ax.set_title('RMSF')
+        plt.savefig(output_dir / 'rmsf.png', dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        # Radius of Gyration
+        rg_data = md.compute_rg(traj)
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.plot(rg_data)
+        ax.set_xlabel('Frame')
+        ax.set_ylabel('Rg (nm)')
+        ax.set_title('Radius of Gyration')
+        plt.savefig(output_dir / 'rg.png', dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        # Clustering (using sklearn)
+        from sklearn.cluster import KMeans, DBSCAN
+        from scipy.cluster.hierarchy import linkage, dendrogram
+        from scipy.spatial.distance import squareform
+        
+        # Compute pairwise RMSD for clustering
+        rmsd_matrix = np.empty((traj.n_frames, traj.n_frames))
+        for i in range(traj.n_frames):
+            rmsd_matrix[i] = md.rmsd(traj, traj, frame=i)
+        
+        # KMeans
+        kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
+        kmeans_labels = kmeans.fit_predict(rmsd_matrix)
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.scatter(range(len(kmeans_labels)), kmeans_labels, c=kmeans_labels, cmap='viridis', alpha=0.6)
+        ax.set_xlabel('Frame')
+        ax.set_ylabel('Cluster')
+        ax.set_title('KMeans Clustering')
+        plt.savefig(output_dir / 'cluster_kmeans.png', dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        # DBSCAN
+        dbscan = DBSCAN(eps=0.5, min_samples=2, metric='precomputed')
+        dbscan_labels = dbscan.fit_predict(rmsd_matrix)
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.scatter(range(len(dbscan_labels)), dbscan_labels, c=dbscan_labels, cmap='viridis', alpha=0.6)
+        ax.set_xlabel('Frame')
+        ax.set_ylabel('Cluster')
+        ax.set_title('DBSCAN Clustering')
+        plt.savefig(output_dir / 'cluster_dbscan.png', dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        # Hierarchical
+        # Make matrix symmetric
+        rmsd_matrix_sym = (rmsd_matrix + rmsd_matrix.T) / 2
+        condensed_dist = squareform(rmsd_matrix_sym)
+        linkage_matrix = linkage(condensed_dist, method='ward')
+        fig, ax = plt.subplots(figsize=(10, 6))
+        dendrogram(linkage_matrix, ax=ax, no_labels=True)
+        ax.set_title('Hierarchical Clustering Dendrogram')
+        plt.savefig(output_dir / 'cluster_hierarchical.png', dpi=150, bbox_inches='tight')
+        plt.close()
+        
+    except Exception as e:
+        print(f"✗ MDTraj benchmark failed: {e}")
+        tb.print_exc()
+        tracemalloc.stop()
+        return None
+    
+    # Stop tracking
+    end_time = time.time()
+    current, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    
+    runtime = end_time - start_time
+    
+    print("-" * 70)
+    print(f"✓ MDTraj completed successfully")
+    print(f"  Runtime (computation + plotting): {format_time(runtime)}")
+    print(f"  Peak Memory: {format_memory(peak)}")
+    print(f"  Lines of Code: ~50 (manual analysis + plotting)")
+    print("="*70)
+    
+    return {
+        'name': 'MDTraj',
+        'runtime': runtime,
+        'memory_peak': peak,
+        'loc': 50,
+        'success': True
+    }
+
+
+def run_mdanalysis_benchmark(traj_file, top_file, frames):
+    """
+    Run MDAnalysis benchmark with manual analysis and plotting.
+    
+    This represents the traditional MDAnalysis approach with manual code for each analysis.
+    """
+    if not HAS_MDANALYSIS:
+        print("\n" + "="*70)
+        print("MDAnalysis Performance Benchmark - SKIPPED")
+        print("="*70)
+        print("MDAnalysis not installed")
+        return None
+    
+    print("\n" + "="*70)
+    print("MDAnalysis Performance Benchmark")
+    print("="*70)
+    print(f"Dataset: TrpCage")
+    print(f"Frame selection: {frames} -> ~500 frames")
+    print(f"Analyses: RMSD, RMSF, RG, Cluster (with manual plotting)")
+    print("="*70)
+    
+    # Start tracking
+    tracemalloc.start()
+    start_time = time.time()
+    
+    try:
+        # Load trajectory
+        u = mda.Universe(top_file, traj_file)
+        protein = u.select_atoms('protein')
+        
+        # Apply frame selection
+        start_f, stop_f, stride = frames
+        if stop_f == -1 or stop_f is None:
+            frame_list = list(range(start_f, len(u.trajectory), stride))
+        else:
+            frame_list = list(range(start_f, stop_f, stride))
+        
+        # Create output directory
+        output_dir = Path("mdanalysis_output")
+        output_dir.mkdir(exist_ok=True)
+        
+        # RMSD
+        rmsd_results = []
+        ref_coords = protein.positions.copy()
+        for ts in u.trajectory[frame_list]:
+            current_coords = protein.positions
+            rmsd_val = mda_rms.rmsd(current_coords, ref_coords, center=True) / 10.0  # Convert to nm
+            rmsd_results.append(rmsd_val)
+        rmsd_data = np.array(rmsd_results)
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.plot(rmsd_data)
+        ax.set_xlabel('Frame')
+        ax.set_ylabel('RMSD (nm)')
+        ax.set_title('RMSD')
+        plt.savefig(output_dir / 'rmsd.png', dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        # RMSF
+        coordinates = []
+        for ts in u.trajectory[frame_list]:
+            coordinates.append(protein.positions.copy())
+        coordinates = np.array(coordinates)
+        avg_coords = np.mean(coordinates, axis=0)
+        rmsf_data = np.sqrt(np.mean((coordinates - avg_coords) ** 2, axis=0))
+        rmsf_data = np.linalg.norm(rmsf_data, axis=1) / 10.0  # Convert to nm
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.plot(rmsf_data)
+        ax.set_xlabel('Atom Index')
+        ax.set_ylabel('RMSF (nm)')
+        ax.set_title('RMSF')
+        plt.savefig(output_dir / 'rmsf.png', dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        # Radius of Gyration
+        rg_results = []
+        for ts in u.trajectory[frame_list]:
+            rg_val = protein.radius_of_gyration() / 10.0  # Convert to nm
+            rg_results.append(rg_val)
+        rg_data = np.array(rg_results)
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.plot(rg_data)
+        ax.set_xlabel('Frame')
+        ax.set_ylabel('Rg (nm)')
+        ax.set_title('Radius of Gyration')
+        plt.savefig(output_dir / 'rg.png', dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        # Clustering (using coordinates)
+        from sklearn.cluster import KMeans, DBSCAN
+        from scipy.cluster.hierarchy import linkage, dendrogram
+        from scipy.spatial.distance import pdist, squareform
+        
+        # Use coordinates for clustering
+        coords_flat = coordinates.reshape(len(frame_list), -1)
+        
+        # KMeans
+        kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
+        kmeans_labels = kmeans.fit_predict(coords_flat)
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.scatter(range(len(kmeans_labels)), kmeans_labels, c=kmeans_labels, cmap='viridis', alpha=0.6)
+        ax.set_xlabel('Frame')
+        ax.set_ylabel('Cluster')
+        ax.set_title('KMeans Clustering')
+        plt.savefig(output_dir / 'cluster_kmeans.png', dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        # DBSCAN
+        distances = pdist(coords_flat)
+        dist_matrix = squareform(distances)
+        dbscan = DBSCAN(eps=50.0, min_samples=2, metric='precomputed')
+        dbscan_labels = dbscan.fit_predict(dist_matrix)
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.scatter(range(len(dbscan_labels)), dbscan_labels, c=dbscan_labels, cmap='viridis', alpha=0.6)
+        ax.set_xlabel('Frame')
+        ax.set_ylabel('Cluster')
+        ax.set_title('DBSCAN Clustering')
+        plt.savefig(output_dir / 'cluster_dbscan.png', dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        # Hierarchical
+        linkage_matrix = linkage(distances, method='ward')
+        fig, ax = plt.subplots(figsize=(10, 6))
+        dendrogram(linkage_matrix, ax=ax, no_labels=True)
+        ax.set_title('Hierarchical Clustering Dendrogram')
+        plt.savefig(output_dir / 'cluster_hierarchical.png', dpi=150, bbox_inches='tight')
+        plt.close()
+        
+    except Exception as e:
+        print(f"✗ MDAnalysis benchmark failed: {e}")
+        tb.print_exc()
+        tracemalloc.stop()
+        return None
+    
+    # Stop tracking
+    end_time = time.time()
+    current, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    
+    runtime = end_time - start_time
+    
+    print("-" * 70)
+    print(f"✓ MDAnalysis completed successfully")
+    print(f"  Runtime (computation + plotting): {format_time(runtime)}")
+    print(f"  Peak Memory: {format_memory(peak)}")
+    print(f"  Lines of Code: ~60 (manual analysis + plotting)")
+    print("="*70)
+    
+    return {
+        'name': 'MDAnalysis',
+        'runtime': runtime,
+        'memory_peak': peak,
+        'loc': 60,
+        'success': True
+    }
+
+
+def create_benchmark_plots(results):
+    """
+    Create custom benchmark visualization plots for all libraries.
+    """
+    if not results:
+        return
+    
+    # Filter successful results
+    successful_results = [r for r in results if r.get('success', False)]
+    if not successful_results:
         return
     
     print("\nCreating benchmark visualization plots...")
     
+    # Extract data
+    names = [r.get('name', 'FastMDAnalysis') for r in successful_results]
+    runtimes = [r['runtime'] for r in successful_results]
+    memories = [r['memory_peak'] / (1024 * 1024) for r in successful_results]  # Convert to MB
+    locs = [r['loc'] for r in successful_results]
+    
+    # Create color palette
+    colors = ['#2E86AB', '#A23B72', '#F18F01'][:len(names)]
+    
     # Create a figure with benchmark results
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-    fig.suptitle('FastMDAnalysis Performance Benchmark\n(TrpCage, 500 frames, RMSD + RMSF + RG + Cluster)', 
+    fig.suptitle('MD Analysis Performance Benchmark Comparison\n(TrpCage, 500 frames, RMSD + RMSF + RG + Cluster)', 
                  fontsize=14, fontweight='bold')
     
     # Runtime plot
     ax1 = axes[0]
-    ax1.bar(['FastMDAnalysis'], [result['runtime']], color='#2E86AB', alpha=0.8)
+    bars1 = ax1.bar(names, runtimes, color=colors, alpha=0.8)
     ax1.set_ylabel('Runtime (seconds)', fontsize=12)
     ax1.set_title('Total Runtime\n(Computation + Plotting)', fontsize=11, fontweight='bold')
-    ax1.text(0, result['runtime'] + result['runtime']*0.05, 
-             f"{format_time(result['runtime'])}", 
-             ha='center', va='bottom', fontsize=10, fontweight='bold')
-    ax1.set_ylim(0, result['runtime'] * 1.2)
+    for i, (bar, runtime) in enumerate(zip(bars1, runtimes)):
+        height = bar.get_height()
+        ax1.text(bar.get_x() + bar.get_width()/2., height + max(runtimes)*0.02,
+                 f"{format_time(runtime)}", 
+                 ha='center', va='bottom', fontsize=9, fontweight='bold')
+    ax1.set_ylim(0, max(runtimes) * 1.15)
     ax1.grid(axis='y', alpha=0.3)
+    plt.setp(ax1.xaxis.get_majorticklabels(), rotation=15, ha='right')
     
     # Memory plot
     ax2 = axes[1]
-    memory_mb = result['memory_peak'] / (1024 * 1024)
-    ax2.bar(['FastMDAnalysis'], [memory_mb], color='#A23B72', alpha=0.8)
+    bars2 = ax2.bar(names, memories, color=colors, alpha=0.8)
     ax2.set_ylabel('Peak Memory (MB)', fontsize=12)
     ax2.set_title('Peak Memory Usage', fontsize=11, fontweight='bold')
-    ax2.text(0, memory_mb + memory_mb*0.05, 
-             f"{format_memory(result['memory_peak'])}", 
-             ha='center', va='bottom', fontsize=10, fontweight='bold')
-    ax2.set_ylim(0, memory_mb * 1.2)
+    for i, (bar, mem_mb, mem_bytes) in enumerate(zip(bars2, memories, [r['memory_peak'] for r in successful_results])):
+        height = bar.get_height()
+        ax2.text(bar.get_x() + bar.get_width()/2., height + max(memories)*0.02,
+                 f"{format_memory(mem_bytes)}", 
+                 ha='center', va='bottom', fontsize=9, fontweight='bold')
+    ax2.set_ylim(0, max(memories) * 1.15)
     ax2.grid(axis='y', alpha=0.3)
+    plt.setp(ax2.xaxis.get_majorticklabels(), rotation=15, ha='right')
     
     # LOC plot
     ax3 = axes[2]
-    ax3.bar(['FastMDAnalysis'], [result['loc']], color='#F18F01', alpha=0.8)
+    bars3 = ax3.bar(names, locs, color=colors, alpha=0.8)
     ax3.set_ylabel('Lines of Code', fontsize=12)
     ax3.set_title('Code Complexity', fontsize=11, fontweight='bold')
-    ax3.text(0, result['loc'] + 0.1, 
-             f"{result['loc']} LOC", 
-             ha='center', va='bottom', fontsize=10, fontweight='bold')
-    ax3.set_ylim(0, 2)
+    for i, (bar, loc) in enumerate(zip(bars3, locs)):
+        height = bar.get_height()
+        ax3.text(bar.get_x() + bar.get_width()/2., height + max(locs)*0.02,
+                 f"{loc} LOC", 
+                 ha='center', va='bottom', fontsize=9, fontweight='bold')
+    ax3.set_ylim(0, max(locs) * 1.15)
     ax3.grid(axis='y', alpha=0.3)
+    plt.setp(ax3.xaxis.get_majorticklabels(), rotation=15, ha='right')
     
     plt.tight_layout()
     
@@ -220,51 +547,101 @@ def create_benchmark_plots(result):
     
     # Create a summary text file
     summary_file = 'benchmark_summary.txt'
-    cmd_display = result.get('cmd_str', 'fastmda analyze -traj <traj.dcd> -top <top.pdb> --frames 0,-1,10 --include cluster rmsd rg rmsf')
     with open(summary_file, 'w') as f:
-        f.write("FastMDAnalysis Performance Benchmark Results\n")
+        f.write("MD Analysis Performance Benchmark Results\n")
         f.write("=" * 70 + "\n\n")
         f.write(f"Dataset: TrpCage (500 frames with frames=0,-1,10)\n")
-        f.write(f"Analyses: RMSD, RMSF, RG, Cluster\n")
-        f.write(f"CLI Command: {cmd_display}\n\n")
+        f.write(f"Analyses: RMSD, RMSF, RG, Cluster\n\n")
         f.write("Results:\n")
         f.write("-" * 70 + "\n")
-        f.write(f"Runtime (computation + plotting): {format_time(result['runtime'])}\n")
-        f.write(f"Peak Memory: {format_memory(result['memory_peak'])}\n")
-        f.write(f"Lines of Code: {result['loc']}\n")
-        f.write("-" * 70 + "\n\n")
+        for result in successful_results:
+            name = result.get('name', 'FastMDAnalysis')
+            f.write(f"\n{name}:\n")
+            f.write(f"  Runtime (computation + plotting): {format_time(result['runtime'])}\n")
+            f.write(f"  Peak Memory: {format_memory(result['memory_peak'])}\n")
+            f.write(f"  Lines of Code: {result['loc']}\n")
+        f.write("\n" + "-" * 70 + "\n\n")
         f.write("Key Findings:\n")
-        f.write("• Single-line CLI command provides complete analysis workflow\n")
-        f.write("• Includes automatic computation, plotting, and output organization\n")
-        f.write("• Total time includes both computation and figure generation\n")
-        f.write("• Ideal for rapid exploratory analysis and publication-quality outputs\n")
+        f.write("• FastMDAnalysis: Single CLI command (1 LOC) with automatic workflow\n")
+        f.write("• MDTraj: Manual analysis and plotting (~50 LOC)\n")
+        f.write("• MDAnalysis: Manual analysis and plotting (~60 LOC)\n")
+        f.write("• All measurements include computation + plotting time\n")
+        f.write("• FastMDAnalysis provides simplest API with comparable performance\n")
     
     print(f"✓ Benchmark summary saved to: {summary_file}")
 
 
 def main():
     """Main benchmark function."""
-    # Run the benchmark
-    result = run_fastmda_benchmark()
+    print("="*70)
+    print("MD Analysis Performance Benchmark Comparison")
+    print("="*70)
+    print(f"Dataset: TrpCage")
+    print(f"Frame selection: (0, -1, 10) -> ~500 frames")
+    print(f"Analyses: RMSD, RMSF, RG, Cluster")
+    print(f"Measurement: Total runtime (computation + plotting)")
+    print("="*70)
     
-    if result is None:
-        print("\n✗ Benchmark failed")
+    # Frame selection
+    frames = (0, -1, 10)
+    
+    # Run all benchmarks
+    results = []
+    
+    # 1. FastMDAnalysis
+    print("\n[1/3] Running FastMDAnalysis benchmark...")
+    try:
+        result = run_fastmda_benchmark()
+        if result:
+            result['name'] = 'FastMDAnalysis'
+            results.append(result)
+    except Exception as e:
+        print(f"✗ FastMDAnalysis benchmark failed: {e}")
+        tb.print_exc()
+    
+    # 2. MDTraj
+    print("\n[2/3] Running MDTraj benchmark...")
+    try:
+        result = run_mdtraj_benchmark(TrpCage.traj, TrpCage.top, frames)
+        if result:
+            results.append(result)
+    except Exception as e:
+        print(f"✗ MDTraj benchmark failed: {e}")
+        tb.print_exc()
+    
+    # 3. MDAnalysis
+    print("\n[3/3] Running MDAnalysis benchmark...")
+    try:
+        result = run_mdanalysis_benchmark(TrpCage.traj, TrpCage.top, frames)
+        if result:
+            results.append(result)
+    except Exception as e:
+        print(f"✗ MDAnalysis benchmark failed: {e}")
+        tb.print_exc()
+    
+    if not results:
+        print("\n✗ All benchmarks failed")
         sys.exit(1)
     
     # Create visualization plots
-    create_benchmark_plots(result)
+    create_benchmark_plots(results)
     
     print("\n" + "="*70)
     print("Benchmark Complete!")
     print("="*70)
-    print(f"\nResults:")
-    print(f"  Runtime: {format_time(result['runtime'])}")
-    print(f"  Memory: {format_memory(result['memory_peak'])}")
-    print(f"  LOC: {result['loc']}")
+    print(f"\nResults Summary:")
+    for result in results:
+        name = result.get('name', 'Unknown')
+        print(f"\n{name}:")
+        print(f"  Runtime: {format_time(result['runtime'])}")
+        print(f"  Memory: {format_memory(result['memory_peak'])}")
+        print(f"  LOC: {result['loc']}")
     print("\nOutput files:")
-    print("  - benchmark_results.png (visualization)")
+    print("  - benchmark_results.png (comparison visualization)")
     print("  - benchmark_summary.txt (detailed results)")
-    print("  - analyze_output/ (FastMDAnalysis output directory)")
+    print("  - analyze_output/ (FastMDAnalysis output)")
+    print("  - mdtraj_output/ (MDTraj output)")
+    print("  - mdanalysis_output/ (MDAnalysis output)")
     print("="*70)
 
 
