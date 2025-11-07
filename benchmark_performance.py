@@ -70,15 +70,23 @@ def run_fastmda_benchmark():
     Run FastMDAnalysis benchmark using CLI approach.
     
     This represents a single line of code usage:
-    fastmda analyze -traj traj.dcd -top top.pdb --frames 0,-1,10 --include clustering rmsd rg rmsf
+    fastmda analyze -traj <traj.dcd> -top <top.pdb> --frames 0,-1,10 --include cluster rmsd rg rmsf
     """
+    # Define CLI command arguments
+    cli_args = {
+        'traj': TrpCage.traj,
+        'top': TrpCage.top,
+        'frames': '0,-1,10',
+        'include': ['cluster', 'rmsd', 'rg', 'rmsf']
+    }
+    
     print("\n" + "="*70)
     print("FastMDAnalysis Performance Benchmark")
     print("="*70)
     print(f"Dataset: TrpCage")
-    print(f"Frame selection: 0,-1,10 -> ~500 frames")
+    print(f"Frame selection: {cli_args['frames']} -> ~500 frames")
     print(f"Analyses: RMSD, RMSF, RG, Cluster")
-    print(f"Command (1 LOC): fastmda analyze -traj {TrpCage.traj} -top {TrpCage.top} --frames 0,-1,10 --include cluster rmsd rg rmsf")
+    print(f"Command (1 LOC): fastmda analyze -traj {cli_args['traj']} -top {cli_args['top']} --frames {cli_args['frames']} --include {' '.join(cli_args['include'])}")
     print("="*70)
     
     # Clean up any previous output
@@ -101,11 +109,11 @@ def run_fastmda_benchmark():
     try:
         sys.argv = [
             'fastmda', 'analyze',
-            '-traj', TrpCage.traj,
-            '-top', TrpCage.top,
-            '--frames', '0,-1,10',
-            '--include', 'cluster', 'rmsd', 'rg', 'rmsf'
-        ]
+            '-traj', cli_args['traj'],
+            '-top', cli_args['top'],
+            '--frames', cli_args['frames'],
+            '--include'
+        ] + cli_args['include']
         
         # Run the CLI
         cli_main()
