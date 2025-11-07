@@ -19,6 +19,7 @@ Usage:
 import sys
 import time
 import warnings
+import traceback as tb
 from pathlib import Path
 import tracemalloc
 import shutil
@@ -65,6 +66,11 @@ def format_time(seconds):
         return f"{hours}h {mins}m {secs:.2f}s"
 
 
+def format_cli_command(cli_args):
+    """Format CLI arguments into a command string."""
+    return f"fastmda analyze -traj {cli_args['traj']} -top {cli_args['top']} --frames {cli_args['frames']} --include {' '.join(cli_args['include'])}"
+
+
 def run_fastmda_benchmark():
     """
     Run FastMDAnalysis benchmark using CLI approach.
@@ -80,13 +86,16 @@ def run_fastmda_benchmark():
         'include': ['cluster', 'rmsd', 'rg', 'rmsf']
     }
     
+    # Build command string for display and summary
+    cmd_str = format_cli_command(cli_args)
+    
     print("\n" + "="*70)
     print("FastMDAnalysis Performance Benchmark")
     print("="*70)
     print(f"Dataset: TrpCage")
     print(f"Frame selection: {cli_args['frames']} -> ~500 frames")
     print(f"Analyses: RMSD, RMSF, RG, Cluster")
-    print(f"Command (1 LOC): fastmda analyze -traj {cli_args['traj']} -top {cli_args['top']} --frames {cli_args['frames']} --include {' '.join(cli_args['include'])}")
+    print(f"Command (1 LOC): {cmd_str}")
     print("="*70)
     
     # Clean up any previous output
@@ -119,13 +128,13 @@ def run_fastmda_benchmark():
         cli_main()
         
     except SystemExit as e:
-        if e.code != 0:
-            print(f"✗ FastMDAnalysis command failed with exit code {e.code}")
+        exit_code = getattr(e, 'code', 1)
+        if exit_code != 0:
+            print(f"✗ FastMDAnalysis command failed with exit code {exit_code}")
             return None
     except Exception as e:
         print(f"✗ FastMDAnalysis command failed: {e}")
-        import traceback
-        traceback.print_exc()
+        tb.print_exc()
         return None
     finally:
         sys.argv = original_argv
@@ -148,7 +157,8 @@ def run_fastmda_benchmark():
         'runtime': runtime,
         'memory_peak': peak,
         'loc': 1,
-        'success': True
+        'success': True,
+        'cmd_str': cmd_str
     }
 
 
@@ -210,12 +220,13 @@ def create_benchmark_plots(result):
     
     # Create a summary text file
     summary_file = 'benchmark_summary.txt'
+    cmd_display = result.get('cmd_str', 'fastmda analyze -traj <traj.dcd> -top <top.pdb> --frames 0,-1,10 --include cluster rmsd rg rmsf')
     with open(summary_file, 'w') as f:
         f.write("FastMDAnalysis Performance Benchmark Results\n")
         f.write("=" * 70 + "\n\n")
         f.write(f"Dataset: TrpCage (500 frames with frames=0,-1,10)\n")
         f.write(f"Analyses: RMSD, RMSF, RG, Cluster\n")
-        f.write(f"CLI Command: fastmda analyze -traj <traj.dcd> -top <top.pdb> --frames 0,-1,10 --include cluster rmsd rg rmsf\n\n")
+        f.write(f"CLI Command: {cmd_display}\n\n")
         f.write("Results:\n")
         f.write("-" * 70 + "\n")
         f.write(f"Runtime (computation + plotting): {format_time(result['runtime'])}\n")
