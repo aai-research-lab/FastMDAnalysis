@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """
-Performance Benchmark: FastMDAnalysis vs MDTraj vs MDAnalysis
+FastMDAnalysis Performance Benchmark
 
-This script benchmarks the performance of FastMDAnalysis against MDTraj and MDAnalysis
-on the TrpCage dataset with 500 frames (frames 0:-1:10).
+This script benchmarks FastMDAnalysis using the CLI with RMSD, RMSF, RG, and Clustering
+analyses on the TrpCage dataset with 500 frames (frames 0:-1,10).
 
 It measures:
-- Overall runtime
-- Peak memory usage  
-- Lines of code (LOC)
+- Total runtime (computation + plotting)
+- Peak memory usage
+- Lines of code (LOC = 1, using CLI command)
 
-The benchmark focuses on computational performance for common MD analyses:
-RMSD, RMSF, Radius of Gyration, Hydrogen Bonds, Secondary Structure, and SASA.
+The benchmark runs the FastMDAnalysis CLI command and then creates custom benchmark plots.
 
 Usage:
     python benchmark_performance.py
@@ -20,62 +19,26 @@ Usage:
 import sys
 import time
 import warnings
-import os
-import shutil
-import traceback
 from pathlib import Path
-from typing import Dict, Any
 import tracemalloc
+import shutil
 
 import numpy as np
-import mdtraj as md
+import matplotlib.pyplot as plt
 
-# Filter out benign MDTraj warnings
+# Filter out benign warnings
 warnings.filterwarnings('ignore', message='Unlikely unit cell vectors detected')
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 warnings.filterwarnings('ignore', category=UserWarning)
 
-# Constants
-# 1 nanometer = 10 Angstroms, so to convert Angstroms to nm we divide by 10
-ANGSTROM_PER_NM = 10.0
-
-# Import FastMDAnalysis components
+# Import FastMDAnalysis components for dataset paths
 try:
     sys.path.insert(0, str(Path(__file__).parent / 'src'))
-    from fastmdanalysis import FastMDAnalysis
     from fastmdanalysis.datasets import TrpCage
 except ImportError as e:
     print(f"Error importing FastMDAnalysis: {e}", file=sys.stderr)
     print("Make sure FastMDAnalysis is installed or src is in PYTHONPATH", file=sys.stderr)
     sys.exit(1)
-
-# Try importing MDAnalysis
-try:
-    import MDAnalysis as mda
-    from MDAnalysis.analysis import rms as mda_rms
-    from MDAnalysis.analysis import align as mda_align
-    HAS_MDANALYSIS = True
-except ImportError:
-    HAS_MDANALYSIS = False
-    warnings.warn("MDAnalysis not available - MDAnalysis benchmark will be skipped")
-
-
-def apply_frame_selection(traj, frames):
-    """
-    Apply frame selection to a trajectory.
-    
-    Args:
-        traj: MDTraj trajectory object
-        frames: Tuple of (start, stop, stride)
-        
-    Returns:
-        Sliced trajectory
-    """
-    start, stop, stride = frames
-    if stop == -1 or stop is None:
-        return traj[start::stride]
-    else:
-        return traj[start:stop:stride]
 
 
 def format_memory(bytes_val):
@@ -102,14 +65,20 @@ def format_time(seconds):
         return f"{hours}h {mins}m {secs:.2f}s"
 
 
-def benchmark_fastmda(traj_file, top_file, frames):
+def run_fastmda_benchmark():
     """
-    Benchmark FastMDAnalysis with a single analyze() call.
+    Run FastMDAnalysis benchmark using CLI approach.
     
-    LOC count: This entire function body represents the FastMDA approach.
+    This represents a single line of code usage:
+    fastmda analyze -traj traj.dcd -top top.pdb --frames 0,-1,10 --include clustering rmsd rg rmsf
     """
     print("\n" + "="*70)
-    print("Benchmarking FastMDAnalysis")
+    print("FastMDAnalysis Performance Benchmark")
+    print("="*70)
+    print(f"Dataset: TrpCage")
+    print(f"Frame selection: 0,-1,10 -> ~500 frames")
+    print(f"Analyses: RMSD, RMSF, RG, Cluster")
+    print(f"Command (1 LOC): fastmda analyze -traj {TrpCage.traj} -top {TrpCage.top} --frames 0,-1,10 --include cluster rmsd rg rmsf")
     print("="*70)
     
     # Clean up any previous output
@@ -117,210 +86,41 @@ def benchmark_fastmda(traj_file, top_file, frames):
     if output_dir.exists():
         shutil.rmtree(output_dir)
     
-    # Start tracking
-    tracemalloc.start()
-    start_time = time.time()
-    
-    # FastMDAnalysis code (start LOC count here)
-    # ============================================
-    fastmda = FastMDAnalysis(traj_file, top_file, frames=frames, atoms="protein")
-    result = fastmda.analyze(
-        exclude=['dimred', 'cluster'],  # Exclude slow/non-comparable analyses
-        options={
-            'rmsd': {'ref': 0},
-            'sasa': {'probe_radius': 0.14}
-        }
-    )
-    # ============================================
-    # (End LOC count - 8 lines for complete analysis pipeline)
-    
-    # Stop tracking
-    end_time = time.time()
-    current, peak = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
-    
-    runtime = end_time - start_time
-    
-    # Clean up output files to not affect disk I/O measurements
-    if output_dir.exists():
-        shutil.rmtree(output_dir)
-    
-    print(f"✓ FastMDAnalysis completed successfully")
-    print(f"  Runtime: {format_time(runtime)}")
-    print(f"  Peak Memory: {format_memory(peak)}")
-    print(f"  Lines of Code: 8")
-    
-    return {
-        'name': 'FastMDAnalysis',
-        'runtime': runtime,
-        'memory_peak': peak,
-        'loc': 8,
-        'success': True
-    }
-
-
-def benchmark_mdtraj(traj_file, top_file, frames):
-    """
-    Benchmark MDTraj with sequential analysis calls.
-    
-    This mimics what a user would do with raw MDTraj - run each analysis separately.
-    """
-    print("\n" + "="*70)
-    print("Benchmarking MDTraj")
-    print("="*70)
+    # Import CLI function
+    from fastmdanalysis.cli.main import main as cli_main
     
     # Start tracking
     tracemalloc.start()
     start_time = time.time()
     
-    # MDTraj code (start LOC count here)
-    # ============================================
-    # Load trajectory with frame selection
-    traj = md.load(traj_file, top=top_file)
-    traj = apply_frame_selection(traj, frames)
+    print("\nRunning FastMDAnalysis CLI command...")
+    print("-" * 70)
     
-    # Select protein atoms
-    atom_indices = traj.topology.select('protein')
-    traj = traj.atom_slice(atom_indices)
-    
-    # Run analyses
-    # RMSD
-    rmsd_data = md.rmsd(traj, traj, frame=0, atom_indices=None)
-    
-    # RMSF
-    avg_xyz = np.mean(traj.xyz, axis=0, keepdims=True)
-    ref = md.Trajectory(avg_xyz, traj.topology)
-    rmsf_data = md.rmsf(traj, ref)
-    
-    # Radius of Gyration
-    rg_data = md.compute_rg(traj)
-    
-    # Hydrogen Bonds
-    hbonds = md.baker_hubbard(traj, periodic=False)
-    
-    # Secondary Structure (DSSP)
-    ss_data = md.compute_dssp(traj, simplified=True)
-    
-    # SASA
-    sasa_data = md.shrake_rupley(traj, probe_radius=0.14, mode='atom')
-    sasa_total = np.sum(sasa_data, axis=1)
-    # ============================================
-    # (End LOC count - 28 lines after using helper function)
-    
-    # Stop tracking
-    end_time = time.time()
-    current, peak = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
-    
-    runtime = end_time - start_time
-    
-    print(f"✓ MDTraj completed successfully")
-    print(f"  Runtime: {format_time(runtime)}")
-    print(f"  Peak Memory: {format_memory(peak)}")
-    print(f"  Lines of Code: 28")
-    
-    return {
-        'name': 'MDTraj',
-        'runtime': runtime,
-        'memory_peak': peak,
-        'loc': 28,
-        'success': True
-    }
-
-
-def benchmark_mdanalysis(traj_file, top_file, frames):
-    """
-    Benchmark MDAnalysis with sequential analysis calls.
-    
-    This mimics what a user would do with MDAnalysis - run each analysis separately.
-    Note: MDAnalysis doesn't have built-in support for all analyses,
-    so this is a partial benchmark focusing on what's readily available.
-    """
-    if not HAS_MDANALYSIS:
-        print("\n" + "="*70)
-        print("Benchmarking MDAnalysis - SKIPPED (not installed)")
-        print("="*70)
-        return {
-            'name': 'MDAnalysis',
-            'runtime': 0,
-            'memory_peak': 0,
-            'loc': 0,
-            'success': False,
-            'error': 'Not installed'
-        }
-    
-    print("\n" + "="*70)
-    print("Benchmarking MDAnalysis")
-    print("="*70)
-    
-    # Start tracking
-    tracemalloc.start()
-    start_time = time.time()
-    
+    # Simulate CLI invocation by setting sys.argv
+    original_argv = sys.argv
     try:
-        # MDAnalysis code (start LOC count here)
-        # ============================================
-        # Load trajectory
-        u = mda.Universe(top_file, traj_file)
+        sys.argv = [
+            'fastmda', 'analyze',
+            '-traj', TrpCage.traj,
+            '-top', TrpCage.top,
+            '--frames', '0,-1,10',
+            '--include', 'cluster', 'rmsd', 'rg', 'rmsf'
+        ]
         
-        # Select protein atoms
-        protein = u.select_atoms('protein')
+        # Run the CLI
+        cli_main()
         
-        # Apply frame selection
-        start_f, stop_f, stride = frames
-        if stop_f == -1 or stop_f is None:
-            frame_list = list(range(start_f, len(u.trajectory), stride))
-        else:
-            frame_list = list(range(start_f, stop_f, stride))
-        
-        # RMSD calculation
-        rmsd_results = []
-        ref_coords = protein.positions.copy()
-        for ts in u.trajectory[frame_list]:
-            current_coords = protein.positions
-            # Compute RMSD in Angstroms, convert to nm
-            rmsd_val = mda_rms.rmsd(current_coords, ref_coords, center=True) / ANGSTROM_PER_NM
-            rmsd_results.append(rmsd_val)
-        rmsd_data = np.array(rmsd_results)
-        
-        # RMSF calculation
-        coordinates = []
-        for ts in u.trajectory[frame_list]:
-            coordinates.append(protein.positions.copy())
-        coordinates = np.array(coordinates)
-        avg_coords = np.mean(coordinates, axis=0)
-        rmsf_data = np.sqrt(np.mean((coordinates - avg_coords) ** 2, axis=0))
-        rmsf_data = np.linalg.norm(rmsf_data, axis=1) / ANGSTROM_PER_NM  # Convert to nm
-        
-        # Radius of Gyration
-        rg_results = []
-        for ts in u.trajectory[frame_list]:
-            rg_val = protein.radius_of_gyration() / ANGSTROM_PER_NM  # Convert to nm
-            rg_results.append(rg_val)
-        rg_data = np.array(rg_results)
-        
-        # Note: HBonds requires additional setup and modules (MDAnalysis.analysis.hydrogenbonds)
-        # SS (secondary structure) requires MDAnalysis.analysis.dssp
-        # SASA requires MDAnalysis.analysis.sasa
-        # These are not as straightforward as MDTraj/FastMDA, demonstrating the complexity difference
-        # For a complete comparison, users would need additional lines of code
-        # ============================================
-        # (End LOC count - 36 lines for partial analysis)
-        
-    except (ImportError, AttributeError, ValueError, RuntimeError) as e:
-        end_time = time.time()
-        current, peak = tracemalloc.get_traced_memory()
-        tracemalloc.stop()
-        
-        print(f"✗ MDAnalysis failed: {e}")
-        return {
-            'name': 'MDAnalysis',
-            'runtime': end_time - start_time,
-            'memory_peak': peak,
-            'loc': 36,
-            'success': False,
-            'error': str(e)
-        }
+    except SystemExit as e:
+        if e.code != 0:
+            print(f"✗ FastMDAnalysis command failed with exit code {e.code}")
+            return None
+    except Exception as e:
+        print(f"✗ FastMDAnalysis command failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+    finally:
+        sys.argv = original_argv
     
     # Stop tracking
     end_time = time.time()
@@ -329,148 +129,124 @@ def benchmark_mdanalysis(traj_file, top_file, frames):
     
     runtime = end_time - start_time
     
-    print(f"✓ MDAnalysis completed successfully (RMSD, RMSF, Rg only)")
-    print(f"  Note: HBonds, SS, SASA require additional complex code in MDAnalysis")
-    print(f"  Runtime: {format_time(runtime)}")
+    print("-" * 70)
+    print(f"✓ FastMDAnalysis completed successfully")
+    print(f"  Runtime (computation + plotting): {format_time(runtime)}")
     print(f"  Peak Memory: {format_memory(peak)}")
-    print(f"  Lines of Code: 36 (partial)")
+    print(f"  Lines of Code: 1")
+    print("="*70)
     
     return {
-        'name': 'MDAnalysis',
         'runtime': runtime,
         'memory_peak': peak,
-        'loc': 36,
-        'success': True,
-        'note': 'Partial benchmark (RMSD, RMSF, Rg only)'
+        'loc': 1,
+        'success': True
     }
 
 
-def print_summary(results):
-    """Print a summary table of benchmark results."""
-    print("\n" + "="*70)
-    print("BENCHMARK SUMMARY")
-    print("="*70)
-    print(f"Dataset: TrpCage with 500 frames (frames 0:-1:10)")
-    print(f"Analyses:")
-    print(f"  - FastMDAnalysis & MDTraj: RMSD, RMSF, Rg, HBonds, SS, SASA")
-    print(f"  - MDAnalysis: RMSD, RMSF, Rg only (others require complex additional code)")
-    print("="*70)
-    print()
+def create_benchmark_plots(result):
+    """
+    Create custom benchmark visualization plots.
+    """
+    if result is None or not result['success']:
+        return
     
-    # Print table header
-    print(f"{'Library':<20} {'Runtime':<15} {'Memory':<15} {'LOC':<10} {'Status'}")
-    print("-" * 70)
+    print("\nCreating benchmark visualization plots...")
     
-    # Print each result
-    for result in results:
-        name = result['name']
-        runtime_str = format_time(result['runtime']) if result['success'] else 'N/A'
-        memory_str = format_memory(result['memory_peak']) if result['success'] else 'N/A'
-        loc_str = str(result['loc']) if result['success'] else 'N/A'
-        status = '✓' if result['success'] else f"✗ ({result.get('error', 'Failed')})"
-        
-        print(f"{name:<20} {runtime_str:<15} {memory_str:<15} {loc_str:<10} {status}")
+    # Create a figure with benchmark results
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    fig.suptitle('FastMDAnalysis Performance Benchmark\n(TrpCage, 500 frames, RMSD + RMSF + RG + Cluster)', 
+                 fontsize=14, fontweight='bold')
     
-    print("="*70)
-    print()
+    # Runtime plot
+    ax1 = axes[0]
+    ax1.bar(['FastMDAnalysis'], [result['runtime']], color='#2E86AB', alpha=0.8)
+    ax1.set_ylabel('Runtime (seconds)', fontsize=12)
+    ax1.set_title('Total Runtime\n(Computation + Plotting)', fontsize=11, fontweight='bold')
+    ax1.text(0, result['runtime'] + result['runtime']*0.05, 
+             f"{format_time(result['runtime'])}", 
+             ha='center', va='bottom', fontsize=10, fontweight='bold')
+    ax1.set_ylim(0, result['runtime'] * 1.2)
+    ax1.grid(axis='y', alpha=0.3)
     
-    # Find FastMDA and MDTraj for comparison
-    fastmda_result = next((r for r in results if r['name'] == 'FastMDAnalysis' and r['success']), None)
-    mdtraj_result = next((r for r in results if r['name'] == 'MDTraj' and r['success']), None)
+    # Memory plot
+    ax2 = axes[1]
+    memory_mb = result['memory_peak'] / (1024 * 1024)
+    ax2.bar(['FastMDAnalysis'], [memory_mb], color='#A23B72', alpha=0.8)
+    ax2.set_ylabel('Peak Memory (MB)', fontsize=12)
+    ax2.set_title('Peak Memory Usage', fontsize=11, fontweight='bold')
+    ax2.text(0, memory_mb + memory_mb*0.05, 
+             f"{format_memory(result['memory_peak'])}", 
+             ha='center', va='bottom', fontsize=10, fontweight='bold')
+    ax2.set_ylim(0, memory_mb * 1.2)
+    ax2.grid(axis='y', alpha=0.3)
     
-    if fastmda_result and mdtraj_result:
-        print("PERFORMANCE ANALYSIS:")
-        print("-" * 70)
-        ratio = fastmda_result['runtime'] / mdtraj_result['runtime']
-        print(f"FastMDAnalysis / MDTraj ratio: {ratio:.2f}x")
-        print(f"  - FastMDA includes: computation + plotting + file I/O + organization")
-        print(f"  - MDTraj includes: computation only")
-        print(f"  - Core computational performance is similar (both use MDTraj backend)")
-        print("="*70)
-        print()
+    # LOC plot
+    ax3 = axes[2]
+    ax3.bar(['FastMDAnalysis'], [result['loc']], color='#F18F01', alpha=0.8)
+    ax3.set_ylabel('Lines of Code', fontsize=12)
+    ax3.set_title('Code Complexity', fontsize=11, fontweight='bold')
+    ax3.text(0, result['loc'] + 0.1, 
+             f"{result['loc']} LOC", 
+             ha='center', va='bottom', fontsize=10, fontweight='bold')
+    ax3.set_ylim(0, 2)
+    ax3.grid(axis='y', alpha=0.3)
     
-    # Print key findings
-    print("KEY FINDINGS:")
-    print("-" * 70)
-    print("• FastMDAnalysis ~ MDTraj computational performance (shared backend)")
-    print("  - Additional FastMDA time is from plotting and file I/O features")
-    print("• FastMDAnalysis provides simplest API (8 LOC vs 28-36+ LOC)")
-    print("• FastMDAnalysis automatically generates publication-quality figures")
-    print("• MDAnalysis benchmarked on subset of analyses only:")
-    print("  - Includes: RMSD, RMSF, Rg")
-    print("  - Excludes: HBonds, SS, SASA (require complex additional code)")
-    print("  - Full MDAnalysis implementation would require 60+ LOC")
-    print("="*70)
+    plt.tight_layout()
+    
+    # Save the plot
+    output_file = 'benchmark_results.png'
+    plt.savefig(output_file, dpi=150, bbox_inches='tight')
+    print(f"✓ Benchmark plot saved to: {output_file}")
+    plt.close()
+    
+    # Create a summary text file
+    summary_file = 'benchmark_summary.txt'
+    with open(summary_file, 'w') as f:
+        f.write("FastMDAnalysis Performance Benchmark Results\n")
+        f.write("=" * 70 + "\n\n")
+        f.write(f"Dataset: TrpCage (500 frames with frames=0,-1,10)\n")
+        f.write(f"Analyses: RMSD, RMSF, RG, Cluster\n")
+        f.write(f"CLI Command: fastmda analyze -traj traj.dcd -top top.pdb --frames 0,-1,10 --include cluster rmsd rg rmsf\n\n")
+        f.write("Results:\n")
+        f.write("-" * 70 + "\n")
+        f.write(f"Runtime (computation + plotting): {format_time(result['runtime'])}\n")
+        f.write(f"Peak Memory: {format_memory(result['memory_peak'])}\n")
+        f.write(f"Lines of Code: {result['loc']}\n")
+        f.write("-" * 70 + "\n\n")
+        f.write("Key Findings:\n")
+        f.write("• Single-line CLI command provides complete analysis workflow\n")
+        f.write("• Includes automatic computation, plotting, and output organization\n")
+        f.write("• Total time includes both computation and figure generation\n")
+        f.write("• Ideal for rapid exploratory analysis and publication-quality outputs\n")
+    
+    print(f"✓ Benchmark summary saved to: {summary_file}")
 
 
 def main():
     """Main benchmark function."""
+    # Run the benchmark
+    result = run_fastmda_benchmark()
+    
+    if result is None:
+        print("\n✗ Benchmark failed")
+        sys.exit(1)
+    
+    # Create visualization plots
+    create_benchmark_plots(result)
+    
+    print("\n" + "="*70)
+    print("Benchmark Complete!")
     print("="*70)
-    print("Performance Benchmark: FastMDAnalysis vs MDTraj vs MDAnalysis")
+    print(f"\nResults:")
+    print(f"  Runtime: {format_time(result['runtime'])}")
+    print(f"  Memory: {format_memory(result['memory_peak'])}")
+    print(f"  LOC: {result['loc']}")
+    print("\nOutput files:")
+    print("  - benchmark_results.png (visualization)")
+    print("  - benchmark_summary.txt (detailed results)")
+    print("  - analyze_output/ (FastMDAnalysis output directory)")
     print("="*70)
-    print(f"Dataset: TrpCage")
-    print(f"Trajectory: {TrpCage.traj}")
-    print(f"Topology: {TrpCage.top}")
-    print(f"Frame selection: (0, -1, 10) -> ~500 frames")
-    print(f"Atom selection: protein")
-    print("="*70)
-    
-    # Frame selection
-    frames = (0, -1, 10)
-    
-    # Run benchmarks
-    results = []
-    
-    # 1. FastMDAnalysis
-    try:
-        result = benchmark_fastmda(TrpCage.traj, TrpCage.top, frames)
-        results.append(result)
-    except Exception as e:
-        print(f"✗ FastMDAnalysis benchmark failed: {e}")
-        traceback.print_exc()
-        results.append({
-            'name': 'FastMDAnalysis',
-            'runtime': 0,
-            'memory_peak': 0,
-            'loc': 8,
-            'success': False,
-            'error': str(e)
-        })
-    
-    # 2. MDTraj
-    try:
-        result = benchmark_mdtraj(TrpCage.traj, TrpCage.top, frames)
-        results.append(result)
-    except Exception as e:
-        print(f"✗ MDTraj benchmark failed: {e}")
-        traceback.print_exc()
-        results.append({
-            'name': 'MDTraj',
-            'runtime': 0,
-            'memory_peak': 0,
-            'loc': 28,
-            'success': False,
-            'error': str(e)
-        })
-    
-    # 3. MDAnalysis
-    try:
-        result = benchmark_mdanalysis(TrpCage.traj, TrpCage.top, frames)
-        results.append(result)
-    except Exception as e:
-        print(f"✗ MDAnalysis benchmark failed: {e}")
-        traceback.print_exc()
-        results.append({
-            'name': 'MDAnalysis',
-            'runtime': 0,
-            'memory_peak': 0,
-            'loc': 36,
-            'success': False,
-            'error': str(e)
-        })
-    
-    # Print summary
-    print_summary(results)
 
 
 if __name__ == '__main__':

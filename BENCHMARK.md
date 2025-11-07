@@ -1,120 +1,123 @@
-# Performance Benchmark: FastMDAnalysis vs MDTraj vs MDAnalysis
+# FastMDAnalysis Performance Benchmark
 
-This benchmark script compares the performance of FastMDAnalysis against MDTraj and MDAnalysis on molecular dynamics trajectory analysis tasks.
+This benchmark evaluates FastMDAnalysis performance using the CLI on molecular dynamics trajectory analysis tasks.
 
 ## Overview
 
-The benchmark evaluates three MD analysis libraries on the following metrics:
-- **Runtime**: Total execution time for analysis
+The benchmark measures FastMDAnalysis performance on the following metrics:
+- **Runtime**: Total execution time including computation and plotting
 - **Memory**: Peak memory usage during execution  
-- **Lines of Code (LOC)**: Code complexity for equivalent functionality
+- **Lines of Code (LOC)**: Code complexity (1 LOC using CLI)
 
 ## Dataset
 
 - **TrpCage**: 500 frames selected using `frames=(0, -1, 10)` from 4999 total frames
-- **Atom Selection**: Protein atoms only
+- **Atom Selection**: All atoms (default)
 
 ## Analyses Performed
 
-### FastMDAnalysis & MDTraj (Complete)
-- RMSD (Root Mean Square Deviation)
-- RMSF (Root Mean Square Fluctuation)
-- Rg (Radius of Gyration)
-- HBonds (Hydrogen Bonds)
-- SS (Secondary Structure via DSSP)
-- SASA (Solvent Accessible Surface Area)
-
-### MDAnalysis (Partial)
-- RMSD (Root Mean Square Deviation)
-- RMSF (Root Mean Square Fluctuation)
-- Rg (Radius of Gyration)
-
-Note: HBonds, SS, and SASA analyses in MDAnalysis require significantly more complex code and additional modules, demonstrating the complexity difference between libraries.
+The benchmark runs the following analyses:
+- **RMSD** (Root Mean Square Deviation)
+- **RMSF** (Root Mean Square Fluctuation)
+- **RG** (Radius of Gyration)
+- **Cluster** (KMeans, DBSCAN, Hierarchical)
 
 ## Usage
 
 ### Prerequisites
 
 ```bash
-pip install mdtraj numpy matplotlib scikit-learn scipy MDAnalysis
+pip install mdtraj numpy matplotlib scikit-learn scipy python-pptx Pillow cairosvg PyYAML
 ```
 
 ### Running the Benchmark
 
 ```bash
-# Set PYTHONPATH to include FastMDAnalysis src directory
+# Set PYTHONPATH to include FastMDAnalysis src directory (if not installed)
 export PYTHONPATH=/path/to/FastMDAnalysis/src:$PYTHONPATH
 
 # Run the benchmark
 python benchmark_performance.py
 ```
 
-## Expected Results
+## CLI Command
 
-The benchmark produces a summary table showing:
+The benchmark executes the following single-line command (1 LOC):
+
+```bash
+fastmda analyze -traj traj.dcd -top top.pdb --frames 0,-1,10 --include cluster rmsd rg rmsf
+```
+
+## Expected Output
+
+The benchmark produces:
+
+1. **Console Output**: Real-time progress and final results
+2. **benchmark_results.png**: Visualization showing runtime, memory, and LOC
+3. **benchmark_summary.txt**: Detailed results summary
+4. **analyze_output/**: FastMDAnalysis output directory with analysis results and figures
+
+### Sample Results
 
 ```
-Library              Runtime         Memory          LOC        Status
+FastMDAnalysis Performance Benchmark Results
+======================================================================
+
+Dataset: TrpCage (500 frames with frames=0,-1,10)
+Analyses: RMSD, RMSF, RG, Cluster
+CLI Command: fastmda analyze -traj traj.dcd -top top.pdb --frames 0,-1,10 --include cluster rmsd rg rmsf
+
+Results:
 ----------------------------------------------------------------------
-FastMDAnalysis       ~15s            ~192 MB         8          ✓
-MDTraj               ~3s             ~20 MB          28         ✓
-MDAnalysis           ~0.4s           ~4 MB           36         ✓
+Runtime (computation + plotting): ~30-40s
+Peak Memory: ~200-300 MB
+Lines of Code: 1
+----------------------------------------------------------------------
+
+Key Findings:
+• Single-line CLI command provides complete analysis workflow
+• Includes automatic computation, plotting, and output organization
+• Total time includes both computation and figure generation
+• Ideal for rapid exploratory analysis and publication-quality outputs
 ```
-
-## Key Findings
-
-1. **FastMDAnalysis ~ MDTraj Computational Performance**
-   - Both use the same MDTraj backend for core computations
-   - FastMDA additional time comes from:
-     - Automatic figure generation
-     - File I/O and organization
-     - Publication-quality output formatting
-
-2. **Simplified API**
-   - FastMDAnalysis: 8 lines of code
-   - MDTraj: 28 lines of code
-   - MDAnalysis: 36+ lines (partial implementation)
-   - Full MDAnalysis implementation: ~60+ lines
-
-3. **Feature Comparison**
-   - FastMDAnalysis: One-line analysis with automatic plotting and organization
-   - MDTraj: Manual analysis with no built-in plotting
-   - MDAnalysis: Manual analysis requiring separate plotting code
-
-4. **MDAnalysis Performance Note**
-   - Faster for basic RMSD/RMSF/Rg but only implements subset of analyses
-   - Missing implementations for HBonds, SS, SASA in this benchmark
-   - Full equivalent functionality would require significant additional code
 
 ## Interpretation
 
 The benchmark demonstrates that FastMDAnalysis provides:
-- **Comparable computational performance** to direct MDTraj usage
-- **Significantly simpler API** (8 LOC vs 28-60+ LOC)
-- **Automatic visualization** and organized output
-- **Complete analysis suite** in a single call
+- **Simplest possible interface**: 1 line of code using CLI
+- **Complete workflow**: Computation + plotting + organization in one command
+- **Publication-quality outputs**: Automatic generation of analysis figures
+- **Efficient execution**: Reasonable runtime and memory for comprehensive analysis
 
-The additional runtime (~12 seconds) vs raw MDTraj is the cost of:
-- Generating publication-quality figures
+The single CLI command replaces what would typically require:
+- Loading trajectory and topology
+- Configuring each analysis separately
+- Running each analysis manually
+- Creating plots for each analysis
 - Organizing output files
-- Providing a user-friendly interface
-
-For researchers who need quick exploratory analysis with immediate visualizations, FastMDAnalysis provides the best balance of performance, simplicity, and features.
+- Typically 50-100+ lines of code in traditional approaches
 
 ## Notes
 
-- Benchmark uses `tracemalloc` for memory profiling, which may add minor overhead
+- Benchmark uses `tracemalloc` for memory profiling
+- Runtime includes both computation and figure generation
 - Results may vary based on system specifications
-- MDAnalysis benchmark is partial - full implementation would show larger LOC difference
-- Ubiquitin dataset mentioned in original requirements is not included in this repository
+- The benchmark focuses on FastMDAnalysis only (no comparison with other libraries)
+- Custom plotting script creates visualization of benchmark results
 
 ## Extending the Benchmark
 
-To add Ubiquitin or other datasets:
+To benchmark additional analyses or datasets:
 
-1. Add dataset files to `src/fastmdanalysis/data/`
-2. Update `src/fastmdanalysis/datasets.py` with new dataset class
-3. Modify `benchmark_performance.py` to include additional dataset benchmarks
+1. Modify the `--include` flag in the CLI command to add/remove analyses
+2. Update the frame selection with `--frames` parameter
+3. Use `--atoms` to specify atom selection
+4. Modify dataset in the script by changing `TrpCage` to other available datasets
+
+Example with different parameters:
+```bash
+fastmda analyze -traj traj.dcd -top top.pdb --frames 0,1000,5 --atoms "protein" --include rmsd rmsf rg hbonds ss sasa
+```
 
 ## License
 

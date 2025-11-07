@@ -186,25 +186,6 @@ Output includes data tables, figures, slide deck, log file ...
 The documentation [under development] (with an extensive User Guide) is available [here](https://fastmdanalysis.readthedocs.io).
 
 
-# Performance Benchmark
-
-FastMDAnalysis includes a comprehensive performance benchmark that compares runtime, memory usage, and lines of code against MDTraj and MDAnalysis.
-
-**Run benchmark:**
-```bash
-python benchmark_performance.py
-```
-
-See [BENCHMARK.md](BENCHMARK.md) for detailed documentation.
-
-**Benchmark Results (TrpCage, 500 frames):**
-- FastMDAnalysis: 8 LOC, ~15s runtime, ~192 MB memory
-- MDTraj: 28 LOC, ~3s runtime, ~20 MB memory (computation only)
-- MDAnalysis: 36+ LOC, partial implementation (RMSD, RMSF, Rg only)
-
-**Key Finding:** FastMDAnalysis provides comparable computational performance to MDTraj with a much simpler API (8 vs 28 lines of code) and automatic figure generation.
-
-
 # Validation
 
 FastMDAnalysis includes a comprehensive validation script that compares all analysis routines against reference implementations from MDTraj and MDAnalysis. 
