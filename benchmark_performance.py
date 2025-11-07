@@ -27,6 +27,9 @@ import shutil
 import numpy as np
 import matplotlib.pyplot as plt
 import mdtraj as md
+from sklearn.cluster import KMeans, DBSCAN
+from scipy.cluster.hierarchy import linkage, dendrogram
+from scipy.spatial.distance import squareform, pdist
 
 # Filter out benign warnings
 warnings.filterwarnings('ignore', message='Unlikely unit cell vectors detected')
@@ -239,12 +242,9 @@ def run_mdtraj_benchmark(traj_file, top_file, frames):
         plt.savefig(output_dir / 'rg.png', dpi=150, bbox_inches='tight')
         plt.close()
         
-        # Clustering (using sklearn)
-        from sklearn.cluster import KMeans, DBSCAN
-        from scipy.cluster.hierarchy import linkage, dendrogram
-        from scipy.spatial.distance import squareform
-        
-        # Compute pairwise RMSD for clustering
+        # Clustering
+        # Note: Computing full RMSD matrix can be expensive for large trajectories
+        # For this benchmark, we use the full matrix for accurate clustering
         rmsd_matrix = np.empty((traj.n_frames, traj.n_frames))
         for i in range(traj.n_frames):
             rmsd_matrix[i] = md.rmsd(traj, traj, frame=i)
@@ -260,7 +260,7 @@ def run_mdtraj_benchmark(traj_file, top_file, frames):
         plt.savefig(output_dir / 'cluster_kmeans.png', dpi=150, bbox_inches='tight')
         plt.close()
         
-        # DBSCAN
+        # DBSCAN with precomputed distance matrix
         dbscan = DBSCAN(eps=0.5, min_samples=2, metric='precomputed')
         dbscan_labels = dbscan.fit_predict(rmsd_matrix)
         fig, ax = plt.subplots(figsize=(8, 5))
@@ -271,9 +271,10 @@ def run_mdtraj_benchmark(traj_file, top_file, frames):
         plt.savefig(output_dir / 'cluster_dbscan.png', dpi=150, bbox_inches='tight')
         plt.close()
         
-        # Hierarchical
-        # Make matrix symmetric
+        # Hierarchical clustering
+        # Ensure matrix is symmetric (handle numerical precision issues)
         rmsd_matrix_sym = (rmsd_matrix + rmsd_matrix.T) / 2
+        np.fill_diagonal(rmsd_matrix_sym, 0)  # Ensure diagonal is exactly zero
         condensed_dist = squareform(rmsd_matrix_sym)
         linkage_matrix = linkage(condensed_dist, method='ward')
         fig, ax = plt.subplots(figsize=(10, 6))
@@ -398,12 +399,8 @@ def run_mdanalysis_benchmark(traj_file, top_file, frames):
         plt.savefig(output_dir / 'rg.png', dpi=150, bbox_inches='tight')
         plt.close()
         
-        # Clustering (using coordinates)
-        from sklearn.cluster import KMeans, DBSCAN
-        from scipy.cluster.hierarchy import linkage, dendrogram
-        from scipy.spatial.distance import pdist, squareform
-        
-        # Use coordinates for clustering
+        # Clustering
+        # Use flattened coordinates for clustering (similar to MDTraj approach but adapted for MDAnalysis)
         coords_flat = coordinates.reshape(len(frame_list), -1)
         
         # KMeans
@@ -417,7 +414,8 @@ def run_mdanalysis_benchmark(traj_file, top_file, frames):
         plt.savefig(output_dir / 'cluster_kmeans.png', dpi=150, bbox_inches='tight')
         plt.close()
         
-        # DBSCAN
+        # DBSCAN clustering
+        # Note: eps value tuned for coordinate-based clustering (different from RMSD-based)
         distances = pdist(coords_flat)
         dist_matrix = squareform(distances)
         dbscan = DBSCAN(eps=50.0, min_samples=2, metric='precomputed')
