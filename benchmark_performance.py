@@ -204,7 +204,7 @@ def benchmark_mdtraj(traj_file, top_file, frames):
     sasa_data = md.shrake_rupley(traj, probe_radius=0.14, mode='atom')
     sasa_total = np.sum(sasa_data, axis=1)
     # ============================================
-    # (End LOC count - 31 lines)
+    # (End LOC count - 28 lines after using helper function)
     
     # Stop tracking
     end_time = time.time()

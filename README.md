@@ -199,10 +199,10 @@ See [BENCHMARK.md](BENCHMARK.md) for detailed documentation.
 
 **Benchmark Results (TrpCage, 500 frames):**
 - FastMDAnalysis: 8 LOC, ~15s runtime, ~192 MB memory
-- MDTraj: 31 LOC, ~3s runtime, ~20 MB memory (computation only)
+- MDTraj: 28 LOC, ~3s runtime, ~20 MB memory (computation only)
 - MDAnalysis: 36+ LOC, partial implementation (RMSD, RMSF, Rg only)
 
-**Key Finding:** FastMDAnalysis provides comparable computational performance to MDTraj with a much simpler API (8 vs 31+ lines of code) and automatic figure generation.
+**Key Finding:** FastMDAnalysis provides comparable computational performance to MDTraj with a much simpler API (8 vs 28 lines of code) and automatic figure generation.
 
 
 # Validation
