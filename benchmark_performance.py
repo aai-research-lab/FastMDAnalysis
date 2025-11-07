@@ -36,7 +36,8 @@ warnings.filterwarnings('ignore', category=DeprecationWarning)
 warnings.filterwarnings('ignore', category=UserWarning)
 
 # Constants
-ANGSTROM_TO_NM = 10.0  # Conversion factor from Angstroms to nanometers
+# 1 nanometer = 10 Angstroms, so to convert Angstroms to nm we divide by 10
+ANGSTROM_PER_NM = 10.0
 
 # Import FastMDAnalysis components
 try:
@@ -278,7 +279,7 @@ def benchmark_mdanalysis(traj_file, top_file, frames):
         for ts in u.trajectory[frame_list]:
             current_coords = protein.positions
             # Compute RMSD in Angstroms, convert to nm
-            rmsd_val = mda_rms.rmsd(current_coords, ref_coords, center=True) / ANGSTROM_TO_NM
+            rmsd_val = mda_rms.rmsd(current_coords, ref_coords, center=True) / ANGSTROM_PER_NM
             rmsd_results.append(rmsd_val)
         rmsd_data = np.array(rmsd_results)
         
@@ -289,12 +290,12 @@ def benchmark_mdanalysis(traj_file, top_file, frames):
         coordinates = np.array(coordinates)
         avg_coords = np.mean(coordinates, axis=0)
         rmsf_data = np.sqrt(np.mean((coordinates - avg_coords) ** 2, axis=0))
-        rmsf_data = np.linalg.norm(rmsf_data, axis=1) / ANGSTROM_TO_NM  # Convert to nm
+        rmsf_data = np.linalg.norm(rmsf_data, axis=1) / ANGSTROM_PER_NM  # Convert to nm
         
         # Radius of Gyration
         rg_results = []
         for ts in u.trajectory[frame_list]:
-            rg_val = protein.radius_of_gyration() / ANGSTROM_TO_NM  # Convert to nm
+            rg_val = protein.radius_of_gyration() / ANGSTROM_PER_NM  # Convert to nm
             rg_results.append(rg_val)
         rg_data = np.array(rg_results)
         
