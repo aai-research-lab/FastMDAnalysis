@@ -22,6 +22,7 @@ import time
 import warnings
 import os
 import shutil
+import traceback
 from pathlib import Path
 from typing import Dict, Any
 import tracemalloc
@@ -445,7 +446,7 @@ def main():
             'name': 'MDAnalysis',
             'runtime': 0,
             'memory_peak': 0,
-            'loc': 42,
+            'loc': 36,
             'success': False,
             'error': str(e)
         })
