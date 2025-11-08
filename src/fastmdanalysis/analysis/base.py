@@ -47,7 +47,15 @@ class BaseAnalysis:
         Primary data product (shape/type depends on analysis).
     """
 
-    def __init__(self, trajectory, output: Optional[str] = None, **kwargs):
+    def __init__(
+        self,
+        trajectory,
+        output: Optional[str] = None,
+        *,
+        save_data: bool = True,
+        store_results: bool = True,
+        **kwargs,
+    ):
         """
         Parameters
         ----------
@@ -63,6 +71,9 @@ class BaseAnalysis:
         self.output = output or default_name
         self.outdir = Path(self.output)
         self.outdir.mkdir(parents=True, exist_ok=True)
+
+        self.save_data = bool(save_data)
+        self.store_results = bool(store_results)
 
         self.results: dict = {}
         self.data: Any = None
@@ -134,6 +145,9 @@ class BaseAnalysis:
             Path to the saved .dat file.
         """
         path = self.outdir / f"{filename}.dat"
+
+        if not self.save_data:
+            return None
 
         # Try numpy path first
         try:

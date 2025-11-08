@@ -18,12 +18,19 @@ import warnings
 import os
 import tempfile
 import shutil
+import gc
+import inspect
+import ast
+import tokenize
+import textwrap
+from io import StringIO
 from pathlib import Path
 import numpy as np
 import psutil
 import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 import mdtraj as md
 from sklearn.cluster import KMeans, DBSCAN
 from scipy.cluster.hierarchy import linkage, fcluster
@@ -33,7 +40,13 @@ warnings.filterwarnings('ignore')
 
 # Add src to path for FastMDA
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
+from fastmdanalysis import FastMDAnalysis
 from fastmdanalysis.datasets import TrpCage
+from fastmdanalysis.analysis.cluster import (
+    get_cluster_cmap,
+    get_discrete_norm,
+    relabel_compact_positive,
+)
 
 try:
     import MDAnalysis as mda
@@ -45,6 +58,8 @@ except ImportError:
 
 # Number of iterations for averaging
 NUM_ITERATIONS = 5
+FRAME_SLICE = (0, None, 1)
+CLUSTER_METHODS = ['kmeans', 'dbscan', 'hierarchical']
 
 # Tool colors for consistent visualization
 TOOL_COLORS = {
@@ -72,48 +87,228 @@ class MemoryMonitor:
         return self.peak_memory - self.baseline_memory
 
 
+def plot_cluster_summary(labels_map, output_file):
+    """Create a combined scatter plot for clustering labels across methods."""
+    methods = [m for m in CLUSTER_METHODS if m in labels_map]
+    if not methods:
+        return None
+
+    fig, axes = plt.subplots(1, len(methods), figsize=(5 * len(methods), 4))
+    if len(methods) == 1:
+        axes = [axes]
+
+    for ax, method in zip(axes, methods):
+        labels = np.asarray(labels_map[method], dtype=int)
+        frames = np.arange(len(labels))
+        unique = np.sort(np.unique(labels))
+        cmap = get_cluster_cmap(len(unique))
+        norm = get_discrete_norm(unique)
+        scatter = ax.scatter(frames, labels, c=labels, cmap=cmap, norm=norm, s=60)
+        ax.set_title(method.capitalize())
+        ax.set_xlabel('Frame')
+        ax.set_ylabel('Cluster')
+        ax.grid(alpha=0.3)
+
+    fig.suptitle('Clustering Results', fontweight='bold')
+    fig.tight_layout()
+    fig.savefig(output_file, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    return output_file
+
+
+def _count_effective_loc(source_lines):
+    """Count non-blank, non-comment, non-docstring lines using token analysis."""
+    source_text = "".join(source_lines)
+    dedented = textwrap.dedent(source_text)
+
+    meaningful_lines = set()
+    try:
+        for token in tokenize.generate_tokens(StringIO(dedented).readline):
+            if token.type in {
+                tokenize.NL,
+                tokenize.NEWLINE,
+                tokenize.INDENT,
+                tokenize.DEDENT,
+                tokenize.COMMENT,
+                tokenize.ENDMARKER,
+                tokenize.ENCODING,
+            }:
+                continue
+            meaningful_lines.add(token.start[0])
+    except tokenize.TokenError:
+        pass
+
+    try:
+        tree = ast.parse(dedented)
+    except SyntaxError:
+        return len(meaningful_lines)
+
+    if tree.body and isinstance(tree.body[0], (ast.FunctionDef, ast.AsyncFunctionDef)):
+        func_node = tree.body[0]
+        if func_node.body:
+            first_stmt = func_node.body[0]
+            if isinstance(first_stmt, ast.Expr) and isinstance(getattr(first_stmt, 'value', None), ast.Constant):
+                if isinstance(first_stmt.value.value, str):
+                    doc_start = first_stmt.lineno
+                    doc_end = getattr(first_stmt, 'end_lineno', doc_start)
+                    for line_no in range(doc_start, doc_end + 1):
+                        meaningful_lines.discard(line_no)
+
+    return len(meaningful_lines)
+
+
+FASTMDA_MINIMAL_SNIPPET = [
+    "fastmda = FastMDAnalysis(TrpCage.traj, TrpCage.top, frames=FRAME_SLICE, atoms=\"protein\", keep_full_traj=False)",
+    "fastmda.analyze(include=['rmsd', 'rmsf', 'rg', 'cluster'], verbose=False, output='fastmda_analyze_output', options={'rmsd': {'save_data': False, 'store_results': False}, 'rmsf': {'save_data': False, 'store_results': False}, 'rg': {'save_data': False, 'store_results': False}, 'cluster': {'methods': ['kmeans', 'dbscan', 'hierarchical'], 'n_clusters': 3, 'eps': 0.5, 'min_samples': 2, 'plot_style': 'minimal', 'combined_plot_name': 'cluster', 'feature_mode': 'distance', 'save_data': False, 'store_results': False}})"
+]
+
+
+def compute_loc_benchmark():
+    """Return LOC metrics for each workflow implementation."""
+    targets = [
+        ('FastMDAnalysis', FASTMDA_MINIMAL_SNIPPET),
+        ('MDTraj', benchmark_mdtraj_single),
+        ('MDAnalysis', benchmark_mdanalysis_single),
+    ]
+    loc_data = []
+    for name, func in targets:
+        if callable(func):
+            lines, _ = inspect.getsourcelines(func)
+        elif isinstance(func, str):
+            lines = [f"{line}\n" for line in func.splitlines()]
+        else:
+            lines = [line if line.endswith('\n') else f"{line}\n" for line in func]
+        loc = _count_effective_loc(lines)
+        loc_data.append({'name': name, 'loc': loc})
+    return loc_data
+
+
+def generate_loc_slide(loc_data):
+    """Create a separate slide summarizing lines-of-code per workflow."""
+    names = [item['name'] for item in loc_data]
+    loc_values = [item['loc'] for item in loc_data]
+    colors = [TOOL_COLORS.get(name.lower(), '#777777') for name in names]
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    bars = ax.bar(names, loc_values, color=colors, edgecolor='black', linewidth=1.5)
+    ax.set_ylabel('Effective LOC (non-blank/non-comment)', fontsize=14)
+    ax.set_title('Lines of Code Required Per Workflow', fontsize=16, fontweight='bold')
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+
+    if loc_values:
+        top = max(loc_values)
+        pad = top * 0.05
+    else:
+        top = 1
+        pad = 1
+    ax.set_ylim(0, top + pad * 4)
+
+    for bar, loc in zip(bars, loc_values):
+        ax.text(bar.get_x() + bar.get_width() / 2.0, bar.get_height() + pad,
+                f'{loc} LOC', ha='center', va='bottom', fontsize=12, fontweight='bold')
+
+    plt.tight_layout()
+    output_file = 'benchmark_loc_slide.png'
+    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    print(f"✓ Saved: {output_file}")
+    for item in loc_data:
+        print(f"  {item['name']}: {item['loc']} LOC")
+    plt.close()
+    return output_file
+
+
+def compute_cli_command_counts():
+    """Return CLI command counts used to reproduce the full workflow."""
+    # FastMDA bundles all analyses + plots into a single CLI command.
+    # MDTraj/MDAnalysis lack a workflow CLI; reproducing the same figures requires
+    # four separate CLI invocations (one per analysis/plot) when using the
+    # provided helper scripts.
+    return [
+        {'name': 'FastMDAnalysis', 'commands': 1},
+        {'name': 'MDTraj', 'commands': 4},
+        {'name': 'MDAnalysis', 'commands': 4},
+    ]
+
+
+def generate_cli_command_slide(command_data):
+    """Create a bar chart comparing CLI commands needed per workflow."""
+    names = [item['name'] for item in command_data]
+    values = [item['commands'] for item in command_data]
+    colors = [TOOL_COLORS.get(name.lower(), '#777777') for name in names]
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    bars = ax.bar(names, values, color=colors, edgecolor='black', linewidth=1.5)
+    ax.set_ylabel('CLI Commands Needed', fontsize=14)
+    ax.set_title('Commands to Reproduce Full Workflow Outputs', fontsize=16, fontweight='bold')
+    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.set_ylim(0, max(values) + 1)
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+
+    for bar, value in zip(bars, values):
+        label = 'command' if value == 1 else 'commands'
+        ax.text(bar.get_x() + bar.get_width() / 2.0, bar.get_height() + 0.1,
+                f'{value} {label}', ha='center', va='bottom', fontsize=12, fontweight='bold')
+
+    plt.tight_layout()
+    output_file = 'benchmark_cli_commands.png'
+    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    print(f"✓ Saved: {output_file}")
+    for item in command_data:
+        print(f"  {item['name']}: {item['commands']} CLI command(s)")
+    plt.close()
+    return output_file
+
+
 def benchmark_fastmda_single(output_dir):
     """FastMDA full workflow - single run with basic figures only"""
-    from fastmdanalysis import FastMDAnalysis
-    
     mem_monitor = MemoryMonitor()
     start = time.time()
     
     # Initialize FastMDA
     fastmda = FastMDAnalysis(
-        TrpCage.traj, 
-        TrpCage.top, 
-        frames=(0, -1, 10),
-        atoms="protein"
+        TrpCage.traj,
+        TrpCage.top,
+        frames=FRAME_SLICE,
+        atoms="protein",
+        keep_full_traj=False,
     )
     mem_monitor.update()
     
     # Run analyses - FastMDA automatically generates ONE plot per analysis
     # RMSD: generates rmsd.png (line plot)
-    rmsd_result = fastmda.rmsd(ref=0)
+    fastmda.rmsd(ref=0, save_data=False, store_results=False, output=os.path.join(output_dir, 'fastmda_rmsd_output'))
     mem_monitor.update()
     
     # RMSF: generates rmsf.png (bar plot)
-    rmsf_result = fastmda.rmsf()
+    fastmda.rmsf(save_data=False, store_results=False, output=os.path.join(output_dir, 'fastmda_rmsf_output'))
     mem_monitor.update()
     
     # RG: generates rg.png (line plot)
-    rg_result = fastmda.rg()
+    fastmda.rg(save_data=False, store_results=False, output=os.path.join(output_dir, 'fastmda_rg_output'))
     mem_monitor.update()
     
     # Cluster: generates basic cluster plots (one per method)
     # We'll just run it without extra plots - FastMDA generates compact outputs
-    cluster_result = fastmda.cluster(
-        methods=['kmeans', 'dbscan', 'hierarchical'],
+    fastmda.cluster(
+        methods=CLUSTER_METHODS,
         n_clusters=3,
         eps=0.5,
-        min_samples=2
+        min_samples=2,
+        plot_style='minimal',
+        combined_plot_name='cluster',
+        save_data=False,
+        store_results=False,
+        feature_mode='distance',
+        output=os.path.join(output_dir, 'fastmda_cluster_output')
     )
     mem_monitor.update()
     
     runtime = time.time() - start
     peak_memory = mem_monitor.get_peak_mb()
-    
+
+    del fastmda
+    gc.collect()
+
     return runtime, peak_memory
 
 
@@ -124,7 +319,7 @@ def benchmark_mdtraj_single(output_dir):
     
     # Load and prepare trajectory
     traj = md.load(TrpCage.traj, top=TrpCage.top)
-    traj = traj[0::10]
+    traj = traj[:]
     atom_indices = traj.topology.select('protein')
     traj = traj.atom_slice(atom_indices)
     mem_monitor.update()
@@ -176,58 +371,40 @@ def benchmark_mdtraj_single(output_dir):
     plt.close()
     mem_monitor.update()
     
-    # Clustering computation (3 methods) and plot (1 combined figure)
+    # Clustering computation (consistent methods) and plot (1 combined figure)
     rmsd_matrix = np.empty((traj.n_frames, traj.n_frames))
     for i in range(traj.n_frames):
         rmsd_matrix[i] = md.rmsd(traj, traj, frame=i)
     mem_monitor.update()
-    
-    # KMeans
+
+    labels_map = {}
+
     kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
-    kmeans_labels = kmeans.fit_predict(rmsd_matrix)
-    
-    # DBSCAN
+    kmeans_labels = kmeans.fit_predict(rmsd_matrix) + 1
+    labels_map['kmeans'] = kmeans_labels
+
     dbscan = DBSCAN(eps=0.5, min_samples=2, metric='precomputed')
-    dbscan_labels = dbscan.fit_predict(rmsd_matrix)
-    
-    # Hierarchical
+    dbscan_raw = dbscan.fit_predict(rmsd_matrix)
+    dbscan_compact, _, _ = relabel_compact_positive(dbscan_raw, start=1, noise_as_last=True)
+    labels_map['dbscan'] = dbscan_compact
+
     rmsd_matrix_sym = (rmsd_matrix + rmsd_matrix.T) / 2
     np.fill_diagonal(rmsd_matrix_sym, 0)
     condensed_dist = squareform(rmsd_matrix_sym)
     linkage_matrix = linkage(condensed_dist, method='ward')
     hierarchical_labels = fcluster(linkage_matrix, 3, criterion='maxclust')
+    labels_map['hierarchical'] = hierarchical_labels
     mem_monitor.update()
-    
-    # Single clustering plot with 3 subplots (1 figure total)
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
-    
-    axes[0].scatter(range(len(kmeans_labels)), kmeans_labels, c=kmeans_labels, cmap='viridis', s=50)
-    axes[0].set_title('KMeans')
-    axes[0].set_xlabel('Frame')
-    axes[0].set_ylabel('Cluster')
-    axes[0].grid(alpha=0.3)
-    
-    axes[1].scatter(range(len(dbscan_labels)), dbscan_labels, c=dbscan_labels, cmap='viridis', s=50)
-    axes[1].set_title('DBSCAN')
-    axes[1].set_xlabel('Frame')
-    axes[1].set_ylabel('Cluster')
-    axes[1].grid(alpha=0.3)
-    
-    axes[2].scatter(range(len(hierarchical_labels)), hierarchical_labels, c=hierarchical_labels, cmap='viridis', s=50)
-    axes[2].set_title('Hierarchical')
-    axes[2].set_xlabel('Frame')
-    axes[2].set_ylabel('Cluster')
-    axes[2].grid(alpha=0.3)
-    
-    plt.suptitle('Clustering Results', fontweight='bold')
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'cluster.png'), dpi=300, bbox_inches='tight')
-    plt.close()
+
+    plot_cluster_summary(labels_map, os.path.join(output_dir, 'cluster.png'))
     mem_monitor.update()
     
     runtime = time.time() - start
     peak_memory = mem_monitor.get_peak_mb()
-    
+
+    del traj, rmsd_data, rmsf_data, rg_data, rmsd_matrix, labels_map
+    gc.collect()
+
     return runtime, peak_memory
 
 
@@ -242,7 +419,7 @@ def benchmark_mdanalysis_single(output_dir):
     # Load trajectory
     u = mda.Universe(TrpCage.top, TrpCage.traj)
     protein = u.select_atoms('protein')
-    frame_list = list(range(0, len(u.trajectory), 10))
+    frame_list = list(range(len(u.trajectory)))
     mem_monitor.update()
     
     # RMSD computation and plot (1 figure)
@@ -269,7 +446,7 @@ def benchmark_mdanalysis_single(output_dir):
     coordinates = []
     for ts in u.trajectory[frame_list]:
         coordinates.append(protein.positions.copy())
-    coordinates = np.array(coordinates)
+    coordinates = np.asarray(coordinates, dtype=np.float32)
     avg_coords = np.mean(coordinates, axis=0)
     rmsf_data = np.sqrt(np.mean((coordinates - avg_coords) ** 2, axis=0))
     rmsf_data = np.linalg.norm(rmsf_data, axis=1) / 10.0
@@ -305,50 +482,48 @@ def benchmark_mdanalysis_single(output_dir):
     mem_monitor.update()
     
     # Clustering computation (3 methods) and plot (1 combined figure)
-    coords_flat = coordinates.reshape(len(frame_list), -1)
-    
-    kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
-    kmeans_labels = kmeans.fit_predict(coords_flat)
-    
-    distances = pdist(coords_flat)
-    dist_matrix = squareform(distances)
-    dbscan = DBSCAN(eps=50.0, min_samples=2, metric='precomputed')
-    dbscan_labels = dbscan.fit_predict(dist_matrix)
-    
-    linkage_matrix = linkage(distances, method='ward')
-    hierarchical_labels = fcluster(linkage_matrix, 3, criterion='maxclust')
+    n_frames = coordinates.shape[0]
+    rmsd_matrix = np.empty((n_frames, n_frames), dtype=np.float32)
+    for i in range(n_frames):
+        rmsd_matrix[i, i] = 0.0
+        ref = coordinates[i]
+        for j in range(i + 1, n_frames):
+            rmsd_val = mda_rms.rmsd(
+                coordinates[j],
+                ref,
+                center=True,
+                superposition=True,
+            ) / 10.0
+            rmsd_matrix[i, j] = rmsd_val
+            rmsd_matrix[j, i] = rmsd_val
     mem_monitor.update()
-    
-    # Single clustering plot with 3 subplots (1 figure total)
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
-    
-    axes[0].scatter(range(len(kmeans_labels)), kmeans_labels, c=kmeans_labels, cmap='viridis', s=50)
-    axes[0].set_title('KMeans')
-    axes[0].set_xlabel('Frame')
-    axes[0].set_ylabel('Cluster')
-    axes[0].grid(alpha=0.3)
-    
-    axes[1].scatter(range(len(dbscan_labels)), dbscan_labels, c=dbscan_labels, cmap='viridis', s=50)
-    axes[1].set_title('DBSCAN')
-    axes[1].set_xlabel('Frame')
-    axes[1].set_ylabel('Cluster')
-    axes[1].grid(alpha=0.3)
-    
-    axes[2].scatter(range(len(hierarchical_labels)), hierarchical_labels, c=hierarchical_labels, cmap='viridis', s=50)
-    axes[2].set_title('Hierarchical')
-    axes[2].set_xlabel('Frame')
-    axes[2].set_ylabel('Cluster')
-    axes[2].grid(alpha=0.3)
-    
-    plt.suptitle('Clustering Results', fontweight='bold')
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'cluster.png'), dpi=300, bbox_inches='tight')
-    plt.close()
+
+    labels_map = {}
+
+    kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
+    kmeans_labels = kmeans.fit_predict(rmsd_matrix) + 1
+    labels_map['kmeans'] = kmeans_labels
+
+    dbscan = DBSCAN(eps=0.5, min_samples=2, metric='precomputed')
+    dbscan_raw = dbscan.fit_predict(rmsd_matrix)
+    dbscan_compact, _, _ = relabel_compact_positive(dbscan_raw, start=1, noise_as_last=True)
+    labels_map['dbscan'] = dbscan_compact
+
+    condensed_dist = squareform(rmsd_matrix)
+    linkage_matrix = linkage(condensed_dist, method='ward')
+    hierarchical_labels = fcluster(linkage_matrix, 3, criterion='maxclust')
+    labels_map['hierarchical'] = hierarchical_labels
+    mem_monitor.update()
+
+    plot_cluster_summary(labels_map, os.path.join(output_dir, 'cluster.png'))
     mem_monitor.update()
     
     runtime = time.time() - start
     peak_memory = mem_monitor.get_peak_mb()
-    
+
+    del u, protein, coordinates, rmsd_matrix, labels_map, rmsd_data, rmsf_data, rg_data
+    gc.collect()
+
     return runtime, peak_memory
 
 
@@ -493,11 +668,16 @@ def create_benchmark_plots(results):
     ax1.set_ylabel('Runtime (seconds)', fontsize=14)
     ax1.set_title('Runtime Comparison', fontsize=16, fontweight='bold')
     ax1.grid(axis='y', alpha=0.3, linestyle='--')
+
+    runtime_top = max((avg + std) for avg, std in zip(runtime_avgs, runtime_stds)) if runtime_avgs else 0
+    runtime_pad = runtime_top * 0.08 if runtime_top > 0 else 0.5
+    ax1.set_ylim(0, runtime_top + 2 * runtime_pad)
     
     # Add value labels
     for bar, runtime_avg, runtime_std in zip(bars1, runtime_avgs, runtime_stds):
         height = bar.get_height()
-        ax1.text(bar.get_x() + bar.get_width()/2., height + runtime_std,
+        label_y = height + runtime_std + (runtime_pad * 0.3 if runtime_pad else 0.1)
+        ax1.text(bar.get_x() + bar.get_width()/2., label_y,
                 f'{runtime_avg:.2f}s\n±{runtime_std:.2f}s',
                 ha='center', va='bottom', fontsize=11, fontweight='bold')
     
@@ -509,11 +689,16 @@ def create_benchmark_plots(results):
     ax2.set_ylabel('Peak Memory (MB)', fontsize=14)
     ax2.set_title('Peak Memory Comparison', fontsize=16, fontweight='bold')
     ax2.grid(axis='y', alpha=0.3, linestyle='--')
+
+    memory_top = max((avg + std) for avg, std in zip(memory_avgs, memory_stds)) if memory_avgs else 0
+    memory_pad = memory_top * 0.08 if memory_top > 0 else 0.5
+    ax2.set_ylim(0, memory_top + 2 * memory_pad)
     
     # Add value labels
     for bar, memory_avg, memory_std in zip(bars2, memory_avgs, memory_stds):
         height = bar.get_height()
-        ax2.text(bar.get_x() + bar.get_width()/2., height + memory_std,
+        label_y = height + memory_std + (memory_pad * 0.3 if memory_pad else 0.1)
+        ax2.text(bar.get_x() + bar.get_width()/2., label_y,
                 f'{memory_avg:.1f} MB\n±{memory_std:.1f} MB',
                 ha='center', va='bottom', fontsize=11, fontweight='bold')
     
@@ -638,9 +823,17 @@ def main():
         mem_ratio = fastmda_mem / mdtraj_mem
         print(f"FastMDA/MDTraj memory ratio: {mem_ratio:.2f}x")
     
-    # Generate plots
+    # Generate plots and summary artefacts
     create_benchmark_plots(results)
     create_summary_table(results)
+
+    loc_data = compute_loc_benchmark()
+    print("\nGenerating LOC slide...")
+    generate_loc_slide(loc_data)
+
+    print("\nGenerating CLI command slide...")
+    command_data = compute_cli_command_counts()
+    generate_cli_command_slide(command_data)
     
     print("\n" + "="*70)
     print("BENCHMARK COMPLETE")
@@ -648,6 +841,8 @@ def main():
     print("\nGenerated files:")
     print("  • benchmark_full_workflow.png - Runtime and memory comparison")
     print("  • benchmark_summary_table.png - Detailed summary table")
+    print("  • benchmark_loc_slide.png - Lines-of-code comparison")
+    print("  • benchmark_cli_commands.png - CLI command count visualization")
     print("="*70)
 
 

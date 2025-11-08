@@ -87,14 +87,22 @@ class RMSFAnalysis(BaseAnalysis):
 
             # Per-atom RMSF (nm) relative to average structure
             rmsf_values = md.rmsf(subtraj, ref)  # shape (N,)
-            self.data = np.asarray(rmsf_values, dtype=float).reshape(-1, 1)
-            self.results = {"rmsf": self.data}
+            result_array = np.asarray(rmsf_values, dtype=float).reshape(-1, 1)
 
-            # Save data and a default plot
-            self._save_data(self.data, "rmsf")
-            self.plot()
+            if self.save_data:
+                self._save_data(result_array, "rmsf")
 
-            return self.results
+            self.plot(result_array)
+
+            if self.store_results:
+                self.data = result_array
+                self.results = {"rmsf": result_array}
+                return self.results
+
+            # Release references when not storing results
+            self.data = None
+            self.results = {}
+            return {"rmsf": result_array}
         except AnalysisError:
             raise
         except Exception as e:

@@ -160,20 +160,29 @@ class FastMDAnalysis:
     >>> rmsd_analysis = fastmda.rmsd(ref=0)
     """
 
-    def __init__(self, traj_file: str, top_file: str, frames=None, atoms: Optional[str] = None):
-        # Load the full trajectory first (keeps load_trajectory signature simple/compatible).
-        self.full_traj = load_trajectory(traj_file, top_file)
-
-        # Subset frames via native slicing semantics (handles None and negatives).
+    def __init__(self, traj_file: str, top_file: str, frames=None, atoms: Optional[str] = None, keep_full_traj: bool = True):
         norm_frames = _normalize_frames(frames)
-        if norm_frames is not None:
-            start, stop, stride = norm_frames
-            self.traj = self.full_traj[start:stop:stride]
-        else:
-            self.traj = self.full_traj
 
-        # Store defaults for later analyses
+        self._default_atoms_preapplied = False
         self.default_atoms = atoms
+
+        if not keep_full_traj:
+            base_traj = load_trajectory(traj_file, top_file, frames=norm_frames, atoms=atoms)
+            if atoms:
+                self._default_atoms_preapplied = True
+            self.full_traj = None
+            self.traj = base_traj
+        else:
+            full_traj = load_trajectory(traj_file, top_file)
+            self.full_traj = full_traj
+
+            if norm_frames is not None:
+                start, stop, stride = norm_frames
+                base_traj = full_traj[start:stop:stride]
+            else:
+                base_traj = full_traj
+
+            self.traj = base_traj
 
         # Optional: common output/figure dirs other utilities may look for
         # (these attributes are probed by the slides utility in analyze.py)
@@ -185,11 +194,23 @@ class FastMDAnalysis:
         Determine the atom selection string to use; prefer per-call override,
         else fall back to the default selection provided at initialization.
         """
-        return specific_atoms if specific_atoms is not None else self.default_atoms
+        if specific_atoms is not None:
+            return specific_atoms
+        if self._default_atoms_preapplied:
+            return None
+        return self.default_atoms
 
     # ----------------------------- Analyses -----------------------------------
 
-    def rmsd(self, reference_frame: Optional[int] = None, ref: Optional[int] = None, atoms: Optional[str] = None, **kwargs):
+    def rmsd(
+        self,
+        reference_frame: Optional[int] = None,
+        ref: Optional[int] = None,
+        atoms: Optional[str] = None,
+        save_data: bool = True,
+        store_results: bool = True,
+        **kwargs,
+    ):
         """
         Run RMSD analysis on the stored trajectory.
 
@@ -210,21 +231,52 @@ class FastMDAnalysis:
         """
         a = self._get_atoms(atoms)
         rf = ref if ref is not None else (reference_frame if reference_frame is not None else 0)
-        analysis = RMSDAnalysis(self.traj, reference_frame=rf, atoms=a, **kwargs)
+        analysis = RMSDAnalysis(
+            self.traj,
+            reference_frame=rf,
+            atoms=a,
+            save_data=save_data,
+            store_results=store_results,
+            **kwargs,
+        )
         analysis.run()
         return analysis
 
-    def rmsf(self, atoms: Optional[str] = None, **kwargs):
+    def rmsf(
+        self,
+        atoms: Optional[str] = None,
+        save_data: bool = True,
+        store_results: bool = True,
+        **kwargs,
+    ):
         """Run RMSF analysis on the stored trajectory."""
         a = self._get_atoms(atoms)
-        analysis = RMSFAnalysis(self.traj, atoms=a, **kwargs)
+        analysis = RMSFAnalysis(
+            self.traj,
+            atoms=a,
+            save_data=save_data,
+            store_results=store_results,
+            **kwargs,
+        )
         analysis.run()
         return analysis
 
-    def rg(self, atoms: Optional[str] = None, **kwargs):
+    def rg(
+        self,
+        atoms: Optional[str] = None,
+        save_data: bool = True,
+        store_results: bool = True,
+        **kwargs,
+    ):
         """Run Radius of Gyration (RG) analysis."""
         a = self._get_atoms(atoms)
-        analysis = RGAnalysis(self.traj, atoms=a, **kwargs)
+        analysis = RGAnalysis(
+            self.traj,
+            atoms=a,
+            save_data=save_data,
+            store_results=store_results,
+            **kwargs,
+        )
         analysis.run()
         return analysis
 
@@ -242,12 +294,28 @@ class FastMDAnalysis:
         min_samples: int = 5,
         n_clusters: Optional[int] = None,
         atoms: Optional[str] = None,
+        plot_style: str = "full",
+        combined_plot_name: str = "cluster_combined",
+        save_data: bool = True,
+        store_results: bool = True,
+        feature_mode: str = "coordinates",
         **kwargs
     ):
         """Run clustering analysis on the stored trajectory."""
         a = self._get_atoms(atoms)
         analysis = ClusterAnalysis(
-            self.traj, methods=methods, eps=eps, min_samples=min_samples, n_clusters=n_clusters, atoms=a, **kwargs
+            self.traj,
+            methods=methods,
+            eps=eps,
+            min_samples=min_samples,
+            n_clusters=n_clusters,
+            atoms=a,
+            plot_style=plot_style,
+            combined_plot_name=combined_plot_name,
+            save_data=save_data,
+            store_results=store_results,
+            feature_mode=feature_mode,
+            **kwargs
         )
         analysis.run()
         return analysis

@@ -18,6 +18,7 @@ Key behaviors:
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Dict, Optional, Tuple, Sequence, Union
 
 import numpy as np
@@ -32,6 +33,7 @@ from matplotlib.colors import ListedColormap, BoundaryNorm, to_hex
 from matplotlib.cm import ScalarMappable
 
 from scipy.cluster.hierarchy import dendrogram, fcluster, linkage
+from scipy.spatial.distance import squareform
 
 from .base import BaseAnalysis, AnalysisError
 
@@ -146,6 +148,10 @@ class ClusterAnalysis(BaseAnalysis):
         min_samples: int = 5,
         n_clusters: Optional[int] = None,
         atoms: Optional[str] = None,
+        plot_style: str = "full",
+        combined_plot_name: str = "cluster_combined",
+        save_data: bool = True,
+        feature_mode: str = "coordinates",
         **kwargs
     ):
         """
@@ -162,8 +168,17 @@ class ClusterAnalysis(BaseAnalysis):
             If None and methods include kmeans/hierarchical, defaults to 3.
         atoms : str, optional
             MDTraj atom selection string used to slice the trajectory for all methods.
+        plot_style : {"full", "minimal", "none"}
+            Controls which plots are generated. "full" retains the legacy behavior,
+            "minimal" emits a single combined scatter summary, and "none" skips plots.
+        combined_plot_name : str
+            Base name for the combined scatter figure when plot_style="minimal".
+        feature_mode : {"coordinates", "distance"}
+            Select the feature space for kmeans/hierarchical clustering. "coordinates" flattens
+            Cartesian coordinates (legacy behaviour), while "distance" reuses the RMSD distance
+            matrix to align with lightweight benchmarking scenarios.
         """
-        super().__init__(trajectory, **kwargs)
+        super().__init__(trajectory, save_data=save_data, **kwargs)
 
         # Normalize methods
         if isinstance(methods, str):
@@ -180,30 +195,59 @@ class ClusterAnalysis(BaseAnalysis):
         self.min_samples = int(min_samples)
         self.n_clusters = int(n_clusters) if (n_clusters is not None and int(n_clusters) > 0) else None
         self.atoms = atoms
+        if plot_style not in {"full", "minimal", "none"}:
+            raise AnalysisError("plot_style must be 'full', 'minimal', or 'none'.")
+        self.plot_style = plot_style
+        self.combined_plot_name = combined_plot_name
+        if feature_mode not in {"coordinates", "distance"}:
+            raise AnalysisError("feature_mode must be 'coordinates' or 'distance'.")
+        self.feature_mode = feature_mode
 
         self.atom_indices = self.traj.topology.select(self.atoms) if self.atoms is not None else None
         if self.atoms and (self.atom_indices is None or len(self.atom_indices) == 0):
             raise AnalysisError(f"No atoms found with the selection: '{self.atoms}'")
 
         self.results: Dict[str, Dict] = {}
+        self._labels_for_combined: Dict[str, np.ndarray] = {}
 
     # ----------------------------- Distances/Features --------------------------
 
     def _calculate_rmsd_matrix(self) -> np.ndarray:
-        """Compute a symmetric pairwise RMSD matrix (nm) over frames."""
-        logger.info("Calculating RMSD matrix...")
-        T = self.traj.n_frames
-        D = np.empty((T, T), dtype=np.float32)
-        for i in range(T):
-            ref = self.traj[i]
-            if self.atom_indices is not None:
-                D[:, i] = md.rmsd(self.traj, ref, atom_indices=self.atom_indices)
-            else:
-                D[:, i] = md.rmsd(self.traj, ref)
-        D = 0.5 * (D + D.T)
-        np.fill_diagonal(D, 0.0)
-        logger.debug("RMSD matrix: shape=%s min=%.4f max=%.4f nm", D.shape, float(D.min()), float(D.max()))
-        return D
+        """Compute a symmetric pairwise RMSD matrix (nm) over frames with low memory overhead."""
+        logger.info("Calculating RMSD matrix via mdtraj._rmsd (float32)...")
+
+        from mdtraj import _rmsd
+
+        coords = self.traj.xyz.astype(np.float32, copy=True, order="C")
+        if self.atom_indices is not None:
+            coords = np.ascontiguousarray(coords[:, self.atom_indices, :], dtype=np.float32)
+
+        T, n_atoms, _ = coords.shape
+        traces = _rmsd._center_inplace_atom_major(coords)
+
+        result = np.empty((T, T), dtype=np.float32)
+
+        for ref_idx in range(T):
+            column = _rmsd.getMultipleRMSDs_atom_major(
+                coords,
+                coords,
+                traces,
+                traces,
+                ref_idx,
+            )
+            result[:, ref_idx] = column.astype(np.float32, copy=False)
+
+        # Ensure exact symmetry and zero diagonal
+        result = 0.5 * (result + result.T)
+        np.fill_diagonal(result, 0.0)
+
+        logger.debug(
+            "RMSD matrix computed: shape=%s min=%.4f max=%.4f nm",
+            result.shape,
+            float(result.min()),
+            float(result.max()),
+        )
+        return result
 
     def _distance_diagnostics(self, D: np.ndarray) -> Dict[str, float]:
         tri = D[np.triu_indices_from(D, k=1)]
@@ -316,6 +360,34 @@ class ClusterAnalysis(BaseAnalysis):
         ax.set_ylabel(kwargs.get("ylabel", "Distance"))
         return self._save_plot(fig, filename)
 
+    def _plot_combined_clusters(self, labels_map: Dict[str, np.ndarray]) -> Optional[Path]:
+        """Draw a single scatter summary for all requested methods when in minimal mode."""
+        order = [m for m in ["kmeans", "dbscan", "hierarchical"] if m in labels_map]
+        if not order:
+            return None
+
+        fig, axes = plt.subplots(1, len(order), figsize=(5 * len(order), 4))
+        if len(order) == 1:
+            axes = [axes]
+
+        for ax, method in zip(axes, order):
+            labels = labels_map[method]
+            frames = np.arange(len(labels))
+            unique = np.sort(np.unique(labels))
+            cmap = get_cluster_cmap(len(unique))
+            norm = get_discrete_norm(unique)
+            ax.scatter(frames, labels, c=labels, cmap=cmap, norm=norm, s=60)
+            ax.set_title(method.capitalize())
+            ax.set_xlabel("Frame")
+            ax.set_ylabel("Cluster")
+            ax.grid(alpha=0.3)
+
+        fig.suptitle("Clustering Results", fontweight="bold")
+        fig.tight_layout()
+        out = self._save_plot(fig, self.combined_plot_name)
+        plt.close(fig)
+        return out
+
     def _save_plot(self, fig, name: str):
         """Save the figure as a PNG file in the output directory and log its path."""
         plot_path = self.outdir / f"{name}.png"
@@ -336,27 +408,50 @@ class ClusterAnalysis(BaseAnalysis):
         try:
             logger.info("Starting clustering analysis...")
             results: Dict[str, Dict] = {}
+            self._labels_for_combined = {}
 
             D = None
-            diags = None
-            if "dbscan" in self.methods:
+            diags = {}
+            X_flat = None
+
+            need_distance_matrix = "dbscan" in self.methods or self.feature_mode == "distance"
+            if need_distance_matrix:
                 D = self._calculate_rmsd_matrix()
                 diags = self._distance_diagnostics(D)
-                if self.eps >= diags["p90"]:
-                    logger.warning("DBSCAN eps=%.3f nm >= p90=%.3f nm — likely to merge clusters.", self.eps, diags["p90"])
-                elif self.eps <= diags["p25"]:
-                    logger.warning("DBSCAN eps=%.3f nm <= p25=%.3f nm — likely to mark many frames as noise.", self.eps, diags["p25"])
+                if "dbscan" not in self.methods:
+                    logger.info("RMSD matrix computed for distance-based feature mode.")
+                if "dbscan" in self.methods and diags:
+                    if self.eps >= diags.get("p90", float("inf")):
+                        logger.warning(
+                            "DBSCAN eps=%.3f nm >= p90=%.3f nm — likely to merge clusters.",
+                            self.eps,
+                            diags["p90"],
+                        )
+                    elif self.eps <= diags.get("p25", 0.0):
+                        logger.warning(
+                            "DBSCAN eps=%.3f nm <= p25=%.3f nm — likely to mark many frames as noise.",
+                            self.eps,
+                            diags["p25"],
+                        )
 
-            X_flat = None
-            need_centroid = any(m in self.methods for m in ["kmeans", "hierarchical"])
-            if need_centroid:
-                X = self.traj.xyz[:, self.atom_indices, :] if self.atom_indices is not None else self.traj.xyz
-                X_flat = X.reshape(self.traj.n_frames, -1)
+            if self.feature_mode == "coordinates":
+                coords = (
+                    self.traj.xyz[:, self.atom_indices, :]
+                    if self.atom_indices is not None
+                    else self.traj.xyz
+                )
+                X_flat = coords.reshape(self.traj.n_frames, -1)
                 logger.debug("Feature matrix shape: %s", X_flat.shape)
-                # Default n_clusters if not provided
+            else:
+                logger.debug("Using RMSD distance matrix as feature space for clustering.")
+
+            if any(m in self.methods for m in ("kmeans", "hierarchical")):
                 if self.n_clusters is None or self.n_clusters < 1:
                     self.n_clusters = 3
-                    logger.info("n_clusters not provided; defaulting to %d for kmeans/hierarchical.", self.n_clusters)
+                    logger.info(
+                        "n_clusters not provided; defaulting to %d for kmeans/hierarchical.",
+                        self.n_clusters,
+                    )
 
             for method in self.methods:
                 key = method.lower()
@@ -377,84 +472,133 @@ class ClusterAnalysis(BaseAnalysis):
                         logger.info("DBSCAN noise mapped to compact label %d.", noise_label)
 
                     frame_idx = np.arange(labels_compact.size, dtype=int)
-                    results["dbscan"] = {
+                    dbscan_entry = {
                         "labels_raw": labels_raw,              # may contain -1
                         "labels": labels_compact,              # 1..K (noise -> K+1 if present)
                         "n_clusters": n_clusters,
                         "eps_nm": float(self.eps),
                         "min_samples": int(self.min_samples),
                         "distance_percentiles_nm": diags or {},
-                        "distance_matrix": D,
-                        "labels_file_compact": self._save_data(
+                    }
+                    if self.save_data:
+                        dbscan_entry["distance_matrix"] = D
+                        dbscan_entry["labels_file_compact"] = self._save_data(
                             np.column_stack((frame_idx, labels_compact)),
                             "dbscan_labels_compact",
                             header="frame label(1..K; noise=K+1)", fmt="%d",
-                        ),
-                        "labels_file_raw": self._save_data(
+                        )
+                        dbscan_entry["labels_file_raw"] = self._save_data(
                             np.column_stack((frame_idx, labels_raw)),
                             "dbscan_labels_raw",
                             header="frame label_raw(-1=noise)", fmt="%d",
-                        ),
-                    }
+                        )
+                    results["dbscan"] = dbscan_entry
                     # Plots use compact labels so colorbars show 1..K(+1)
-                    results["dbscan"]["pop_plot"] = self._plot_population(labels_compact, "dbscan_pop")
-                    results["dbscan"]["trajectory_histogram"] = self._plot_cluster_trajectory_histogram(labels_compact, "dbscan_traj_hist")
-                    results["dbscan"]["trajectory_scatter"] = self._plot_cluster_trajectory_scatter(labels_compact, "dbscan_traj_scatter")
-                    results["dbscan"]["distance_matrix_plot"] = self._plot_distance_matrix(D, "dbscan_distance_matrix")
+                    if self.plot_style == "full":
+                        results["dbscan"]["pop_plot"] = self._plot_population(labels_compact, "dbscan_pop")
+                        results["dbscan"]["trajectory_histogram"] = self._plot_cluster_trajectory_histogram(labels_compact, "dbscan_traj_hist")
+                        results["dbscan"]["trajectory_scatter"] = self._plot_cluster_trajectory_scatter(labels_compact, "dbscan_traj_scatter")
+                        results["dbscan"]["distance_matrix_plot"] = self._plot_distance_matrix(D, "dbscan_distance_matrix")
+                    if self.plot_style in {"minimal", "full"}:
+                        self._labels_for_combined["dbscan"] = labels_compact
 
                 elif key == "kmeans":
                     if self.n_clusters is None or self.n_clusters < 1:
                         raise AnalysisError("For KMeans clustering, n_clusters must be provided and >=1.")
                     km = KMeans(n_clusters=int(self.n_clusters), random_state=42, n_init=10)
-                    labels0 = km.fit_predict(X_flat).astype(int, copy=False)  # 0..K-1
+                    if self.feature_mode == "coordinates":
+                        fit_matrix = X_flat
+                    else:
+                        if D is None:
+                            D = self._calculate_rmsd_matrix()
+                        fit_matrix = D
+                    labels0 = km.fit_predict(fit_matrix).astype(int, copy=False)  # 0..K-1
                     labels = labels0 + 1                                      # 1..K
                     frame_idx = np.arange(labels.size, dtype=int)
-                    results["kmeans"] = {
+                    kmeans_entry = {
                         "labels": labels,
                         "n_clusters": int(self.n_clusters),
                         "inertia_": float(km.inertia_),
-                        "labels_file": self._save_data(
-                            np.column_stack((frame_idx, labels)), "kmeans_labels",
-                            header="frame label(1..K)", fmt="%d",
-                        ),
-                        "coordinates_file": self._save_data(
-                            X_flat, "kmeans_coordinates",
-                            header="Flattened coordinates", fmt="%.6f",
-                        ),
                     }
-                    results["kmeans"]["pop_plot"] = self._plot_population(labels, "kmeans_pop")
-                    results["kmeans"]["trajectory_histogram"] = self._plot_cluster_trajectory_histogram(labels, "kmeans_traj_hist")
-                    results["kmeans"]["trajectory_scatter"] = self._plot_cluster_trajectory_scatter(labels, "kmeans_traj_scatter")
+                    if self.save_data:
+                        kmeans_entry["labels_file"] = self._save_data(
+                            np.column_stack((frame_idx, labels)),
+                            "kmeans_labels",
+                            header="frame label(1..K)",
+                            fmt="%d",
+                        )
+                        if self.feature_mode == "coordinates" and X_flat is not None:
+                            kmeans_entry["coordinates_file"] = self._save_data(
+                                X_flat,
+                                "kmeans_coordinates",
+                                header="Flattened coordinates",
+                                fmt="%.6f",
+                            )
+                    results["kmeans"] = kmeans_entry
+                    if self.plot_style == "full":
+                        results["kmeans"]["pop_plot"] = self._plot_population(labels, "kmeans_pop")
+                        results["kmeans"]["trajectory_histogram"] = self._plot_cluster_trajectory_histogram(labels, "kmeans_traj_hist")
+                        results["kmeans"]["trajectory_scatter"] = self._plot_cluster_trajectory_scatter(labels, "kmeans_traj_scatter")
+                    if self.plot_style in {"minimal", "full"}:
+                        self._labels_for_combined["kmeans"] = labels
 
                 elif key == "hierarchical":
                     if self.n_clusters is None or self.n_clusters < 1:
                         raise AnalysisError("For hierarchical clustering, n_clusters must be provided and >=1.")
                     logger.info("Computing Ward linkage for hierarchical clustering...")
-                    Z = linkage(X_flat, method="ward")
+                    if self.feature_mode == "coordinates":
+                        Z = linkage(X_flat, method="ward")
+                    else:
+                        if D is None:
+                            D = self._calculate_rmsd_matrix()
+                        condensed_dist = squareform(D)
+                        Z = linkage(condensed_dist, method="ward")
                     labels = fcluster(Z, t=int(self.n_clusters), criterion="maxclust").astype(int, copy=False)  # 1..K
                     frame_idx = np.arange(labels.size, dtype=int)
-                    results["hierarchical"] = {
+                    hierarchical_entry = {
                         "labels": labels,
                         "n_clusters": int(self.n_clusters),
                         "linkage": Z,
-                        "labels_file": self._save_data(
+                    }
+                    if self.save_data:
+                        hierarchical_entry["labels_file"] = self._save_data(
                             np.column_stack((frame_idx, labels)), "hierarchical_labels",
                             header="frame label(1..K)", fmt="%d",
-                        ),
-                        "linkage_file": self._save_data(
+                        )
+                        hierarchical_entry["linkage_file"] = self._save_data(
                             Z, "hierarchical_linkage",
                             header="cluster1 cluster2 distance sample_count", fmt="%.6f",
-                        ),
-                    }
-                    results["hierarchical"]["pop_plot"] = self._plot_population(labels, "hierarchical_pop")
-                    results["hierarchical"]["trajectory_histogram"] = self._plot_cluster_trajectory_histogram(labels, "hierarchical_traj_hist")
-                    results["hierarchical"]["trajectory_scatter"] = self._plot_cluster_trajectory_scatter(labels, "hierarchical_traj_scatter")
-                    results["hierarchical"]["dendrogram_plot"] = self._plot_dendrogram(Z, labels, "hierarchical_dendrogram")
+                        )
+                    results["hierarchical"] = hierarchical_entry
+                    if self.plot_style == "full":
+                        results["hierarchical"]["pop_plot"] = self._plot_population(labels, "hierarchical_pop")
+                        results["hierarchical"]["trajectory_histogram"] = self._plot_cluster_trajectory_histogram(labels, "hierarchical_traj_hist")
+                        results["hierarchical"]["trajectory_scatter"] = self._plot_cluster_trajectory_scatter(labels, "hierarchical_traj_scatter")
+                        results["hierarchical"]["dendrogram_plot"] = self._plot_dendrogram(Z, labels, "hierarchical_dendrogram")
+                    if self.plot_style in {"minimal", "full"}:
+                        self._labels_for_combined["hierarchical"] = labels
 
                 else:
                     raise AnalysisError(f"Unknown clustering method: {method}")
 
-            self.results = results
+            if self.plot_style == "minimal":
+                combined = self._plot_combined_clusters(self._labels_for_combined)
+                if combined is not None:
+                    results["combined_plot"] = combined
+
+            # Release large intermediates when they are no longer needed
+            if not self.save_data:
+                D = None
+                X_flat = None
+
+            self._labels_for_combined = {}
+
+            if self.store_results:
+                self.results = results
+                logger.info("Clustering analysis complete.")
+                return results
+
+            self.results = {}
             logger.info("Clustering analysis complete.")
             return results
 

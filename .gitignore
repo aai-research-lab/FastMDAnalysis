@@ -2,7 +2,7 @@
 .venv/
 venv/
 env/
-*_env/
+.venv311/
 test_env2/
 
 # Build artifacts

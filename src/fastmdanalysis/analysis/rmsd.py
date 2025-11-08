@@ -134,15 +134,23 @@ class RMSDAnalysis(BaseAnalysis):
                 # No-fit RMSD
                 rmsd_values = _rmsd_no_fit(self.traj, ref, atom_indices=atom_indices)
 
-            self.data = np.asarray(rmsd_values, dtype=float).reshape(-1, 1)
-            self.results = {"rmsd": self.data}
+            result_array = np.asarray(rmsd_values, dtype=float).reshape(-1, 1)
 
-            # Save data and default plot
-            self._save_data(self.data, "rmsd", header="rmsd_nm", fmt="%.6f")
-            self.plot()
+            if self.save_data:
+                self._save_data(result_array, "rmsd", header="rmsd_nm", fmt="%.6f")
 
+            self.plot(result_array)
             logger.info("RMSD: done.")
-            return self.results
+
+            if self.store_results:
+                self.data = result_array
+                self.results = {"rmsd": result_array}
+                return self.results
+
+            # Release references when not storing results
+            self.data = None
+            self.results = {}
+            return {"rmsd": result_array}
 
         except AnalysisError:
             raise

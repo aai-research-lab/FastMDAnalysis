@@ -78,15 +78,23 @@ class RGAnalysis(BaseAnalysis):
             )
 
             rg_values = md.compute_rg(subtraj)  # shape (N,), units nm
-            self.data = np.asarray(rg_values, dtype=float).reshape(-1, 1)
-            self.results = {"rg": self.data}
+            result_array = np.asarray(rg_values, dtype=float).reshape(-1, 1)
 
-            # Save data and default plot
-            self._save_data(self.data, "rg", header="rg_nm", fmt="%.6f")
-            self.plot()
+            if self.save_data:
+                self._save_data(result_array, "rg", header="rg_nm", fmt="%.6f")
+
+            self.plot(result_array)
 
             logger.info("RG: done.")
-            return self.results
+
+            if self.store_results:
+                self.data = result_array
+                self.results = {"rg": result_array}
+                return self.results
+
+            self.data = None
+            self.results = {}
+            return {"rg": result_array}
 
         except AnalysisError:
             raise
