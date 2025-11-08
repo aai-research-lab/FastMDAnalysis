@@ -1,12 +1,12 @@
-# FastMDAnalysis Pure Computation Benchmark
+# FastMDAnalysis Benchmark
 
-This benchmark compares FastMDAnalysis, MDTraj, and MDAnalysis on **pure computational performance** without any plotting or file I/O overhead.
+This benchmark compares FastMDAnalysis, MDTraj, and MDAnalysis on **complete workflow performance** including computation and figure generation.
 
 ## Overview
 
 The benchmark measures performance on the following:
-- **Runtime**: Pure computation time averaged over 10 iterations (no plotting, no file I/O)
-- **Lines of Code (LOC)**: Code complexity for equivalent functionality
+- **Runtime**: Complete workflow time averaged over 5 iterations (including figure generation)
+- **Peak Memory**: Maximum memory usage during execution
 - **Standard Deviation**: Consistency of performance across multiple runs
 
 ## Dataset
@@ -27,106 +27,125 @@ All three libraries perform the same analyses:
 ### Prerequisites
 
 ```bash
-pip install mdtraj numpy scikit-learn scipy MDAnalysis matplotlib python-pptx
+pip install mdtraj numpy scikit-learn scipy MDAnalysis matplotlib psutil
 ```
 
 ### Running the Benchmark
 
-#### Pure Computation Only (No Visualization)
+#### Full Workflow Benchmark (Recommended)
 ```bash
-# Set PYTHONPATH to include FastMDAnalysis src directory (if not installed)
-export PYTHONPATH=/path/to/FastMDAnalysis/src:$PYTHONPATH
-
-# Run the benchmark (console output only)
-python benchmark_performance.py
-```
-
-#### With Visualizations (PNG + PowerPoint)
-```bash
-# Run the benchmark with PNG charts and PowerPoint slides
-python benchmark_with_visualization.py
+# Run the complete workflow benchmark including figure generation
+python benchmark_full_workflow.py
 ```
 
 This generates:
-- `benchmark_results.png` - Bar chart comparison (runtime + LOC for all 3 libraries)
-- `benchmark_comparison.png` - Detailed table comparison with statistics
-- `combined_preview.png` - Combined preview of both visualizations
-- `benchmark_presentation.pptx` - 5-slide PowerPoint presentation
+- `benchmark_full_workflow.png` - Runtime and memory comparison with error bars
+- `benchmark_summary_table.png` - Detailed summary table with statistics
+
+#### Legacy Benchmarks
+
+For historical comparison, older benchmark scripts are also available:
+
+```bash
+# Pure computation only (no plotting)
+python benchmark_performance.py
+
+# Computation with visualizations
+python benchmark_with_visualization.py
+```
 
 ## Results
 
-### Pure Computation (Averaged over 10 iterations)
+### Full Workflow (Averaged over 5 iterations)
 
-| Library | Runtime (avg) | Std Dev | LOC |
-|---------|---------------|---------|-----|
-| **FastMDAnalysis** | ~0.28s | ±0.01s | 1 (CLI) |
-| **MDTraj** | ~0.28s | ±0.01s | 50 |
-| **MDAnalysis** | ~0.31s | ±0.05s | 60 |
+| Library | Runtime (avg) | Std Dev | Memory (avg) | Std Dev |
+|---------|---------------|---------|--------------|---------|
+| **FastMDAnalysis** | ~6.4s | ±0.04s | ~101 MB | ±13 MB |
+| **MDTraj** | ~2.1s | ±0.12s | ~15 MB | ±9 MB |
+| **MDAnalysis** | ~2.3s | ±0.15s | ~14 MB | ±18 MB |
 
-**FastMDA/MDTraj ratio: 0.99x** - FastMDA and MDTraj have essentially identical performance!
+**FastMDA/MDTraj runtime ratio: ~3.0x** - FastMDA is ~3x slower but includes automatic figure generation and workflow organization.
 
 ## Key Insights
 
-### 1. FastMDAnalysis = MDTraj Performance
-- FastMDA uses MDTraj as its backend
-- Pure computational performance is nearly identical (~0.28s)
-- **This confirms FastMDA uses MDTraj efficiently**
+### 1. Complete Workflow Performance
+- FastMDA provides a complete workflow with automatic figure generation
+- Total runtime includes computation + figure generation + file I/O
+- FastMDA is ~3x slower than raw MDTraj, but provides automated visualization
 
-### 2. MDAnalysis is Slightly Slower
-- MDAnalysis uses a different computational approach
-- ~10% slower than MDTraj/FastMDA for these analyses (~0.31s vs ~0.28s)
-- This is expected and matches known performance characteristics
+### 2. Memory Usage
+- FastMDA uses ~7x more memory than MDTraj/MDAnalysis
+- This is due to FastMDA's internal caching and convenience features
+- Memory usage is still reasonable for typical MD analysis tasks
 
-### 3. FastMDA's High-Level API
-- **1 LOC** (single CLI command) vs 50-60 LOC for equivalent functionality
-- Pure computation measured here: ~0.28s
-- FastMDA's convenience features (automatic plotting, file organization) add overhead when used
-- For exploratory analysis, the convenience is worth the extra time
+### 3. Trade-offs
+- **FastMDA**: Best for interactive analysis, teaching, and rapid prototyping
+  - Single-line API with automatic figures
+  - ~3x slower but significantly more convenient
+- **MDTraj**: Best for production pipelines requiring maximum speed
+  - Minimal memory footprint
+  - Manual figure generation required
+- **MDAnalysis**: Best for complex trajectory manipulations
+  - Similar performance to MDTraj
+  - More flexible for custom analyses
 
 ## Important Notes
 
 ### What This Benchmark Measures
-- **Pure computation only**: Core MD analysis algorithms
-- **No plotting**: Excludes all visualization overhead
-- **No file I/O**: Excludes all data saving and organization
-- **Apples-to-apples**: All libraries run identical computations
+- **Complete workflow**: Computation + figure generation + file I/O
+- **Realistic usage**: Reflects typical user workflows
+- **Apples-to-apples**: All libraries generate identical outputs (4 figures each)
+- **Multiple iterations**: Averaged over 5 runs with standard deviation
 
-### FastMDA's Full Features (Not Measured Here)
-When using FastMDA's full API or CLI, additional time includes:
-- Automatic plot generation (multiple plots per analysis)
-- File I/O (saving data files and plots)
-- Output organization (creating directories, organizing results)
-- This adds ~5-6 seconds for comprehensive output generation
-- **Trade-off**: Convenience vs raw speed
+### Figures Generated (Per Library)
+All three libraries generate exactly 4 figures for fair comparison:
+1. **RMSD**: Line plot of RMSD vs Frame
+2. **RMSF**: Bar plot of RMSF per Atom
+3. **RG**: Line plot of Radius of Gyration vs Frame
+4. **Cluster**: Combined plot showing KMeans, DBSCAN, and Hierarchical clustering results
 
 ## Interpretation
 
 The benchmark demonstrates that:
 
-1. **Computational Core is Efficient**
-   - FastMDA's core computation matches MDTraj (same backend)
-   - No performance bugs or inefficiencies in the backend usage
-   - ~0.28s for RMSD, RMSF, RG, and 3 clustering methods
+1. **FastMDA's Design Philosophy**
+   - Optimized for ease of use and convenience
+   - Automatic figure generation and workflow organization
+   - ~3x slowdown is acceptable for the convenience gained
+   - ~6.4s total for complete workflow vs ~2.1s for manual approach
 
-2. **Convenience Features Add Time**
-   - Automatic plotting: ~2-3 seconds (multiple plots per analysis)
-   - File I/O: ~1-2 seconds (saving data and plots)
-   - Output organization: ~1 second
-   - Total overhead: ~5-6 seconds when using full features
+2. **Performance Breakdown**
+   - Computation: FastMDA uses MDTraj backend (minimal overhead)
+   - Figure generation: Adds ~2-3 seconds
+   - File I/O and organization: Adds ~1-2 seconds
+   - Total overhead: ~4 seconds for convenience features
 
-3. **Use Cases**
-   - **FastMDAnalysis**: Best for interactive analysis, teaching, rapid prototyping
-   - **MDTraj**: Best for production pipelines requiring maximum speed
-   - **MDAnalysis**: Best for complex trajectory manipulations
+3. **When to Use Each Library**
+   - **FastMDAnalysis**: Interactive analysis, teaching, exploratory research
+     - Single-line API with automatic visualization
+     - Worth the 3x slowdown for convenience
+   - **MDTraj**: Production pipelines, batch processing, performance-critical tasks
+     - Minimal overhead, manual control
+     - Best for experienced users
+   - **MDAnalysis**: Complex trajectory manipulations, custom analyses
+     - Most flexible, similar performance to MDTraj
+     - Steeper learning curve
 
 ## Example Usage
 
-### FastMDAnalysis (1 LOC)
-```bash
-fastmda analyze -traj traj.dcd -top top.pdb --frames 0,-1,10 --include cluster rmsd rg rmsf
+All three libraries perform the same analyses with figure generation:
+
+### FastMDAnalysis (Simplest)
+```python
+from fastmdanalysis import FastMDAnalysis
+fastmda = FastMDAnalysis(traj_file, top_file, frames=(0, -1, 10), atoms="protein")
+fastmda.rmsd(ref=0)  # Auto-generates rmsd.png
+fastmda.rmsf()       # Auto-generates rmsf.png
+fastmda.rg()         # Auto-generates rg.png
+fastmda.cluster(methods=['kmeans', 'dbscan', 'hierarchical'])  # Auto-generates cluster plots
 ```
 
-### MDTraj (50 LOC)
+### MDTraj (Manual Control)
 ```python
 import mdtraj as md
 import numpy as np
