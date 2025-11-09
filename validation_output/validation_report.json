@@ -79,11 +79,11 @@
   },
   {
     "name": "Hydrogen Bonds",
-    "backend": "mdtraj",
-    "metric": "hbond_count",
-    "status": "info",
-    "detail": "FastMDA found data, MDTraj found 25 unique bonds",
     "shape_match": true,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0,
+    "rmse": 0.0,
+    "mismatch_count": 0,
     "fastmda_stats": {
       "min": 16.0,
       "max": 38.0,
@@ -91,10 +91,19 @@
       "std": 3.755186280332841
     },
     "ref_stats": {
-      "count": 25
+      "min": 16.0,
+      "max": 38.0,
+      "mean": 26.476,
+      "std": 3.755186280332841
     },
     "fastmda_shape": "(500,)",
-    "ref_shape": "(25,)"
+    "ref_shape": "(500,)",
+    "status": "pass",
+    "detail": "Excellent agreement (RMSE=0.00e+00) | Selection: protein",
+    "backend": "mdtraj",
+    "metric": "hbond_per_frame",
+    "selection_used": "protein",
+    "fallback_used": false
   },
   {
     "name": "Secondary Structure",
@@ -115,10 +124,10 @@
   {
     "name": "SASA (total)",
     "shape_match": true,
-    "max_abs_diff": 0.09748268127441406,
-    "mean_abs_diff": 0.00021208191174082458,
-    "rmse": 0.004362152889370918,
-    "mismatch_count": 16,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0,
+    "rmse": 0.0,
+    "mismatch_count": 0,
     "fastmda_stats": {
       "min": 18.019351959228516,
       "max": 21.029521942138672,
@@ -128,23 +137,23 @@
     "ref_stats": {
       "min": 18.019351959228516,
       "max": 21.029521942138672,
-      "mean": 19.36673355102539,
-      "std": 0.5637862086296082
+      "mean": 19.36692237854004,
+      "std": 0.5638094544410706
     },
     "fastmda_shape": "(500,)",
     "ref_shape": "(500,)",
     "status": "pass",
-    "detail": "Good agreement (RMSE=4.36e-03)",
+    "detail": "Excellent agreement (RMSE=0.00e+00)",
     "backend": "mdtraj",
     "metric": "total_sasa"
   },
   {
     "name": "SASA (per-residue)",
     "shape_match": true,
-    "max_abs_diff": 0.09748435020446777,
-    "mean_abs_diff": 1.060354679793818e-05,
-    "rmse": 0.0009753204649314284,
-    "mismatch_count": 14,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0,
+    "rmse": 0.0,
+    "mismatch_count": 0,
     "fastmda_stats": {
       "min": 0.0,
       "max": 2.2547380924224854,
@@ -154,23 +163,23 @@
     "ref_stats": {
       "min": 0.0,
       "max": 2.2547380924224854,
-      "mean": 0.9683367013931274,
-      "std": 0.4949375092983246
+      "mean": 0.9683461785316467,
+      "std": 0.49494802951812744
     },
     "fastmda_shape": "(500, 20)",
     "ref_shape": "(500, 20)",
     "status": "pass",
-    "detail": "Good agreement (RMSE=9.75e-04)",
+    "detail": "Excellent agreement (RMSE=0.00e+00)",
     "backend": "mdtraj",
     "metric": "residue_sasa"
   },
   {
     "name": "SASA (avg per-residue)",
     "shape_match": true,
-    "max_abs_diff": 0.00019311904907226562,
-    "mean_abs_diff": 1.0415911674499512e-05,
-    "rmse": 4.320220250519924e-05,
-    "mismatch_count": 8,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0,
+    "rmse": 0.0,
+    "mismatch_count": 0,
     "fastmda_stats": {
       "min": 0.01771492138504982,
       "max": 1.8496006727218628,
@@ -179,14 +188,14 @@
     },
     "ref_stats": {
       "min": 0.01771492138504982,
-      "max": 1.8495981693267822,
-      "mean": 0.9683367013931274,
-      "std": 0.4730648696422577
+      "max": 1.8496006727218628,
+      "mean": 0.968346118927002,
+      "std": 0.47307711839675903
     },
     "fastmda_shape": "(20,)",
     "ref_shape": "(20,)",
     "status": "pass",
-    "detail": "Excellent agreement (RMSE=4.32e-05)",
+    "detail": "Excellent agreement (RMSE=0.00e+00)",
     "backend": "mdtraj",
     "metric": "avg_residue_sasa"
   },

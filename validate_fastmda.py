@@ -401,34 +401,35 @@ def validate_hbonds(fastmda: FastMDAnalysis, traj: md.Trajectory) -> List[Dict[s
         })
         return results
     
-    # MDTraj HBonds  
+    # MDTraj HBonds per-frame counts
     try:
-        hbonds_list = md.baker_hubbard(traj, periodic=False)
-        # Count unique hbonds
-        mdtraj_count = len(hbonds_list)
-        
-        # For comparison, we'll compare the count
-        comparison = {
-            'name': 'Hydrogen Bonds',
-            'backend': 'mdtraj',
-            'metric': 'hbond_count',
-            'status': 'info',
-            'detail': f'FastMDA found data, MDTraj found {mdtraj_count} unique bonds',
-            'shape_match': True,
-            'fastmda_stats': compute_statistics(fmda_data),
-            'ref_stats': {'count': mdtraj_count},
-            'fastmda_shape': str(fmda_data.shape),
-            'ref_shape': f'({mdtraj_count},)'
-        }
+        work_traj, selection_label, used_fallback = fmda_hbonds._prepare_work_trajectory()
+        mdtraj_counts = np.zeros(work_traj.n_frames, dtype=int)
+        for frame_idx in range(work_traj.n_frames):
+            hbonds_frame = md.baker_hubbard(work_traj[frame_idx], periodic=False)
+            mdtraj_counts[frame_idx] = len(hbonds_frame)
+
+        mdtraj_data = mdtraj_counts
+        comparison = compare_arrays(fmda_data, mdtraj_data, 'Hydrogen Bonds')
+        comparison['backend'] = 'mdtraj'
+        comparison['metric'] = 'hbond_per_frame'
+        comparison['selection_used'] = selection_label
+        comparison['fallback_used'] = used_fallback
+
+        if comparison['detail']:
+            comparison['detail'] = f"{comparison['detail']} | Selection: {selection_label}"
+        else:
+            comparison['detail'] = f"Selection: {selection_label}"
+
         results.append(comparison)
-        
-        print(f"  HBonds: {comparison['detail']}")
+
+        print(f"  HBonds vs MDTraj: {comparison['status']} - {comparison['detail']}")
     except Exception as e:
         print(f"  Error comparing with MDTraj: {e}")
         results.append({
             'name': 'Hydrogen Bonds',
             'backend': 'mdtraj',
-            'metric': 'hbond_count',
+            'metric': 'hbond_per_frame',
             'status': 'error',
             'detail': f'MDTraj error: {str(e)}'
         })
@@ -547,15 +548,17 @@ def validate_sasa(fastmda: FastMDAnalysis, traj: md.Trajectory) -> List[Dict[str
     try:
         mdtraj_residue = None
         mdtraj_total_sum = None
+
+        reference_traj = fastmda.traj
         try:
-            mdtraj_residue = md.shrake_rupley(traj, probe_radius=0.14, mode='residue')
+            mdtraj_residue = md.shrake_rupley(reference_traj, probe_radius=0.14, mode='residue')
             mdtraj_total_sum = np.sum(mdtraj_residue, axis=1)
         except TypeError:
-            mdtraj_atom = md.shrake_rupley(traj, probe_radius=0.14, mode='atom')
+            mdtraj_atom = md.shrake_rupley(reference_traj, probe_radius=0.14, mode='atom')
             mdtraj_total_sum = np.sum(mdtraj_atom, axis=1)
-            atom_res = np.array([atom.residue.index for atom in traj.topology.atoms], dtype=int)
+            atom_res = np.array([atom.residue.index for atom in reference_traj.topology.atoms], dtype=int)
             residue_count = int(atom_res.max()) + 1 if atom_res.size else 0
-            mdtraj_residue = np.zeros((traj.n_frames, residue_count), dtype=np.float32)
+            mdtraj_residue = np.zeros((reference_traj.n_frames, residue_count), dtype=np.float32)
             for r in range(residue_count):
                 mask = atom_res == r
                 if np.any(mask):

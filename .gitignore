@@ -1,6 +1,7 @@
 # Virtual environments
 .venv/
 venv/
+.venv311/
 env/
 *_env/
 test_env2/
