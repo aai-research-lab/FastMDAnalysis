@@ -41,7 +41,7 @@ warnings.filterwarnings('ignore')
 # Add src to path for FastMDA
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 from fastmdanalysis import FastMDAnalysis
-from fastmdanalysis.datasets import TrpCage
+from fastmdanalysis.datasets import Ubiquitin
 from fastmdanalysis.analysis.cluster import (
     get_cluster_cmap,
     get_discrete_norm,
@@ -58,7 +58,8 @@ except ImportError:
 
 # Number of iterations for averaging
 NUM_ITERATIONS = 5
-FRAME_SLICE = (0, None, 1)
+FRAME_SLICE = (0, 500, 1)
+AXIS_FONT_SCALE = 1.5
 CLUSTER_METHODS = ['kmeans', 'dbscan', 'hierarchical']
 
 # Tool colors for consistent visualization
@@ -158,7 +159,7 @@ def _count_effective_loc(source_lines):
 
 
 FASTMDA_MINIMAL_SNIPPET = [
-    "fastmda = FastMDAnalysis(TrpCage.traj, TrpCage.top, frames=FRAME_SLICE, atoms=\"protein\", keep_full_traj=False)",
+    "fastmda = FastMDAnalysis(Ubiquitin.traj, Ubiquitin.top, frames=FRAME_SLICE, atoms=\"protein\", keep_full_traj=False)",
     "fastmda.analyze(include=['rmsd', 'rmsf', 'rg', 'cluster'], verbose=False, output='fastmda_analyze_output', options={'rmsd': {'save_data': False, 'store_results': False}, 'rmsf': {'save_data': False, 'store_results': False}, 'rg': {'save_data': False, 'store_results': False}, 'cluster': {'methods': ['kmeans', 'dbscan', 'hierarchical'], 'n_clusters': 3, 'eps': 0.5, 'min_samples': 2, 'plot_style': 'minimal', 'combined_plot_name': 'cluster', 'feature_mode': 'distance', 'save_data': False, 'store_results': False}})"
 ]
 
@@ -266,8 +267,8 @@ def benchmark_fastmda_single(output_dir):
     
     # Initialize FastMDA
     fastmda = FastMDAnalysis(
-        TrpCage.traj,
-        TrpCage.top,
+        Ubiquitin.traj,
+        Ubiquitin.top,
         frames=FRAME_SLICE,
         atoms="protein",
         keep_full_traj=False,
@@ -312,14 +313,27 @@ def benchmark_fastmda_single(output_dir):
     return runtime, peak_memory
 
 
+def _frame_range(total_frames):
+    """Convert FRAME_SLICE tuple into a concrete range of frame indices."""
+    start, stop, step = FRAME_SLICE
+    if start is None:
+        start = 0
+    if step is None:
+        step = 1
+    if stop is None or stop > total_frames:
+        stop = total_frames
+    return range(start, stop, step)
+
+
 def benchmark_mdtraj_single(output_dir):
     """MDTraj full workflow - single run with basic figures only (matching FastMDA)"""
     mem_monitor = MemoryMonitor()
     start = time.time()
     
     # Load and prepare trajectory
-    traj = md.load(TrpCage.traj, top=TrpCage.top)
-    traj = traj[:]
+    traj = md.load(Ubiquitin.traj, top=Ubiquitin.top)
+    frame_indices = list(_frame_range(traj.n_frames))
+    traj = traj[frame_indices]
     atom_indices = traj.topology.select('protein')
     traj = traj.atom_slice(atom_indices)
     mem_monitor.update()
@@ -417,9 +431,9 @@ def benchmark_mdanalysis_single(output_dir):
     start = time.time()
     
     # Load trajectory
-    u = mda.Universe(TrpCage.top, TrpCage.traj)
+    u = mda.Universe(Ubiquitin.top, Ubiquitin.traj)
     protein = u.select_atoms('protein')
-    frame_list = list(range(len(u.trajectory)))
+    frame_list = list(_frame_range(len(u.trajectory)))
     mem_monitor.update()
     
     # RMSD computation and plot (1 figure)
@@ -665,8 +679,13 @@ def create_benchmark_plots(results):
     bars1 = ax1.bar(names, runtime_avgs, yerr=runtime_stds, 
                      color=colors, alpha=0.9, edgecolor='black', 
                      linewidth=1.5, capsize=5, error_kw={'linewidth': 2})
-    ax1.set_ylabel('Runtime (seconds)', fontsize=14)
-    ax1.set_title('Runtime Comparison', fontsize=16, fontweight='bold')
+    label_font = 14 * AXIS_FONT_SCALE
+    title_font = 16
+    tick_font = 12 * AXIS_FONT_SCALE
+
+    ax1.set_ylabel('Runtime (seconds)', fontsize=label_font)
+    ax1.set_title('Runtime Comparison', fontsize=title_font, fontweight='bold')
+    ax1.tick_params(axis='both', which='major', labelsize=tick_font)
     ax1.grid(axis='y', alpha=0.3, linestyle='--')
 
     runtime_top = max((avg + std) for avg, std in zip(runtime_avgs, runtime_stds)) if runtime_avgs else 0
@@ -677,17 +696,25 @@ def create_benchmark_plots(results):
     for bar, runtime_avg, runtime_std in zip(bars1, runtime_avgs, runtime_stds):
         height = bar.get_height()
         label_y = height + runtime_std + (runtime_pad * 0.3 if runtime_pad else 0.1)
-        ax1.text(bar.get_x() + bar.get_width()/2., label_y,
-                f'{runtime_avg:.2f}s\n±{runtime_std:.2f}s',
-                ha='center', va='bottom', fontsize=11, fontweight='bold')
+        ax1.text(
+            bar.get_x() + bar.get_width() / 2.0,
+            label_y,
+            f'{runtime_avg:.2f}s\n±{runtime_std:.2f}s',
+            ha='center',
+            va='bottom',
+            fontsize=11,
+            fontweight='bold',
+            zorder=5,
+        )
     
     # Memory plot
     ax2 = axes[1]
     bars2 = ax2.bar(names, memory_avgs, yerr=memory_stds, 
                      color=colors, alpha=0.9, edgecolor='black', 
                      linewidth=1.5, capsize=5, error_kw={'linewidth': 2})
-    ax2.set_ylabel('Peak Memory (MB)', fontsize=14)
-    ax2.set_title('Peak Memory Comparison', fontsize=16, fontweight='bold')
+    ax2.set_ylabel('Peak Memory (MB)', fontsize=label_font)
+    ax2.set_title('Peak Memory Comparison', fontsize=title_font, fontweight='bold')
+    ax2.tick_params(axis='both', which='major', labelsize=tick_font)
     ax2.grid(axis='y', alpha=0.3, linestyle='--')
 
     memory_top = max((avg + std) for avg, std in zip(memory_avgs, memory_stds)) if memory_avgs else 0
@@ -698,12 +725,19 @@ def create_benchmark_plots(results):
     for bar, memory_avg, memory_std in zip(bars2, memory_avgs, memory_stds):
         height = bar.get_height()
         label_y = height + memory_std + (memory_pad * 0.3 if memory_pad else 0.1)
-        ax2.text(bar.get_x() + bar.get_width()/2., label_y,
-                f'{memory_avg:.1f} MB\n±{memory_std:.1f} MB',
-                ha='center', va='bottom', fontsize=11, fontweight='bold')
+        ax2.text(
+            bar.get_x() + bar.get_width() / 2.0,
+            label_y,
+            f'{memory_avg:.1f} MB\n±{memory_std:.1f} MB',
+            ha='center',
+            va='bottom',
+            fontsize=11,
+            fontweight='bold',
+            zorder=5,
+        )
     
     plt.suptitle(f'FastMDAnalysis Full Workflow Benchmark\n'
-                 f'TrpCage (500 frames) - RMSD, RMSF, RG, Cluster (with figures)\n'
+                 f'Ubiquitin (first 500 frames, stride=1) - RMSD, RMSF, RG, Cluster (with figures)\n'
                  f'Averaged over {NUM_ITERATIONS} iterations',
                  fontweight='bold', fontsize=14)
     plt.tight_layout()
@@ -766,7 +800,7 @@ def create_summary_table(results):
     
     # Add footer
     footer_text = (
-        f'Dataset: TrpCage, 500 frames (frames 0,-1,10)\n'
+    f'Dataset: Ubiquitin, first 500 frames (stride=1)\n'
         f'Analyses: RMSD, RMSF, RG, Cluster (KMeans, DBSCAN, Hierarchical)\n'
         f'Workflow: Complete analysis with figure generation (no slides)'
     )
@@ -785,7 +819,7 @@ def main():
     print("="*70)
     print("FASTMDANALYSIS FULL WORKFLOW BENCHMARK")
     print("="*70)
-    print("Dataset: TrpCage, 500 frames (frames 0,-1,10)")
+    print("Dataset: Ubiquitin, first 500 frames (stride=1)")
     print("Analyses: RMSD, RMSF, RG, Cluster (KMeans, DBSCAN, Hierarchical)")
     print("Workflow: Complete with figure generation (excluding slides)")
     print(f"Iterations: {NUM_ITERATIONS} runs per library")
