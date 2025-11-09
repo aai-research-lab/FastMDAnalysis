@@ -192,8 +192,13 @@ def generate_loc_slide(loc_data):
 
     fig, ax = plt.subplots(figsize=(8, 6))
     bars = ax.bar(names, loc_values, color=colors, edgecolor='black', linewidth=1.5)
-    ax.set_ylabel('Effective LOC (non-blank/non-comment)', fontsize=14)
-    ax.set_title('Lines of Code Required Per Workflow', fontsize=16, fontweight='bold')
+    label_font = 14 * AXIS_FONT_SCALE
+    title_font = 16
+    tick_font = 12 * AXIS_FONT_SCALE
+
+    ax.set_ylabel('Effective LOC (non-blank/non-comment)', fontsize=label_font)
+    ax.set_title('Lines of Code Required Per Workflow', fontsize=title_font, fontweight='bold')
+    ax.tick_params(axis='both', which='major', labelsize=tick_font)
     ax.grid(axis='y', alpha=0.3, linestyle='--')
 
     if loc_values:
@@ -205,8 +210,16 @@ def generate_loc_slide(loc_data):
     ax.set_ylim(0, top + pad * 4)
 
     for bar, loc in zip(bars, loc_values):
-        ax.text(bar.get_x() + bar.get_width() / 2.0, bar.get_height() + pad,
-                f'{loc} LOC', ha='center', va='bottom', fontsize=12, fontweight='bold')
+        ax.text(
+            bar.get_x() + bar.get_width() / 2.0,
+            bar.get_height() + pad,
+            f'{loc} LOC',
+            ha='center',
+            va='bottom',
+            fontsize=12 * AXIS_FONT_SCALE,
+            fontweight='bold',
+            zorder=5,
+        )
 
     plt.tight_layout()
     output_file = 'benchmark_loc_slide.png'

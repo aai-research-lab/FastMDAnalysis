@@ -62,11 +62,11 @@ python benchmark_with_visualization.py
 
 | Library | Runtime (avg) | Std Dev | Memory (avg) | Std Dev |
 |---------|---------------|---------|--------------|---------|
-| **FastMDAnalysis** | 3.48 s | ± 0.81 s | 103.0 MB | ± 29.9 MB |
-| **MDTraj** | 3.48 s | ± 0.01 s | 24.0 MB | ± 6.7 MB |
-| **MDAnalysis** | 14.70 s | ± 0.05 s | 21.4 MB | ± 3.5 MB |
+| **FastMDAnalysis** | 3.48 s | ± 0.82 s | 118.5 MB | ± 22.3 MB |
+| **MDTraj** | 3.51 s | ± 0.04 s | 23.2 MB | ± 5.4 MB |
+| **MDAnalysis** | 14.88 s | ± 0.05 s | 25.0 MB | ± 6.7 MB |
 
-**FastMDA/MDTraj runtime ratio: 1.00×** – FastMDA now matches the hand-tuned MDTraj workflow on the trimmed 500-frame Ubiquitin workload while still handling figure generation automatically. Peak memory sits at **4.29×** the MDTraj footprint because FastMDA keeps per-analysis intermediates available so each figure can be emitted in a single pass.
+**FastMDA/MDTraj runtime ratio: 0.99×** – FastMDA now lands within about 1 % of the hand-tuned MDTraj workflow on the trimmed 500-frame Ubiquitin workload while still handling figure generation automatically. Peak memory sits at **5.10×** the MDTraj footprint because FastMDA keeps per-analysis intermediates available so each figure can be emitted in a single pass.
 
 ### Lines of Code Benchmark (Workflow Implementations)
 
