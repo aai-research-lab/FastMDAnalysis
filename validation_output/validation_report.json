@@ -200,6 +200,84 @@
     "metric": "avg_residue_sasa"
   },
   {
+    "name": "Dimensionality Reduction (PCA)",
+    "shape_match": true,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0,
+    "rmse": 0.0,
+    "mismatch_count": 0,
+    "fastmda_stats": {
+      "min": -42.06311798095703,
+      "max": 45.68070602416992,
+      "mean": 1.4648437627329258e-06,
+      "std": 19.897985458374023
+    },
+    "ref_stats": {
+      "min": -42.06311798095703,
+      "max": 45.68070602416992,
+      "mean": 1.4648437627329258e-06,
+      "std": 19.897985458374023
+    },
+    "fastmda_shape": "(500, 2)",
+    "ref_shape": "(500, 2)",
+    "status": "pass",
+    "detail": "Excellent agreement (RMSE=0.00e+00)",
+    "backend": "sklearn",
+    "metric": "dimred_pca"
+  },
+  {
+    "name": "Dimensionality Reduction (MDS)",
+    "shape_match": true,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0,
+    "rmse": 0.0,
+    "mismatch_count": 0,
+    "fastmda_stats": {
+      "min": -52.981689453125,
+      "max": 59.855403900146484,
+      "mean": 4.882812731921149e-07,
+      "std": 24.2767391204834
+    },
+    "ref_stats": {
+      "min": -52.981689453125,
+      "max": 59.855403900146484,
+      "mean": 4.882812731921149e-07,
+      "std": 24.2767391204834
+    },
+    "fastmda_shape": "(500, 2)",
+    "ref_shape": "(500, 2)",
+    "status": "pass",
+    "detail": "Excellent agreement (RMSE=0.00e+00)",
+    "backend": "sklearn",
+    "metric": "dimred_mds"
+  },
+  {
+    "name": "Dimensionality Reduction (TSNE)",
+    "shape_match": true,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0,
+    "rmse": 0.0,
+    "mismatch_count": 0,
+    "fastmda_stats": {
+      "min": -25.367523193359375,
+      "max": 27.753995895385742,
+      "mean": -0.03234191983938217,
+      "std": 13.11763858795166
+    },
+    "ref_stats": {
+      "min": -25.367523193359375,
+      "max": 27.753995895385742,
+      "mean": -0.03234191983938217,
+      "std": 13.11763858795166
+    },
+    "fastmda_shape": "(500, 2)",
+    "ref_shape": "(500, 2)",
+    "status": "pass",
+    "detail": "Excellent agreement (RMSE=0.00e+00)",
+    "backend": "sklearn",
+    "metric": "dimred_tsne"
+  },
+  {
     "name": "Clustering (kmeans)",
     "shape_match": true,
     "max_abs_diff": 0.0,

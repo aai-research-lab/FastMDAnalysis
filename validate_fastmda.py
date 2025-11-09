@@ -31,6 +31,7 @@ warnings.filterwarnings('ignore', category=DeprecationWarning)
 try:
     from fastmdanalysis import FastMDAnalysis
     from fastmdanalysis.datasets import TrpCage
+    from fastmdanalysis.analysis.dimred import _auto_tsne_perplexity
 except ImportError as e:
     print(f"Error importing FastMDAnalysis: {e}", file=sys.stderr)
     print("Make sure FastMDAnalysis is installed or add src to PYTHONPATH", file=sys.stderr)
@@ -218,13 +219,14 @@ def validate_rmsd(fastmda: FastMDAnalysis, traj: md.Trajectory,
     try:
         # Use protein selection to match
         atom_indices = traj.topology.select('protein')
-        mdtraj_data = md.rmsd(traj, traj, frame=ref_frame, atom_indices=atom_indices)
-        
+        traj_reference = traj.slice(range(traj.n_frames), copy=True)
+        mdtraj_data = md.rmsd(traj_reference, traj_reference, frame=ref_frame, atom_indices=atom_indices)
+
         comparison = compare_arrays(fmda_data, mdtraj_data, 'RMSD')
         comparison['backend'] = 'mdtraj'
         comparison['metric'] = 'rmsd'
         results.append(comparison)
-        
+
         print(f"  RMSD vs MDTraj: {comparison['status']} - {comparison['detail']}")
     except Exception as e:
         print(f"  Error comparing with MDTraj: {e}")
@@ -549,7 +551,14 @@ def validate_sasa(fastmda: FastMDAnalysis, traj: md.Trajectory) -> List[Dict[str
         mdtraj_residue = None
         mdtraj_total_sum = None
 
-        reference_traj = fastmda.traj
+        reference_traj = getattr(fmda_sasa, 'traj', fastmda.traj)
+        selection_str = getattr(fmda_sasa, 'atoms', None)
+        if selection_str:
+            sel = reference_traj.topology.select(selection_str)
+            if sel.size == 0:
+                raise ValueError(f"Atom selection '{selection_str}' yielded zero atoms for SASA reference")
+            reference_traj = reference_traj.atom_slice(sel)
+
         try:
             mdtraj_residue = md.shrake_rupley(reference_traj, probe_radius=0.14, mode='residue')
             mdtraj_total_sum = np.sum(mdtraj_residue, axis=1)
@@ -617,26 +626,113 @@ def validate_dimred(fastmda: FastMDAnalysis, traj: md.Trajectory) -> List[Dict[s
     results = []
     
     print("Validating Dimensionality Reduction...")
-    
+
     # FastMDAnalysis DimRed
     try:
         fmda_dimred = fastmda.dimred(methods=['pca', 'mds', 'tsne'])
-        
-        if hasattr(fmda_dimred, 'data') and isinstance(fmda_dimred.data, dict):
-            for method, data in fmda_dimred.data.items():
-                result = {
-                    'name': f'Dimensionality Reduction ({method.upper()})',
-                    'backend': 'FastMDAnalysis',
-                    'metric': f'dimred_{method}',
-                    'status': 'pass' if data is not None and data.shape[0] == traj.n_frames else 'fail',
-                    'detail': f'Shape: {data.shape}' if data is not None else 'No data',
-                    'shape_match': True,
-                    'fastmda_stats': compute_statistics(data) if data is not None else {},
-                    'fastmda_shape': str(data.shape) if data is not None else 'None',
-                    'ref_shape': 'N/A (sklearn-based)'
-                }
-                results.append(result)
-                print(f"  DimRed ({method}): {result['status']} - {result['detail']}")
+
+        dimred_results: Optional[Dict[str, np.ndarray]] = None
+        if hasattr(fmda_dimred, 'data') and isinstance(fmda_dimred.data, dict) and fmda_dimred.data:
+            dimred_results = fmda_dimred.data
+        elif hasattr(fmda_dimred, 'results') and isinstance(fmda_dimred.results, dict):
+            dimred_results = fmda_dimred.results
+
+        if dimred_results:
+            # Flattened trajectory used by FastMDAnalysis (match dtype for reproducibility)
+            X_flat = fastmda.traj.xyz.reshape(fastmda.traj.n_frames, -1).astype(np.float32)
+            random_state = getattr(fmda_dimred, 'random_state', 42)
+            tsne_max_iter = getattr(fmda_dimred, 'tsne_max_iter', 500)
+            user_tsne_perplexity = getattr(fmda_dimred, 'tsne_perplexity', None)
+
+            for method, data in dimred_results.items():
+                method_name = method.lower()
+                fmda_array = np.asarray(data, dtype=np.float32)
+                if fmda_array.shape[0] != fastmda.traj.n_frames:
+                    results.append({
+                        'name': f'Dimensionality Reduction ({method.upper()})',
+                        'backend': 'sklearn',
+                        'metric': f'dimred_{method_name}',
+                        'status': 'fail',
+                        'detail': f'Unexpected shape {fmda_array.shape}, expected ({fastmda.traj.n_frames}, 2)',
+                        'shape_match': False,
+                        'fastmda_shape': str(fmda_array.shape),
+                        'ref_shape': f'({fastmda.traj.n_frames}, 2)'
+                    })
+                    print(f"  DimRed ({method}): fail - shape mismatch {fmda_array.shape}")
+                    continue
+
+                try:
+                    if method_name == 'pca':
+                        from sklearn.decomposition import PCA
+
+                        estimator = PCA(n_components=fmda_array.shape[1], random_state=random_state)
+                        ref_array = estimator.fit_transform(X_flat).astype(np.float32)
+                    elif method_name == 'mds':
+                        from sklearn.manifold import MDS
+
+                        estimator = MDS(
+                            n_components=fmda_array.shape[1],
+                            n_init=4,
+                            random_state=random_state,
+                            normalized_stress='auto'
+                        )
+                        ref_array = estimator.fit_transform(X_flat).astype(np.float32)
+                    elif method_name == 'tsne':
+                        from sklearn.manifold import TSNE
+
+                        perplexity = _auto_tsne_perplexity(fastmda.traj.n_frames, user_tsne_perplexity)
+                        estimator = TSNE(
+                            n_components=fmda_array.shape[1],
+                            perplexity=perplexity,
+                            max_iter=tsne_max_iter,
+                            random_state=random_state,
+                            init='pca',
+                            learning_rate='auto'
+                        )
+                        ref_array = estimator.fit_transform(X_flat).astype(np.float32)
+                    else:
+                        results.append({
+                            'name': f'Dimensionality Reduction ({method.upper()})',
+                            'backend': 'sklearn',
+                            'metric': f'dimred_{method_name}',
+                            'status': 'warn',
+                            'detail': f'Unknown method {method}',
+                            'shape_match': False,
+                            'fastmda_shape': str(fmda_array.shape),
+                            'ref_shape': 'N/A'
+                        })
+                        print(f"  DimRed ({method}): warn - unknown method")
+                        continue
+
+                    comparison = compare_arrays(fmda_array, ref_array, f'Dimensionality Reduction ({method.upper()})')
+                    comparison['backend'] = 'sklearn'
+                    comparison['metric'] = f'dimred_{method_name}'
+                    comparison['detail'] = comparison['detail'] or 'Direct sklearn comparison'
+                    results.append(comparison)
+                    print(f"  DimRed ({method}): {comparison['status']} - {comparison['detail']}")
+                except Exception as comp_err:
+                    results.append({
+                        'name': f'Dimensionality Reduction ({method.upper()})',
+                        'backend': 'sklearn',
+                        'metric': f'dimred_{method_name}',
+                        'status': 'error',
+                        'detail': f'Error computing sklearn reference: {comp_err}',
+                        'shape_match': True,
+                        'fastmda_shape': str(fmda_array.shape)
+                    })
+                    print(f"  DimRed ({method}): error - {comp_err}")
+        else:
+            results.append({
+                'name': 'Dimensionality Reduction',
+                'backend': 'FastMDAnalysis',
+                'metric': 'dimred',
+                'status': 'warn',
+                'detail': 'No dimensionality reduction data available',
+                'shape_match': False,
+                'fastmda_shape': 'None',
+                'ref_shape': 'N/A (sklearn-based)'
+            })
+            print("  DimRed: warn - No dimensionality reduction data available")
     except Exception as e:
         results.append({
             'name': 'Dimensionality Reduction',
@@ -644,7 +740,7 @@ def validate_dimred(fastmda: FastMDAnalysis, traj: md.Trajectory) -> List[Dict[s
             'status': 'error',
             'detail': f'Error: {str(e)}'
         })
-    
+
     return results
 
 
@@ -958,6 +1054,10 @@ def main():
     print("Saving reports...")
     save_json_report(all_results, output_dir / 'validation_report.json')
     save_csv_summary(all_results, output_dir / 'validation_summary.csv')
+    # Mirror summary to repo root so the quick-look CSV stays in sync.
+    save_csv_summary(all_results, Path('validation_results.csv'))
+    # Mirror CSV to repository root for quick checks.
+    save_csv_summary(all_results, Path('validation_results.csv'))
     
     # Print summary
     print()
