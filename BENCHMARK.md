@@ -56,6 +56,29 @@ python benchmark_performance.py
 python benchmark_with_visualization.py
 ```
 
+#### Scaling Benchmark (Multi-Frame Study)
+
+Use the scaling harness to capture runtime and peak RSS for multiple frame counts, then generate per-library line charts (runtime + memory):
+
+```bash
+# Collect metrics for 500/1000/2000/5000 frames (single iteration per point)
+python benchmark_scaling.py --frames 500 1000 2000 5000 --iterations 1
+
+# Optionally add warm-up passes (per tool/frame) to eliminate cold-start spikes
+python benchmark_scaling.py --frames 500 1000 2000 5000 --iterations 3 --warmup
+
+# Render per-library runtime/memory line charts with the official palette
+python scripts/plot_scaling.py --data assets/benchmarks/scaling_metrics.json --output-dir assets/benchmarks
+```
+
+Outputs are written to `assets/benchmarks/`:
+- `scaling_metrics.json` / `scaling_metrics.csv`: reusable dataset for future plotting or slide automation
+- `fastmdanalysis_runtime_scaling.png`, `fastmdanalysis_memory_scaling.png`, etc.: line charts ready to embed into `benchmark_presentation.pptx`
+
+> **Notes:**
+> - Error bands (± standard error) appear once `--iterations` > 1; the shaded region stays hidden for single-iteration runs.
+> - `--warmup` runs an unrecorded pass for every tool/frame combination, so FastMDA, MDTraj, and MDAnalysis all pay their import/JIT overhead before measurements begin — helpful when you want smooth, monotonic scaling curves.
+
 ## Results
 
 ### Full Workflow (Averaged over 5 iterations)

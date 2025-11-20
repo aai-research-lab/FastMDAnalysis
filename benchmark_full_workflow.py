@@ -184,7 +184,7 @@ def compute_loc_benchmark():
     return loc_data
 
 
-def generate_loc_slide(loc_data):
+def generate_loc_slide(loc_data, output_path: str | Path = 'benchmark_loc_slide.png'):
     """Create a separate slide summarizing lines-of-code per workflow."""
     names = [item['name'] for item in loc_data]
     loc_values = [item['loc'] for item in loc_data]
@@ -222,7 +222,8 @@ def generate_loc_slide(loc_data):
         )
 
     plt.tight_layout()
-    output_file = 'benchmark_loc_slide.png'
+    output_file = Path(output_path)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     print(f"✓ Saved: {output_file}")
     for item in loc_data:
