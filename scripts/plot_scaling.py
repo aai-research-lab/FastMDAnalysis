@@ -96,22 +96,28 @@ def _all_metric_values(grouped: Dict[str, List[dict]], metric: str) -> List[floa
 def _format_log_axis(ax, metric: str, values: List[float]) -> None:
     if not values:
         return
-    min_val = max(min(values), 1e-3)
-    max_val = max(values)
-    lower_power = min(-1, math.floor(math.log10(min_val))) if min_val < 1 else math.floor(math.log10(min_val))
-    upper_power = max(1, math.ceil(math.log10(max_val)))
-    desired = {10.0, 100.0, 1000.0}
-    ticks = {10 ** p for p in range(lower_power, upper_power + 1)}
+    positives = [v for v in values if v > 0]
+    if not positives:
+        return
+    min_val = min(positives)
+    max_val = max(positives)
+    padded_min = max(min_val * 0.8, 1e-3)
+    padded_max = max_val * 1.25
+    axis_min = 1.0 if min_val >= 1.0 else padded_min
+    if metric == "memory":
+        axis_min = max(axis_min, 1.0)
+    lower_power = math.floor(math.log10(axis_min))
+    upper_power = math.ceil(math.log10(padded_max))
+    desired = {1.0, 10.0, 100.0, 1000.0}
+    ticks = {10 ** exp for exp in range(lower_power, upper_power + 1)}
     ticks.update(desired)
-    ticks = sorted(ticks)
-    ax.set_yticks([t for t in ticks if t > 0])
+    ticks = [tick for tick in sorted(ticks) if axis_min <= tick <= padded_max]
+    if not ticks:
+        ticks = [axis_min, padded_max]
+    ax.set_yticks(ticks)
     formatter = LogFormatterMathtext()
     ax.yaxis.set_major_formatter(formatter)
-    lower = min(min_val, 10.0)
-    upper = max(max_val, 1000.0)
-    ax.set_ylim(lower, upper)
-    if metric == "memory":
-        ax.set_ylim(10.0, max(upper, 1000.0))
+    ax.set_ylim(axis_min, padded_max)
 
 
 def _apply_slide_fonts(ax) -> None:
@@ -134,6 +140,10 @@ def plot_combined(metric: str, grouped: Dict[str, List[dict]], output_dir: Path,
         means = [rec["mean"] for rec in metric_points]
         metric_values.extend(means)
         errors = [rec.get("stderr", 0.0) for rec in metric_points]
+        for mean_value, err in zip(means, errors):
+            err = abs(err)
+            metric_values.append(max(1e-9, mean_value - err))
+            metric_values.append(max(1e-9, mean_value + err))
         label = metric_points[0]["library"]
         color = LIBRARY_COLORS.get(library_key, "#555555")
 
@@ -155,7 +165,8 @@ def plot_combined(metric: str, grouped: Dict[str, List[dict]], output_dir: Path,
     if y_scale:
         ax.set_yscale(y_scale)
         if y_scale == "log":
-            _format_log_axis(ax, metric, metric_values or _all_metric_values(grouped, metric))
+            baseline_values = metric_values or _all_metric_values(grouped, metric)
+            _format_log_axis(ax, metric, baseline_values)
     _apply_slide_fonts(ax)
     ax.legend(fontsize=TICK_FONT_SIZE - 2)
 
@@ -167,7 +178,6 @@ def plot_combined(metric: str, grouped: Dict[str, List[dict]], output_dir: Path,
     fig.savefig(path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     return path
-
 
 def render_plots(
     json_path: Path,

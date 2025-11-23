@@ -46,7 +46,6 @@ COMMANDS = {
     ),
 }
 
-
 def add_slide(prs: Presentation, image_path: Path, command: str) -> None:
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)

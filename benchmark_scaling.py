@@ -12,12 +12,15 @@ import argparse
 import csv
 import json
 import math
+import multiprocessing as mp
+import queue
 import sys
+import tempfile
+import traceback
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
-import tempfile
 
 import numpy as np
 
@@ -28,10 +31,11 @@ BENCHMARK_TOOLS = [
     "mdtraj",
     "mdanalysis",
 ]
-DEFAULT_FRAME_COUNTS = [500, 1000, 2000, 5000]
-DEFAULT_ITERATIONS = 1
+DEFAULT_FRAME_COUNTS = [500, 1000, 2000, 4000, 5000]
+DEFAULT_ITERATIONS = 3
 RUNTIME_UNIT = "seconds"
 MEMORY_UNIT = "MB"
+WARMUP_TIMEOUT_SECONDS = 3600
 
 
 def _available_tools(requested_tools: Sequence[str]) -> List[str]:
@@ -58,7 +62,7 @@ def _set_frame_slice(frame_count: int) -> Tuple[int, int, int]:
     return previous
 
 
-def _run_single(tool_key: str, frame_count: int) -> Tuple[float, float]:
+def _run_single_iteration(tool_key: str, frame_count: int) -> Tuple[float, float]:
     previous_slice = _set_frame_slice(frame_count)
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -76,6 +80,52 @@ def _run_single(tool_key: str, frame_count: int) -> Tuple[float, float]:
     if runtime is None or memory is None:
         raise RuntimeError(f"{tool_key} run did not produce metrics. Check installation.")
     return runtime, memory
+
+
+def _worker_run(tool_key: str, frame_count: int, warmup: bool, result_queue: "mp.Queue[dict]") -> None:
+    try:
+        if warmup:
+            _run_single_iteration(tool_key, frame_count)
+        runtime, memory = _run_single_iteration(tool_key, frame_count)
+        result_queue.put({"ok": True, "runtime": runtime, "memory": memory})
+    except Exception:
+        result_queue.put({"ok": False, "traceback": traceback.format_exc()})
+
+
+def _run_single_isolated(tool_key: str, frame_count: int, warmup: bool) -> Tuple[float, float]:
+    ctx = mp.get_context("spawn")
+    result_queue: mp.Queue = ctx.Queue()
+    process = ctx.Process(target=_worker_run, args=(tool_key, frame_count, warmup, result_queue))
+    process.start()
+    result = None
+    try:
+        result = result_queue.get(timeout=WARMUP_TIMEOUT_SECONDS)
+    except queue.Empty:
+        process.terminate()
+        process.join()
+        raise RuntimeError(
+            f"Timed out waiting for {tool_key} scaling run (frames={frame_count})."
+        )
+    process.join()
+    if process.exitcode != 0:
+        trace = ""
+        if isinstance(result, dict):
+            trace = result.get("traceback", "")
+        raise RuntimeError(
+            f"{tool_key} scaling process exited with code {process.exitcode}.\n{trace}"
+        )
+    if not isinstance(result, dict) or not result.get("ok"):
+        trace = result.get("traceback", "Unknown error.") if isinstance(result, dict) else "Unknown error."
+        raise RuntimeError(f"{tool_key} scaling run failed.\n{trace}")
+    return float(result["runtime"]), float(result["memory"])
+
+
+def _run_single(tool_key: str, frame_count: int, *, warmup: bool, isolate: bool) -> Tuple[float, float]:
+    if isolate:
+        return _run_single_isolated(tool_key, frame_count, warmup)
+    if warmup:
+        _run_single_iteration(tool_key, frame_count)
+    return _run_single_iteration(tool_key, frame_count)
 
 
 @dataclass
@@ -103,6 +153,7 @@ def run_scaling_benchmark(
     tools: Sequence[str],
     iterations: int,
     warmup: bool,
+    isolate: bool,
 ) -> List[Dict[str, object]]:
     records: List[Dict[str, object]] = []
 
@@ -114,14 +165,15 @@ def run_scaling_benchmark(
         }[tool]
         print(f"\n=== {display_name} scaling benchmark ===")
         for frames in frame_counts:
-            if warmup:
-                print(f"[{display_name}] Frames={frames} warm-up run")
-                _run_single(tool, frames)
             runtimes: List[float] = []
             memories: List[float] = []
             for iteration in range(iterations):
-                print(f"[{display_name}] Frames={frames} Iteration {iteration + 1}/{iterations}")
-                runtime, memory = _run_single(tool, frames)
+                include_warmup = warmup and iteration == 0
+                label = f"[{display_name}] Frames={frames} Iteration {iteration + 1}/{iterations}"
+                if include_warmup:
+                    label += " (includes warm-up pass)"
+                print(label)
+                runtime, memory = _run_single(tool, frames, warmup=include_warmup, isolate=isolate)
                 print(f"    runtime={runtime:.3f}s memory={memory:.1f} MB")
                 runtimes.append(runtime)
                 memories.append(memory)
@@ -205,13 +257,13 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         type=int,
         nargs="+",
         default=DEFAULT_FRAME_COUNTS,
-        help="Frame counts to benchmark (default: 500 1000 2000 5000).",
+        help="Frame counts to benchmark (default: 500 1000 2000 4000 5000).",
     )
     parser.add_argument(
         "--iterations",
         type=int,
         default=DEFAULT_ITERATIONS,
-        help="Number of iterations per point (default: 1).",
+        help="Number of iterations per point (default: 3).",
     )
     parser.add_argument(
         "--tools",
@@ -237,9 +289,25 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--warmup",
+        dest="warmup",
         action="store_true",
-        help="Run an unrecorded warm-up pass for every tool/frame pair before measuring.",
+        help="(Deprecated) Explicitly enable warm-up runs (default: enabled).",
     )
+    parser.add_argument(
+        "--no-warmup",
+        dest="warmup",
+        action="store_false",
+        help="Disable warm-up passes before measurements.",
+    )
+    parser.add_argument(
+        "--reuse-process",
+        action="store_true",
+        help=(
+            "Reuse the current Python process for all runs (legacy behavior)."
+            " Default spawns a fresh subprocess per run to keep memory baselines consistent."
+        ),
+    )
+    parser.set_defaults(warmup=True)
     return parser.parse_args(argv)
 
 
@@ -267,7 +335,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(f"Frame counts: {frame_counts}")
     print(f"Iterations per point: {iterations}")
 
-    records = run_scaling_benchmark(frame_counts, tools, iterations, args.warmup)
+    isolate = not args.reuse_process
+    records = run_scaling_benchmark(frame_counts, tools, iterations, args.warmup, isolate)
 
     output_dir: Path = args.output_dir
     write_json(records, output_dir / args.json_name)
