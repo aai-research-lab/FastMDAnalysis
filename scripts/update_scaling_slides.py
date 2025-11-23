@@ -21,8 +21,10 @@ IMAGE_SPEC: Sequence[Tuple[str, str]] = (
     ("MDTraj Memory Scaling", "mdtraj_memory_scaling.png"),
     ("MDAnalysis Runtime Scaling", "mdanalysis_runtime_scaling.png"),
     ("MDAnalysis Memory Scaling", "mdanalysis_memory_scaling.png"),
-    ("Combined Runtime Scaling", "combined_runtime_scaling.png"),
-    ("Combined Memory Scaling", "combined_memory_scaling.png"),
+    ("Combined Runtime Scaling (Linear)", "combined_runtime_scaling_linear.png"),
+    ("Combined Runtime Scaling (Log)", "combined_runtime_scaling_log.png"),
+    ("Combined Memory Scaling (Linear)", "combined_memory_scaling_linear.png"),
+    ("Combined Memory Scaling (Log)", "combined_memory_scaling_log.png"),
     ("Lines of Code Comparison", "loc_comparison.png"),
 )
 

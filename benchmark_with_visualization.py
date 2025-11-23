@@ -23,7 +23,7 @@ from scipy.spatial.distance import squareform, pdist
 warnings.filterwarnings('ignore')
 
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
-from fastmdanalysis.datasets import TrpCage
+from fastmdanalysis.datasets import Ubiquitin
 
 try:
     import MDAnalysis as mda
@@ -78,7 +78,7 @@ def benchmark_fastmda_single():
     
     start = time.time()
     
-    fastmda = FastMDAnalysis(TrpCage.traj, TrpCage.top, frames=(0, -1, 10), atoms="protein")
+    fastmda = FastMDAnalysis(Ubiquitin.traj, Ubiquitin.top, frames=(0, -1, 10), atoms="protein")
     traj = fastmda.traj
     
     rmsd_data = md.rmsd(traj, traj, frame=0)
@@ -128,7 +128,7 @@ def benchmark_mdtraj_single():
     """MDTraj pure computation - single run"""
     start = time.time()
     
-    traj = md.load(TrpCage.traj, top=TrpCage.top)
+    traj = md.load(Ubiquitin.traj, top=Ubiquitin.top)
     traj = traj[0::10]
     atom_indices = traj.topology.select('protein')
     traj = traj.atom_slice(atom_indices)
@@ -183,7 +183,7 @@ def benchmark_mdanalysis_single():
         
     start = time.time()
     
-    u = mda.Universe(TrpCage.top, TrpCage.traj)
+    u = mda.Universe(Ubiquitin.top, Ubiquitin.traj)
     protein = u.select_atoms('protein')
     frame_list = list(range(0, len(u.trajectory), 10))
     
@@ -297,7 +297,7 @@ def create_benchmark_visualization(results):
                 f'{loc}',
                 ha='center', va='bottom', fontsize=14, fontweight='bold')
     
-    plt.suptitle('FastMDAnalysis Performance Benchmark\nTrpCage (500 frames) - RMSD, RMSF, RG, Cluster',
+    plt.suptitle('FastMDAnalysis Performance Benchmark\nUbiquitin Q99 (frames 0:-1:10) - RMSD, RMSF, RG, Cluster',
                  fontweight='bold')
     plt.tight_layout()
     
@@ -367,7 +367,7 @@ def create_detailed_comparison_chart(results):
     
     # Add footer notes
     footer_text = (
-        'Dataset: TrpCage, 500 frames (frames 0,-1,10)\n'
+        'Dataset: Ubiquitin Q99, frames 0:-1:10\n'
         'Analyses: RMSD, RMSF, RG, Cluster (KMeans, DBSCAN, Hierarchical)\n'
         'Measurement: Pure computation only - no plotting or file I/O overhead'
     )
@@ -473,7 +473,7 @@ def create_presentation_slides(results):
     tf2.text = "Dataset & Analyses"
     
     p2 = tf2.add_paragraph()
-    p2.text = "TrpCage trajectory: 500 frames (frames 0,-1,10)"
+    p2.text = "Ubiquitin Q99 trajectory: frames 0:-1:10"
     p2.level = 1
     
     p3 = tf2.add_paragraph()
@@ -583,7 +583,7 @@ def main():
     print("="*70)
     print("FASTMDANALYSIS BENCHMARK WITH VISUALIZATION")
     print("="*70)
-    print("Dataset: TrpCage, 500 frames (frames 0,-1,10)")
+    print("Dataset: Ubiquitin Q99, frames 0:-1:10")
     print("Analyses: RMSD, RMSF, RG, Cluster (KMeans, DBSCAN, Hierarchical)")
     print("Measurement: Pure computation (no plotting/file I/O in timing)")
     print(f"Iterations: {NUM_ITERATIONS} runs per library (averaged)")

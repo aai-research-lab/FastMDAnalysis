@@ -3,7 +3,7 @@
 validate_fastmda.py
 
 Validation script that compares FastMDAnalysis routines with MDTraj and MDAnalysis
-on the trp cage dataset. Generates a JSON report and CSV summary table.
+on the Ubiquitin Q99 dataset. Generates a JSON report and CSV summary table.
 
 Usage:
     python validate_fastmda.py [--frames START:STOP:STRIDE] [--atoms SELECTION]
@@ -30,7 +30,7 @@ warnings.filterwarnings('ignore', category=DeprecationWarning)
 # Import FastMDAnalysis components
 try:
     from fastmdanalysis import FastMDAnalysis
-    from fastmdanalysis.datasets import TrpCage
+    from fastmdanalysis.datasets import Ubiquitin
 except ImportError as e:
     print(f"Error importing FastMDAnalysis: {e}", file=sys.stderr)
     print("Make sure FastMDAnalysis is installed or add src to PYTHONPATH", file=sys.stderr)
@@ -801,9 +801,9 @@ def main():
     print("=" * 70)
     print("FastMDAnalysis Validation")
     print("=" * 70)
-    print(f"Dataset: TrpCage")
-    print(f"Trajectory: {TrpCage.traj}")
-    print(f"Topology: {TrpCage.top}")
+    print(f"Dataset: Ubiquitin Q99")
+    print(f"Trajectory: {Ubiquitin.traj}")
+    print(f"Topology: {Ubiquitin.top}")
     print(f"Frame selection: {args.frames} -> {frames}")
     print(f"Atom selection: {args.atoms}")
     print(f"Output directory: {args.output_dir}")
@@ -816,7 +816,7 @@ def main():
     
     # Load trajectory with MDTraj for reference
     print("Loading trajectory with MDTraj...")
-    traj = md.load(TrpCage.traj, top=TrpCage.top)
+    traj = md.load(Ubiquitin.traj, top=Ubiquitin.top)
     if stop == -1 or stop is None:
         traj = traj[start::stride]
     else:
@@ -833,8 +833,8 @@ def main():
     # Initialize FastMDAnalysis
     print("Initializing FastMDAnalysis...")
     fastmda = FastMDAnalysis(
-        TrpCage.traj,
-        TrpCage.top,
+        Ubiquitin.traj,
+        Ubiquitin.top,
         frames=frames,
         atoms=args.atoms
     )

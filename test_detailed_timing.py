@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from scipy.cluster.hierarchy import dendrogram
 sys.path.insert(0, str(Path('.') / 'src'))
 from fastmdanalysis import FastMDAnalysis
-from fastmdanalysis.datasets import TrpCage
+from fastmdanalysis.datasets import Ubiquitin
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -12,7 +12,7 @@ total_start = time.time()
 
 print("Initializing...")
 start = time.time()
-fastmda = FastMDAnalysis(TrpCage.traj, TrpCage.top, frames=(0, -1, 10), atoms="protein")
+fastmda = FastMDAnalysis(Ubiquitin.traj, Ubiquitin.top, frames=(0, -1, 10), atoms="protein")
 print(f"  Init: {time.time() - start:.2f}s")
 
 print("RMSD analysis...")

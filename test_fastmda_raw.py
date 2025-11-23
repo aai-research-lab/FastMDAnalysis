@@ -4,13 +4,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path('.') / 'src'))
 from fastmdanalysis import FastMDAnalysis
-from fastmdanalysis.datasets import TrpCage
+from fastmdanalysis.datasets import Ubiquitin
 import warnings
 warnings.filterwarnings('ignore')
 
 # Test raw computation without plotting
 start = time.time()
-fastmda = FastMDAnalysis(TrpCage.traj, TrpCage.top, frames=(0, -1, 10), atoms="protein")
+fastmda = FastMDAnalysis(Ubiquitin.traj, Ubiquitin.top, frames=(0, -1, 10), atoms="protein")
 
 # Run analyses without plotting
 rmsd_result = fastmda.rmsd(ref=0)

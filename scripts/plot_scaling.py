@@ -4,18 +4,24 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 from typing import Dict, List, Sequence
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.ticker import LogFormatterMathtext
 
 LIBRARY_COLORS = {
     "fastmdanalysis": "#4472C4",  # blue
     "mdtraj": "#ED7D31",          # orange
     "mdanalysis": "#A5A5A5",      # gray
 }
+
+TICK_FONT_SIZE = 18
+LABEL_FONT_SIZE = 21
+TITLE_FONT_SIZE = 24
 
 METRIC_PLOTS = {
     "runtime": {
@@ -78,9 +84,47 @@ def plot_single_series(library_key: str, metric: str, points: List[dict], output
     return path
 
 
-def plot_combined(metric: str, grouped: Dict[str, List[dict]], output_dir: Path, y_scale: str) -> Path:
+def _all_metric_values(grouped: Dict[str, List[dict]], metric: str) -> List[float]:
+    values: List[float] = []
+    for records in grouped.values():
+        for rec in records:
+            if rec.get("metric") == metric:
+                values.append(float(rec.get("mean", 0.0)))
+    return values
+
+
+def _format_log_axis(ax, metric: str, values: List[float]) -> None:
+    if not values:
+        return
+    min_val = max(min(values), 1e-3)
+    max_val = max(values)
+    lower_power = min(-1, math.floor(math.log10(min_val))) if min_val < 1 else math.floor(math.log10(min_val))
+    upper_power = max(1, math.ceil(math.log10(max_val)))
+    desired = {10.0, 100.0, 1000.0}
+    ticks = {10 ** p for p in range(lower_power, upper_power + 1)}
+    ticks.update(desired)
+    ticks = sorted(ticks)
+    ax.set_yticks([t for t in ticks if t > 0])
+    formatter = LogFormatterMathtext()
+    ax.yaxis.set_major_formatter(formatter)
+    lower = min(min_val, 10.0)
+    upper = max(max_val, 1000.0)
+    ax.set_ylim(lower, upper)
+    if metric == "memory":
+        ax.set_ylim(10.0, max(upper, 1000.0))
+
+
+def _apply_slide_fonts(ax) -> None:
+    ax.tick_params(axis="both", labelsize=TICK_FONT_SIZE)
+    ax.xaxis.label.set_fontsize(LABEL_FONT_SIZE)
+    ax.yaxis.label.set_fontsize(LABEL_FONT_SIZE)
+    ax.title.set_fontsize(TITLE_FONT_SIZE)
+
+
+def plot_combined(metric: str, grouped: Dict[str, List[dict]], output_dir: Path, y_scale: str, scale_label: str) -> Path:
     metadata = METRIC_PLOTS[metric]
     fig, ax = plt.subplots(figsize=(8.5, 5.5))
+    metric_values = []
 
     for library_key, points in grouped.items():
         metric_points = _sort_points([p for p in points if p["metric"] == metric])
@@ -88,6 +132,7 @@ def plot_combined(metric: str, grouped: Dict[str, List[dict]], output_dir: Path,
             continue
         frames = [rec["frames"] for rec in metric_points]
         means = [rec["mean"] for rec in metric_points]
+        metric_values.extend(means)
         errors = [rec.get("stderr", 0.0) for rec in metric_points]
         label = metric_points[0]["library"]
         color = LIBRARY_COLORS.get(library_key, "#555555")
@@ -100,7 +145,8 @@ def plot_combined(metric: str, grouped: Dict[str, List[dict]], output_dir: Path,
 
     ax.set_xlabel("Frames")
     ax.set_ylabel(metadata["ylabel"])
-    ax.set_title(f"All Libraries — {metadata['title']}")
+    suffix = " (Log Scale)" if y_scale == "log" else " (Linear Scale)"
+    ax.set_title(f"All Libraries — {metadata['title']}{suffix}")
     ax.grid(alpha=0.3, linestyle="--")
     if grouped:
         frame_values = sorted({rec["frames"] for records in grouped.values() for rec in records if rec.get("metric") == metric})
@@ -108,11 +154,14 @@ def plot_combined(metric: str, grouped: Dict[str, List[dict]], output_dir: Path,
             ax.set_xticks(frame_values)
     if y_scale:
         ax.set_yscale(y_scale)
-    ax.tick_params(axis="both", labelsize=11)
-    ax.legend()
+        if y_scale == "log":
+            _format_log_axis(ax, metric, metric_values or _all_metric_values(grouped, metric))
+    _apply_slide_fonts(ax)
+    ax.legend(fontsize=TICK_FONT_SIZE - 2)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"combined_{metric}_scaling.png"
+    suffix_token = f"_{scale_label}" if scale_label else ""
+    filename = f"combined_{metric}_scaling{suffix_token}.png"
     path = output_dir / filename
     fig.tight_layout()
     fig.savefig(path, dpi=300, bbox_inches="tight")
@@ -124,7 +173,7 @@ def render_plots(
     json_path: Path,
     output_dir: Path,
     modes: Sequence[str],
-    combined_y_scale: str,
+    combined_scales: Sequence[str],
 ) -> List[Path]:
     grouped = load_records(json_path)
     generated: List[Path] = []
@@ -137,7 +186,8 @@ def render_plots(
                 generated.append(plot_single_series(library_key, metric, metric_points, output_dir))
     if "combined" in modes:
         for metric in METRIC_PLOTS:
-            generated.append(plot_combined(metric, grouped, output_dir, combined_y_scale))
+            for scale in combined_scales:
+                generated.append(plot_combined(metric, grouped, output_dir, scale, scale))
     return generated
 
 
@@ -164,8 +214,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--combined-y-scale",
         choices=["linear", "log"],
-        default="log",
-        help="Y-axis scale for combined plots (default: log).",
+        nargs="+",
+        default=["log", "linear"],
+        help="Y-axis scales for combined plots (default: log linear).",
     )
     return parser.parse_args()
 

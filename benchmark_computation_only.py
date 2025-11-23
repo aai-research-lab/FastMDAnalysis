@@ -18,7 +18,7 @@ warnings.filterwarnings('ignore')
 
 # Import FastMDAnalysis
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
-from fastmdanalysis.datasets import TrpCage
+from fastmdanalysis.datasets import Ubiquitin
 
 # Try importing MDAnalysis
 try:
@@ -40,8 +40,8 @@ def benchmark_fastmda_computation_only():
     
     # Initialize
     fastmda = FastMDAnalysis(
-        TrpCage.traj, 
-        TrpCage.top, 
+        Ubiquitin.traj,
+        Ubiquitin.top,
         frames=(0, -1, 10),
         atoms="protein"
     )
@@ -77,7 +77,7 @@ def benchmark_mdtraj_computation_only():
     start = time.time()
     
     # Load and prepare trajectory
-    traj = md.load(TrpCage.traj, top=TrpCage.top)
+    traj = md.load(Ubiquitin.traj, top=Ubiquitin.top)
     traj = traj[0::10]  # frames 0,-1,10
     atom_indices = traj.topology.select('protein')
     traj = traj.atom_slice(atom_indices)
@@ -140,7 +140,7 @@ def benchmark_mdanalysis_computation_only():
     start = time.time()
     
     # Load trajectory
-    u = mda.Universe(TrpCage.top, TrpCage.traj)
+    u = mda.Universe(Ubiquitin.top, Ubiquitin.traj)
     protein = u.select_atoms('protein')
     
     # Frame selection
@@ -206,7 +206,7 @@ def main():
     print("="*70)
     print("PURE COMPUTATION BENCHMARK - NO PLOTTING OVERHEAD")
     print("="*70)
-    print("Dataset: TrpCage, 500 frames (0,-1,10)")
+    print("Dataset: Ubiquitin Q99, frames 0:-1:10")
     print("Analyses: RMSD, RMSF, RG, Cluster (KMeans, DBSCAN, Hierarchical)")
     print("="*70)
     

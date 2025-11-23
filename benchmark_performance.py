@@ -21,7 +21,7 @@ from scipy.spatial.distance import squareform, pdist
 warnings.filterwarnings('ignore')
 
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
-from fastmdanalysis.datasets import TrpCage
+from fastmdanalysis.datasets import Ubiquitin
 
 try:
     import MDAnalysis as mda
@@ -50,7 +50,7 @@ def benchmark_fastmda():
     start = time.time()
     
     # Initialize
-    fastmda = FastMDAnalysis(TrpCage.traj, TrpCage.top, frames=(0, -1, 10), atoms="protein")
+    fastmda = FastMDAnalysis(Ubiquitin.traj, Ubiquitin.top, frames=(0, -1, 10), atoms="protein")
     
     # Pure computation - just call the MDTraj functions directly to bypass overhead
     # This shows what FastMDA SHOULD perform like since it uses MDTraj backend
@@ -101,7 +101,7 @@ def benchmark_mdtraj():
     start = time.time()
     
     # Load trajectory
-    traj = md.load(TrpCage.traj, top=TrpCage.top)
+    traj = md.load(Ubiquitin.traj, top=Ubiquitin.top)
     traj = traj[0::10]  # frames 0,-1,10
     atom_indices = traj.topology.select('protein')
     traj = traj.atom_slice(atom_indices)
@@ -155,7 +155,7 @@ def benchmark_mdanalysis():
     start = time.time()
     
     # Load trajectory
-    u = mda.Universe(TrpCage.top, TrpCage.traj)
+    u = mda.Universe(Ubiquitin.top, Ubiquitin.traj)
     protein = u.select_atoms('protein')
     frame_list = list(range(0, len(u.trajectory), 10))
     
@@ -208,7 +208,7 @@ def main():
     print("="*70)
     print("PURE COMPUTATION BENCHMARK - NO OVERHEAD")
     print("="*70)
-    print("Dataset: TrpCage, 500 frames (frames 0,-1,10)")
+    print("Dataset: Ubiquitin Q99, frames 0:-1:10")
     print("Analyses: RMSD, RMSF, RG, Cluster (KMeans, DBSCAN, Hierarchical)")
     print("Measurement: COMPUTATION ONLY (no plotting, no file I/O)")
     print("="*70)
