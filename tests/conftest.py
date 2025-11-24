@@ -61,3 +61,11 @@ def matplotlib(mpl_test_settings):
     finally:
         plt.close("all")
 
+
+@pytest.fixture
+def minimal_md_files():
+    """Provide minimal MD trajectory and topology files for testing"""
+    data_dir = Path(__file__).parent.parent / "src" / "fastmdanalysis" / "data"
+    traj_file = data_dir / "trp_cage.dcd"
+    top_file = data_dir / "trp_cage.pdb"
+    return traj_file, top_file

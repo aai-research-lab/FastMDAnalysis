@@ -246,12 +246,57 @@ def test_plot_custom_kwargs_and_color_branch(tmp_path, monkeypatch):
     to verify branches, input coercion, and _save_plot invocation.
     """
     # Stub pyplot surface
-    class _DummyYAxis:
-        def set_major_locator(self, *a, **k): pass
+    class _DummyLabel:
+        def set_fontsize(self, *a, **k):
+            pass
+
+    class _DummyAxis:
+        def __init__(self):
+            self.label = _DummyLabel()
+
+        def set_major_locator(self, *a, **k):
+            pass
+
+    class _DummyTitle:
+        def __init__(self):
+            self._size = 20
+
+        def set_fontsize(self, size, *a, **k):
+            self._size = size
+
+        def get_fontsize(self):
+            return self._size
+
     class _DummyAxes:
-        yaxis = _DummyYAxis()
+        def __init__(self):
+            self.xaxis = _DummyAxis()
+            self.yaxis = _DummyAxis()
+            self.title = _DummyTitle()
+
+        def plot(self, *a, **k):
+            pass
+
+        def set_title(self, *a, **k):
+            pass
+
+        def set_xlabel(self, *a, **k):
+            pass
+
+        def set_ylabel(self, *a, **k):
+            pass
+
+        def grid(self, *a, **k):
+            pass
+
+        def tick_params(self, *a, **k):
+            pass
+
+        def get_xticklabels(self):
+            return []
+
     class _DummyFig:
-        pass
+        def subplots(self, *a, **k):
+            return _DummyAxes()
 
     monkeypatch.setattr(hbonds_mod.plt, "figure", lambda *a, **k: _DummyFig())
     monkeypatch.setattr(hbonds_mod.plt, "plot", lambda *a, **k: None)

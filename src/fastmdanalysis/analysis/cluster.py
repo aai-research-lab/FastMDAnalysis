@@ -36,6 +36,12 @@ from scipy.cluster.hierarchy import dendrogram, fcluster, linkage
 from scipy.spatial.distance import squareform
 
 from .base import BaseAnalysis, AnalysisError
+from ..utils.options import OptionsForwarder
+from ..utils.plotting import apply_slide_style, auto_ticks
+
+CLUSTER_AXIS_LABEL = "Cluster ID"
+CLUSTER_TITLE_SIZE = 26.0
+CLUSTER_COLORBAR_KW = {"fraction": 0.085, "pad": 0.02}
 
 # Module logger (configured by CLI / caller)
 logger = logging.getLogger(__name__)
@@ -140,6 +146,12 @@ def dendrogram_link_color_func_factory(linkage_matrix, final_labels):
 # ------------------------------- Core class -----------------------------------
 
 class ClusterAnalysis(BaseAnalysis):
+    _ALIASES = {
+        "method": "methods",
+        "atom_indices": "atoms",
+        "selection": "atoms",
+    }
+    
     def __init__(
         self,
         trajectory,
@@ -148,10 +160,10 @@ class ClusterAnalysis(BaseAnalysis):
         min_samples: int = 5,
         n_clusters: Optional[int] = None,
         atoms: Optional[str] = None,
-        plot_style: str = "full",
-        combined_plot_name: str = "cluster_combined",
-        save_data: bool = True,
-        feature_mode: str = "coordinates",
+        random_state: int = 42,
+        n_init: Union[int, str] = 10,
+        linkage_method: str = "ward",
+        strict: bool = False,
         **kwargs
     ):
         """
@@ -160,6 +172,7 @@ class ClusterAnalysis(BaseAnalysis):
         methods : {"all"} | str | list[str]
             Which clustering methods to run. Default "all" expands to
             ["dbscan", "kmeans", "hierarchical"].
+            Alias: method (singular)
         eps : float
             DBSCAN epsilon in **nm** (MDTraj RMSD units). 0.2 nm ≈ 2 Å is a good starting point.
         min_samples : int
@@ -168,17 +181,68 @@ class ClusterAnalysis(BaseAnalysis):
             If None and methods include kmeans/hierarchical, defaults to 3.
         atoms : str, optional
             MDTraj atom selection string used to slice the trajectory for all methods.
-        plot_style : {"full", "minimal", "none"}
-            Controls which plots are generated. "full" retains the legacy behavior,
-            "minimal" emits a single combined scatter summary, and "none" skips plots.
-        combined_plot_name : str
-            Base name for the combined scatter figure when plot_style="minimal".
-        feature_mode : {"coordinates", "distance"}
-            Select the feature space for kmeans/hierarchical clustering. "coordinates" flattens
-            Cartesian coordinates (legacy behaviour), while "distance" reuses the RMSD distance
-            matrix to align with lightweight benchmarking scenarios.
+            Aliases: atom_indices, selection
+        random_state : int
+            Random seed for KMeans (default 42).
+        n_init : int or "auto"
+            Number of KMeans initializations (default 10).
+        linkage_method : str
+            Linkage method for hierarchical clustering (default "ward").
+            Alias: linkage
+        strict : bool
+            If True, raise errors for unknown options. If False, log warnings.
         """
-        super().__init__(trajectory, save_data=save_data, **kwargs)
+        warn_unknown = kwargs.pop("_warn_unknown", False)
+
+        analysis_opts = {
+            "methods": methods,
+            "eps": eps,
+            "min_samples": min_samples,
+            "n_clusters": n_clusters,
+            "atoms": atoms,
+            "random_state": random_state,
+            "n_init": n_init,
+            "linkage_method": linkage_method,
+            "strict": strict,
+        }
+        analysis_opts.update(kwargs)
+        
+        if "linkage" in analysis_opts and "linkage_method" not in kwargs:
+            analysis_opts["linkage_method"] = analysis_opts.pop("linkage")
+        
+        forwarder = OptionsForwarder(aliases=self._ALIASES, strict=strict)
+        resolved = forwarder.apply_aliases(analysis_opts)
+        resolved = forwarder.filter_known(
+            resolved,
+            {
+                "methods",
+                "eps",
+                "min_samples",
+                "n_clusters",
+                "atoms",
+                "random_state",
+                "n_init",
+                "linkage_method",
+                "strict",
+                "output",
+            },
+            context="cluster",
+            warn=warn_unknown,
+        )
+
+        methods = resolved.get("methods", "all")
+        eps = resolved.get("eps", 0.2)
+        min_samples = resolved.get("min_samples", 5)
+        n_clusters = resolved.get("n_clusters", None)
+        atoms = resolved.get("atoms", None)
+        random_state = resolved.get("random_state", 42)
+        n_init = resolved.get("n_init", 10)
+        linkage_method = resolved.get("linkage_method", "ward")
+        base_kwargs = {k: v for k, v in resolved.items() 
+                      if k not in ("methods", "eps", "min_samples", "n_clusters", 
+                                  "atoms", "random_state", "n_init", "linkage_method", "strict", "linkage")}
+
+        super().__init__(trajectory, **base_kwargs)
 
         # Normalize methods
         if isinstance(methods, str):
@@ -195,13 +259,10 @@ class ClusterAnalysis(BaseAnalysis):
         self.min_samples = int(min_samples)
         self.n_clusters = int(n_clusters) if (n_clusters is not None and int(n_clusters) > 0) else None
         self.atoms = atoms
-        if plot_style not in {"full", "minimal", "none"}:
-            raise AnalysisError("plot_style must be 'full', 'minimal', or 'none'.")
-        self.plot_style = plot_style
-        self.combined_plot_name = combined_plot_name
-        if feature_mode not in {"coordinates", "distance"}:
-            raise AnalysisError("feature_mode must be 'coordinates' or 'distance'.")
-        self.feature_mode = feature_mode
+        self.random_state = int(random_state)
+        self.n_init = n_init if isinstance(n_init, str) else int(n_init)
+        self.linkage_method = linkage_method
+        self.strict = strict
 
         self.atom_indices = self.traj.topology.select(self.atoms) if self.atoms is not None else None
         if self.atoms and (self.atom_indices is None or len(self.atom_indices) == 0):
@@ -270,15 +331,23 @@ class ClusterAnalysis(BaseAnalysis):
         logger.info("Plotting population bar plot...")
         unique = np.sort(np.unique(labels))
         counts = np.array([np.sum(labels == u) for u in unique])
-        fig = plt.figure(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=(10, 6))
         cmap = get_cluster_cmap(len(unique))
         norm = get_discrete_norm(unique)
-        plt.bar(unique, counts, width=0.8, color=[cmap(norm(u)) for u in unique])
-        plt.title(kwargs.get("title", "Cluster Populations"))
-        plt.xlabel(kwargs.get("xlabel", "Cluster ID (compact)"))
-        plt.ylabel(kwargs.get("ylabel", "Number of Frames"))
-        plt.xticks(unique)
-        plt.grid(alpha=0.3)
+        ax.bar(unique, counts, width=0.8, color=[cmap(norm(u)) for u in unique])
+        ax.grid(False)
+        ax.set_title(kwargs.get("title", "Cluster Populations"))
+        ax.set_xlabel(kwargs.get("xlabel", CLUSTER_AXIS_LABEL))
+        ax.set_ylabel(kwargs.get("ylabel", "Number of Frames"))
+        apply_slide_style(
+            ax,
+            x_ticks=unique,
+            y_values=counts,
+            integer_x=True,
+            integer_y=True,
+            zero_y=True,
+            title_size=kwargs.get("title_size", CLUSTER_TITLE_SIZE),
+        )
         return self._save_plot(fig, filename)
 
     def _plot_cluster_trajectory_histogram(self, labels, filename, **kwargs):
@@ -289,12 +358,31 @@ class ClusterAnalysis(BaseAnalysis):
         norm = get_discrete_norm(unique)
         fig, ax = plt.subplots(figsize=(12, 4))
         im = ax.imshow(image_data, aspect="auto", interpolation="nearest", cmap=cmap, norm=norm)
+        ax.grid(False)
         ax.set_title(kwargs.get("title", "Cluster Trajectory Histogram"))
         ax.set_xlabel(kwargs.get("xlabel", "Frame"))
         ax.set_yticks([])
-        cbar = fig.colorbar(im, ax=ax, orientation="vertical", ticks=unique)
+        cbar = fig.colorbar(
+            im,
+            ax=ax,
+            orientation="vertical",
+            ticks=unique,
+            **CLUSTER_COLORBAR_KW,
+        )
         cbar.ax.set_yticklabels([str(u) for u in unique])
-        cbar.set_label("Cluster (compact)")
+        cbar.set_label(CLUSTER_AXIS_LABEL)
+        apply_slide_style(
+            ax,
+            x_values=np.arange(image_data.shape[1], dtype=int),
+            integer_x=True,
+            x_max_ticks=10,
+            zero_x=True,
+            title_size=kwargs.get("title_size", CLUSTER_TITLE_SIZE),
+        )
+        ax.set_yticks([])
+        label_size = ax.xaxis.label.get_fontsize()
+        cbar.ax.yaxis.label.set_fontsize(label_size)
+        cbar.ax.tick_params(labelsize=label_size)
         return self._save_plot(fig, filename)
 
     def _plot_cluster_trajectory_scatter(self, labels, filename, **kwargs):
@@ -305,25 +393,56 @@ class ClusterAnalysis(BaseAnalysis):
         cmap = get_cluster_cmap(len(unique))
         norm = get_discrete_norm(unique)
         ax.scatter(frames, np.zeros_like(frames), c=labels, s=100, cmap=cmap, norm=norm, marker="o")
+        ax.grid(False)
         ax.set_title(kwargs.get("title", "Cluster Trajectory Scatter Plot"))
         ax.set_xlabel(kwargs.get("xlabel", "Frame"))
         ax.set_yticks([])
         sm = ScalarMappable(cmap=cmap, norm=norm)
         sm.set_array([])
-        cbar = fig.colorbar(sm, ax=ax, orientation="vertical", ticks=unique)
+        cbar = fig.colorbar(
+            sm,
+            ax=ax,
+            orientation="vertical",
+            ticks=unique,
+            **CLUSTER_COLORBAR_KW,
+        )
         cbar.ax.set_yticklabels([str(u) for u in unique])
-        cbar.set_label("Cluster (compact)")
+        cbar.set_label(CLUSTER_AXIS_LABEL)
+        apply_slide_style(
+            ax,
+            x_values=frames,
+            y_ticks=[0.0],
+            integer_x=True,
+            x_max_ticks=10,
+            zero_x=True,
+            zero_y=True,
+            title_size=kwargs.get("title_size", CLUSTER_TITLE_SIZE),
+        )
+        ax.set_yticks([])
+        label_size = ax.xaxis.label.get_fontsize()
+        cbar.ax.yaxis.label.set_fontsize(label_size)
+        cbar.ax.tick_params(labelsize=label_size)
         return self._save_plot(fig, filename)
 
     def _plot_distance_matrix(self, distances, filename, **kwargs):
         logger.info("Plotting distance matrix heatmap...")
-        fig = plt.figure(figsize=(10, 8))
-        im = plt.imshow(distances, aspect="auto", interpolation="none", cmap=kwargs.get("cmap", "viridis"))
-        plt.title(kwargs.get("title", "RMSD Distance Matrix (nm)"))
-        plt.xlabel(kwargs.get("xlabel", "Frame"))
-        plt.ylabel(kwargs.get("ylabel", "Frame"))
-        cbar = plt.colorbar(im, ax=plt.gca())
+        fig, ax = plt.subplots(figsize=(10, 8))
+        im = ax.imshow(distances, aspect="auto", interpolation="none", cmap=kwargs.get("cmap", "viridis"))
+        ax.set_title(kwargs.get("title", "RMSD Distance Matrix (nm)"))
+        ax.set_xlabel(kwargs.get("xlabel", "Frame"))
+        ax.set_ylabel(kwargs.get("ylabel", "Frame"))
+        cbar = fig.colorbar(im, ax=ax)
         cbar.set_label("RMSD (nm)")
+        frames = np.arange(distances.shape[0], dtype=int)
+        apply_slide_style(
+            ax,
+            x_values=frames,
+            y_values=frames,
+            integer_x=True,
+            integer_y=True,
+            zero_x=True,
+            zero_y=True,
+        )
         return self._save_plot(fig, filename)
 
     def _plot_dendrogram(self, linkage_matrix, labels, filename, **kwargs):
@@ -348,16 +467,24 @@ class ClusterAnalysis(BaseAnalysis):
         fig, ax = plt.subplots(figsize=(12, 6))
         dendro = dendrogram(linkage_matrix, ax=ax, labels=explicit_labels, link_color_func=color_func)
         new_labels = [str(labels[i]) if i < len(labels) else "NA" for i in dendro["leaves"]]
-        ax.set_xticklabels(new_labels, rotation=90)
         unique = np.sort(np.unique(labels))
         cmap_local = get_cluster_cmap(len(unique))
         norm_local = get_discrete_norm(unique)
-        for tick, i in zip(ax.get_xticklabels(), dendro["leaves"]):
-            if i < len(labels):
-                tick.set_color(cmap_local(norm_local(labels[i])))
         ax.set_title(kwargs.get("title", "Hierarchical Clustering Dendrogram"))
         ax.set_xlabel(kwargs.get("xlabel", "Frame (Cluster Assignment)"))
         ax.set_ylabel(kwargs.get("ylabel", "Distance"))
+        apply_slide_style(
+            ax,
+            x_ticks=ax.get_xticks(),
+            y_values=ax.get_ylim(),
+            integer_x=True,
+            zero_y=True,
+        )
+        tick_font = ax.get_xticklabels()[0].get_fontsize() if ax.get_xticklabels() else None
+        ax.set_xticklabels(new_labels, rotation=90, rotation_mode="anchor", fontsize=tick_font)
+        for tick, i in zip(ax.get_xticklabels(), dendro["leaves"]):
+            if i < len(labels):
+                tick.set_color(cmap_local(norm_local(labels[i])))
         return self._save_plot(fig, filename)
 
     def _plot_combined_clusters(self, labels_map: Dict[str, np.ndarray]) -> Optional[Path]:
@@ -505,14 +632,12 @@ class ClusterAnalysis(BaseAnalysis):
                 elif key == "kmeans":
                     if self.n_clusters is None or self.n_clusters < 1:
                         raise AnalysisError("For KMeans clustering, n_clusters must be provided and >=1.")
-                    km = KMeans(n_clusters=int(self.n_clusters), random_state=42, n_init=10)
-                    if self.feature_mode == "coordinates":
-                        fit_matrix = X_flat
-                    else:
-                        if D is None:
-                            D = self._calculate_rmsd_matrix()
-                        fit_matrix = D
-                    labels0 = km.fit_predict(fit_matrix).astype(int, copy=False)  # 0..K-1
+                    km = KMeans(
+                        n_clusters=int(self.n_clusters), 
+                        random_state=self.random_state, 
+                        n_init=self.n_init
+                    )
+                    labels0 = km.fit_predict(X_flat).astype(int, copy=False)  # 0..K-1
                     labels = labels0 + 1                                      # 1..K
                     frame_idx = np.arange(labels.size, dtype=int)
                     kmeans_entry = {
@@ -545,14 +670,8 @@ class ClusterAnalysis(BaseAnalysis):
                 elif key == "hierarchical":
                     if self.n_clusters is None or self.n_clusters < 1:
                         raise AnalysisError("For hierarchical clustering, n_clusters must be provided and >=1.")
-                    logger.info("Computing Ward linkage for hierarchical clustering...")
-                    if self.feature_mode == "coordinates":
-                        Z = linkage(X_flat, method="ward")
-                    else:
-                        if D is None:
-                            D = self._calculate_rmsd_matrix()
-                        condensed_dist = squareform(D)
-                        Z = linkage(condensed_dist, method="ward")
+                    logger.info("Computing %s linkage for hierarchical clustering...", self.linkage_method)
+                    Z = linkage(X_flat, method=self.linkage_method)
                     labels = fcluster(Z, t=int(self.n_clusters), criterion="maxclust").astype(int, copy=False)  # 1..K
                     frame_idx = np.arange(labels.size, dtype=int)
                     hierarchical_entry = {
