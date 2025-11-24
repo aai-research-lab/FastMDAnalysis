@@ -29,6 +29,40 @@ IMAGE_SPEC: Sequence[Tuple[str, str]] = (
 )
 
 
+def _delete_slide(prs: Presentation, index: int) -> None:
+    """Remove slide at *index* from presentation."""
+    slide_id = prs.slides._sldIdLst[index].rId  # type: ignore[attr-defined]
+    prs.part.drop_rel(slide_id)
+    del prs.slides._sldIdLst[index]  # type: ignore[attr-defined]
+
+
+def _looks_like_legacy_scaling_slide(slide) -> bool:
+    """True when slide resembles the older benchmark layout (no title, command text)."""
+    title = slide.shapes.title
+    if title is not None and title.text.strip():
+        return False
+    for shape in slide.shapes:
+        if getattr(shape, "has_text_frame", False):
+            text = shape.text.strip()
+            if "benchmark_scaling.py" in text:
+                return True
+    return False
+
+
+def _purge_existing_scaling_slides(prs: Presentation, specs: Iterable[Tuple[str, str]]) -> int:
+    """Remove previously inserted scaling slides (title match or legacy signature)."""
+    target_titles = {title for title, _ in specs}
+    to_delete: List[int] = []
+    for idx, slide in enumerate(prs.slides):
+        title_shape = slide.shapes.title
+        title_text = title_shape.text.strip() if title_shape and title_shape.text else ""
+        if title_text in target_titles or _looks_like_legacy_scaling_slide(slide):
+            to_delete.append(idx)
+    for idx in reversed(to_delete):
+        _delete_slide(prs, idx)
+    return len(to_delete)
+
+
 def _clear_non_title_shapes(slide) -> None:
     title = slide.shapes.title
     for shape in list(slide.shapes):
@@ -48,8 +82,11 @@ def _ensure_slide(prs: Presentation, title_text: str):
     return slide
 
 
-def insert_images(ppt_path: Path, image_dir: Path, specs: Iterable[Tuple[str, str]]) -> List[Tuple[str, Path]]:
+def insert_images(
+    ppt_path: Path, image_dir: Path, specs: Iterable[Tuple[str, str]]
+) -> Tuple[int, List[Tuple[str, Path]]]:
     prs = Presentation(ppt_path)
+    removed = _purge_existing_scaling_slides(prs, specs)
     added: List[Tuple[str, Path]] = []
     margin = Inches(0.4)
     top_offset = Inches(1.2)
@@ -65,7 +102,7 @@ def insert_images(ppt_path: Path, image_dir: Path, specs: Iterable[Tuple[str, st
         added.append((title_text, image_path))
 
     prs.save(ppt_path)
-    return added
+    return removed, added
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -77,7 +114,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
-    inserted = insert_images(args.ppt, args.images, IMAGE_SPEC)
+    removed, inserted = insert_images(args.ppt, args.images, IMAGE_SPEC)
+    if removed:
+        print(f"Removed {removed} stale benchmark slide(s).")
     print(f"Updated {args.ppt} with {len(inserted)} scaling slide(s):")
     for title, path in inserted:
         print(f"  • {title} <- {path}")
