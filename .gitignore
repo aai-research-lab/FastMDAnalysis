@@ -40,6 +40,7 @@ validator_outputs/
 benchmarks/
 validation_summary.png
 benchmark_summary.txt
+assets/benchmarks/
 
 # Slides
 slides/FastMDAnalysis_demo_slides.pptx
