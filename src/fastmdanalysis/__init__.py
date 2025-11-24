@@ -6,18 +6,19 @@ Documentation: https://fastmdanalysis.readthedocs.io/en/latest/
 
 FastMDAnalysis Package Initialization
 
-This version of FastMDAnalysis allows you to instantiate a single object by providing
-the trajectory and topology file paths, along with optional parameters for frame and atom selection.
-Frame selection is specified as an iterable with three elements (start, stop, stride); negative indices are supported—
-e.g. using frames=(-10, -1, 1) or frames=[-10, -1, 1] will select frames from (n_frames - 10) to the last frame.
-An atom selection string may also be provided to use a specific subset of atoms.
-All subsequent analyses (rmsd, rmsf, rg, hbonds, cluster, ss, sasa, dimred) use the pre-loaded
-trajectory and default atom selection unless overridden.
+Instantiate with trajectory/topology and optional frame/atom selection,
+or pass a system configuration (YAML/JSON path or dict) with the same keys
+you'd use on the CLI (trajectory/topology or traj/top, frames, atoms,
+include/exclude, options, output, slides, strict, stop_on_error).
+
+All subsequent analyses (rmsd, rmsf, rg, hbonds, cluster, ss, sasa, dimred)
+use the pre-loaded trajectory and default atom selection unless overridden.
 """
 
 from __future__ import annotations
 
-from typing import Optional, Tuple, Union, Sequence
+from typing import Optional, Tuple, Union, Sequence, Mapping, Any, Dict
+from pathlib import Path
 import logging
 
 # Optional dependency import to ensure availability at import time (not used directly here).
@@ -39,8 +40,8 @@ except Exception:  # pragma: no cover
         _pkg_version = None  # type: ignore
         PackageNotFoundError = Exception  # type: ignore
 
+
 def _resolve_version() -> str:
-    # Prefer distribution name in normalized (PEP 503) form; fall back to alt casing.
     for dist_name in ("fastmdanalysis", "FastMDAnalysis"):
         try:
             if _pkg_version:
@@ -49,14 +50,13 @@ def _resolve_version() -> str:
             continue
         except Exception:
             continue
-    # Last resort if metadata is unavailable (e.g., source checkout)
     return "0+unknown"
+
 
 __version__ = _resolve_version()
 
 # -----------------------------------------------------------------------------
 # Package logging: install a NullHandler so library users don't get warnings.
-# The CLI configures handlers/levels; library users can configure logging as well.
 # -----------------------------------------------------------------------------
 _pkg_logger = logging.getLogger("fastmdanalysis")
 if not _pkg_logger.handlers:
@@ -92,20 +92,41 @@ __all__ = [
 
 
 def _normalize_frames(
-    frames: Optional[Union[Sequence[Union[int, None]], Tuple[Optional[int], Optional[int], Optional[int]]]]
+    frames: Optional[
+        Union[
+            str,
+            Sequence[Union[int, None]],
+            Tuple[Optional[int], Optional[int], Optional[int]],
+        ]
+    ]
 ) -> Optional[Tuple[Optional[int], Optional[int], int]]:
     """
     Normalize (start, stop, stride) for slicing.
 
-    - Accepts None or a 3-tuple/list.
-    - Converts elements to int or None (for start/stop).
-    - Ensures stride is a positive integer (defaults to 1 if None/0).
-
-    We intentionally avoid comparing start/stop to integers; Python slicing
-    fully supports None and negative indices.
+    Accepts:
+      - None
+      - a 3-tuple/list of (start, stop, stride)
+      - a string "start,stop,stride" OR "start:stop:stride"
     """
     if frames is None:
         return None
+
+    if isinstance(frames, str):
+        s = frames.strip()
+        parts = s.split(",") if "," in s else s.split(":")
+        if len(parts) != 3:
+            raise TypeError(
+                "frames must be a 3-tuple/list or 'start,stop,stride' (commas or colons)."
+            )
+        raw = []
+        for i, tok in enumerate(parts):
+            tok = tok.strip()
+            if i < 2 and tok.lower() in {"", "none"}:
+                raw.append(None)
+            else:
+                raw.append(tok)
+        frames = raw  # fall-through
+
     if not isinstance(frames, (list, tuple)) or len(frames) != 3:
         raise TypeError("frames must be None or a 3-tuple/list: (start, stop, stride)")
 
@@ -131,74 +152,151 @@ def _normalize_frames(
     return (start_i, stop_i, stride_i)
 
 
+def _load_system_config(system: Union[str, Path, Mapping[str, Any]]) -> Dict[str, Any]:
+    """Load a YAML/JSON system config or accept a pre-built mapping. Returns a dict."""
+    if isinstance(system, Mapping):
+        cfg = dict(system)
+    else:
+        p = Path(system).expanduser()
+        text = p.read_text(encoding="utf-8")
+        if p.suffix.lower() in {".yml", ".yaml"}:
+            try:
+                import yaml  # type: ignore
+            except Exception as e:  # pragma: no cover
+                raise RuntimeError(
+                    "PyYAML is required to read YAML system files. Install with: pip install PyYAML"
+                ) from e
+            cfg = yaml.safe_load(text) or {}
+        else:
+            import json
+            cfg = json.loads(text) or {}
+
+    if not isinstance(cfg, dict):
+        raise TypeError("system config must be a mapping/object")
+
+    # Aliases for CLI/API parity
+    aliases = {
+        "traj": "trajectory",
+        "top": "topology",
+        "selection": "atoms",
+        "outdir": "output",
+    }
+    for src, dst in aliases.items():
+        if src in cfg and dst not in cfg:
+            cfg[dst] = cfg[src]
+
+    if "trajectory" not in cfg and "traj_file" in cfg:
+        cfg["trajectory"] = cfg["traj_file"]
+    if "topology" not in cfg and "top_file" in cfg:
+        cfg["topology"] = cfg["top_file"]
+
+    return cfg
+
+
 class FastMDAnalysis:
     """
     Main API class for MD trajectory analysis.
 
-    This class loads an MD trajectory from file paths and optionally subsets the trajectory (frames)
-    and the set of atoms used (atom selection). These default selections are then applied to all analyses,
-    although each analysis method can override them if desired.
-
-    Parameters
-    ----------
-    traj_file : str
-        Path to the trajectory file (e.g. "trajectory.dcd").
-    top_file : str
-        Path to the topology file (e.g. "topology.pdb").
-    frames : iterable of three (int or None), optional
-        (start, stop, stride) to subset frames. Negative indices and None are allowed.
-        For example, (-10, -1, 1) selects frames from (n_frames - 10) through the last frame.
-        If None, the entire trajectory is used.
-    atoms : str or None, optional
-        An MDTraj atom selection string (e.g., "protein" or "protein and name CA") specifying which atoms to use.
-        If None, all atoms are used.
-
-    Examples
-    --------
-    >>> from fastmdanalysis import FastMDAnalysis
-    >>> fastmda = FastMDAnalysis("trajectory.dcd", "topology.pdb", frames=(0, None, 10), atoms="protein")
-    >>> rmsd_analysis = fastmda.rmsd(ref=0)
+    You may construct with explicit traj/top or a `system` config (YAML/JSON path or dict).
     """
 
-    def __init__(self, traj_file: str, top_file: str, frames=None, atoms: Optional[str] = None, keep_full_traj: bool = True):
+    def __init__(
+        self,
+        traj_file: Optional[Union[str, Path, Sequence[Union[str, Path]]]] = None,  # Changed to accept sequences
+        top_file: Optional[Union[str, Path]] = None,
+        frames: Optional[
+            Union[
+                str,
+                Sequence[Union[int, None]],
+                Tuple[Optional[int], Optional[int], Optional[int]],
+            ]
+        ] = None,
+        atoms: Optional[str] = None,
+        *,
+        system: Optional[Union[str, Path, Mapping[str, Any]]] = None,
+        **kwargs: Any,
+    ):
+        # Accept keyword aliases (trajectory/topology or traj/top)
+        if traj_file is None:
+            if "trajectory" in kwargs:
+                traj_file = kwargs.pop("trajectory")
+            elif "traj" in kwargs:
+                traj_file = kwargs.pop("traj")
+        if top_file is None:
+            if "topology" in kwargs:
+                top_file = kwargs.pop("topology")
+            elif "top" in kwargs:
+                top_file = kwargs.pop("top")
+
+        # If a system file/dict is provided, use it to fill missing inputs and stash analyze defaults
+        if system is not None:
+            sys_cfg = _load_system_config(system)
+
+            if traj_file is None:
+                t = sys_cfg.get("trajectory")
+                if isinstance(t, (list, tuple)):
+                    traj_file = t[0] if t else None
+                else:
+                    traj_file = t
+
+            if top_file is None:
+                top_file = sys_cfg.get("topology")
+
+            if frames is None and "frames" in sys_cfg:
+                frames = sys_cfg["frames"]
+
+            if atoms is None and "atoms" in sys_cfg:
+                atoms = sys_cfg["atoms"]
+
+            # Store analyze defaults for later .analyze() calls
+            self._system_include = sys_cfg.get("include")
+            self._system_exclude = sys_cfg.get("exclude")
+            self._system_options = sys_cfg.get("options") or {}
+            self._system_output = sys_cfg.get("output")
+            self._system_slides = sys_cfg.get("slides")
+            self._system_strict = bool(sys_cfg.get("strict", False))
+            self._system_stop_on_error = bool(sys_cfg.get("stop_on_error", False))
+            self._system_file = system if not isinstance(system, Mapping) else None
+        else:
+            # Ensure attributes exist even without a system config
+            self._system_include = None
+            self._system_exclude = None
+            self._system_options = {}
+            self._system_output = None
+            self._system_slides = None
+            self._system_strict = False
+            self._system_stop_on_error = False
+            self._system_file = None
+
+        if traj_file is None or top_file is None:
+            raise ValueError(
+                "Both trajectory and topology are required. Provide (traj_file, top_file) "
+                "or use system=<yaml/json> containing 'trajectory' and 'topology'."
+            )
+
+        # Handle multiple trajectory files - pass the list directly to load_trajectory
+        if isinstance(traj_file, (list, tuple)):
+            if len(traj_file) == 0:
+                raise ValueError("Empty trajectory file list provided")
+            # Pass the entire list to load_trajectory which will concatenate them
+            actual_traj_files = traj_file
+        else:
+            actual_traj_files = [traj_file]
+
+        # Load trajectory and apply frame selection
+        self.full_traj = load_trajectory(actual_traj_files, str(top_file))
+        
         norm_frames = _normalize_frames(frames)
 
         self._default_atoms_preapplied = False
         self.default_atoms = atoms
 
-        if not keep_full_traj:
-            base_traj = load_trajectory(traj_file, top_file, frames=norm_frames, atoms=atoms)
-            if atoms:
-                self._default_atoms_preapplied = True
-            self.full_traj = None
-            self.traj = base_traj
-        else:
-            full_traj = load_trajectory(traj_file, top_file)
-            self.full_traj = full_traj
-
-            if norm_frames is not None:
-                start, stop, stride = norm_frames
-                base_traj = full_traj[start:stop:stride]
-            else:
-                base_traj = full_traj
-
-            self.traj = base_traj
-
-        # Optional: common output/figure dirs other utilities may look for
-        # (these attributes are probed by the slides utility in analyze.py)
+        # Optional: common output/figure dirs probed by the slides utility
         self.figdir = getattr(self, "figdir", "figures")
         self.outdir = getattr(self, "outdir", "results")
 
     def _get_atoms(self, specific_atoms: Optional[str]) -> Optional[str]:
-        """
-        Determine the atom selection string to use; prefer per-call override,
-        else fall back to the default selection provided at initialization.
-        """
-        if specific_atoms is not None:
-            return specific_atoms
-        if self._default_atoms_preapplied:
-            return None
-        return self.default_atoms
+        return specific_atoms if specific_atoms is not None else self.default_atoms
 
     # ----------------------------- Analyses -----------------------------------
 
@@ -207,28 +305,8 @@ class FastMDAnalysis:
         reference_frame: Optional[int] = None,
         ref: Optional[int] = None,
         atoms: Optional[str] = None,
-        save_data: bool = True,
-        store_results: bool = True,
         **kwargs,
     ):
-        """
-        Run RMSD analysis on the stored trajectory.
-
-        Parameters
-        ----------
-        reference_frame / ref : int, optional
-            Reference frame index for RMSD calculations (default: 0).
-            Both names are accepted; `ref` overrides if both provided.
-        atoms : str, optional
-            Atom selection string for this analysis. If not provided, uses the default atom selection.
-        kwargs : dict
-            Additional keyword arguments to pass to RMSDAnalysis.
-
-        Returns
-        -------
-        RMSDAnalysis
-            An RMSDAnalysis instance containing the computed results.
-        """
         a = self._get_atoms(atoms)
         rf = ref if ref is not None else (reference_frame if reference_frame is not None else 0)
         analysis = RMSDAnalysis(
@@ -242,14 +320,7 @@ class FastMDAnalysis:
         analysis.run()
         return analysis
 
-    def rmsf(
-        self,
-        atoms: Optional[str] = None,
-        save_data: bool = True,
-        store_results: bool = True,
-        **kwargs,
-    ):
-        """Run RMSF analysis on the stored trajectory."""
+    def rmsf(self, atoms: Optional[str] = None, **kwargs):
         a = self._get_atoms(atoms)
         analysis = RMSFAnalysis(
             self.traj,
@@ -261,14 +332,7 @@ class FastMDAnalysis:
         analysis.run()
         return analysis
 
-    def rg(
-        self,
-        atoms: Optional[str] = None,
-        save_data: bool = True,
-        store_results: bool = True,
-        **kwargs,
-    ):
-        """Run Radius of Gyration (RG) analysis."""
+    def rg(self, atoms: Optional[str] = None, **kwargs):
         a = self._get_atoms(atoms)
         analysis = RGAnalysis(
             self.traj,
@@ -281,7 +345,6 @@ class FastMDAnalysis:
         return analysis
 
     def hbonds(self, atoms: Optional[str] = None, **kwargs):
-        """Run Hydrogen Bonds (HBonds) analysis."""
         a = self._get_atoms(atoms)
         analysis = HBondsAnalysis(self.traj, atoms=a, **kwargs)
         analysis.run()
@@ -289,19 +352,13 @@ class FastMDAnalysis:
 
     def cluster(
         self,
-        methods="dbscan",
-        eps: float = 0.5,
+        methods="all",
+        eps: float = 0.15,
         min_samples: int = 5,
         n_clusters: Optional[int] = None,
         atoms: Optional[str] = None,
-        plot_style: str = "full",
-        combined_plot_name: str = "cluster_combined",
-        save_data: bool = True,
-        store_results: bool = True,
-        feature_mode: str = "coordinates",
-        **kwargs
+        **kwargs,
     ):
-        """Run clustering analysis on the stored trajectory."""
         a = self._get_atoms(atoms)
         analysis = ClusterAnalysis(
             self.traj,
@@ -310,38 +367,74 @@ class FastMDAnalysis:
             min_samples=min_samples,
             n_clusters=n_clusters,
             atoms=a,
-            plot_style=plot_style,
-            combined_plot_name=combined_plot_name,
-            save_data=save_data,
-            store_results=store_results,
-            feature_mode=feature_mode,
-            **kwargs
+            **kwargs,
         )
         analysis.run()
         return analysis
 
     def ss(self, atoms: Optional[str] = None, **kwargs):
-        """Run Secondary Structure (SS) analysis on the stored trajectory."""
         a = self._get_atoms(atoms)
         analysis = SSAnalysis(self.traj, atoms=a, **kwargs)
         analysis.run()
         return analysis
 
     def sasa(self, probe_radius: float = 0.14, atoms: Optional[str] = None, **kwargs):
-        """Run Solvent Accessible Surface Area (SASA) analysis on the stored trajectory."""
         a = self._get_atoms(atoms)
         analysis = SASAAnalysis(self.traj, probe_radius=probe_radius, atoms=a, **kwargs)
         analysis.run()
         return analysis
 
     def dimred(self, methods="all", atoms: Optional[str] = None, **kwargs):
-        """Run dimensionality reduction analysis on the stored trajectory."""
         a = self._get_atoms(atoms)
         analysis = DimRedAnalysis(self.traj, methods=methods, atoms=a, **kwargs)
         analysis.run()
         return analysis
 
+    # ----------------------------- Unified analyze façade ----------------------
 
-# Bind analyze method to FastMDAnalysis
-from .analysis.analyze import analyze as _analyze  # noqa: E402
-FastMDAnalysis.analyze = _analyze  # adds the bound method
+    def analyze(
+        self,
+        include: Optional[Sequence[str]] = None,
+        exclude: Optional[Sequence[str]] = None,
+        options: Optional[Mapping[str, Mapping[str, Any]]] = None,
+        stop_on_error: bool = False,
+        verbose: bool = True,
+        slides: Optional[Union[bool, str, Path]] = None,
+        output: Optional[Union[str, Path]] = None,
+        strict: bool = False,
+    ):
+        """
+        Analyze wrapper. If arguments are omitted here, fall back to defaults
+        provided via the constructor `system=` config (include/exclude/options/
+        output/slides/strict/stop_on_error).
+        """
+        # Lazy import to avoid circular/early import issues
+        try:
+            from .analysis.analyze import analyze as _run  # preferred name
+        except Exception:
+            from .analysis.analyze import run as _run  # fallback
+
+        if include is None:
+            include = getattr(self, "_system_include", None)
+        if exclude is None:
+            exclude = getattr(self, "_system_exclude", None)
+        if options is None:
+            options = getattr(self, "_system_options", None)
+        if output is None:
+            output = getattr(self, "_system_output", None)
+        if slides is None:
+            slides = getattr(self, "_system_slides", None)
+        strict = bool(strict or getattr(self, "_system_strict", False))
+        stop_on_error = bool(stop_on_error or getattr(self, "_system_stop_on_error", False))
+
+        return _run(
+            self,
+            include=include,
+            exclude=exclude,
+            options=options,
+            stop_on_error=stop_on_error,
+            verbose=verbose,
+            slides=slides,
+            output=output,
+            strict=strict,
+        )

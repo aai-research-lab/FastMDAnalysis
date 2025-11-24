@@ -1,0 +1,51 @@
+# FastMDAnalysis system configuration (YAML)
+
+# Required I/O
+trajectory:
+  - ../src/fastmdanalysis/data/trp_cage.dcd
+topology: ../src/fastmdanalysis/data/trp_cage.pdb
+
+# Global selection
+# Frames may be a CSV/colon string ("start,end,step" or "start:end:step") or a 3-list.
+frames: "0,-1,10"
+atoms: "protein and name CA"
+
+# Choose analyses (omit both include/exclude to run the default set in canonical order)
+include: [rmsd, rmsf, rg, hbonds, ss, sasa, dimred, cluster]
+# exclude: [ss, sasa]
+
+# Behavior
+output: ./analysis_output          # where results will be collected
+slides: true                      # or a path like "results.pptx"
+verbose: true
+strict: false
+stop_on_error: false
+
+# Per-analysis options (keys match analysis method kwargs)
+options:
+  rmsd:
+    ref: 0
+    align: true
+  rmsf:
+    per_residue: true
+  rg: {}
+  hbonds: {}
+  ss: {}
+  sasa:
+    probe_radius: 0.14
+    n_sphere_points: 960
+  dimred:
+    methods: [pca]
+    n_components: 2
+    random_state: 42
+  cluster:
+    methods: [kmeans, hierarchical]
+    eps: 0.35
+    min_samples: 5
+    n_clusters: 4
+    linkage: ward
+    random_state: 42
+
+# Aliases also accepted in YAML: 
+#   traj -> trajectory, top -> topology, selection -> atoms, outdir -> output
+

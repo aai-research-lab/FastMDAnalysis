@@ -26,17 +26,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 from .base import BaseAnalysis, AnalysisError
+from ..utils.options import OptionsForwarder
+from ..utils.plotting import apply_slide_style, auto_ticks
 
 logger = logging.getLogger(__name__)
-
-
-def _auto_tick_step(n: int, max_ticks: int) -> int:
-    """Compute a thinning step so that ~max_ticks or fewer labels are drawn."""
-    if n <= 0:
-        return 1
-    if n <= max_ticks:
-        return 1
-    return int(np.ceil(n / float(max_ticks)))
 
 
 class RMSFAnalysis(BaseAnalysis):
@@ -44,7 +37,20 @@ class RMSFAnalysis(BaseAnalysis):
     Per-atom RMSF analysis with a readable, numeric-only x-axis (atom index).
     """
 
-    def __init__(self, trajectory: md.Trajectory, atoms: Optional[str] = None, **kwargs):
+    _ALIASES = {
+        "atom_indices": "atoms",
+        "selection": "atoms",
+        "reference": "reference_frame",
+    }
+
+    def __init__(
+        self, 
+        trajectory: md.Trajectory, 
+        atoms: Optional[str] = None, 
+        per_residue: bool = False,
+        strict: bool = False,
+        **kwargs
+    ):
         """
         Parameters
         ----------
@@ -52,11 +58,41 @@ class RMSFAnalysis(BaseAnalysis):
             MDTraj trajectory to analyze.
         atoms : str or None
             MDTraj selection string (e.g., "protein and name CA"). If None, all atoms are used.
+            Aliases: atom_indices, selection
+        per_residue : bool
+            If True, aggregate per-atom RMSF to per-residue (mean over atoms in each residue).
+        strict : bool
+            If True, raise errors for unknown options. If False, log warnings.
         kwargs : dict
             Passed through to BaseAnalysis (e.g., output).
         """
-        super().__init__(trajectory, **kwargs)
+        warn_unknown = kwargs.pop("_warn_unknown", False)
+
+        analysis_opts = {
+            "atoms": atoms,
+            "per_residue": per_residue,
+            "strict": strict,
+        }
+        analysis_opts.update(kwargs)
+
+        forwarder = OptionsForwarder(aliases=self._ALIASES, strict=strict)
+        resolved = forwarder.apply_aliases(analysis_opts)
+        resolved = forwarder.filter_known(
+            resolved,
+            {"atoms", "per_residue", "strict", "output", "reference_frame"},
+            context="rmsf",
+            warn=warn_unknown,
+        )
+
+        atoms = resolved.get("atoms", None)
+        per_residue = resolved.get("per_residue", False)
+        base_kwargs = {k: v for k, v in resolved.items() 
+                      if k not in ("atoms", "per_residue", "strict", "reference_frame")}
+
+        super().__init__(trajectory, **base_kwargs)
         self.atoms: Optional[str] = atoms
+        self.per_residue: bool = bool(per_residue)
+        self.strict = strict
 
         # Populated during run()
         self.data: Optional[np.ndarray] = None              # shape (N, 1)
@@ -70,6 +106,7 @@ class RMSFAnalysis(BaseAnalysis):
         -------
         dict
             {"rmsf": (N, 1) array of per-atom RMSF values in nm}
+            If per_residue=True, also includes {"rmsf_per_residue": (R, 1) array}
         """
         try:
             # Atom selection (global indices)
@@ -89,8 +126,27 @@ class RMSFAnalysis(BaseAnalysis):
             rmsf_values = md.rmsf(subtraj, ref)  # shape (N,)
             result_array = np.asarray(rmsf_values, dtype=float).reshape(-1, 1)
 
-            if self.save_data:
-                self._save_data(result_array, "rmsf")
+            if self.per_residue:
+                atom_to_residue = np.array([a.residue.index for a in subtraj.topology.atoms], dtype=int)
+                n_residues = int(max(atom_to_residue) + 1) if atom_to_residue.size else 0
+                per_residue_rmsf = np.zeros(n_residues, dtype=float)
+                for r in range(n_residues):
+                    mask = atom_to_residue == r
+                    if np.any(mask):
+                        per_residue_rmsf[r] = np.mean(rmsf_values[mask])
+
+                self.results["rmsf_per_residue"] = per_residue_rmsf.reshape(-1, 1)
+                self._save_data(
+                    per_residue_rmsf.reshape(-1, 1),
+                    "rmsf_per_residue",
+                    header="rmsf_per_residue_nm",
+                    fmt="%.6f",
+                )
+                logger.info("RMSF: per-residue aggregation computed (%d residues)", n_residues)
+
+            # Save data and a default plot
+            self._save_data(self.data, "rmsf")
+            self.plot()
 
             self.plot(result_array)
 
@@ -154,11 +210,6 @@ class RMSFAnalysis(BaseAnalysis):
         # Numeric-only atom indices for x-axis (1-based for readability)
         labels_all = [str(i + 1) for i in x]
 
-        # Determine ticks
-        step = tick_step if tick_step is not None else _auto_tick_step(n, max_ticks)
-        ticks = x[::step]
-        ticklabels = [labels_all[i] for i in ticks]
-
         # Plot
         fig, ax = plt.subplots(figsize=figsize)
         bar_kwargs = {"width": 0.9}
@@ -170,11 +221,38 @@ class RMSFAnalysis(BaseAnalysis):
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
 
-        ax.set_xticks(ticks)
-        ax.set_xticklabels(ticklabels, rotation=rotate, ha="right")
-
         ax.grid(axis="y", alpha=0.3)
         ax.grid(axis="x", alpha=0.12)
+
+        if tick_step is not None:
+            step = max(1, int(tick_step))
+            tick_positions = x[::step]
+        else:
+            tick_positions = auto_ticks(x, max_ticks=max_ticks, integer=True)
+            if tick_positions is None or tick_positions.size == 0:
+                tick_positions = x
+        tick_positions = np.asarray(tick_positions, dtype=float)
+        tick_positions = np.clip(tick_positions, 0, n - 1)
+        ticklabels = [labels_all[int(pos)] for pos in tick_positions.astype(int)]
+
+        ax.set_xticks(tick_positions)
+        apply_slide_style(
+            ax,
+            x_ticks=tick_positions,
+            y_values=y,
+            integer_x=True,
+            zero_x=True,
+            zero_y=True,
+            x_tick_rotation=rotate,
+        )
+        tick_font = ax.get_xticklabels()[0].get_fontsize() if ax.get_xticklabels() else None
+        ax.set_xticklabels(
+            ticklabels,
+            rotation=rotate,
+            ha="right",
+            rotation_mode="anchor",
+            fontsize=tick_font,
+        )
 
         fig.tight_layout()
         outpath = self._save_plot(fig, "rmsf")

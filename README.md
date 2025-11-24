@@ -1,10 +1,11 @@
-![FastMDAnalysis Banner](assets/fastmdanalysis_banner.png)
+[![DOI](https://img.shields.io/badge/DOI-10.26434/chemrxiv--2025--x8xnq-blue)](https://doi.org/10.26434/chemrxiv-2025-x8xnq)
+[![Total PyPI downloads](https://pepy.tech/badge/fastmdanalysis)](https://pepy.tech/project/fastmdanalysis)
 
-[![DOI](https://zenodo.org/badge/965215244.svg)](https://doi.org/10.5281/zenodo.17510591)
+![FastMDAnalysis](assets/fastmdanalysis_banner.png)
+
 [![Tests](https://github.com/aai-research-lab/FastMDAnalysis/actions/workflows/test.yml/badge.svg)](https://github.com/aai-research-lab/FastMDAnalysis/actions)
 [![codecov](https://codecov.io/gh/aai-research-lab/FastMDAnalysis/branch/main/graph/badge.svg)](https://codecov.io/gh/aai-research-lab/FastMDAnalysis)
 [![Docs](https://img.shields.io/badge/docs-latest-brightgreen.svg)](https://fastmdanalysis.readthedocs.io/en/latest/)
-[![Documentation](https://readthedocs.org/projects/fastmdanalysis/badge/?version=latest)](https://fastmdanalysis.readthedocs.io)
 [![PyPI](https://img.shields.io/pypi/v/fastmdanalysis)](https://pypi.org/project/fastmdanalysis/)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -20,6 +21,9 @@
 <!-- Simplify your workflow by loading a trajectory once (with options for frame and atom selection) and then performing multiple analyses without repeating input file details. --> 
 <!--  Automatically generate publication-quality figures (with options for customization) -->
 <!--  Use the Python API or the Command‐Line Interface (CLI) -->
+<!-- [![Documentation](https://readthedocs.org/projects/fastmdanalysis/badge/?version=latest)](https://fastmdanalysis.readthedocs.io) 
+<!-- [![Monthly PyPI downloads](https://pepy.tech/badge/fastmdanalysis/month)](https://pepy.tech/project/fastmdanalysis) --> 
+
 
 
 
@@ -104,7 +108,7 @@ fastmda analyze -traj traj.dcd -top top.pdb --options options.yaml
 ```
 **Create a slide deck from generated figures**
 ```bash
-fastmda analyze -traj traj.dcd -top top.pdb --options options.yaml --slides
+fastmda analyze -traj traj.dcd -top top.pdb  --slides
 ```
 
 
@@ -235,16 +239,17 @@ fastmda analyze -h
 # Citation
 If you use `FastMDAnalysis` in your work, please cite:
 
-Aina, A. and Kwan, D. (2025) “FastMDAnalysis: Software for Automated Analysis of Molecular Dynamics Trajectories”. Zenodo. https://doi.org/10.5281/zenodo.17510591
+Aina, A. and Kwan, D. (2025) “FastMDAnalysis: Software for Automated Analysis of Molecular Dynamics Trajectories”. ChemRxiv. https://doi.org/10.26434/chemrxiv-2025-x8xnq
 
 ```bibtex
-@software{fastmdanalysis,
+@article{fastmdanalysis,
   author       = {Adekunle Aina and Derrick Kwan},
   title        = {FastMDAnalysis: Software for Automated Analysis of Molecular Dynamics Trajectories},
   year         = {2025},
-  doi          = {10.5281/zenodo.17510591},
-  publisher    = {Zenodo},
-  url          = {https://doi.org/10.5281/zenodo.17510591}
+  doi          = {10.26434/chemrxiv-2025-x8xnq},
+  publisher    = {ChemRxiv},
+  url          = {https://doi.org/10.26434/chemrxiv-2025-x8xnq},
+  type         = {preprint}
 }
 ```
 
@@ -254,7 +259,7 @@ Aina, A. and Kwan, D. (2025) “FastMDAnalysis: Software for Automated Analysis 
 
 # Acknowledgements
 
-``FastMDAnalysis`` builds upon excellent open-source libraries to provide its high-performance analysis capabilities and to improve workflow efficiency, accessibility, usability, and reproducibility in molecular dynamics trajectory analysis. We gratefully acknowledge:
+``FastMDAnalysis`` builds upon excellent open-source libraries to provide its high-performance analysis capabilities and to improve workflow efficiency, usability, and reproducibility in molecular dynamics trajectory analysis. We gratefully acknowledge:
 
 - ``MDTraj`` for foundational trajectory I/O and analysis modules
 - ``NumPy/SciPy`` for efficient numerical computations

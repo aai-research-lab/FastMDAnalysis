@@ -1,3 +1,4 @@
+#src/fastmdanalysis/cli/_common.py
 from __future__ import annotations
 
 import os
@@ -59,15 +60,23 @@ def add_file_args(subparser: argparse.ArgumentParser) -> None:
 def setup_logging(output_dir: str, verbose: bool, command: str) -> logging.Logger:
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     log_filename = Path(output_dir) / f"{command}.log"
+    
+    # Clear any existing handlers to avoid duplicates
+    logger = logging.getLogger()
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+        handler.close()
+    
+    # Create new handlers
+    file_handler = logging.FileHandler(log_filename, mode="w")
+    stream_handler = logging.StreamHandler(sys.stdout)
+    
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.FileHandler(log_filename, mode="w"),
-            logging.StreamHandler(sys.stdout),
-        ],
+        handlers=[file_handler, stream_handler],
     )
-    logger = logging.getLogger()
+    
     logger.info("FastMDAnalysis command: %s", " ".join(sys.argv))
     return logger
 
@@ -98,13 +107,24 @@ def _split_commas_and_ws(token: str) -> List[str]:
 def _expand_one(piece: str) -> List[str]:
     """Expand ~, env vars, and glob patterns; return list of matches or the path if literal exists."""
     expanded = os.path.expanduser(os.path.expandvars(piece))
-    # If it contains glob syntax, expand with glob.glob
-    if any(ch in expanded for ch in "*?[]"):
-        matches = sorted(glob.glob(expanded))
+    
+    # Always try glob first - it handles relative paths correctly
+    # even for literal-looking paths without glob characters
+    matches = sorted(glob.glob(expanded))
+    
+    if matches:
         return matches
-    # Otherwise, keep the literal if it exists
-    return [expanded] if os.path.exists(expanded) else []
-
+    
+    # Fallback: check if it exists as a literal path
+    # Use Path.resolve() to handle relative paths properly
+    try:
+        resolved_path = Path(expanded).resolve()
+        if resolved_path.exists():
+            return [str(resolved_path)]
+    except (OSError, ValueError):
+        pass
+    
+    return []
 
 def _dedupe_preserve_order(paths: Sequence[str]) -> List[str]:
     seen = set()
@@ -119,13 +139,6 @@ def _dedupe_preserve_order(paths: Sequence[str]) -> List[str]:
 def expand_trajectory_args(tokens: Sequence[str]) -> List[str]:
     """
     Normalize a list of tokens into a validated list of file paths.
-
-    Steps:
-      - split each token by commas/whitespace
-      - expand ~ and env vars
-      - expand glob patterns
-      - require that each resulting path exists
-      - deduplicate while preserving order
     """
     pieces: List[str] = []
     for tok in tokens:
@@ -299,4 +312,3 @@ __all__ = [
     "load_options_file",
     "deep_merge_options",
 ]
-

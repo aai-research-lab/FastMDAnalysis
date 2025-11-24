@@ -1,16 +1,15 @@
-# FastMDAnalysis/src/fastmdanalysis/analysis/analyze.py
+# src/fastmdanalysis/analysis/analyze.py
+from __future__ import annotations
+
 """
 Unified analysis orchestrator for FastMDAnalysis.
 
-This module provides a bound method `FastMDAnalysis.analyze(...)` that:
-- Runs multiple analysis routines in a single call.
-- Supports include/exclude selection with a canonical default order.
-- Accepts per-analysis keyword options (filtered against each method's signature).
-- Optionally builds a PowerPoint slide deck of figures produced during the run
-  via the top-level `slides` argument (bool or explicit output path).
-- Collects all generated folders/files into a single analyze output directory.
+Provides two module-level functions that the package relies on:
+  - run(self, ...)      -> executes the plan
+  - analyze(self, ...)  -> thin alias to run()
+
+These are imported lazily by FastMDAnalysis.analyze(), so they MUST exist.
 """
-from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,12 +19,16 @@ import warnings
 import time
 import shutil
 import math
-import logging  
+import logging
 
-# Slide deck utilities (timestamped filename handled inside slideshow.py)
-from ..utils.slideshow import slide_show, gather_figures
-from ..utils.logging import log_run_header as _log_run_header  
+# Optional: version/runtime header (best-effort; never break import)
+try:
+    from ..utils.logging import log_run_header as _log_run_header  # noqa: F401
+except Exception:  # pragma: no cover
+    _log_run_header = None  # type: ignore
 
+# Slides are optional; we import inside the slides block
+# from ..utils.slideshow import slide_show, gather_figures
 
 # Canonical analysis names in preferred execution order.
 _DEFAULT_ORDER: Tuple[str, ...] = (
@@ -91,7 +94,7 @@ def _final_list(
     if include is None or (len(include) == 1 and str(include[0]).lower() == "all"):
         candidates = [name for name in _DEFAULT_ORDER if name in avail_set]
     else:
-        want = {s.lower() for s in include}
+        want = {str(s).lower() for s in include}
         unknown = want - set(_DEFAULT_ORDER)
         if unknown:
             warnings.warn(
@@ -100,7 +103,7 @@ def _final_list(
         candidates = [name for name in _DEFAULT_ORDER if (name in avail_set and name in want)]
 
     if exclude:
-        drop = {s.lower() for s in exclude}
+        drop = {str(s).lower() for s in exclude}
         candidates = [name for name in candidates if name not in drop]
 
     if not candidates:
@@ -112,12 +115,15 @@ def _filter_kwargs(callable_obj, kwargs: Mapping[str, Any]) -> Dict[str, Any]:
     """
     Pass only keyword arguments that the callable explicitly declares.
 
-    Even if the callable accepts **kwargs, we still drop unknown keys here so the
-    orchestrator can warn the user (tests expect this behavior).
+    If the callable exposes **kwargs we forward everything so downstream alias
+    mapping and strict-mode handling can decide what to keep.
     """
     if not kwargs:
         return {}
     sig = inspect.signature(callable_obj)
+    has_var_keyword = any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
+    if has_var_keyword:
+        return dict(kwargs)
     accepted = {
         name
         for name, p in sig.parameters.items()
@@ -158,7 +164,7 @@ def _dedupe_paths(paths: Sequence[Union[str, Path]]) -> List[Path]:
 
 
 def _print_summary(results: Dict[str, AnalysisResult], analyze_outdir: Path) -> None:
-    """Pretty-print a compact summary table."""
+    """Pretty-print a compact summary table to stdout."""
     if not results:
         return
     names = [k for k in results.keys() if k != "slides"]
@@ -214,6 +220,7 @@ def run(
     verbose: bool = True,
     slides: Optional[Union[bool, str, Path]] = None,
     output: Optional[Union[str, Path]] = None,
+    strict: bool = False,
 ) -> Dict[str, AnalysisResult]:
     """
     Execute multiple analyses on the current FastMDAnalysis instance and
@@ -223,6 +230,11 @@ def run(
     plan = _final_list(available, include, exclude)
     opts = _validate_options(options)
 
+    # Strict flag: bubble to per-analysis kwargs so downstream methods can decide
+    if strict:
+        for analysis in plan:
+            opts.setdefault(analysis, {})["strict"] = True
+
     # Inject cluster defaults so kmeans & hierarchical run by default
     _inject_cluster_defaults(self, opts, plan)
 
@@ -231,20 +243,18 @@ def run(
 
     results: Dict[str, AnalysisResult] = {}
 
-    # Version/runtime header in logs (honors caller's logging config)
     if verbose:
         try:
-            _log_run_header(logging.getLogger("fastmdanalysis"))
+            logger = logging.getLogger("fastmdanalysis")
+            if _log_run_header:
+                _log_run_header(logger)
         except Exception:
-            # never fail the run due to logging
             pass
-
-    if verbose:
         print(f"[FastMDAnalysis] Running {len(plan)} analyses: {', '.join(plan)}")
 
     run_t0 = time.time()
 
-    # Record original outdirs to move later
+    # Track per-analysis output dirs to collect later
     per_analysis_outdirs: Dict[str, Path] = {}
 
     for name in plan:
@@ -253,7 +263,9 @@ def run(
             warnings.warn(f"Skipping '{name}' (not implemented on this instance).")
             continue
 
-        kw = _filter_kwargs(fn, opts.get(name, {}))
+        kw = dict(_filter_kwargs(fn, opts.get(name, {})))
+        # Let analysis methods warn if unknown options were provided
+        kw.setdefault("_warn_unknown", True)
 
         if verbose and opts.get(name):
             dropped = set(opts[name].keys()) - set(kw.keys())
@@ -280,7 +292,7 @@ def run(
             err = e
             if verbose:
                 print(" failed")
-            if stop_on_error:
+            if stop_on_error or opts.get(name, {}).get("strict"):
                 raise
         finally:
             dt = time.perf_counter() - t0
@@ -317,6 +329,9 @@ def run(
     if slides:
         t0 = time.perf_counter()
         try:
+            # defer imports so missing pptx deps never break import
+            from ..utils.slideshow import slide_show, gather_figures  # type: ignore
+
             roots: List[Union[str, Path]] = moved_dirs.copy()
             images = gather_figures(roots, since_epoch=run_t0 - 5)
             images = _dedupe_paths(images)
@@ -367,6 +382,7 @@ def analyze(
     verbose: bool = True,
     slides: Optional[Union[bool, str, Path]] = None,
     output: Optional[Union[str, Path]] = None,
+    strict: bool = False,
 ) -> Dict[str, AnalysisResult]:
     """Public façade so callers can do: fastmda.analyze(...)"""
     return run(
@@ -378,4 +394,8 @@ def analyze(
         verbose=verbose,
         slides=slides,
         output=output,
+        strict=strict,
     )
+
+
+__all__ = ["AnalysisResult", "run", "analyze"]

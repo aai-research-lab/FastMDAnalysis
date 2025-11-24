@@ -28,12 +28,26 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from .base import BaseAnalysis, AnalysisError
+from ..utils.options import OptionsForwarder
+from ..utils.plotting import apply_slide_style
 
 logger = logging.getLogger(__name__)
 
 
 class RGAnalysis(BaseAnalysis):
-    def __init__(self, trajectory, atoms: Optional[str] = None, **kwargs):
+    _ALIASES = {
+        "atom_indices": "atoms",
+        "selection": "atoms",
+    }
+    
+    def __init__(
+        self, 
+        trajectory, 
+        atoms: Optional[str] = None, 
+        mass_weighted: bool = False,
+        strict: bool = False,
+        **kwargs
+    ):
         """
         Parameters
         ----------
@@ -42,11 +56,42 @@ class RGAnalysis(BaseAnalysis):
         atoms : str, optional
             MDTraj atom selection string (e.g., "protein and name CA").
             If None, all atoms are used.
+            Aliases: atom_indices, selection
+        mass_weighted : bool
+            If True and MDTraj supports it, compute mass-weighted RG.
+            Note: MDTraj's compute_rg is already mass-weighted by default.
+        strict : bool
+            If True, raise errors for unknown options. If False, log warnings.
         kwargs : dict
             Passed to BaseAnalysis (e.g., output directory).
         """
-        super().__init__(trajectory, **kwargs)
+        warn_unknown = kwargs.pop("_warn_unknown", False)
+
+        analysis_opts = {
+            "atoms": atoms,
+            "mass_weighted": mass_weighted,
+            "strict": strict,
+        }
+        analysis_opts.update(kwargs)
+        
+        forwarder = OptionsForwarder(aliases=self._ALIASES, strict=strict)
+        resolved = forwarder.apply_aliases(analysis_opts)
+        resolved = forwarder.filter_known(
+            resolved,
+            {"atoms", "mass_weighted", "strict", "output"},
+            context="rg",
+            warn=warn_unknown,
+        )
+
+        atoms = resolved.get("atoms", None)
+        mass_weighted = resolved.get("mass_weighted", False)
+        base_kwargs = {k: v for k, v in resolved.items() 
+                      if k not in ("atoms", "mass_weighted", "strict")}
+
+        super().__init__(trajectory, **base_kwargs)
         self.atoms = atoms
+        self.mass_weighted = mass_weighted
+        self.strict = strict
         self.data: Optional[np.ndarray] = None
         self.results: Dict[str, np.ndarray] = {}
 
@@ -148,6 +193,17 @@ class RGAnalysis(BaseAnalysis):
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         ax.grid(alpha=0.3)
+
+        apply_slide_style(
+            ax,
+            x_values=x,
+            y_values=y,
+            integer_x=True,
+            x_max_ticks=8,
+            y_max_ticks=6,
+            zero_x=True,
+            zero_y=True,
+        )
         fig.tight_layout()
 
         out = self._save_plot(fig, "rg")

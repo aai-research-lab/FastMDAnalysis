@@ -34,6 +34,8 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap, BoundaryNorm
 
 from .base import BaseAnalysis, AnalysisError
+from ..utils.options import OptionsForwarder
+from ..utils.plotting import apply_slide_style, auto_ticks
 
 
 # Order matters: numeric codes 0..7 map to these labels/colors
@@ -80,7 +82,20 @@ SS_CODE_ROWS = [
 
 
 class SSAnalysis(BaseAnalysis):
-    def __init__(self, trajectory, atoms: Optional[str] = None, **kwargs):
+    _ALIASES = {
+        "atom_indices": "atoms",
+        "selection": "atoms",
+    }
+    
+    def __init__(
+        self, 
+        trajectory, 
+        atoms: Optional[str] = None,
+        algorithm: str = "dssp",
+        mkdssp_path: Optional[str] = None,
+        strict: bool = False,
+        **kwargs
+    ):
         """
         Parameters
         ----------
@@ -89,11 +104,46 @@ class SSAnalysis(BaseAnalysis):
         atoms : str, optional
             MDTraj selection string. If provided, SS will be computed on that subset.
             If None, all atoms are used.
+            Aliases: atom_indices, selection
+        algorithm : str
+            Secondary structure algorithm (default: "dssp"). Currently only DSSP is supported.
+        mkdssp_path : str, optional
+            Path to mkdssp executable if needed (MDTraj typically auto-detects).
+        strict : bool
+            If True, raise errors for unknown options. If False, log warnings.
         kwargs : dict
             Passed to BaseAnalysis.
         """
-        super().__init__(trajectory, **kwargs)
+        warn_unknown = kwargs.pop("_warn_unknown", False)
+
+        analysis_opts = {
+            "atoms": atoms,
+            "algorithm": algorithm,
+            "mkdssp_path": mkdssp_path,
+            "strict": strict,
+        }
+        analysis_opts.update(kwargs)
+        
+        forwarder = OptionsForwarder(aliases=self._ALIASES, strict=strict)
+        resolved = forwarder.apply_aliases(analysis_opts)
+        resolved = forwarder.filter_known(
+            resolved,
+            {"atoms", "algorithm", "mkdssp_path", "strict", "output"},
+            context="ss",
+            warn=warn_unknown,
+        )
+
+        atoms = resolved.get("atoms", None)
+        algorithm = resolved.get("algorithm", "dssp")
+        mkdssp_path = resolved.get("mkdssp_path", None)
+        base_kwargs = {k: v for k, v in resolved.items() 
+                      if k not in ("atoms", "algorithm", "mkdssp_path", "strict")}
+
+        super().__init__(trajectory, **base_kwargs)
         self.atoms = atoms
+        self.algorithm = algorithm.lower()
+        self.mkdssp_path = mkdssp_path
+        self.strict = strict
         self.data: Optional[np.ndarray] = None  # will hold letter codes (n_frames, n_residues)
 
     # -------------------------- helpers --------------------------
@@ -289,31 +339,46 @@ class SSAnalysis(BaseAnalysis):
         Z = numeric.T  # shape: (n_residues, n_frames)
         n_residues = Z.shape[0]
 
-        fig = plt.figure(figsize=(12, 8))
-        im = plt.imshow(
+        fig, ax = plt.subplots(figsize=(12, 8))
+        im = ax.imshow(
             Z,
             aspect="auto",
             interpolation="none",
             cmap=(cmap if cmap is not None else SS_CMAP),
             norm=SS_NORM,
         )
-        plt.title(title)
-        plt.xlabel(xlabel)
-        plt.ylabel(ylabel)
+        ax.set_title(title)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
 
-        cbar = plt.colorbar(im, ticks=SS_TICKS)
+        cbar = fig.colorbar(im, ax=ax, ticks=SS_TICKS)
         cbar.set_ticklabels(SS_TICK_LABELS)
         cbar.set_label("SS Code")
 
-        # Residue index ticks start at 1 (dense ticks only for small systems)
+        frames = np.arange(Z.shape[1], dtype=int)
+        residues = np.arange(n_residues, dtype=int)
         if n_residues <= 60:
-            plt.yticks(ticks=np.arange(n_residues), labels=np.arange(1, n_residues + 1))
+            res_ticks = residues
         else:
-            step = max(1, n_residues // 30)
-            ticks = np.arange(0, n_residues, step)
-            plt.yticks(ticks=ticks, labels=(ticks + 1))
+            auto = auto_ticks(residues, max_ticks=30, integer=True)
+            res_ticks = auto.astype(int) if auto is not None and auto.size > 0 else residues[:: max(1, n_residues // 30)]
 
-        plt.tight_layout()
+        apply_slide_style(
+            ax,
+            x_values=frames,
+            y_ticks=res_ticks,
+            integer_x=True,
+            integer_y=True,
+        )
+        tick_font = ax.get_yticklabels()[0].get_fontsize() if ax.get_yticklabels() else None
+        ax.set_yticks(res_ticks)
+        ax.set_yticklabels(
+            [str(int(v) + 1) for v in res_ticks],
+            rotation_mode="anchor",
+            fontsize=tick_font,
+        )
+
+        fig.tight_layout()
 
         # Save (BaseAnalysis._save_plot supports filename=)
         try:

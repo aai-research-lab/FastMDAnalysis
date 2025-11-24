@@ -25,6 +25,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 from .base import BaseAnalysis, AnalysisError
+from ..utils.options import OptionsForwarder
+from ..utils.plotting import apply_slide_style
 
 logger = logging.getLogger(__name__)
 
@@ -61,12 +63,20 @@ def _rmsd_no_fit(traj: md.Trajectory, ref: md.Trajectory, atom_indices=None) -> 
 
 
 class RMSDAnalysis(BaseAnalysis):
+    _ALIASES = {
+        "ref": "reference_frame",
+        "reference": "reference_frame",
+        "atom_indices": "atoms",
+        "selection": "atoms",
+    }
+    
     def __init__(
         self,
         trajectory,
         reference_frame: int = 0,
         atoms: Optional[str] = None,
         align: bool = True,
+        strict: bool = False,
         **kwargs
     ):
         """
@@ -76,18 +86,49 @@ class RMSDAnalysis(BaseAnalysis):
             The MD trajectory to analyze.
         reference_frame : int
             Reference frame index (default 0). Negative indices allowed.
+            Aliases: ref, reference
         atoms : str or None
             MDTraj atom selection string (e.g., "protein and name CA"). If None, all atoms are used.
+            Aliases: atom_indices, selection
         align : bool
             If True, compute classical RMSD with optimal superposition (mdtraj.rmsd).
             If False, compute no-fit RMSD (raw differences).
+        strict : bool
+            If True, raise errors for unknown options. If False, log warnings.
         kwargs : dict
             Passed to BaseAnalysis (e.g., output directory).
         """
-        super().__init__(trajectory, **kwargs)
+        warn_unknown = kwargs.pop("_warn_unknown", False)
+
+        analysis_opts = {
+            "reference_frame": reference_frame,
+            "atoms": atoms,
+            "align": align,
+            "strict": strict,
+        }
+        analysis_opts.update(kwargs)
+        
+        forwarder = OptionsForwarder(aliases=self._ALIASES, strict=strict)
+        resolved = forwarder.apply_aliases(analysis_opts)
+        resolved = forwarder.filter_known(
+            resolved,
+            {"reference_frame", "atoms", "align", "strict", "output"},
+            context="rmsd",
+            warn=warn_unknown,
+        )
+        
+        reference_frame = resolved.get("reference_frame", 0)
+        atoms = resolved.get("atoms", None)
+        align = resolved.get("align", True)
+        
+        base_kwargs = {k: v for k, v in resolved.items() 
+                      if k not in ("reference_frame", "atoms", "align", "strict")}
+        
+        super().__init__(trajectory, **base_kwargs)
         self.reference_frame = 0 if reference_frame is None else int(reference_frame)
         self.atoms = atoms
         self.align = bool(align)
+        self.strict = strict
         self.data: Optional[np.ndarray] = None
         self.results: Dict[str, np.ndarray] = {}
 
@@ -204,6 +245,16 @@ class RMSDAnalysis(BaseAnalysis):
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         ax.grid(alpha=0.3)
+        apply_slide_style(
+            ax,
+            x_values=x,
+            y_values=y,
+            integer_x=True,
+            x_max_ticks=8,
+            y_max_ticks=6,
+            zero_x=True,
+            zero_y=True,
+        )
         fig.tight_layout()
 
         out = self._save_plot(fig, "rmsd")

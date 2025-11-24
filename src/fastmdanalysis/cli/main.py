@@ -14,7 +14,7 @@ from ._common import (
 )
 from . import analyze as analyze_cmd
 from . import simple as simple_cmd
-from ..utils.logging import log_run_header  
+from ..utils.logging import log_run_header
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -56,6 +56,54 @@ def main() -> None:
     argv = _normalize_argv(sys.argv[1:])
     args = parser.parse_args(argv)
 
+    # -------------------------------------------------------------------------
+    # Special path: analyze with a system file/dict drives construction directly.
+    # We instantiate FastMDAnalysis(system=...) first, then configure logging
+    # using CLI output override or YAML-provided output, and dispatch.
+    # -------------------------------------------------------------------------
+    if args.command == "analyze" and getattr(args, "system", None):
+        try:
+            from .. import FastMDAnalysis  # constructor now accepts system= (path or dict)
+
+            # CLI values (frames/atoms) override YAML when provided, so pass them through.
+            # We intentionally do NOT normalize trajectory/topology here; the constructor
+            # uses the system config to fill them (and accepts alias keys).
+            fastmda = FastMDAnalysis(
+                system=args.system,
+                frames=getattr(args, "frames", None),
+                atoms=getattr(args, "atoms", None),
+            )
+        except SystemExit:
+            raise
+        except Exception as e:
+            # No logger yet; print a concise error and exit.
+            sys.stderr.write(f"[fastmda] Failed to initialize from system file: {e}\n")
+            sys.exit(1)
+
+        # Choose output directory: CLI override > YAML (stored on instance) > default
+        output_dir = (
+            getattr(args, "output", None)
+            or getattr(fastmda, "_system_output", None)
+            or f"{args.command}_output"
+        )
+        logger = setup_logging(output_dir, getattr(args, "verbose", False), args.command)
+
+        # Emit version/runtime header for provenance (best-effort)
+        try:
+            log_run_header(logger)
+        except Exception:
+            pass
+
+        logger.info("Running 'analyze' with system configuration: %s", getattr(fastmda, "_system_file", args.system))
+
+        # Handler defaults are registered by the subcommand; fall back to module handle().
+        handler = getattr(args, "_handler", None) or analyze_cmd.handle
+        handler(args, fastmda, logger)
+        return
+
+    # -------------------------------------------------------------------------
+    # Default path (no system file): keep existing normalization + construction.
+    # -------------------------------------------------------------------------
     # Output dir per command
     output_dir = args.output if getattr(args, "output", None) else f"{args.command}_output"
     logger = setup_logging(output_dir, getattr(args, "verbose", False), args.command)
@@ -99,5 +147,11 @@ def main() -> None:
     # Dispatch to the registered handler
     handler = getattr(args, "_handler", None)
     if handler is None:
-        parser.error("No handler registered for the selected subcommand.")
+        # Fallbacks for safety if a subcommand forgot to register _handler
+        if args.command == "analyze":
+            handler = analyze_cmd.handle
+        elif args.command == "simple":
+            handler = simple_cmd.handle  # type: ignore[attr-defined]
+        else:
+            parser.error("No handler registered for the selected subcommand.")
     handler(args, fastmda, logger)
