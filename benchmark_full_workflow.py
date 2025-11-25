@@ -41,12 +41,18 @@ warnings.filterwarnings('ignore')
 # Add src to path for FastMDA
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 from fastmdanalysis import FastMDAnalysis
-from fastmdanalysis.datasets import Ubiquitin
+#from fastmdanalysis.datasets import Ubiquitin
 from fastmdanalysis.analysis.cluster import (
     get_cluster_cmap,
     get_discrete_norm,
     relabel_compact_positive,
 )
+
+# --------------------------------------------------------------------
+# Ubiquitin dataset paths – update these to wherever you put the files
+# --------------------------------------------------------------------
+TRAJ = Path("ubiquitin.dcd")
+TOP  = Path("ubiquitin.pdb")
 
 try:
     import MDAnalysis as mda
@@ -159,7 +165,7 @@ def _count_effective_loc(source_lines):
 
 
 FASTMDA_MINIMAL_SNIPPET = [
-    "fastmda = FastMDAnalysis(Ubiquitin.traj, Ubiquitin.top, frames=FRAME_SLICE, atoms=\"protein\", keep_full_traj=False)",
+    "fastmda = FastMDAnalysis(TRAJ, TOP, frames=FRAME_SLICE, atoms=\"protein\", keep_full_traj=False)",
     "fastmda.analyze(include=['rmsd', 'rmsf', 'rg', 'cluster'], verbose=False, output='fastmda_analyze_output', options={'rmsd': {'save_data': False, 'store_results': False}, 'rmsf': {'save_data': False, 'store_results': False}, 'rg': {'save_data': False, 'store_results': False}, 'cluster': {'methods': ['kmeans', 'dbscan', 'hierarchical'], 'n_clusters': 3, 'eps': 0.5, 'min_samples': 2, 'plot_style': 'minimal', 'combined_plot_name': 'cluster', 'feature_mode': 'distance', 'save_data': False, 'store_results': False}})"
 ]
 
@@ -281,8 +287,8 @@ def benchmark_fastmda_single(output_dir):
     
     # Initialize FastMDA
     fastmda = FastMDAnalysis(
-        Ubiquitin.traj,
-        Ubiquitin.top,
+        TRAJ,
+        TOP,
         frames=FRAME_SLICE,
         atoms="protein",
         keep_full_traj=False,
@@ -345,7 +351,7 @@ def benchmark_mdtraj_single(output_dir):
     start = time.time()
     
     # Load and prepare trajectory
-    traj = md.load(Ubiquitin.traj, top=Ubiquitin.top)
+    traj = md.load(TRAJ, top=TOP)
     frame_indices = list(_frame_range(traj.n_frames))
     traj = traj[frame_indices]
     atom_indices = traj.topology.select('protein')
@@ -445,7 +451,7 @@ def benchmark_mdanalysis_single(output_dir):
     start = time.time()
     
     # Load trajectory
-    u = mda.Universe(Ubiquitin.top, Ubiquitin.traj)
+    u = mda.Universe(TRAJ, TOP)
     protein = u.select_atoms('protein')
     frame_list = list(_frame_range(len(u.trajectory)))
     mem_monitor.update()
