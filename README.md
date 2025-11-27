@@ -57,6 +57,21 @@ After running the benchmarks, you will find:
 - `benchmark_output/*_artifacts/` - Analysis outputs for 5000 frames
 
 
+#### Code Complexity
+<img src="assets/benchmark_loc.png" width="50%">
+
+#### Runtime Scaling
+<img src="assets/combined_runtime.png" width="50%">
+
+#### Memory Scaling  
+<img src="assets/combined_memory.png" width="50%">
+
+
+
+
+
+
+
 ## Benchmark Details
 
 ### Performance Scaling
