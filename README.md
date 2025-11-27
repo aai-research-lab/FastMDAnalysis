@@ -89,7 +89,7 @@ All libraries execute identical workflows:
 - Radius of gyration time series
 - K-means clustering (k=3) on Cartesian coordinates
 
-Workflow Complexity
+### Workflow Complexity
 Lines of Code (LOC) analysis counts meaningful statements required to implement equivalent analysis workflows in each library.
 
 ### Verification
