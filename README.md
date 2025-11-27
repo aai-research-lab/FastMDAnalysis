@@ -69,19 +69,13 @@ After running the benchmarks, you will find:
 
 
 
-
-
-
 ## Benchmark Details
 
 ### Performance Scaling
-Measures runtime and memory usage across 500-5000 frames with 5 iterations per data point. Compares:
+Measures **runtime and peak memory usage** across 500-5000 frames with 5 iterations per data point. Compares:
+FastMDAnalysis (blue), MDTraj (orange) and MDAnalysis (gray).
 
-- FastMDAnalysis (blue)
-- MDTraj (orange)
-- MDAnalysis (gray)
-
-### Analyses Performed
+**Analyses Performed.**
 All libraries execute identical workflows:
 
 - RMSD calculation (aligned to first frame)
