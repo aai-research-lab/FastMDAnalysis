@@ -7,6 +7,8 @@ This benchmark suite compares FastMDAnalysis against MDTraj and MDAnalysis for p
 ### Step 1: Get the Benchmark Code
 ```bash
 git clone -b benchmark https://github.com/aai-research-lab/FastMDAnalysis.git
+```
+```bash
 cd FastMDAnalysis
 ```
 
