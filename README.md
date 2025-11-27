@@ -44,7 +44,7 @@ After running the benchmarks, you will find:
 
 - `benchmark_output/combined_memory.png` - Memory scaling plot
 
-- `benchmark_output/benchmark_loc_slide.png` - LOC comparison
+- `benchmark_output/benchmark_loc.png` - LOC comparison
 
 - `benchmark_output/*_artifacts/` - Analysis outputs for 5000 frames
 
