@@ -5,6 +5,11 @@ This benchmark suite compares FastMDAnalysis against MDTraj and MDAnalysis for p
 ## Reproducing JCIM Submission Results
 
 ### Step 1: Get the Benchmark Code
+Create and activate virtual environment
+```bash
+conda create -n fastmda_benchmark_env python=3.9
+conda activate fastmda_benchmark_env
+```
 ```bash
 git clone -b benchmark https://github.com/aai-research-lab/FastMDAnalysis.git
 ```
