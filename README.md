@@ -4,19 +4,25 @@ This benchmark suite compares FastMDAnalysis against MDTraj and MDAnalysis for p
 
 ## Reproducing JCIM Submission Results
 
-### Step 1: Install Dependencies
+### Step 1: Get the Benchmark Code
+```bash
+git clone -b benchmark https://github.com/aai-research-lab/FastMDAnalysis.git
+cd FastMDAnalysis
+```
+
+### Step 2: Install Dependencies
 ```bash
 pip install fastmdanalysis mdtraj MDAnalysis numpy scipy scikit-learn matplotlib psutil
 ```
 
-### Step 2: Download and Prepare Data
+### Step 3: Download and Prepare Data
 - Download ubiquitin data from Zenodo https://zenodo.org/records/7792288
 - Place files in Ubiquitin/ directory with renamed files:
   - Trajectory: Ubiquitin/ubiquitin.dcd (originally Q99.dcd)
   - Topology: Ubiquitin/ubiquitin.pdb (originally topology.pdb)
  
 
-### Step 3: Run Benchmarks
+### Step 4: Run Benchmarks
 
 Navigate to data directory
 ```bash
