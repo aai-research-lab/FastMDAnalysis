@@ -869,7 +869,7 @@ def validate_clustering(fastmda: FastMDAnalysis, traj: md.Trajectory) -> List[Di
             
             # Compare labels
             comparison = compare_arrays(fmda_labels, sklearn_labels, f'Clustering ({method})')
-            comparison['backend'] = 'sklearn'
+            comparison['backend'] = 'scipy'
             comparison['metric'] = f'cluster_{method}'
             results.append(comparison)
             print(f"  Clustering ({method}): {comparison['status']} - {comparison['detail']}")
