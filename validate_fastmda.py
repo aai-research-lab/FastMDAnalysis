@@ -1055,9 +1055,9 @@ def main():
     save_json_report(all_results, output_dir / 'validation_report.json')
     save_csv_summary(all_results, output_dir / 'validation_summary.csv')
     # Mirror summary to repo root so the quick-look CSV stays in sync.
-    save_csv_summary(all_results, Path('validation_results.csv'))
+    #save_csv_summary(all_results, Path('validation_results.csv'))
     # Mirror CSV to repository root for quick checks.
-    save_csv_summary(all_results, Path('validation_results.csv'))
+    #save_csv_summary(all_results, Path('validation_results.csv'))
     
     # Print summary
     print()

@@ -1,266 +1,258 @@
-![FastMDAnalysis Banner](assets/fastmdanalysis_banner.png)
+# FastMDAnalysis
 
-[![DOI](https://zenodo.org/badge/965215244.svg)](https://doi.org/10.5281/zenodo.17510591)
-[![Tests](https://github.com/aai-research-lab/FastMDAnalysis/actions/workflows/test.yml/badge.svg)](https://github.com/aai-research-lab/FastMDAnalysis/actions)
-[![codecov](https://codecov.io/gh/aai-research-lab/FastMDAnalysis/branch/main/graph/badge.svg)](https://codecov.io/gh/aai-research-lab/FastMDAnalysis)
-[![Docs](https://img.shields.io/badge/docs-latest-brightgreen.svg)](https://fastmdanalysis.readthedocs.io/en/latest/)
-[![Documentation](https://readthedocs.org/projects/fastmdanalysis/badge/?version=latest)](https://fastmdanalysis.readthedocs.io)
-[![PyPI](https://img.shields.io/pypi/v/fastmdanalysis)](https://pypi.org/project/fastmdanalysis/)
-[![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+FastMDAnalysis is a high‑level Python toolkit for **reproducible, end‑to‑end analysis of molecular dynamics (MD) trajectories**.  
+It provides a unified API and command‑line interface that wrap and standardize core functionality from
+MDTraj, MDAnalysis, scikit‑learn, and SciPy into a single, workflow‑oriented package.
+
+FastMDAnalysis is designed for:
+
+- **Rapid, scriptable analysis** of MD trajectories (RMSD, RMSF, Rg, SASA, H‑bonds, secondary structure, clustering, etc.).  
+- **Standardized data structures** and figure‑ready outputs.  
+- **Reproducible pipelines** that can be run from the command line or within Python.  
+
+> **Reference dataset:** Many examples and validation tests use the TrpCage mini‑protein dataset bundled with the package.
 
 ---
-# Highlights
-- Perform complex **molecular dynamics analyses** with intuitive, **single-line commands**
-- Automatically generate **publication-quality figures** with customizable styling for immediate use  
-- Seamlessly switch between **Python API** for advanced workflows and **CLI** for rapid batch processing
-- **Scalable workflows** that handle everything from quick exploratory analysis to large-scale production runs
 
-<!-- Perform a variety of MD trajectory analyses with a single line of code -->
-<!-- Simplify your workflow by loading a trajectory once (with options for frame and atom selection) and then performing multiple analyses without repeating input file details. --> 
-<!--  Automatically generate publication-quality figures (with options for customization) -->
-<!--  Use the Python API or the Command‐Line Interface (CLI) -->
+## Installation
 
+FastMDAnalysis is distributed on PyPI.
 
-
-# Analysis Modules
-| Analysis | Description |
-|----------|-------------|
-| ``rmsd`` | Root-Mean-Square Deviation relative to a reference frame |
-| ``rmsf`` | Per-atom Root-Mean-Square Fluctuation |
-| ``rg`` | Radius of Gyration for molecular compactness |
-| ``hbonds`` | Hydrogen bond detection and count using Baker-Hubbard algorithm |
-| ``ss`` | Secondary Structure assignments using DSSP |
-| ``cluster`` | Trajectory clustering using KMeans, DBSCAN, and Hierarchical methods |
-| ``sasa`` | Solvent Accessible Surface Area with total, per-residue, and average per-residue |
-| ``dimred`` | Dimensionality reduction using PCA, MDS, and t-SNE methods |
-
-
-
-# Installation
-<!-- ## From PyPI (Recommended for users) -->
-**Recommended: Install in a Virtual Environment**
-
-We strongly recommend installing ``FastMDAnalysis`` in a virtual environment to avoid conflicts with system packages and ensure the ``fastmda`` command is available in your PATH.
-
-Using ``venv`` (Python's built-in virtual environment):
 ```bash
-# Create a virtual environment
+pip install fastmdanalysis
+```
+
+We recommend using a fresh virtual environment:
+
+```bash
 python -m venv fastmda_env
+source fastmda_env/bin/activate      # Windows: fastmda_env\Scripts\activate
 
-# Activate the virtual environment
-# On Linux/macOS:
-source fastmda_env/bin/activate
-# On Windows:
-# fastmda_env\Scripts\activate
-
-# Install FastMDAnalysis
+pip install --upgrade pip
 pip install fastmdanalysis
-
-# Verify installation
-fastmda -h
-fastmda analyze --h
 ```
-Using conda:
+
+Additional optional dependencies (for some analysis modules and validation) include:
+
+- `mdtraj`
+- `MDAnalysis`
+- `scikit-learn`
+- `scipy`
+- `matplotlib`
+- `seaborn` (for some plotting recipes)
+
+Install them as needed:
+
 ```bash
-# Create a conda environment
-conda create -n fastmda_env python=3.9
-
-# Activate the environment
-conda activate fastmda_env
-
-# Install FastMDAnalysis
-pip install fastmdanalysis
-
-# Verify installation
-fastmda -h
-fastmda analyze -h
+pip install mdtraj MDAnalysis scikit-learn scipy matplotlib seaborn
 ```
 
+---
 
-# Usage
+## Quick Start (Python API)
 
-## Command-Line Interface (CLI) 
-After installation, you can run ``FastMDAnalysis`` from the command line using the `fastmda` command. Global options allow you to specify the trajectory and topology file paths.
-Optionally, specify frame selection and atom selection. Frame selection is provided as a tuple (start, stop, stride). Negative indices (e.g., -1 for the last frame) are supported. If no options are provided, the entire trajectory and all atoms are used by default.
+The central entry point is the `FastMDAnalysis` class, which loads your trajectory and provides
+convenience methods for common analyses.
 
-**Run the ``analyze`` orchestrator to execute multiple analyses in one go.**
-
-**Run all available analyses**
-```bash
-fastmda analyze -traj path/to/trajectory -top path/to/topology
-```
-**Include specific analyses**
-```bash
-fastmda analyze -traj traj.dcd -top top.pdb --include rmsd rg
-```
-**Exclude specific analyses**
-```bash
-fastmda analyze -traj traj.dcd -top top.pdb --exclude sasa dimred cluster
-```
-**Supply options via file (YAML or JSON)**
-```bash
-fastmda analyze -traj traj.dcd -top top.pdb --options options.yaml
-```
-**Create a slide deck from generated figures**
-```bash
-fastmda analyze -traj traj.dcd -top top.pdb --options options.yaml --slides
-```
-
-
-**Global flags:**
-- ``--frames start,stop,stride`` (e.g., ``0,-1,10``)
-- ``--atoms "MDTraj selection"`` (e.g., ``"protein and name CA"``)
-- ``--output DIR`` (output directory name)
-- ``--verbose`` (prints progress and writes logs under ``<command>_output/`` unless ``--output`` is set)
-
-**Show help:**
-- ``fastmda -h``
-- ``fastmda analyze -h``
-
-
-
-**Options file (schema)**
-
-Provide per-analysis keyword arguments in a single file. CLI and Python API share the same schema:
-```yaml
-# options.yaml
-rmsd:
-  ref: 0
-cluster:
-  methods: [kmeans, hierarchical]
-  n_clusters: 5
-```
-JSON is also supported. If using YAML, ensure PyYAML is installed.
-
-**Slides:**
-- ``--slides`` creates ``fastmda_slides_<ddmmyy.HHMM>.pptx`` in the current working directory.
-- ``--slides path/to/deck.pptx`` writes to an explicit filename.
-
-**Single-analysis commands (legacy, still available)**
-```bash
-fastmda rmsd   -traj traj.dcd -top top.pdb --ref 0     # aliases: --reference-frame, -ref
-fastmda ss -traj traj.dcd -top top.pdb
-fastmda cluster -traj traj.dcd -top top.pdb --methods kmeans hierarchical --n_clusters 5
-```
-
-
-## Python API
-Instantiate a `FastMDAnalysis` object with your trajectory and topology file paths. 
-
-**Run the ``analyze`` orchestrator to execute all available analyses.**
 ```python
 from fastmdanalysis import FastMDAnalysis
-from fastmdanalysis.datasets import TrpCage  # optional helper
 
-fastmda = FastMDAnalysis(TrpCage.traj, TrpCage.top)
-fastmda.analyze()
-```
-
-**Include or Exclude specific analyses; specify options, generate slides**
-```python
-fastmda = FastMDAnalysis(TrpCage.traj, TrpCage.top)
-result = fastmda.analyze(
-    include=["rmsd", "rg"],                 # or exclude=[...]; omit to run all
-    options={"rmsd": {"ref": 0, "align": True}},
-    slides=True                             # or slides="results.pptx"
+fmda = FastMDAnalysis(
+    traj="traj.dcd",
+    top="topology.pdb",
+    frames=(0, -1, 10),      # (start, stop, stride); -1 means "last frame"
+    atoms="protein"          # MDTraj/MDAnalysis-style atom selection
 )
+
+# Core structural analyses
+rmsd = fmda.rmsd(ref=0)
+rmsf = fmda.rmsf()
+rg   = fmda.rg()
+
+# Hydrogen bonds, secondary structure, SASA
+hbonds = fmda.hbonds()
+ss     = fmda.ss()
+sasa   = fmda.sasa(probe_radius=0.14)
+
+# Dimensionality reduction (PCA / MDS / t-SNE) and clustering
+dimred   = fmda.dimred(methods=["pca", "mds", "tsne"])
+clusters = fmda.cluster(methods=["kmeans", "dbscan", "hierarchical"])
 ```
-**(Optional) Access per-analysis outputs**
+
+Most analysis objects expose their results via a `.data` attribute (arrays or dictionaries)
+and provide helper methods for plotting and exporting.
+
+---
+
+## Command‑Line Interface (CLI)
+
+FastMDAnalysis also provides a CLI for running common pipelines without writing Python code.
+
+After installation, the `fastmda` command should be available in your environment. Typical usage
+follows the pattern:
+
+```bash
+fastmda run   --traj traj.dcd   --top top.pdb   --frames 0:-1:10   --atoms "protein"   --config analysis.yaml
+```
+
+Where `analysis.yaml` describes which modules to run (e.g. RMSD, RMSF, Rg, SASA, clustering)
+and how to configure them. Example configuration files and workflows are provided in the
+repository under `examples/` (or `docs/examples/`, depending on layout).
+
+See:
+
+```bash
+fastmda --help
+fastmda run --help
+```
+
+for up‑to‑date CLI options.
+
+---
+
+## Built‑in Datasets
+
+FastMDAnalysis ships with small reference datasets for testing and examples. For instance,
+the **TrpCage** mini‑protein dataset is exposed via:
+
 ```python
-rmsd_result = result["rmsd"].value          # object/type depends on analysis
-slides   = result.get("slides")             # AnalysisResult; .ok and .value (path)
+from fastmdanalysis.datasets import TrpCage
+
+print(TrpCage.traj)  # path to the bundled trajectory (e.g., .dcd)
+print(TrpCage.top)   # path to the bundled topology   (e.g., .pdb)
 ```
 
-> **Notes** 
-> - Figures are saved during each analysis; slide decks include all figures produced in the run.
-> - MDTraj may emit benign warnings (e.g., dummy CRYST1 records); they do not affect results.
+These paths can be passed directly into `FastMDAnalysis` or used with MDTraj/MDAnalysis.
 
+---
 
+## Validation Against the PyPI Release
 
-## Output
-Output includes data tables, figures, slide deck, log file ...
+This repository includes a standalone validation script, `validate_fastmda.py`, that
+compares the **published** `fastmdanalysis` package on PyPI against reference
+implementations (MDTraj, MDAnalysis, scikit‑learn, SciPy) on the TrpCage dataset.
 
+The goal is to answer:
 
-# Documentation
-The documentation [under development] (with an extensive User Guide) is available [here](https://fastmdanalysis.readthedocs.io).
+> “Does the version of `fastmdanalysis` installed from PyPI numerically agree with
+> standard libraries on a well‑defined benchmark?”
 
+### 1. Create a fresh environment and install from PyPI
 
-# Validation
+From the repository root:
 
-FastMDAnalysis includes a comprehensive validation script that compares all analysis routines against reference implementations from MDTraj and MDAnalysis. 
-
-**Run validation:**
 ```bash
-python validate_fastmda.py --frames 0:-1:10 --atoms "protein"
+python -m venv .venv-pypi-validation
+source .venv-pypi-validation/bin/activate  # Windows: .venv-pypi-validation\Scripts\activate
+
+pip install --upgrade pip
+pip install fastmdanalysis
+pip install mdtraj MDAnalysis scikit-learn scipy
 ```
 
-The validation generates:
-- **validation_report.json**: Detailed comparison metrics
-- **validation_summary.csv**: Summary table with RMSE, differences, and statistics
+> **Important:** Do **not** install the local repo in this environment
+> (no `pip install -e .`). This ensures that `import fastmdanalysis` uses the
+> **PyPI** release, not the local source tree.
 
-See [VALIDATION.md](VALIDATION.md) for detailed documentation.
+### 2. Run the validation script
 
-**Validation Results:**
-- ✓ RMSD: Excellent agreement (RMSE ≈ 0)
-- ✓ RMSF: Excellent agreement (RMSE ≈ 0)
-- ✓ Radius of Gyration: Excellent agreement (RMSE < 1e-8)
-- ✓ Secondary Structure: 100% match with MDTraj DSSP
-- ✓ SASA: Excellent agreement for all metrics (RMSE < 1e-4)
+From the repository root (adjust the path if `validate_fastmda.py` lives in `scripts/`):
 
-
-# Contributing
-Contributions are welcome. Please submit a Pull Request. 
-
-**Development Installation**
-
-If you want to contribute or modify the code:
 ```bash
-# Clone the repository
-git clone https://github.com/aai-research-lab/FastMDAnalysis.git
-cd FastMDAnalysis
-
-# Create and activate virtual environment
-python -m venv fastmda_env
-source fastmda_env/bin/activate  # On Windows: fastmda_env\Scripts\activate
-
-# Install in development mode with test dependencies
-pip install -e ".[test]"
-
-# Verify installation
-fastmda -h
-fastmda analyze -h
+python validate_fastmda.py
 ```
 
-# Citation
-If you use `FastMDAnalysis` in your work, please cite:
+The default settings are:
 
-Aina, A. and Kwan, D. (2025) “FastMDAnalysis: Software for Automated Analysis of Molecular Dynamics Trajectories”. Zenodo. https://doi.org/10.5281/zenodo.17510591
+- Frames: `0:-1:10` (start:stop:stride)
+- Atoms: `protein`
+- Output directory: `validation_output/`
 
-```bibtex
-@software{fastmdanalysis,
-  author       = {Adekunle Aina and Derrick Kwan},
-  title        = {FastMDAnalysis: Software for Automated Analysis of Molecular Dynamics Trajectories},
-  year         = {2025},
-  doi          = {10.5281/zenodo.17510591},
-  publisher    = {Zenodo},
-  url          = {https://doi.org/10.5281/zenodo.17510591}
-}
+You can override these, for example:
+
+```bash
+python validate_fastmda.py   --frames 0:-1:5   --atoms "protein"   --output-dir validation_output_fast_stride5
 ```
 
-# License
+### 3. Outputs
 
-`FastMDAnalysis` is licensed under the MIT license. 
+The script produces:
 
-# Acknowledgements
+- `validation_output/validation_report.json`  
+  Detailed per‑metric results (RMSD, RMSF, Rg, H‑bonds, secondary structure,
+  SASA, dimensionality reduction, clustering), including shapes, RMSE, and
+  summary statistics.
 
-``FastMDAnalysis`` builds upon excellent open-source libraries to provide its high-performance analysis capabilities and to improve workflow efficiency, accessibility, usability, and reproducibility in molecular dynamics trajectory analysis. We gratefully acknowledge:
+- `validation_output/validation_summary.csv`  
+  CSV summary (one row per metric) with:
+  - `analysis_name`, `backend`, `metric`, `status` (`pass/warn/fail/error/info`)
+  - `max_abs_diff`, `mean_abs_diff`, `rmse`, `mismatch_count`
+  - `fastmda_*` and `ref_*` statistics (min, max, mean, std)
+  - `fastmda_shape`, `ref_shape`
 
-- ``MDTraj`` for foundational trajectory I/O and analysis modules
-- ``NumPy/SciPy`` for efficient numerical computations
-- ``scikit-learn`` for advanced machine learning algorithms
-- ``Matplotlib`` for publication-quality visualization
+- `validation_results.csv` in the repository root  
+  A mirrored copy of the CSV for quick inspection and CI hooks.
 
-While leveraging these robust tools, ``FastMDAnalysis`` streamlines analysis for students, professionals, and researchers, especially those new to molecular dynamics. We thank the scientific Python community for their contributions to the ecosystem.
+### 4. Interpreting the results
 
+Each row in the CSV corresponds to one validation check, e.g.:
+
+- `RMSD` vs MDTraj (`metric = rmsd`)
+- `RMSF` vs MDTraj (`metric = rmsf`)
+- `Radius of Gyration` vs MDTraj (`metric = rg`)
+- `Hydrogen Bonds` vs MDTraj (`metric = hbond_per_frame`)
+- `Secondary Structure` vs MDTraj (`metric = dssp`)
+- `SASA` total / per‑residue / average per‑residue vs MDTraj
+- Dimensionality reduction (PCA, MDS, t‑SNE) vs direct scikit‑learn
+- Clustering (k‑means, DBSCAN, hierarchical) vs direct scikit‑learn/SciPy
+
+A typical successful run (for a consistent PyPI release) should show:
+
+- All core structural metrics (`RMSD`, `RMSF`, `Rg`, `SASA`) with `status = pass`
+  and RMSE close to zero.
+- Secondary structure and H‑bond metrics with very high agreement.
+- Dimensionality reduction and clustering consistent with direct sklearn/SciPy
+  calls under fixed random seeds.
+
+Use this script whenever you:
+
+- Publish a new version to PyPI.
+- Change numerical kernels or analysis defaults.
+- Want to confirm that the public release matches the validated behavior in this repo.
+
+---
+
+## Contributing
+
+Contributions are welcome. Typical contribution workflow:
+
+1. Fork the repository and create a feature branch:
+   ```bash
+   git checkout -b feature/my-improvement
+   ```
+2. Implement your changes with tests where appropriate.
+3. Ensure the test suite passes and that `validate_fastmda.py` still reports
+   consistent behavior (for public releases).
+4. Open a pull request with a clear description and, if relevant, a short
+   example of the new behavior.
+
+Please follow the existing code style and docstring conventions where possible.
+
+---
+
+## Citing FastMDAnalysis
+
+If you use FastMDAnalysis in published work, please cite the associated preprint:
+
+> Aina, A. O., *et al.* **FastMDAnalysis: Reproducible, End‑to‑End Molecular Dynamics Analysis in Python.**  
+> ChemRxiv (2025). doi:10.26434/chemrxiv-2025-x8xnq
+
+(Replace with the final journal citation once available.)
+
+---
+
+## License
+
+FastMDAnalysis is distributed under an open‑source license. See the `LICENSE` file in this
+repository for details.
 
