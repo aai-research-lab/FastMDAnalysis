@@ -1,258 +1,198 @@
-# FastMDAnalysis
+# FastMDAnalysis Validation Suite
 
-FastMDAnalysis is a high‑level Python toolkit for **reproducible, end‑to‑end analysis of molecular dynamics (MD) trajectories**.  
-It provides a unified API and command‑line interface that wrap and standardize core functionality from
-MDTraj, MDAnalysis, scikit‑learn, and SciPy into a single, workflow‑oriented package.
+This validation suite quantifies the numerical agreement between **FastMDAnalysis**
+(as published on PyPI) and established reference libraries (MDTraj, scikit-learn,
+SciPy) on the Trp-cage miniprotein benchmark used in the JCIM submission.
 
-FastMDAnalysis is designed for:
-
-- **Rapid, scriptable analysis** of MD trajectories (RMSD, RMSF, Rg, SASA, H‑bonds, secondary structure, clustering, etc.).  
-- **Standardized data structures** and figure‑ready outputs.  
-- **Reproducible pipelines** that can be run from the command line or within Python.  
-
-> **Reference dataset:** Many examples and validation tests use the TrpCage mini‑protein dataset bundled with the package.
+The procedure below reproduces the **Accuracy Validation** results reported in the
+manuscript and supporting information.
 
 ---
 
-## Installation
+## Reproducing JCIM Validation Results
 
-FastMDAnalysis is distributed on PyPI.
+### Step 1: Get the Validation Code
+
+Create and activate a clean virtual environment, then check out the
+`validation` branch of the lab repository.
+
+Using `conda` (Recommended):
 
 ```bash
-pip install fastmdanalysis
+conda create -n fastmda_validation_env python=3.9
+conda activate fastmda_validation_env
 ```
 
-We recommend using a fresh virtual environment:
+Clone the lab repository and switch to the validation branch:
 
 ```bash
-python -m venv fastmda_env
-source fastmda_env/bin/activate      # Windows: fastmda_env\Scripts\activate
+git clone -b validation https://github.com/aai-research-lab/FastMDAnalysis.git
+cd FastMDAnalysis
+```
 
+If you already have the repository cloned, you can instead run:
+
+```bash
+git fetch origin
+git checkout validation
+```
+
+### Step 2: Install Dependencies
+
+Install the **published** FastMDAnalysis package from PyPI and the minimal
+dependencies required by the validation script.
+
+```bash
 pip install --upgrade pip
-pip install fastmdanalysis
+pip install fastmdanalysis mdtraj numpy scipy scikit-learn
 ```
 
-Additional optional dependencies (for some analysis modules and validation) include:
+Notes:
 
-- `mdtraj`
-- `MDAnalysis`
-- `scikit-learn`
-- `scipy`
-- `matplotlib`
-- `seaborn` (for some plotting recipes)
+- Do **not** run `pip install -e .` in this environment. This ensures that
+  `import fastmdanalysis` resolves to the **PyPI** installation, not the
+  local source tree.
+- MDAnalysis is **not** required for this validation workflow.
 
-Install them as needed:
+### Step 3: Run the Validation Script
 
-```bash
-pip install mdtraj MDAnalysis scikit-learn scipy matplotlib seaborn
-```
-
----
-
-## Quick Start (Python API)
-
-The central entry point is the `FastMDAnalysis` class, which loads your trajectory and provides
-convenience methods for common analyses.
-
-```python
-from fastmdanalysis import FastMDAnalysis
-
-fmda = FastMDAnalysis(
-    traj="traj.dcd",
-    top="topology.pdb",
-    frames=(0, -1, 10),      # (start, stop, stride); -1 means "last frame"
-    atoms="protein"          # MDTraj/MDAnalysis-style atom selection
-)
-
-# Core structural analyses
-rmsd = fmda.rmsd(ref=0)
-rmsf = fmda.rmsf()
-rg   = fmda.rg()
-
-# Hydrogen bonds, secondary structure, SASA
-hbonds = fmda.hbonds()
-ss     = fmda.ss()
-sasa   = fmda.sasa(probe_radius=0.14)
-
-# Dimensionality reduction (PCA / MDS / t-SNE) and clustering
-dimred   = fmda.dimred(methods=["pca", "mds", "tsne"])
-clusters = fmda.cluster(methods=["kmeans", "dbscan", "hierarchical"])
-```
-
-Most analysis objects expose their results via a `.data` attribute (arrays or dictionaries)
-and provide helper methods for plotting and exporting.
-
----
-
-## Command‑Line Interface (CLI)
-
-FastMDAnalysis also provides a CLI for running common pipelines without writing Python code.
-
-After installation, the `fastmda` command should be available in your environment. Typical usage
-follows the pattern:
-
-```bash
-fastmda run   --traj traj.dcd   --top top.pdb   --frames 0:-1:10   --atoms "protein"   --config analysis.yaml
-```
-
-Where `analysis.yaml` describes which modules to run (e.g. RMSD, RMSF, Rg, SASA, clustering)
-and how to configure them. Example configuration files and workflows are provided in the
-repository under `examples/` (or `docs/examples/`, depending on layout).
-
-See:
-
-```bash
-fastmda --help
-fastmda run --help
-```
-
-for up‑to‑date CLI options.
-
----
-
-## Built‑in Datasets
-
-FastMDAnalysis ships with small reference datasets for testing and examples. For instance,
-the **TrpCage** mini‑protein dataset is exposed via:
-
-```python
-from fastmdanalysis.datasets import TrpCage
-
-print(TrpCage.traj)  # path to the bundled trajectory (e.g., .dcd)
-print(TrpCage.top)   # path to the bundled topology   (e.g., .pdb)
-```
-
-These paths can be passed directly into `FastMDAnalysis` or used with MDTraj/MDAnalysis.
-
----
-
-## Validation Against the PyPI Release
-
-This repository includes a standalone validation script, `validate_fastmda.py`, that
-compares the **published** `fastmdanalysis` package on PyPI against reference
-implementations (MDTraj, MDAnalysis, scikit‑learn, SciPy) on the TrpCage dataset.
-
-The goal is to answer:
-
-> “Does the version of `fastmdanalysis` installed from PyPI numerically agree with
-> standard libraries on a well‑defined benchmark?”
-
-### 1. Create a fresh environment and install from PyPI
-
-From the repository root:
-
-```bash
-python -m venv .venv-pypi-validation
-source .venv-pypi-validation/bin/activate  # Windows: .venv-pypi-validation\Scripts\activate
-
-pip install --upgrade pip
-pip install fastmdanalysis
-pip install mdtraj MDAnalysis scikit-learn scipy
-```
-
-> **Important:** Do **not** install the local repo in this environment
-> (no `pip install -e .`). This ensures that `import fastmdanalysis` uses the
-> **PyPI** release, not the local source tree.
-
-### 2. Run the validation script
-
-From the repository root (adjust the path if `validate_fastmda.py` lives in `scripts/`):
+From the `FastMDAnalysis` repository root (on the `validation` branch):
 
 ```bash
 python validate_fastmda.py
 ```
 
-The default settings are:
+By default, this reproduces the JCIM validation configuration:
 
-- Frames: `0:-1:10` (start:stop:stride)
-- Atoms: `protein`
+- Dataset: Trp-cage miniprotein (PDB ID: 1L2Y)
+- Trajectory: bundled Trp-cage MD trajectory from the PyPI package
+- Frames: `0:-1:10` (start at frame 0, go to last frame, stride = 10)  
+  → 500 frames sampled from a 5000-frame trajectory
+- Atom selection: `protein` (304 protein atoms, 20 residues)
 - Output directory: `validation_output/`
 
-You can override these, for example:
+You can optionally change the frame range, atom selection, or output directory,
+for example:
 
 ```bash
-python validate_fastmda.py   --frames 0:-1:5   --atoms "protein"   --output-dir validation_output_fast_stride5
+python validate_fastmda.py   --frames 0:-1:5   --atoms "protein"   --output-dir validation_output_stride5
 ```
 
-### 3. Outputs
+---
 
-The script produces:
+## Validation Output Files
+
+After a successful run (using the default settings), the following files are
+generated:
 
 - `validation_output/validation_report.json`  
-  Detailed per‑metric results (RMSD, RMSF, Rg, H‑bonds, secondary structure,
-  SASA, dimensionality reduction, clustering), including shapes, RMSE, and
-  summary statistics.
+  Detailed, machine-readable report of all validation comparisons.
 
 - `validation_output/validation_summary.csv`  
-  CSV summary (one row per metric) with:
-  - `analysis_name`, `backend`, `metric`, `status` (`pass/warn/fail/error/info`)
-  - `max_abs_diff`, `mean_abs_diff`, `rmse`, `mismatch_count`
-  - `fastmda_*` and `ref_*` statistics (min, max, mean, std)
-  - `fastmda_shape`, `ref_shape`
+  Human-readable summary (one row per comparison) with key statistics.
 
-- `validation_results.csv` in the repository root  
-  A mirrored copy of the CSV for quick inspection and CI hooks.
+These files correspond to the numerical validation results summarized in the
+JCIM manuscript (Accuracy Validation section and Table~1). 
 
-### 4. Interpreting the results
+### JSON Report (`validation_report.json`)
 
-Each row in the CSV corresponds to one validation check, e.g.:
+Each entry in the JSON report includes (fields may vary slightly by metric):
 
-- `RMSD` vs MDTraj (`metric = rmsd`)
-- `RMSF` vs MDTraj (`metric = rmsf`)
-- `Radius of Gyration` vs MDTraj (`metric = rg`)
-- `Hydrogen Bonds` vs MDTraj (`metric = hbond_per_frame`)
-- `Secondary Structure` vs MDTraj (`metric = dssp`)
-- `SASA` total / per‑residue / average per‑residue vs MDTraj
-- Dimensionality reduction (PCA, MDS, t‑SNE) vs direct scikit‑learn
-- Clustering (k‑means, DBSCAN, hierarchical) vs direct scikit‑learn/SciPy
+- `name` – analysis module (e.g., `RMSD`, `SASA (total)`, `Clustering (kmeans)`)
+- `backend` – reference implementation (`mdtraj`, `sklearn`, `scipy`)
+- `metric` – metric identifier (e.g., `rmsd`, `total_sasa`, `dimred_pca`)
+- `status` – qualitative outcome (`pass`, `warn`, `fail`, `error`, `info`)
+- `shape_match` – whether the result shapes are identical
+- `max_abs_diff`, `mean_abs_diff`, `rmse`, `mismatch_count`
+- `fastmda_stats`, `ref_stats` – min, max, mean, and std for each array
+- `fastmda_shape`, `ref_shape`
+- `detail` – explanatory message (e.g., “Excellent agreement (RMSE=0.00e+00)”).
 
-A typical successful run (for a consistent PyPI release) should show:
+### CSV Summary (`validation_summary.csv`)
 
-- All core structural metrics (`RMSD`, `RMSF`, `Rg`, `SASA`) with `status = pass`
-  and RMSE close to zero.
-- Secondary structure and H‑bond metrics with very high agreement.
-- Dimensionality reduction and clustering consistent with direct sklearn/SciPy
-  calls under fixed random seeds.
+The CSV file provides a compact view suitable for quick inspection,
+spreadsheets, and automated regression checks. It includes columns:
 
-Use this script whenever you:
+- `analysis_name`, `backend`, `metric`, `status`, `shape_match`
+- `max_abs_diff`, `mean_abs_diff`, `rmse`, `mismatch_count`
+- `fastmda_min`, `fastmda_max`, `fastmda_mean`, `fastmda_std`
+- `ref_min`, `ref_max`, `ref_mean`, `ref_std`
+- `fastmda_shape`, `ref_shape`
 
-- Publish a new version to PyPI.
-- Change numerical kernels or analysis defaults.
-- Want to confirm that the public release matches the validated behavior in this repo.
+Each row corresponds to a specific analysis/metric combination, e.g., RMSD vs
+MDTraj or PCA vs scikit-learn.
 
 ---
 
-## Contributing
+## Validation Details
 
-Contributions are welcome. Typical contribution workflow:
+### Analyses Performed
 
-1. Fork the repository and create a feature branch:
-   ```bash
-   git checkout -b feature/my-improvement
-   ```
-2. Implement your changes with tests where appropriate.
-3. Ensure the test suite passes and that `validate_fastmda.py` still reports
-   consistent behavior (for public releases).
-4. Open a pull request with a clear description and, if relevant, a short
-   example of the new behavior.
+The validation script tests the main analysis modules provided by
+FastMDAnalysis against direct calls to the underlying reference libraries:
 
-Please follow the existing code style and docstring conventions where possible.
+**Structural metrics (MDTraj backends)**
 
----
+- RMSD – time series of backbone RMSD relative to a reference frame.
+- RMSF – per-atom fluctuation relative to the average structure.
+- Radius of gyration (Rg) – time series of mass-weighted Rg.
+- SASA – total SASA per frame, per-residue SASA per frame, and average
+  per-residue SASA over the trajectory.
+- Hydrogen bonds – per-frame hydrogen-bond counts using the Baker–Hubbard
+  geometric criteria.
+- Secondary structure – DSSP assignments (simplified alphabet) per residue
+  and frame.
 
-## Citing FastMDAnalysis
+**Statistical learning (scikit-learn and SciPy backends)**
 
-If you use FastMDAnalysis in published work, please cite the associated preprint:
+- Dimensionality reduction:
+  - PCA
+  - Multidimensional scaling (MDS)
+  - t-distributed stochastic neighbor embedding (t-SNE)
+- Clustering:
+  - K-means
+  - DBSCAN (density-based clustering)
+  - Hierarchical clustering (SciPy `linkage` with Ward method and `fcluster`).
 
-> Aina, A. O., *et al.* **FastMDAnalysis: Reproducible, End‑to‑End Molecular Dynamics Analysis in Python.**  
-> ChemRxiv (2025). doi:10.26434/chemrxiv-2025-x8xnq
+For each module, FastMDAnalysis is configured to use the same trajectory,
+selection, and hyperparameters as the corresponding direct MDTraj / scikit-learn /
+SciPy call.
 
-(Replace with the final journal citation once available.)
+### Comparison Metrics and Criteria
 
----
+For each analysis, FastMDAnalysis results are compared directly to the reference
+results using:
 
-## License
+- Root mean square error (RMSE)
+- Maximum absolute difference
+- Mean absolute difference
+- Number of elements exceeding a fixed tolerance
+- Shape consistency checks
 
-FastMDAnalysis is distributed under an open‑source license. See the `LICENSE` file in this
-repository for details.
+The script assigns qualitative labels based on RMSE and shape agreement:
 
+- **Excellent agreement** – typically RMSE < 1×10⁻⁴
+- **Good agreement** – RMSE < 1×10⁻²
+- `warn`, `fail`, or `error` – used when discrepancies are larger, shapes
+  differ, or errors occur during computation.
+
+For the Trp-cage benchmark used in the JCIM submission, all core modules
+(RMSD, RMSF, Rg, SASA, hydrogen bonds, secondary structure, dimensionality
+reduction, and clustering) achieve **excellent agreement**, with differences
+at or below numerical precision for most metrics.
+
+### Reproducibility Notes
+
+- **System:** Trp-cage miniprotein (PDB ID: 1L2Y)  
+  100 ns trajectory, 5000 frames; validation uses 500 frames (stride = 10)
+  and 304 protein atoms across 20 residues (“protein” selection).
+
+- **Reference libraries:**  
+  The JCIM submission used versions consistent with:
+
+  - `mdtraj` (e.g., 1.11.0)
+  - `scikit-learn` (e.g., 1.7.2)
+  - `scipy==1.13.1`
+
+To closely match the published results, pin these versions (or the ones
+reported in the manuscript) when installing dependencies.
