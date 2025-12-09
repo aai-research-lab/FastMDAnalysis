@@ -2,14 +2,14 @@
 
 This validation suite quantifies the numerical agreement between **FastMDAnalysis**
 (as published on PyPI) and established reference libraries (MDTraj, scikit-learn,
-SciPy) on the Trp-cage miniprotein benchmark used in the JCIM submission.
+SciPy) on the Trp-cage miniprotein benchmark used in the JCC submission.
 
 The procedure below reproduces the **Accuracy Validation** results reported in the
 manuscript and supporting information.
 
 ---
 
-## Reproducing JCIM Validation Results
+## Reproducing JCC Validation Results
 
 ### Step 1: Get the Validation Code
 
@@ -62,7 +62,7 @@ From the `FastMDAnalysis` repository root (on the `validation` branch):
 python validate_fastmda.py
 ```
 
-By default, this reproduces the JCIM validation configuration:
+By default, this reproduces the JCC validation configuration:
 
 - Dataset: Trp-cage miniprotein (PDB ID: 1L2Y)
 - Trajectory: bundled Trp-cage MD trajectory from the PyPI package
@@ -92,7 +92,7 @@ generated:
   Human-readable summary (one row per comparison) with key statistics.
 
 These files correspond to the numerical validation results summarized in the
-JCIM manuscript (Accuracy Validation section and Table~1). 
+JCC manuscript (Accuracy Validation section and Table~1). 
 
 ### JSON Report (`validation_report.json`)
 
@@ -176,7 +176,7 @@ The script assigns qualitative labels based on RMSE and shape agreement:
 - `warn`, `fail`, or `error` – used when discrepancies are larger, shapes
   differ, or errors occur during computation.
 
-For the Trp-cage benchmark used in the JCIM submission, all core modules
+For the Trp-cage benchmark used in the JCC submission, all core modules
 (RMSD, RMSF, Rg, SASA, hydrogen bonds, secondary structure, dimensionality
 reduction, and clustering) achieve **excellent agreement**, with differences
 at or below numerical precision for most metrics.
@@ -188,7 +188,7 @@ at or below numerical precision for most metrics.
   and 304 protein atoms across 20 residues (“protein” selection).
 
 - **Reference libraries:**  
-  The JCIM submission used versions consistent with:
+  The JCC submission used versions consistent with:
 
   - `mdtraj` (e.g., 1.11.0)
   - `scikit-learn` (e.g., 1.7.2)
