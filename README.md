@@ -2,7 +2,7 @@
 This benchmark suite compares FastMDAnalysis against MDTraj and MDAnalysis for performance and workflow complexity.
 
 
-## Reproducing JCIM Submission Results
+## Reproducing JCC Submission Results
 
 ### Step 1: Get the Benchmark Code
 Create and activate virtual environment
@@ -92,7 +92,7 @@ All libraries execute identical workflows:
 Lines of Code (LOC) analysis counts meaningful statements required to implement equivalent analysis workflows in each library.
 
 ### Verification
-Successful reproduction will generate all output files with performance characteristics matching those reported in the JCIM submission.
+Successful reproduction will generate all output files with performance characteristics matching those reported in the JCC submission.
 
 
 
