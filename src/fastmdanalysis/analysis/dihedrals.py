@@ -36,7 +36,8 @@ class PhiAnalysis(BaseAnalysis):
     """
 
     _ALIASES = {
-        "residues": "residue_selection",
+        "residue": "residues",
+        "residue_selection": "residues",
     }
 
     def __init__(
@@ -241,7 +242,8 @@ class PsiAnalysis(BaseAnalysis):
 
     # Similar structure to PhiAnalysis, but for psi angles
     _ALIASES = {
-        "residues": "residue_selection",
+        "residue": "residues",
+        "residue_selection": "residues",
     }
 
     def __init__(
@@ -253,13 +255,15 @@ class PsiAnalysis(BaseAnalysis):
         **kwargs
     ):
         logger.info("Initializing Psi analysis")
+        warn_unknown = kwargs.pop("_warn_unknown", False)
+
         analysis_opts = {"residues": residues, "units": units, "strict": strict}
         analysis_opts.update(kwargs)
 
         forwarder = OptionsForwarder(aliases=self._ALIASES, strict=strict)
         resolved = forwarder.apply_aliases(analysis_opts)
         resolved = forwarder.filter_known(
-            resolved, {"residues", "units", "strict", "output"}, context="psi"
+            resolved, {"residues", "units", "strict", "output"}, context="psi", warn=warn_unknown
         )
 
         residues = resolved.get("residues", None)
@@ -366,7 +370,8 @@ class OmegaAnalysis(BaseAnalysis):
     """
 
     _ALIASES = {
-        "residues": "residue_selection",
+        "residue": "residues",
+        "residue_selection": "residues",
     }
 
     def __init__(
@@ -378,13 +383,15 @@ class OmegaAnalysis(BaseAnalysis):
         **kwargs
     ):
         logger.info("Initializing Omega analysis")
+        warn_unknown = kwargs.pop("_warn_unknown", False)
+
         analysis_opts = {"residues": residues, "units": units, "strict": strict}
         analysis_opts.update(kwargs)
 
         forwarder = OptionsForwarder(aliases=self._ALIASES, strict=strict)
         resolved = forwarder.apply_aliases(analysis_opts)
         resolved = forwarder.filter_known(
-            resolved, {"residues", "units", "strict", "output"}, context="omega"
+            resolved, {"residues", "units", "strict", "output"}, context="omega", warn=warn_unknown
         )
 
         residues = resolved.get("residues", None)
@@ -489,6 +496,11 @@ class DihedralsAnalysis(BaseAnalysis):
     Combined dihedral analysis for phi, psi, omega with Ramachandran plotting.
     """
 
+    _ALIASES = {
+        "residue": "residues",
+        "residue_selection": "residues",
+    }
+
     def __init__(
         self,
         trajectory: md.Trajectory,
@@ -499,13 +511,15 @@ class DihedralsAnalysis(BaseAnalysis):
         **kwargs
     ):
         logger.info("Initializing Dihedrals analysis")
+        warn_unknown = kwargs.pop("_warn_unknown", False)
+
         analysis_opts = {"types": types, "residues": residues, "units": units, "strict": strict}
         analysis_opts.update(kwargs)
 
-        forwarder = OptionsForwarder(strict=strict)
+        forwarder = OptionsForwarder(aliases=self._ALIASES, strict=strict)
         resolved = forwarder.apply_aliases(analysis_opts)
         resolved = forwarder.filter_known(
-            resolved, {"types", "residues", "units", "strict", "output"}, context="dihedrals"
+            resolved, {"types", "residues", "units", "strict", "output"}, context="dihedrals", warn=warn_unknown
         )
 
         types = resolved.get("types", ["phi", "psi", "omega"])
