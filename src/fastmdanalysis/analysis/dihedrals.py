@@ -231,6 +231,15 @@ class PhiAnalysis(BaseAnalysis):
             mask = np.isin(x, residues)
             x = x[mask]
             y = y[mask]
+            if yerr is not None:
+                yerr = yerr[mask]
+
+        plot_matrix = np.column_stack([x, y])
+        header = f"residue_index phi_mean_{self.units}"
+        if yerr is not None:
+            plot_matrix = np.column_stack([plot_matrix, yerr])
+            header = f"{header} phi_std_{self.units}"
+        self._save_data(plot_matrix, "phi_avg_plot", header=header)
 
         # Plot
         fig, ax = plt.subplots(figsize=figsize)
@@ -392,6 +401,15 @@ class PsiAnalysis(BaseAnalysis):
             mask = np.isin(x, residues)
             x = x[mask]
             y = y[mask]
+            if yerr is not None:
+                yerr = yerr[mask]
+
+        plot_matrix = np.column_stack([x, y])
+        header = f"residue_index psi_mean_{self.units}"
+        if yerr is not None:
+            plot_matrix = np.column_stack([plot_matrix, yerr])
+            header = f"{header} psi_std_{self.units}"
+        self._save_data(plot_matrix, "psi_avg_plot", header=header)
 
         fig, ax = plt.subplots(figsize=kwargs.get("figsize", (12, 6)))
         ax.errorbar(
@@ -566,6 +584,15 @@ class OmegaAnalysis(BaseAnalysis):
             mask = np.isin(x, residues)
             x = x[mask]
             y = y[mask]
+            if yerr is not None:
+                yerr = yerr[mask]
+
+        plot_matrix = np.column_stack([x, y])
+        header = f"residue_index omega_mean_{self.units}"
+        if yerr is not None:
+            plot_matrix = np.column_stack([plot_matrix, yerr])
+            header = f"{header} omega_std_{self.units}"
+        self._save_data(plot_matrix, "omega_avg_plot", header=header)
 
         fig, ax = plt.subplots(figsize=kwargs.get("figsize", (12, 6)))
         ax.errorbar(
@@ -759,6 +786,13 @@ class DihedralsAnalysis(BaseAnalysis):
             if psi_std is not None:
                 psi_std = psi_std[mask]
 
+        avg_matrix = np.column_stack([res_indices, x, y])
+        header = f"residue_index phi_mean_{self.units} psi_mean_{self.units}"
+        if phi_std is not None and psi_std is not None:
+            avg_matrix = np.column_stack([avg_matrix, phi_std, psi_std])
+            header = f"{header} phi_std_{self.units} psi_std_{self.units}"
+        self._save_data(avg_matrix, "ramachandran_avg", header=header)
+
         fig, ax = plt.subplots(figsize=figsize)
         cmap = plt.get_cmap("viridis")
         norm = plt.Normalize(vmin=res_indices.min(), vmax=res_indices.max()) if len(res_indices) else None
@@ -781,6 +815,10 @@ class DihedralsAnalysis(BaseAnalysis):
         ax.set_xlabel(f"Phi ({self.units})")
         ax.set_ylabel(f"Psi ({self.units})")
         ax.grid(True, alpha=0.3)
+
+        limit = 180.0 if self.units == "degrees" else np.pi
+        ax.set_xlim(-limit, limit)
+        ax.set_ylim(-limit, limit)
 
         if len(res_indices):
             mappable = matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap)
@@ -817,7 +855,17 @@ class DihedralsAnalysis(BaseAnalysis):
                         ax_res.set_xlabel(f"Phi ({self.units})")
                         ax_res.set_ylabel(f"Psi ({self.units})")
                         ax_res.grid(True, alpha=0.3)
+                        ax_res.set_xlim(-limit, limit)
+                        ax_res.set_ylim(-limit, limit)
                         fig_res.tight_layout()
+
+                        frame_matrix = np.column_stack([phi_angles[:, idx], psi_angles[:, idx]])
+                        frame_header = f"phi_{self.units} psi_{self.units}"
+                        self._save_data(
+                            frame_matrix,
+                            f"ramachandran_res{res}",
+                            header=frame_header,
+                        )
 
                         per_path = self._save_plot(
                             fig_res,
