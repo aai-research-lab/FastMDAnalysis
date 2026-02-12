@@ -853,8 +853,8 @@ class DihedralsAnalysis(BaseAnalysis):
                         ax_res.set_xlabel(f"Phi ({self.units})")
                         ax_res.set_ylabel(f"Psi ({self.units})")
                         ax_res.grid(True, alpha=0.3)
-                        ax_res.set_xlim(-limit, limit)
-                        ax_res.set_ylim(-limit, limit)
+                        ax_res.set_xlim(-(limit + pad), limit + pad)
+                        ax_res.set_ylim(-(limit + pad), limit + pad)
                         fig_res.tight_layout()
 
                         frame_matrix = np.column_stack([phi_angles[:, idx], psi_angles[:, idx]])
@@ -864,7 +864,6 @@ class DihedralsAnalysis(BaseAnalysis):
                             f"ramachandran_res{res}",
                             header=frame_header,
                         )
-
                         per_path = self._save_plot(
                             fig_res,
                             "ramachandran",
