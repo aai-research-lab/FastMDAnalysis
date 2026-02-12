@@ -128,7 +128,11 @@ class PhiAnalysis(BaseAnalysis):
             else:
                 self.residue_indices = full_res_indices
 
+<<<<<<< HEAD
             # Circular mean and std per residue
+=======
+            # Circular mean per residue
+>>>>>>> upstream/main
             n_residues = angles.shape[1]
             avg_angles = np.zeros(n_residues)
             std_angles = np.zeros(n_residues)
@@ -154,7 +158,10 @@ class PhiAnalysis(BaseAnalysis):
                 "phi_avg": self.data,
                 "phi_avg_filtered": self.data,
                 "phi_residues": self.residue_indices,
+<<<<<<< HEAD
                 "phi_std": std_angles.reshape(-1, 1),
+=======
+>>>>>>> upstream/main
             }
 
             # Save data
@@ -214,9 +221,12 @@ class PhiAnalysis(BaseAnalysis):
             raise AnalysisError("No phi data available to plot.")
 
         y = np.asarray(data, dtype=float).flatten()
+<<<<<<< HEAD
         yerr = None
         if std_data is not None:
             yerr = np.asarray(std_data, dtype=float).flatten()
+=======
+>>>>>>> upstream/main
 
         # X-axis should reflect residue indices of the computed data (not 0..N-1)
         if self.residue_indices is not None and len(self.residue_indices) == len(y):
@@ -350,7 +360,10 @@ class PsiAnalysis(BaseAnalysis):
                 "psi_avg": self.data,
                 "psi_avg_filtered": self.data,
                 "psi_residues": self.residue_indices,
+<<<<<<< HEAD
                 "psi_std": std_angles.reshape(-1, 1),
+=======
+>>>>>>> upstream/main
             }
 
             self._save_data(self.data, "psi_avg", header=f"psi_avg_{self.units}")
@@ -376,9 +389,12 @@ class PsiAnalysis(BaseAnalysis):
             raise AnalysisError("No psi data available to plot.")
 
         y = np.asarray(kwargs["data"], dtype=float).flatten()
+<<<<<<< HEAD
         yerr = None
         if kwargs.get("std_data") is not None:
             yerr = np.asarray(kwargs["std_data"], dtype=float).flatten()
+=======
+>>>>>>> upstream/main
         if self.residue_indices is not None and len(self.residue_indices) == len(y):
             x = self.residue_indices.astype(int)
         else:
@@ -525,7 +541,10 @@ class OmegaAnalysis(BaseAnalysis):
                 "omega_avg": self.data,
                 "omega_avg_filtered": self.data,
                 "omega_residues": self.residue_indices,
+<<<<<<< HEAD
                 "omega_std": std_angles.reshape(-1, 1),
+=======
+>>>>>>> upstream/main
             }
 
             self._save_data(self.data, "omega_avg", header=f"omega_avg_{self.units}")
@@ -550,9 +569,12 @@ class OmegaAnalysis(BaseAnalysis):
             raise AnalysisError("No omega data available to plot.")
 
         y = np.asarray(kwargs["data"], dtype=float).flatten()
+<<<<<<< HEAD
         yerr = None
         if kwargs.get("std_data") is not None:
             yerr = np.asarray(kwargs["std_data"], dtype=float).flatten()
+=======
+>>>>>>> upstream/main
         if self.residue_indices is not None and len(self.residue_indices) == len(y):
             x = self.residue_indices.astype(int)
         else:
