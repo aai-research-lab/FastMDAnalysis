@@ -762,7 +762,6 @@ class DihedralsAnalysis(BaseAnalysis):
 
         x = phi_data
         y = psi_data
-
         # Use residue indices when the per-angle analyses were residue-filtered
         res_indices = self.results.get("phi_residues")
         if res_indices is None:
