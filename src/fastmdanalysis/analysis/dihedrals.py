@@ -762,6 +762,7 @@ class DihedralsAnalysis(BaseAnalysis):
 
         x = phi_data
         y = psi_data
+
         # Use residue indices when the per-angle analyses were residue-filtered
         res_indices = self.results.get("phi_residues")
         if res_indices is None:
@@ -784,7 +785,6 @@ class DihedralsAnalysis(BaseAnalysis):
                 phi_std = phi_std[mask]
             if psi_std is not None:
                 psi_std = psi_std[mask]
-
         avg_matrix = np.column_stack([res_indices, x, y])
         header = f"residue_index phi_mean_{self.units} psi_mean_{self.units}"
         if phi_std is not None and psi_std is not None:
@@ -814,11 +814,10 @@ class DihedralsAnalysis(BaseAnalysis):
         ax.set_xlabel(f"Phi ({self.units})")
         ax.set_ylabel(f"Psi ({self.units})")
         ax.grid(True, alpha=0.3)
-
         limit = 180.0 if self.units == "degrees" else np.pi
-        ax.set_xlim(-limit, limit)
-        ax.set_ylim(-limit, limit)
-
+        pad = 20.0 if self.units == "degrees" else (np.pi / 9.0)
+        ax.set_xlim(-(limit + pad), limit + pad)
+        ax.set_ylim(-(limit + pad), limit + pad)
         if len(res_indices):
             mappable = matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap)
             cbar = plt.colorbar(mappable, ax=ax)
