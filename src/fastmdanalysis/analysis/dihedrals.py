@@ -792,6 +792,13 @@ class DihedralsAnalysis(BaseAnalysis):
             header = f"{header} phi_std_{self.units} psi_std_{self.units}"
         self._save_data(avg_matrix, "ramachandran_avg", header=header)
 
+        avg_matrix = np.column_stack([res_indices, x, y])
+        header = f"residue_index phi_mean_{self.units} psi_mean_{self.units}"
+        if phi_std is not None and psi_std is not None:
+            avg_matrix = np.column_stack([avg_matrix, phi_std, psi_std])
+            header = f"{header} phi_std_{self.units} psi_std_{self.units}"
+        self._save_data(avg_matrix, "ramachandran_avg", header=header)
+
         fig, ax = plt.subplots(figsize=figsize)
         cmap = plt.get_cmap("viridis")
         norm = plt.Normalize(vmin=res_indices.min(), vmax=res_indices.max()) if len(res_indices) else None
