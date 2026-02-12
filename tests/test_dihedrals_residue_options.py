@@ -14,7 +14,6 @@ def test_phi_residue_alias_no_unknown_warning(fastmda):
     messages = [str(wi.message) for wi in w]
     assert not _unknown_warnings(messages)
     assert analysis.data.shape[0] == 1
-
     assert "phi_residues" in analysis.results
     assert list(np.asarray(analysis.results["phi_residues"]).astype(int)) == [0]
     assert "phi_avg_filtered" in analysis.results
@@ -34,7 +33,6 @@ def test_dihedrals_residue_selection_alias_propagates(fastmda):
     assert analysis.results["phi_avg"].shape[0] == 2
     assert analysis.results["psi_avg"].shape[0] == 2
     assert analysis.results["omega_avg"].shape[0] == 2
-
     assert list(np.asarray(analysis.results["phi_residues"]).astype(int)) == [0, 1]
     assert list(np.asarray(analysis.results["psi_residues"]).astype(int)) == [0, 1]
     assert list(np.asarray(analysis.results["omega_residues"]).astype(int)) == [0, 1]
