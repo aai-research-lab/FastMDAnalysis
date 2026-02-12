@@ -128,11 +128,7 @@ class PhiAnalysis(BaseAnalysis):
             else:
                 self.residue_indices = full_res_indices
 
-<<<<<<< HEAD
             # Circular mean and std per residue
-=======
-            # Circular mean per residue
->>>>>>> upstream/main
             n_residues = angles.shape[1]
             avg_angles = np.zeros(n_residues)
             std_angles = np.zeros(n_residues)
@@ -158,10 +154,7 @@ class PhiAnalysis(BaseAnalysis):
                 "phi_avg": self.data,
                 "phi_avg_filtered": self.data,
                 "phi_residues": self.residue_indices,
-<<<<<<< HEAD
                 "phi_std": std_angles.reshape(-1, 1),
-=======
->>>>>>> upstream/main
             }
 
             # Save data
@@ -221,12 +214,9 @@ class PhiAnalysis(BaseAnalysis):
             raise AnalysisError("No phi data available to plot.")
 
         y = np.asarray(data, dtype=float).flatten()
-<<<<<<< HEAD
         yerr = None
         if std_data is not None:
             yerr = np.asarray(std_data, dtype=float).flatten()
-=======
->>>>>>> upstream/main
 
         # X-axis should reflect residue indices of the computed data (not 0..N-1)
         if self.residue_indices is not None and len(self.residue_indices) == len(y):
@@ -360,10 +350,7 @@ class PsiAnalysis(BaseAnalysis):
                 "psi_avg": self.data,
                 "psi_avg_filtered": self.data,
                 "psi_residues": self.residue_indices,
-<<<<<<< HEAD
                 "psi_std": std_angles.reshape(-1, 1),
-=======
->>>>>>> upstream/main
             }
 
             self._save_data(self.data, "psi_avg", header=f"psi_avg_{self.units}")
@@ -389,12 +376,9 @@ class PsiAnalysis(BaseAnalysis):
             raise AnalysisError("No psi data available to plot.")
 
         y = np.asarray(kwargs["data"], dtype=float).flatten()
-<<<<<<< HEAD
         yerr = None
         if kwargs.get("std_data") is not None:
             yerr = np.asarray(kwargs["std_data"], dtype=float).flatten()
-=======
->>>>>>> upstream/main
         if self.residue_indices is not None and len(self.residue_indices) == len(y):
             x = self.residue_indices.astype(int)
         else:
@@ -541,10 +525,7 @@ class OmegaAnalysis(BaseAnalysis):
                 "omega_avg": self.data,
                 "omega_avg_filtered": self.data,
                 "omega_residues": self.residue_indices,
-<<<<<<< HEAD
                 "omega_std": std_angles.reshape(-1, 1),
-=======
->>>>>>> upstream/main
             }
 
             self._save_data(self.data, "omega_avg", header=f"omega_avg_{self.units}")
@@ -569,12 +550,9 @@ class OmegaAnalysis(BaseAnalysis):
             raise AnalysisError("No omega data available to plot.")
 
         y = np.asarray(kwargs["data"], dtype=float).flatten()
-<<<<<<< HEAD
         yerr = None
         if kwargs.get("std_data") is not None:
             yerr = np.asarray(kwargs["std_data"], dtype=float).flatten()
-=======
->>>>>>> upstream/main
         if self.residue_indices is not None and len(self.residue_indices) == len(y):
             x = self.residue_indices.astype(int)
         else:
@@ -767,10 +745,12 @@ class DihedralsAnalysis(BaseAnalysis):
 
         if residues is None:
             residues = self.residues
+        res_list = None
         if residues is not None:
             if isinstance(residues, int):
                 residues = [residues]
-            mask = np.isin(res_indices, residues)
+            res_list = list(residues)
+            mask = np.isin(res_indices, res_list)
             x = x[mask]
             y = y[mask]
             res_indices = res_indices[mask]
@@ -810,6 +790,46 @@ class DihedralsAnalysis(BaseAnalysis):
         fig.tight_layout()
         outpath = self._save_plot(fig, "ramachandran")
         plt.close(fig)
+
+        # If residues are selected, also generate per-residue frame-level plots
+        if res_list:
+            try:
+                _, phi_angles = md.compute_phi(self.traj)
+                _, psi_angles = md.compute_psi(self.traj)
+                if phi_angles.size and psi_angles.size:
+                    phi_angles = phi_angles[:, res_list]
+                    psi_angles = psi_angles[:, res_list]
+
+                    if self.units == "degrees":
+                        phi_angles = np.degrees(phi_angles)
+                        psi_angles = np.degrees(psi_angles)
+
+                    per_residue: Dict[int, Path] = {}
+                    for idx, res in enumerate(res_list):
+                        fig_res, ax_res = plt.subplots(figsize=figsize)
+                        ax_res.scatter(
+                            phi_angles[:, idx],
+                            psi_angles[:, idx],
+                            color=kwargs.get("color", "blue"),
+                            alpha=kwargs.get("alpha", 0.7),
+                        )
+                        ax_res.set_title(f"Ramachandran Plot — Residue {res}")
+                        ax_res.set_xlabel(f"Phi ({self.units})")
+                        ax_res.set_ylabel(f"Psi ({self.units})")
+                        ax_res.grid(True, alpha=0.3)
+                        fig_res.tight_layout()
+
+                        per_path = self._save_plot(
+                            fig_res,
+                            "ramachandran",
+                            filename=f"ramachandran_res{res}",
+                        )
+                        plt.close(fig_res)
+                        per_residue[res] = per_path
+
+                    self.results["ramachandran_per_residue"] = per_residue
+            except Exception as exc:
+                logger.warning("Per-residue Ramachandran plots failed: %s", exc)
 
         return outpath
 
