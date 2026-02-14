@@ -236,6 +236,14 @@ class QAnalysis(BaseAnalysis):
             r = md.compute_distances(self.traj, native_contacts)  # shape (N_frames, N_contacts)
             r0 = md.compute_distances(self.traj[self.reference_frame], native_contacts)[0]  # shape (N_contacts,)
 
+            # Build residue-pair contact list (1-based residue indices)
+            contact_pairs = []
+            for atom_i, atom_j in native_contacts:
+                res_i = self.traj.topology.atom(atom_i).residue.index + 1
+                res_j = self.traj.topology.atom(atom_j).residue.index + 1
+                contact_pairs.append((res_i, res_j))
+            contact_pairs = np.asarray(contact_pairs, dtype=int)
+
             # Compute Q-values using Best-Hummer-Eaton formula
             logger.debug("Computing Q-values...")
             q_values = np.mean(
@@ -244,7 +252,10 @@ class QAnalysis(BaseAnalysis):
             )
 
             self.data = np.asarray(q_values, dtype=float).reshape(-1, 1)
-            self.results = {"qvalue": self.data}
+            self.results = {
+                "qvalue": self.data,
+                "contact_list": contact_pairs,
+            }
 
             if self.compute_stat:
                 mean_val = float(np.nanmean(q_values))
@@ -256,10 +267,15 @@ class QAnalysis(BaseAnalysis):
                     header="mean std",
                     fmt="%.6f",
                 )
-
             # Save data
             logger.info("Saving Q-value data...")
             self._save_data(self.data, "qvalue", header="qvalue", fmt="%.6f")
+            self._save_data(
+                contact_pairs,
+                "qvalue_contact_list",
+                header="residue_i residue_j (1-based)",
+                fmt="%d",
+            )
 
             # Save metadata
             self._save_metadata()
@@ -342,7 +358,7 @@ class QAnalysis(BaseAnalysis):
         if color is not None:
             line_kwargs["color"] = color
 
-        ax.plot(x, y, **line_kwargs)
+    ax.plot(x, y, **line_kwargs)
         if self.compute_stat:
             mean_val = float(np.nanmean(y))
             std_val = float(np.nanstd(y))

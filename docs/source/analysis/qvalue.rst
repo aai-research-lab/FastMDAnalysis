@@ -117,6 +117,7 @@ Outputs
 
 - ``qvalue.dat`` — Q-values (one per frame, range [0, 1])
 - ``qvalue_stats.dat`` — mean and standard deviation when ``compute_stat=True``
+- ``qvalue_contact_list.dat`` — residue index pairs (1-based) used as native contacts
 - ``qvalue.png`` — Line plot of Q-value vs. frame with metadata annotation
 - ``qvalue_metadata.json`` — Complete metadata including:
   
