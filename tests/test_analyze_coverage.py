@@ -27,7 +27,7 @@ def test_discover_available(minimal_md_files):
     expected = [
         'rmsd', 'rmsf', 'rg', 'hbonds', 'ss',
         'phi', 'psi', 'omega', 'dihedrals',
-        'sasa', 'q_value', 'dimred', 'cluster'
+        'sasa', 'qvalue', 'dimred', 'cluster'
     ]
     assert set(available) == set(expected)
 

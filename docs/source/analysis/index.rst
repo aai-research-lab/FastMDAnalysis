@@ -19,5 +19,5 @@ details, and usage patterns for each analysis.
    sasa
    ss
    dihedrals
-   q_value
+   qvalue
    dimred

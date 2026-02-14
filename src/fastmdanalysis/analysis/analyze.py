@@ -42,7 +42,7 @@ _DEFAULT_ORDER: Tuple[str, ...] = (
     "omega",
     "dihedrals",
     "sasa",
-    "q_value",
+    "qvalue",
     "dimred",
     "cluster",
 )
@@ -95,6 +95,17 @@ def _final_list(
     - Then drop any in exclude.
     """
     avail_set = set(available)
+
+    def _normalize(names: Optional[Sequence[str]]) -> Optional[List[str]]:
+        if names is None:
+            return None
+        out: List[str] = []
+        for name in names:
+            out.append(str(name).lower())
+        return out
+
+    include = _normalize(include)
+    exclude = _normalize(exclude)
 
     if include is None or (len(include) == 1 and str(include[0]).lower() == "all"):
         candidates = [name for name in _DEFAULT_ORDER if name in avail_set]

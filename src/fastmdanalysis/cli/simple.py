@@ -69,10 +69,10 @@ def register_simple(subparsers: argparse._SubParsersAction, common_parser: argpa
             "call": _call_dimred,
         },
         {
-            "name": "q_value",
+            "name": "qvalue",
             "help": "Fraction of native contacts (Q-value) analysis",
-            "args": _args_q_value,
-            "call": _call_q_value,
+            "args": _args_qvalue,
+            "call": _call_qvalue,
         },
     ]
 
@@ -225,7 +225,7 @@ def _call_dihedrals(fastmda, args: argparse.Namespace):
     )
 
 
-def _args_q_value(p: argparse.ArgumentParser) -> None:
+def _args_qvalue(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--reference-frame", "--ref",
         dest="reference_frame", type=int, default=0,
@@ -248,8 +248,8 @@ def _args_q_value(p: argparse.ArgumentParser) -> None:
     )
 
 
-def _call_q_value(fastmda, args: argparse.Namespace):
-    return fastmda.q_value(
+def _call_qvalue(fastmda, args: argparse.Namespace):
+    return fastmda.qvalue(
         reference_frame=args.reference_frame,
         beta_const=args.beta_const,
         lambda_const=args.lambda_const,

@@ -1,7 +1,7 @@
-.. currentmodule:: FastMDAnalysis.analysis.q_value
+.. currentmodule:: FastMDAnalysis.analysis.qvalue
 
 Fraction of Native Contacts (Q-Value)
-======================================
+=====================================
 
 The :class:`QAnalysis` module computes the fraction of native contacts (Q-value)
 according to the Best-Hummer-Eaton definition. This metric measures how many
@@ -57,20 +57,20 @@ Usage
    from fastmdanalysis import FastMDAnalysis
 
    fastmda = FastMDAnalysis("traj.dcd", "top.pdb")
-   q = fastmda.q_value(
+   q = fastmda.qvalue(
        reference_frame=0,
        beta_const=50.0,      # nm^-1
        lambda_const=1.8,
        native_cutoff=0.45    # nm
    )
-   q_values = q.results["q_value"]
+   q_values = q.results["qvalue"]
    q.plot()
 
 **CLI**
 
 .. code-block:: bash
 
-   fastmda q_value -traj traj.dcd -top top.pdb \
+   fastmda qvalue -traj traj.dcd -top top.pdb \
        --reference-frame 0 \
        --beta 50.0 \
        --lambda 1.8 \
@@ -83,7 +83,7 @@ Usage
 
    # Include Q-value in multi-analysis workflow
    results = fastmda.analyze(
-       include=["rmsd", "rg", "q_value"],
+       include=["rmsd", "rg", "qvalue"],
        output="analysis_output"
    )
 
@@ -115,9 +115,9 @@ Parameters
 Outputs
 -------
 
-- ``q_value.dat`` — Q-values (one per frame, range [0, 1])
-- ``q_value.png`` — Line plot of Q-value vs. frame with metadata annotation
-- ``q_value_metadata.json`` — Complete metadata including:
+- ``qvalue.dat`` — Q-values (one per frame, range [0, 1])
+- ``qvalue.png`` — Line plot of Q-value vs. frame with metadata annotation
+- ``qvalue_metadata.json`` — Complete metadata including:
   
   - ``native_contacts_count`` — Number of native contacts identified
   - ``reference_frame`` — Reference frame index used

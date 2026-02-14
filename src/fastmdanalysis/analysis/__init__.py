@@ -11,6 +11,6 @@ from .cluster import ClusterAnalysis
 from .ss import SSAnalysis  # Changed from secondary_structure to ss; class renamed to SSAnalysis
 from .dimred import DimRedAnalysis
 from .sasa import SASAAnalysis
-from .q_value import QAnalysis
+from .qvalue import QAnalysis
 from .dihedrals import PhiAnalysis, PsiAnalysis, OmegaAnalysis, DihedralsAnalysis
 

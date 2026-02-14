@@ -24,7 +24,7 @@ import logging
 # Optional dependency import to ensure availability at import time (not used directly here).
 import mdtraj as md  # noqa: F401
 
-from .analysis import rmsd, rmsf, rg, hbonds, cluster, ss, dimred, sasa, q_value, dihedrals
+from .analysis import rmsd, rmsf, rg, hbonds, cluster, ss, dimred, sasa, qvalue, dihedrals
 from .utils import load_trajectory  # Extended utility supporting multiple files.
 from .utils.logging import setup_library_logging, log_run_header  # convenient re-exports
 
@@ -73,7 +73,7 @@ ClusterAnalysis = cluster.ClusterAnalysis
 SSAnalysis = ss.SSAnalysis
 DimRedAnalysis = dimred.DimRedAnalysis
 SASAAnalysis = sasa.SASAAnalysis
-QAnalysis = q_value.QAnalysis
+QAnalysis = qvalue.QAnalysis
 PhiAnalysis = dihedrals.PhiAnalysis
 PsiAnalysis = dihedrals.PsiAnalysis
 OmegaAnalysis = dihedrals.OmegaAnalysis
@@ -386,7 +386,7 @@ class FastMDAnalysis:
         analysis.run()
         return analysis
 
-    def q_value(
+    def qvalue(
         self,
         reference_frame: int = 0,
         beta_const: float = 50.0,

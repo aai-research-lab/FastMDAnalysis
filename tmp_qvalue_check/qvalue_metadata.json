@@ -1,0 +1,10 @@
+{
+  "native_contacts_count": 136,
+  "reference_frame": 0,
+  "beta_const_nm_inv": 50.0,
+  "lambda_const": 1.8,
+  "native_cutoff_nm": 0.45,
+  "atom_selection": "protein",
+  "n_frames": 500,
+  "n_atoms": 304
+}

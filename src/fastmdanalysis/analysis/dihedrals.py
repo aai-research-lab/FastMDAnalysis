@@ -260,6 +260,10 @@ class PhiAnalysis(BaseAnalysis):
             ylabel = f"Phi Angle ({self.units})"
         ax.set_ylabel(ylabel)
 
+        limit = 180.0 if self.units == "degrees" else np.pi
+        pad = 20.0 if self.units == "degrees" else (np.pi / 9.0)
+        ax.set_ylim(-(limit + pad), limit + pad)
+
         # Highlight specific residues
         if highlight_residues is not None:
             if isinstance(highlight_residues, int):
@@ -444,6 +448,10 @@ class PsiAnalysis(BaseAnalysis):
         ax.set_xlabel(kwargs.get("xlabel", "Residue Index"))
         ax.set_ylabel(kwargs.get("ylabel", f"Psi Angle ({self.units})"))
 
+        limit = 180.0 if self.units == "degrees" else np.pi
+        pad = 20.0 if self.units == "degrees" else (np.pi / 9.0)
+        ax.set_ylim(-(limit + pad), limit + pad)
+
         # Highlight specific residues
         highlight_residues = kwargs.get("highlight_residues")
         if highlight_residues is not None:
@@ -626,6 +634,10 @@ class OmegaAnalysis(BaseAnalysis):
         ax.set_title(kwargs.get("title", "Average Omega Angles per Residue"))
         ax.set_xlabel(kwargs.get("xlabel", "Residue Index"))
         ax.set_ylabel(kwargs.get("ylabel", f"Omega Angle ({self.units})"))
+
+        limit = 180.0 if self.units == "degrees" else np.pi
+        pad = 20.0 if self.units == "degrees" else (np.pi / 9.0)
+        ax.set_ylim(-(limit + pad), limit + pad)
 
         # Highlight specific residues
         highlight_residues = kwargs.get("highlight_residues")

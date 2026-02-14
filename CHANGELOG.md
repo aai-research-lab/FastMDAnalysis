@@ -6,11 +6,11 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 ### Added
-- **Fraction of Native Contacts (Q-Value) Analysis**: New `q_value` module implementing the Best-Hummer-Eaton Q metric for measuring protein folding state and native structure retention.
+- **Fraction of Native Contacts (Q-Value) Analysis**: New `qvalue` module implementing the Best-Hummer-Eaton Q metric for measuring protein folding state and native structure retention.
   - User-configurable parameters: `reference_frame`, `beta_const`, `lambda_const`, `native_cutoff`
   - Automatic native contact identification and metadata reporting
   - Integration with multi-analysis orchestrator and slide generation
-  - Full CLI support with `fastmda q_value` command
+  - Full CLI support with `fastmda qvalue` command
 - New features since `v1.0.0`.
 ### Changed
 - Behavior/CLI/API updates.
