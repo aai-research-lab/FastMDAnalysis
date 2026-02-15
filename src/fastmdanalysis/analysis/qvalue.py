@@ -357,8 +357,7 @@ class QAnalysis(BaseAnalysis):
         line_kwargs = {"linestyle": linestyle, "marker": marker}
         if color is not None:
             line_kwargs["color"] = color
-
-    ax.plot(x, y, **line_kwargs)
+        ax.plot(x, y, **line_kwargs)
         if self.compute_stat:
             mean_val = float(np.nanmean(y))
             std_val = float(np.nanstd(y))
