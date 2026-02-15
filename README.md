@@ -185,8 +185,8 @@ Output includes data tables, figures (already stylized for slides), slide deck, 
 ---
 
 ## Validation and Benchmarks
-- To validate `FastMDAnalysis` go to https://github.com/aai-research-lab/FastMDAnalysis/blob/validation/README.md
-- For benchmarks go to https://github.com/aai-research-lab/FastMDAnalysis/blob/benchmark/README.md
+- To validate `FastMDAnalysis` go to the [Validation Branch](https://github.com/aai-research-lab/FastMDAnalysis/blob/validation/README.md).
+- For benchmarks go to the  [Benchmark Branch](https://github.com/aai-research-lab/FastMDAnalysis/blob/benchmark/README.md).
 
 ---
 
