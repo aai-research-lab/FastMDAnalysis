@@ -57,6 +57,8 @@ Outputs
 -------
 
 - ``rg_output/rg.dat`` — one value per frame (nm).
+- ``rg_output/rg_stats.dat`` — mean and standard deviation when
+  ``compute_stat=True``.
 - ``rg_output/rg.png`` — default line plot written by :meth:`RGAnalysis.plot`.
 - ``rg_output/rg.log`` — execution log captured by the CLI wrapper.
 

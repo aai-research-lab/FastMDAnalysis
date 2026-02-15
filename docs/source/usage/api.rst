@@ -86,7 +86,9 @@ Because the trajectory is cached, sequential runs avoid reloads:
 
 The ``FastMDAnalysis.analyze`` helper mirrors the CLI orchestrator. It accepts
 ``include``/``exclude`` lists, per-analysis ``options`` (same schema as the CLI
-YAML/JSON file), and a ``slides`` flag or path to emit a PowerPoint deck.
+YAML/JSON file), and a ``slides`` flag or path to emit a PowerPoint deck. Use
+``compute_stat=True`` to compute mean/standard deviation summaries for time-series
+analyses and overlay the bands on plots.
 
 .. code-block:: python
 
@@ -98,6 +100,7 @@ YAML/JSON file), and a ``slides`` flag or path to emit a PowerPoint deck.
 			"sasa": {"tick_step_avg": 4, "color_total": "#2c3e50"},
 		},
 		slides="results.pptx",
+		compute_stat=True,
 	)
 
 Each entry in ``result`` is an :class:`analysis.AnalysisResult` exposing ``ok``

@@ -116,6 +116,7 @@ Outputs
 -------
 
 - ``qvalue.dat`` — Q-values (one per frame, range [0, 1])
+- ``qvalue_stats.dat`` — mean and standard deviation when ``compute_stat=True``
 - ``qvalue.png`` — Line plot of Q-value vs. frame with metadata annotation
 - ``qvalue_metadata.json`` — Complete metadata including:
   

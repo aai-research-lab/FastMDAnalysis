@@ -69,6 +69,7 @@ class QAnalysis(BaseAnalysis):
         lambda_const: float = 1.8,
         native_cutoff: float = 0.45,
         atom_selection: Optional[str] = None,
+        compute_stat: bool = False,
         strict: bool = False,
         **kwargs
     ):
@@ -105,6 +106,7 @@ class QAnalysis(BaseAnalysis):
             "lambda_const": lambda_const,
             "native_cutoff": native_cutoff,
             "atom_selection": atom_selection,
+            "compute_stat": compute_stat,
             "strict": strict,
         }
         analysis_opts.update(kwargs)
@@ -119,6 +121,7 @@ class QAnalysis(BaseAnalysis):
                 "lambda_const",
                 "native_cutoff",
                 "atom_selection",
+                "compute_stat",
                 "strict",
                 "output",
             },
@@ -131,9 +134,21 @@ class QAnalysis(BaseAnalysis):
         lambda_const = resolved.get("lambda_const", 1.8)
         native_cutoff = resolved.get("native_cutoff", 0.45)
         atom_selection = resolved.get("atom_selection", None)
-        base_kwargs = {k: v for k, v in resolved.items()
-                      if k not in ("reference_frame", "beta_const", "lambda_const",
-                                   "native_cutoff", "atom_selection", "strict")}
+        compute_stat = resolved.get("compute_stat", False)
+        base_kwargs = {
+            k: v
+            for k, v in resolved.items()
+            if k
+            not in (
+                "reference_frame",
+                "beta_const",
+                "lambda_const",
+                "native_cutoff",
+                "atom_selection",
+                "compute_stat",
+                "strict",
+            )
+        }
 
         super().__init__(trajectory, **base_kwargs)
         self.reference_frame = reference_frame
@@ -141,6 +156,7 @@ class QAnalysis(BaseAnalysis):
         self.lambda_const = lambda_const
         self.native_cutoff = native_cutoff
         self.atom_selection = atom_selection
+        self.compute_stat = bool(compute_stat)
         self.strict = strict
         
         self.data: Optional[np.ndarray] = None
@@ -230,6 +246,17 @@ class QAnalysis(BaseAnalysis):
             self.data = np.asarray(q_values, dtype=float).reshape(-1, 1)
             self.results = {"qvalue": self.data}
 
+            if self.compute_stat:
+                mean_val = float(np.nanmean(q_values))
+                std_val = float(np.nanstd(q_values))
+                self.results["qvalue_stats"] = {"mean": mean_val, "std": std_val}
+                self._save_data(
+                    np.array([[mean_val, std_val]], dtype=float),
+                    "qvalue_stats",
+                    header="mean std",
+                    fmt="%.6f",
+                )
+
             # Save data
             logger.info("Saving Q-value data...")
             self._save_data(self.data, "qvalue", header="qvalue", fmt="%.6f")
@@ -316,6 +343,18 @@ class QAnalysis(BaseAnalysis):
             line_kwargs["color"] = color
 
         ax.plot(x, y, **line_kwargs)
+        if self.compute_stat:
+            mean_val = float(np.nanmean(y))
+            std_val = float(np.nanstd(y))
+            ax.axhline(mean_val, color="black", linestyle="--", linewidth=1.2, label="mean")
+            ax.fill_between(
+                [x.min(), x.max()],
+                mean_val - std_val,
+                mean_val + std_val,
+                color="gray",
+                alpha=0.2,
+                label="±1 std",
+            )
         ax.set_title(title)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
@@ -344,6 +383,8 @@ class QAnalysis(BaseAnalysis):
             zero_x=True,
             zero_y=False,
         )
+        if self.compute_stat:
+            ax.legend(loc="best")
         fig.tight_layout()
 
         out = self._save_plot(fig, "qvalue")

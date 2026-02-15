@@ -51,6 +51,7 @@ class SASAAnalysis(BaseAnalysis):
         probe_radius: float = 0.14, 
         atoms: Optional[str] = None,
         n_sphere_points: Optional[int] = None,
+        compute_stat: bool = False,
         strict: bool = False,
         **kwargs
     ):
@@ -77,6 +78,7 @@ class SASAAnalysis(BaseAnalysis):
             "probe_radius": probe_radius,
             "atoms": atoms,
             "n_sphere_points": n_sphere_points,
+            "compute_stat": compute_stat,
             "strict": strict,
         }
         analysis_opts.update(kwargs)
@@ -85,7 +87,7 @@ class SASAAnalysis(BaseAnalysis):
         resolved = forwarder.apply_aliases(analysis_opts)
         resolved = forwarder.filter_known(
             resolved,
-            {"probe_radius", "atoms", "n_sphere_points", "strict", "output"},
+            {"probe_radius", "atoms", "n_sphere_points", "compute_stat", "strict", "output"},
             context="sasa",
             warn=warn_unknown,
         )
@@ -93,13 +95,18 @@ class SASAAnalysis(BaseAnalysis):
         probe_radius = resolved.get("probe_radius", 0.14)
         atoms = resolved.get("atoms", None)
         n_sphere_points = resolved.get("n_sphere_points", None)
-        base_kwargs = {k: v for k, v in resolved.items() 
-                      if k not in ("probe_radius", "atoms", "n_sphere_points", "strict")}
+        compute_stat = resolved.get("compute_stat", False)
+        base_kwargs = {
+            k: v
+            for k, v in resolved.items()
+            if k not in ("probe_radius", "atoms", "n_sphere_points", "compute_stat", "strict")
+        }
 
         super().__init__(trajectory, **base_kwargs)
         self.probe_radius = float(probe_radius)
         self.atoms = atoms
         self.n_sphere_points = int(n_sphere_points) if n_sphere_points is not None else None
+        self.compute_stat = bool(compute_stat)
         self.strict = strict
         self.data: Optional[Dict[str, np.ndarray]] = None
         self.results: Dict[str, np.ndarray] = {}
@@ -182,6 +189,17 @@ class SASAAnalysis(BaseAnalysis):
             }
             self.results = self.data
 
+            if self.compute_stat:
+                mean_val = float(np.nanmean(total_sasa))
+                std_val = float(np.nanstd(total_sasa))
+                self.results["total_sasa_stats"] = {"mean": mean_val, "std": std_val}
+                self._save_data(
+                    np.array([[mean_val, std_val]], dtype=float),
+                    "total_sasa_stats",
+                    header="mean_nm2 std_nm2",
+                    fmt="%.6f",
+                )
+
             # Save data
             logger.info("Saving SASA data files...")
             self._save_data(total_sasa.reshape(-1, 1), "total_sasa", header="total_sasa_nm2", fmt="%.6f")
@@ -263,10 +281,24 @@ class SASAAnalysis(BaseAnalysis):
             line_kwargs["color"] = color
 
         ax.plot(x, total_sasa, **line_kwargs)
+        if self.compute_stat:
+            mean_val = float(np.nanmean(total_sasa))
+            std_val = float(np.nanstd(total_sasa))
+            ax.axhline(mean_val, color="black", linestyle="--", linewidth=1.2, label="mean")
+            ax.fill_between(
+                [x.min(), x.max()],
+                mean_val - std_val,
+                mean_val + std_val,
+                color="gray",
+                alpha=0.2,
+                label="±1 std",
+            )
         ax.set_title(title)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         ax.grid(alpha=0.3)
+        if self.compute_stat:
+            ax.legend(loc="best")
         apply_slide_style(
             ax,
             x_values=x,

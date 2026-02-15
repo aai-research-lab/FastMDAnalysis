@@ -23,6 +23,12 @@ will typically find:
     Timestamped log capturing CLI arguments / API parameters, library versions,
     and warnings.
 
+``*_stats.dat`` (time-series only)
+    Summary mean/standard deviation files produced when ``compute_stat=True``
+    (API) or ``fastmda analyze --compute-stat`` (CLI). These are emitted for
+    RMSD, RMSF, Rg, total SASA, and Q-value analyses. Corresponding plots include
+    a dashed mean line and a shaded ±1σ band.
+
 The ``fastmda analyze`` orchestrator defaults to ``analyze_output/`` but may
 spawn secondary directories for certain analyses (e.g., ``cluster/``,
 ``dimred/``) mirroring the structure under ``analyze_output/`` in the repo.

@@ -47,6 +47,7 @@ class RGAnalysis(BaseAnalysis):
         trajectory, 
         atoms: Optional[str] = None, 
         mass_weighted: bool = False,
+        compute_stat: bool = False,
         strict: bool = False,
         **kwargs
     ):
@@ -72,6 +73,7 @@ class RGAnalysis(BaseAnalysis):
         analysis_opts = {
             "atoms": atoms,
             "mass_weighted": mass_weighted,
+            "compute_stat": compute_stat,
             "strict": strict,
         }
         analysis_opts.update(kwargs)
@@ -80,19 +82,24 @@ class RGAnalysis(BaseAnalysis):
         resolved = forwarder.apply_aliases(analysis_opts)
         resolved = forwarder.filter_known(
             resolved,
-            {"atoms", "mass_weighted", "strict", "output"},
+            {"atoms", "mass_weighted", "compute_stat", "strict", "output"},
             context="rg",
             warn=warn_unknown,
         )
 
         atoms = resolved.get("atoms", None)
         mass_weighted = resolved.get("mass_weighted", False)
-        base_kwargs = {k: v for k, v in resolved.items() 
-                      if k not in ("atoms", "mass_weighted", "strict")}
+        compute_stat = resolved.get("compute_stat", False)
+        base_kwargs = {
+            k: v
+            for k, v in resolved.items()
+            if k not in ("atoms", "mass_weighted", "compute_stat", "strict")
+        }
 
         super().__init__(trajectory, **base_kwargs)
         self.atoms = atoms
         self.mass_weighted = mass_weighted
+        self.compute_stat = bool(compute_stat)
         self.strict = strict
         self.data: Optional[np.ndarray] = None
         self.results: Dict[str, np.ndarray] = {}
@@ -136,6 +143,17 @@ class RGAnalysis(BaseAnalysis):
             rg_values = md.compute_rg(subtraj)  # shape (N,), units nm
             self.data = np.asarray(rg_values, dtype=float).reshape(-1, 1)
             self.results = {"rg": self.data}
+
+            if self.compute_stat:
+                mean_val = float(np.nanmean(rg_values))
+                std_val = float(np.nanstd(rg_values))
+                self.results["rg_stats"] = {"mean": mean_val, "std": std_val}
+                self._save_data(
+                    np.array([[mean_val, std_val]], dtype=float),
+                    "rg_stats",
+                    header="mean_nm std_nm",
+                    fmt="%.6f",
+                )
 
             # Save data and default plot
             logger.info("Saving RG data...")
@@ -198,10 +216,24 @@ class RGAnalysis(BaseAnalysis):
             line_kwargs["color"] = color
 
         ax.plot(x, y, **line_kwargs)
+        if self.compute_stat:
+            mean_val = float(np.nanmean(y))
+            std_val = float(np.nanstd(y))
+            ax.axhline(mean_val, color="black", linestyle="--", linewidth=1.2, label="mean")
+            ax.fill_between(
+                [x.min(), x.max()],
+                mean_val - std_val,
+                mean_val + std_val,
+                color="gray",
+                alpha=0.2,
+                label="±1 std",
+            )
         ax.set_title(title)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         ax.grid(alpha=0.3)
+        if self.compute_stat:
+            ax.legend(loc="best")
 
         apply_slide_style(
             ax,

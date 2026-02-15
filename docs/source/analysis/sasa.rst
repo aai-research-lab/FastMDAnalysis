@@ -60,6 +60,8 @@ Outputs
 -------
 
 - ``sasa_output/total_sasa.dat`` — total SASA per frame (nm²).
+- ``sasa_output/total_sasa_stats.dat`` — mean and standard deviation when
+  ``compute_stat=True``.
 - ``sasa_output/residue_sasa.dat`` — matrix of per-residue SASA values.
 - ``sasa_output/average_residue_sasa.dat`` — mean SASA per residue.
 - ``sasa_output/total_sasa.png`` — total SASA trace.

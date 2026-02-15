@@ -237,6 +237,7 @@ def run(
     slides: Optional[Union[bool, str, Path]] = None,
     output: Optional[Union[str, Path]] = None,
     strict: bool = False,
+    compute_stat: bool = False,
 ) -> Dict[str, AnalysisResult]:
     """
     Execute multiple analyses on the current FastMDAnalysis instance and
@@ -250,6 +251,12 @@ def run(
     if strict:
         for analysis in plan:
             opts.setdefault(analysis, {})["strict"] = True
+
+    if compute_stat:
+        stat_analyses = {"rmsd", "rmsf", "rg", "sasa", "qvalue"}
+        for analysis in plan:
+            if analysis in stat_analyses:
+                opts.setdefault(analysis, {}).setdefault("compute_stat", True)
 
     # Inject cluster defaults so kmeans & hierarchical run by default
     _inject_cluster_defaults(self, opts, plan)
@@ -399,6 +406,7 @@ def analyze(
     slides: Optional[Union[bool, str, Path]] = None,
     output: Optional[Union[str, Path]] = None,
     strict: bool = False,
+    compute_stat: bool = False,
 ) -> Dict[str, AnalysisResult]:
     """Public façade so callers can do: fastmda.analyze(...)"""
     return run(
@@ -411,6 +419,7 @@ def analyze(
         slides=slides,
         output=output,
         strict=strict,
+        compute_stat=compute_stat,
     )
 
 

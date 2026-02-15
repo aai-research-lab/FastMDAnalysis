@@ -15,6 +15,31 @@ class MockAnalysis:
         self.outdir = outdir if outdir else Path("mock_output")
 
 
+class DummyAnalyzeTarget:
+    def __init__(self, outdir: Path):
+        self.called = {}
+        self._outdir = outdir
+
+    def _record(self, name: str, compute_stat: bool):
+        self.called[name] = compute_stat
+        return MockAnalysis(outdir=self._outdir / name)
+
+    def rmsd(self, compute_stat: bool = False, **_):
+        return self._record("rmsd", compute_stat)
+
+    def rmsf(self, compute_stat: bool = False, **_):
+        return self._record("rmsf", compute_stat)
+
+    def rg(self, compute_stat: bool = False, **_):
+        return self._record("rg", compute_stat)
+
+    def sasa(self, compute_stat: bool = False, **_):
+        return self._record("sasa", compute_stat)
+
+    def qvalue(self, compute_stat: bool = False, **_):
+        return self._record("qvalue", compute_stat)
+
+
 def test_discover_available(minimal_md_files):
     """Test _discover_available function"""
     traj_path, top_path = minimal_md_files
@@ -148,6 +173,22 @@ def test_filter_kwargs_var_keyword():
     
     result = _filter_kwargs(test_func_var, kwargs)
     assert result == kwargs  # All kwargs passed through due to **kwargs
+
+
+def test_run_compute_stat_injected(tmp_path):
+    from fastmdanalysis.analysis.analyze import run
+
+    dummy = DummyAnalyzeTarget(tmp_path)
+    run(
+        dummy,
+        include=["rmsd", "rmsf", "rg", "sasa", "qvalue"],
+        compute_stat=True,
+        verbose=False,
+        output=tmp_path / "out",
+    )
+
+    for name in ("rmsd", "rmsf", "rg", "sasa", "qvalue"):
+        assert dummy.called.get(name) is True
 
 
 def test_unique_path(tmp_path):

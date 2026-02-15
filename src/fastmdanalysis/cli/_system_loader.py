@@ -100,7 +100,7 @@ def _coerce_value(value: Any, act: argparse.Action) -> Any:
     - Normalizes booleans for common flags
     """
     # Normalize known bool-likes regardless of action.type being None
-    if getattr(act, "dest", "") in {"verbose", "strict", "stop_on_error", "slides"}:
+    if getattr(act, "dest", "") in {"verbose", "strict", "stop_on_error", "slides", "compute_stat"}:
         value = _normalize_bool_like(value)
 
     wants_list = getattr(act, "nargs", None) in ("+", "*")

@@ -50,6 +50,7 @@ class RMSFAnalysis(BaseAnalysis):
         trajectory: md.Trajectory, 
         atoms: Optional[str] = None, 
         per_residue: bool = False,
+        compute_stat: bool = False,
         strict: bool = False,
         **kwargs
     ):
@@ -77,6 +78,7 @@ class RMSFAnalysis(BaseAnalysis):
         analysis_opts = {
             "atoms": atoms,
             "per_residue": per_residue,
+            "compute_stat": compute_stat,
             "strict": strict,
         }
         analysis_opts.update(kwargs)
@@ -85,19 +87,21 @@ class RMSFAnalysis(BaseAnalysis):
         resolved = forwarder.apply_aliases(analysis_opts)
         resolved = forwarder.filter_known(
             resolved,
-            {"atoms", "per_residue", "strict", "output", "reference_frame"},
+            {"atoms", "per_residue", "compute_stat", "strict", "output", "reference_frame"},
             context="rmsf",
             warn=warn_unknown,
         )
 
         atoms = resolved.get("atoms", None)
         per_residue = resolved.get("per_residue", False)
+        compute_stat = resolved.get("compute_stat", False)
         base_kwargs = {k: v for k, v in resolved.items() 
-                      if k not in ("atoms", "per_residue", "strict", "reference_frame")}
+                      if k not in ("atoms", "per_residue", "compute_stat", "strict", "reference_frame")}
 
         super().__init__(trajectory, **base_kwargs)
         self.atoms: Optional[str] = atoms
         self.per_residue: bool = bool(per_residue)
+        self.compute_stat: bool = bool(compute_stat)
         self.strict = strict
 
         # Populated during run()
@@ -145,6 +149,17 @@ class RMSFAnalysis(BaseAnalysis):
             rmsf_values = md.rmsf(subtraj, ref)  # shape (N,)
             self.data = np.asarray(rmsf_values, dtype=float).reshape(-1, 1)
             self.results = {"rmsf": self.data}
+
+            if self.compute_stat:
+                mean_val = float(np.nanmean(rmsf_values))
+                std_val = float(np.nanstd(rmsf_values))
+                self.results["rmsf_stats"] = {"mean": mean_val, "std": std_val}
+                self._save_data(
+                    np.array([[mean_val, std_val]], dtype=float),
+                    "rmsf_stats",
+                    header="mean_nm std_nm",
+                    fmt="%.6f",
+                )
             
             logger.info("RMSF computation completed - mean: %.4f nm, std: %.4f nm, range: [%.4f, %.4f] nm",
                        np.mean(rmsf_values), np.std(rmsf_values), 
@@ -246,9 +261,24 @@ class RMSFAnalysis(BaseAnalysis):
             
         ax.bar(x, y, **bar_kwargs)
 
+        if self.compute_stat:
+            mean_val = float(np.nanmean(y))
+            std_val = float(np.nanstd(y))
+            ax.axhline(mean_val, color="black", linestyle="--", linewidth=1.2, label="mean")
+            ax.fill_between(
+                [x.min() if x.size else 0, x.max() if x.size else 1],
+                mean_val - std_val,
+                mean_val + std_val,
+                color="gray",
+                alpha=0.2,
+                label="±1 std",
+            )
+
         ax.set_title(title)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
+        if self.compute_stat:
+            ax.legend(loc="best")
 
         ax.grid(axis="y", alpha=0.3)
         ax.grid(axis="x", alpha=0.12)

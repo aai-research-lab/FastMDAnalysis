@@ -69,6 +69,10 @@ optional deck preserve the publication-ready defaults.
 See :doc:`usage/plotting` for helper details and option descriptions referenced
 by each analysis module.
 
+Use ``--compute-stat`` to compute global mean/standard deviation values for
+time-series analyses (RMSD, RMSF, Rg, total SASA, Q-value). This adds
+``*_stats.dat`` files and overlays mean/±1σ bands on the saved plots.
+
 .. code-block:: bash
 
 	fastmda analyze \

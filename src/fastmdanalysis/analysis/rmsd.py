@@ -77,6 +77,7 @@ class RMSDAnalysis(BaseAnalysis):
         reference_frame: int = 0,
         atoms: Optional[str] = None,
         align: bool = True,
+        compute_stat: bool = False,
         strict: bool = False,
         **kwargs
     ):
@@ -105,6 +106,7 @@ class RMSDAnalysis(BaseAnalysis):
             "reference_frame": reference_frame,
             "atoms": atoms,
             "align": align,
+            "compute_stat": compute_stat,
             "strict": strict,
         }
         analysis_opts.update(kwargs)
@@ -113,7 +115,7 @@ class RMSDAnalysis(BaseAnalysis):
         resolved = forwarder.apply_aliases(analysis_opts)
         resolved = forwarder.filter_known(
             resolved,
-            {"reference_frame", "atoms", "align", "strict", "output"},
+            {"reference_frame", "atoms", "align", "compute_stat", "strict", "output"},
             context="rmsd",
             warn=warn_unknown,
         )
@@ -121,14 +123,18 @@ class RMSDAnalysis(BaseAnalysis):
         reference_frame = resolved.get("reference_frame", 0)
         atoms = resolved.get("atoms", None)
         align = resolved.get("align", True)
-        
-        base_kwargs = {k: v for k, v in resolved.items() 
-                      if k not in ("reference_frame", "atoms", "align", "strict")}
+        compute_stat = resolved.get("compute_stat", False)
+        base_kwargs = {
+            k: v
+            for k, v in resolved.items()
+            if k not in ("reference_frame", "atoms", "align", "compute_stat", "strict")
+        }
         
         super().__init__(trajectory, **base_kwargs)
         self.reference_frame = 0 if reference_frame is None else int(reference_frame)
         self.atoms = atoms
         self.align = bool(align)
+        self.compute_stat = bool(compute_stat)
         self.strict = strict
         self.data: Optional[np.ndarray] = None
         self.results: Dict[str, np.ndarray] = {}
@@ -187,6 +193,17 @@ class RMSDAnalysis(BaseAnalysis):
 
             self.data = np.asarray(rmsd_values, dtype=float).reshape(-1, 1)
             self.results = {"rmsd": self.data}
+
+            if self.compute_stat:
+                mean_val = float(np.nanmean(rmsd_values))
+                std_val = float(np.nanstd(rmsd_values))
+                self.results["rmsd_stats"] = {"mean": mean_val, "std": std_val}
+                self._save_data(
+                    np.array([[mean_val, std_val]], dtype=float),
+                    "rmsd_stats",
+                    header="mean_nm std_nm",
+                    fmt="%.6f",
+                )
 
             # Save data and default plot
             logger.info("Saving RMSD data...")
@@ -249,10 +266,24 @@ class RMSDAnalysis(BaseAnalysis):
             line_kwargs["color"] = color
 
         ax.plot(x, y, **line_kwargs)
+        if self.compute_stat:
+            mean_val = float(np.nanmean(y))
+            std_val = float(np.nanstd(y))
+            ax.axhline(mean_val, color="black", linestyle="--", linewidth=1.2, label="mean")
+            ax.fill_between(
+                [x.min(), x.max()],
+                mean_val - std_val,
+                mean_val + std_val,
+                color="gray",
+                alpha=0.2,
+                label="±1 std",
+            )
         ax.set_title(title)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         ax.grid(alpha=0.3)
+        if self.compute_stat:
+            ax.legend(loc="best")
         apply_slide_style(
             ax,
             x_values=x,

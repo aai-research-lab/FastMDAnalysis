@@ -266,6 +266,7 @@ class FastMDAnalysis:
             self._system_slides = sys_cfg.get("slides")
             self._system_strict = bool(sys_cfg.get("strict", False))
             self._system_stop_on_error = bool(sys_cfg.get("stop_on_error", False))
+            self._system_compute_stat = bool(sys_cfg.get("compute_stat", False))
             self._system_file = system if not isinstance(system, Mapping) else None
         else:
             # Ensure attributes exist even without a system config
@@ -276,6 +277,7 @@ class FastMDAnalysis:
             self._system_slides = None
             self._system_strict = False
             self._system_stop_on_error = False
+            self._system_compute_stat = False
             self._system_file = None
 
         if traj_file is None or top_file is None:
@@ -440,6 +442,7 @@ class FastMDAnalysis:
         slides: Optional[Union[bool, str, Path]] = None,
         output: Optional[Union[str, Path]] = None,
         strict: bool = False,
+        compute_stat: bool = False,
     ):
         """
         Analyze wrapper. If arguments are omitted here, fall back to defaults
@@ -464,6 +467,7 @@ class FastMDAnalysis:
             slides = getattr(self, "_system_slides", None)
         strict = bool(strict or getattr(self, "_system_strict", False))
         stop_on_error = bool(stop_on_error or getattr(self, "_system_stop_on_error", False))
+        compute_stat = bool(compute_stat or getattr(self, "_system_compute_stat", False))
 
         return _run(
             self,
@@ -475,4 +479,5 @@ class FastMDAnalysis:
             slides=slides,
             output=output,
             strict=strict,
+            compute_stat=compute_stat,
         )

@@ -54,6 +54,8 @@ Outputs
 -------
 
 - ``rmsf_output/rmsf.dat`` — per-atom RMSF values (nm).
+- ``rmsf_output/rmsf_stats.dat`` — mean and standard deviation when
+  ``compute_stat=True``.
 - ``rmsf_output/rmsf.png`` — default bar chart with atom index on the x-axis.
 - ``rmsf_output/rmsf.log`` — execution log when launched from the CLI.
 

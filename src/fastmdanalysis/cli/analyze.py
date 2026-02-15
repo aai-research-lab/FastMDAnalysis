@@ -79,6 +79,10 @@ def register(subparsers: argparse._SubParsersAction, common_parser: argparse.Arg
         "--strict", action="store_true",
         help="Enable strict mode: raise errors for unknown options (default: log warnings).",
     )
+    p.add_argument(
+        "--compute-stat", action="store_true",
+        help="Compute global mean/std for time-series analyses and overlay on plots.",
+    )
 
     # Register handler
     p.set_defaults(_handler=handle)
@@ -139,6 +143,7 @@ def handle(args: argparse.Namespace, fastmda, logger: logging.Logger) -> None:
     # Strict/stop_on_error: CLI True wins, otherwise instance default
     strict = bool(args.strict or getattr(fastmda, "_system_strict", False))
     stop_on_error = bool(args.stop_on_error or getattr(fastmda, "_system_stop_on_error", False))
+    compute_stat = bool(args.compute_stat or getattr(fastmda, "_system_compute_stat", False))
 
     # Output: CLI override > instance default > orchestrator default
     output = args.output if getattr(args, "output", None) else getattr(fastmda, "_system_output", None)
@@ -153,6 +158,7 @@ def handle(args: argparse.Namespace, fastmda, logger: logging.Logger) -> None:
         slides=slides,          # bool or OUT.pptx or None
         strict=strict,          # strict mode flag
         output=output,          # output directory
+        compute_stat=compute_stat,
     )
 
     # -------------------- Summary --------------------

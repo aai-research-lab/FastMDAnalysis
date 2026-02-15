@@ -59,3 +59,30 @@ def test_dihedrals_basic(fastmda):
     assert "psi_avg" in a.data
     assert "omega_avg" in a.data
 
+
+def test_compute_stat_outputs(fastmda, tmp_path):
+    rmsd = fastmda.rmsd(ref=0, compute_stat=True, output=str(tmp_path / "rmsd"))
+    assert "rmsd_stats" in rmsd.results
+    assert np.isfinite(rmsd.results["rmsd_stats"]["mean"])
+    assert np.isfinite(rmsd.results["rmsd_stats"]["std"])
+
+    rmsf = fastmda.rmsf(compute_stat=True, output=str(tmp_path / "rmsf"))
+    assert "rmsf_stats" in rmsf.results
+    assert np.isfinite(rmsf.results["rmsf_stats"]["mean"])
+    assert np.isfinite(rmsf.results["rmsf_stats"]["std"])
+
+    rg = fastmda.rg(compute_stat=True, output=str(tmp_path / "rg"))
+    assert "rg_stats" in rg.results
+    assert np.isfinite(rg.results["rg_stats"]["mean"])
+    assert np.isfinite(rg.results["rg_stats"]["std"])
+
+    sasa = fastmda.sasa(probe_radius=0.14, compute_stat=True, output=str(tmp_path / "sasa"))
+    assert "total_sasa_stats" in sasa.results
+    assert np.isfinite(sasa.results["total_sasa_stats"]["mean"])
+    assert np.isfinite(sasa.results["total_sasa_stats"]["std"])
+
+    qvalue = fastmda.qvalue(compute_stat=True, output=str(tmp_path / "qvalue"))
+    assert "qvalue_stats" in qvalue.results
+    assert np.isfinite(qvalue.results["qvalue_stats"]["mean"])
+    assert np.isfinite(qvalue.results["qvalue_stats"]["std"])
+
