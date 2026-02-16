@@ -42,6 +42,10 @@ def test_qvalue_metadata(fastmda, tmp_path):
     metadata_path = output_dir / "qvalue_metadata.json"
     assert metadata_path.exists()
 
+    # Contact list exists
+    contact_path = output_dir / "qvalue_contact_list.dat"
+    assert contact_path.exists()
+
     # Load and validate metadata
     with open(metadata_path, "r") as f:
         metadata = json.load(f)
