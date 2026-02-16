@@ -11,7 +11,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   - Automatic native contact identification and metadata reporting
   - Integration with multi-analysis orchestrator and slide generation
   - Full CLI support with `fastmda qvalue` command
-- (Add upcoming features here.)
+- New features since `v1.0.0`.
 ### Changed
 - (Add behavior/CLI/API changes here.)
 ### Fixed
