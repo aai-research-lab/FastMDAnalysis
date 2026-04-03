@@ -221,19 +221,21 @@ fastmda analyze -h
 ---
 
 ## Citation
+
 If you use `FastMDAnalysis` in your work, please cite:
 
-Aina, A. and Kwan, D. (2025) “FastMDAnalysis: Software for Automated Analysis of Molecular Dynamics Trajectories”. ChemRxiv. https://doi.org/10.26434/chemrxiv-2025-x8xnq
-
+Aina, A. and Kwan, D. (2026) "FastMDAnalysis: Software for Automated Analysis of Molecular Dynamics Trajectories". *Journal of Computational Chemistry*, 47(8), e70350. https://doi.org/10.1002/jcc.70350
 ```bibtex
-@article{fastmdanalysis,
-  author       = {Adekunle Aina and Derrick Kwan},
-  title        = {FastMDAnalysis: Software for Automated Analysis of Molecular Dynamics Trajectories},
-  year         = {2025},
-  doi          = {10.26434/chemrxiv-2025-x8xnq},
-  publisher    = {ChemRxiv},
-  url          = {https://doi.org/10.26434/chemrxiv-2025-x8xnq},
-  type         = {preprint}
+@article{aina2026fastmdanalysis,
+  author   = {Aina, Adekunle and Kwan, Derrick},
+  title    = {FastMDAnalysis: Software for Automated Analysis of Molecular Dynamics Trajectories},
+  journal  = {Journal of Computational Chemistry},
+  volume   = {47},
+  number   = {8},
+  pages    = {e70350},
+  year     = {2026},
+  doi      = {10.1002/jcc.70350},
+  url      = {https://doi.org/10.1002/jcc.70350}
 }
 ```
 
