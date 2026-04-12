@@ -15,8 +15,8 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 project = "FastMDAnalysis"
-copyright = f"{datetime.now():%Y}, Adekunle Aina"
-author = "Adekunle Aina"
+copyright = f"{datetime.now():%Y}, A. Aina and D. Kwan"
+author = "A. Aina and D. Kwan"
 
 release = "0.1.0"
 version = release
