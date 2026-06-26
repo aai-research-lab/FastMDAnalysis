@@ -161,7 +161,9 @@ class SessionPresenter:
         if self.quiet:
             return
         self._session_start = time.monotonic()
-
+                # Show a compact terminal version of the graphical abstract at the
+        # start of interactive FastMDXplora runs. The full PNG is bundled
+        # with the package and can be opened with `fastmdx splash --open`.
         title = "FastMDXplora"
         rows = [(k, v) for k, v in fields.items() if v]
         if not rows:

@@ -108,6 +108,9 @@ fastmdx = "fastmdxplora.cli.main:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"fastmdxplora.assets" = ["*.png"]
+
 [tool.setuptools_scm]
 write_to = "src/fastmdxplora/_version.py"
 fallback_version = "0.1.0"

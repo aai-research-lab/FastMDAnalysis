@@ -189,3 +189,16 @@ def test_cli_explore_include_and_exclude_mutually_exclusive(tmp_path: Path) -> N
         ]
     )
     assert rc == 2
+def test_cli_splash_path(capsys) -> None:
+    rc = main(["splash", "--path", "--no-preview"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "graphical_abstract.png" in out
+
+
+def test_cli_splash_preview(capsys) -> None:
+    rc = main(["splash"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "FastMDXplora" in out
+    assert "Graphical abstract" in out

@@ -1,7 +1,7 @@
 # FastMDXplora
 
 > **F**ully **A**utomated **Sy**s**T**em for **M**olecular **D**ynamics e**Xplora**tion
-
+![FastMDXplora graphical abstract](assets/graphical_abstract.png)
 [![DOI](https://img.shields.io/badge/DOI-10.1002%2Fjcc.70350-blue)](https://doi.org/10.1002/jcc.70350)
 [![PyPI version](https://img.shields.io/pypi/v/fastmdxplora)](https://pypi.org/project/fastmdxplora/)
 [![Python versions](https://img.shields.io/pypi/pyversions/fastmdxplora)](https://pypi.org/project/fastmdxplora/)

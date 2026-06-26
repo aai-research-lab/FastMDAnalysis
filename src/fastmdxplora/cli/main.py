@@ -422,7 +422,29 @@ def _build_parser() -> argparse.ArgumentParser:
             "for each phase, and the citation."
         ),
     )
-
+    splash = sub.add_parser(
+        "splash",
+        help="Show or open the bundled FastMDXplora graphical abstract.",
+        description=(
+            "Print the terminal startup splash and optionally open the full "
+            "graphical abstract image bundled with FastMDXplora."
+        ),
+    )
+    splash.add_argument(
+        "--open",
+        action="store_true",
+        help="Open the full graphical abstract image with the default viewer.",
+    )
+    splash.add_argument(
+        "--path",
+        action="store_true",
+        help="Print the local path to the bundled graphical abstract image.",
+    )
+    splash.add_argument(
+        "--no-preview",
+        action="store_true",
+        help="Do not print the terminal splash preview.",
+    )
     # init-config: write a commented YAML template
     ic = sub.add_parser(
         "init-config",
@@ -665,6 +687,38 @@ def _cmd_info() -> int:
     print(f"Citation: {__citation__}")
     return 0
 
+def _cmd_splash(args: argparse.Namespace) -> int:
+    from fastmdxplora.utils.splash import (
+        graphical_abstract_path,
+        open_graphical_abstract,
+        print_startup_splash,
+    )
+
+    path = graphical_abstract_path()
+
+    if not getattr(args, "no_preview", False):
+        print_startup_splash(show_asset_hint=False)
+
+    if getattr(args, "path", False):
+        print(path)
+
+    if getattr(args, "open", False):
+        if not path.exists():
+            print(f"fastmdx: graphical abstract not found: {path}", file=sys.stderr)
+            return 1
+
+        opened = open_graphical_abstract()
+        if not opened:
+            print(f"fastmdx: could not open graphical abstract: {path}", file=sys.stderr)
+            return 1
+
+        print(f"Opened graphical abstract: {path}")
+
+    elif not getattr(args, "path", False):
+        print(f"Graphical abstract: {path}")
+        print("Open it with: fastmdx splash --open")
+
+    return 0
 
 def _cmd_init_config(args: argparse.Namespace) -> int:
     from fastmdxplora.config import generate_template
@@ -710,7 +764,29 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     parser = _build_parser()
     args = parser.parse_args(argv)
+    command = getattr(args, "command", None)
+    include_phases = set(getattr(args, "include", None) or [])
+    exclude_phases = set(getattr(args, "exclude", None) or [])
+    dry_run = bool(getattr(args, "dry_run", False))
 
+    simulation_requested = (
+        command == "simulate"
+        or (
+            command in {"explore", "xplore"}
+            and (
+                "simulation" in include_phases
+                or (not include_phases and "simulation" not in exclude_phases)
+            )
+        )
+    )
+
+    if simulation_requested and not dry_run:
+        try:
+            from fastmdxplora.utils.splash import print_startup_splash
+
+            print_startup_splash()
+        except Exception:
+            pass
     if args.cite:
         print(__citation__)
         return 0
@@ -721,6 +797,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "init-config":
         return _cmd_init_config(args)
+
+    if args.command == "splash":
+        return _cmd_splash(args)
 
     # Commands that build an orchestrator can hit config-file errors;
     # surface those cleanly rather than as a traceback.
