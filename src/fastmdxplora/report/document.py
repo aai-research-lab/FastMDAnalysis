@@ -26,6 +26,8 @@ from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from fastmdxplora.report.context import PhaseContext, load_phase_context
+from fastmdxplora.analysis.energy import ensure_energy_report_assets
+from fastmdxplora.report.captions import caption_for_figure
 
 if TYPE_CHECKING:
     from fastmdxplora.orchestrator import FastMDXplora
@@ -67,6 +69,53 @@ def _load_json_safely(path: Path) -> dict | None:
         logger.warning("Could not parse JSON manifest at %s", path)
         return None
 
+
+
+
+def _simulation_energy_section(project_root: Path) -> list[str]:
+    """Generate and embed simulation energy diagnostics when energy.csv exists."""
+    energy_csv = project_root / "simulation" / "energy.csv"
+    if not energy_csv.exists():
+        return []
+
+    lines: list[str] = ["### Simulation Energy Diagnostics", ""]
+    lines.append(
+        "FastMDXplora generated diagnostic plots from "
+        "`simulation/energy.csv` to summarize simulation stability."
+    )
+    lines.append("")
+
+    try:
+        assets = ensure_energy_report_assets(energy_csv, project_root / "simulation")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not generate energy diagnostics: %s", exc)
+        lines.append(
+            "_Energy CSV was found, but diagnostic plots could not be generated._"
+        )
+        lines.append("")
+        return lines
+
+    for key in ("energy_trace", "simulation_health"):
+        fig = assets.get(key)
+        if fig is None or not fig.exists():
+            continue
+
+        rel = fig.relative_to(project_root).as_posix()
+        alt_text = _md_text(key.replace("_", " ").title())
+        caption = _md_text(caption_for_figure("simulation", fig.stem), limit=2000)
+
+        lines.append(f"![{alt_text}]({_link_target(rel)})")
+        lines.append("")
+        lines.append(f"**Figure:** {caption}")
+        lines.append("")
+
+    summary = assets.get("energy_summary")
+    if summary is not None and summary.exists():
+        rel = summary.relative_to(project_root).as_posix()
+        lines.append(f"Energy summary table: [`simulation/energy_summary.csv`]({_link_target(rel)})")
+        lines.append("")
+
+    return lines
 
 def _summary_section(phase_context: PhaseContext) -> str:
     if phase_context.is_full_pipeline:
@@ -152,8 +201,13 @@ def _results_section(project_root: Path) -> str:
     results = analysis_manifest.get("results", {})
 
     lines = ["## Results", ""]
+    energy_lines = _simulation_energy_section(project_root)
+
     if not plan:
         lines.append("No analyses were executed in this session.")
+        if energy_lines:
+            lines.append("")
+            lines.extend(energy_lines)
         return "\n".join(lines)
 
     n_frames = analysis_manifest.get("n_frames")
@@ -214,12 +268,19 @@ def _results_section(project_root: Path) -> str:
                 # Markdown/HTML image links require forward slashes on every
                 # OS; str(WindowsPath) would emit backslashes and break them.
                 rel = fig.relative_to(project_root).as_posix()
-                caption = _md_text(f"{analysis} — {fig.stem}")
-                lines.append(f"![{caption}]({_link_target(rel)})")
+                alt_text = _md_text(f"{analysis} — {fig.stem}")
+                caption = _md_text(caption_for_figure(analysis, fig.stem), limit=2000)
+                lines.append(f"![{alt_text}]({_link_target(rel)})")
+                lines.append("")
+                lines.append(f"**Figure:** {caption}")
                 lines.append("")
         else:
             lines.append("_No figure was produced for this analysis._")
             lines.append("")
+
+    if energy_lines:
+        lines.append("")
+        lines.extend(energy_lines)
 
     return "\n".join(lines)
 

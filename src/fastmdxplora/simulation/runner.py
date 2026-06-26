@@ -672,6 +672,22 @@ def run_simulation(
     if trajectory_interval_steps is None:
         trajectory_interval_steps = trajectory_interval_for(plan["production_steps"])
 
+    total_state_steps = (
+        int(plan["nvt_steps"])
+        + int(plan["npt_steps"])
+        + int(plan["production_steps"])
+    )
+
+    # For short smoke tests, the default reporter interval can be larger than
+    # the whole simulation, which creates an empty or nearly empty energy.csv.
+    # Clamp the interval so small runs still produce several diagnostic rows.
+    if total_state_steps > 0:
+        target_short_run_interval = max(1, total_state_steps // 10)
+        state_interval_steps = max(
+            1,
+            min(int(state_interval_steps), target_short_run_interval),
+        )
+
     # ---- Deserialize System + State + Topology -------------------------
     if on_progress:
         on_progress("Loading System, State, and topology")
@@ -772,7 +788,7 @@ def run_simulation(
         _attach_state_reporter(
             omm, simulation, energy_csv,
             interval=state_interval_steps,
-            total_steps=plan["nvt_steps"] + plan["npt_steps"] + plan["production_steps"],
+            total_steps=total_state_steps,
         )
         _run_md_stage(
             simulation,

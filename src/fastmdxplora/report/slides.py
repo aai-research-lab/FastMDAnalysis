@@ -1,20 +1,20 @@
-"""Slide deck generation (.pptx).
+﻿"""Slide deck generation (.pptx).
 
-Generates a slide deck summarizing the study. If ``python-pptx`` is
-installed (it is a core dependency) a real .pptx file is
-produced; otherwise a Markdown outline that can be imported into any slide
-tool is written as a fallback. This keeps the report phase functional in
-minimal environments while opening the door to richer output when the
-extra is installed.
+Generates a slide deck summarizing the study. If ``python-pptx`` is installed
+(it is a core dependency) a real .pptx file is produced; otherwise a Markdown
+outline is written as a fallback.
 """
 
 from __future__ import annotations
 
-from fastmdxplora.utils.logging import get_logger
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from fastmdxplora.analysis.energy import ensure_energy_report_assets
+from fastmdxplora.report.captions import caption_for_figure
 from fastmdxplora.report.context import PhaseContext, load_phase_context
+from fastmdxplora.utils.logging import get_logger
 
 if TYPE_CHECKING:
     from fastmdxplora.orchestrator import FastMDXplora
@@ -36,11 +36,13 @@ def _workflow_lines(phase_context: PhaseContext) -> list[str]:
         return [
             "Full FastMDXplora workflow: setup, simulation, analysis, and report.",
         ]
+
     if phase_context.is_analysis_from_existing_trajectory:
         return [
             "Analysis/report workflow from an existing trajectory.",
             "Setup and simulation were not run in this workflow.",
         ]
+
     lines = ["Recorded workflow phases:"]
     if phase_context.setup_present:
         lines.append("Setup phase recorded.")
@@ -53,10 +55,29 @@ def _workflow_lines(phase_context: PhaseContext) -> list[str]:
     return lines
 
 
+def _simulation_energy_assets(project_root: Path) -> dict[str, Path]:
+    """Generate and return simulation energy diagnostic assets."""
+    energy_csv = project_root / "simulation" / "energy.csv"
+    if not energy_csv.exists():
+        return {}
+
+    try:
+        return ensure_energy_report_assets(energy_csv, project_root / "simulation")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("slides: could not generate energy diagnostics: %s", exc)
+        return {}
+
+
+def _caption_for_slide(section: str, figure_stem: str) -> str:
+    """Return a concise scientific caption suitable for a slide."""
+    return _slide_text(caption_for_figure(section, figure_stem), limit=260)
+
+
 def _outline_markdown(orchestrator: "FastMDXplora", title: str) -> str:
     from fastmdxplora import __citation__, __version__
 
     phase_context = load_phase_context(orchestrator.output_dir)
+
     section_no = 1
     lines = [
         f"# {_slide_text(title)}",
@@ -87,6 +108,17 @@ def _outline_markdown(orchestrator: "FastMDXplora", title: str) -> str:
             ]
         )
 
+        energy_assets = _simulation_energy_assets(orchestrator.output_dir)
+        if energy_assets:
+            lines.append("- Energy diagnostics generated from `simulation/energy.csv`:")
+            for key in ("energy_trace", "simulation_health"):
+                fig = energy_assets.get(key)
+                if fig is None or not fig.exists():
+                    continue
+                rel = fig.relative_to(orchestrator.output_dir).as_posix()
+                lines.append(f"  - `{rel}`")
+                lines.append(f"    - {_caption_for_slide('simulation', fig.stem)}")
+
     if phase_context.analysis_present:
         section_no += 1
         lines.extend(
@@ -100,21 +132,35 @@ def _outline_markdown(orchestrator: "FastMDXplora", title: str) -> str:
 
     section_no += 1
     lines.extend(["", f"## {section_no}. Citation", f"- {__citation__}", ""])
+
     return "\n".join(lines)
 
 
+def _load_analysis_manifest(analysis_dir: Path) -> dict:
+    """Read the analysis manifest if present; return {} otherwise."""
+    mf = analysis_dir / "analysis_manifest.json"
+    if not mf.exists():
+        return {}
+
+    try:
+        with mf.open(encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
 def _build_pptx(orchestrator: "FastMDXplora", title: str, out_path: Path) -> None:
-    """Write a .pptx using python-pptx (called only if importable)."""
+    """Write a .pptx using python-pptx."""
+    from PIL import Image
     from pptx import Presentation
     from pptx.util import Inches, Pt
 
     from fastmdxplora import __citation__, __version__
 
     prs = Presentation()
-    blank = prs.slide_layouts[5]  # Title only
-    title_layout = prs.slide_layouts[0]  # Title slide
+    blank = prs.slide_layouts[5]
+    title_layout = prs.slide_layouts[0]
 
-    # Slide dimensions for the default layout (10 in × 7.5 in)
     slide_w = prs.slide_width
     slide_h = prs.slide_height
 
@@ -128,63 +174,93 @@ def _build_pptx(orchestrator: "FastMDXplora", title: str, out_path: Path) -> Non
     def _section_slide(heading: str, body_lines: list[str]) -> None:
         slide = prs.slides.add_slide(blank)
         slide.shapes.title.text = _slide_text(heading)
-        textbox = slide.shapes.add_textbox(Inches(0.5), Inches(1.5), Inches(9), Inches(5))
+
+        textbox = slide.shapes.add_textbox(
+            Inches(0.5),
+            Inches(1.5),
+            Inches(9),
+            Inches(5),
+        )
         tf = textbox.text_frame
         tf.word_wrap = True
+
         for i, line in enumerate(body_lines):
             p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
             p.text = _slide_text(line, limit=700)
             p.font.size = Pt(18)
 
-    def _image_slide(heading: str, image_path: Path, subtitle: str = "") -> None:
-        """A slide that's a single titled image, centered and fit-to-slide.
-
-        Computes a target rectangle below the title (top ~1.4 in), preserves
-        the image's aspect ratio, and inserts the figure with a thin margin.
-        """
+    def _image_slide(
+        heading: str,
+        image_path: Path,
+        subtitle: str = "",
+        caption: str = "",
+    ) -> None:
+        """A titled image slide with an optional scientific caption."""
         slide = prs.slides.add_slide(blank)
         slide.shapes.title.text = _slide_text(heading)
 
-        # Optional subtitle just under the title
         if subtitle:
             sub_box = slide.shapes.add_textbox(
-                Inches(0.5), Inches(1.1), slide_w - Inches(1.0), Inches(0.4)
+                Inches(0.5),
+                Inches(1.1),
+                slide_w - Inches(1.0),
+                Inches(0.35),
             )
             sub_tf = sub_box.text_frame
             sub_tf.word_wrap = True
             p = sub_tf.paragraphs[0]
             p.text = _slide_text(subtitle)
-            p.font.size = Pt(12)
+            p.font.size = Pt(11)
             p.font.italic = True
 
-        # Available region for the figure
+        caption_h = Inches(0.85) if caption else Inches(0.15)
         top = Inches(1.55)
         margin = Inches(0.3)
         avail_w = slide_w - 2 * margin
-        avail_h = slide_h - top - margin
-
-        # python-pptx will auto-size when only one dimension is given; we'd
-        # rather scale ourselves to keep the figure inside the rectangle.
-        from PIL import Image  # python-pptx already pulls Pillow in
+        avail_h = slide_h - top - margin - caption_h
 
         try:
             with Image.open(image_path) as im:
                 img_w_px, img_h_px = im.size
-            aspect = img_w_px / img_h_px
-            # Fit by width first, then by height if too tall.
+                aspect = img_w_px / img_h_px
+
             target_w = avail_w
             target_h = int(avail_w / aspect)
+
             if target_h > avail_h:
                 target_h = avail_h
                 target_w = int(avail_h * aspect)
+
             left = (slide_w - target_w) // 2
+
             slide.shapes.add_picture(
-                str(image_path), left, top, width=target_w, height=target_h
+                str(image_path),
+                left,
+                top,
+                width=target_w,
+                height=target_h,
             )
-        except Exception:  # noqa: BLE001 -- fall back to bare insert
+        except Exception:  # noqa: BLE001
             slide.shapes.add_picture(
-                str(image_path), Inches(1.0), top, width=Inches(8.0)
+                str(image_path),
+                Inches(1.0),
+                top,
+                width=Inches(8.0),
             )
+
+        if caption:
+            cap_box = slide.shapes.add_textbox(
+                Inches(0.5),
+                slide_h - Inches(0.85),
+                slide_w - Inches(1.0),
+                Inches(0.6),
+            )
+            cap_tf = cap_box.text_frame
+            cap_tf.word_wrap = True
+            p = cap_tf.paragraphs[0]
+            p.text = _slide_text(caption, limit=260)
+            p.font.size = Pt(10)
+            p.font.italic = True
 
     project_root = orchestrator.output_dir
     phase_context = load_phase_context(project_root)
@@ -196,66 +272,83 @@ def _build_pptx(orchestrator: "FastMDXplora", title: str, out_path: Path) -> Non
             "Setup",
             [
                 "System preparation phase outputs:",
-                f"  • {project_root / 'setup'}",
+                f" - {project_root / 'setup'}",
                 "Parameter manifest: setup_parameters.json",
             ],
         )
+
     if phase_context.simulation_present:
         _section_slide(
             "Simulation",
             [
                 "Molecular dynamics simulation phase outputs:",
-                f"  • {project_root / 'simulation'}",
+                f" - {project_root / 'simulation'}",
                 "Parameter manifest: simulation_parameters.json",
             ],
         )
 
-    # Analysis: one cover slide (textual summary) + one image slide per figure
+        energy_assets = _simulation_energy_assets(project_root)
+        for key, heading in (
+            ("energy_trace", "Simulation Energy Trace"),
+            ("simulation_health", "Simulation Health Trace"),
+        ):
+            fig_path = energy_assets.get(key)
+            if fig_path is None or not fig_path.exists():
+                continue
+
+            _image_slide(
+                heading,
+                fig_path,
+                subtitle="Generated from simulation/energy.csv",
+                caption=_caption_for_slide("simulation", fig_path.stem),
+            )
+
     analysis_dir = project_root / "analysis"
     manifest = _load_analysis_manifest(analysis_dir)
     plan = manifest.get("plan", [])
 
     if plan:
-        cover_lines = [
-            "Trajectory analyses performed in this session:",
-        ]
+        cover_lines = ["Trajectory analyses performed in this session:"]
         for analysis in plan:
             result = manifest.get("results", {}).get(analysis, {})
             status = result.get("status", "unknown")
-            cover_lines.append(f"  • {analysis}  ({status})")
+            cover_lines.append(f" - {analysis} ({status})")
+
         cover_lines.append("")
         n_frames = manifest.get("n_frames")
         n_residues = manifest.get("n_residues")
         if n_frames is not None and n_residues is not None:
-            cover_lines.append(
-                f"Trajectory: {n_frames} frames, {n_residues} residues"
-            )
+            cover_lines.append(f"Trajectory: {n_frames} frames, {n_residues} residues")
+
         _section_slide("Analysis", cover_lines)
 
-        # One image slide per produced figure, in plan order.
         for analysis in plan:
             sub_dir = analysis_dir / analysis
             if not sub_dir.is_dir():
                 continue
+
             figures = sorted(sub_dir.glob("*.png"))
             for fig_path in figures:
-                # Heading: analysis name in caps + a hint for multi-method
-                # analyses (figure stem differs from the analysis name).
                 if fig_path.stem == analysis:
                     heading = analysis.upper()
                     subtitle = ""
                 else:
                     heading = analysis.upper()
-                    # cluster_kmeans → "method: kmeans"
                     suffix = fig_path.stem.replace(f"{analysis}_", "", 1)
                     subtitle = f"method: {suffix}"
-                _image_slide(heading, fig_path, subtitle=subtitle)
+
+                _image_slide(
+                    heading,
+                    fig_path,
+                    subtitle=subtitle,
+                    caption=_caption_for_slide(analysis, fig_path.stem),
+                )
     else:
         _section_slide(
             "Analysis",
             [
                 "Trajectory analysis phase outputs:",
-                f"  • {project_root / 'analysis'}",
+                f" - {project_root / 'analysis'}",
                 "Manifest: analysis_manifest.json",
             ],
         )
@@ -272,38 +365,19 @@ def _build_pptx(orchestrator: "FastMDXplora", title: str, out_path: Path) -> Non
     prs.save(str(out_path))
 
 
-def _load_analysis_manifest(analysis_dir: Path) -> dict:
-    """Read the analysis manifest if present; return {} otherwise."""
-    import json
-
-    mf = analysis_dir / "analysis_manifest.json"
-    if not mf.exists():
-        return {}
-    try:
-        with mf.open(encoding="utf-8") as fh:
-            return json.load(fh)
-    except (OSError, json.JSONDecodeError):
-        return {}
-
-
 def build_slides(
     *,
     orchestrator: "FastMDXplora",
     output_dir: Path,
     title: str,
 ) -> list[str]:
-    """Render the slide deck.
-
-    Returns the list of artifact paths (relative to ``output_dir``).
-    """
+    """Render the slide deck."""
     artifacts: list[str] = []
 
-    # Always write the Markdown outline (no dependencies, always works).
     outline_path = output_dir / "slides_outline.md"
     outline_path.write_text(_outline_markdown(orchestrator, title), encoding="utf-8")
     artifacts.append("slides_outline.md")
 
-    # Try to write a .pptx if python-pptx is available.
     try:
         pptx_path = output_dir / "slides.pptx"
         _build_pptx(orchestrator, title, pptx_path)
@@ -313,7 +387,7 @@ def build_slides(
         logger.debug(
             "slides: python-pptx not importable; wrote markdown outline only. "
             "python-pptx is a core dependency, so this usually means a broken "
-            "install — try `pip install --force-reinstall python-pptx`."
+            "install - try `pip install --force-reinstall python-pptx`."
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("slides: pptx generation failed: %s", exc)
