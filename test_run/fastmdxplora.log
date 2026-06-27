@@ -1,0 +1,32 @@
+2026-06-27 16:08:34,741 - DEBUG - FastMDXplora initialized: system=1L2Y output=test_run
+2026-06-27 16:08:34,742 - DEBUG - Plan: setup -> simulation -> analysis -> report
+2026-06-27 16:08:34,743 - DEBUG - --> Phase 'setup' starting (output=test_run\setup)
+2026-06-27 16:08:34,751 - DEBUG - setup: input form detected as pdb_id
+2026-06-27 16:08:34,793 - INFO - Fetching PDB from RCSB: https://files.rcsb.org/download/1L2Y.pdb
+2026-06-27 16:08:37,362 - INFO - Fixing PDB with PDBFixer: test_run\setup\input.pdb (pH=7.4)
+2026-06-27 16:08:41,794 - INFO -  - wrote fixed PDB to test_run\setup\prepared.pdb
+2026-06-27 16:08:41,797 - INFO - Loading prepared PDB: test_run\setup\prepared.pdb
+2026-06-27 16:08:41,831 - INFO - Building ForceField: ['charmm36.xml', 'charmm36/water.xml']
+2026-06-27 16:08:42,402 - INFO - Solvating (padding=1.00 nm, box=cube, ions=Na+/Cl- @ 0.150 M)
+2026-06-27 16:08:46,611 - INFO - Solvated system: 5080 atoms
+2026-06-27 16:08:46,611 - INFO - Creating OpenMM System (PME, cutoff=1.00 nm)
+2026-06-27 16:09:02,380 - INFO - Wrote: test_run\setup\solvated.pdb, test_run\setup\topology.pdb, test_run\setup\system.xml, test_run\setup\state.xml
+2026-06-27 16:09:02,400 - DEBUG - setup: wrote 7 artifact(s) to test_run\setup
+2026-06-27 16:09:02,401 - DEBUG - --> Phase 'simulation' starting (output=test_run\simulation)
+2026-06-27 16:09:03,407 - INFO - Selected OpenMM platform: CPU (precision=double)
+2026-06-27 16:12:41,953 - DEBUG - FastMDXplora initialized: system=1L2Y output=test_run
+2026-06-27 16:12:41,954 - DEBUG - Plan: setup -> simulation -> analysis -> report
+2026-06-27 16:12:41,954 - DEBUG - --> Phase 'setup' starting (output=test_run\setup)
+2026-06-27 16:12:41,961 - DEBUG - setup: input form detected as pdb_id
+2026-06-27 16:12:41,996 - INFO - Fetching PDB from RCSB: https://files.rcsb.org/download/1L2Y.pdb
+2026-06-27 16:12:42,582 - INFO - Fixing PDB with PDBFixer: test_run\setup\input.pdb (pH=7.4)
+2026-06-27 16:12:46,672 - INFO -  - wrote fixed PDB to test_run\setup\prepared.pdb
+2026-06-27 16:12:46,673 - INFO - Loading prepared PDB: test_run\setup\prepared.pdb
+2026-06-27 16:12:46,705 - INFO - Building ForceField: ['charmm36.xml', 'charmm36/water.xml']
+2026-06-27 16:12:47,190 - INFO - Solvating (padding=1.00 nm, box=cube, ions=Na+/Cl- @ 0.150 M)
+2026-06-27 16:12:52,469 - INFO - Solvated system: 5080 atoms
+2026-06-27 16:12:52,469 - INFO - Creating OpenMM System (PME, cutoff=1.00 nm)
+2026-06-27 16:13:10,879 - INFO - Wrote: test_run\setup\solvated.pdb, test_run\setup\topology.pdb, test_run\setup\system.xml, test_run\setup\state.xml
+2026-06-27 16:13:10,900 - DEBUG - setup: wrote 7 artifact(s) to test_run\setup
+2026-06-27 16:13:10,902 - DEBUG - --> Phase 'simulation' starting (output=test_run\simulation)
+2026-06-27 16:13:11,813 - INFO - Selected OpenMM platform: CPU (precision=double)

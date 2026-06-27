@@ -1,0 +1,39 @@
+2026-06-27 13:03:45,193 - DEBUG - FastMDXplora initialized: system=1L2Y output=trpcage_100steps
+2026-06-27 13:03:45,194 - DEBUG - Plan: setup -> simulation -> analysis -> report
+2026-06-27 13:03:45,195 - DEBUG - --> Phase 'setup' starting (output=trpcage_100steps\setup)
+2026-06-27 13:03:45,205 - DEBUG - setup: input form detected as pdb_id
+2026-06-27 13:03:45,245 - INFO - Fetching PDB from RCSB: https://files.rcsb.org/download/1L2Y.pdb
+2026-06-27 13:03:47,876 - INFO - Fixing PDB with PDBFixer: trpcage_100steps\setup\input.pdb (pH=7.4)
+2026-06-27 13:03:52,586 - INFO -  - wrote fixed PDB to trpcage_100steps\setup\prepared.pdb
+2026-06-27 13:03:52,588 - INFO - Loading prepared PDB: trpcage_100steps\setup\prepared.pdb
+2026-06-27 13:03:52,622 - INFO - Building ForceField: ['charmm36.xml', 'charmm36/water.xml']
+2026-06-27 13:03:53,223 - INFO - Solvating (padding=1.00 nm, box=cube, ions=Na+/Cl- @ 0.150 M)
+2026-06-27 13:03:57,543 - INFO - Solvated system: 5080 atoms
+2026-06-27 13:03:57,544 - INFO - Creating OpenMM System (PME, cutoff=1.00 nm)
+2026-06-27 13:04:08,280 - INFO - Wrote: trpcage_100steps\setup\solvated.pdb, trpcage_100steps\setup\topology.pdb, trpcage_100steps\setup\system.xml, trpcage_100steps\setup\state.xml
+2026-06-27 13:04:08,293 - DEBUG - setup: wrote 7 artifact(s) to trpcage_100steps\setup
+2026-06-27 13:04:08,294 - DEBUG - --> Phase 'simulation' starting (output=trpcage_100steps\simulation)
+2026-06-27 13:04:08,795 - INFO - Selected OpenMM platform: CPU (precision=double)
+2026-06-27 13:07:39,114 - DEBUG - simulation: wrote 7 artifact(s) to trpcage_100steps\simulation
+2026-06-27 13:07:39,116 - DEBUG - --> Phase 'analysis' starting (output=trpcage_100steps\analysis)
+2026-06-27 13:07:50,856 - DEBUG - AnalysisOrchestrator: loading trajectory...
+2026-06-27 13:07:50,857 - DEBUG - Loading 1 trajectory file(s) with topology=trpcage_100steps\simulation\topology.pdb, stride=None
+2026-06-27 13:07:51,895 - DEBUG - Loaded trajectory: 10 frames, 5080 atoms, 1618 residues
+2026-06-27 13:07:51,896 - DEBUG - Plan: rmsd, rg
+2026-06-27 13:07:51,897 - DEBUG - --> running analysis 'rmsd'
+2026-06-27 13:07:52,347 - DEBUG - Saved figure: trpcage_100steps\analysis\rmsd\rmsd.png
+2026-06-27 13:07:52,348 - DEBUG - --> running analysis 'rg'
+2026-06-27 13:07:52,562 - DEBUG - Saved figure: trpcage_100steps\analysis\rg\rg.png
+2026-06-27 13:07:52,565 - DEBUG - Wrote analysis manifest: trpcage_100steps\analysis\analysis_manifest.json
+2026-06-27 13:07:52,568 - DEBUG - --> Phase 'report' starting (output=trpcage_100steps\report)
+2026-06-27 13:07:52,923 - DEBUG - Saved figure: trpcage_100steps\simulation\energy_trace.png
+2026-06-27 13:07:53,157 - DEBUG - Saved figure: trpcage_100steps\simulation\simulation_health.png
+2026-06-27 13:07:53,536 - DEBUG - Saved figure: trpcage_100steps\simulation\energy_trace.png
+2026-06-27 13:07:53,783 - DEBUG - Saved figure: trpcage_100steps\simulation\simulation_health.png
+2026-06-27 13:07:54,388 - DEBUG - Saved figure: trpcage_100steps\simulation\energy_trace.png
+2026-06-27 13:07:54,635 - DEBUG - Saved figure: trpcage_100steps\simulation\simulation_health.png
+2026-06-27 13:07:54,719 - DEBUG - slides: wrote trpcage_100steps\report\slides.pptx
+2026-06-27 13:07:55,414 - DEBUG - bundle: wrote trpcage_100steps\report\project_bundle.zip (27 files)
+2026-06-27 13:07:55,415 - DEBUG - report: wrote 4 artifact(s) to trpcage_100steps\report
+2026-06-27 13:07:55,421 - DEBUG - Wrote manifest: trpcage_100steps\manifest.json
+2026-06-27 13:07:55,515 - DEBUG - Wrote resolved config: trpcage_100steps\resolved_config.yml

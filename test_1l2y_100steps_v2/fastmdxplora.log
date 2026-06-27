@@ -1,0 +1,39 @@
+2026-06-26 16:32:02,761 - DEBUG - FastMDXplora initialized: system=1L2Y output=test_1l2y_100steps_v2
+2026-06-26 16:32:02,762 - DEBUG - Plan: setup -> simulation -> analysis -> report
+2026-06-26 16:32:02,764 - DEBUG - --> Phase 'setup' starting (output=test_1l2y_100steps_v2\setup)
+2026-06-26 16:32:02,784 - DEBUG - setup: input form detected as pdb_id
+2026-06-26 16:32:02,845 - INFO - Fetching PDB from RCSB: https://files.rcsb.org/download/1L2Y.pdb
+2026-06-26 16:32:03,722 - INFO - Fixing PDB with PDBFixer: test_1l2y_100steps_v2\setup\input.pdb (pH=7.4)
+2026-06-26 16:32:13,274 - INFO -  - wrote fixed PDB to test_1l2y_100steps_v2\setup\prepared.pdb
+2026-06-26 16:32:13,276 - INFO - Loading prepared PDB: test_1l2y_100steps_v2\setup\prepared.pdb
+2026-06-26 16:32:13,318 - INFO - Building ForceField: ['charmm36.xml', 'charmm36/water.xml']
+2026-06-26 16:32:14,165 - INFO - Solvating (padding=1.00 nm, box=cube, ions=Na+/Cl- @ 0.150 M)
+2026-06-26 16:32:20,937 - INFO - Solvated system: 5080 atoms
+2026-06-26 16:32:20,938 - INFO - Creating OpenMM System (PME, cutoff=1.00 nm)
+2026-06-26 16:32:35,678 - INFO - Wrote: test_1l2y_100steps_v2\setup\solvated.pdb, test_1l2y_100steps_v2\setup\topology.pdb, test_1l2y_100steps_v2\setup\system.xml, test_1l2y_100steps_v2\setup\state.xml
+2026-06-26 16:32:35,691 - DEBUG - setup: wrote 7 artifact(s) to test_1l2y_100steps_v2\setup
+2026-06-26 16:32:35,693 - DEBUG - --> Phase 'simulation' starting (output=test_1l2y_100steps_v2\simulation)
+2026-06-26 16:32:36,329 - INFO - Selected OpenMM platform: CPU (precision=double)
+2026-06-26 16:36:17,406 - DEBUG - simulation: wrote 7 artifact(s) to test_1l2y_100steps_v2\simulation
+2026-06-26 16:36:17,408 - DEBUG - --> Phase 'analysis' starting (output=test_1l2y_100steps_v2\analysis)
+2026-06-26 16:36:23,844 - DEBUG - AnalysisOrchestrator: loading trajectory...
+2026-06-26 16:36:23,845 - DEBUG - Loading 1 trajectory file(s) with topology=test_1l2y_100steps_v2\simulation\topology.pdb, stride=None
+2026-06-26 16:36:24,146 - DEBUG - Loaded trajectory: 10 frames, 5080 atoms, 1618 residues
+2026-06-26 16:36:24,149 - DEBUG - Plan: rmsd, rg
+2026-06-26 16:36:24,150 - DEBUG - --> running analysis 'rmsd'
+2026-06-26 16:36:24,876 - DEBUG - Saved figure: test_1l2y_100steps_v2\analysis\rmsd\rmsd.png
+2026-06-26 16:36:24,877 - DEBUG - --> running analysis 'rg'
+2026-06-26 16:36:25,398 - DEBUG - Saved figure: test_1l2y_100steps_v2\analysis\rg\rg.png
+2026-06-26 16:36:25,401 - DEBUG - Wrote analysis manifest: test_1l2y_100steps_v2\analysis\analysis_manifest.json
+2026-06-26 16:36:25,405 - DEBUG - --> Phase 'report' starting (output=test_1l2y_100steps_v2\report)
+2026-06-26 16:36:26,070 - DEBUG - Saved figure: test_1l2y_100steps_v2\simulation\energy_trace.png
+2026-06-26 16:36:26,618 - DEBUG - Saved figure: test_1l2y_100steps_v2\simulation\simulation_health.png
+2026-06-26 16:36:27,286 - DEBUG - Saved figure: test_1l2y_100steps_v2\simulation\energy_trace.png
+2026-06-26 16:36:27,941 - DEBUG - Saved figure: test_1l2y_100steps_v2\simulation\simulation_health.png
+2026-06-26 16:36:28,777 - DEBUG - Saved figure: test_1l2y_100steps_v2\simulation\energy_trace.png
+2026-06-26 16:36:29,193 - DEBUG - Saved figure: test_1l2y_100steps_v2\simulation\simulation_health.png
+2026-06-26 16:36:29,387 - DEBUG - slides: wrote test_1l2y_100steps_v2\report\slides.pptx
+2026-06-26 16:36:30,425 - DEBUG - bundle: wrote test_1l2y_100steps_v2\report\project_bundle.zip (27 files)
+2026-06-26 16:36:30,425 - DEBUG - report: wrote 4 artifact(s) to test_1l2y_100steps_v2\report
+2026-06-26 16:36:30,433 - DEBUG - Wrote manifest: test_1l2y_100steps_v2\manifest.json
+2026-06-26 16:36:30,502 - DEBUG - Wrote resolved config: test_1l2y_100steps_v2\resolved_config.yml

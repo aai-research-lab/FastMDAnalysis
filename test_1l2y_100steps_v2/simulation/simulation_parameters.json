@@ -1,0 +1,52 @@
+{
+  "phase": "simulation",
+  "parameters": {
+    "preset": null,
+    "minimize": true,
+    "minimize_tolerance_kjmol_per_nm": 10.0,
+    "minimize_max_iterations": 0,
+    "nvt_steps": 20,
+    "npt_steps": 0,
+    "production_steps": 100,
+    "duration_ns": null,
+    "nvt_duration_ns": null,
+    "npt_duration_ns": null,
+    "integrator": "langevin_middle",
+    "integrator_error_tolerance": 0.001,
+    "timestep_fs": 0.5,
+    "temperature_K": 300.0,
+    "friction_per_ps": 5.0,
+    "pressure_bar": null,
+    "pressure_atm": null,
+    "barostat_frequency": 25,
+    "random_seed": null,
+    "platform": "CPU",
+    "precision": "double",
+    "device_index": null,
+    "trajectory_interval_steps": 10,
+    "state_interval_steps": 1000,
+    "checkpoint_interval_steps": 0,
+    "plumed": null
+  },
+  "platform_used": "CPU",
+  "n_production_frames": 10,
+  "duration_ns_actual": 5e-05,
+  "artifacts_planned": {
+    "trajectory": "production.dcd",
+    "topology": "topology.pdb",
+    "state": "state_final.xml",
+    "minimized_state": "state_minimized.xml",
+    "energy_log": "energy.csv",
+    "stdout_log": "simulation.log",
+    "checkpoint": "checkpoint.chk"
+  },
+  "artifacts_written": [
+    "production.dcd",
+    "topology.pdb",
+    "state_final.xml",
+    "energy.csv",
+    "simulation.log",
+    "state_minimized.xml"
+  ],
+  "notes": []
+}

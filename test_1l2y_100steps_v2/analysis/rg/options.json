@@ -1,0 +1,8 @@
+{
+  "analysis": "rg",
+  "class": "Rg",
+  "selection": "protein",
+  "options": {
+    "by_chain": false
+  }
+}

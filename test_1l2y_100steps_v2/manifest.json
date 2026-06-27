@@ -1,0 +1,102 @@
+{
+  "tool": "FastMDXplora",
+  "version": "2.0.1.dev20+gee7e3216e.d20260626",
+  "doi": "10.1002/jcc.70350",
+  "citation": "Aina, A.; Kwan, D. FastMDAnalysis: Software for Automated Analysis of Molecular Dynamics Trajectories. J. Comput. Chem. 2026, 47, e70350. DOI: 10.1002/jcc.70350",
+  "system": "1L2Y",
+  "output_dir": "test_1l2y_100steps_v2",
+  "phases": [
+    {
+      "name": "setup",
+      "status": "ok",
+      "output_dir": "test_1l2y_100steps_v2\\setup",
+      "started_at": "2026-06-26T23:32:02.763932+00:00",
+      "finished_at": "2026-06-26T23:32:35.692211+00:00",
+      "message": "Phase 'setup' completed.",
+      "artifacts": [
+        "input.pdb",
+        "prepared.pdb",
+        "solvated.pdb",
+        "topology.pdb",
+        "system.xml",
+        "state.xml",
+        "setup_parameters.json"
+      ]
+    },
+    {
+      "name": "simulation",
+      "status": "ok",
+      "output_dir": "test_1l2y_100steps_v2\\simulation",
+      "started_at": "2026-06-26T23:32:35.693139+00:00",
+      "finished_at": "2026-06-26T23:36:17.407169+00:00",
+      "message": "Phase 'simulation' completed.",
+      "artifacts": [
+        "production.dcd",
+        "topology.pdb",
+        "state_final.xml",
+        "energy.csv",
+        "simulation.log",
+        "state_minimized.xml",
+        "simulation_parameters.json"
+      ]
+    },
+    {
+      "name": "analysis",
+      "status": "ok",
+      "output_dir": "test_1l2y_100steps_v2\\analysis",
+      "started_at": "2026-06-26T23:36:17.408530+00:00",
+      "finished_at": "2026-06-26T23:36:25.404252+00:00",
+      "message": "Phase 'analysis' completed.",
+      "artifacts": [
+        "rmsd/rmsd.dat",
+        "rmsd/rmsd.png",
+        "rmsd/options.json",
+        "rg/rg.dat",
+        "rg/rg.png",
+        "rg/options.json",
+        "analysis_manifest.json"
+      ]
+    },
+    {
+      "name": "report",
+      "status": "ok",
+      "output_dir": "test_1l2y_100steps_v2\\report",
+      "started_at": "2026-06-26T23:36:25.405888+00:00",
+      "finished_at": "2026-06-26T23:36:30.426017+00:00",
+      "message": "Phase 'report' completed.",
+      "artifacts": [
+        "report.md",
+        "slides_outline.md",
+        "slides.pptx",
+        "project_bundle.zip"
+      ]
+    }
+  ],
+  "options": {
+    "setup": {
+      "ph": 7.4,
+      "ion_concentration_M": 0.15
+    },
+    "simulation": {
+      "nvt_steps": 20,
+      "npt_steps": 0,
+      "production_steps": 100,
+      "timestep_fs": 0.5,
+      "temperature_K": 300.0,
+      "friction_per_ps": 5.0,
+      "platform": "CPU",
+      "precision": "double",
+      "checkpoint_interval_steps": 0,
+      "trajectory_interval_steps": 10
+    },
+    "analysis": {
+      "include": [
+        "rmsd",
+        "rg"
+      ]
+    },
+    "report": {
+      "title": "1L2Y 100 Step Energy Plot Test"
+    }
+  }
+}

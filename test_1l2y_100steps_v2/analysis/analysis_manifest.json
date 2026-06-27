@@ -1,0 +1,42 @@
+{
+  "phase": "analysis",
+  "trajectory_input": "test_1l2y_100steps_v2\\simulation\\production.dcd",
+  "topology_input": "test_1l2y_100steps_v2\\simulation\\topology.pdb",
+  "load_kwargs": {
+    "stride": null,
+    "first": null,
+    "last": null
+  },
+  "default_selection": null,
+  "n_frames": 10,
+  "n_atoms": 5080,
+  "n_residues": 1618,
+  "plan": [
+    "rmsd",
+    "rg"
+  ],
+  "results": {
+    "rmsd": {
+      "name": "rmsd",
+      "status": "ok",
+      "output_dir": "test_1l2y_100steps_v2\\analysis\\rmsd",
+      "figure_path": "test_1l2y_100steps_v2\\analysis\\rmsd\\rmsd.png",
+      "data_path": "test_1l2y_100steps_v2\\analysis\\rmsd\\rmsd.dat",
+      "options_path": "test_1l2y_100steps_v2\\analysis\\rmsd\\options.json",
+      "message": "rmsd: ok",
+      "started_at": "2026-06-26T23:36:24.150789+00:00",
+      "finished_at": "2026-06-26T23:36:24.877141+00:00"
+    },
+    "rg": {
+      "name": "rg",
+      "status": "ok",
+      "output_dir": "test_1l2y_100steps_v2\\analysis\\rg",
+      "figure_path": "test_1l2y_100steps_v2\\analysis\\rg\\rg.png",
+      "data_path": "test_1l2y_100steps_v2\\analysis\\rg\\rg.dat",
+      "options_path": "test_1l2y_100steps_v2\\analysis\\rg\\options.json",
+      "message": "rg: ok",
+      "started_at": "2026-06-26T23:36:24.877804+00:00",
+      "finished_at": "2026-06-26T23:36:25.398544+00:00"
+    }
+  }
+}

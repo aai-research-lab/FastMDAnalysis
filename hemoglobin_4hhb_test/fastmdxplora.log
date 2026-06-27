@@ -1,0 +1,16 @@
+2026-06-27 13:51:46,389 - DEBUG - FastMDXplora initialized: system=4HHB output=hemoglobin_4hhb_test
+2026-06-27 13:51:46,391 - DEBUG - Plan: setup -> simulation -> analysis -> report
+2026-06-27 13:51:46,392 - DEBUG - --> Phase 'setup' starting (output=hemoglobin_4hhb_test\setup)
+2026-06-27 13:51:46,402 - DEBUG - setup: input form detected as pdb_id
+2026-06-27 13:51:46,455 - INFO - Fetching PDB from RCSB: https://files.rcsb.org/download/4HHB.pdb
+2026-06-27 13:51:47,301 - INFO - Fixing PDB with PDBFixer: hemoglobin_4hhb_test\setup\input.pdb (pH=7.4)
+2026-06-27 13:51:56,864 - INFO -  - wrote fixed PDB to hemoglobin_4hhb_test\setup\prepared.pdb
+2026-06-27 13:51:56,867 - INFO - Loading prepared PDB: hemoglobin_4hhb_test\setup\prepared.pdb
+2026-06-27 13:51:57,154 - INFO - Building ForceField: ['charmm36.xml', 'charmm36/water.xml']
+2026-06-27 13:51:57,842 - INFO - Solvating (padding=1.00 nm, box=cube, ions=Na+/Cl- @ 0.150 M)
+2026-06-27 13:52:27,650 - INFO - Solvated system: 59482 atoms
+2026-06-27 13:52:27,651 - INFO - Creating OpenMM System (PME, cutoff=1.00 nm)
+2026-06-27 13:52:54,630 - INFO - Wrote: hemoglobin_4hhb_test\setup\solvated.pdb, hemoglobin_4hhb_test\setup\topology.pdb, hemoglobin_4hhb_test\setup\system.xml, hemoglobin_4hhb_test\setup\state.xml
+2026-06-27 13:52:54,683 - DEBUG - setup: wrote 7 artifact(s) to hemoglobin_4hhb_test\setup
+2026-06-27 13:52:54,685 - DEBUG - --> Phase 'simulation' starting (output=hemoglobin_4hhb_test\simulation)
+2026-06-27 13:53:03,346 - INFO - Selected OpenMM platform: CPU (precision=double)

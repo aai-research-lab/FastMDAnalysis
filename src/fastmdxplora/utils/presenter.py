@@ -150,54 +150,145 @@ class SessionPresenter:
     # Public API
     # ------------------------------------------------------------------
     def banner(self, **fields: str) -> None:
-        """Print the opening banner box.
+        import sys as _sys
+        import time as _time
 
-        Parameters
-        ----------
-        **fields
-            ``key=value`` pairs displayed inside the box. Common keys are
-            ``System``, ``Output``, ``Version``. Empty values are skipped.
-        """
         if self.quiet:
             return
-        self._session_start = time.monotonic()
-                # Show a compact terminal version of the graphical abstract at the
-        # start of interactive FastMDXplora runs. The full PNG is bundled
-        # with the package and can be opened with `fastmdx splash --open`.
-        title = "FastMDXplora"
-        rows = [(k, v) for k, v in fields.items() if v]
-        if not rows:
-            self._write(self._top_rule(title))
-            self._write(self._bottom_rule())
-            self._write("")
-            return
 
-        label_w = max(len(k) for k, _ in rows)
-        # Inner content width is bounded by terminal width: 4 chars overhead
-        # for the box frame (│ <content> │).
-        max_inner_w = max(20, self.width - 4)
+        self._session_start = _time.monotonic()
 
-        # Compute the wrapped lines first to determine the inner width.
-        body_lines: list[str] = []
-        for key, val in rows:
-            label = self._color_text(f"{key+':':<{label_w + 1}}", "dim")
-            full = f"{label} {val}"
-            # Truncate body line if it exceeds the terminal-derived inner width.
-            if _visual_width(full) > max_inner_w:
-                # Strip ANSI for truncation math, then re-truncate the visible part.
-                visible = _strip_ansi(full)
-                truncated = visible[: max_inner_w - 1] + "…"
-                full = truncated  # color is lost when we truncate, but readability wins
-            body_lines.append(full)
+        argv = list(_sys.argv[1:])
 
-        inner_w = min(max(_visual_width(b) for b in body_lines), max_inner_w)
+        def arg_value(*names: str, default: str = "") -> str:
+            for i, token in enumerate(argv):
+                for name in names:
+                    if token == name and i + 1 < len(argv):
+                        return str(argv[i + 1])
+                    prefix = name + "="
+                    if token.startswith(prefix):
+                        return token[len(prefix):]
+            return default
 
-        # Top rule, content, bottom rule
-        self._write(self._top_rule(title, inner_w))
-        for line in body_lines:
-            pad = inner_w - _visual_width(line)
-            self._write(f"{self._c('│', 'dim')} {line}{' ' * max(0, pad)} {self._c('│', 'dim')}")
-        self._write(self._bottom_rule(inner_w))
+        def arg_list(name: str, default: str = "") -> str:
+            values = []
+            i = 0
+            while i < len(argv):
+                if argv[i] == name:
+                    j = i + 1
+                    while j < len(argv) and not argv[j].startswith("--"):
+                        values.append(argv[j])
+                        j += 1
+                    break
+                i += 1
+            return " -> ".join(values) if values else default
+
+        system = (
+            str(fields.get("System") or fields.get("system") or "")
+            or arg_value("-s", "-system", "--system", default="ANY_PDB_ID")
+        )
+        output = (
+            str(fields.get("Output") or fields.get("output") or "")
+            or arg_value("--output", default="output_folder")
+        )
+        version = str(fields.get("Version") or fields.get("version") or "")
+
+        pipeline = arg_list("--include", "setup -> simulation -> analysis -> report")
+        platform = arg_value("--simulate-platform", default="auto")
+        precision = arg_value("--simulate-precision", default="mixed")
+
+        setup_ph = arg_value("--setup-ph", default="7.4")
+        ion_conc = arg_value("--setup-ion-concentration-M", default="0.15")
+        forcefield = arg_value("--setup-forcefield", default="charmm36")
+
+        nvt_steps = arg_value("--simulate-nvt-steps", default="default")
+        npt_steps = arg_value("--simulate-npt-steps", default="default")
+        prod_steps = arg_value("--simulate-production-steps", default="default")
+        timestep = arg_value("--simulate-timestep-fs", default="2.0")
+        temperature = arg_value("--simulate-temperature-K", default="300")
+        traj_interval = arg_value("--simulate-trajectory-interval-steps", default="adaptive")
+
+        analyses = arg_list("--analyze-analyses", "default")
+        report_title = arg_value("--report-title", default="FastMDXplora Run")
+
+        H = chr(0x2500)
+        V = chr(0x2502)
+        TL = chr(0x250C)
+        TR = chr(0x2510)
+        BL = chr(0x2514)
+        BR = chr(0x2518)
+        CHECK = chr(0x2713)
+
+        box_width = min(max(78, self.width - 2), 110)
+        content_w = box_width - 4
+
+        ascii_logo = [
+            r" ______        _   __  __ _______   __      _                 ",
+            r"|  ____|      | | |  \/  |  __ \ \ / /     | |                ",
+            r"| |__ __ _ ___| |_| \  / | |  | \ V / _ __ | | ___  _ __ __ _ ",
+            r"|  __/ _` / __| __| |\/| | |  | |> < | '_ \| |/ _ \| '__/ _` |",
+            r"| | | (_| \__ \ |_| |  | | |__| / . \| |_) | | (_) | | | (_| |",
+            r"|_|  \__,_|___/\__|_|  |_|_____/_/ \_\ .__/|_|\___/|_|  \__,_|",
+            r"                                     | |                      ",
+            r"                                     |_|                      ",
+        ]
+
+        def fit(text: str) -> str:
+            text = str(text)
+            if len(text) <= content_w:
+                return text
+            return text[: max(0, content_w - 3)] + "..."
+
+        def top(color: str = "cyan") -> None:
+            self._write(self._c(TL + H * (box_width - 2) + TR, color))
+
+        def bottom(color: str = "cyan") -> None:
+            self._write(self._c(BL + H * (box_width - 2) + BR, color))
+
+        def line(text: str = "", color: str = "cyan") -> None:
+            text = fit(text)
+            pad = " " * max(0, content_w - len(text))
+            self._write(self._c(V, color) + " " + text + pad + " " + self._c(V, color))
+
+        self._write("")
+
+        for logo_line in ascii_logo:
+            self._write(self._c(logo_line, "blue"))
+
+        self._write(self._c("Fully Automated SysTem for Molecular Dynamics eXploration", "cyan"))
+        self._write("")
+
+        top("blue")
+        line("REPORTING & OUTPUTS", "blue")
+        line("Markdown reports    | HTML summaries    | PDF figures", "blue")
+        line("PowerPoint slides   | PNG/SVG plots     | ZIP result bundles", "blue")
+        bottom("blue")
+        self._write("")
+
+        top("cyan")
+        line("FASTMDXPLORA CORE", "cyan")
+        line("", "cyan")
+        line(f"System:     {system}", "cyan")
+        line(f"Output:     {output}", "cyan")
+        if version:
+            line(f"Version:    {version}", "cyan")
+        line(f"Pipeline:   {pipeline}", "cyan")
+        line(f"Platform:   {platform}    Precision: {precision}", "cyan")
+        line("", "cyan")
+        line(f"Setup:      pH {setup_ph}    Ion concentration: {ion_conc} M    Force field: {forcefield}", "cyan")
+        line(f"Simulation: NVT {nvt_steps} steps    NPT {npt_steps} steps    Production {prod_steps} steps", "cyan")
+        line(f"Runtime:    timestep {timestep} fs    temperature {temperature} K    trajectory every {traj_interval} steps", "cyan")
+        line(f"Analysis:   {analyses}", "cyan")
+        line(f"Report:     {report_title}", "cyan")
+        bottom("cyan")
+        self._write("")
+
+        self._write(
+            self._c(CHECK, "green") + " Reproducible  "
+            + self._c(CHECK, "green") + " Modular  "
+            + self._c(CHECK, "green") + " Publication-ready  "
+            + self._c(CHECK, "green") + " Open and extensible"
+        )
         self._write("")
 
     def phase_start(self, name: str) -> None:
