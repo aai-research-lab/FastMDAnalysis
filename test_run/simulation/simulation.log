@@ -1,1 +1,4 @@
 Minimizing energy...
+Reset velocities to 100.0 K after minimization
+NVT equilibration: 100 steps
+Production: 100 steps

@@ -30,3 +30,26 @@
 2026-06-27 16:13:10,900 - DEBUG - setup: wrote 7 artifact(s) to test_run\setup
 2026-06-27 16:13:10,902 - DEBUG - --> Phase 'simulation' starting (output=test_run\simulation)
 2026-06-27 16:13:11,813 - INFO - Selected OpenMM platform: CPU (precision=double)
+2026-06-27 16:16:43,580 - DEBUG - simulation: wrote 7 artifact(s) to test_run\simulation
+2026-06-27 16:16:43,582 - DEBUG - --> Phase 'analysis' starting (output=test_run\analysis)
+2026-06-27 16:16:58,229 - DEBUG - AnalysisOrchestrator: loading trajectory...
+2026-06-27 16:16:58,230 - DEBUG - Loading 1 trajectory file(s) with topology=test_run\simulation\topology.pdb, stride=None
+2026-06-27 16:16:59,139 - DEBUG - Loaded trajectory: 10 frames, 5080 atoms, 1618 residues
+2026-06-27 16:16:59,140 - DEBUG - Plan: rmsd, rg
+2026-06-27 16:16:59,141 - DEBUG - --> running analysis 'rmsd'
+2026-06-27 16:16:59,831 - DEBUG - Saved figure: test_run\analysis\rmsd\rmsd.png
+2026-06-27 16:16:59,832 - DEBUG - --> running analysis 'rg'
+2026-06-27 16:17:00,241 - DEBUG - Saved figure: test_run\analysis\rg\rg.png
+2026-06-27 16:17:00,244 - DEBUG - Wrote analysis manifest: test_run\analysis\analysis_manifest.json
+2026-06-27 16:17:00,248 - DEBUG - --> Phase 'report' starting (output=test_run\report)
+2026-06-27 16:17:00,792 - DEBUG - Saved figure: test_run\simulation\energy_trace.png
+2026-06-27 16:17:01,216 - DEBUG - Saved figure: test_run\simulation\simulation_health.png
+2026-06-27 16:17:01,730 - DEBUG - Saved figure: test_run\simulation\energy_trace.png
+2026-06-27 16:17:02,143 - DEBUG - Saved figure: test_run\simulation\simulation_health.png
+2026-06-27 16:17:03,145 - DEBUG - Saved figure: test_run\simulation\energy_trace.png
+2026-06-27 16:17:03,591 - DEBUG - Saved figure: test_run\simulation\simulation_health.png
+2026-06-27 16:17:03,713 - DEBUG - slides: wrote test_run\report\slides.pptx
+2026-06-27 16:17:04,570 - DEBUG - bundle: wrote test_run\report\project_bundle.zip (27 files)
+2026-06-27 16:17:04,570 - DEBUG - report: wrote 4 artifact(s) to test_run\report
+2026-06-27 16:17:04,572 - DEBUG - Wrote manifest: test_run\manifest.json
+2026-06-27 16:17:04,655 - DEBUG - Wrote resolved config: test_run\resolved_config.yml
