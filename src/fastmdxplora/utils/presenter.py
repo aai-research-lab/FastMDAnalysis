@@ -227,13 +227,13 @@ class SessionPresenter:
 
         H = chr(0x2500)
         V = chr(0x2502)
-        TL = chr(0x250C)
-        TR = chr(0x2510)
-        BL = chr(0x2514)
-        BR = chr(0x2518)
+        TL = chr(0x256D)
+        TR = chr(0x256E)
+        BL = chr(0x2570)
+        BR = chr(0x256F)
         CHECK = chr(0x2713)
 
-        box_width = min(max(82, self.width - 2), 112)
+        box_width = min(max(40, self.width - 2), 112)
         content_w = box_width - 4
 
         ascii_logo = [
@@ -325,13 +325,23 @@ class SessionPresenter:
         bottom("blue")
         self._write("")
 
-        self._write(
-            self._c(CHECK, "green") + " Reproducible  "
-            + self._c(CHECK, "green") + " Config-driven  "
-            + self._c(CHECK, "green") + " OpenMM CPU/GPU  "
-            + self._c(CHECK, "green") + " Energy-aware  "
-            + self._c(CHECK, "green") + " Publication-ready"
-        )
+        badges = [
+            "Reproducible",
+            "Config-driven",
+            "OpenMM CPU/GPU",
+            "Energy-aware",
+            "Publication-ready",
+        ]
+
+        def badge_line(items: list[str]) -> str:
+            return "  ".join(self._c(CHECK, "green") + f" {item}" for item in items)
+
+        all_badges = badge_line(badges)
+        if _visual_width(all_badges) <= self.width + 20:
+            self._write(all_badges)
+        else:
+            self._write(badge_line(badges[:3]))
+            self._write(badge_line(badges[3:]))
         self._write("")
 
     def phase_start(self, name: str) -> None:

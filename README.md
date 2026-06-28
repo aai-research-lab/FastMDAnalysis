@@ -301,6 +301,12 @@ simulation:
   duration_ns: 100.0         # production length (equilibration is separate)
   temperature_K: 310.0
   platform: CUDA
+  checkpoint_interval_steps: auto   # every 20% of production; 0 disables
+  first_aid_max_retries: 3          # recover failed MD stages from checkpoint
+  restraint_type: position          # optional equilibration position restraints
+  restraint_selection: backbone     # protein | backbone | heavy | non-water | all
+  restraint_k: 1000.0               # kJ mol^-1 nm^-2
+  restraints_in_production: false   # removed before production by default
 
 analysis:
   include: [rmsd, rmsf, rg, cluster]
@@ -336,6 +342,22 @@ For a quick command-line one-off, `-s/--system` is shorthand that builds a one-e
 ```bash
 fastmdx explore -s protein.pdb --simulate-duration-ns 50
 ```
+
+For safer long simulations, checkpoint/restart and position restraints are
+available from the same simulation namespace:
+
+```bash
+fastmdx explore -s protein.pdb \
+  --simulate-checkpoint-interval-steps auto \
+  --simulate-first-aid-max-retries 3 \
+  --simulate-restraint-type position \
+  --simulate-restraint-selection backbone \
+  --simulate-restraint-k 1000
+```
+
+`auto` writes checkpoints about every 20% of production. Position restraints are
+applied during minimization/equilibration and removed before production unless
+`--simulate-restraints-in-production` is supplied.
 
 ## Many systems and parameter sweeps
 

@@ -159,6 +159,26 @@ class TestTrajectoryInterval:
         assert _runner.trajectory_interval_for(0) == _runner.DEFAULT_TRAJECTORY_INTERVAL_STEPS
 
 
+class TestCheckpointRecoveryPlanning:
+    def test_auto_checkpoint_interval_is_twenty_percent_of_production(self):
+        assert _runner.checkpoint_interval_for(1000) == 200
+
+    def test_auto_checkpoint_interval_falls_back_to_total_when_no_production(self):
+        assert _runner.checkpoint_interval_for(0, total_steps=50) == 10
+
+    def test_resolve_checkpoint_interval_accepts_auto_and_numeric_strings(self):
+        assert _runner.resolve_checkpoint_interval(
+            "auto", production_steps=100, total_steps=150
+        ) == 20
+        assert _runner.resolve_checkpoint_interval(
+            "5000", production_steps=100, total_steps=150
+        ) == 5000
+
+    def test_resolve_checkpoint_interval_rejects_invalid_strings(self):
+        with pytest.raises(ValueError, match="auto"):
+            _runner.resolve_checkpoint_interval("sometimes", production_steps=100)
+
+
 # ===========================================================================
 # Lazy OpenMM import
 # ===========================================================================
@@ -462,6 +482,161 @@ class TestRunnerWiring:
                 )
 
 
+class TestCheckpointRecoveryRuntime:
+    def test_runner_uses_auto_checkpoint_interval(self, tmp_path: Path):
+        system_xml, state_xml, topo = _stub_setup_files(tmp_path)
+        fake_omm = _build_fake_omm()
+
+        with patch.object(_runner, "_import_openmm", return_value=fake_omm):
+            _runner.run_simulation(
+                system_xml=system_xml,
+                state_xml=state_xml,
+                topology_pdb=topo,
+                output_dir=tmp_path / "out",
+                nvt_steps=0,
+                npt_steps=0,
+                production_steps=100,
+                checkpoint_interval_steps="auto",
+                minimize=False,
+            )
+
+        fake_omm["CheckpointReporter"].assert_called_once_with(
+            str(tmp_path / "out" / "checkpoint.chk"),
+            20,
+        )
+
+    def test_runner_recovers_from_latest_checkpoint_after_step_failure(self, tmp_path: Path):
+        system_xml, state_xml, topo = _stub_setup_files(tmp_path)
+        fake_omm = _build_fake_omm()
+        fake_sim = fake_omm["Simulation"].return_value
+
+        def save_checkpoint(path):
+            Path(path).write_bytes(b"checkpoint")
+
+        fake_sim.saveCheckpoint = MagicMock(side_effect=save_checkpoint)
+        fake_sim.loadCheckpoint = MagicMock()
+        fake_sim.step = MagicMock(side_effect=[RuntimeError("boom"), None])
+
+        with patch.object(_runner, "_import_openmm", return_value=fake_omm):
+            _runner.run_simulation(
+                system_xml=system_xml,
+                state_xml=state_xml,
+                topology_pdb=topo,
+                output_dir=tmp_path / "out",
+                nvt_steps=0,
+                npt_steps=0,
+                production_steps=100,
+                checkpoint_interval_steps=25,
+                first_aid_max_retries=2,
+                minimize=False,
+            )
+
+        assert fake_sim.step.call_count == 2
+        fake_sim.loadCheckpoint.assert_called_once_with(str(tmp_path / "out" / "checkpoint.chk"))
+
+    def test_runner_gives_clear_first_aid_failure_message(self, tmp_path: Path):
+        system_xml, state_xml, topo = _stub_setup_files(tmp_path)
+        fake_omm = _build_fake_omm()
+        fake_sim = fake_omm["Simulation"].return_value
+
+        def save_checkpoint(path):
+            Path(path).write_bytes(b"checkpoint")
+
+        fake_sim.saveCheckpoint = MagicMock(side_effect=save_checkpoint)
+        fake_sim.loadCheckpoint = MagicMock()
+        fake_sim.step = MagicMock(side_effect=RuntimeError("boom"))
+
+        with patch.object(_runner, "_import_openmm", return_value=fake_omm):
+            with pytest.raises(RuntimeError, match="failed after 1 recovery attempt"):
+                _runner.run_simulation(
+                    system_xml=system_xml,
+                    state_xml=state_xml,
+                    topology_pdb=topo,
+                    output_dir=tmp_path / "out",
+                    nvt_steps=0,
+                    npt_steps=0,
+                    production_steps=100,
+                    checkpoint_interval_steps=25,
+                    first_aid_max_retries=1,
+                    minimize=False,
+                )
+
+
+class TestPositionRestraints:
+    def test_beginner_friendly_position_restraint_selections(self):
+        topology = _fake_topology([
+            _fake_atom(0, "N", "ALA", "N"),
+            _fake_atom(1, "CA", "ALA", "C"),
+            _fake_atom(2, "CB", "ALA", "C"),
+            _fake_atom(3, "H", "ALA", "H"),
+            _fake_atom(4, "O", "HOH", "O"),
+            _fake_atom(5, "C1", "LIG", "C"),
+        ])
+
+        assert _runner.select_position_restraint_atoms(topology, "protein") == [0, 1, 2, 3]
+        assert _runner.select_position_restraint_atoms(topology, "backbone") == [0, 1]
+        assert _runner.select_position_restraint_atoms(topology, "heavy") == [0, 1, 2, 5]
+        assert _runner.select_position_restraint_atoms(topology, "non-water") == [0, 1, 2, 3, 5]
+        assert _runner.select_position_restraint_atoms(topology, "all") == [0, 1, 2, 3, 4, 5]
+
+    def test_add_position_restraints_builds_custom_external_force(self):
+        fake_omm = _build_fake_omm()
+        fake_force = MagicMock()
+        fake_omm["openmm"].CustomExternalForce = MagicMock(return_value=fake_force)
+        system = MagicMock()
+        system.addForce = MagicMock(return_value=7)
+        topology = _fake_topology([
+            _fake_atom(0, "CA", "ALA", "C"),
+            _fake_atom(1, "H", "ALA", "H"),
+        ])
+        state = MagicMock()
+        state.getPositions.return_value = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+
+        force_index, atom_count = _runner.add_position_restraints(
+            fake_omm,
+            system,
+            topology,
+            state,
+            MagicMock(),
+            selection="heavy",
+            force_constant_kjmol_per_nm2=500.0,
+        )
+
+        assert force_index == 7
+        assert atom_count == 1
+        fake_force.addGlobalParameter.assert_called_once_with("k", 500.0)
+        fake_force.addParticle.assert_called_once_with(0, [1.0, 2.0, 3.0])
+
+    def test_runner_removes_position_restraints_before_production_by_default(self, tmp_path: Path):
+        system_xml, state_xml, topo = _stub_setup_files(tmp_path)
+        fake_omm = _build_fake_omm()
+        fake_system = fake_omm["openmm"].XmlSerializer.deserialize.return_value
+        fake_system.removeForce = MagicMock()
+        fake_system.getPositions.return_value = [[1.0, 2.0, 3.0]]
+        fake_omm["openmm"].CustomExternalForce = MagicMock(return_value=MagicMock())
+        fake_omm["PDBFile"].return_value.topology = _fake_topology([
+            _fake_atom(0, "CA", "ALA", "C"),
+        ])
+        fake_omm["PDBFile"].return_value.positions = [[1.0, 2.0, 3.0]]
+
+        with patch.object(_runner, "_import_openmm", return_value=fake_omm):
+            _runner.run_simulation(
+                system_xml=system_xml,
+                state_xml=state_xml,
+                topology_pdb=topo,
+                output_dir=tmp_path / "out",
+                nvt_steps=0,
+                npt_steps=0,
+                production_steps=10,
+                restraint_type="position",
+                restraint_selection="protein",
+                restraint_k=1000.0,
+                minimize=False,
+            )
+
+        fake_system.removeForce.assert_called_once_with(0)
+
+
 # ===========================================================================
 # Defaults
 # ===========================================================================
@@ -585,6 +760,35 @@ class TestRealSimulation:
 # ===========================================================================
 # Helpers
 # ===========================================================================
+def _stub_setup_files(tmp_path: Path) -> tuple[Path, Path, Path]:
+    system_xml = tmp_path / "system.xml"
+    state_xml = tmp_path / "state.xml"
+    topo = tmp_path / "topology.pdb"
+    system_xml.write_text("<System />")
+    state_xml.write_text("<State />")
+    topo.write_text("ATOM\nEND\n")
+    return system_xml, state_xml, topo
+
+
+def _fake_atom(index: int, name: str, residue_name: str, element_symbol: str):
+    residue = MagicMock()
+    residue.name = residue_name
+    element = MagicMock()
+    element.symbol = element_symbol
+    atom = MagicMock()
+    atom.index = index
+    atom.name = name
+    atom.residue = residue
+    atom.element = element
+    return atom
+
+
+def _fake_topology(atoms):
+    topology = MagicMock()
+    topology.atoms.return_value = atoms
+    return topology
+
+
 def _build_fake_omm() -> dict:
     """A fake OpenMM dict that supports the runner's call sequence."""
     fake_unit = MagicMock(

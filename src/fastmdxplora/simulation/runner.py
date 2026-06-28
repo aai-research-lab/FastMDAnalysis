@@ -68,6 +68,26 @@ DEFAULT_MINIMIZE_MAX_ITERATIONS = 0     # 0 == until convergence
 DEFAULT_TRAJECTORY_INTERVAL_STEPS = 1000
 DEFAULT_STATE_INTERVAL_STEPS = 1000
 DEFAULT_CHECKPOINT_INTERVAL_STEPS = 10_000
+DEFAULT_FIRST_AID_MAX_RETRIES = 3
+AUTO_CHECKPOINT_FRACTION = 0.20
+
+POSITION_RESTRAINT_SELECTIONS = (
+    "protein",
+    "backbone",
+    "heavy",
+    "non-water",
+    "all",
+)
+
+WATER_RESNAMES = {
+    "HOH", "WAT", "SOL", "TIP3", "TIP3P", "TIP4P", "TIP4PEW", "SPC", "SPCE",
+}
+PROTEIN_RESNAMES = {
+    "ALA", "ARG", "ASN", "ASP", "CYS", "CYX", "GLN", "GLU", "GLY", "HIS", "HID",
+    "HIE", "HIP", "ILE", "LEU", "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP",
+    "TYR", "VAL", "ASH", "GLH", "LYN", "SEC", "PYL",
+}
+BACKBONE_ATOM_NAMES = {"N", "CA", "C", "O", "OXT"}
 
 
 # ---------------------------------------------------------------------------
@@ -370,6 +390,254 @@ def _attach_checkpoint_reporter(
     return reporter
 
 
+def checkpoint_interval_for(
+    production_steps: int,
+    *,
+    total_steps: int | None = None,
+    fraction: float = AUTO_CHECKPOINT_FRACTION,
+) -> int:
+    """Return the automatic checkpoint cadence.
+
+    ``auto`` checkpointing means roughly five checkpoints over production
+    (20%, 40%, 60%, 80%, 100%). If production has been disabled for a smoke
+    test, fall back to the total planned simulation length so equilibration-only
+    runs can still be checkpointed.
+    """
+    reference = int(production_steps)
+    if reference <= 0 and total_steps is not None:
+        reference = int(total_steps)
+    if reference <= 0:
+        return 0
+    return max(1, int(math.ceil(reference * float(fraction))))
+
+
+def resolve_checkpoint_interval(
+    checkpoint_interval_steps: int | str | None,
+    *,
+    production_steps: int,
+    total_steps: int | None = None,
+) -> int:
+    """Resolve a user checkpoint setting to an integer step interval.
+
+    Accepted values are:
+
+    - positive integer: fixed checkpoint cadence in steps
+    - ``0``: disable checkpointing
+    - ``"auto"``: every 20% of production (or total steps when production is 0)
+    - numeric string: treated like the equivalent integer
+    """
+    if checkpoint_interval_steps is None:
+        return 0
+    if isinstance(checkpoint_interval_steps, str):
+        raw = checkpoint_interval_steps.strip().lower()
+        if raw == "auto":
+            return checkpoint_interval_for(production_steps, total_steps=total_steps)
+        try:
+            checkpoint_interval_steps = int(raw)
+        except ValueError as exc:
+            raise ValueError(
+                "checkpoint_interval_steps must be an integer number of steps, "
+                "0 to disable, or 'auto'."
+            ) from exc
+
+    interval = int(checkpoint_interval_steps)
+    if interval < 0:
+        raise ValueError("checkpoint_interval_steps must be >= 0 or 'auto'.")
+    return interval
+
+
+def _save_checkpoint(simulation: Any, chk_path: Path) -> bool:
+    """Write a binary checkpoint immediately, when the backend supports it."""
+    chk_path.parent.mkdir(parents=True, exist_ok=True)
+    save = getattr(simulation, "saveCheckpoint", None)
+    if callable(save):
+        save(str(chk_path))
+        return True
+
+    context = getattr(simulation, "context", None)
+    create = getattr(context, "createCheckpoint", None)
+    if callable(create):
+        data = create()
+        with chk_path.open("wb") as fh:
+            fh.write(data)
+        return True
+    return False
+
+
+def _load_checkpoint(simulation: Any, chk_path: Path) -> bool:
+    """Load a binary checkpoint, supporting both Simulation and Context APIs."""
+    if not chk_path.exists():
+        return False
+    load = getattr(simulation, "loadCheckpoint", None)
+    if callable(load):
+        load(str(chk_path))
+        return True
+
+    context = getattr(simulation, "context", None)
+    load_context = getattr(context, "loadCheckpoint", None)
+    if callable(load_context):
+        load_context(chk_path.read_bytes())
+        return True
+    return False
+
+
+def _current_step(simulation: Any, default: int = 0) -> int:
+    """Best-effort read of Simulation.currentStep that is safe for mocks."""
+    try:
+        value = getattr(simulation, "currentStep")
+    except Exception:  # noqa: BLE001
+        return int(default)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _recovery_error(label: str, attempts: int, cause: Exception) -> RuntimeError:
+    plural = "attempt" if attempts == 1 else "attempts"
+    return RuntimeError(
+        f"{label} failed after {attempts} recovery {plural}: {cause}. "
+        "Try reducing --simulate-timestep-fs, lowering --simulate-temperature-K, "
+        "using --simulate-platform CPU with --simulate-precision double, or adding "
+        "equilibration restraints."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Position-restraint helpers
+# ---------------------------------------------------------------------------
+def _residue_name(atom: Any) -> str:
+    residue = getattr(atom, "residue", None)
+    return str(getattr(residue, "name", "")).upper()
+
+
+def _atom_name(atom: Any) -> str:
+    return str(getattr(atom, "name", "")).upper()
+
+
+def _element_symbol(atom: Any) -> str:
+    element = getattr(atom, "element", None)
+    return str(getattr(element, "symbol", "")).upper()
+
+
+def _is_water_atom(atom: Any) -> bool:
+    return _residue_name(atom) in WATER_RESNAMES
+
+
+def _is_protein_atom(atom: Any) -> bool:
+    return _residue_name(atom) in PROTEIN_RESNAMES
+
+
+def _is_hydrogen_atom(atom: Any) -> bool:
+    symbol = _element_symbol(atom)
+    name = _atom_name(atom)
+    return symbol == "H" or name.startswith("H")
+
+
+def _selection_key(selection: str | None) -> str:
+    key = "protein" if selection is None else str(selection).strip().lower()
+    key = key.replace("_", "-")
+    if key == "nonwater":
+        key = "non-water"
+    return key
+
+
+def select_position_restraint_atoms(topology: Any, selection: str = "protein") -> list[int]:
+    """Return atom indices matching a beginner-friendly restraint selection.
+
+    Supported selections are ``protein``, ``backbone``, ``heavy``,
+    ``non-water``, and ``all``. ``heavy`` means non-hydrogen, non-water atoms.
+    """
+    key = _selection_key(selection)
+    if key not in POSITION_RESTRAINT_SELECTIONS:
+        valid = ", ".join(POSITION_RESTRAINT_SELECTIONS)
+        raise ValueError(f"Unknown restraint_selection {selection!r}. Valid selections: {valid}.")
+
+    indices: list[int] = []
+    for atom in topology.atoms():
+        index = int(getattr(atom, "index"))
+        if key == "all":
+            indices.append(index)
+        elif key == "non-water" and not _is_water_atom(atom):
+            indices.append(index)
+        elif key == "protein" and _is_protein_atom(atom):
+            indices.append(index)
+        elif (
+            key == "backbone"
+            and _is_protein_atom(atom)
+            and _atom_name(atom) in BACKBONE_ATOM_NAMES
+        ):
+            indices.append(index)
+        elif key == "heavy" and not _is_water_atom(atom) and not _is_hydrogen_atom(atom):
+            indices.append(index)
+    return indices
+
+
+def _positions_in_nm(omm: dict, positions: Any) -> Any:
+    return _value_in_unit(positions, omm["unit"].nanometer)
+
+
+def _reference_positions_in_nm(omm: dict, state: Any, pdb: Any) -> Any:
+    try:
+        positions = state.getPositions()
+    except Exception:  # noqa: BLE001
+        positions = getattr(pdb, "positions", None)
+    if positions is None:
+        raise ValueError(
+            "Position restraints need reference coordinates, but neither "
+            "state.xml nor topology.pdb provided readable positions."
+        )
+    return _positions_in_nm(omm, positions)
+
+
+def _xyz_at(positions_nm: Any, atom_index: int) -> tuple[float, float, float]:
+    xyz = positions_nm[atom_index]
+    return (float(xyz[0]), float(xyz[1]), float(xyz[2]))
+
+
+def add_position_restraints(
+    omm: dict,
+    system: Any,
+    topology: Any,
+    state: Any,
+    pdb: Any,
+    *,
+    selection: str = "protein",
+    force_constant_kjmol_per_nm2: float = 1000.0,
+) -> tuple[int, int]:
+    """Add an OpenMM ``CustomExternalForce`` with harmonic position restraints.
+
+    Returns ``(force_index, atom_count)``. The force constant is interpreted in
+    OpenMM's native energy/distance units: kJ mol-1 nm-2.
+    """
+    atom_indices = select_position_restraint_atoms(topology, selection)
+    if not atom_indices:
+        raise ValueError(
+            f"Position restraints selected 0 atoms for selection {selection!r}. "
+            "Choose one of: protein, backbone, heavy, non-water, all."
+        )
+
+    force_constant = float(force_constant_kjmol_per_nm2)
+    if force_constant < 0:
+        raise ValueError("Position-restraint force constant must be >= 0.")
+
+    positions_nm = _reference_positions_in_nm(omm, state, pdb)
+    openmm = omm["openmm"]
+    force = openmm.CustomExternalForce(
+        "0.5*k*periodicdistance(x, y, z, x0, y0, z0)^2"
+    )
+    force.addGlobalParameter("k", force_constant)
+    force.addPerParticleParameter("x0")
+    force.addPerParticleParameter("y0")
+    force.addPerParticleParameter("z0")
+    set_pbc = getattr(force, "setUsesPeriodicBoundaryConditions", None)
+    if callable(set_pbc):
+        set_pbc(True)
+    for atom_index in atom_indices:
+        force.addParticle(int(atom_index), list(_xyz_at(positions_nm, atom_index)))
+    return system.addForce(force), len(atom_indices)
+
+
 def _detach_all_reporters(simulation: Any) -> None:
     # Closing the trajectory reporter is what flushes the DCD header.
     for r in simulation.reporters:
@@ -502,6 +770,62 @@ def _run_md_stage(
         raise _validation_error(label, f"OpenMM integration failed ({exc})") from exc
 
 
+def _run_md_stage_with_recovery(
+    simulation: Any,
+    *,
+    n_steps: int,
+    label: str,
+    checkpoint_path: Path,
+    checkpoint_interval_steps: int,
+    first_aid_max_retries: int,
+    on_progress: Callable[[str], None] | None = None,
+) -> None:
+    """Run an MD stage, retrying from the latest checkpoint after crashes."""
+    if n_steps <= 0:
+        return
+
+    stage_start_step = _current_step(simulation, default=0)
+    target_step = stage_start_step + int(n_steps)
+    checkpoint_enabled = int(checkpoint_interval_steps) > 0
+    max_retries = max(0, int(first_aid_max_retries))
+
+    if checkpoint_enabled:
+        try:
+            _save_checkpoint(simulation, checkpoint_path)
+        except Exception as exc:  # noqa: BLE001
+            if on_progress:
+                on_progress(f"{label}: could not write starting checkpoint ({exc})")
+
+    if on_progress:
+        on_progress(f"{label}: {n_steps:,} steps")
+
+    attempt = 0
+    while True:
+        current_step = _current_step(simulation, default=stage_start_step)
+        remaining = max(0, target_step - current_step)
+        if remaining <= 0:
+            return
+        try:
+            simulation.step(int(remaining))
+            return
+        except Exception as exc:  # noqa: BLE001
+            if (
+                not checkpoint_enabled
+                or attempt >= max_retries
+                or not _load_checkpoint(simulation, checkpoint_path)
+            ):
+                if max_retries > 0 and checkpoint_enabled:
+                    raise _recovery_error(label, max(attempt, 1), exc) from exc
+                raise _validation_error(label, f"OpenMM integration failed ({exc})") from exc
+
+            attempt += 1
+            if on_progress:
+                on_progress(
+                    f"{label}: integration failed ({exc}); recovered from "
+                    f"checkpoint and retrying ({attempt}/{max_retries})"
+                )
+
+
 # ---------------------------------------------------------------------------
 # Stage planning
 # ---------------------------------------------------------------------------
@@ -620,7 +944,13 @@ def run_simulation(
     # Reporters
     trajectory_interval_steps: int | None = None,
     state_interval_steps: int = DEFAULT_STATE_INTERVAL_STEPS,
-    checkpoint_interval_steps: int = DEFAULT_CHECKPOINT_INTERVAL_STEPS,
+    checkpoint_interval_steps: int | str = DEFAULT_CHECKPOINT_INTERVAL_STEPS,
+    first_aid_max_retries: int = DEFAULT_FIRST_AID_MAX_RETRIES,
+    # Restraints
+    restraint_type: str | None = None,
+    restraint_selection: str = "protein",
+    restraint_k: float = 1000.0,
+    restraints_in_production: bool = False,
     # Hooks
     on_progress: Callable[[str], None] | None = None,
     # Enhanced sampling
@@ -677,6 +1007,11 @@ def run_simulation(
         + int(plan["npt_steps"])
         + int(plan["production_steps"])
     )
+    resolved_checkpoint_interval_steps = resolve_checkpoint_interval(
+        checkpoint_interval_steps,
+        production_steps=int(plan["production_steps"]),
+        total_steps=total_state_steps,
+    )
 
     # For short smoke tests, the default reporter interval can be larger than
     # the whole simulation, which creates an empty or nearly empty energy.csv.
@@ -709,6 +1044,24 @@ def run_simulation(
     pdb = omm["PDBFile"](str(topology_path))
     topology = pdb.topology
 
+    restraint_force_index: int | None = None
+    restraint_atom_count = 0
+    restraint_key = "none" if restraint_type is None else str(restraint_type).strip().lower()
+    if restraint_key in ("", "none", "off", "false"):
+        restraint_key = "none"
+    elif restraint_key == "position":
+        restraint_force_index, restraint_atom_count = add_position_restraints(
+            omm,
+            system,
+            topology,
+            state,
+            pdb,
+            selection=restraint_selection,
+            force_constant_kjmol_per_nm2=float(restraint_k),
+        )
+    else:
+        raise ValueError("Only restraint_type='position' is currently supported.")
+
     # PLUMED biasing (if enabled) is added just before the production stage,
     # not here — equilibration runs unbiased, matching standard enhanced-
     # sampling protocol. See Stage 4 below.
@@ -740,6 +1093,7 @@ def run_simulation(
     final_state_path = output_dir / "state_final.xml"
     energy_csv = output_dir / "energy.csv"
     log_path = output_dir / "simulation.log"
+    checkpoint_path = output_dir / "checkpoint.chk"
     # Copy topology so the analysis phase finds it at the expected path.
     topo_out = output_dir / "topology.pdb"
     if not topo_out.exists() or topo_out.resolve() != topology_path.resolve():
@@ -755,6 +1109,22 @@ def run_simulation(
             on_progress(msg)
 
     try:
+        if resolved_checkpoint_interval_steps > 0:
+            _log_step(
+                "Checkpointing enabled: "
+                f"every {resolved_checkpoint_interval_steps:,} steps; "
+                f"first-aid retries={int(first_aid_max_retries)}"
+            )
+        else:
+            _log_step("Checkpointing disabled")
+        if restraint_force_index is not None:
+            _log_step(
+                "Position restraints enabled: "
+                f"selection={restraint_selection}, atoms={restraint_atom_count:,}, "
+                f"k={float(restraint_k):g} kJ mol^-1 nm^-2, "
+                f"production={'on' if restraints_in_production else 'off'}"
+            )
+
         # ---- Stage 1: Minimize ----------------------------------------
         if minimize:
             _run_minimize(
@@ -790,10 +1160,23 @@ def run_simulation(
             interval=state_interval_steps,
             total_steps=total_state_steps,
         )
-        _run_md_stage(
+        # Checkpoint reporter for crash recovery / restart. It is attached
+        # before equilibration so long NVT/NPT stages are covered too, not just
+        # production. Stage-start checkpoints below keep restarts compatible
+        # across context changes such as adding/removing forces.
+        _attach_checkpoint_reporter(
+            omm,
+            simulation,
+            checkpoint_path,
+            interval=resolved_checkpoint_interval_steps,
+        )
+        _run_md_stage_with_recovery(
             simulation,
             n_steps=plan["nvt_steps"],
             label="NVT equilibration",
+            checkpoint_path=checkpoint_path,
+            checkpoint_interval_steps=resolved_checkpoint_interval_steps,
+            first_aid_max_retries=int(first_aid_max_retries),
             on_progress=_log_step,
         )
         _validate_state_finite(omm, simulation, stage="NVT equilibration")
@@ -809,10 +1192,13 @@ def run_simulation(
                 frequency=barostat_frequency,
             )
             simulation.context.reinitialize(preserveState=True)
-            _run_md_stage(
+            _run_md_stage_with_recovery(
                 simulation,
                 n_steps=plan["npt_steps"],
                 label="NPT equilibration",
+                checkpoint_path=checkpoint_path,
+                checkpoint_interval_steps=resolved_checkpoint_interval_steps,
+                first_aid_max_retries=int(first_aid_max_retries),
                 on_progress=_log_step,
             )
             _validate_state_finite(omm, simulation, stage="NPT equilibration")
@@ -823,6 +1209,10 @@ def run_simulation(
         # Enhanced sampling: add the PLUMED biasing force now (not during
         # equilibration), then reinitialize the context so it takes effect —
         # the standard protocol equilibrates unbiased and biases production.
+        if restraint_force_index is not None and not restraints_in_production:
+            _remove_force(system, restraint_force_index)
+            simulation.context.reinitialize(preserveState=True)
+            _log_step("Position restraints removed before production")
         if plumed:
             from fastmdxplora.simulation.plumed import add_plumed_force
             plumed_force = add_plumed_force(omm, system, plumed, Path(output_dir))
@@ -831,15 +1221,13 @@ def run_simulation(
         _attach_dcd_reporter(
             omm, simulation, traj_path, interval=trajectory_interval_steps
         )
-        # Checkpoint reporter for crash recovery / restart.
-        _attach_checkpoint_reporter(
-            omm, simulation, output_dir / "checkpoint.chk",
-            interval=checkpoint_interval_steps,
-        )
-        _run_md_stage(
+        _run_md_stage_with_recovery(
             simulation,
             n_steps=plan["production_steps"],
             label="Production",
+            checkpoint_path=checkpoint_path,
+            checkpoint_interval_steps=resolved_checkpoint_interval_steps,
+            first_aid_max_retries=int(first_aid_max_retries),
             on_progress=_log_step,
         )
 

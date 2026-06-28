@@ -106,7 +106,8 @@ system from an existing run manifest; `setup` and `simulate` still need
 
 ### MD engine controls
 
-Integrator, pressure (in bar **or** atm), GPU device, and checkpointing:
+Integrator, pressure (in bar **or** atm), GPU device, checkpointing, crash
+recovery, and equilibration restraints:
 
 ```bash
 fastmdx explore -s protein.pdb \
@@ -114,13 +115,28 @@ fastmdx explore -s protein.pdb \
     --simulate-timestep-fs 2.0 \
     --simulate-pressure-atm 1.0 \
     --simulate-device-index 0 \
-    --simulate-checkpoint-interval-steps 5000
+    --simulate-checkpoint-interval-steps auto \
+    --simulate-first-aid-max-retries 3 \
+    --simulate-restraint-type position \
+    --simulate-restraint-selection backbone \
+    --simulate-restraint-k 1000
 ```
 
 Supported integrators: `langevin_middle` (default), `langevin`,
 `brownian`, `verlet`, `variable_langevin`, `variable_verlet`. Pressure can
 be given as `--simulate-pressure-bar` or `--simulate-pressure-atm`; atm is
 converted to OpenMM's native bar (1 atm = 1.01325 bar).
+
+`--simulate-checkpoint-interval-steps auto` writes `checkpoint.chk` about every
+20% of production. If an MD stage fails, FastMDXplora reloads the newest
+checkpoint and retries up to `--simulate-first-aid-max-retries` times. Use `0`
+to disable checkpoint writing.
+
+Position restraints are currently the first supported restraint type. They are
+applied during minimization/equilibration and are removed before production by
+default. Supported selections are `protein`, `backbone`, `heavy`, `non-water`,
+and `all`. Add `--simulate-restraints-in-production` only when you explicitly
+want restraints to remain active during production.
 
 ### Gentle simulation smoke test
 

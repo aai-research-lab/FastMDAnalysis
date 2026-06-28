@@ -275,9 +275,25 @@ SIMULATION = PhaseSchema(
               example=1000),
         Field("state_interval_steps", int, 1000,
               "Energy/state reporter interval in steps."),
-        Field("checkpoint_interval_steps", int, 10000,
+        Field("checkpoint_interval_steps", (int, str), 10000,
               "Binary checkpoint (.chk) interval in steps, for restart / "
-              "crash recovery. 0 disables checkpointing."),
+              "crash recovery. Use 'auto' for every 20% of production; "
+              "0 disables checkpointing."),
+        Field("first_aid_max_retries", int, 3,
+              "Number of times to retry a failed MD stage from the latest "
+              "checkpoint before giving up."),
+        Field("restraint_type", str, None,
+              "Restraint type for equilibration. Currently supported: position. "
+              "Default: no restraints.",
+              example="position"),
+        Field("restraint_selection", str, "protein",
+              "Atom selection for position restraints: protein, backbone, "
+              "heavy, non-water, or all."),
+        Field("restraint_k", (int, float), 1000.0,
+              "Position-restraint force constant in kJ mol^-1 nm^-2."),
+        Field("restraints_in_production", bool, False,
+              "Keep position restraints active during production. Default: "
+              "false, restraints are removed after NVT/NPT."),
         Field("plumed", dict, None,
               "Optional PLUMED enhanced-sampling config: a dict with "
               "`enabled` (bool) and `script` (inline PLUMED text or a path "

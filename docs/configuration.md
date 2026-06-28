@@ -31,6 +31,12 @@ simulation:
   integrator: langevin_middle
   temperature_K: 300.0
   pressure_bar: 1.0
+  checkpoint_interval_steps: auto  # every 20% of production; 0 disables
+  first_aid_max_retries: 3         # retry failed MD stages from checkpoint
+  restraint_type: position         # optional; currently position only
+  restraint_selection: backbone    # protein | backbone | heavy | non-water | all
+  restraint_k: 1000.0              # kJ mol^-1 nm^-2
+  restraints_in_production: false  # remove after NVT/NPT by default
   plumed:                    # optional enhanced sampling
     enabled: false
     script: bias.dat
@@ -74,7 +80,9 @@ keys:
   `nonbonded_cutoff_nm`, `constraints`, `temperature_K`.
 - **simulation**: `duration_ns` (or `nvt_steps` / `npt_steps` /
   `production_steps`), `integrator`, `timestep_fs`, `temperature_K`,
-  `pressure_bar`, `platform`, `precision`, `plumed`.
+  `pressure_bar`, `platform`, `precision`, `checkpoint_interval_steps`,
+  `first_aid_max_retries`, `restraint_type`, `restraint_selection`,
+  `restraint_k`, `restraints_in_production`, `plumed`.
 - **analysis**: `scope`, `selection`, `include`, `exclude`, `stride`,
   `first`, `last`, `options`.
 - **report**: `title`, `author`, `document`, `slides`, `bundle`,

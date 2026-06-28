@@ -90,6 +90,13 @@ DEFAULTS: dict[str, Any] = {
     "trajectory_interval_steps": None,   # None = adaptive
     "state_interval_steps": 1000,
     "checkpoint_interval_steps": 10000,  # binary .chk for restart
+    "first_aid_max_retries": 3,          # retry from latest checkpoint
+
+    # Position restraints (first restraint type supported)
+    "restraint_type": None,              # None / "position"
+    "restraint_selection": "protein",   # protein, backbone, heavy, non-water, all
+    "restraint_k": 1000.0,               # kJ mol^-1 nm^-2
+    "restraints_in_production": False,   # off for production unless requested
 
     # Enhanced sampling (PLUMED). None/absent = disabled. When set, a dict:
     #   {"enabled": true, "script": "<inline script or path to .dat>"}
@@ -226,7 +233,12 @@ def run(
             device_index=params["device_index"],
             trajectory_interval_steps=params["trajectory_interval_steps"],
             state_interval_steps=int(params["state_interval_steps"]),
-            checkpoint_interval_steps=int(params["checkpoint_interval_steps"]),
+            checkpoint_interval_steps=params["checkpoint_interval_steps"],
+            first_aid_max_retries=int(params["first_aid_max_retries"]),
+            restraint_type=params["restraint_type"],
+            restraint_selection=str(params["restraint_selection"]),
+            restraint_k=float(params["restraint_k"]),
+            restraints_in_production=bool(params["restraints_in_production"]),
             on_progress=_progress,
             plumed=params.get("plumed"),
         )
@@ -243,6 +255,9 @@ def run(
                 artifacts.append(path.relative_to(output_dir).as_posix())
             except ValueError:
                 artifacts.append(str(path))
+        checkpoint = output_dir / "checkpoint.chk"
+        if checkpoint.exists():
+            artifacts.append("checkpoint.chk")
         if result.minimized_state is not None:
             try:
                 artifacts.append(result.minimized_state.relative_to(output_dir).as_posix())

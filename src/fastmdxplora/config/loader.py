@@ -275,6 +275,51 @@ def validate_config(data: dict[str, Any], *, require_systems: bool = False) -> N
             )
         _validate_block(block, PHASE_SCHEMAS[phase], context=f"{phase}")
 
+    simulation = data.get("simulation", {})
+    if isinstance(simulation, dict):
+        checkpoint_interval = simulation.get("checkpoint_interval_steps")
+        if isinstance(checkpoint_interval, str):
+            raw = checkpoint_interval.strip().lower()
+            if raw != "auto":
+                try:
+                    int(raw)
+                except ValueError as exc:
+                    raise ConfigError(
+                        "simulation option 'checkpoint_interval_steps' should be "
+                        "an integer, 0, or 'auto'."
+                    ) from exc
+        elif isinstance(checkpoint_interval, int) and checkpoint_interval < 0:
+            raise ConfigError(
+                "simulation option 'checkpoint_interval_steps' must be >= 0 or 'auto'."
+            )
+
+        retries = simulation.get("first_aid_max_retries")
+        if isinstance(retries, int) and retries < 0:
+            raise ConfigError(
+                "simulation option 'first_aid_max_retries' must be >= 0."
+            )
+
+        restraint_type = simulation.get("restraint_type")
+        if restraint_type is not None and str(restraint_type).lower() not in {"none", "position"}:
+            raise ConfigError(
+                "simulation option 'restraint_type' must be 'position' or 'none'."
+            )
+
+        selection = simulation.get("restraint_selection")
+        if selection is not None:
+            allowed = {"protein", "backbone", "heavy", "non-water", "nonwater", "all"}
+            if str(selection).strip().lower().replace("_", "-") not in allowed:
+                raise ConfigError(
+                    "simulation option 'restraint_selection' must be one of: "
+                    "protein, backbone, heavy, non-water, all."
+                )
+
+        restraint_k = simulation.get("restraint_k")
+        if isinstance(restraint_k, (int, float)) and restraint_k < 0:
+            raise ConfigError(
+                "simulation option 'restraint_k' must be >= 0."
+            )
+
     # analysis include/exclude mutual exclusion (nested)
     analysis = data.get("analysis", {})
     if isinstance(analysis, dict) and analysis.get("include") and analysis.get("exclude"):

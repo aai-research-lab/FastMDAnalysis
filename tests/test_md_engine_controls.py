@@ -225,6 +225,11 @@ class TestNewOptionsValidate:
                 "pressure_atm": 1.0,
                 "device_index": "0",
                 "checkpoint_interval_steps": 5000,
+                "first_aid_max_retries": 3,
+                "restraint_type": "position",
+                "restraint_selection": "backbone",
+                "restraint_k": 500.0,
+                "restraints_in_production": False,
             },
         })
 
@@ -239,7 +244,9 @@ class TestNewOptionsValidate:
     def test_template_includes_new_options(self):
         text = generate_template()
         for key in ("integrator", "pressure_atm", "device_index",
-                    "checkpoint_interval_steps", "nonbonded_method",
+                    "checkpoint_interval_steps", "first_aid_max_retries",
+                    "restraint_type", "restraint_selection", "restraint_k",
+                    "restraints_in_production", "nonbonded_method",
                     "fixed_pdb", "dispersion_correction"):
             assert key in text, f"template missing {key}"
 
@@ -466,7 +473,12 @@ class TestMDEngineCLIRouting:
             "--include", "simulation",
             "--simulate-integrator", "brownian",
             "--simulate-pressure-atm", "1.0",
-            "--simulate-checkpoint-interval-steps", "2500",
+            "--simulate-checkpoint-interval-steps", "auto",
+            "--simulate-first-aid-max-retries", "4",
+            "--simulate-restraint-type", "position",
+            "--simulate-restraint-selection", "backbone",
+            "--simulate-restraint-k", "500",
+            "--simulate-restraints-in-production",
         ])
         assert rc == 0
         # Simulation degrades gracefully (no setup outputs), but the
@@ -476,7 +488,12 @@ class TestMDEngineCLIRouting:
         )["parameters"]
         assert params["integrator"] == "brownian"
         assert params["pressure_atm"] == 1.0
-        assert params["checkpoint_interval_steps"] == 2500
+        assert params["checkpoint_interval_steps"] == "auto"
+        assert params["first_aid_max_retries"] == 4
+        assert params["restraint_type"] == "position"
+        assert params["restraint_selection"] == "backbone"
+        assert params["restraint_k"] == 500.0
+        assert params["restraints_in_production"] is True
 
     def test_setup_flags_reach_manifest(self, tmp_path):
         import json

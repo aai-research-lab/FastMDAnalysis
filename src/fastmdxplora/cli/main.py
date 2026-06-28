@@ -39,6 +39,24 @@ from fastmdxplora import (
 from fastmdxplora.orchestrator import FastMDXplora
 
 
+def _checkpoint_interval_arg(value: str) -> int | str:
+    """Argparse type: integer steps, 0 to disable, or 'auto'."""
+    raw = str(value).strip().lower()
+    if raw == "auto":
+        return "auto"
+    try:
+        interval = int(raw)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "checkpoint interval must be an integer number of steps, 0, or 'auto'"
+        ) from exc
+    if interval < 0:
+        raise argparse.ArgumentTypeError(
+            "checkpoint interval must be >= 0, or 'auto'"
+        )
+    return interval
+
+
 # ---------------------------------------------------------------------------
 # Phase-option definitions
 # ---------------------------------------------------------------------------
@@ -131,10 +149,27 @@ _SIMULATION_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
         "help": "GPU precision (default 'mixed')."}),
     ("device-index", "device_index", {"type": str, "metavar": "IDX",
         "help": "GPU device index for multi-GPU machines (e.g. '0' or '0,1')."}),
-    ("checkpoint-interval-steps", "checkpoint_interval_steps", {"type": int,
-        "help": "Checkpoint (.chk) interval in steps; 0 disables (default 10000)."}),
+    ("checkpoint-interval-steps", "checkpoint_interval_steps", {
+        "type": _checkpoint_interval_arg,
+        "help": "Checkpoint (.chk) interval in steps, 'auto' for every 20% "
+                "of production, or 0 to disable (default 10000)."}),
+    ("first-aid-max-retries", "first_aid_max_retries", {"type": int,
+        "help": "Retry failed MD stages from the latest checkpoint up to "
+                "this many times (default 3)."}),
     ("trajectory-interval-steps", "trajectory_interval_steps", {"type": int,
         "help": "Trajectory (.dcd) frame interval in steps (default: adaptive, ~2000 frames)."}),
+    ("restraint-type", "restraint_type", {"choices": ["none", "position"],
+        "help": "Restraint type to use during equilibration. Currently supports 'position'."}),
+    ("restraint-selection", "restraint_selection", {
+        "choices": ["protein", "backbone", "heavy", "non-water", "all"],
+        "help": "Atoms for position restraints (default protein): protein, "
+                "backbone, heavy, non-water, or all."}),
+    ("restraint-k", "restraint_k", {"type": float,
+        "help": "Position-restraint force constant in kJ mol^-1 nm^-2 (default 1000)."}),
+    ("restraints-in-production", "restraints_in_production", {
+        "action": "store_true", "default": None,
+        "help": "Keep position restraints active during production; by default "
+                "they are removed after NVT/NPT."}),
     ("random-seed", "random_seed", {"type": int,
         "help": "Integrator random seed (default: not set)."}),
     ("plumed-script", "plumed_script", {"type": str, "metavar": "PATH",
