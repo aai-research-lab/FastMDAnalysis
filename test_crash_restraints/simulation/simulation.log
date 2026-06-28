@@ -1,0 +1,8 @@
+Checkpointing enabled: every 100 steps; first-aid retries=3
+Position restraints enabled: selection=backbone, atoms=81, k=1000 kJ mol^-1 nm^-2, production=off
+Minimizing energy...
+Reset velocities to 300.0 K after minimization
+NVT equilibration: 100 steps
+NPT equilibration: 100 steps
+Position restraints removed before production
+Production: 500 steps

@@ -1,0 +1,16 @@
+2026-06-27 22:24:00,850 - DEBUG - FastMDXplora initialized: system=1L2Y output=checkpoint_resume_test
+2026-06-27 22:24:00,851 - DEBUG - Plan: setup -> simulation
+2026-06-27 22:24:00,851 - DEBUG - --> Phase 'setup' starting (output=checkpoint_resume_test\setup)
+2026-06-27 22:24:00,858 - DEBUG - setup: input form detected as pdb_id
+2026-06-27 22:24:00,908 - INFO - Fetching PDB from RCSB: https://files.rcsb.org/download/1L2Y.pdb
+2026-06-27 22:24:01,525 - INFO - Fixing PDB with PDBFixer: checkpoint_resume_test\setup\input.pdb (pH=7.0)
+2026-06-27 22:24:09,067 - INFO -  - wrote fixed PDB to checkpoint_resume_test\setup\prepared.pdb
+2026-06-27 22:24:09,071 - INFO - Loading prepared PDB: checkpoint_resume_test\setup\prepared.pdb
+2026-06-27 22:24:09,110 - INFO - Building ForceField: ['charmm36.xml', 'charmm36/water.xml']
+2026-06-27 22:24:10,249 - INFO - Solvating (padding=1.00 nm, box=cube, ions=Na+/Cl- @ 0.150 M)
+2026-06-27 22:24:19,017 - INFO - Solvated system: 5080 atoms
+2026-06-27 22:24:19,018 - INFO - Creating OpenMM System (PME, cutoff=1.00 nm)
+2026-06-27 22:24:35,866 - INFO - Wrote: checkpoint_resume_test\setup\solvated.pdb, checkpoint_resume_test\setup\topology.pdb, checkpoint_resume_test\setup\system.xml, checkpoint_resume_test\setup\state.xml
+2026-06-27 22:24:35,889 - DEBUG - setup: wrote 7 artifact(s) to checkpoint_resume_test\setup
+2026-06-27 22:24:35,891 - DEBUG - --> Phase 'simulation' starting (output=checkpoint_resume_test\simulation)
+2026-06-27 22:24:36,846 - INFO - Selected OpenMM platform: CPU (precision=double)

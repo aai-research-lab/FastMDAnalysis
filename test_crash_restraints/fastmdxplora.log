@@ -1,0 +1,19 @@
+2026-06-27 22:12:11,358 - DEBUG - FastMDXplora initialized: system=1L2Y output=test_crash_restraints
+2026-06-27 22:12:11,358 - DEBUG - Plan: setup -> simulation
+2026-06-27 22:12:11,359 - DEBUG - --> Phase 'setup' starting (output=test_crash_restraints\setup)
+2026-06-27 22:12:11,366 - DEBUG - setup: input form detected as pdb_id
+2026-06-27 22:12:11,412 - INFO - Fetching PDB from RCSB: https://files.rcsb.org/download/1L2Y.pdb
+2026-06-27 22:12:12,055 - INFO - Fixing PDB with PDBFixer: test_crash_restraints\setup\input.pdb (pH=7.0)
+2026-06-27 22:12:16,001 - INFO -  - wrote fixed PDB to test_crash_restraints\setup\prepared.pdb
+2026-06-27 22:12:16,003 - INFO - Loading prepared PDB: test_crash_restraints\setup\prepared.pdb
+2026-06-27 22:12:16,035 - INFO - Building ForceField: ['charmm36.xml', 'charmm36/water.xml']
+2026-06-27 22:12:16,541 - INFO - Solvating (padding=1.00 nm, box=cube, ions=Na+/Cl- @ 0.150 M)
+2026-06-27 22:12:20,863 - INFO - Solvated system: 5080 atoms
+2026-06-27 22:12:20,864 - INFO - Creating OpenMM System (PME, cutoff=1.00 nm)
+2026-06-27 22:12:36,032 - INFO - Wrote: test_crash_restraints\setup\solvated.pdb, test_crash_restraints\setup\topology.pdb, test_crash_restraints\setup\system.xml, test_crash_restraints\setup\state.xml
+2026-06-27 22:12:36,053 - DEBUG - setup: wrote 7 artifact(s) to test_crash_restraints\setup
+2026-06-27 22:12:36,056 - DEBUG - --> Phase 'simulation' starting (output=test_crash_restraints\simulation)
+2026-06-27 22:12:37,212 - INFO - Selected OpenMM platform: CPU (precision=double)
+2026-06-27 22:16:47,485 - DEBUG - simulation: wrote 8 artifact(s) to test_crash_restraints\simulation
+2026-06-27 22:16:47,487 - DEBUG - Wrote manifest: test_crash_restraints\manifest.json
+2026-06-27 22:16:47,562 - DEBUG - Wrote resolved config: test_crash_restraints\resolved_config.yml

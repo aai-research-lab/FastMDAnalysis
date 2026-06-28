@@ -1,0 +1,59 @@
+{
+  "tool": "FastMDXplora",
+  "version": "2.0.1.dev23+g29305de5d.d20260628",
+  "doi": "10.1002/jcc.70350",
+  "citation": "Aina, A.; Kwan, D. FastMDAnalysis: Software for Automated Analysis of Molecular Dynamics Trajectories. J. Comput. Chem. 2026, 47, e70350. DOI: 10.1002/jcc.70350",
+  "system": "1L2Y",
+  "output_dir": "test_crash_restraints",
+  "phases": [
+    {
+      "name": "setup",
+      "status": "ok",
+      "output_dir": "test_crash_restraints\\setup",
+      "started_at": "2026-06-28T05:12:11.359230+00:00",
+      "finished_at": "2026-06-28T05:12:36.054210+00:00",
+      "message": "Phase 'setup' completed.",
+      "artifacts": [
+        "input.pdb",
+        "prepared.pdb",
+        "solvated.pdb",
+        "topology.pdb",
+        "system.xml",
+        "state.xml",
+        "setup_parameters.json"
+      ]
+    },
+    {
+      "name": "simulation",
+      "status": "ok",
+      "output_dir": "test_crash_restraints\\simulation",
+      "started_at": "2026-06-28T05:12:36.056402+00:00",
+      "finished_at": "2026-06-28T05:16:47.485475+00:00",
+      "message": "Phase 'simulation' completed.",
+      "artifacts": [
+        "production.dcd",
+        "topology.pdb",
+        "state_final.xml",
+        "energy.csv",
+        "simulation.log",
+        "checkpoint.chk",
+        "state_minimized.xml",
+        "simulation_parameters.json"
+      ]
+    }
+  ],
+  "options": {
+    "simulation": {
+      "nvt_steps": 100,
+      "npt_steps": 100,
+      "production_steps": 500,
+      "platform": "CPU",
+      "precision": "double",
+      "checkpoint_interval_steps": "auto",
+      "first_aid_max_retries": 3,
+      "restraint_type": "position",
+      "restraint_selection": "backbone",
+      "restraint_k": 1000.0
+    }
+  }
+}

@@ -151,7 +151,7 @@ _SIMULATION_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
         "help": "GPU device index for multi-GPU machines (e.g. '0' or '0,1')."}),
     ("checkpoint-interval-steps", "checkpoint_interval_steps", {
         "type": _checkpoint_interval_arg,
-        "help": "Checkpoint (.chk) interval in steps, 'auto' for every 20% "
+        "help": "Checkpoint (.chk) interval in steps, 'auto' for every 20%% "
                 "of production, or 0 to disable (default 10000)."}),
     ("first-aid-max-retries", "first_aid_max_retries", {"type": int,
         "help": "Retry failed MD stages from the latest checkpoint up to "

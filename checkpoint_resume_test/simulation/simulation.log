@@ -1,0 +1,3 @@
+Checkpointing enabled: every 100 steps; first-aid retries=3
+Position restraints enabled: selection=backbone, atoms=81, k=1000 kJ mol^-1 nm^-2, production=off
+Minimizing energy...

@@ -1,0 +1,26 @@
+# FastMDXplora resolved configuration
+#
+# This is the fully-merged configuration actually used for this run
+# (built-in defaults + config file + command-line overrides). Feed it
+# back to reproduce the exact study:
+#
+#   fastmdx explore --config resolved_config.yml
+#
+systems:
+- id: s1
+  system: 1L2Y
+output: test_crash_restraints
+include:
+- setup
+- simulation
+simulation:
+  nvt_steps: 100
+  npt_steps: 100
+  production_steps: 500
+  platform: CPU
+  precision: double
+  checkpoint_interval_steps: auto
+  first_aid_max_retries: 3
+  restraint_type: position
+  restraint_selection: backbone
+  restraint_k: 1000.0
