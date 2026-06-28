@@ -780,8 +780,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     )
 
-    # Legacy graphical startup splash disabled.
-    # The active startup banner is SessionPresenter.banner() in utils/presenter.py.
+    if simulation_requested and not dry_run:
+        try:
+            from fastmdxplora.utils.splash import print_startup_splash
+
+            print_startup_splash()
+        except Exception:
+            pass
     if args.cite:
         print(__citation__)
         return 0

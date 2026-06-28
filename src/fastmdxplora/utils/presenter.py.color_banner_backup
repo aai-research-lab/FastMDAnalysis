@@ -49,10 +49,6 @@ _C = {
     "green":   "\x1b[38;5;76m",
     "yellow":  "\x1b[38;5;214m",
     "red":     "\x1b[38;5;196m",
-    "orange":  "\x1b[38;5;208m",
-    "purple":  "\x1b[38;5;99m",
-    "white":   "\x1b[38;5;255m",
-    "navy":    "\x1b[38;5;18m",
     "muted":   "\x1b[38;5;244m",
 }
 
@@ -154,7 +150,6 @@ class SessionPresenter:
     # Public API
     # ------------------------------------------------------------------
     def banner(self, **fields: str) -> None:
-        import os as _os
         import sys as _sys
         import time as _time
 
@@ -196,14 +191,7 @@ class SessionPresenter:
             str(fields.get("Output") or fields.get("output") or "")
             or arg_value("--output", default="output_folder")
         )
-
         version = str(fields.get("Version") or fields.get("version") or "")
-        if not version:
-            try:
-                from fastmdxplora import __version__ as _fmdx_version
-                version = str(_fmdx_version)
-            except Exception:
-                version = "unknown"
 
         platform = arg_value("--simulate-platform", default="auto")
         precision = arg_value("--simulate-precision", default="mixed")
@@ -221,9 +209,8 @@ class SessionPresenter:
         traj_interval = arg_value("--simulate-trajectory-interval-steps", default="adaptive")
         checkpoint_interval = arg_value("--simulate-checkpoint-interval-steps", default="default")
 
+        analyses = arg_list("--analyze-analyses", "default")
         report_title = arg_value("--report-title", default="FastMDXplora Run")
-        dashboard_link = _os.environ.get("FASTMDX_DASHBOARD_URL", "")
-        started = _time.strftime("%Y-%m-%d %H:%M:%S")
 
         H = chr(0x2500)
         V = chr(0x2502)
@@ -253,75 +240,71 @@ class SessionPresenter:
                 return text
             return text[: max(0, content_w - 3)] + "..."
 
-        def top(color: str) -> None:
+        def top(color: str = "cyan") -> None:
             self._write(self._c(TL + H * (box_width - 2) + TR, color))
 
-        def bottom(color: str) -> None:
+        def bottom(color: str = "cyan") -> None:
             self._write(self._c(BL + H * (box_width - 2) + BR, color))
 
-        def line(text: str = "", border: str = "cyan", text_color: str | None = None) -> None:
-            raw = fit(text)
-            pad = " " * max(0, content_w - len(raw))
-            body = self._c(raw, text_color) if text_color else raw
-            self._write(self._c(V, border) + " " + body + pad + " " + self._c(V, border))
+        def line(text: str = "", color: str = "cyan") -> None:
+            text = fit(text)
+            pad = " " * max(0, content_w - len(text))
+            self._write(self._c(V, color) + " " + text + pad + " " + self._c(V, color))
 
-        def title(text: str, border: str) -> None:
-            line(text, border, "white")
-            line(H * len(text), border, border)
+        def section(title: str, color: str = "cyan") -> None:
+            line("", color)
+            line(title, color)
+            line(H * min(len(title), content_w), color)
 
-        def kv(label: str, value: str, border: str, value_color: str = "white") -> None:
-            line(f"{label:<16} {value}", border, value_color)
+        def kv(label: str, value: str, color: str = "cyan") -> None:
+            label = str(label)
+            value = str(value)
+            line(f"{label:<16} {value}", color)
 
         self._write("")
 
         for logo_line in ascii_logo:
-            self._write(self._c(logo_line, "purple"))
+            self._write(self._c(logo_line, "blue"))
 
         self._write(self._c("Fully Automated SysTem for Molecular Dynamics eXploration", "cyan"))
         self._write("")
 
-        top("green")
-        title("CURRENT RUN", "green")
-        kv("System", system, "green")
-        kv("Output", output, "green")
-        kv("Version", version, "green")
-        kv("Started", started, "green")
-        kv("Platform", f"{platform} ({precision} precision)", "green")
-        bottom("green")
-        self._write("")
-
         top("cyan")
-        title("SETUP", "cyan")
+        line("CURRENT RUN", "cyan")
+        line(H * 11, "cyan")
+        kv("System", system, "cyan")
+        kv("Output", output, "cyan")
+        kv("Status", "Initializing", "cyan")
+        if version:
+            kv("Version", version, "cyan")
+        kv("Platform", f"{platform} ({precision} precision)", "cyan")
+        kv("Force Field", forcefield, "cyan")
+
+        section("SETUP", "cyan")
         kv("pH", setup_ph, "cyan")
         kv("Ion Conc.", f"{ion_conc} M", "cyan")
-        kv("Force Field", forcefield, "cyan")
+
+        section("SIMULATION", "cyan")
+        kv("NVT", f"{nvt_steps} steps", "cyan")
+        kv("NPT", f"{npt_steps} steps", "cyan")
+        kv("Production", f"{prod_steps} steps", "cyan")
+        kv("Timestep", f"{timestep} fs", "cyan")
+        kv("Temperature", f"{temperature} K", "cyan")
+        kv("Friction", f"{friction} / ps", "cyan")
+        kv("Trajectory", f"every {traj_interval} steps", "cyan")
+        kv("Checkpoint", f"every {checkpoint_interval} steps", "cyan")
+
+        section("ANALYSIS", "cyan")
+        kv("Methods", analyses, "cyan")
+        kv("Report", report_title, "cyan")
         bottom("cyan")
         self._write("")
 
-        top("orange")
-        title("SIMULATION", "orange")
-        kv("NVT", f"{nvt_steps} steps", "orange")
-        kv("NPT", f"{npt_steps} steps", "orange")
-        kv("Production", f"{prod_steps} steps", "orange")
-        kv("Timestep", f"{timestep} fs", "orange")
-        kv("Temperature", f"{temperature} K", "orange")
-        kv("Friction", f"{friction} / ps", "orange")
-        kv("Trajectory", f"every {traj_interval} steps", "orange")
-        kv("Checkpoint", f"every {checkpoint_interval} steps", "orange")
-        bottom("orange")
-        self._write("")
-
-        top("purple")
-        title("ANALYSIS & REPORT", "purple")
-        kv("Dashboard", dashboard_link if dashboard_link else " ", "purple")
-        kv("Report", report_title, "purple")
-        bottom("purple")
-        self._write("")
-
         top("blue")
-        title("REPORTING & OUTPUTS", "blue")
-        line(f"{CHECK} Markdown report      {CHECK} HTML summary        {CHECK} PDF figures", "blue", "white")
-        line(f"{CHECK} PowerPoint slides    {CHECK} PNG/SVG plots       {CHECK} ZIP result bundle", "blue", "white")
+        line("REPORTING & OUTPUTS", "blue")
+        line(H * 19, "blue")
+        line(f"{CHECK} Markdown report      {CHECK} HTML summary        {CHECK} PDF figures", "blue")
+        line(f"{CHECK} PowerPoint slides    {CHECK} PNG/SVG plots       {CHECK} ZIP result bundle", "blue")
         bottom("blue")
         self._write("")
 

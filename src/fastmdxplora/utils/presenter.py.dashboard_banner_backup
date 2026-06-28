@@ -154,7 +154,6 @@ class SessionPresenter:
     # Public API
     # ------------------------------------------------------------------
     def banner(self, **fields: str) -> None:
-        import os as _os
         import sys as _sys
         import time as _time
 
@@ -221,8 +220,8 @@ class SessionPresenter:
         traj_interval = arg_value("--simulate-trajectory-interval-steps", default="adaptive")
         checkpoint_interval = arg_value("--simulate-checkpoint-interval-steps", default="default")
 
+        analyses = arg_list("--analyze-analyses", "default")
         report_title = arg_value("--report-title", default="FastMDXplora Run")
-        dashboard_link = _os.environ.get("FASTMDX_DASHBOARD_URL", "")
         started = _time.strftime("%Y-%m-%d %H:%M:%S")
 
         H = chr(0x2500)
@@ -284,6 +283,7 @@ class SessionPresenter:
         title("CURRENT RUN", "green")
         kv("System", system, "green")
         kv("Output", output, "green")
+        kv("Status", "Initializing", "green")
         kv("Version", version, "green")
         kv("Started", started, "green")
         kv("Platform", f"{platform} ({precision} precision)", "green")
@@ -313,7 +313,7 @@ class SessionPresenter:
 
         top("purple")
         title("ANALYSIS & REPORT", "purple")
-        kv("Dashboard", dashboard_link if dashboard_link else " ", "purple")
+        kv("Methods", analyses, "purple")
         kv("Report", report_title, "purple")
         bottom("purple")
         self._write("")

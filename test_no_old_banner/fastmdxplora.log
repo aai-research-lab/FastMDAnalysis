@@ -1,0 +1,106 @@
+2026-06-27 17:14:46,696 - DEBUG - FastMDXplora initialized: system=1L2Y output=test_no_old_banner
+2026-06-27 17:14:46,697 - DEBUG - Plan: setup -> simulation -> analysis -> report
+2026-06-27 17:14:46,699 - DEBUG - --> Phase 'setup' starting (output=test_no_old_banner\setup)
+2026-06-27 17:14:46,721 - DEBUG - setup: input form detected as pdb_id
+2026-06-27 17:14:46,804 - INFO - Fetching PDB from RCSB: https://files.rcsb.org/download/1L2Y.pdb
+2026-06-27 17:14:48,282 - INFO - Fixing PDB with PDBFixer: test_no_old_banner\setup\input.pdb (pH=7.4)
+2026-06-27 17:14:52,706 - INFO -  - wrote fixed PDB to test_no_old_banner\setup\prepared.pdb
+2026-06-27 17:14:52,707 - INFO - Loading prepared PDB: test_no_old_banner\setup\prepared.pdb
+2026-06-27 17:14:52,737 - INFO - Building ForceField: ['charmm36.xml', 'charmm36/water.xml']
+2026-06-27 17:14:53,657 - INFO - Solvating (padding=1.00 nm, box=cube, ions=Na+/Cl- @ 0.150 M)
+2026-06-27 17:14:58,755 - INFO - Solvated system: 5080 atoms
+2026-06-27 17:14:58,755 - INFO - Creating OpenMM System (PME, cutoff=1.00 nm)
+2026-06-27 17:15:07,811 - INFO - Wrote: test_no_old_banner\setup\solvated.pdb, test_no_old_banner\setup\topology.pdb, test_no_old_banner\setup\system.xml, test_no_old_banner\setup\state.xml
+2026-06-27 17:15:07,819 - DEBUG - setup: wrote 7 artifact(s) to test_no_old_banner\setup
+2026-06-27 17:15:07,820 - DEBUG - --> Phase 'simulation' starting (output=test_no_old_banner\simulation)
+2026-06-27 17:15:08,282 - INFO - Selected OpenMM platform: CPU (precision=double)
+2026-06-27 17:18:29,181 - DEBUG - simulation: wrote 7 artifact(s) to test_no_old_banner\simulation
+2026-06-27 17:18:29,183 - DEBUG - --> Phase 'analysis' starting (output=test_no_old_banner\analysis)
+2026-06-27 17:18:37,505 - DEBUG - AnalysisOrchestrator: loading trajectory...
+2026-06-27 17:18:37,507 - DEBUG - Loading 1 trajectory file(s) with topology=test_no_old_banner\simulation\topology.pdb, stride=None
+2026-06-27 17:18:37,782 - DEBUG - Loaded trajectory: 10 frames, 5080 atoms, 1618 residues
+2026-06-27 17:18:37,783 - DEBUG - Plan: rmsd, rg
+2026-06-27 17:18:37,783 - DEBUG - --> running analysis 'rmsd'
+2026-06-27 17:18:38,424 - DEBUG - Saved figure: test_no_old_banner\analysis\rmsd\rmsd.png
+2026-06-27 17:18:38,424 - DEBUG - --> running analysis 'rg'
+2026-06-27 17:18:38,827 - DEBUG - Saved figure: test_no_old_banner\analysis\rg\rg.png
+2026-06-27 17:18:38,829 - DEBUG - Wrote analysis manifest: test_no_old_banner\analysis\analysis_manifest.json
+2026-06-27 17:18:38,832 - DEBUG - --> Phase 'report' starting (output=test_no_old_banner\report)
+2026-06-27 17:18:39,396 - DEBUG - Saved figure: test_no_old_banner\simulation\energy_trace.png
+2026-06-27 17:18:39,862 - DEBUG - Saved figure: test_no_old_banner\simulation\simulation_health.png
+2026-06-27 17:18:40,463 - DEBUG - Saved figure: test_no_old_banner\simulation\energy_trace.png
+2026-06-27 17:18:40,927 - DEBUG - Saved figure: test_no_old_banner\simulation\simulation_health.png
+2026-06-27 17:18:41,823 - DEBUG - Saved figure: test_no_old_banner\simulation\energy_trace.png
+2026-06-27 17:18:42,241 - DEBUG - Saved figure: test_no_old_banner\simulation\simulation_health.png
+2026-06-27 17:18:42,419 - DEBUG - slides: wrote test_no_old_banner\report\slides.pptx
+2026-06-27 17:18:43,423 - DEBUG - bundle: wrote test_no_old_banner\report\project_bundle.zip (27 files)
+2026-06-27 17:18:43,424 - DEBUG - report: wrote 4 artifact(s) to test_no_old_banner\report
+2026-06-27 17:18:43,428 - DEBUG - Wrote manifest: test_no_old_banner\manifest.json
+2026-06-27 17:18:43,540 - DEBUG - Wrote resolved config: test_no_old_banner\resolved_config.yml
+2026-06-27 17:19:24,545 - DEBUG - FastMDXplora initialized: system=1L2Y output=test_no_old_banner
+2026-06-27 17:19:24,546 - DEBUG - Plan: setup -> simulation -> analysis -> report
+2026-06-27 17:19:24,546 - DEBUG - --> Phase 'setup' starting (output=test_no_old_banner\setup)
+2026-06-27 17:19:24,553 - DEBUG - setup: input form detected as pdb_id
+2026-06-27 17:19:24,592 - INFO - Fetching PDB from RCSB: https://files.rcsb.org/download/1L2Y.pdb
+2026-06-27 17:19:25,193 - INFO - Fixing PDB with PDBFixer: test_no_old_banner\setup\input.pdb (pH=7.4)
+2026-06-27 17:19:29,235 - INFO -  - wrote fixed PDB to test_no_old_banner\setup\prepared.pdb
+2026-06-27 17:19:29,236 - INFO - Loading prepared PDB: test_no_old_banner\setup\prepared.pdb
+2026-06-27 17:19:29,273 - INFO - Building ForceField: ['charmm36.xml', 'charmm36/water.xml']
+2026-06-27 17:19:29,790 - INFO - Solvating (padding=1.00 nm, box=cube, ions=Na+/Cl- @ 0.150 M)
+2026-06-27 17:19:35,476 - INFO - Solvated system: 5080 atoms
+2026-06-27 17:19:35,476 - INFO - Creating OpenMM System (PME, cutoff=1.00 nm)
+2026-06-27 17:19:45,507 - INFO - Wrote: test_no_old_banner\setup\solvated.pdb, test_no_old_banner\setup\topology.pdb, test_no_old_banner\setup\system.xml, test_no_old_banner\setup\state.xml
+2026-06-27 17:19:45,517 - DEBUG - setup: wrote 7 artifact(s) to test_no_old_banner\setup
+2026-06-27 17:19:45,517 - DEBUG - --> Phase 'simulation' starting (output=test_no_old_banner\simulation)
+2026-06-27 17:19:45,980 - INFO - Selected OpenMM platform: CPU (precision=double)
+2026-06-27 17:24:27,709 - DEBUG - FastMDXplora initialized: system=1L2Y output=test_no_old_banner
+2026-06-27 17:24:27,710 - DEBUG - Plan: setup -> simulation -> analysis -> report
+2026-06-27 17:24:27,711 - DEBUG - --> Phase 'setup' starting (output=test_no_old_banner\setup)
+2026-06-27 17:24:27,718 - DEBUG - setup: input form detected as pdb_id
+2026-06-27 17:24:27,757 - INFO - Fetching PDB from RCSB: https://files.rcsb.org/download/1L2Y.pdb
+2026-06-27 17:24:28,381 - INFO - Fixing PDB with PDBFixer: test_no_old_banner\setup\input.pdb (pH=7.4)
+2026-06-27 17:24:32,706 - INFO -  - wrote fixed PDB to test_no_old_banner\setup\prepared.pdb
+2026-06-27 17:24:32,707 - INFO - Loading prepared PDB: test_no_old_banner\setup\prepared.pdb
+2026-06-27 17:24:32,735 - INFO - Building ForceField: ['charmm36.xml', 'charmm36/water.xml']
+2026-06-27 17:24:33,229 - INFO - Solvating (padding=1.00 nm, box=cube, ions=Na+/Cl- @ 0.150 M)
+2026-06-27 17:24:37,507 - INFO - Solvated system: 5080 atoms
+2026-06-27 17:24:37,508 - INFO - Creating OpenMM System (PME, cutoff=1.00 nm)
+2026-06-27 17:24:46,430 - INFO - Wrote: test_no_old_banner\setup\solvated.pdb, test_no_old_banner\setup\topology.pdb, test_no_old_banner\setup\system.xml, test_no_old_banner\setup\state.xml
+2026-06-27 17:24:46,441 - DEBUG - setup: wrote 7 artifact(s) to test_no_old_banner\setup
+2026-06-27 17:24:46,442 - DEBUG - --> Phase 'simulation' starting (output=test_no_old_banner\simulation)
+2026-06-27 17:24:46,909 - INFO - Selected OpenMM platform: CPU (precision=double)
+2026-06-27 17:28:14,974 - DEBUG - simulation: wrote 7 artifact(s) to test_no_old_banner\simulation
+2026-06-27 17:28:14,976 - DEBUG - --> Phase 'analysis' starting (output=test_no_old_banner\analysis)
+2026-06-27 17:28:18,467 - DEBUG - AnalysisOrchestrator: loading trajectory...
+2026-06-27 17:28:18,468 - DEBUG - Loading 1 trajectory file(s) with topology=test_no_old_banner\simulation\topology.pdb, stride=None
+2026-06-27 17:28:18,590 - DEBUG - Loaded trajectory: 10 frames, 5080 atoms, 1618 residues
+2026-06-27 17:28:18,591 - DEBUG - Plan: rmsd, rg
+2026-06-27 17:28:18,591 - DEBUG - --> running analysis 'rmsd'
+2026-06-27 17:28:18,840 - DEBUG - Saved figure: test_no_old_banner\analysis\rmsd\rmsd.png
+2026-06-27 17:28:18,841 - DEBUG - --> running analysis 'rg'
+2026-06-27 17:28:18,999 - DEBUG - Saved figure: test_no_old_banner\analysis\rg\rg.png
+2026-06-27 17:28:19,000 - DEBUG - Wrote analysis manifest: test_no_old_banner\analysis\analysis_manifest.json
+2026-06-27 17:28:19,001 - DEBUG - --> Phase 'report' starting (output=test_no_old_banner\report)
+2026-06-27 17:28:19,194 - DEBUG - Saved figure: test_no_old_banner\simulation\energy_trace.png
+2026-06-27 17:28:19,376 - DEBUG - Saved figure: test_no_old_banner\simulation\simulation_health.png
+2026-06-27 17:28:19,844 - DEBUG - Saved figure: test_no_old_banner\simulation\energy_trace.png
+2026-06-27 17:28:20,199 - DEBUG - Saved figure: test_no_old_banner\simulation\simulation_health.png
+2026-06-27 17:28:20,599 - DEBUG - Saved figure: test_no_old_banner\simulation\energy_trace.png
+2026-06-27 17:28:20,752 - DEBUG - Saved figure: test_no_old_banner\simulation\simulation_health.png
+2026-06-27 17:28:20,830 - DEBUG - slides: wrote test_no_old_banner\report\slides.pptx
+2026-06-27 17:28:58,652 - DEBUG - FastMDXplora initialized: system=1L2Y output=test_no_old_banner
+2026-06-27 17:28:58,653 - DEBUG - Plan: setup -> simulation -> analysis -> report
+2026-06-27 17:28:58,654 - DEBUG - --> Phase 'setup' starting (output=test_no_old_banner\setup)
+2026-06-27 17:28:58,662 - DEBUG - setup: input form detected as pdb_id
+2026-06-27 17:28:58,697 - INFO - Fetching PDB from RCSB: https://files.rcsb.org/download/1L2Y.pdb
+2026-06-27 17:28:59,293 - INFO - Fixing PDB with PDBFixer: test_no_old_banner\setup\input.pdb (pH=7.4)
+2026-06-27 17:29:03,312 - INFO -  - wrote fixed PDB to test_no_old_banner\setup\prepared.pdb
+2026-06-27 17:29:03,313 - INFO - Loading prepared PDB: test_no_old_banner\setup\prepared.pdb
+2026-06-27 17:29:03,342 - INFO - Building ForceField: ['charmm36.xml', 'charmm36/water.xml']
+2026-06-27 17:29:03,826 - INFO - Solvating (padding=1.00 nm, box=cube, ions=Na+/Cl- @ 0.150 M)
+2026-06-27 17:29:08,039 - INFO - Solvated system: 5080 atoms
+2026-06-27 17:29:08,040 - INFO - Creating OpenMM System (PME, cutoff=1.00 nm)
+2026-06-27 17:29:17,226 - INFO - Wrote: test_no_old_banner\setup\solvated.pdb, test_no_old_banner\setup\topology.pdb, test_no_old_banner\setup\system.xml, test_no_old_banner\setup\state.xml
+2026-06-27 17:29:17,236 - DEBUG - setup: wrote 7 artifact(s) to test_no_old_banner\setup
+2026-06-27 17:29:17,238 - DEBUG - --> Phase 'simulation' starting (output=test_no_old_banner\simulation)
+2026-06-27 17:29:17,712 - INFO - Selected OpenMM platform: CPU (precision=double)
