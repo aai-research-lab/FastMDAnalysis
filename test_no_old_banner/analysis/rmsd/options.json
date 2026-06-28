@@ -1,9 +1,0 @@
-{
-  "analysis": "rmsd",
-  "class": "RMSD",
-  "selection": "name CA",
-  "options": {
-    "ref": 0,
-    "align": true
-  }
-}
