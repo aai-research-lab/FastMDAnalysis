@@ -1,0 +1,18 @@
+2026-07-01 18:53:30,298 - DEBUG - FastMDXplora initialized: system=1L2Y output=checkpoint_resume_test
+2026-07-01 18:53:30,298 - DEBUG - Plan: setup -> simulation
+2026-07-01 18:53:30,299 - DEBUG - --> Phase 'setup' starting (output=checkpoint_resume_test\setup)
+2026-07-01 18:53:30,305 - DEBUG - setup: input form detected as pdb_id
+2026-07-01 18:53:30,348 - INFO - Fetching PDB from RCSB: https://files.rcsb.org/download/1L2Y.pdb
+2026-07-01 18:53:33,477 - INFO - Fixing PDB with PDBFixer: checkpoint_resume_test\setup\input.pdb (pH=7.0)
+2026-07-01 18:53:37,901 - INFO -  - wrote fixed PDB to checkpoint_resume_test\setup\prepared.pdb
+2026-07-01 18:53:37,902 - INFO - Loading prepared PDB: checkpoint_resume_test\setup\prepared.pdb
+2026-07-01 18:53:37,929 - INFO - Building ForceField: ['charmm36.xml', 'charmm36/water.xml']
+2026-07-01 18:53:38,481 - INFO - Solvating (padding=1.00 nm, box=cube, ions=Na+/Cl- @ 0.150 M)
+2026-07-01 18:53:42,712 - INFO - Solvated system: 5080 atoms
+2026-07-01 18:53:42,712 - INFO - Creating OpenMM System (PME, cutoff=1.00 nm)
+2026-07-01 18:53:57,688 - INFO - Wrote: checkpoint_resume_test\setup\solvated.pdb, checkpoint_resume_test\setup\topology.pdb, checkpoint_resume_test\setup\system.xml, checkpoint_resume_test\setup\state.xml
+2026-07-01 18:53:57,698 - DEBUG - setup: wrote 7 artifact(s) to checkpoint_resume_test\setup
+2026-07-01 18:53:57,699 - DEBUG - --> Phase 'simulation' starting (output=checkpoint_resume_test\simulation)
+2026-07-01 18:53:58,625 - INFO - Platform CUDA is registered but not usable (Error initializing CUDA: CUDA error (801) at D:\bld\openmm_1780942599157\work\platforms\cuda\src\CudaContext.cpp:889); trying next candidate.
+2026-07-01 18:53:58,628 - INFO - Platform OpenCL is registered but not usable (No compatible OpenCL platform is available); trying next candidate.
+2026-07-01 18:53:58,629 - INFO - Selected OpenMM platform: CPU (precision=mixed)
