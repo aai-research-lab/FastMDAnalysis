@@ -210,6 +210,24 @@ class TestRMSF:
         out = RMSF().compute(backbone_traj)
         assert (out[:, 1] >= 0).all()
 
+    def test_align_defaults_to_true_and_changes_atomic_rmsf(self):
+        """Unaligned RMSF retains rigid-body translation around the mean."""
+        top = md.Topology()
+        chain = top.add_chain()
+        residue = top.add_residue("ALA", chain, resSeq=1)
+        for name, element in (("N", md.element.nitrogen), ("CA", md.element.carbon), ("C", md.element.carbon)):
+            top.add_atom(name, element, residue)
+        base = np.array([[0.0, 0.0, 0.0], [0.1, 0.0, 0.0], [0.0, 0.1, 0.0]])
+        xyz = np.stack([base, base + np.array([1.0, 0.0, 0.0])]).astype(np.float32)
+        traj = md.Trajectory(xyz=xyz, topology=top)
+
+        aligned = RMSF(selection="protein", per_residue=False).compute(traj)
+        unaligned = RMSF(selection="protein", per_residue=False, align=False).compute(traj)
+
+        assert RMSF().align is True
+        assert np.all(aligned[:, 1] < 1e-5)
+        assert np.all(unaligned[:, 1] > 0.4)
+
     def test_rmsf_magnitude_reasonable(self, backbone_traj: md.Trajectory):
         """The synthetic trajectory has 0.02 nm noise; RMSF should be ~0.02."""
         out = RMSF().compute(backbone_traj)

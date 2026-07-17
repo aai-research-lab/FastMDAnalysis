@@ -24,6 +24,7 @@ entry in :data:`_REGISTRY`.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,9 @@ class ForceFieldChoice:
         is true. ``None`` for protein-only force fields.
     description : str
         One-line human-readable summary for help text and templates.
+    requires_exact_xml : bool
+        Whether this named profile must verify exact XML availability rather
+        than allowing a similarly named legacy force field.
     """
 
     name: str
@@ -58,6 +62,7 @@ class ForceFieldChoice:
     supports_ligand: bool
     small_molecule_forcefield: str | None
     description: str
+    requires_exact_xml: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +81,21 @@ _REGISTRY: dict[str, ForceFieldChoice] = {
         supports_ligand=False,
         small_molecule_forcefield=None,
         description="CHARMM36 protein force field with CHARMM-style water.",
+    ),
+    "charmm36m": ForceFieldChoice(
+        name="charmm36m",
+        # OpenMM 8.3+ distributes the July 2024 CHARMM36 update under this
+        # name. Its documentation says that release includes CHARMM36m
+        # protein parameters. Never replace it with legacy charmm36.xml.
+        xmls=("charmm36_2024.xml", "charmm36_2024/water.xml"),
+        water_model="tip3p",
+        supports_ligand=False,
+        small_molecule_forcefield=None,
+        description=(
+            "CHARMM36m protein parameters from OpenMM's CHARMM36 2024 XML "
+            "set, with CHARMM-modified TIP3P water and compatible ions."
+        ),
+        requires_exact_xml=True,
     ),
     "amber14": ForceFieldChoice(
         name="amber14",
@@ -145,3 +165,38 @@ def resolve_forcefield(name: str | None) -> ForceFieldChoice:
             f"list of OpenMM XML filenames instead.)"
         )
     return choice
+
+
+class ForceFieldUnavailableError(RuntimeError):
+    """Raised when a named profile's required OpenMM XML files are absent."""
+
+
+def _openmm_data_dir() -> Path:
+    """Return OpenMM's bundled force-field data directory."""
+    try:
+        from openmm.app import forcefield as forcefield_module
+    except ImportError as exc:
+        raise ForceFieldUnavailableError(
+            "The charmm36m profile requires OpenMM with the CHARMM36 2024 "
+            "XML files. OpenMM is not installed; install the project's conda "
+            "environment (openmm>=8.3 recommended)."
+        ) from exc
+    return Path(forcefield_module.__file__).resolve().parent / "data"
+
+
+def require_forcefield_xmls(choice: ForceFieldChoice) -> None:
+    """Fail clearly if an exact named force-field profile is unavailable."""
+    if not choice.requires_exact_xml:
+        return
+    data_dir = _openmm_data_dir()
+    missing = [xml for xml in choice.xmls if not (data_dir / xml).is_file()]
+    if missing:
+        raise ForceFieldUnavailableError(
+            "forcefield='charmm36m' requires OpenMM's CHARMM36 2024 XML "
+            "set (charmm36_2024.xml and charmm36_2024/water.xml), which "
+            "contains the CHARMM36m protein parameters. Missing: "
+            f"{', '.join(missing)} in {data_dir}. Install/upgrade OpenMM "
+            "(openmm>=8.3 recommended). FastMDXplora will not substitute "
+            "the legacy charmm36.xml files because they do not include "
+            "CHARMM36m protein parameters."
+        )

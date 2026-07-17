@@ -40,7 +40,7 @@ FastMDXplora's four phases have different dependency footprints. The **analysis 
 
 ### Full install (all four phases, from the git repo)
 
-The setup/simulation chemistry stack (OpenMM, PDBFixer) installs most reliably from conda-forge, so the full install uses the bundled `environment.yml`. We recommend `mamba` (a faster conda solver); plain `conda` works too.
+The setup/simulation chemistry stack (OpenMM, PDBFixer) installs most reliably from conda-forge, especially on Linux/macOS. On Windows, use WSL2 or Docker for the full workflow. We recommend `mamba` (a faster conda solver); plain `conda` works too.
 
 ```bash
 git clone https://github.com/aai-research-lab/FastMDXplora.git
@@ -56,6 +56,49 @@ pip install .
 
 > Don't have `mamba`? Either install Miniforge (see [below](#mamba--miniforge-optional)), or just use `conda`; the `||` above falls back to it automatically.
 
+### Windows users
+
+OpenMM itself supports Windows, but the full molecular simulation setup stack
+used by FastMDXplora is most reliable on Linux/macOS. On Windows, we recommend
+WSL2 with Ubuntu, or Docker, especially for workflows involving AmberTools,
+OpenFF, PDBFixer, or ligand parameterization. WSL2 runs a Linux environment
+inside Windows, so you do not need a separate Linux computer.
+
+Windows users can still run protein-only OpenMM simulations with force fields
+such as `Amber14` or `CHARMM36`. AmberTools and OpenFF are mainly needed for
+ligand/small-molecule parameterization and more complex setup workflows.
+
+Recommended WSL2 workflow:
+
+```powershell
+# PowerShell, run as Administrator
+wsl --install -d Ubuntu
+wsl --update
+```
+
+Restart if prompted, open Ubuntu, and run the remaining commands there:
+
+```bash
+sudo apt update && sudo apt install -y curl git
+curl -L -o "$HOME/Miniforge3.sh" \
+  "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh"
+bash "$HOME/Miniforge3.sh" -b -p "$HOME/miniforge3"
+source "$HOME/miniforge3/etc/profile.d/conda.sh"
+conda init bash && source ~/.bashrc
+mkdir -p ~/src && cd ~/src
+git clone https://github.com/aai-research-lab/FastMDXplora.git
+cd FastMDXplora
+conda env create -f environment.yml
+conda activate fastmdxplora
+python -m pip install -e .
+fastmdx info
+```
+
+Run FastMDXplora commands from the WSL2 terminal. If AmberTools or OpenFF
+dependency issues occur on native Windows, switch to WSL2/Linux or a Linux
+Docker environment instead of forcing a broken native install. For the full
+details, see the [Windows users section in the installation guide](docs/installation.md#windows-users).
+
 ### Analysis + report only (from PyPI)
 
 If you only need to analyze existing trajectories and build reports (no simulation), plain pip is enough, no conda required:
@@ -65,7 +108,7 @@ pip install fastmdxplora              # primary package
 pip install fastmdx                    # alias (resolves to fastmdxplora)
 ```
 
-This gives a fully working analysis + report pipeline, slide deck included (`python-pptx` is a core dependency). The setup and simulation phases require the chemistry stack; if it is missing, invoked setup/simulation runs fail with a clear missing-dependency message. Add it via conda-forge (recommended, reliable across platforms):
+This gives a fully working analysis + report pipeline, slide deck included (`python-pptx` is a core dependency). The setup and simulation phases require the chemistry stack; if it is missing, invoked setup/simulation runs fail with a clear missing-dependency message. Add it via conda-forge (recommended; the full setup is easiest on Linux/macOS/WSL2):
 
 ```bash
 conda install -c conda-forge pdbfixer openmm
@@ -87,8 +130,9 @@ conda activate fastmdxplora
 pip install -e ".[test]"               # editable, with the test dependencies
 ```
 
-On Windows PowerShell, use the Python launcher and the virtual environment's
-activation script:
+For limited native Windows development, analysis/report-only work, or limited
+OpenMM usage, PowerShell can use the Python launcher and a virtual environment.
+This does not replace WSL2 for the complete setup or ligand workflow:
 
 ```powershell
 cd C:\Users\User\OneDrive\Documents\GitHub\FastMDXplora

@@ -154,8 +154,10 @@ def generate_template(*, minimal: bool = False) -> str:
     ]
     # Top-level scalars (output, verbose, include, exclude) at column 0.
     for fld in TOP_LEVEL.fields:
-        # `exclude` stays commented because include/exclude are exclusive
-        commented = fld.name in ("exclude",)
+        # `exclude` stays commented because include/exclude are exclusive;
+        # a project preset must also be opt-in, never activated by a newly
+        # generated general-purpose template.
+        commented = fld.name in ("exclude", "preset")
         lines.extend(_field_template_lines(fld, commented=commented, indent=0))
 
     # Per-phase blocks: fully commented so the file is valid as-is

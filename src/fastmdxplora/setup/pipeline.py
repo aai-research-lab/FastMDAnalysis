@@ -173,9 +173,16 @@ def run(
     # Surface an unknown named force field early with a clear message
     # (only when a raw list is not overriding it).
     if not params["force_field"]:
-        from fastmdxplora.setup.forcefields import resolve_forcefield
+        from fastmdxplora.setup.forcefields import (
+            require_forcefield_xmls,
+            resolve_forcefield,
+        )
 
-        resolve_forcefield(params["forcefield"])  # raises ValueError if unknown
+        choice = resolve_forcefield(params["forcefield"])  # raises if unknown
+        # A CHARMM36m request needs the C36m-capable 2024 XML files before
+        # any graceful-degradation branch (such as missing PDBFixer) can make
+        # it look like a usable setup was produced.
+        require_forcefield_xmls(choice)
 
     # Ligand / force-field coherence (pure logic — validate here, before any
     # OpenMM/OpenFF dependency, so the user gets a clear error regardless of

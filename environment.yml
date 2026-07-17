@@ -3,7 +3,7 @@
 # Creates an environment named `fastmdxplora` with the full dependency
 # stack, including the molecular-dynamics chemistry tools (OpenMM,
 # PDBFixer) that drive the setup and simulation phases. These come from
-# conda-forge, where they are reliably packaged across platforms.
+# conda-forge and are most reliably used on Linux/macOS or in WSL2.
 #
 # Create it with mamba (faster solver) and fall back to conda:
 #

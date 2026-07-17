@@ -59,7 +59,7 @@ _SETUP_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
         "help": "Retain crystallographic waters."}),
     ("fixed-pdb", "fixed_pdb", {"type": str, "metavar": "PATH",
         "help": "Use an already-fixed PDB and skip PDBFixer."}),
-    ("forcefield", "forcefield", {"choices": ["charmm36", "amber14", "amber-fb15", "amber-openff"],
+    ("forcefield", "forcefield", {"choices": ["charmm36", "charmm36m", "amber14", "amber-fb15", "amber-openff"],
         "help": "Named force field (default 'charmm36'). Resolves to the "
                 "right XMLs and water model. Use 'amber-openff' for ligands."}),
     ("force-field", "force_field", {"nargs": "+", "metavar": "XML",
@@ -87,6 +87,16 @@ _SETUP_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
     ("nonbonded-method", "nonbonded_method", {"choices": [
         "NoCutoff", "CutoffNonPeriodic", "CutoffPeriodic", "PME", "Ewald"],
         "help": "Nonbonded method (default 'PME')."}),
+    ("nonbonded-cutoff-nm", "nonbonded_cutoff_nm", {"type": float,
+        "help": "Real-space nonbonded cutoff in nm (default 1.0)."}),
+    ("switch-distance-nm", "switch_distance_nm", {"type": float,
+        "help": "Lennard-Jones switching-function turn-on distance in nm."}),
+    ("no-switching-function", "use_switching_function", {"action": "store_false", "default": None,
+        "help": "Disable the nonbonded switching function."}),
+    ("constraints", "constraints", {"choices": ["None", "HBonds", "AllBonds", "HAngles"],
+        "help": "Bond constraints (default HBonds)."}),
+    ("hydrogen-mass-amu", "hydrogen_mass_amu", {"type": float,
+        "help": "Hydrogen mass for mass repartitioning in amu."}),
     ("ion-positive", "ion_positive", {"type": str, "metavar": "ION",
         "help": "Counter-ion cation (default 'Na+')."}),
     ("ion-negative", "ion_negative", {"type": str, "metavar": "ION",
@@ -126,6 +136,8 @@ _SIMULATION_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
         "help": "Barostat pressure in atm (converted to bar)."}),
     ("friction-per-ps", "friction_per_ps", {"type": float,
         "help": "Langevin friction in 1/ps (default 1.0)."}),
+    ("barostat-frequency", "barostat_frequency", {"type": int,
+        "help": "MC barostat move interval in steps (default 25)."}),
     ("platform", "platform", {"choices": ["auto", "CUDA", "OpenCL", "CPU", "HIP"],
         "help": "OpenMM compute platform (default 'auto': CUDA → OpenCL → CPU)."}),
     ("precision", "precision", {"choices": ["single", "mixed", "double"],
@@ -168,6 +180,31 @@ _ANALYSIS_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
         "help": "First frame index to include (default 0)."}),
     ("last", "last", {"type": int,
         "help": "Last frame index (exclusive). Default: full trajectory."}),
+]
+
+# Per-analysis controls are exposed as first-class CLI flags but are stored
+# in analysis.options, matching the config schema and Python API.
+_ANALYSIS_DETAIL_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
+    ("rmsd-selection", "rmsd_selection", {"type": str, "metavar": "EXPR",
+        "help": "RMSD atom selection."}),
+    ("rmsd-ref", "rmsd_ref", {"type": int, "metavar": "FRAME",
+        "help": "RMSD reference frame (default 0)."}),
+    ("rmsd-align", "rmsd_align", {"action": argparse.BooleanOptionalAction, "default": None,
+        "help": "Align RMSD frames (use --no-rmsd-align to disable)."}),
+    ("rmsf-selection", "rmsf_selection", {"type": str, "metavar": "EXPR",
+        "help": "RMSF atom selection."}),
+    ("rmsf-per-residue", "rmsf_per_residue", {"action": argparse.BooleanOptionalAction, "default": None,
+        "help": "Reduce RMSF to residues (use --no-rmsf-per-residue for atoms)."}),
+    ("rmsf-align", "rmsf_align", {"action": argparse.BooleanOptionalAction, "default": None,
+        "help": "Align RMSF frames (use --no-rmsf-align for direct atomic RMSF)."}),
+    ("cluster-methods", "cluster_methods", {"nargs": "+", "metavar": "METHOD",
+        "choices": ["kmeans", "hierarchical", "dbscan"],
+        "help": "Clustering methods to run."}),
+    ("cluster-n-clusters", "cluster_n_clusters", {"type": int, "metavar": "K",
+        "help": "Cluster count for k-means/hierarchical clustering."}),
+    ("dimred-methods", "dimred_methods", {"nargs": "+", "metavar": "METHOD",
+        "choices": ["pca", "tsne", "umap"],
+        "help": "Dimensionality-reduction methods to run."}),
 ]
 
 _REPORT_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
@@ -262,6 +299,24 @@ def _harvest_phase_options(
         if val is not None:
             out[kwarg] = val
     return out
+
+
+def _harvest_analysis_detail_options(
+    args: argparse.Namespace, *, dest_prefix: str = ""
+) -> dict[str, dict[str, Any]]:
+    """Convert analysis-detail flags into the nested ``analysis.options`` map."""
+    flat = _harvest_phase_options(args, _ANALYSIS_DETAIL_OPTIONS, dest_prefix=dest_prefix)
+    mapping = {
+        "rmsd": {"selection": flat.get("rmsd_selection"), "ref": flat.get("rmsd_ref"), "align": flat.get("rmsd_align")},
+        "rmsf": {"selection": flat.get("rmsf_selection"), "per_residue": flat.get("rmsf_per_residue"), "align": flat.get("rmsf_align")},
+        "cluster": {"methods": flat.get("cluster_methods"), "n_clusters": flat.get("cluster_n_clusters")},
+        "dimred": {"methods": flat.get("dimred_methods")},
+    }
+    return {
+        name: {key: value for key, value in opts.items() if value is not None}
+        for name, opts in mapping.items()
+        if any(value is not None for value in opts.values())
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -405,6 +460,11 @@ def _build_parser() -> argparse.ArgumentParser:
         )
         _common_input_args(ep)
         ep.add_argument(
+            "--preset",
+            choices=["bpti-paper"],
+            help="Whole-workflow preset (currently: bpti-paper).",
+        )
+        ep.add_argument(
             "--include",
             nargs="+",
             metavar="PHASE",
@@ -436,6 +496,11 @@ def _build_parser() -> argparse.ArgumentParser:
                 dest_prefix=phase,
                 group_title=f"{phase} options",
             )
+        _attach_phase_options(
+            ep, _ANALYSIS_DETAIL_OPTIONS,
+            prefix="analyze", dest_prefix="analyze",
+            group_title="analysis detail options",
+        )
 
     # ---------- per-phase subcommands: phase-specific flags only ----------
     for phase, (opts, _) in _PHASE_SPEC.items():
@@ -447,6 +512,11 @@ def _build_parser() -> argparse.ArgumentParser:
         )
         _common_input_args(pp)
         _attach_phase_options(pp, opts, group_title=f"{phase} options")
+        if phase == "analyze":
+            _attach_phase_options(
+                pp, _ANALYSIS_DETAIL_OPTIONS,
+                group_title="analysis detail options",
+            )
 
     sub.add_parser(
         "info",
@@ -610,6 +680,17 @@ def _build_explore_config(args: argparse.Namespace) -> dict[str, Any]:
             block.update(harvested)
             config[orch_phase] = block
 
+    detail_options = _harvest_analysis_detail_options(args, dest_prefix="analyze")
+    if detail_options:
+        analysis = dict(config.get("analysis", {}))
+        nested = dict(analysis.get("options", {}))
+        for name, values in detail_options.items():
+            current = dict(nested.get(name, {}))
+            current.update(values)
+            nested[name] = current
+        analysis["options"] = nested
+        config["analysis"] = analysis
+
     # The flat --simulate-plumed-script flag maps to the nested `plumed` dict.
     sim_block = config.get("simulation")
     if isinstance(sim_block, dict) and "plumed_script" in sim_block:
@@ -620,6 +701,9 @@ def _build_explore_config(args: argparse.Namespace) -> dict[str, Any]:
     # -s/--system builds (or replaces) a one-element systems list.
     if args.system:
         config["systems"] = [{"id": "s1", "system": args.system}]
+
+    if getattr(args, "preset", None):
+        config["preset"] = args.preset
 
     # Top-level scalars from flags.
     if args.output_dir:
@@ -708,6 +792,15 @@ def _cmd_explore(args: argparse.Namespace) -> int:
         return 2
 
     config = _build_explore_config(args)
+    # A project preset can supply the canonical system as well as phase
+    # settings, so expand it before checking that explore has an input.
+    from fastmdxplora.config import apply_profile
+
+    try:
+        config = apply_profile(config)
+    except ValueError as exc:
+        print(f"fastmdx: config error: {exc}", file=sys.stderr)
+        return 2
     if not config.get("systems"):
         print(
             "fastmdx: explore requires a system — pass -s/--system PATH or a "
@@ -767,6 +860,10 @@ def _cmd_phase(phase: str, args: argparse.Namespace) -> int:
     fmdx = _make_orchestrator(args, phase=phase)
     opts_list, _ = _PHASE_SPEC[phase]
     kwargs = _harvest_phase_options(args, opts_list)
+    if phase == "analyze":
+        detail_options = _harvest_analysis_detail_options(args)
+        if detail_options:
+            kwargs["options"] = detail_options
     if _dashboard_requested(args) and phase == "simulate":
         kwargs["live_telemetry"] = True
 

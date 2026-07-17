@@ -16,8 +16,10 @@ import pytest
 
 from fastmdxplora.setup.forcefields import (
     DEFAULT_FORCEFIELD,
+    ForceFieldUnavailableError,
     ForceFieldChoice,
     available_forcefields,
+    require_forcefield_xmls,
     resolve_forcefield,
 )
 from fastmdxplora.setup.pipeline import run as setup_run
@@ -61,6 +63,28 @@ class TestResolveForceField:
         c = resolve_forcefield("charmm36")
         assert c.xmls == ("charmm36.xml", "charmm36/water.xml")
         assert c.supports_ligand is False
+
+    def test_charmm36m_requires_the_2024_c36m_xmls(self):
+        c = resolve_forcefield("charmm36m")
+        assert c.xmls == ("charmm36_2024.xml", "charmm36_2024/water.xml")
+        assert c.requires_exact_xml is True
+        assert "charmm36.xml" not in c.xmls
+
+    def test_charmm36m_missing_xml_fails_without_fallback(self, tmp_path, monkeypatch):
+        from fastmdxplora.setup import forcefields
+
+        monkeypatch.setattr(forcefields, "_openmm_data_dir", lambda: tmp_path)
+        with pytest.raises(ForceFieldUnavailableError, match="will not substitute"):
+            require_forcefield_xmls(resolve_forcefield("charmm36m"))
+
+    def test_charmm36m_exact_xmls_pass_availability_check(self, tmp_path, monkeypatch):
+        from fastmdxplora.setup import forcefields
+
+        (tmp_path / "charmm36_2024.xml").write_text("<ForceField/>")
+        (tmp_path / "charmm36_2024").mkdir()
+        (tmp_path / "charmm36_2024" / "water.xml").write_text("<ForceField/>")
+        monkeypatch.setattr(forcefields, "_openmm_data_dir", lambda: tmp_path)
+        require_forcefield_xmls(resolve_forcefield("charmm36m"))
 
     def test_amber14_xmls_and_water(self):
         c = resolve_forcefield("amber14")
@@ -119,6 +143,21 @@ class TestForceFieldPlumbing:
                 forcefield="bogus-ff",
             )
 
+    def test_charmm36m_unavailable_fails_before_scaffolded_setup(
+        self, stub_orchestrator, tmp_path, monkeypatch
+    ):
+        from fastmdxplora.setup import forcefields
+
+        monkeypatch.setattr(forcefields, "_openmm_data_dir", lambda: tmp_path)
+        out_dir = stub_orchestrator.output_dir / "setup"
+        out_dir.mkdir()
+        with pytest.raises(ForceFieldUnavailableError, match="will not substitute"):
+            setup_run(
+                orchestrator=stub_orchestrator,
+                output_dir=out_dir,
+                forcefield="charmm36m",
+            )
+
     def test_named_amber14_recorded_resolved(self, stub_orchestrator):
         out_dir = stub_orchestrator.output_dir / "setup"
         out_dir.mkdir()
@@ -175,4 +214,4 @@ class TestForceFieldSchemaAndCLI:
         # choices are constrained to the registered names
         for flag, _kw, opts in _SETUP_OPTIONS:
             if flag == "forcefield":
-                assert {"charmm36", "amber14", "amber-fb15"} <= set(opts["choices"])
+                assert {"charmm36", "charmm36m", "amber14", "amber-fb15"} <= set(opts["choices"])

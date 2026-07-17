@@ -1,0 +1,63 @@
+# BPTI case study from Aina & Kwan, JCC 2026.
+# Run: fastmdx explore --config examples/bpti_paper_6pti.yaml --output ./bpti_6pti
+# Explicit values make this file a self-contained record of the intended run.
+preset: bpti-paper
+
+systems:
+  - id: bpti-6pti
+    system: 6PTI
+
+setup:
+  ph: 7.0
+  keep_heterogens: false
+  keep_water: false
+  forcefield: charmm36m
+  water_model: tip3p
+  solvent_padding_nm: 1.0
+  box_shape: cube
+  ion_positive: Na+
+  ion_negative: Cl-
+  ion_concentration_M: 0.15
+  nonbonded_method: PME
+  nonbonded_cutoff_nm: 1.0
+  # See docs/bpti_paper_reproduction.md for the OpenMM cutoff limitation.
+  use_switching_function: false
+  constraints: HBonds
+  hydrogen_mass_amu: 1.5
+
+simulation:
+  duration_ns: 100.0
+  timestep_fs: 2.0
+  temperature_K: 300.0
+  friction_per_ps: 1.0
+  nvt_steps: 250000
+  npt_steps: 1000000
+  production_steps: 50000000
+  barostat_frequency: 50
+  platform: CUDA
+  precision: mixed
+  trajectory_interval_steps: 5000
+  checkpoint_interval_steps: 100000
+  live_telemetry: false
+
+analysis:
+  scope: protein
+  stride: 2
+  include: [rmsd, rmsf, rg, hbonds, sasa, ss, cluster, dimred]
+  options:
+    rmsd:
+      selection: "protein and backbone"
+      ref: 0
+      align: true
+    rmsf:
+      selection: protein
+      per_residue: false
+      align: false
+    sasa:
+      mode: total
+      probe_radius: 0.14
+    cluster:
+      methods: [hierarchical]
+      n_clusters: 6
+    dimred:
+      methods: [pca]

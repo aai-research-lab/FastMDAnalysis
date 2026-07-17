@@ -41,6 +41,7 @@ from typing import Any
 
 from fastmdxplora.setup.forcefields import (
     available_forcefields,
+    require_forcefield_xmls,
     resolve_forcefield,
 )
 from fastmdxplora.setup.ligand import load_ligand
@@ -198,6 +199,7 @@ def prepare_system(
         force_field = list(force_field)
     else:
         ff_choice = resolve_forcefield(forcefield)
+        require_forcefield_xmls(ff_choice)
         force_field = list(ff_choice.xmls)
         if water_model is None:
             water_model = ff_choice.water_model

@@ -1,7 +1,7 @@
 """Root-Mean-Square Fluctuation (RMSF).
 
 Per-residue (default) or per-atom RMSF over the trajectory. The
-trajectory is first superposed onto a reference (frame 0 or a user-chosen
+trajectory is optionally superposed onto a reference (frame 0 or a user-chosen
 reference) using the selected atom subset to remove rigid-body motion;
 the per-atom RMSF is then the standard deviation of each atom's position
 around its mean. The per-residue RMSF reduces per-atom RMSF to one value
@@ -38,6 +38,10 @@ class RMSF(Analysis):
         If True, collapse the per-atom RMSF down to one value per residue
         by averaging over the residue's atoms. If False, return the
         per-atom array (one value per selected atom).
+    align : bool, default True
+        If True, superpose frames before calculating fluctuations. Set False
+        to calculate directly around the mean positions, preserving
+        rigid-body motion for legacy workflows.
     selection : str, optional
         MDTraj atom selection. Defaults to ``"name CA"`` (alpha carbons)
         for protein analysis.
@@ -70,12 +74,16 @@ class RMSF(Analysis):
         *,
         ref: int = 0,
         per_residue: bool = True,
+        align: bool = True,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self.ref: int = int(ref)
         self.per_residue: bool = bool(per_residue)
-        self.options.update(ref=self.ref, per_residue=self.per_residue)
+        self.align: bool = bool(align)
+        self.options.update(
+            ref=self.ref, per_residue=self.per_residue, align=self.align
+        )
 
     def compute(self, traj: md.Trajectory) -> np.ndarray:
         """Compute the RMSF.
@@ -87,9 +95,9 @@ class RMSF(Analysis):
         """
         atom_idx = self.select_atoms(traj)
 
-        # Align the trajectory onto the reference using the selected atoms.
-        # This removes rigid-body translation and rotation so the residual
-        # variance is purely conformational fluctuation.
+        # Alignment is the normal default: it removes rigid-body translation
+        # and rotation so residual variance is conformational. Some legacy
+        # workflows intentionally retain this motion around the mean.
         n = traj.n_frames
         ref = self.ref if self.ref >= 0 else n + self.ref
         if not (0 <= ref < n):
@@ -98,7 +106,14 @@ class RMSF(Analysis):
                 f"with {n} frames."
             )
 
-        aligned = traj.superpose(traj, frame=ref, atom_indices=atom_idx)
+        # MDTraj's superpose mutates its target trajectory. Work on a copy so
+        # running RMSF cannot alter coordinates seen by later analyses.
+        aligned = (
+            traj.slice(range(traj.n_frames), copy=True).superpose(
+                traj, frame=ref, atom_indices=atom_idx
+            )
+            if self.align else traj
+        )
 
         # Per-atom RMSF on the selected atoms only:
         # rmsf[i] = sqrt(mean over frames of ||r_i(t) - <r_i>||^2)

@@ -5,6 +5,8 @@ workflows.
 
 Current examples:
 
+- `bpti_paper_6pti.yaml` — explicit 6PTI configuration for the BPTI paper
+  reproduction profile; see `docs/bpti_paper_reproduction.md`.
 - `pdb_list.txt` — a curated 15-entry starter set for the staged PDB smoke
   campaign workflow documented in `docs/pdb_smoke_campaign.md`.
 

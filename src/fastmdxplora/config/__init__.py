@@ -26,10 +26,13 @@ from fastmdxplora.config.loader import (
     phase_options,
     validate_config,
 )
+from fastmdxplora.config.profiles import apply_profile, available_profiles
 from fastmdxplora.config.schema import PHASE_SCHEMAS, PhaseSchema
 
 __all__ = [
     "ConfigError",
+    "apply_profile",
+    "available_profiles",
     "PHASE_SCHEMAS",
     "PhaseSchema",
     "generate_template",

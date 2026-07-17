@@ -15,6 +15,7 @@ installation
 phases
 usage_examples
 configuration
+bpti_paper_reproduction
 region_highlights
 live_dashboard
 ```

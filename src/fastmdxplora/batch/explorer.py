@@ -43,7 +43,7 @@ from fastmdxplora.batch.sweep import (
     normalize_sweep,
     normalize_systems,
 )
-from fastmdxplora.config import load_config_file, validate_config
+from fastmdxplora.config import apply_profile, load_config_file, validate_config
 from fastmdxplora.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -190,6 +190,11 @@ class BatchExplorer:
         else:
             self.config_path = str(config)
             raw = load_config_file(self.config_path)
+        try:
+            raw = apply_profile(raw)
+        except ValueError as exc:
+            from fastmdxplora.config import ConfigError
+            raise ConfigError(str(exc)) from exc
         validate_config(raw, require_systems=True)
         self._raw = raw
         self.verbose = verbose

@@ -70,6 +70,16 @@ class TestExploreHasPrefixedFlags:
         for sample_setup_flag in ("--setup-ph", "--setup-keep-water"):
             assert sample_setup_flag in registered
 
+    def test_bpti_preset_can_supply_the_system(self):
+        from fastmdxplora.cli.main import _build_explore_config
+
+        parser = _build_parser()
+        args = parser.parse_args(["explore", "--preset", "bpti-paper"])
+        config = _build_explore_config(args)
+        from fastmdxplora.config import apply_profile
+
+        assert apply_profile(config)["systems"][0]["system"] == "6PTI"
+
     def test_explore_has_simulation_prefixed_flags(self):
         parser = _build_parser()
         subparsers_action = next(
@@ -93,6 +103,10 @@ class TestExploreHasPrefixedFlags:
                       if a.option_strings}
 
         for flag in ("--analyze-analyses", "--analyze-selection", "--analyze-stride"):
+            assert flag in registered
+
+        for flag in ("--analyze-rmsd-selection", "--analyze-rmsf-align",
+                     "--analyze-cluster-n-clusters", "--analyze-dimred-methods"):
             assert flag in registered
 
     def test_explore_has_report_prefixed_flags(self):
@@ -177,6 +191,25 @@ class TestHarvestPhaseOptions:
             if h:
                 options[_PHASE_TO_ORCH[phase]] = h
         assert options == {}
+
+    def test_analysis_detail_flags_become_nested_options(self):
+        from fastmdxplora.cli.main import _harvest_analysis_detail_options
+
+        parser = _build_parser()
+        args = parser.parse_args([
+            "analyze", "-system", "/tmp/x.pdb",
+            "--rmsd-selection", "protein and backbone",
+            "--rmsd-ref", "0", "--rmsd-align",
+            "--rmsf-selection", "protein", "--no-rmsf-per-residue",
+            "--no-rmsf-align", "--cluster-methods", "hierarchical",
+            "--cluster-n-clusters", "6", "--dimred-methods", "pca",
+        ])
+        assert _harvest_analysis_detail_options(args) == {
+            "rmsd": {"selection": "protein and backbone", "ref": 0, "align": True},
+            "rmsf": {"selection": "protein", "per_residue": False, "align": False},
+            "cluster": {"methods": ["hierarchical"], "n_clusters": 6},
+            "dimred": {"methods": ["pca"]},
+        }
 
 
 # ===========================================================================

@@ -90,6 +90,10 @@ TOP_LEVEL = PhaseSchema(
     name="(top-level)",
     description="Project-level settings.",
     fields=(
+        Field("preset", str, None,
+              "Project preset. 'bpti-paper' expands to the 6PTI BPTI paper "
+              "reproduction profile; explicit config values override it.",
+              example="bpti-paper"),
         Field("output", str, None,
               "Output directory for all artifacts. "
               "Default: ./fastmdxplora_output_<UTC-timestamp>.",
@@ -125,7 +129,7 @@ SETUP = PhaseSchema(
               "PDBFixer. Default: run PDBFixer on the input.",
               example="prepared.pdb"),
         Field("forcefield", str, "charmm36",
-              "Named force field: charmm36 (default), amber14, amber-fb15. "
+              "Named force field: charmm36 (default), charmm36m, amber14, amber-fb15. "
               "Resolves to the right XML files and water model. For an "
               "unlisted combination, use `force_field` instead.",
               example="charmm36"),
