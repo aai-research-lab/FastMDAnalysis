@@ -344,17 +344,19 @@ def test_download_stream_http_classification_and_checksum_paths(tmp_path: Path):
     assert destination.read_bytes() == b"downloaded"
     assert urlopen.call_args.kwargs["timeout"] == install_module._DOWNLOAD_TIMEOUT_SECONDS
 
+    not_found_url = "https://example.test/missing"
+    server_error_url = "https://example.test/error"
     not_found = urllib.error.HTTPError(
-        "https://example.test/missing", 404, "Not Found", {}, None
+        not_found_url, 404, "Not Found", {}, None
     )
     server_error = urllib.error.HTTPError(
-        "https://example.test/error", 503, "Unavailable", {}, None
+        server_error_url, 503, "Unavailable", {}, None
     )
     assert "installer not found" in str(
-        install_module._classify_http_error(not_found, not_found.url)
+        install_module._classify_http_error(not_found, not_found_url)
     )
     assert "HTTP 503" in str(
-        install_module._classify_http_error(server_error, server_error.url)
+        install_module._classify_http_error(server_error, server_error_url)
     )
 
     installer_name = "Miniforge3-Linux-x86_64.sh"

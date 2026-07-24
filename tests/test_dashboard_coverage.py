@@ -648,10 +648,17 @@ def test_telemetry_merges_live_and_energy_rows_and_normalizes_status(
 
 def test_cli_dashboard_remaining_lifecycle_and_startup_branches(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
     import importlib
 
     cli = importlib.import_module("fastmdxplora.cli.main")
+
+    # Other CLI tests intentionally activate dashboard telemetry in this
+    # process.  This assertion covers startup with no activation marker, so
+    # make that precondition explicit instead of depending on test order.
+    monkeypatch.delenv("FASTMDX_DASHBOARD_ACTIVE", raising=False)
+    monkeypatch.delenv("FASTMDX_DASHBOARD_URL", raising=False)
 
     url, enabled = cli._startup_dashboard_details(
         ["dashboard", "serve", "--host=0.0.0.0", "--port", "9001"]
