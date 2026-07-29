@@ -19,6 +19,7 @@ from fastmdxplora.cli.main import (
     _PHASE_SPEC,
     _build_parser,
     _harvest_phase_options,
+    _normalize_analysis_options,
 )
 
 
@@ -233,6 +234,46 @@ class TestMultiValuedFlags:
         from fastmdxplora.cli.main import _SETUP_OPTIONS
         kwargs = _harvest_phase_options(args, _SETUP_OPTIONS)
         assert kwargs["force_field"] == ["amber14-all.xml", "amber14/tip3pfb.xml"]
+
+
+class TestAnalysisCompatibility:
+    def test_fastmdanalysis_profile_sets_paper_defaults(self):
+        parser = _build_parser()
+        args = parser.parse_args([
+            "analyze", "-system", "/tmp/bpti.pdb",
+            "--compat", "fastmdanalysis",
+        ])
+        from fastmdxplora.cli.main import _ANALYSIS_OPTIONS
+        kwargs = _normalize_analysis_options(
+            _harvest_phase_options(args, _ANALYSIS_OPTIONS)
+        )
+        assert kwargs["scope"] == "protein"
+        assert kwargs["stride"] == 2
+        assert kwargs["include"] == [
+            "rmsd", "rmsf", "rg", "hbonds", "sasa", "ss", "dimred", "cluster"
+        ]
+        assert kwargs["options"]["dimred"] == {"methods": ["pca"], "n_components": 2}
+        assert kwargs["options"]["cluster"] == {
+            "methods": ["hierarchical"], "n_clusters": 6
+        }
+
+    def test_explicit_analysis_values_override_profile(self):
+        parser = _build_parser()
+        args = parser.parse_args([
+            "analyze", "-system", "/tmp/bpti.pdb",
+            "--compat", "fastmdanalysis",
+            "--stride", "4",
+            "--cluster-methods", "kmeans",
+            "--cluster-n-clusters", "3",
+        ])
+        from fastmdxplora.cli.main import _ANALYSIS_OPTIONS
+        kwargs = _normalize_analysis_options(
+            _harvest_phase_options(args, _ANALYSIS_OPTIONS)
+        )
+        assert kwargs["stride"] == 4
+        assert kwargs["options"]["cluster"] == {
+            "methods": ["kmeans"], "n_clusters": 3
+        }
 
 
 # ===========================================================================

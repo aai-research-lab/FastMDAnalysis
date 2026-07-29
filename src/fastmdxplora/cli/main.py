@@ -168,6 +168,21 @@ _ANALYSIS_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
         "help": "First frame index to include (default 0)."}),
     ("last", "last", {"type": int,
         "help": "Last frame index (exclusive). Default: full trajectory."}),
+    ("compat", "compat", {"choices": ["fastmdanalysis"],
+        "help": "Use a compatibility profile for a published FastMDAnalysis workflow."}),
+    ("dimred-methods", "dimred_methods", {"nargs": "+", "choices": ["pca", "tsne", "umap"],
+        "metavar": "METHOD",
+        "help": "Dimensionality-reduction methods (e.g. pca)."}),
+    ("dimred-components", "dimred_components", {"type": int, "metavar": "N",
+        "help": "Number of dimensionality-reduction components (default 2)."}),
+    ("cluster-methods", "cluster_methods", {"nargs": "+",
+        "choices": ["kmeans", "hierarchical", "dbscan"], "metavar": "METHOD",
+        "help": "Clustering methods (e.g. hierarchical)."}),
+    ("cluster-n-clusters", "cluster_n_clusters", {"type": int, "metavar": "N",
+        "help": "Number of clusters for k-means/hierarchical clustering."}),
+    ("cluster-linkage", "cluster_linkage",
+        {"choices": ["ward", "complete", "average", "single"],
+         "help": "Hierarchical clustering linkage method."}),
 ]
 
 _REPORT_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
@@ -261,6 +276,64 @@ def _harvest_phase_options(
         val = getattr(args, dest, None)
         if val is not None:
             out[kwarg] = val
+    return out
+
+
+def _normalize_analysis_options(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Move CLI analysis-method flags into the nested ``options`` mapping.
+
+    The analysis orchestrator accepts method-specific settings under
+    ``options`` (for example ``options.cluster.n_clusters``), while argparse
+    naturally harvests flat flags. Keeping this conversion at the CLI
+    boundary makes the same options work for both ``analyze`` and prefixed
+    ``explore`` flags without changing the Python API.
+    """
+    out = dict(kwargs)
+    compat = out.pop("compat", None)
+    if compat == "fastmdanalysis":
+        # Settings used by the paper's BPTI case study. Explicit CLI values
+        # still win, so this is a reproducible opt-in profile rather than a
+        # change to FastMDXplora's general-purpose defaults.
+        out.setdefault("scope", "protein")
+        out.setdefault("stride", 2)
+        out.setdefault(
+            "include",
+            ["rmsd", "rmsf", "rg", "hbonds", "sasa", "ss", "dimred", "cluster"],
+        )
+    nested = {
+        "dimred": {
+            key: out.pop(key)
+            for key in ("dimred_methods", "dimred_components")
+            if key in out
+        },
+        "cluster": {
+            key: out.pop(key)
+            for key in ("cluster_methods", "cluster_n_clusters", "cluster_linkage")
+            if key in out
+        },
+    }
+    options = dict(out.get("options") or {})
+    if compat == "fastmdanalysis":
+        paper_defaults = {
+            "dimred": {"methods": ["pca"], "n_components": 2},
+            "cluster": {"methods": ["hierarchical"], "n_clusters": 6},
+        }
+        for name, values in paper_defaults.items():
+            current = dict(options.get(name) or {})
+            for key, value in values.items():
+                current.setdefault(key, value)
+            options[name] = current
+    for name, values in nested.items():
+        if values:
+            current = dict(options.get(name) or {})
+            current.update(
+                {key.removeprefix(f"{name}_"): value for key, value in values.items()}
+            )
+            options[name] = current
+    if options:
+        out["options"] = options
+    elif "options" in out:
+        out.pop("options")
     return out
 
 
@@ -678,6 +751,8 @@ def _build_explore_config(args: argparse.Namespace) -> dict[str, Any]:
     # Harvest per-phase option flags and merge them on top (flags win).
     for phase, (opts, _prefix) in _PHASE_SPEC.items():
         harvested = _harvest_phase_options(args, opts, dest_prefix=phase)
+        if phase == "analyze":
+            harvested = _normalize_analysis_options(harvested)
         if harvested:
             orch_phase = _PHASE_TO_ORCH[phase]
             block = dict(config.get(orch_phase, {}))
@@ -841,6 +916,8 @@ def _cmd_phase(phase: str, args: argparse.Namespace) -> int:
     fmdx = _make_orchestrator(args, phase=phase)
     opts_list, _ = _PHASE_SPEC[phase]
     kwargs = _harvest_phase_options(args, opts_list)
+    if phase == "analyze":
+        kwargs = _normalize_analysis_options(kwargs)
     if _dashboard_requested(args) and phase == "simulate":
         kwargs["live_telemetry"] = True
 
