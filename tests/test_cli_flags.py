@@ -248,10 +248,19 @@ class TestAnalysisCompatibility:
             _harvest_phase_options(args, _ANALYSIS_OPTIONS)
         )
         assert kwargs["scope"] == "protein"
+        assert kwargs["selection"] == "protein"
         assert kwargs["stride"] == 2
         assert kwargs["include"] == [
             "rmsd", "rmsf", "rg", "hbonds", "sasa", "ss", "dimred", "cluster"
         ]
+        assert kwargs["options"]["rmsd"] == {"ref": 0, "align": True}
+        assert kwargs["options"]["rmsf"] == {"ref": 0, "per_residue": False}
+        assert kwargs["options"]["sasa"] == {
+            "mode": "total", "probe_radius": 0.14, "n_sphere_points": 960
+        }
+        assert kwargs["options"]["hbonds"] == {
+            "method": "baker_hubbard", "freq": 0.1
+        }
         assert kwargs["options"]["dimred"] == {"methods": ["pca"], "n_components": 2}
         assert kwargs["options"]["cluster"] == {
             "methods": ["hierarchical"], "n_clusters": 6

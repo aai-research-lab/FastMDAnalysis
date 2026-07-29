@@ -115,7 +115,10 @@ fastmdx analyze \
 
 The profile runs RMSD, RMSF, radius of gyration, hydrogen bonds, SASA,
 secondary structure, PCA, and hierarchical clustering with `n_clusters=6`.
-Individual method flags such as `--cluster-n-clusters` can override the
+It uses the full `protein` atom selection, aligned RMSD against frame 0, and
+per-atom RMSF to match FastMDAnalysis when its BPTI options file omits an atom
+selection. Individual method flags such as `--cluster-n-clusters` can override the
+profile when testing a deliberate variant.
 profile when testing a deliberate variant.
 
 Pointing later phases at the same `--output` lets them pick up the

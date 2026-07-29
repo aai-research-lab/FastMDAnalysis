@@ -295,6 +295,11 @@ def _normalize_analysis_options(kwargs: dict[str, Any]) -> dict[str, Any]:
         # still win, so this is a reproducible opt-in profile rather than a
         # change to FastMDXplora's general-purpose defaults.
         out.setdefault("scope", "protein")
+        # FastMDAnalysis uses the complete protein atom set when the BPTI
+        # options file does not provide an atom selection.  Set this at the
+        # compatibility boundary so RMSD/RMSF do not fall back to Xplora's
+        # CA-only defaults.
+        out.setdefault("selection", "protein")
         out.setdefault("stride", 2)
         out.setdefault(
             "include",
@@ -315,6 +320,14 @@ def _normalize_analysis_options(kwargs: dict[str, Any]) -> dict[str, Any]:
     options = dict(out.get("options") or {})
     if compat == "fastmdanalysis":
         paper_defaults = {
+            "rmsd": {"ref": 0, "align": True},
+            "rmsf": {"ref": 0, "per_residue": False},
+            "sasa": {
+                "mode": "total",
+                "probe_radius": 0.14,
+                "n_sphere_points": 960,
+            },
+            "hbonds": {"method": "baker_hubbard", "freq": 0.1},
             "dimred": {"methods": ["pca"], "n_components": 2},
             "cluster": {"methods": ["hierarchical"], "n_clusters": 6},
         }
