@@ -259,7 +259,10 @@ class TestAnalysisCompatibility:
             "mode": "total", "probe_radius": 0.14, "n_sphere_points": 960
         }
         assert kwargs["options"]["hbonds"] == {
-            "method": "baker_hubbard", "freq": 0.1
+            "method": "baker_hubbard",
+            "freq": 0.1,
+            "candidate_freq": 0.0,
+            "count_multiplier": 2,
         }
         assert kwargs["options"]["dimred"] == {"methods": ["pca"], "n_components": 2}
         assert kwargs["options"]["cluster"] == {
