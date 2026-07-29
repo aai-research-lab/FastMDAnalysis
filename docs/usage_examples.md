@@ -99,6 +99,28 @@ fastmdx analyze  --output ./trpcage_study --analyses rmsd rg --selection "name C
 fastmdx report   --output ./trpcage_study --no-slides
 ```
 
+To reproduce the published FastMDAnalysis BPTI case-study settings with the
+FastMDXplora CLI, use the explicit compatibility profile. It selects protein
+scope, every second frame, PCA, and six-state hierarchical clustering while
+leaving FastMDXplora's normal defaults unchanged:
+
+```bash
+fastmdx analyze \
+  --system bpti.pdb \
+  --output ./bpti_fastmdxplora_paper \
+  --trajectory bpti.dcd \
+  --topology bpti.pdb \
+  --compat fastmdanalysis
+```
+
+The profile runs RMSD, RMSF, radius of gyration, hydrogen bonds, SASA,
+secondary structure, PCA, and hierarchical clustering with `n_clusters=6`.
+It uses the full `protein` atom selection, aligned RMSD against frame 0, and
+per-atom RMSF to match FastMDAnalysis when its BPTI options file omits an atom
+selection. Individual method flags such as `--cluster-n-clusters` can override the
+profile when testing a deliberate variant.
+profile when testing a deliberate variant.
+
 Pointing later phases at the same `--output` lets them pick up the
 artifacts the earlier phases wrote. `analyze` and `report` can infer the
 system from an existing run manifest; `setup` and `simulate` still need
