@@ -72,6 +72,8 @@ class HBonds(Analysis):
         *,
         method: str = "baker_hubbard",
         freq: float = 0.1,
+        candidate_freq: float | None = None,
+        count_multiplier: int = 1,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -83,7 +85,18 @@ class HBonds(Analysis):
             )
         self.method: str = method
         self.freq: float = float(freq)
-        self.options.update(method=self.method, freq=self.freq)
+        self.candidate_freq: float = (
+            self.freq if candidate_freq is None else float(candidate_freq)
+        )
+        self.count_multiplier: int = int(count_multiplier)
+        if self.count_multiplier < 1:
+            raise ValueError("count_multiplier must be at least 1")
+        self.options.update(
+            method=self.method,
+            freq=self.freq,
+            candidate_freq=self.candidate_freq,
+            count_multiplier=self.count_multiplier,
+        )
 
     def compute(self, traj: md.Trajectory) -> pd.DataFrame:
         """Compute per-frame H-bond counts.
@@ -117,10 +130,13 @@ class HBonds(Analysis):
             # bonds frame by frame using its definitions (an O(n_frames)
             # loop, but MDTraj's vectorized distance/angle is fast).
             bonds = md.baker_hubbard(
-                traj, freq=self.freq, exclude_water=True, periodic=False
+                traj,
+                freq=self.candidate_freq,
+                exclude_water=True,
+                periodic=False,
             )
             self._aggregated_bonds = bonds  # stash for the figure caption
-            counts = _per_frame_baker_hubbard(traj, bonds)
+            counts = self.count_multiplier * _per_frame_baker_hubbard(traj, bonds)
 
         return pd.DataFrame({"frame": np.arange(traj.n_frames), "n_hbonds": counts})
 

@@ -327,7 +327,15 @@ def _normalize_analysis_options(kwargs: dict[str, Any]) -> dict[str, Any]:
                 "probe_radius": 0.14,
                 "n_sphere_points": 960,
             },
-            "hbonds": {"method": "baker_hubbard", "freq": 0.1},
+            # FastMDAnalysis reports both donor/acceptor directions and
+            # counts transient Baker-Hubbard bonds, rather than filtering
+            # the per-frame series by the occupancy threshold first.
+            "hbonds": {
+                "method": "baker_hubbard",
+                "freq": 0.1,
+                "candidate_freq": 0.0,
+                "count_multiplier": 2,
+            },
             "dimred": {"methods": ["pca"], "n_components": 2},
             "cluster": {"methods": ["hierarchical"], "n_clusters": 6},
         }
