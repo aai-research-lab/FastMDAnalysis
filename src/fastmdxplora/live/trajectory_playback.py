@@ -10,14 +10,19 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Any
+
+import numpy as np
 
 from fastmdxplora.live.live_frames import read_live_frame_history
 
 PLAYBACK_FILE = "playback.pdb"
 PLAYBACK_INDEX_FILE = "playback_index.json"
+_PLAYBACK_LOCKS: dict[str, threading.RLock] = {}
+_PLAYBACK_LOCKS_GUARD = threading.Lock()
 
 _HEADER_LIKE_RECORDS = frozenset({
     "CRYST1", "HEADER", "OBSLTE", "TITLE", "SPLT", "CAVEAT", "COMPND",
@@ -58,10 +63,29 @@ def playback_info(
 ) -> dict[str, Any]:
     """Return or build the best available browser playback companion."""
     out = Path(output_dir)
+    lock = _playback_lock(out.resolve())
+    with lock:
+        return _playback_info_unlocked(
+            out,
+            max_browser_frames=max_browser_frames,
+            simulation_time_ns_total=simulation_time_ns_total,
+            force=force,
+        )
+
+
+def _playback_info_unlocked(
+    output_dir: Path,
+    *,
+    max_browser_frames: int = 200,
+    simulation_time_ns_total: float | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Build playback while the caller holds the per-output lock."""
+    out = output_dir
     sim_dir = out / "simulation"
     companion_pdb = sim_dir / PLAYBACK_FILE
     companion_idx = sim_dir / PLAYBACK_INDEX_FILE
-    cap = max(2, int(max_browser_frames or 200))
+    cap = min(2000, max(2, int(max_browser_frames or 200)))
 
     history = read_live_frame_history(sim_dir)
     history_frames = [item for item in history.get("frames", []) if isinstance(item, dict)]
@@ -76,7 +100,7 @@ def playback_info(
     # During a live run use lightweight snapshots.  This allows play/pause and
     # scrubbing during minimization/NVT/NPT before a production DCD even exists.
     if len(history_frames) >= 2 and not workflow_completed:
-        signature = _history_signature(history_frames)
+        signature = f"{_history_signature(history_frames)}:cap={cap}"
         cached = _cached_playback(companion_pdb, companion_idx, "live-history", signature, force)
         if cached is not None:
             return cached
@@ -98,7 +122,7 @@ def playback_info(
     # Completed runs prefer the scientific DCD.  The browser copy is atom-
     # sliced and downsampled; the original DCD remains unchanged.
     if topology_path.is_file() and dcd_path.is_file() and dcd_path.stat().st_size > 0:
-        signature = _file_signature(dcd_path)
+        signature = f"{_file_signature(dcd_path)}:cap={cap}"
         cached = _cached_playback(companion_pdb, companion_idx, "production-dcd", signature, force)
         if cached is not None:
             return cached
@@ -121,7 +145,7 @@ def playback_info(
                 pass
 
     if len(history_frames) >= 2:
-        signature = _history_signature(history_frames)
+        signature = f"{_history_signature(history_frames)}:cap={cap}"
         cached = _cached_playback(companion_pdb, companion_idx, "live-history", signature, force)
         if cached is not None:
             return cached
@@ -206,16 +230,60 @@ def _generate_from_dcd(
     if display_atoms is not None and len(display_atoms) == 0:
         display_atoms = None
 
-    trajectory = md.load_dcd(
-        str(dcd_path),
-        top=topology_traj.topology,
-        atom_indices=display_atoms,
-    )
-    n_total = int(trajectory.n_frames)
+    # Stream the DCD in bounded chunks.  Loading the complete production
+    # trajectory before downsampling can exhaust memory on realistic runs.
+    display_topology = topology_traj.topology
+    if display_atoms is not None and hasattr(topology_traj, "atom_slice"):
+        display_topology = topology_traj.atom_slice(display_atoms).topology
+    selected_traj = None
+    selected_indices: list[int] = []
+    total_seen = 0
+    if not hasattr(md, "iterload"):
+        # Keep lightweight test doubles and older MDTraj-compatible adapters
+        # working; real MDTraj uses the bounded streaming path below.
+        trajectory = md.load_dcd(
+            str(dcd_path),
+            top=topology_traj.topology,
+            atom_indices=display_atoms,
+        )
+        total_seen = int(trajectory.n_frames)
+        selected_indices = _even_indices(total_seen, max_browser_frames)
+        selected_traj = trajectory[selected_indices]
+    else:
+        for chunk in md.iterload(
+            str(dcd_path),
+            top=topology_traj.topology,
+            atom_indices=display_atoms,
+            chunk=1000,
+        ):
+            chunk_count = int(chunk.n_frames)
+            if chunk_count == 0:
+                continue
+            chunk_indices = list(range(total_seen, total_seen + chunk_count))
+            if selected_traj is None:
+                combined_xyz = chunk.xyz
+                combined_time = chunk.time
+                combined_indices = chunk_indices
+            else:
+                combined_xyz = np.concatenate((selected_traj.xyz, chunk.xyz), axis=0)
+                combined_time = np.concatenate((selected_traj.time, chunk.time), axis=0)
+                combined_indices = selected_indices + chunk_indices
+            keep = _even_indices(len(combined_indices), max_browser_frames)
+            selected_indices = [combined_indices[index] for index in keep]
+            selected_traj = md.Trajectory(
+                combined_xyz[keep],
+                display_topology,
+                time=combined_time[keep],
+            )
+            total_seen += chunk_count
+
+    if selected_traj is None:
+        return PlaybackUnavailable("not-enough-trajectory-frames")
+    n_total = total_seen
     if n_total < 2:
         return PlaybackUnavailable("not-enough-trajectory-frames")
-    frame_indices = _even_indices(n_total, max_browser_frames)
-    browser_traj = trajectory[frame_indices]
+    frame_indices = selected_indices
+    browser_traj = selected_traj
     tmp = companion_pdb.with_suffix(".pdb.tmp")
     browser_traj.save_pdb(str(tmp))
     os.replace(tmp, companion_pdb)
@@ -346,6 +414,16 @@ def _atomic_text(path: Path, text: str) -> None:
 
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
     _atomic_text(path, json.dumps(payload, indent=2))
+
+
+def _playback_lock(output_dir: Path) -> threading.RLock:
+    key = str(output_dir)
+    with _PLAYBACK_LOCKS_GUARD:
+        lock = _PLAYBACK_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _PLAYBACK_LOCKS[key] = lock
+        return lock
 
 
 def neighborhood_residues(

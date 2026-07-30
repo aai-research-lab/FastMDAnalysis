@@ -673,4 +673,15 @@ class DashboardRuntime:
             if self.process is None or self.process.poll() is not None:
                 return {"stopped": False, "detail": "No workflow is currently running.", "state": self.snapshot()}
             self.process.terminate()
-            return {"stopped": True, "detail": "Termination requested.", "state": self.snapshot()}
+            if hasattr(self.process, "wait"):
+                try:
+                    self.process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait(timeout=5)
+            self._refresh_process()
+            return {
+                "stopped": True,
+                "detail": "Workflow terminated.",
+                "state": self.snapshot(),
+            }

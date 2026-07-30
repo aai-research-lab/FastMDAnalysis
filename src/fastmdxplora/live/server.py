@@ -178,6 +178,7 @@ def make_handler(
     config: DashboardConfig | None = None,
     template_html: str | None = None,
     runtime: DashboardRuntime | None = None,
+    allow_control: bool = True,
 ) -> type[BaseHTTPRequestHandler]:
     root = Path(project_root).resolve()
     app_runtime = runtime or DashboardRuntime(
@@ -279,6 +280,16 @@ def make_handler(
                 ))
                 return
             if path == "/api/open-output":
+                if not allow_control:
+                    self._send_json(
+                        {
+                            "opened": False,
+                            "path": str(root),
+                            "detail": "Opening local folders is disabled for remote dashboards.",
+                        },
+                        status=403,
+                    )
+                    return
                 opened, detail = _open_local_path(root)
                 self._send_json({
                     "opened": opened,
@@ -313,6 +324,22 @@ def make_handler(
         def _dispatch_post(self) -> None:
             parsed = urlparse(self.path)
             path = parsed.path
+            if not allow_control and path in {
+                "/api/launcher/validate",
+                "/api/launcher/launch",
+                "/api/launcher/stop",
+            }:
+                self._send_json(
+                    {
+                        "ok": False,
+                        "error": (
+                            "Workflow control is disabled when the dashboard is "
+                            "bound to a non-loopback address."
+                        ),
+                    },
+                    status=403,
+                )
+                return
             payload = self._read_json_body()
             if path == "/api/launcher/validate":
                 result = validate_launcher_payload(payload)
@@ -573,7 +600,12 @@ def start_dashboard_session(
     last_error: OSError | None = None
     for candidate in candidates:
         try:
-            handler = make_handler(root, config=config, runtime=runtime)
+            handler = make_handler(
+                root,
+                config=config,
+                runtime=runtime,
+                allow_control=_is_loopback_host(host),
+            )
             server = ThreadingHTTPServer((host, int(candidate)), handler)
         except OSError as exc:
             last_error = exc
@@ -641,7 +673,6 @@ def _artifact_records(root: Path) -> list[dict[str, str]]:
                 "size": str(path.stat().st_size),
                 "mtime": str(path.stat().st_mtime),
                 "display_path": _compact_path(rel),
-                "absolute_path": str(path.resolve()),
             }
         )
     return records
@@ -1179,3 +1210,8 @@ def _open_local_path(path: Path) -> tuple[bool, str]:
     except Exception as exc:  # noqa: BLE001 - dashboard helper only
         return False, str(exc)
     return True, "opened"
+
+
+def _is_loopback_host(host: str) -> bool:
+    normalized = str(host).strip().lower().strip("[]")
+    return normalized in {"127.0.0.1", "localhost", "::1"}

@@ -7,6 +7,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from fastmdxplora.live.launcher import (
     DashboardRuntime,
     build_launcher_command,
@@ -14,7 +16,7 @@ from fastmdxplora.live.launcher import (
     launcher_defaults,
     validate_launcher_payload,
 )
-from fastmdxplora.live.server import start_test_server
+from fastmdxplora.live.server import start_dashboard_session, start_test_server
 
 
 def _payload() -> dict:
@@ -236,3 +238,28 @@ def test_home_server_exposes_launcher_apis(tmp_path: Path) -> None:
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_remote_dashboard_disables_workflow_control_and_path_leak(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "result.txt").write_text("ok", encoding="utf-8")
+    session = start_dashboard_session(output=run, host="0.0.0.0", port=0)
+    try:
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{session.port}/api/launcher/launch",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as exc_info:
+            urllib.request.urlopen(request)
+        assert exc_info.value.code == 403
+
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{session.port}/api/artifacts"
+        ) as response:
+            payload = json.load(response)
+        assert all("absolute_path" not in item for item in payload["artifacts"])
+    finally:
+        session.stop()
