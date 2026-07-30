@@ -758,7 +758,13 @@ class SessionPresenter:
             return
         elapsed = (time.monotonic() - self._phase_start) if self._phase_start else 0.0
         icon, color = self._STATUS_ICON.get(status, ("·", "muted"))
-        msg = message or f"{name} complete"
+        default_message = {
+            "ok": f"{name} complete",
+            "error": f"{name} failed",
+            "skipped": f"{name} skipped",
+            "warning": f"{name} completed with warnings",
+        }.get(status, f"{name} complete")
+        msg = message or default_message
         line = f"  {self._c(icon, color)} {msg} {self._c(f'({self._fmt_elapsed(elapsed)})', 'muted')}"
         self._write(line)
         self._write("")

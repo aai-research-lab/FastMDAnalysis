@@ -11,7 +11,7 @@
 
 ---
 
-**FastMDXplora** explores a protein's behavior end to end from a single command. Given a structure (or just a PDB ID) it performs molecular dynamics exploration all the way through setup, simulation, analysis, and reporting, then hands back publication-ready results. Start with the [Read the Docs guide](https://fastmdxplora.readthedocs.io/) for the beginner installation path and current CLI/dashboard commands:
+**FastMDXplora** explores a protein's behavior end to end from a single command. Given a structure (or just a PDB ID) it performs molecular dynamics exploration all the way through setup, simulation, analysis, and reporting, then hands back publication-ready results. Start with the [Beginner's guide](https://fastmdxplora.readthedocs.io/en/latest/getting_started.html) for the complete installation, CLI, dashboard, Python, GPU, and analysis workflow. The [CLI reference](https://fastmdxplora.readthedocs.io/en/latest/cli_reference.html) lists the current flags, including the `fastmdanalysis` compatibility profile:
 
 ```
   setup  →  simulation  →  analysis  →  report
@@ -36,9 +36,9 @@
 
 ## Installation
 
-FastMDXplora runs analysis/reporting on Linux, macOS, and Windows. For the full OpenMM/PDBFixer workflow, use Linux, macOS, or Linux inside WSL2; the Read the Docs installation page explains why and gives the exact commands.
+FastMDXplora runs analysis/reporting on Linux, macOS, and Windows. For the full OpenMM/PDBFixer workflow, use Linux, macOS, or Linux inside WSL2. Windows users should use native PowerShell for analysis/reporting and WSL2 for the full chemistry workflow; the [Read the Docs installation page](https://fastmdxplora.readthedocs.io/en/latest/installation.html) explains the decision and gives exact commands.
 
-### Quick install (any OS)
+### Quick install (Linux/macOS/WSL2 full workflow)
 
 ```bash
 git clone https://github.com/aai-research-lab/FastMDXplora.git   # 1

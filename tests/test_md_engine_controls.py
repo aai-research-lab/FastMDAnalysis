@@ -468,9 +468,9 @@ class TestMDEngineCLIRouting:
             "--simulate-pressure-atm", "1.0",
             "--simulate-checkpoint-interval-steps", "2500",
         ])
-        assert rc == 0
-        # Simulation degrades gracefully (no setup outputs), but the
-        # manifest still records the parameters that were requested.
+        assert rc == 1
+        # Missing setup/backend is a real workflow error, but the manifest
+        # still records the parameters that were requested.
         params = json.loads(
             (out / "simulation" / "simulation_parameters.json").read_text(encoding="utf-8")
         )["parameters"]

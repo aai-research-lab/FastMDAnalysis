@@ -1,5 +1,8 @@
 # CLI commands
 
+If this is your first run, start with the [Beginner's guide](getting_started.md).
+This page is the compact reference after you understand the workflow.
+
 This page is the shortest practical reference for the `fastmdx` command. If
 the console script is not on your `PATH`, replace `fastmdx` with
 `python -m fastmdxplora.cli.main`.
@@ -41,6 +44,18 @@ fastmdx explore --system protein.pdb --no-report
 
 `--include` and `--exclude` are mutually exclusive. The phase names are
 `setup`, `simulation`, `analysis`, and `report`.
+
+The `fastmdanalysis` compatibility profile is opt-in. It is not called
+`compact`:
+
+```bash
+# Direct analyze command
+fastmdx analyze --output ./run --compat fastmdanalysis
+
+# Prefixed form under explore
+fastmdx explore --system protein.pdb --include analysis report \
+  --analyze-compat fastmdanalysis
+```
 
 ## Configure each phase
 
@@ -149,3 +164,20 @@ can run without OpenMM/PDBFixer:
 pip install fastmdxplora
 fastmdx explore --system 1L2Y --include analyze report
 ```
+
+For setup or simulation, missing OpenMM/PDBFixer is an error and the command
+returns a non-zero exit status. Install the backends in the same environment:
+
+```bash
+conda activate fastmdxplora
+conda install -c conda-forge openmm pdbfixer
+fastmdx info
+```
+
+The Python API returns a `RunResult` with `status="error"` for the same
+condition. The dashboard validates the environment before launch and displays
+the installation command instead of starting a run that cannot produce MD.
+
+For long GPU runs, read [Production and GPU runs](production.md) for driver
+checks, scheduler/remote launch, offline staging, PLUMED smoke tests,
+monitoring, and checkpoint recovery.

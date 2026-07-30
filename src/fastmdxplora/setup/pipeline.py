@@ -31,6 +31,7 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from fastmdxplora.dependencies import dependency_error_message, missing_dependencies
 from fastmdxplora.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -280,11 +281,15 @@ def run(
             if presenter:
                 presenter.step(f"Fixed PDB with PDBFixer (pH={params['ph']})")
         except ImportError as exc:
-            notes.append(f"PDBFixer unavailable: {exc}")
+            missing = missing_dependencies()
+            notes.append(
+                dependency_error_message(missing)
+                if missing
+                else f"PDBFixer unavailable: {exc}"
+            )
             if presenter:
                 presenter.step(
-                    "PDBFixer not installed — skipping chemistry steps. "
-                    "Install via: conda install -c conda-forge pdbfixer openmm",
+                    notes[-1],
                     status="warning",
                 )
             _write_manifest(output_dir, orchestrator, input_form, params, artifacts, notes)
@@ -336,12 +341,20 @@ def run(
             presenter.step(f"Solvated and parameterized ({ff_label})")
             presenter.step("Wrote system.xml, state.xml, topology.pdb")
     except ImportError as exc:
-        notes.append(f"OpenMM unavailable for parameterization: {exc}")
+        missing = missing_dependencies()
+        notes.append(
+            dependency_error_message(missing)
+            if missing
+            else f"OpenMM unavailable for parameterization: {exc}"
+        )
         if presenter:
             presenter.step(
-                "OpenMM not installed — system parameterization skipped",
+                notes[-1],
                 status="warning",
             )
+        _write_manifest(output_dir, orchestrator, input_form, params, artifacts, notes)
+        artifacts.append("setup_parameters.json")
+        return artifacts
 
     # ---- Stage 4: Manifest --------------------------------------------
     _write_manifest(output_dir, orchestrator, input_form, params, artifacts, notes)

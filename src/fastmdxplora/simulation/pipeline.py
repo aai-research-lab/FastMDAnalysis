@@ -48,6 +48,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from fastmdxplora.dependencies import MissingBackendError, missing_dependencies
 from fastmdxplora.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -178,7 +179,13 @@ def run(
             )
         _write_manifest(output_dir, params, artifacts, notes, platform_used=None)
         artifacts.append("simulation_parameters.json")
-        return artifacts
+        missing = missing_dependencies()
+        if missing:
+            raise MissingBackendError(missing)
+        raise RuntimeError(
+            f"Simulation cannot start because setup outputs are missing in {setup_dir}. "
+            "Run the setup phase first, or choose an analysis-only workflow."
+        )
 
     # ---- Run the simulation --------------------------------------------
     try:
@@ -274,6 +281,7 @@ def run(
                 status="warning",
             )
         _write_manifest(output_dir, params, artifacts, notes, platform_used=None)
+        raise MissingBackendError(missing_dependencies()) from exc
     except Exception as exc:  # noqa: BLE001 -- runtime errors from OpenMM
         # Real runtime failure (numerical instability, bad topology, etc.).
         # Record it in the manifest so the project-level manifest still

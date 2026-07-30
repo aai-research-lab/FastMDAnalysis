@@ -1,5 +1,9 @@
 # Live simulation dashboard
 
+For the shortest beginner path, start with [Beginner's guide](getting_started.md).
+For GPU validation, staging, and checkpoint recovery, see
+[Production and GPU runs](production.md).
+
 FastMDXplora has two dashboard views:
 
 - **Results Dashboard**: the static `report/dashboard.html` written after
@@ -347,10 +351,6 @@ playback** view:
   2,000 frames.
 - Concurrent playback requests are serialized per run so the companion PDB
   and index cannot be replaced by competing writers.
-  Compilation streams the DCD in bounded chunks and caps browser requests at
-  2,000 frames.
-- Concurrent playback requests are serialized per run so the companion PDB
-  and index cannot be replaced by competing writers.
 - Controls: Play, Pause, Reverse, Previous, Next, Jump to start/end,
   frame slider, playback speed, loop, screenshot, frame download.
 - Each frame is `MODEL`/`ENDMDL`-wrapped inside a single multi-MODEL PDB so
@@ -415,6 +415,19 @@ form and launches the canonical `python -m fastmdxplora.cli.main explore`
 command with the selected setup, simulation, analysis, and report options.
 The child process writes normal project artifacts and live telemetry, while
 the already-running dashboard switches to that output directory.
+
+Click **Validate** before launching. Validation checks both the form and the
+Python environment behind the dashboard. If OpenMM or PDBFixer is missing,
+the page shows the exact repair steps:
+
+```bash
+conda activate fastmdxplora
+conda install -c conda-forge openmm pdbfixer
+```
+
+Run the command in a terminal, restart the dashboard with the same environment,
+click **Validate** again, and then click **Launch Simulation**. The dashboard
+does not start a workflow that it already knows cannot perform chemistry setup.
 
 Only one dashboard-launched workflow is active at a time. Scientific controls
 become read-only once a workflow starts; changing browser fields does not

@@ -9,32 +9,29 @@ reports.
 
 ## Start here
 
-If you are new to FastMDXplora, follow these steps:
+New to FastMDXplora? Follow the [Beginner's guide](getting_started.md). It
+walks through installation, backend checks, a short smoke test, a complete
+CLI run, the live dashboard, the Python API, protein-ligand/PLUMED runs, and
+the `fastmdanalysis` compatibility profile.
 
-1. [Install the package and chemistry backends](installation.md).
-2. Run `fastmdx info` to confirm which backends are available.
-3. Run a conservative CPU smoke test:
+The shortest safe first run is:
 
-   ```bash
-   fastmdx explore --system 1L2Y --include setup simulation \
-     --simulate-preset gentle --simulate-platform CPU
-   ```
+```bash
+fastmdx explore --system 1L2Y --output runs/first_smoke \
+  --include setup simulation --simulate-preset gentle --simulate-platform CPU
+```
 
-4. When that succeeds, run the complete workflow:
-
-   ```bash
-   fastmdx explore --system 1L2Y --dashboard
-   ```
-
-The dashboard opens at a local URL printed in the terminal. For a command
-reference, see [CLI commands](cli_reference.md). For an explanation of every
-output directory, see [The four phases](phases.md).
+Then use the same output directory with `--dashboard` for live monitoring or
+`fastmdx dashboard serve --output ...` to reopen an existing run. For long
+GPU jobs, read [Production and GPU runs](production.md) first.
 
 ```{toctree}
 :maxdepth: 2
 :caption: Getting started
 
 installation
+getting_started
+production
 phases
 cli_reference
 usage_examples

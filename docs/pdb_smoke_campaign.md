@@ -130,22 +130,15 @@ Compress-Archive -Path local_runs\professor_outputs, README.md, docs\pdb_smoke_c
 `local_runs/`, `local_pdbs/`, and `private_reports/` are intended for local
 artifacts and are ignored by git.
 
-## HPC Commands
+## GPU and offline commands
 
-```bash
-module purge
-module load openmm/8.2
-export PATH="$HOME/.local/bin:$PATH"
-cd ~/repos/FastMDXplora-main
-pip install --user . --no-deps --no-build-isolation
-python scripts/run_pdb_smoke_campaign.py \
-  --input-list pdb_list.txt \
-  --output-root ~/runs/pdb_smoke_campaign \
-  --preset gentle \
-  --continue-on-error
-```
+Run the campaign on a verified GPU environment only after a short real
+OpenMM smoke test. Do not assume a site module name, scheduler, checkout path,
+or internet access. See [Production and GPU runs](production.md) for generic
+remote-GPU and offline-host procedures.
 
-For DNS-restricted nodes, stage local files and point the list at paths:
+For DNS-restricted or offline machines, stage local files and point the list
+at paths:
 
 ```text
 /scratch/$USER/pdbs/1L2Y.pdb
@@ -153,10 +146,10 @@ For DNS-restricted nodes, stage local files and point the list at paths:
 /scratch/$USER/pdbs/1UBQ.pdb
 ```
 
-Then run:
+Then run from the verified environment:
 
 ```bash
-python scripts/run_pdb_smoke_campaign.py \
+micromamba run -n <verified-env> python scripts/run_pdb_smoke_campaign.py \
   --input-list local_pdb_files.txt \
   --output-root ~/runs/pdb_smoke_campaign_local \
   --preset gentle \

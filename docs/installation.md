@@ -7,9 +7,13 @@ FastMDXplora has two installation paths:
 - **Analysis + reporting only:** Linux, macOS, or Windows with a normal Python
   environment. This path does not need OpenMM or PDBFixer.
 
-Native Windows is suitable for analysis/reporting and development, but the
-full chemistry workflow is more reliable in WSL2/Linux because OpenMM,
-PDBFixer, AmberTools, and OpenFF are distributed primarily through conda-forge.
+Native Windows is suitable for analysis/reporting, dashboard use, and
+development. The full chemistry workflow is documented for WSL2/Linux because
+OpenMM, PDBFixer, AmberTools, and OpenFF are distributed and exercised most
+consistently there. The bootstrap includes a Windows x86_64 Miniforge path, but
+that native full-workflow path is not the recommended release path. Windows ARM
+does not have a bundled Miniforge installer; use WSL2 or another supported
+x86_64 environment.
 
 This page covers every supported starting point and gives troubleshooting tips. If you just want to get going, the **Quick install: full workflow** section is enough.
 
@@ -28,7 +32,7 @@ Python 3.9–3.12 interpreter to start the bootstrap script; it can install
 Miniforge and the remaining environment after that:
 
 1. Detects whether conda or mamba is already on your `PATH`.
-2. If not, downloads and installs **Miniforge** for your platform (Linux x86_64 / aarch64, macOS x86_64 / arm64, Windows x86_64 / aarch64) into `~/miniforge3`.
+2. If not, downloads and installs **Miniforge** for your platform (Linux x86_64 / aarch64, macOS x86_64 / arm64, or Windows x86_64) into the standard Miniforge location.
 3. Creates a `fastmdxplora` conda environment with **Python 3.10**.
 4. Installs **OpenMM** and **PDBFixer** (the only heavy chemistry dependencies).
 5. Installs **FastMDXplora** itself into that environment.
@@ -44,6 +48,28 @@ fastmdx explore --system 1L2Y
 ```
 
 `1L2Y` is a small trp-cage PDB that exercises every phase on a fast turnaround. Replace it with any 4-character PDB ID or with the path to a local `.pdb` / `.cif` file.
+
+For a complete beginner walkthrough, including a safe gentle smoke test, the
+live dashboard, the Python API, and GPU/offline-machine rules, continue to the
+[Beginner's guide](getting_started.md).
+
+### Create the environment from `environment.yml`
+
+The repository also includes a pinned starting environment description. Use it
+when you want to create the environment explicitly instead of using the
+bootstrap command:
+
+```bash
+mamba env create -f environment.yml || conda env create -f environment.yml
+conda activate fastmdxplora
+python -m pip install -e .
+fastmdx info
+```
+
+The environment file includes the core analysis/report dependencies and the
+OpenMM/PDBFixer chemistry stack. Add the optional ligand and PLUMED packages
+only when those workflows are needed; see [Production and GPU runs](production.md)
+for the real-backend checks required before a long run.
 
 ### Windows analysis-only or local development install
 
@@ -115,7 +141,7 @@ You have a brand-new Linux/macOS machine (or a fresh WSL2 distro) that has no
 conda or mamba yet. Python must still be available long enough to start
 `python fastmdx install`.
 
-Just run the three commands above. The third command detects the missing conda and downloads Miniforge for your OS from `github.com/conda-forge/miniforge/releases/latest/download/`. Miniforge is then installed into `~/miniforge3` (Linux/macOS) or `%USERPROFILE%\miniforge3` (Windows).
+Just run the three commands above. The third command detects the missing conda and downloads Miniforge for your OS from the pinned GitHub release used by the installer. Miniforge is then installed into the standard user installation location for that platform.
 
 Time: roughly 5–10 minutes for Miniforge + ~5–10 minutes for environment
 resolution. Disk cost: about 1 GB.
@@ -135,7 +161,33 @@ fastmdx explore --system 1L2Y --include analyze report
 
 This installs FastMDXplora from PyPI directly into your system Python (no conda env required). The `analyze` and `report` phases only need pip-installable dependencies (MDTraj, matplotlib, scikit-learn, python-pptx), all of which are bundled.
 
-The `setup` and `simulation` phases need OpenMM + PDBFixer. If you run them and they're missing, FastMDXplora's self-healing prologue will print the exact install command and exit cleanly — no stack trace.
+The `setup` and `simulation` phases need OpenMM + PDBFixer. If they are
+missing, FastMDXplora prints the exact install command and exits with an error
+status instead of claiming that a simulation completed.
+
+### If `fastmdx info` says OpenMM or PDBFixer is missing
+
+This is the most common first-run issue. Install the chemistry backends in the
+same conda environment that runs `fastmdx`:
+
+```bash
+conda activate fastmdxplora
+conda install -c conda-forge openmm pdbfixer
+fastmdx info
+```
+
+Run `fastmdx info` again and confirm both backends say `installed`, then retry
+the simulation. The dashboard and Python API use the same environment check
+and show the same command when a launch is blocked. A missing backend is a
+failed setup/simulation prerequisite, not a completed simulation.
+
+If you only need to analyze an existing trajectory and write reports, do not
+install the chemistry stack:
+
+```bash
+pip install fastmdxplora
+fastmdx explore --system 1L2Y --include analyze report
+```
 
 ### Scenario D — Windows full workflow
 

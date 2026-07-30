@@ -56,9 +56,50 @@ def _mock_md():
             duration_ns_actual=0.0,
         )
 
+    def _fake_setup(*, orchestrator, output_dir, **kwargs):
+        """Provide chemistry artifacts without requiring OpenMM in wiring tests."""
+        import shutil
+
+        source = Path(orchestrator.system)
+        if source.exists():
+            shutil.copy2(source, output_dir / "input.pdb")
+            shutil.copy2(source, output_dir / "prepared.pdb")
+            shutil.copy2(source, output_dir / "topology.pdb")
+        else:
+            pdb_text = (
+                "ATOM      1  N   ALA A   1       0.000   0.000   0.000  "
+                "1.00  0.00           N\n"
+            )
+            for name in ("input.pdb", "prepared.pdb", "topology.pdb"):
+                (output_dir / name).write_text(pdb_text, encoding="utf-8")
+        (output_dir / "system.xml").write_text("<System/>\n", encoding="utf-8")
+        (output_dir / "state.xml").write_text("<State/>\n", encoding="utf-8")
+        (output_dir / "setup_parameters.json").write_text(
+            json.dumps({
+                "phase": "setup",
+                "input": {
+                    "system": orchestrator.system,
+                    "form": "pdb_id" if len(str(orchestrator.system)) == 4 else "pdb_file",
+                },
+                "parameters": kwargs,
+                "artifacts_written": [
+                    "input.pdb", "prepared.pdb", "topology.pdb", "system.xml", "state.xml",
+                ],
+                "notes": [],
+            }),
+            encoding="utf-8",
+        )
+        return [
+            "input.pdb", "prepared.pdb", "topology.pdb", "system.xml", "state.xml",
+            "setup_parameters.json",
+        ]
+
     with patch(
         "fastmdxplora.simulation.runner.run_simulation",
         side_effect=_fake_run_simulation,
+    ), patch(
+        "fastmdxplora.setup.pipeline.run",
+        side_effect=_fake_setup,
     ):
         yield
 

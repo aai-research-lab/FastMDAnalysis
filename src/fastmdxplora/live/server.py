@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+from fastmdxplora.dependencies import dependency_error_message, missing_dependencies
 from fastmdxplora.live.launcher import (
     DashboardRuntime,
     build_launcher_command,
@@ -348,6 +349,12 @@ def make_handler(
                     output_dir = app_runtime.launch_root / str(config_payload["run_name"])
                     result["output"] = str(output_dir)
                     result["command"] = build_launcher_command(config_payload, output_dir)
+                    workflow = config_payload.get("workflow", {})
+                    missing = missing_dependencies(
+                        include_analysis=bool(workflow.get("run_analysis"))
+                    )
+                    if missing:
+                        result["environment_error"] = dependency_error_message(missing)
                 self._send_json(result, status=200 if result.get("valid") else 422)
                 return
             if path == "/api/launcher/launch":

@@ -234,7 +234,12 @@
       const result = await postJSON("/api/launcher/validate", collectPayload());
       builder.lastValidation = result;
       applyValidation(result);
-      if (result.valid) setMessage("Configuration is valid and ready to launch.", "ok");
+      if (result.valid) {
+        setMessage(
+          result.environment_error || "Configuration is valid and ready to launch.",
+          result.environment_error ? "warning" : "ok",
+        );
+      }
       return result;
     } catch (error) {
       const payload = error.payload || {};

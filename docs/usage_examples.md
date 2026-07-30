@@ -119,7 +119,18 @@ It uses the full `protein` atom selection, aligned RMSD against frame 0, and
 per-atom RMSF to match FastMDAnalysis when its BPTI options file omits an atom
 selection. Individual method flags such as `--cluster-n-clusters` can override the
 profile when testing a deliberate variant.
-profile when testing a deliberate variant.
+
+The equivalent `explore` spelling uses the phase prefix:
+
+```bash
+fastmdx explore \
+  --system bpti.pdb \
+  --output ./bpti_fastmdxplora_paper \
+  --include analysis report \
+  --analyze-trajectory bpti.dcd \
+  --analyze-topology bpti.pdb \
+  --analyze-compat fastmdanalysis
+```
 
 Pointing later phases at the same `--output` lets them pick up the
 artifacts the earlier phases wrote. `analyze` and `report` can infer the

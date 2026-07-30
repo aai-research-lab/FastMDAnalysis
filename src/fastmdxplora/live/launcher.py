@@ -10,7 +10,6 @@ science.
 
 from __future__ import annotations
 
-import importlib
 import json
 import os
 import re
@@ -21,6 +20,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
+
+from fastmdxplora.dependencies import dependency_error_message, missing_dependencies
 
 
 _FORCEFIELDS = ("charmm36", "amber14", "amber-fb15", "amber-openff")
@@ -374,38 +375,16 @@ def launcher_environment_error(config: Mapping[str, Any]) -> str | None:
     installations, but it is misleading for the dashboard's *Run Simulation*
     action: the child exits successfully without producing a simulation.
     """
-    required = [
-        ("OpenMM", "openmm"),
-        ("OpenMM application layer", "openmm.app"),
-        ("PDBFixer", "pdbfixer"),
-    ]
     workflow = config.get("workflow")
-    if isinstance(workflow, Mapping) and workflow.get("run_analysis"):
-        required.append(("MDTraj", "mdtraj"))
-
-    missing: list[str] = []
-    for label, module_name in required:
-        try:
-            importlib.import_module(module_name)
-        except Exception:  # noqa: BLE001 - broken partial installs also cannot run
-            if label.startswith("OpenMM"):
-                label = "OpenMM"
-            if label not in missing:
-                missing.append(label)
+    missing = missing_dependencies(
+        include_analysis=(
+            isinstance(workflow, Mapping) and bool(workflow.get("run_analysis"))
+        )
+    )
 
     if not missing:
         return None
-
-    packages = " ".join(
-        name for name in ("openmm", "pdbfixer", "mdtraj")
-        if name != "mdtraj" or "MDTraj" in missing
-    )
-    return (
-        "Simulation dependencies are unavailable in the Python environment "
-        f"running this dashboard: {', '.join(missing)}. Install them in that "
-        "same environment, restart the dashboard, and launch again. Recommended: "
-        f"conda install -c conda-forge {packages}"
-    )
+    return dependency_error_message(missing)
 
 
 def _json_mapping(path: Path) -> dict[str, Any]:

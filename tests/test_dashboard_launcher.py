@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
+from fastmdxplora.dependencies import MissingDependency
 from fastmdxplora.live.launcher import (
     DashboardRuntime,
     build_launcher_command,
@@ -90,28 +91,19 @@ def test_launcher_command_uses_module_entrypoint(tmp_path: Path) -> None:
 
 
 def test_launcher_environment_preflight_is_workflow_aware() -> None:
-    imported: list[str] = []
-
-    def fake_import(name: str):
-        imported.append(name)
-        if name == "pdbfixer":
-            raise ImportError("missing")
-        return SimpleNamespace()
-
-    with patch("fastmdxplora.live.launcher.importlib.import_module", side_effect=fake_import):
+    missing = [MissingDependency("PDBFixer", "pdbfixer", "pdbfixer")]
+    with patch("fastmdxplora.live.launcher.missing_dependencies", return_value=missing):
         detail = launcher_environment_error(_payload())
 
     assert detail is not None
     assert "PDBFixer" in detail
     assert "MDTraj" not in detail
-    assert imported == ["openmm", "openmm.app", "pdbfixer", "mdtraj"]
 
     payload = _payload()
     payload["workflow"]["run_analysis"] = False
-    imported.clear()
-    with patch("fastmdxplora.live.launcher.importlib.import_module", side_effect=fake_import):
+    with patch("fastmdxplora.live.launcher.missing_dependencies", return_value=missing) as probe:
         launcher_environment_error(payload)
-    assert "mdtraj" not in imported
+    probe.assert_called_once_with(include_analysis=False)
 
 
 def test_runtime_launches_without_shell(tmp_path: Path) -> None:
@@ -235,6 +227,29 @@ def test_home_server_exposes_launcher_apis(tmp_path: Path) -> None:
             validated = json.load(response)
         assert validated["valid"] is True
         assert "command" in validated
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_home_validation_reports_missing_backend_install_command(tmp_path: Path) -> None:
+    server, url = start_test_server(tmp_path / "workspace", home_mode=True)
+    try:
+        request = urllib.request.Request(
+            url + "/api/launcher/validate",
+            data=json.dumps(_payload()).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        missing = [MissingDependency("OpenMM", "openmm.app", "openmm")]
+        with patch(
+            "fastmdxplora.live.server.missing_dependencies",
+            return_value=missing,
+        ):
+            with urllib.request.urlopen(request) as response:
+                validated = json.load(response)
+        assert validated["valid"] is True
+        assert "conda install -c conda-forge openmm" in validated["environment_error"]
     finally:
         server.shutdown()
         server.server_close()

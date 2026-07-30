@@ -238,27 +238,29 @@ class TestPlatformSelection:
 # ===========================================================================
 class TestPipelineGracefulDegradation:
     def test_missing_setup_outputs_writes_manifest(self, tmp_path: Path):
-        """No setup/system.xml -> graceful skip with informative note."""
+        """No setup/system.xml -> fail with an informative note."""
         orch = MagicMock()
         orch.output_dir = tmp_path
         orch._presenter = None
         out = tmp_path / "simulation"
         out.mkdir()
 
-        artifacts = _pipeline.run(orchestrator=orch, output_dir=out)
+        with pytest.raises(RuntimeError, match="(setup outputs are missing|conda install -c conda-forge)"):
+            _pipeline.run(orchestrator=orch, output_dir=out)
 
-        assert "simulation_parameters.json" in artifacts
+        assert (out / "simulation_parameters.json").exists()
         manifest = json.loads((out / "simulation_parameters.json").read_text(encoding="utf-8"))
         joined_notes = " ".join(manifest["notes"])
         assert "Setup outputs not found" in joined_notes
 
     @pytest.mark.skipif(HAS_OPENMM, reason="run only when OpenMM is absent")
     def test_openmm_missing_skips_with_note(self, stub_orchestrator, tmp_path: Path):
-        """Without OpenMM, the phase skips and notes the missing dep."""
+        """Without OpenMM, the phase fails with installation guidance."""
         out = stub_orchestrator.output_dir / "simulation"
         out.mkdir()
-        artifacts = _pipeline.run(orchestrator=stub_orchestrator, output_dir=out)
-        assert "simulation_parameters.json" in artifacts
+        with pytest.raises(RuntimeError, match="conda install -c conda-forge"):
+            _pipeline.run(orchestrator=stub_orchestrator, output_dir=out)
+        assert (out / "simulation_parameters.json").exists()
         # Real DCD should NOT exist
         assert not (out / "production.dcd").exists()
         manifest = json.loads((out / "simulation_parameters.json").read_text(encoding="utf-8"))
