@@ -61,7 +61,7 @@ preserved with its original capitalization. Black / charcoal backgrounds, white
 and silver typography, restrained cyan and violet accents, green for healthy,
 orange for warning, red only for error. All system fonts; no remote font loads.
 
-## Safety guarantees
+## Safety and network boundary
 
 The dashboard must never terminate or interfere with an OpenMM simulation:
 
@@ -74,6 +74,12 @@ The dashboard must never terminate or interfere with an OpenMM simulation:
   pauses browser-side polling; it never pauses the OpenMM integrator.
 - Telemetry parsing tolerates partial lines, missing files, and mid-write
   arrays.
+
+The default server binds to `127.0.0.1`, which is the recommended and safest
+mode. Do not expose the dashboard directly to the internet. When you bind to
+`0.0.0.0`, `::`, or another non-loopback address, the dashboard remains useful
+for monitoring but workflow launch/stop and local-folder opening are disabled.
+Absolute host filesystem paths are not sent in the artifact listing.
 
 ## Recommended: start it with the workflow
 
@@ -287,7 +293,7 @@ defaults:
 | --- | --- | --- |
 | `--dashboard-host` | Bind address for dashboard server | `127.0.0.1` |
 | `--dashboard-port` | Bind port; auto-falls-forward if busy | `8765` |
-| `--dashboard-refresh-seconds` | Browser polling interval | `2` |
+| `--dashboard-refresh-seconds` | Browser polling interval | `3` |
 | `--dashboard-frame-interval` | Telemetry interval at which a live frame PDB is written | matches telemetry |
 | `--dashboard-max-playback-frames` | Max browser playback frames (downsampled) | `200` |
 | `--dashboard-ligand-resname` | Explicit ligand residue-name override | autodetect |
@@ -297,7 +303,7 @@ defaults:
 
 ## API surface
 
-The server exposes lightweight JSON endpoints (all read-only, no database):
+The server exposes lightweight JSON endpoints (no database):
 
 - `GET /api/status` — current run status snapshot
 - `GET /api/metrics` — recent telemetry samples
@@ -311,13 +317,18 @@ The server exposes lightweight JSON endpoints (all read-only, no database):
 - `GET /api/analyses` — alias for `/api/results` analysis summary
 - `GET /structure/topology.pdb` — served structure (latest available)
 - `GET /structure/live-frame.pdb` — latest OpenMM live frame (atomic swap)
-- `GET /structure/final.pdb` — completed final structure
 - `GET /structure/playback.pdb` — downsampled multi-MODEL PDB for playback
-- `GET /structure/cluster/<id>.pdb` — representative cluster structure
 
 All endpoints degrade gracefully: missing files, malformed JSON, or a busy
 parser return a benign `{"ok": false, "reason": "..."}` document rather than
 crashing.
+
+The home-mode simulation builder also uses these POST endpoints, but only when
+the server is loopback-bound:
+
+- `POST /api/launcher/validate` — validate a proposed workflow
+- `POST /api/launcher/launch` — launch the canonical CLI workflow
+- `POST /api/launcher/stop` — terminate the active workflow and wait for exit
 
 ## Live molecular coordinates and trajectory playback
 
@@ -332,6 +343,14 @@ playback** view:
 
 - Up to `--dashboard-max-playback-frames` frames are sampled evenly from
   the full DCD trajectory. The scientific DCD itself is never modified.
+  Compilation streams the DCD in bounded chunks and caps browser requests at
+  2,000 frames.
+- Concurrent playback requests are serialized per run so the companion PDB
+  and index cannot be replaced by competing writers.
+  Compilation streams the DCD in bounded chunks and caps browser requests at
+  2,000 frames.
+- Concurrent playback requests are serialized per run so the companion PDB
+  and index cannot be replaced by competing writers.
 - Controls: Play, Pause, Reverse, Previous, Next, Jump to start/end,
   frame slider, playback speed, loop, screenshot, frame download.
 - Each frame is `MODEL`/`ENDMDL`-wrapped inside a single multi-MODEL PDB so

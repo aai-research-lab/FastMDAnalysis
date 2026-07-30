@@ -3,9 +3,32 @@
 > **F**ully **A**utomated **Sy**s**T**em for **M**olecular **D**ynamics e**Xplora**tion
 
 FastMDXplora explores a protein's behavior end to end from a single command.
-Given a structure (or just a PDB ID) it performs molecular dynamics
-exploration all the way through setup, simulation, analysis, and reporting,
-then hands back publication-ready results.
+Given a structure (or just a PDB ID) it prepares the system, runs OpenMM
+molecular dynamics, analyzes the trajectory, and writes publication-ready
+reports.
+
+## Start here
+
+If you are new to FastMDXplora, follow these steps:
+
+1. [Install the package and chemistry backends](installation.md).
+2. Run `fastmdx info` to confirm which backends are available.
+3. Run a conservative CPU smoke test:
+
+   ```bash
+   fastmdx explore --system 1L2Y --include setup simulation \
+     --simulate-preset gentle --simulate-platform CPU
+   ```
+
+4. When that succeeds, run the complete workflow:
+
+   ```bash
+   fastmdx explore --system 1L2Y --dashboard
+   ```
+
+The dashboard opens at a local URL printed in the terminal. For a command
+reference, see [CLI commands](cli_reference.md). For an explanation of every
+output directory, see [The four phases](phases.md).
 
 ```{toctree}
 :maxdepth: 2
@@ -13,10 +36,12 @@ then hands back publication-ready results.
 
 installation
 phases
+cli_reference
 usage_examples
 configuration
 region_highlights
 live_dashboard
+pdb_smoke_campaign
 ```
 
 ```{toctree}

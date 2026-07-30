@@ -230,9 +230,16 @@ that ran — so you can reproduce it later with
 
 ```bash
 fastmdx info        # versions, detected backends (OpenMM/PDBFixer), citation
+fastmdx health --no-fix  # diagnose the current environment without changing it
+fastmdx                  # open the dashboard home/simulation builder
 fastmdx --cite      # just the citation
 fastmdx --version
 ```
+
+The CLI prints a centered FastMDXplora startup banner. It is informational;
+the dashboard URL printed there is the address to open in your browser. Set
+`FASTMDX_NO_BROWSER=1` in headless environments to suppress automatic browser
+opening.
 
 ---
 

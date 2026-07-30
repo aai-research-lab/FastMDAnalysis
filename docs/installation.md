@@ -1,10 +1,21 @@
 # Installation
 
-FastMDXplora is designed so a brand-new user can go from a fresh machine to a runnable simulation in **3 commands** on **Linux, macOS, or Windows**. The same commands work everywhere. **Miniforge is auto-installed** when no conda is on PATH, so a fresh machine is enough — no prior Python, conda, or OpenMM install needed.
+FastMDXplora has two installation paths:
 
-This page covers every supported starting point and gives troubleshooting tips. If you just want to get going, the [Quick install](#quick-install-any-os) section is enough.
+- **Full setup + simulation:** Linux, macOS, or Linux inside WSL2. This path
+  installs OpenMM and PDBFixer through conda-forge.
+- **Analysis + reporting only:** Linux, macOS, or Windows with a normal Python
+  environment. This path does not need OpenMM or PDBFixer.
 
-## Quick install (any OS)
+Native Windows is suitable for analysis/reporting and development, but the
+full chemistry workflow is more reliable in WSL2/Linux because OpenMM,
+PDBFixer, AmberTools, and OpenFF are distributed primarily through conda-forge.
+
+This page covers every supported starting point and gives troubleshooting tips. If you just want to get going, the **Quick install: full workflow** section is enough.
+
+## Quick install: full workflow
+
+Use a Linux or macOS terminal. On Windows, open an Ubuntu WSL2 terminal first.
 
 ```bash
 git clone https://github.com/aai-research-lab/FastMDXplora.git   # 1
@@ -12,7 +23,9 @@ cd FastMDXplora                                                  # 2
 python fastmdx install                                           # 3
 ```
 
-The third command (`install`) does everything else:
+The third command (`install`) does everything else. It requires a working
+Python 3.9–3.12 interpreter to start the bootstrap script; it can install
+Miniforge and the remaining environment after that:
 
 1. Detects whether conda or mamba is already on your `PATH`.
 2. If not, downloads and installs **Miniforge** for your platform (Linux x86_64 / aarch64, macOS x86_64 / arm64, Windows x86_64 / aarch64) into `~/miniforge3`.
@@ -21,7 +34,7 @@ The third command (`install`) does everything else:
 5. Installs **FastMDXplora** itself into that environment.
 6. Runs `fastmdx info` as a smoke test.
 
-> Why the `python fastmdx …` prefix? The repo includes a tiny `fastmdx` shim at its root that lets the CLI run before any `pip install` step — full details in [Why `python fastmdx`](#why-python-fastmdx) below.
+> Why the `python fastmdx …` prefix? The repo includes a tiny `fastmdx` shim at its root that lets the CLI run before the package is installed. See the **Why `python fastmdx`?** section below for details.
 
 Then activate the environment and run a first simulation:
 
@@ -32,7 +45,7 @@ fastmdx explore --system 1L2Y
 
 `1L2Y` is a small trp-cage PDB that exercises every phase on a fast turnaround. Replace it with any 4-character PDB ID or with the path to a local `.pdb` / `.cif` file.
 
-### Windows local development install
+### Windows analysis-only or local development install
 
 On Windows PowerShell, the most reliable local development path is to use the
 Python launcher and call pip through Python:
@@ -53,6 +66,10 @@ for your user account:
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
+
+This environment is appropriate for package development, analysis, reports,
+and documentation tests. For setup/simulation on Windows, use WSL2 and repeat
+the full-workflow installation there.
 
 Activation is optional. You can also run the virtual environment's Python
 directly:
@@ -86,17 +103,22 @@ conda install -c conda-forge openmm-plumed
 - `git` on `PATH` (preinstalled on modern macOS and Windows 10+; on bare Linux you may need to install via your package manager).
 - A terminal that supports **UTF-8** output (the CLI renders a box-drawing banner).
 - **~1.5 GB of free disk** for the full install (Miniforge downloads ~150 MB; the `fastmdxplora` conda environment adds another ~800 MB of OpenMM / MDTraj / matplotlib / etc.).
-- Python is **not required** up front — if you don't have it, `install` will install Miniforge, which brings Python 3.10 along for the ride.
+- Python 3.9–3.12 is required to start the repository bootstrap command. The
+  bootstrap then installs the dedicated Python 3.10 conda environment used by
+  the full workflow.
 
 ## Scenarios your new user might be in
 
-### Scenario A — Fresh machine, nothing installed (cold start)
+### Scenario A — Fresh Linux/macOS/WSL2 machine
 
-You have a brand-new machine (or a fresh VM, a new WSL distro, etc.) that has no Python, conda, or mamba yet.
+You have a brand-new Linux/macOS machine (or a fresh WSL2 distro) that has no
+conda or mamba yet. Python must still be available long enough to start
+`python fastmdx install`.
 
 Just run the three commands above. The third command detects the missing conda and downloads Miniforge for your OS from `github.com/conda-forge/miniforge/releases/latest/download/`. Miniforge is then installed into `~/miniforge3` (Linux/macOS) or `%USERPROFILE%\miniforge3` (Windows).
 
-Time: roughly 5–10 minutes for Miniforge + ~5–10 minutes for `mamba`-style env resolution (classic `conda` works too but is slower). Disk cost: ~1 GB.
+Time: roughly 5–10 minutes for Miniforge + ~5–10 minutes for environment
+resolution. Disk cost: about 1 GB.
 
 ### Scenario B — You already have conda or mamba installed
 
@@ -115,7 +137,14 @@ This installs FastMDXplora from PyPI directly into your system Python (no conda 
 
 The `setup` and `simulation` phases need OpenMM + PDBFixer. If you run them and they're missing, FastMDXplora's self-healing prologue will print the exact install command and exit cleanly — no stack trace.
 
-### Scenario D — conda-forge (one command, when published)
+### Scenario D — Windows full workflow
+
+Install [WSL2](https://learn.microsoft.com/windows/wsl/install) with an Ubuntu
+distribution, then run the Linux instructions inside the Ubuntu terminal. Keep
+your PDB files and output directories in the WSL filesystem when possible for
+better I/O performance.
+
+### Scenario E — conda-forge (one command, when published)
 
 > Coming soon. A single-command install is in progress via a `recipes/fastmdxplora/meta.yaml` recipe, which would give:
 >
@@ -126,7 +155,7 @@ The `setup` and `simulation` phases need OpenMM + PDBFixer. If you run them and 
 >
 > Use Scenario A or B until the recipe clears review.
 
-### Scenario E — Editable install (contributors hacking on FastMDXplora)
+### Scenario F — Editable install (contributors hacking on FastMDXplora)
 
 This is for users who want to **modify FastMDXplora's source** — adding a new analysis, fixing a bug, or contributing back upstream. The flow mirrors Scenarios A and B (clone the repo, `cd` into it, run `install`), but use `install-e` instead of `install` for editable mode. The local checkout is then installed in **editable mode** (`pip install -e .`) so any change you make under `src/fastmdxplora/` shows up the next time you run `fastmdx`.
 
@@ -156,7 +185,7 @@ pytest                       # full test suite
 ruff check src tests         # lint with project conventions
 ```
 
-For full contributor conventions (test requirements, coding style, PR workflow) see [CONTRIBUTING.md](../CONTRIBUTING.md).
+For full contributor conventions (test requirements, coding style, PR workflow) see [CONTRIBUTING.md](https://github.com/aai-research-lab/FastMDXplora/blob/main/CONTRIBUTING.md).
 
 ## Verify the install
 
@@ -224,7 +253,7 @@ print("CUDA available" if "CUDA" in plats else "CPU-only: simulations will run o
 
 ## Why `python fastmdx`?
 
-The third step in [Quick install](#quick-install-any-os) is `python fastmdx install`, not bare `fastmdx install`. The reason is order-of-operations:
+The third step in the **Quick install: full workflow** is `python fastmdx install`, not bare `fastmdx install`. The reason is order-of-operations:
 
 - When you first clone the repo, FastMDXplora is **not yet installed** on your system, so there's no `fastmdx` console script on `PATH` yet.
 - The repo ships a tiny Python file called **`fastmdx`** at its root. It has no shebang, so it runs identically on Linux, macOS, and Windows. Running it as `python fastmdx <subcommand>` invokes a one-shot script that puts `src/` on `sys.path`, sets `PYTHONPATH`, and forwards to the CLI module — i.e. `python -m fastmdxplora.cli.main <subcommand>`.
@@ -248,4 +277,4 @@ If your environment is too new, install Python 3.10 or 3.11 in a dedicated conda
 - **Ready to run?** Try the [Usage examples](usage_examples.md).
 - **Need a specific output config?** See [Configuration files](configuration.md).
 - **Want to write your own analyses or extend FastMDXplora?** See [Phases](phases.md) and the [API reference](api.md).
-- **Want to contribute?** See [CONTRIBUTING.md](../CONTRIBUTING.md).
+- **Want to contribute?** See [CONTRIBUTING.md](https://github.com/aai-research-lab/FastMDXplora/blob/main/CONTRIBUTING.md).

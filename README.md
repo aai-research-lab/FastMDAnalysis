@@ -11,7 +11,7 @@
 
 ---
 
-**FastMDXplora** explores a protein's behavior end to end from a single command. Given a structure (or just a PDB ID) it performs molecular dynamics exploration all the way through setup, simulation, analysis, and reporting, then hands back publication-ready results:
+**FastMDXplora** explores a protein's behavior end to end from a single command. Given a structure (or just a PDB ID) it performs molecular dynamics exploration all the way through setup, simulation, analysis, and reporting, then hands back publication-ready results. Start with the [Read the Docs guide](https://fastmdxplora.readthedocs.io/) for the beginner installation path and current CLI/dashboard commands:
 
 ```
   setup  →  simulation  →  analysis  →  report
@@ -36,7 +36,7 @@
 
 ## Installation
 
-FastMDXplora runs on **Linux, macOS, and Windows** with the same three commands — no per-OS scripts and no manual environment wrangling. **Miniforge is auto-installed** when no conda is on PATH, so a brand-new user on a fresh machine is enough.
+FastMDXplora runs analysis/reporting on Linux, macOS, and Windows. For the full OpenMM/PDBFixer workflow, use Linux, macOS, or Linux inside WSL2; the Read the Docs installation page explains why and gives the exact commands.
 
 ### Quick install (any OS)
 
@@ -69,7 +69,7 @@ fastmdx explore --system 1L2Y
 
 | Starting point | What you run |
 |---|---|
-| **Fresh machine, nothing installed** (cold start) | The 3 commands below. Miniforge is downloaded and installed automatically. No prior Python needed. |
+| **Fresh Linux/macOS/WSL2 machine** | The 3 commands below. Miniforge is downloaded and installed automatically; Python 3.9–3.12 is needed to start the bootstrap. |
 | **You already have conda or mamba** | The same 3 commands. Miniforge download is skipped; the `fastmdxplora` environment is created directly. |
 | **You only want analysis + reports, no MD** | Skip the `install` step. Just `pip install fastmdxplora` then `fastmdx explore --system 1L2Y --include analyze report` (2 commands, no conda env required). To upgrade later to the full chemistry stack, see [Install from PyPI](#install-from-pypi-no-git-clone) below. |
 
