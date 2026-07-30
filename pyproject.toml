@@ -42,11 +42,6 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Chemistry",
     "Topic :: Scientific/Engineering :: Physics",
 ]
-# Standalone, self-contained. No runtime dependency on external MD-analysis packages or
-# fastmdsimulation. Heavy MD dependencies (OpenMM, MDTraj, PDBFixer) are
-# introduced incrementally in subsequent releases; v0.1.0 ships the
-# orchestrator scaffold with placeholder phases that can run on a clean
-# Python environment.
 dependencies = [
     "numpy>=1.22",
     "pyyaml>=6.0",
@@ -58,20 +53,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# The setup and simulation phases need the OpenMM stack: PDBFixer
-# (setup only) and OpenMM (both phases). Both are distributed primarily
-# via conda-forge; pip wheels exist for OpenMM but not reliably for
-# PDBFixer across all platforms. The pip path here is best-effort —
-# `conda install -c conda-forge pdbfixer openmm` is recommended.
-# The group is named `md` because it covers the molecular-dynamics
-# chemistry phases (setup + simulation), not just one of them.
 md = [
     "pdbfixer",
     "openmm>=8.0",
 ]
-# Protein-ligand systems: OpenFF small-molecule parameterization via
-# openmmforcefields' SystemGenerator. Heavy tree (AmberTools, RDKit, OpenFF);
-# best installed via conda-forge. pip path is best-effort.
 ligand = [
     "openff-toolkit>=0.16",
     "openmmforcefields>=0.12",
@@ -104,12 +89,18 @@ Changelog = "https://github.com/aai-research-lab/FastMDXplora/blob/main/CHANGELO
 
 [project.scripts]
 fastmdx = "fastmdxplora.cli.main:main"
+fastmdxplora = "fastmdxplora.cli.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-fastmdxplora = ["live/static/*"]
+fastmdxplora = [
+    "live/static/*",
+    "live/static/**/*",
+    "live/templates/*.html",
+    "live/templates/**/*",
+]
 
 [tool.setuptools_scm]
 write_to = "src/fastmdxplora/_version.py"

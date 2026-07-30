@@ -60,3 +60,18 @@ def test_save_figure_applies_paper_style_to_colorbar(tmp_path):
 
     assert out.is_file()
     assert cbar.ax.yaxis.label.get_fontsize() == PAPER_LABEL_SIZE
+
+
+def test_save_figure_also_writes_true_vector_svg(tmp_path):
+    fig, ax = new_figure(title="Vector export", xlabel="Time (ns)", ylabel="Value")
+    ax.plot([0.0, 0.5, 1.0], [1.0, 1.5, 1.2])
+
+    png = save_figure(fig, tmp_path / "vector_plot.png")
+    svg = tmp_path / "vector_plot.svg"
+
+    assert png.is_file()
+    assert svg.is_file()
+    text = svg.read_text(encoding="utf-8")
+    assert "<svg" in text
+    assert "Time (ns)" in text
+    assert "Value" in text

@@ -9,8 +9,71 @@ FastMDXplora has two dashboard views:
   telemetry files while a simulation is running.
 
 The live dashboard does not replace the static report dashboard. It adds a
-separate monitoring view for progress, health messages, recent events, and
-available energy/temperature samples.
+separate monitoring view for progress, health messages, recent events,
+**true live molecular coordinates**, **completed-trajectory playback**,
+**structure and ligand tooling**, and available energy/temperature samples.
+
+## Architecture
+
+The live dashboard is a plain-HTTP Python server with no Node or frontend
+build step. Assets are vendored locally and the dashboard runs fully offline.
+
+```
+src/fastmdxplora/live/
+├── server.py                # HTTP handlers + route table
+├── telemetry.py             # existing telemetry reader
+├── protein_preview.py       # existing static preview generator
+├── structure_info.py        # PDB chains / residues / atoms / waters / ions
+├── ligand_detection.py      # ligand + cofactor detection with overrides
+├── live_frames.py           # atomic live-frame file writer
+├── trajectory_playback.py   # DCD -> downsampled multi-MODEL PDB for browser
+├── templates/
+│   └── dashboard.html       # single-page dashboard (sidebar + pages)
+└── static/
+    ├── dashboard.css        # black scientific visual system
+    ├── dashboard.js         # navigation, polling, state, events
+    ├── molecule-viewer.js   # 3Dmol viewer (live + playback)
+    ├── charts.js            # live telemetry charts
+    ├── aai-research-logo.svg
+    ├── aai-research-mark.svg
+    └── 3Dmol-min.js         # existing vendored 3Dmol bundle
+```
+
+### Page layout
+
+The single-page app exposes:
+
+- **Sidebar** with the AAI Research Lab logo, the FastMDXplora product name, the
+  full tagline (Fully Automated SysTem for Molecular Dynamics eXploration),
+  the persistent nav (Overview, Live Simulation, Molecular Viewer, Analysis,
+  Files & Reports, Run Settings, Documentation, GitHub), and dynamic footer
+  info (connection status, current run, detected platform).
+- **Top bar** with system/PDB, run title, status pill, current stage, step/total,
+  platform, temperature, refresh, and Pause Updates (browser-only).
+- **Pages**: Overview, Live Simulation, Molecular Viewer, Analysis,
+  Files & Reports, Run Settings.
+
+### Branding
+
+The dashboard is branded with the AAI Research Lab logo (vendored SVG, no CDN).
+The tagline `Fully Automated SysTem for Molecular Dynamics eXploration` is
+preserved with its original capitalization. Black / charcoal backgrounds, white
+and silver typography, restrained cyan and violet accents, green for healthy,
+orange for warning, red only for error. All system fonts; no remote font loads.
+
+## Safety guarantees
+
+The dashboard must never terminate or interfere with an OpenMM simulation:
+
+- All file-system writes performed by the dashboard module are wrapped in
+  try/except. A failure is logged and surfaced as `unavailable` in the UI
+  without stopping the surrounding workflow.
+- Live frame writing runs at a separately tunable cadence
+  (`--dashboard-frame-interval`, default approximate match to telemetry).
+- The simulation stays authoritative. The **Pause Updates** control only
+  pauses browser-side polling; it never pauses the OpenMM integrator.
+- Telemetry parsing tolerates partial lines, missing files, and mid-write
+  arrays.
 
 ## Recommended: start it with the workflow
 
@@ -214,3 +277,127 @@ fastmdx explore --system local_pdbs/1L2Y.pdb \
   --simulate-preset gentle \
   --dashboard
 ```
+
+## New CLI options
+
+The redesigned dashboard accepts additional options without changing existing
+defaults:
+
+| Flag | Purpose | Default |
+| --- | --- | --- |
+| `--dashboard-host` | Bind address for dashboard server | `127.0.0.1` |
+| `--dashboard-port` | Bind port; auto-falls-forward if busy | `8765` |
+| `--dashboard-refresh-seconds` | Browser polling interval | `2` |
+| `--dashboard-frame-interval` | Telemetry interval at which a live frame PDB is written | matches telemetry |
+| `--dashboard-max-playback-frames` | Max browser playback frames (downsampled) | `200` |
+| `--dashboard-ligand-resname` | Explicit ligand residue-name override | autodetect |
+| `--dashboard-binding-pocket-cutoff-A` | Pocket distance cutoff in Å | `5.0` |
+| `--dashboard-open-browser` | Auto-open the dashboard URL | `False` |
+| `--dashboard-stop-on-complete` | Exit server when workflow completes | `False` |
+
+## API surface
+
+The server exposes lightweight JSON endpoints (all read-only, no database):
+
+- `GET /api/status` — current run status snapshot
+- `GET /api/metrics` — recent telemetry samples
+- `GET /api/events` — recent telemetry events
+- `GET /api/structure-info` — chains / residues / atoms / waters / ions / bbox
+- `GET /api/ligands` — ligand instances, residue names, cofactors, explicit override
+- `GET /api/live-frame-index` — current live-frame index + timestamp
+- `GET /api/live-coordinates` — last-known live-frame update timestamp
+- `GET /api/playback-info` — downsampled playback frames metadata
+- `GET /api/files` — alias for `/api/artifacts` generated file list
+- `GET /api/analyses` — alias for `/api/results` analysis summary
+- `GET /structure/topology.pdb` — served structure (latest available)
+- `GET /structure/live-frame.pdb` — latest OpenMM live frame (atomic swap)
+- `GET /structure/final.pdb` — completed final structure
+- `GET /structure/playback.pdb` — downsampled multi-MODEL PDB for playback
+- `GET /structure/cluster/<id>.pdb` — representative cluster structure
+
+All endpoints degrade gracefully: missing files, malformed JSON, or a busy
+parser return a benign `{"ok": false, "reason": "..."}` document rather than
+crashing.
+
+## Live molecular coordinates and trajectory playback
+
+When the simulation phase writes frame telemetry, the runner also writes
+`simulation/live_frame.pdb` atomically (tmp file + `os.replace`). The dashboard
+polls the live-frame index and merges the new coordinates into the 3Dmol viewer
+**without re-centering or rebuilding the UI**, so the user's camera orientation,
+zoom, and visibility settings are preserved frame-to-frame.
+
+When the run finishes, the dashboard offers a downsampled **trajectory
+playback** view:
+
+- Up to `--dashboard-max-playback-frames` frames are sampled evenly from
+  the full DCD trajectory. The scientific DCD itself is never modified.
+- Controls: Play, Pause, Reverse, Previous, Next, Jump to start/end,
+  frame slider, playback speed, loop, screenshot, frame download.
+- Each frame is `MODEL`/`ENDMDL`-wrapped inside a single multi-MODEL PDB so
+  the in-browser 3Dmol viewer can use `.mload()` for instant frame switching.
+
+## Ligand and binding-pocket tooling
+
+After ligand detection (or with an explicit `--dashboard-ligand-resname`):
+
+- Center on ligand, isolate ligand, show labels, hide distant residues.
+- Show binding-pocket residues within `--dashboard-binding-pocket-cutoff-A`
+  (default 5.0 Å), computed per-atom (not centroid) so non-spherical ligands
+  are captured correctly.
+- Geometric contacts and candidate hydrogen bonds are computed by 3Dmol
+  distance criteria and labeled as geometric, not as confirmed chemical
+  interactions.
+
+## Empty, waiting, and error states
+
+Styled states are provided for:
+
+- Waiting for structure / simulation (subtle molecular-network background)
+- Protein-only run (no ligand detected)
+- Telemetry stale (no recent update within refresh window)
+- Simulation completed (final structure + completed trajectory)
+- Simulation error (the actual known error without inventing causes)
+- Viewer unavailable (falls back to the existing PyMOL preview / schematic)
+
+All empty/waiting states carry a faint AAI Research Lab watermark.
+
+## Manual browser testing checklist
+
+The redesign was manually validated against:
+
+- Protein-only simulation (e.g. trp cage) and protein-ligand simulation
+  (e.g. 1L2Y/EPE)
+- CPU and CUDA/OpenCL platforms
+- Runs with no ligand, no telemetry yet, missing topology, completed run,
+  failed run, interrupted run, and large or small trajectories
+- Dashboard reload mid-run, changed dashboard port, and stale telemetry
+- Narrow browser widths (sidebar collapses)
+- A package install at non-checkout locations to confirm templates and
+  static assets ship correctly
+
+## Dashboard-first startup and simulation builder
+
+Running FastMDXplora without a subcommand starts the local dashboard before a
+project exists:
+
+```powershell
+fastmdxplora
+```
+
+FastMDXplora binds the first available local port beginning at `8765`, prints
+the actual URL in the terminal banner, and opens the browser when possible.
+Set `FASTMDX_NO_BROWSER=1` to suppress automatic browser opening in headless
+or automated environments.
+
+The **New Simulation** page configures the standard FastMDXplora workflow. It
+does not implement a separate simulation engine: the dashboard validates the
+form and launches the canonical `python -m fastmdxplora.cli.main explore`
+command with the selected setup, simulation, analysis, and report options.
+The child process writes normal project artifacts and live telemetry, while
+the already-running dashboard switches to that output directory.
+
+Only one dashboard-launched workflow is active at a time. Scientific controls
+become read-only once a workflow starts; changing browser fields does not
+modify a running OpenMM context. A completed configuration can be adjusted and
+launched again under a new run name.

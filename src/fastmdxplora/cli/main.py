@@ -25,6 +25,7 @@ Global flags:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -439,6 +440,52 @@ def _common_input_args(p: argparse.ArgumentParser) -> None:
         default=False,
         help="Stop the dashboard automatically when the command completes.",
     )
+    dash.add_argument(
+        "--dashboard-refresh-seconds",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="Browser-side telemetry polling interval in seconds (default 3).",
+    )
+    dash.add_argument(
+        "--dashboard-frame-interval",
+        type=int,
+        default=None,
+        metavar="STEPS",
+        help="Override simulation telemetry interval used by the live dashboard. "
+             "Honored when the workflow is creating a telemetry writer; existing "
+             "runs keep their stored value.",
+    )
+    dash.add_argument(
+        "--dashboard-ligand-resname",
+        type=str,
+        default=None,
+        metavar="RESNAME",
+        help="Force a ligand residue name for the dashboard ligand tools pane. "
+             "Auto-detection is used when omitted.",
+    )
+    dash.add_argument(
+        "--dashboard-binding-pocket-cutoff-A",
+        type=float,
+        default=None,
+        metavar="ANGSTROM",
+        help="Default binding-pocket cutoff for the molecular viewer (default 5.0).",
+    )
+    dash.add_argument(
+        "--dashboard-max-playback-frames",
+        type=int,
+        default=None,
+        metavar="FRAMES",
+        help="Maximum number of frames the molecular viewer will load for "
+             "trajectory playback (default 200).",
+    )
+    dash.add_argument(
+        "--dashboard-open-browser",
+        action="store_true",
+        default=False,
+        help="Attempt to open the dashboard URL in the local browser. "
+             "Disabled by default for headless / no-display environments.",
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -600,6 +647,47 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=8765,
         help="Port to serve on (default: 8765).",
+    )
+    serve.add_argument(
+        "--refresh-seconds",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="Browser polling interval hint surfaced to the dashboard.",
+    )
+    serve.add_argument(
+        "--ligand-resname",
+        type=str,
+        default=None,
+        metavar="RESNAME",
+        help="Force a ligand residue name for the dashboard ligand tools.",
+    )
+    serve.add_argument(
+        "--binding-pocket-cutoff-A",
+        type=float,
+        default=None,
+        metavar="ANGSTROM",
+        help="Binding-pocket cutoff in angstrom (default 5.0).",
+    )
+    serve.add_argument(
+        "--frame-interval",
+        type=int,
+        default=None,
+        metavar="STEPS",
+        help="Simulation telemetry interval used by the live dashboard.",
+    )
+    serve.add_argument(
+        "--max-playback-frames",
+        type=int,
+        default=None,
+        metavar="FRAMES",
+        help="Maximum frames the molecular viewer will load for playback.",
+    )
+    serve.add_argument(
+        "--open-browser",
+        action="store_true",
+        default=False,
+        help="Open the dashboard URL in the user's default browser.",
     )
 
     # init-config: write a commented YAML template
@@ -808,9 +896,13 @@ def _dashboard_requested(args: argparse.Namespace) -> bool:
     return bool(getattr(args, "dashboard", False))
 
 
-def _enable_dashboard_telemetry(config: dict[str, Any]) -> None:
+def _enable_dashboard_telemetry(
+    config: dict[str, Any], args: argparse.Namespace | None = None
+) -> None:
     simulation = dict(config.get("simulation", {}))
     simulation["live_telemetry"] = True
+    if args is not None and getattr(args, "dashboard_frame_interval", None) is not None:
+        simulation["telemetry_interval"] = int(args.dashboard_frame_interval)
     config["simulation"] = simulation
 
 
@@ -825,12 +917,34 @@ def _resolve_dashboard_output_dir(args: argparse.Namespace, config: dict[str, An
 
 
 def _start_dashboard_for_command(args: argparse.Namespace, output_dir: Path):
-    from fastmdxplora.live.server import start_dashboard_session
+    # The orchestrator uses this process-local marker to publish setup,
+    # analysis, and report phase transitions to the same live timeline as
+    # the OpenMM simulation sub-stages.
+    os.environ["FASTMDX_DASHBOARD_ACTIVE"] = "1"
+    os.environ["FASTMDX_DASHBOARD_OUTPUT"] = str(output_dir)
 
+    from fastmdxplora.live.server import (
+        DashboardConfig,
+        start_dashboard_session,
+    )
+
+    config = DashboardConfig(
+        ligand_resname=getattr(args, "dashboard_ligand_resname", None),
+        binding_pocket_cutoff_A=float(
+            getattr(args, "dashboard_binding_pocket_cutoff_A", 5.0) or 5.0
+        ),
+        max_browser_frames=int(
+            getattr(args, "dashboard_max_playback_frames", 200) or 200
+        ),
+        refresh_seconds=float(
+            getattr(args, "dashboard_refresh_seconds", 3.0) or 3.0
+        ),
+    )
     session = start_dashboard_session(
         output=output_dir,
         host=args.dashboard_host,
         port=args.dashboard_port,
+        config=config,
     )
     print(f"Live dashboard running at: {session.url}")
     if session.port_was_changed:
@@ -894,7 +1008,7 @@ def _cmd_explore(args: argparse.Namespace) -> int:
             config["exclude"] = [*existing, "report"]
 
     if _dashboard_requested(args):
-        _enable_dashboard_telemetry(config)
+        _enable_dashboard_telemetry(config, args)
     dashboard_output_dir: Path | None = None
     if _dashboard_requested(args):
         dashboard_output_dir = _resolve_dashboard_output_dir(args, config)
@@ -941,6 +1055,15 @@ def _cmd_phase(phase: str, args: argparse.Namespace) -> int:
         kwargs = _normalize_analysis_options(kwargs)
     if _dashboard_requested(args) and phase == "simulate":
         kwargs["live_telemetry"] = True
+        # Forward dashboard knobs when running live; ignored if the user
+        # did not opt in to live telemetry.
+        if getattr(args, "dashboard_frame_interval", None) is not None:
+            kwargs["telemetry_interval"] = int(args.dashboard_frame_interval)
+        if getattr(args, "dashboard_refresh_seconds", None) is not None:
+            # The same value is embedded into the served dashboard HTML.
+            print(
+                f"  dashboard polling: every {args.dashboard_refresh_seconds}s"
+            )
 
     method = {
         "setup":    fmdx.setup,
@@ -1126,15 +1249,76 @@ def _cmd_dashboard(args: argparse.Namespace) -> int:
     if args.dashboard_command != "serve":
         print("fastmdx: dashboard requires a subcommand, e.g. `dashboard serve`.", file=sys.stderr)
         return 2
-    from fastmdxplora.live.server import serve_dashboard
+    from fastmdxplora.live.server import DashboardConfig, serve_dashboard
 
-    serve_dashboard(output=args.output, host=args.host, port=args.port)
+    config = DashboardConfig(
+        ligand_resname=getattr(args, "ligand_resname", None),
+        binding_pocket_cutoff_A=float(
+            getattr(args, "binding_pocket_cutoff_A", 5.0) or 5.0
+        ),
+        max_browser_frames=int(
+            getattr(args, "max_playback_frames", 200) or 200
+        ),
+    )
+    serve_dashboard(
+        output=args.output,
+        host=args.host,
+        port=args.port,
+        config=config,
+    )
+    if getattr(args, "open_browser", False):
+        import webbrowser
+        try:
+            webbrowser.open(f"http://{args.host}:{args.port}", new=2)
+        except Exception:
+            pass
     return 0
 
 
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+def _startup_dashboard_details(argv: Sequence[str]) -> tuple[str, bool]:
+    """Resolve the dashboard address shown by the startup wordmark."""
+    host = "127.0.0.1"
+    port = "8765"
+    enabled = (
+        "--dashboard" in argv
+        or "--live-dashboard" in argv
+        or ("dashboard" in argv and "serve" in argv)
+        or os.getenv("FASTMDX_DASHBOARD_ACTIVE") == "1"
+    )
+
+    for index, token in enumerate(argv):
+        if token in {"--dashboard-host", "--host"} and index + 1 < len(argv):
+            host = str(argv[index + 1])
+        elif token.startswith("--dashboard-host=") or token.startswith("--host="):
+            host = token.split("=", 1)[1]
+
+        if token in {"--dashboard-port", "--port"} and index + 1 < len(argv):
+            port = str(argv[index + 1])
+        elif token.startswith("--dashboard-port=") or token.startswith("--port="):
+            port = token.split("=", 1)[1]
+
+    if host in {"0.0.0.0", "::", "[::]"}:
+        host = "127.0.0.1"
+
+    url = os.getenv("FASTMDX_DASHBOARD_URL") or f"http://{host}:{port}"
+    return url, enabled
+
+
+def _cmd_dashboard_home() -> int:
+    """Start the dashboard home screen for an empty CLI invocation."""
+    from fastmdxplora.live.server import serve_dashboard
+
+    serve_dashboard(
+        output=Path.cwd(),
+        host="127.0.0.1",
+        port=8765,
+    )
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     # Ensure the CLI can emit its Unicode output (box-drawing banner, "→",
     # "—") regardless of the platform's locale. On machines whose default
@@ -1154,8 +1338,22 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     setup_console()
 
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+
+    # Show the FastMDXplora identity as soon as the CLI starts. Keep version
+    # and citation output machine-friendly; help and an empty invocation are
+    # intentionally branded.
+    if not any(flag in raw_argv for flag in ("--version", "-V", "--cite")):
+        from fastmdxplora.utils.presenter import get_presenter
+
+        dashboard_url, dashboard_enabled = _startup_dashboard_details(raw_argv)
+        get_presenter().welcome(
+            dashboard_url=dashboard_url,
+            dashboard_enabled=dashboard_enabled,
+        )
+
     parser = _build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw_argv)
 
     # Short-circuit cheap flags first so a missing chemistry backend never
     # *blocks* `--cite`, `--version`, or `--help`. These flags are how
@@ -1165,30 +1363,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(__citation__)
         return 0
     if args.command is None:
-        parser.print_help()
-        return 0
+        return _cmd_dashboard_home()
 
-    # Self-heal before dispatch: if this command needs the chemistry stack
-    # and it's missing from the current interpreter, surface the install
-    # hint instead of letting a later ImportError crash the run.
-    if _needs_chemistry(args):
-        missing = _missing_chemistry_backends()
-        if missing:
-            joined = " and ".join(missing) if len(missing) == 2 else missing[0]
-            print(
-                f"fastmdx: this command needs the chemistry backend ({joined}), "
-                "which isn't importable from the current Python environment.",
-                file=sys.stderr,
-            )
-            print("", file=sys.stderr)
-            print("Install it with one of:", file=sys.stderr)
-            print("  conda install -c conda-forge openmm pdbfixer  # recommended across platforms", file=sys.stderr)
-            print('  pip install "fastmdxplora[md]"  # best-effort (PDBFixer wheels are unreliable)', file=sys.stderr)
-            print("", file=sys.stderr)
-            print("Or run only the phases that don't need chemistry:", file=sys.stderr)
-            print("  fastmdx explore --system <PDB> --include analyze report", file=sys.stderr)
-            print("Tip: run `fastmdx info` to see which backends are detected.", file=sys.stderr)
-            return 2
+    # Setup and simulation phases already handle missing optional chemistry
+    # dependencies gracefully by recording the skipped work in their manifests.
+    # Do not abort the CLI here: doing so prevents setup-only/config workflows
+    # and the test matrix from exercising that documented fallback behavior.
 
     if args.command == "init-config":
         return _cmd_init_config(args)

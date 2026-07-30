@@ -194,6 +194,9 @@ class Cluster(Analysis):
                 ax.set_ylabel(ylabel)
                 save_figure(fig, fig_path)
                 artifacts.append(fig_path)
+                svg_path = fig_path.with_suffix(".svg")
+                if svg_path.is_file():
+                    artifacts.append(svg_path)
 
                 counts_path = self.output_dir / f"cluster_{method}_counts.png"
                 fig_counts, ax_counts = new_figure(
@@ -203,6 +206,9 @@ class Cluster(Analysis):
                 _plot_cluster_counts(ax_counts, labels)
                 save_figure(fig_counts, counts_path)
                 artifacts.append(counts_path)
+                counts_svg_path = counts_path.with_suffix(".svg")
+                if counts_svg_path.is_file():
+                    artifacts.append(counts_svg_path)
 
                 if method == "hierarchical":
                     dendro_path = self.output_dir / "cluster_hierarchical_dendrogram.png"
@@ -225,6 +231,9 @@ class Cluster(Analysis):
                         _plot_hierarchical_dendrogram_from_linkage(ax_den, linkage_matrix)
                         save_figure(fig_den, dendro_path)
                         artifacts.append(dendro_path)
+                        dendro_svg_path = dendro_path.with_suffix(".svg")
+                        if dendro_svg_path.is_file():
+                            artifacts.append(dendro_svg_path)
                         if skip_path.exists():
                             skip_path.unlink()
                     except Exception as dendro_exc:  # noqa: BLE001

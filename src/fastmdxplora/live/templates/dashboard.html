@@ -1,0 +1,899 @@
+<!doctype html>
+<html lang="en" data-page="overview">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>FastMDXplora Live Dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="/static/aai-research-mark.svg">
+  <link rel="stylesheet" href="/static/dashboard.css">
+  <meta name="fastmdx-expansion" content="Fully Automated SysTem for Molecular Dynamics eXploration">
+</head>
+<body class="state-loading" data-refresh-seconds="__FASTMDX_REFRESH_SECONDS__">
+  <!-- Loading screen -->
+  <div id="loading-screen" class="loading-screen" aria-hidden="false">
+    <div class="loading-shell">
+      <img class="loading-logo" src="/static/aai-research-logo.svg" alt="AAI Research Lab">
+      <div class="loading-product">FastMDXplora</div>
+      <div class="loading-tagline">Fully Automated SysTem for Molecular Dynamics eXploration</div>
+      <div class="loading-status" id="loading-status">
+        <div class="loading-step" data-step="telemetry">
+          <span class="loading-bullet"></span>
+          <span class="loading-label">Connecting to telemetry</span>
+        </div>
+        <div class="loading-step" data-step="structure">
+          <span class="loading-bullet"></span>
+          <span class="loading-label">Loading molecular structure</span>
+        </div>
+        <div class="loading-step" data-step="metrics">
+          <span class="loading-bullet"></span>
+          <span class="loading-label">Preparing simulation metrics</span>
+        </div>
+      </div>
+      <div class="loading-particles" aria-hidden="true"></div>
+      <div class="loading-watermark" aria-hidden="true"></div>
+    </div>
+  </div>
+
+  <!-- Empty state (AAI watermark fallback for terminal states without data) -->
+  <div id="empty-watermark-template" hidden aria-hidden="true">
+    <svg class="empty-watermark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+      <use href="/static/aai-research-mark.svg#mark"/>
+    </svg>
+  </div>
+
+  <div class="app-shell">
+    <!-- Sidebar -->
+    <aside class="sidebar" aria-label="Dashboard navigation">
+      <div class="sidebar-brand">
+        <img class="brand-logo" src="/static/aai-research-logo.svg" alt="AAI Research Lab">
+        <div class="brand-text">
+          <div class="brand-product">FastMDXplora</div>
+          <div class="brand-tagline">Fully Automated SysTem for Molecular Dynamics eXploration</div>
+        </div>
+      </div>
+      <nav class="sidebar-nav" role="navigation" aria-label="Dashboard sections">
+        <div class="nav-heading">Workspace</div>
+        <a href="#builder" class="nav-link" data-view-link="builder">
+          <span class="nav-icon nav-icon-launch" aria-hidden="true"></span>
+          <span>New Simulation</span>
+        </a>
+        <a href="#" class="nav-link" data-view-link="overview">
+          <span class="nav-icon" aria-hidden="true"></span>
+          <span>Overview</span>
+        </a>
+        <a href="#" class="nav-link" data-view-link="live">
+          <span class="nav-icon" aria-hidden="true"></span>
+          <span>Live Simulation</span>
+        </a>
+        <a href="#" class="nav-link" data-view-link="viewer">
+          <span class="nav-icon" aria-hidden="true"></span>
+          <span>Molecular Viewer</span>
+        </a>
+        <a href="#" class="nav-link" data-view-link="analysis">
+          <span class="nav-icon" aria-hidden="true"></span>
+          <span>Analysis</span>
+        </a>
+        <a href="#" class="nav-link" data-view-link="files">
+          <span class="nav-icon" aria-hidden="true"></span>
+          <span>Files &amp; Reports</span>
+        </a>
+        <div class="nav-heading">Tools</div>
+        <a href="#" class="nav-link" data-view-link="settings">
+          <span class="nav-icon" aria-hidden="true"></span>
+          <span>Settings</span>
+        </a>
+        <a href="https://fastmdxplora.readthedocs.io/en/latest/live_dashboard.html"
+           class="nav-link" target="_blank" rel="noopener">
+          <span class="nav-icon" aria-hidden="true"></span>
+          <span>Documentation</span>
+        </a>
+        <a href="https://github.com/aai-research-lab/FastMDXplora"
+           class="nav-link" target="_blank" rel="noopener">
+          <span class="nav-icon" aria-hidden="true"></span>
+          <span>GitHub</span>
+        </a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="footer-row">
+          <div class="footer-label">Connection</div>
+          <div class="footer-value">
+            <span class="status-dot status-dot-live" id="sidebar-status-dot"></span>
+            <span id="sidebar-connection-state">Live</span>
+          </div>
+        </div>
+        <div class="footer-row">
+          <div class="footer-label">Run</div>
+          <div class="footer-value" id="sidebar-run-name">not available</div>
+        </div>
+        <div class="footer-row">
+          <div class="footer-label">Platform</div>
+          <div class="footer-value" id="sidebar-platform">not available</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main content -->
+    <div class="main">
+      <!-- Top bar -->
+      <header class="top-bar">
+        <div class="top-bar-left">
+          <div class="run-id" id="topbar-run-id">system</div>
+          <div class="run-title" id="topbar-run-title">FastMDXplora Live</div>
+        </div>
+        <div class="top-bar-center">
+          <div class="status-cluster" role="status" aria-live="polite">
+            <span class="status-dot status-dot-live" id="topbar-status-dot"></span>
+            <span class="status-text" id="topbar-status-text">live</span>
+            <span class="status-divider" aria-hidden="true">·</span>
+            <span class="status-text-muted" id="topbar-stage">not available</span>
+          </div>
+          <div class="metric-cluster">
+            <div class="metric"><span class="metric-label">Step</span><span class="metric-value mono" id="topbar-step">—</span></div>
+            <div class="metric"><span class="metric-label">Total</span><span class="metric-value mono" id="topbar-total">—</span></div>
+            <div class="metric"><span class="metric-label">Platform</span><span class="metric-value mono" id="topbar-platform">—</span></div>
+            <div class="metric"><span class="metric-label">Temp</span><span class="metric-value mono" id="topbar-temperature">—</span></div>
+          </div>
+        </div>
+        <div class="top-bar-right">
+          <button class="ghost-btn" type="button" id="pause-toggle" aria-pressed="false" title="Pause browser updates only (does not pause the OpenMM simulation)">
+            <span id="pause-label">Pause Updates</span>
+          </button>
+          <button class="ghost-btn" type="button" id="refresh-now" title="Refresh now">
+            Refresh
+          </button>
+          <button class="ghost-btn" type="button" id="open-output" title="Open output folder">
+            Open Output
+          </button>
+          <span class="muted" id="refreshed-indicator">Last refreshed: <span id="refreshed-at">just now</span></span>
+        </div>
+      </header>
+
+      <!-- Page views -->
+      <main class="page-shell" role="main">
+        <!-- Dashboard-first simulation builder -->
+        <section class="page" data-page="builder" hidden>
+          <div class="page-header builder-page-header">
+            <div>
+              <h1 class="page-title">New Simulation</h1>
+              <div class="page-subtitle">Configure and launch the standard FastMDXplora workflow from this dashboard.</div>
+            </div>
+            <div class="builder-run-state" id="builder-run-state" data-state="idle">
+              <span class="status-dot status-dot-waiting" id="builder-state-dot"></span>
+              <span id="builder-state-text">No active workflow</span>
+            </div>
+          </div>
+
+          <form id="simulation-builder-form" class="builder-layout" novalidate>
+            <div class="builder-main">
+              <div class="card builder-card">
+                <div class="card-header">
+                  <div>
+                    <h2 class="card-title">Molecular system</h2>
+                    <p class="builder-card-note">Enter a PDB ID, an amino-acid sequence, or a path visible to this computer.</p>
+                  </div>
+                  <span class="builder-step">01</span>
+                </div>
+                <div class="builder-grid builder-grid-2">
+                  <label class="builder-field builder-field-wide">
+                    <span class="builder-label">System</span>
+                    <input type="text" id="builder-system" autocomplete="off" placeholder="1L2Y or C:\path\protein.pdb" required>
+                    <span class="field-error" data-error-for="system"></span>
+                  </label>
+                  <label class="builder-field">
+                    <span class="builder-label">Run name</span>
+                    <input type="text" id="builder-run-name" autocomplete="off" placeholder="Generated automatically">
+                    <span class="field-error" data-error-for="run_name"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="card builder-card">
+                <div class="card-header">
+                  <div>
+                    <h2 class="card-title">System setup</h2>
+                    <p class="builder-card-note">These values are passed to the existing setup phase.</p>
+                  </div>
+                  <span class="builder-step">02</span>
+                </div>
+                <div class="builder-grid builder-grid-3">
+                  <label class="builder-field">
+                    <span class="builder-label">Force field</span>
+                    <select id="builder-forcefield"></select>
+                  </label>
+                  <label class="builder-field">
+                    <span class="builder-label">Water model</span>
+                    <input type="text" id="builder-water-model" placeholder="auto">
+                  </label>
+                  <label class="builder-field">
+                    <span class="builder-label">pH</span>
+                    <div class="range-number-pair">
+                      <input type="range" id="builder-ph-range" min="0" max="14" step="0.1">
+                      <input type="number" id="builder-ph" min="0" max="14" step="0.1">
+                    </div>
+                    <span class="field-error" data-error-for="setup.ph"></span>
+                  </label>
+                  <label class="builder-field">
+                    <span class="builder-label">Ion concentration (M)</span>
+                    <div class="range-number-pair">
+                      <input type="range" id="builder-ion-range" min="0" max="1" step="0.01">
+                      <input type="number" id="builder-ion" min="0" max="5" step="0.01">
+                    </div>
+                    <span class="field-error" data-error-for="setup.ion_concentration_M"></span>
+                  </label>
+                  <label class="builder-field">
+                    <span class="builder-label">Solvent padding (nm)</span>
+                    <div class="range-number-pair">
+                      <input type="range" id="builder-padding-range" min="0.5" max="3" step="0.1">
+                      <input type="number" id="builder-padding" min="0.1" max="10" step="0.1">
+                    </div>
+                    <span class="field-error" data-error-for="setup.solvent_padding_nm"></span>
+                  </label>
+                  <div class="builder-field builder-toggle-group">
+                    <span class="builder-label">Structure retention</span>
+                    <label class="checkbox-row"><input type="checkbox" id="builder-keep-heterogens"> Keep heterogens</label>
+                    <label class="checkbox-row"><input type="checkbox" id="builder-keep-water"> Keep crystallographic water</label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card builder-card">
+                <div class="card-header">
+                  <div>
+                    <h2 class="card-title">Simulation stages</h2>
+                    <p class="builder-card-note">Use the sliders for quick changes or type exact step counts.</p>
+                  </div>
+                  <span class="builder-step">03</span>
+                </div>
+                <div class="builder-stage-list">
+                  <label class="builder-stage-row">
+                    <span class="builder-stage-name">NVT equilibration</span>
+                    <input type="range" id="builder-nvt-range" min="0" max="2000000" step="1000">
+                    <input type="number" id="builder-nvt" min="0" step="1000">
+                    <span class="builder-duration mono" id="builder-nvt-duration">— ns</span>
+                    <span class="field-error" data-error-for="simulation.nvt_steps"></span>
+                  </label>
+                  <label class="builder-stage-row">
+                    <span class="builder-stage-name">NPT equilibration</span>
+                    <input type="range" id="builder-npt-range" min="0" max="3000000" step="1000">
+                    <input type="number" id="builder-npt" min="0" step="1000">
+                    <span class="builder-duration mono" id="builder-npt-duration">— ns</span>
+                    <span class="field-error" data-error-for="simulation.npt_steps"></span>
+                  </label>
+                  <label class="builder-stage-row builder-stage-production">
+                    <span class="builder-stage-name">Production</span>
+                    <input type="range" id="builder-production-range" min="1000" max="5000000" step="1000">
+                    <input type="number" id="builder-production" min="1" step="1000">
+                    <span class="builder-duration mono" id="builder-production-duration">— ns</span>
+                    <span class="field-error" data-error-for="simulation.production_steps"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="card builder-card">
+                <div class="card-header">
+                  <div>
+                    <h2 class="card-title">Dynamics and hardware</h2>
+                    <p class="builder-card-note">Scientific settings remain unchanged after the workflow starts.</p>
+                  </div>
+                  <span class="builder-step">04</span>
+                </div>
+                <div class="builder-grid builder-grid-3">
+                  <label class="builder-field">
+                    <span class="builder-label">Temperature (K)</span>
+                    <div class="range-number-pair">
+                      <input type="range" id="builder-temperature-range" min="50" max="500" step="1">
+                      <input type="number" id="builder-temperature" min="1" max="5000" step="1">
+                    </div>
+                  </label>
+                  <label class="builder-field">
+                    <span class="builder-label">Timestep (fs)</span>
+                    <div class="range-number-pair">
+                      <input type="range" id="builder-timestep-range" min="0.1" max="4" step="0.1">
+                      <input type="number" id="builder-timestep" min="0.01" max="20" step="0.1">
+                    </div>
+                  </label>
+                  <label class="builder-field">
+                    <span class="builder-label">Friction (1/ps)</span>
+                    <div class="range-number-pair">
+                      <input type="range" id="builder-friction-range" min="0" max="10" step="0.1">
+                      <input type="number" id="builder-friction" min="0" max="1000" step="0.1">
+                    </div>
+                  </label>
+                  <label class="builder-field"><span class="builder-label">Integrator</span><select id="builder-integrator"></select></label>
+                  <label class="builder-field"><span class="builder-label">Platform</span><select id="builder-platform"></select></label>
+                  <label class="builder-field"><span class="builder-label">Precision</span><select id="builder-precision"></select></label>
+                  <label class="builder-field"><span class="builder-label">Trajectory interval (steps)</span><input type="number" id="builder-trajectory-interval" min="1" step="1"></label>
+                  <label class="builder-field"><span class="builder-label">Dashboard frame interval (steps)</span><input type="number" id="builder-telemetry-interval" min="1" step="1"></label>
+                  <label class="builder-field"><span class="builder-label">Checkpoint interval (steps)</span><input type="number" id="builder-checkpoint-interval" min="0" step="1"></label>
+                  <label class="checkbox-row builder-checkbox"><input type="checkbox" id="builder-minimize" checked> Minimize before equilibration</label>
+                </div>
+              </div>
+
+              <div class="card builder-card">
+                <div class="card-header">
+                  <div>
+                    <h2 class="card-title">Analysis and reporting</h2>
+                    <p class="builder-card-note">The default full pipeline produces analyses, figures, slides, and a ZIP bundle.</p>
+                  </div>
+                  <span class="builder-step">05</span>
+                </div>
+                <div class="builder-workflow-options">
+                  <label class="checkbox-row"><input type="checkbox" id="builder-run-analysis" checked> Run trajectory analysis</label>
+                  <label class="checkbox-row"><input type="checkbox" id="builder-run-report" checked> Generate reports and dashboard artifacts</label>
+                  <label class="checkbox-row"><input type="checkbox" id="builder-report-document" checked> Markdown report</label>
+                  <label class="checkbox-row"><input type="checkbox" id="builder-report-slides" checked> PowerPoint slides</label>
+                  <label class="checkbox-row"><input type="checkbox" id="builder-report-bundle" checked> ZIP result bundle</label>
+                </div>
+                <div class="analysis-choice-grid" id="builder-analysis-choices" aria-label="Analyses"></div>
+              </div>
+            </div>
+
+            <aside class="builder-summary-column">
+              <div class="card builder-summary-card">
+                <div class="card-header"><h2 class="card-title">Review &amp; launch</h2></div>
+                <dl class="builder-summary-list mono">
+                  <div><dt>System</dt><dd id="builder-summary-system">—</dd></div>
+                  <div><dt>Output</dt><dd id="builder-summary-output">—</dd></div>
+                  <div><dt>NVT</dt><dd id="builder-summary-nvt">—</dd></div>
+                  <div><dt>NPT</dt><dd id="builder-summary-npt">—</dd></div>
+                  <div><dt>Production</dt><dd id="builder-summary-production">—</dd></div>
+                  <div><dt>Total simulated</dt><dd id="builder-summary-total">—</dd></div>
+                  <div><dt>Trajectory frames</dt><dd id="builder-summary-frames">—</dd></div>
+                  <div><dt>Platform</dt><dd id="builder-summary-platform">—</dd></div>
+                </dl>
+                <div class="builder-warning-list" id="builder-warning-list" hidden></div>
+                <div class="builder-command-preview">
+                  <div class="builder-label">Equivalent command</div>
+                  <code id="builder-command-preview">Validate to preview the command.</code>
+                </div>
+                <div class="builder-actions">
+                  <button type="button" class="ghost-btn" id="builder-reset">Reset defaults</button>
+                  <button type="button" class="ghost-btn" id="builder-validate">Validate</button>
+                  <button type="submit" class="primary-btn" id="builder-launch">Launch Simulation</button>
+                  <button type="button" class="danger-btn" id="builder-stop" hidden>Stop Workflow</button>
+                </div>
+                <div class="builder-message" id="builder-message" role="status" aria-live="polite"></div>
+              </div>
+            </aside>
+          </form>
+        </section>
+
+        <!-- Loading shell renders here once data arrives -->
+        <section class="page" data-page="overview" data-status="loading">
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">Overview</h1>
+              <div class="page-subtitle">Health, run status, and quick actions</div>
+            </div>
+          </div>
+          <div class="grid grid-2">
+            <div class="card hero-card" id="hero-card" data-state="running">
+              <div class="hero-card-top">
+                <div>
+                  <div class="hero-label">Run status</div>
+                  <div class="hero-status" id="hero-status-text">not available</div>
+                </div>
+                <span class="stage-pill mono" id="hero-stage">—</span>
+              </div>
+              <div class="progress-large" aria-hidden="true">
+                <div class="progress-large-track">
+                  <div class="progress-large-fill" id="hero-progress-fill" style="width:0%"></div>
+                </div>
+                <div class="progress-large-meta">
+                  <span class="mono"><span id="hero-progress-pct">—</span>% complete</span>
+                  <span class="muted">sim time <span class="mono" id="hero-sim-time">—</span> ns</span>
+                </div>
+              </div>
+              <div class="hero-grid">
+                <div class="hero-stat">
+                  <div class="hero-stat-label">Elapsed wall time</div>
+                  <div class="hero-stat-value mono" id="hero-elapsed">—</div>
+                </div>
+                <div class="hero-stat">
+                  <div class="hero-stat-label">ETA</div>
+                  <div class="hero-stat-value mono" id="hero-eta">—</div>
+                </div>
+                <div class="hero-stat">
+                  <div class="hero-stat-label">Step</div>
+                  <div class="hero-stat-value mono" id="hero-step">—</div>
+                </div>
+              </div>
+            </div>
+            <div class="card hero-card" id="hero-health" data-state="normal">
+              <div class="hero-card-top">
+                <div>
+                  <div class="hero-label">Simulation health</div>
+                  <div class="hero-status" id="health-headline">not available</div>
+                </div>
+                <span class="stage-pill" id="health-pill">normal</span>
+              </div>
+              <p class="muted" id="health-explanation">Live health classification will appear once telemetry has been written.</p>
+              <ul class="health-list" id="health-list" role="list"></ul>
+            </div>
+          </div>
+
+          <div class="card stage-timeline-card">
+            <div class="card-header">
+              <h2 class="card-title">Stage timeline</h2>
+            </div>
+            <ol class="stage-timeline" id="stage-timeline">
+              <li class="stage-step" data-stage="setup"><span class="stage-marker"></span><span class="stage-label">Setup</span></li>
+              <li class="stage-step" data-stage="minimization"><span class="stage-marker"></span><span class="stage-label">Minimization</span></li>
+              <li class="stage-step" data-stage="nvt"><span class="stage-marker"></span><span class="stage-label">NVT</span></li>
+              <li class="stage-step" data-stage="npt"><span class="stage-marker"></span><span class="stage-label">NPT</span></li>
+              <li class="stage-step" data-stage="production"><span class="stage-marker"></span><span class="stage-label">Production</span></li>
+              <li class="stage-step" data-stage="analysis"><span class="stage-marker"></span><span class="stage-label">Analysis</span></li>
+              <li class="stage-step" data-stage="report"><span class="stage-marker"></span><span class="stage-label">Report</span></li>
+            </ol>
+          </div>
+
+          <div class="grid grid-3 metric-cards" id="overview-metric-cards">
+            <div class="metric-card" data-metric="potential_energy">
+              <div class="metric-card-label">Potential energy</div>
+              <div class="metric-card-value mono" data-value>—</div>
+              <div class="metric-card-unit">kJ/mol</div>
+            </div>
+            <div class="metric-card" data-metric="temperature">
+              <div class="metric-card-label">Temperature</div>
+              <div class="metric-card-value mono" data-value>—</div>
+              <div class="metric-card-unit">K</div>
+            </div>
+            <div class="metric-card" data-metric="density">
+              <div class="metric-card-label">Density</div>
+              <div class="metric-card-value mono" data-value>—</div>
+              <div class="metric-card-unit">g/mL</div>
+            </div>
+            <div class="metric-card" data-metric="speed">
+              <div class="metric-card-label">Simulation speed</div>
+              <div class="metric-card-value mono" data-value>—</div>
+              <div class="metric-card-unit">ns/day</div>
+            </div>
+            <div class="metric-card" data-metric="frames">
+              <div class="metric-card-label">Frames written</div>
+              <div class="metric-card-value mono" data-value>—</div>
+              <div class="metric-card-unit">frames</div>
+            </div>
+            <div class="metric-card" data-metric="pressure">
+              <div class="metric-card-label">Pressure</div>
+              <div class="metric-card-value mono" data-value>—</div>
+              <div class="metric-card-unit">bar</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="page" data-page="live" hidden>
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">Live Simulation</h1>
+              <div class="page-subtitle">Detailed progress, live charts, and the latest events</div>
+            </div>
+          </div>
+          <div class="grid grid-2">
+            <div class="card">
+              <div class="card-header"><h2 class="card-title">Progress</h2></div>
+              <div class="progress-large">
+                <div class="progress-large-track">
+                  <div class="progress-large-fill" id="live-progress-fill" style="width:0%"></div>
+                </div>
+                <div class="progress-large-meta">
+                  <span class="mono"><span id="live-progress-pct">—</span>% complete</span>
+                  <span class="muted">sim time <span class="mono" id="live-sim-time">—</span> ns</span>
+                </div>
+              </div>
+              <table class="kv-table mono">
+                <tbody>
+                  <tr><th>Current stage</th><td id="live-stage-cell">not available</td></tr>
+                  <tr><th>Current step</th><td id="live-step-cell">not available</td></tr>
+                  <tr><th>Total planned steps</th><td id="live-total-cell">not available</td></tr>
+                  <tr><th>Frames written</th><td id="live-frames-cell">not available</td></tr>
+                  <tr><th>Simulation time</th><td id="live-simtime-cell">not available</td></tr>
+                  <tr><th>Elapsed wall time</th><td id="live-elapsed-cell">not available</td></tr>
+                  <tr><th>ETA</th><td id="live-eta-cell">not available</td></tr>
+                  <tr><th>Checkpoint</th><td id="live-checkpoint-cell">not available</td></tr>
+                  <tr><th>Last update</th><td id="live-lastupdate-cell">not available</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title">Mini molecular preview</h2>
+                <a href="#" class="ghost-link" data-view-link="viewer">Open full viewer</a>
+              </div>
+              <div class="preview-frame" id="mini-preview-frame">
+                <div id="mini-preview-canvas" class="mini-preview-canvas" aria-label="Molecular preview"></div>
+                <div class="preview-empty" id="mini-preview-empty">
+                  Waiting for a structure file…
+                </div>
+              </div>
+              <p class="muted small">Updates automatically as the simulation progresses.</p>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title">Live charts</h2>
+              <div class="card-header-actions">
+                <select class="metric-select" id="chart-metric-select" aria-label="Chart metric"></select>
+                <button class="ghost-btn" type="button" id="chart-reset">Reset zoom</button>
+              </div>
+            </div>
+            <div class="chart-stack" id="chart-stack">
+              <div class="chart-row">
+                <canvas class="chart-canvas" data-chart="potential_energy" data-color="cyan" width="900" height="220"></canvas>
+                <div class="chart-title">Potential energy (kJ/mol)</div>
+              </div>
+              <div class="chart-row">
+                <canvas class="chart-canvas" data-chart="temperature" data-color="orange" width="900" height="220"></canvas>
+                <div class="chart-title">Temperature (K)</div>
+              </div>
+              <div class="chart-row">
+                <canvas class="chart-canvas" data-chart="density" data-color="violet" width="900" height="220"></canvas>
+                <div class="chart-title">Density (g/mL)</div>
+              </div>
+              <div class="chart-row">
+                <canvas class="chart-canvas" data-chart="speed" data-color="silver" width="900" height="220"></canvas>
+                <div class="chart-title">Simulation speed (ns/day, derived)</div>
+              </div>
+            </div>
+            <div class="chart-empty muted" id="chart-empty">Live telemetry will appear after the first sample.</div>
+          </div>
+
+          <div class="grid grid-2">
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title">Simulation health</h2>
+                <span class="stage-pill" id="live-health-pill">normal</span>
+              </div>
+              <p id="live-health-message">not available</p>
+              <p class="muted" id="live-health-explanation">Plain-English explanation of the latest sample.</p>
+            </div>
+            <div class="card">
+              <div class="card-header"><h2 class="card-title">Recent events</h2></div>
+              <ul class="events-list" id="events-list"></ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="page" data-page="viewer" hidden>
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">Molecular Viewer</h1>
+              <div class="page-subtitle">Live molecular canvas, ligand tools, trajectory playback</div>
+            </div>
+          </div>
+          <div class="viewer-layout">
+            <div class="viewer-canvas-wrap">
+              <div class="viewer-canvas-frame" id="viewer-canvas-frame">
+                <div id="viewer-canvas" class="viewer-canvas" aria-label="Molecular viewer canvas"></div>
+                <div class="viewer-empty" id="viewer-empty">
+                  <div class="empty-watermark"></div>
+                  <div class="empty-title">Waiting for structure</div>
+                  <div class="empty-detail muted">The 3D viewer will initialize when a topology or prepared PDB becomes available.</div>
+                </div>
+              </div>
+              <div class="viewer-overlay" id="viewer-overlay" data-live="false">
+                <span class="overlay-tag" id="overlay-tag">offline</span>
+                <span class="overlay-detail mono" id="overlay-stage">—</span>
+                <span class="overlay-detail mono" id="overlay-frame">frame —</span>
+                <span class="overlay-detail mono" id="overlay-age">age —</span>
+                <span class="overlay-detail mono" id="overlay-simtime">sim time —</span>
+              </div>
+
+              <!-- Toolbar / representation / camera / ligand controls -->
+              <div class="viewer-controls">
+                <div class="control-row">
+                  <div class="control-group">
+                    <button class="ctl-btn" type="button" data-action="live-toggle">Live Updates</button>
+                    <button class="ctl-btn" type="button" data-action="pause-toggle">Pause Updates</button>
+                    <button class="ctl-btn" type="button" data-action="play-trajectory">Play Trajectory</button>
+                    <button class="ctl-btn" type="button" data-action="prev-frame">‹ Frame</button>
+                    <button class="ctl-btn" type="button" data-action="next-frame">Frame ›</button>
+                    <button class="ctl-btn" type="button" data-action="reset-view">Reset View</button>
+                    <button class="ctl-btn" type="button" data-action="fullscreen">Fullscreen</button>
+                    <button class="ctl-btn" type="button" data-action="screenshot">Screenshot</button>
+                  </div>
+                </div>
+                <div class="control-row">
+                  <div class="control-group" role="group" aria-label="Representation">
+                    <span class="control-label">Representation</span>
+                    <button class="chip-btn active" type="button" data-rep="cartoon">Cartoon</button>
+                    <button class="chip-btn" type="button" data-rep="backbone">Backbone</button>
+                    <button class="chip-btn" type="button" data-rep="sticks">Sticks</button>
+                    <button class="chip-btn" type="button" data-rep="ballAndStick">Ball and Stick</button>
+                    <button class="chip-btn" type="button" data-rep="surface">Surface</button>
+                    <button class="chip-btn" type="button" data-rep="lines">Lines</button>
+                  </div>
+                  <div class="control-group" role="group" aria-label="Visibility">
+                    <span class="control-label">Visibility</span>
+                    <label class="chip-toggle"><input type="checkbox" data-vis="protein" checked>Protein</label>
+                    <label class="chip-toggle"><input type="checkbox" data-vis="ligand" checked>Ligand</label>
+                    <label class="chip-toggle"><input type="checkbox" data-vis="pocket" checked>Binding pocket</label>
+                    <label class="chip-toggle"><input type="checkbox" data-vis="water">Water</label>
+                    <label class="chip-toggle"><input type="checkbox" data-vis="ions">Ions</label>
+                    <label class="chip-toggle"><input type="checkbox" data-vis="hydrogens">Hydrogens</label>
+                    <label class="chip-toggle"><input type="checkbox" data-vis="box">Periodic box</label>
+                  </div>
+                </div>
+                <div class="control-row">
+                  <div class="control-group" role="group" aria-label="Color mode">
+                    <span class="control-label">Color mode</span>
+                    <button class="chip-btn" type="button" data-color="chain">Chain</button>
+                    <button class="chip-btn active" type="button" data-color="spectrum">Spectrum</button>
+                    <button class="chip-btn" type="button" data-color="residue">Residue</button>
+                    <button class="chip-btn" type="button" data-color="element">Element</button>
+                    <button class="chip-btn" type="button" data-color="secondary_structure">Secondary structure</button>
+                    <button class="chip-btn" type="button" data-color="monochrome">Monochrome</button>
+                  </div>
+                  <div class="control-group" role="group" aria-label="Camera">
+                    <span class="control-label">Camera</span>
+                    <button class="chip-btn" type="button" data-cam="spin">Spin</button>
+                    <button class="chip-btn" type="button" data-cam="stop">Stop</button>
+                    <button class="chip-btn" type="button" data-cam="center-protein">Center Protein</button>
+                    <button class="chip-btn" type="button" data-cam="center-ligand">Center Ligand</button>
+                    <button class="chip-btn" type="button" data-cam="center-pocket">Center Pocket</button>
+                    <button class="chip-btn" type="button" data-cam="zoom-in">Zoom +</button>
+                    <button class="chip-btn" type="button" data-cam="zoom-out">Zoom −</button>
+                  </div>
+                </div>
+                <div class="control-row" id="ligand-tools" hidden>
+                  <div class="control-group" role="group" aria-label="Ligand tools">
+                    <span class="control-label">Ligand tools</span>
+                    <span class="ligand-meta mono" id="ligand-meta">—</span>
+                    <button class="chip-btn" type="button" data-ligand="center">Center</button>
+                    <button class="chip-btn" type="button" data-ligand="isolate">Isolate</button>
+                    <label class="chip-toggle micro">Cutoff <input type="number" min="3" max="15" step="0.5" id="pocket-cutoff" value="5"> Å</label>
+                    <button class="chip-btn" type="button" data-ligand="show-pocket">Show pocket residues</button>
+                    <button class="chip-btn" type="button" data-ligand="show-pocket-surface">Show pocket surface</button>
+                    <button class="chip-btn" type="button" data-ligand="hide-distant">Hide distant residues</button>
+                    <button class="chip-btn" type="button" data-ligand="show-labels">Show atom labels</button>
+                    <button class="chip-btn" type="button" data-ligand="show-contacts">Geometric contacts</button>
+                    <button class="chip-btn" type="button" data-ligand="show-hbonds">H-bonds only</button>
+                  </div>
+                </div>
+                <div class="control-row" id="trajectory-row" hidden>
+                  <div class="control-group trajectory-controls">
+                    <span class="control-label">Trajectory playback</span>
+                    <button class="ctl-btn" type="button" data-traj="play">Play</button>
+                    <button class="ctl-btn" type="button" data-traj="pause">Pause</button>
+                    <button class="ctl-btn" type="button" data-traj="reverse">Reverse</button>
+                    <button class="ctl-btn" type="button" data-traj="prev">Prev</button>
+                    <button class="ctl-btn" type="button" data-traj="next">Next</button>
+                    <button class="ctl-btn" type="button" data-traj="first">⏮</button>
+                    <button class="ctl-btn" type="button" data-traj="last">⏭</button>
+                    <input type="range" class="traj-slider" id="traj-slider" min="0" max="0" value="0">
+                    <span class="traj-time mono"><span id="traj-current">0</span> / <span id="traj-total">0</span> · <span id="traj-simtime">—</span> ns</span>
+                    <label class="chip-toggle micro">Speed
+                      <select id="traj-speed">
+                        <option value="0.25">0.25×</option>
+                        <option value="0.5">0.5×</option>
+                        <option value="1" selected>1×</option>
+                        <option value="2">2×</option>
+                        <option value="4">4×</option>
+                      </select>
+                    </label>
+                    <label class="chip-toggle micro"><input type="checkbox" id="traj-loop">Loop</label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <aside class="info-panel" aria-label="Molecular information panel">
+              <div class="info-tabs" role="tablist">
+                <button class="info-tab active" type="button" data-tab="structure">Structure</button>
+                <button class="info-tab" type="button" data-tab="simulation">Simulation</button>
+                <button class="info-tab" type="button" data-tab="selection">Selection</button>
+                <button class="info-tab" type="button" data-tab="ligand">Ligand</button>
+              </div>
+              <div class="info-content">
+                <div class="info-pane active" data-tab="structure">
+                  <table class="kv-table mono">
+                    <tbody id="structure-tab-tbody">
+                      <tr><th>Protein chains</th><td>—</td></tr>
+                      <tr><th>Protein residues</th><td>—</td></tr>
+                      <tr><th>Protein atoms</th><td>—</td></tr>
+                      <tr><th>Ligands</th><td>—</td></tr>
+                      <tr><th>Water</th><td>—</td></tr>
+                      <tr><th>Ions</th><td>—</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="info-pane" data-tab="simulation" hidden>
+                  <table class="kv-table mono">
+                    <tbody id="simulation-tab-tbody">
+                      <tr><th>Force field</th><td>—</td></tr>
+                      <tr><th>Water model</th><td>—</td></tr>
+                      <tr><th>pH</th><td>—</td></tr>
+                      <tr><th>Ion concentration</th><td>—</td></tr>
+                      <tr><th>Temperature</th><td>—</td></tr>
+                      <tr><th>Timestep</th><td>—</td></tr>
+                      <tr><th>Precision</th><td>—</td></tr>
+                      <tr><th>Platform</th><td>—</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="info-pane" data-tab="selection" hidden>
+                  <p class="muted small">Click an atom or residue in the viewer to populate this panel.</p>
+                  <table class="kv-table mono">
+                    <tbody id="selection-tab-tbody">
+                      <tr><th>Residue</th><td>—</td></tr>
+                      <tr><th>Chain</th><td>—</td></tr>
+                      <tr><th>Atom</th><td>—</td></tr>
+                      <tr><th>Element</th><td>—</td></tr>
+                      <tr><th>Coordinates</th><td>—</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="info-pane" data-tab="ligand" hidden>
+                  <table class="kv-table mono">
+                    <tbody id="ligand-tab-tbody">
+                      <tr><th>Ligand</th><td>—</td></tr>
+                      <tr><th>Chain</th><td>—</td></tr>
+                      <tr><th>Residue ID</th><td>—</td></tr>
+                      <tr><th>Atom count</th><td>—</td></tr>
+                      <tr><th>Nearby residues</th><td>—</td></tr>
+                      <tr><th>Pocket distance</th><td>—</td></tr>
+                      <tr><th>H-bonds</th><td>—</td></tr>
+                      <tr><th>Hydrophobic contacts</th><td>—</td></tr>
+                      <tr><th>Salt bridges</th><td>—</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="page" data-page="analysis" hidden>
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">Analysis</h1>
+              <div class="page-subtitle">Trajectory analyses and protein-ligand interactions</div>
+            </div>
+            <div class="page-header-actions">
+              <div class="muted small mono" id="analysis-meta">no analyses yet</div>
+              <a
+                class="ghost-btn"
+                id="download-all-svg"
+                href="/analysis-figures-svg.zip"
+                download
+                hidden
+              >Download all SVG figures</a>
+            </div>
+          </div>
+          <div class="analysis-grid" id="analysis-grid"></div>
+          <div class="empty-state" id="analysis-empty">
+            <div class="empty-watermark"></div>
+            <div class="empty-title">Analysis outputs not available yet</div>
+            <div class="empty-detail muted">
+              Analyses and reports appear here after the analysis/report phases run.
+              Re-running analyses will appear without restarting the dashboard.
+            </div>
+          </div>
+        </section>
+
+        <section class="page" data-page="files" hidden>
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">Files &amp; Reports</h1>
+              <div class="page-subtitle">Generated artifacts grouped by purpose</div>
+            </div>
+          </div>
+
+          <div class="card summary-card" id="summary-card" hidden>
+            <div class="card-header"><h2 class="card-title">Run completed</h2></div>
+            <div class="summary-grid mono" id="summary-grid"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><h2 class="card-title">Reports</h2></div>
+            <div class="files-list" data-fileset="reports" id="reports-files"></div>
+          </div>
+          <div class="card">
+            <div class="card-header"><h2 class="card-title">Simulation files</h2></div>
+            <div class="files-list" data-fileset="simulation" id="simulation-files"></div>
+          </div>
+          <div class="card">
+            <div class="card-header"><h2 class="card-title">Analysis files</h2></div>
+            <div class="files-list" data-fileset="analysis" id="analysis-files"></div>
+          </div>
+        </section>
+
+        <section class="page" data-page="settings" hidden>
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">Settings</h1>
+              <div class="page-subtitle">Browser-side preferences. Existing simulations cannot be modified here.</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><h2 class="card-title">Viewer</h2></div>
+            <div class="kv-form mono">
+              <label>Default protein representation
+                <select id="setting-protein-rep">
+                  <option value="cartoon" selected>Cartoon</option>
+                  <option value="backbone">Backbone</option>
+                  <option value="sticks">Sticks</option>
+                  <option value="ballAndStick">Ball and Stick</option>
+                  <option value="surface">Surface</option>
+                  <option value="lines">Lines</option>
+                </select>
+              </label>
+              <label>Default ligand representation
+                <select id="setting-ligand-rep">
+                  <option value="sticks" selected>Sticks</option>
+                  <option value="ballAndStick">Ball and Stick</option>
+                  <option value="cartoon">Cartoon</option>
+                  <option value="lines">Lines</option>
+                </select>
+              </label>
+              <label>Background
+                <select id="setting-background">
+                  <option value="matte-black" selected>Matte black</option>
+                  <option value="deepest-night">Deepest night</option>
+                  <option value="charcoal">Charcoal</option>
+                </select>
+              </label>
+              <label class="checkbox-row"><input type="checkbox" id="setting-show-water"> Show water</label>
+              <label class="checkbox-row"><input type="checkbox" id="setting-show-ions"> Show ions</label>
+              <label class="checkbox-row"><input type="checkbox" id="setting-spin"> Spin structures by default</label>
+              <label class="checkbox-row"><input type="checkbox" id="setting-fog"> Subtle depth fog</label>
+              <label class="checkbox-row"><input type="checkbox" id="setting-preserve-camera" checked> Preserve camera between frames</label>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><h2 class="card-title">Dashboard</h2></div>
+            <div class="kv-form mono">
+              <label>Telemetry polling (s)
+                <input type="number" id="setting-refresh-seconds" min="1" max="60" step="1" value="__FASTMDX_REFRESH_SECONDS__">
+              </label>
+              <label>Chart history (samples)
+                <input type="number" id="setting-chart-history" min="60" max="5000" step="60" value="600">
+              </label>
+              <label class="checkbox-row"><input type="checkbox" id="setting-compact"> Compact mode</label>
+              <label class="checkbox-row"><input type="checkbox" id="setting-reduced-motion"> Reduced motion</label>
+              <label class="checkbox-row"><input type="checkbox" id="setting-advanced-metrics"> Show advanced metrics</label>
+              <label>Time
+                <select id="setting-time-format">
+                  <option value="24h" selected>24-hour</option>
+                  <option value="12h">12-hour</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><h2 class="card-title">Run display</h2></div>
+            <div class="kv-form mono">
+              <label>Custom run display name
+                <input type="text" id="setting-run-name" placeholder="(auto from manifest)">
+              </label>
+              <label>Explicit ligand residue name
+                <input type="text" id="setting-ligand-resname" placeholder="(auto-detected)">
+              </label>
+              <label>Binding-pocket cutoff (Å)
+                <input type="number" id="setting-pocket-cutoff" min="3" max="15" step="0.5" value="5">
+              </label>
+              <label>Scientific notation threshold
+                <input type="number" id="setting-scinote" min="0" max="20" step="1" value="5">
+              </label>
+            </div>
+            <p class="muted small">
+              These preferences affect only how the dashboard renders this run.
+              They do not modify the OpenMM simulation or any output files.
+            </p>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- Live region for screen readers -->
+  <div class="sr-only" aria-live="polite" id="sr-live"></div>
+
+  <script src="/static/3Dmol-min.js"></script>
+  <script src="/static/dashboard.js"></script>
+  <script src="/static/simulation-builder.js"></script>
+  <script src="/static/charts.js"></script>
+  <script src="/static/molecule-viewer.js"></script>
+</body>
+</html>

@@ -183,6 +183,7 @@ class DimRed(Analysis):
 
         try:
             self.result = self.compute(traj)
+            artifacts: list[Path] = [options_path]
             for method, embedding in self.result.items():
                 # Data file
                 data_path = self.output_dir / f"dimred_{method}.dat"
@@ -190,6 +191,7 @@ class DimRed(Analysis):
                 for i in range(embedding.shape[1]):
                     cols[f"component_{i + 1}"] = embedding[:, i]
                 pd.DataFrame(cols).to_csv(data_path, index=False)
+                artifacts.append(data_path)
 
                 # Figure
                 fig_path = self.output_dir / f"dimred_{method}.png"
@@ -201,6 +203,10 @@ class DimRed(Analysis):
                     ax, embedding, method, self._explained_variance if method == "pca" else None
                 )
                 save_figure(fig, fig_path)
+                artifacts.append(fig_path)
+                svg_path = fig_path.with_suffix(".svg")
+                if svg_path.is_file():
+                    artifacts.append(svg_path)
 
             finished = datetime.now(timezone.utc).isoformat()
             primary = self.methods[0]
@@ -212,6 +218,7 @@ class DimRed(Analysis):
                 figure_path=self.output_dir / f"dimred_{primary}.png",
                 data_path=self.output_dir / f"dimred_{primary}.dat",
                 options_path=options_path,
+                artifacts=artifacts,
                 message=f"{self.name}: ok ({', '.join(self.methods)})",
                 started_at=started,
                 finished_at=finished,

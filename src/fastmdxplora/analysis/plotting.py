@@ -77,6 +77,14 @@ def apply_style() -> None:
             "font.family": "sans-serif",
             "font.sans-serif": ["DejaVu Sans", "Arial", "Helvetica", "sans-serif"],
             "font.size": PAPER_TICK_SIZE,
+            "figure.facecolor": "white",
+            "figure.edgecolor": "white",
+            "axes.facecolor": "white",
+            "axes.edgecolor": "black",
+            "axes.labelcolor": "black",
+            "text.color": "black",
+            "xtick.color": "black",
+            "ytick.color": "black",
             "axes.labelsize": PAPER_LABEL_SIZE,
             "axes.titlesize": PAPER_TITLE_SIZE,
             "axes.titleweight": "normal",
@@ -97,6 +105,10 @@ def apply_style() -> None:
             "figure.figsize": PAPER_FIGSIZE,
             "savefig.dpi": 300,
             "savefig.bbox": "tight",
+            "savefig.facecolor": "white",
+            "savefig.edgecolor": "white",
+            "savefig.transparent": False,
+            "savefig.pad_inches": 0.08,
             "lines.linewidth": 1.4,
             "lines.markersize": 3.0,
         }
@@ -279,6 +291,10 @@ def new_figure(
     """
     apply_style()
     fig, ax = plt.subplots(figsize=figsize or PAPER_FIGSIZE, **subplot_kwargs)
+    fig.patch.set_facecolor("white")
+    for axis in np.atleast_1d(ax).ravel():
+        if hasattr(axis, "set_facecolor"):
+            axis.set_facecolor("white")
     # Apply title/labels to a single Axes; for multi-subplot figures the
     # user should set these per-axis after creation.
     if not isinstance(ax, (list, tuple)) and hasattr(ax, "set_title"):
@@ -297,6 +313,7 @@ def save_figure(
     *,
     dpi: int = 300,
     close: bool = True,
+    write_svg: bool = True,
 ) -> Path:
     """Save a figure to disk and (by default) close it.
 
@@ -309,7 +326,36 @@ def save_figure(
     out.parent.mkdir(parents=True, exist_ok=True)
     _style_all_axes(fig)
     fig.tight_layout()
-    fig.savefig(out, dpi=dpi, bbox_inches="tight")
+    fig.patch.set_facecolor("white")
+    for ax in fig.axes:
+        ax.set_facecolor("white")
+    fig.savefig(
+        out,
+        dpi=dpi,
+        bbox_inches="tight",
+        facecolor="white",
+        edgecolor="white",
+        transparent=False,
+    )
+
+    # Every publication figure also receives a true vector SVG companion.
+    # The SVG is written from the original Matplotlib figure (not converted
+    # from the PNG), so text, paths, and axes remain editable and scalable.
+    if write_svg and out.suffix.lower() != ".svg":
+        svg_out = out.with_suffix(".svg")
+        try:
+            fig.savefig(
+                svg_out,
+                format="svg",
+                bbox_inches="tight",
+                facecolor="white",
+                edgecolor="white",
+                transparent=False,
+            )
+            logger.debug("Saved SVG companion: %s", svg_out)
+        except Exception as exc:  # noqa: BLE001 - PNG remains the primary artifact
+            logger.warning("Could not save SVG companion %s: %s", svg_out, exc)
+
     if close:
         plt.close(fig)
     logger.debug("Saved figure: %s", out)

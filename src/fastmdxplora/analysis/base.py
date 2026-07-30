@@ -269,6 +269,10 @@ class Analysis(ABC):
             self.result = self.compute(traj)
             data_path = self.save_data(self.result, self.output_dir / f"{self.name}.dat")
             figure_path = self._do_plot()
+            svg_path = figure_path.with_suffix(".svg")
+            figure_artifacts = [figure_path]
+            if svg_path.is_file():
+                figure_artifacts.append(svg_path)
             finished = datetime.now(timezone.utc).isoformat()
             return AnalysisResult(
                 name=self.name,
@@ -278,7 +282,7 @@ class Analysis(ABC):
                 figure_path=figure_path,
                 data_path=data_path,
                 options_path=options_path,
-                artifacts=[data_path, figure_path, options_path],
+                artifacts=[data_path, *figure_artifacts, options_path],
                 message=f"{self.name}: ok",
                 started_at=started,
                 finished_at=finished,

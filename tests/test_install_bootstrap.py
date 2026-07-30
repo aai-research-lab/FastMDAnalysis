@@ -24,15 +24,18 @@ Also covers:
 
 from __future__ import annotations
 
+import io
 import os
 import ssl
 import subprocess
 import sys
+import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+import fastmdxplora.install as install_module
 from fastmdxplora.install import (
     MINIFORGE_INSTALLERS,
     MINIFORGE_SHA256,
@@ -250,3 +253,243 @@ class TestSha256OfFile:
             _sha256_of_file(f)
             == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         )
+
+
+# ---------------------------------------------------------------------------
+# Cross-platform discovery, download, and orchestration branches
+# ---------------------------------------------------------------------------
+def test_platform_discovery_and_command_helpers(tmp_path: Path):
+    yaml_text = install_module._build_bootstrap_yaml()
+    assert "python>=3.9,<3.13" in yaml_text
+    assert "openmm>=8.0" in yaml_text
+    assert install_module._normalize_arch("AMD64") == "x86_64"
+    assert install_module._normalize_arch("arm64") == "aarch64"
+    assert install_module._normalize_arch("riscv64") == "riscv64"
+
+    with (
+        patch.object(install_module.platform, "system", return_value="Linux"),
+        patch.object(install_module.platform, "machine", return_value="AMD64"),
+    ):
+        assert install_module._miniforge_installer_name().endswith("Linux-x86_64.sh")
+
+    with (
+        patch.object(install_module.platform, "system", return_value="Windows"),
+        patch.object(install_module.platform, "machine", return_value="arm64"),
+        pytest.raises(BootstrapError, match="Windows-aarch64"),
+    ):
+        install_module._miniforge_installer_path()
+
+    with (
+        patch.object(install_module.platform, "system", return_value="Haiku"),
+        patch.object(install_module.platform, "machine", return_value="riscv64"),
+        pytest.raises(BootstrapError, match="No Miniforge installer"),
+    ):
+        install_module._miniforge_installer_path()
+
+    posix_conda = tmp_path / "posix" / "bin" / "conda"
+    posix_conda.parent.mkdir(parents=True)
+    posix_conda.write_text("", encoding="utf-8")
+    with patch.object(install_module.platform, "system", return_value="Linux"):
+        assert (
+            install_module._conda_executable_from_prefix(tmp_path / "posix", "conda")
+            == posix_conda
+        )
+
+    windows_mamba = tmp_path / "windows" / "Scripts" / "mamba.exe"
+    windows_mamba.parent.mkdir(parents=True)
+    windows_mamba.write_text("", encoding="utf-8")
+    with patch.object(install_module.platform, "system", return_value="Windows"):
+        assert (
+            install_module._conda_executable_from_prefix(
+                tmp_path / "windows", "mamba"
+            )
+            == windows_mamba
+        )
+
+    with patch.object(
+        install_module, "command_exists", side_effect=lambda name: name == "conda"
+    ):
+        assert install_module._locate_conda_cli() == ["conda"]
+    fallback_conda = tmp_path / "fallback" / "bin" / "conda"
+    with (
+        patch.object(install_module, "command_exists", return_value=False),
+        patch.object(
+            install_module,
+            "_conda_executable_from_prefix",
+            side_effect=[None, fallback_conda],
+        ),
+    ):
+        assert install_module._locate_conda_cli() == [str(fallback_conda)]
+    with (
+        patch.object(install_module, "command_exists", return_value=False),
+        patch.object(install_module, "_conda_executable_from_prefix", return_value=None),
+    ):
+        assert install_module._locate_conda_cli() is None
+
+    with patch.object(install_module.subprocess, "run", side_effect=FileNotFoundError):
+        result = install_module._run_command(["missing-command"])
+    assert result.returncode == 127
+    assert "Command not found" in result.stderr
+
+
+def test_download_stream_http_classification_and_checksum_paths(tmp_path: Path):
+    request = install_module.urllib.request.Request("https://example.test/file")
+    destination = tmp_path / "stream.bin"
+    with patch.object(
+        install_module.urllib.request,
+        "urlopen",
+        return_value=io.BytesIO(b"downloaded"),
+    ) as urlopen:
+        install_module._stream_url_to_path(request, destination)
+    assert destination.read_bytes() == b"downloaded"
+    assert urlopen.call_args.kwargs["timeout"] == install_module._DOWNLOAD_TIMEOUT_SECONDS
+
+    not_found_url = "https://example.test/missing"
+    server_error_url = "https://example.test/error"
+    not_found = urllib.error.HTTPError(
+        not_found_url, 404, "Not Found", {}, None
+    )
+    server_error = urllib.error.HTTPError(
+        server_error_url, 503, "Unavailable", {}, None
+    )
+    assert "installer not found" in str(
+        install_module._classify_http_error(not_found, not_found_url)
+    )
+    assert "HTTP 503" in str(
+        install_module._classify_http_error(server_error, server_error_url)
+    )
+
+    installer_name = "Miniforge3-Linux-x86_64.sh"
+    destination = tmp_path / "destination" / installer_name
+    destination.parent.mkdir()
+    private_dir = tmp_path / "private-success"
+    private_dir.mkdir()
+    downloaded = private_dir / installer_name
+    downloaded.write_bytes(b"verified")
+    expected = MINIFORGE_SHA256[installer_name]
+    with (
+        patch.object(
+            install_module, "_download_to_temp_file", return_value=downloaded
+        ),
+        patch.object(install_module, "_sha256_of_file", return_value=expected),
+        patch.object(install_module.platform, "system", return_value="Linux"),
+        patch.object(install_module, "_print"),
+    ):
+        install_module._download_miniforge_installer(destination)
+    assert destination.read_bytes() == b"verified"
+    assert not private_dir.exists()
+
+    bad_destination = tmp_path / "bad-destination" / installer_name
+    bad_destination.parent.mkdir()
+    bad_private = tmp_path / "private-failure"
+    bad_private.mkdir()
+    bad_download = bad_private / installer_name
+    bad_download.write_bytes(b"tampered")
+    with (
+        patch.object(
+            install_module, "_download_to_temp_file", return_value=bad_download
+        ),
+        patch.object(install_module, "_sha256_of_file", return_value="0" * 64),
+        patch.object(install_module, "_print"),
+        pytest.raises(BootstrapError, match="SHA-256 mismatch"),
+    ):
+        install_module._download_miniforge_installer(bad_destination)
+    assert not bad_destination.exists()
+    assert not bad_private.exists()
+
+
+def test_conda_manifest_and_bootstrap_orchestration(tmp_path: Path):
+    completed = subprocess.CompletedProcess(
+        ["conda"], 0, '{"envs": ["/opt/envs/alpha", "/opt/envs/beta", ""]}', ""
+    )
+    with patch.object(install_module, "_run_command", return_value=completed):
+        assert install_module._parse_conda_envs("conda") == ["alpha", "beta"]
+        assert install_module._conda_env_exists("conda", "beta")
+
+    with patch.object(
+        install_module,
+        "_run_command",
+        return_value=subprocess.CompletedProcess(["conda"], 1, "", "failed"),
+    ):
+        assert install_module._parse_conda_envs("conda") == []
+    with patch.object(
+        install_module,
+        "_run_command",
+        return_value=subprocess.CompletedProcess(["conda"], 0, "not-json", ""),
+    ):
+        assert install_module._parse_conda_envs("conda") == []
+
+    detail = install_module._format_conda_error(
+        "UnsatisfiableError PackagesNotFoundError Cannot connect",
+        "fastmdx",
+        create=True,
+    )
+    assert "Package resolution failed" in detail
+    assert "required package could not be found" in detail
+    assert "Network or SSL error" in detail
+
+    with pytest.raises(BootstrapError, match="Invalid Python version"):
+        install_module.bootstrap_environment(python_version="2.7")
+    with pytest.raises(BootstrapError, match="outside the supported range"):
+        install_module.bootstrap_environment(python_version="3.13")
+
+    calls: list[tuple] = []
+
+    def make_yaml():
+        directory = tmp_path / f"env-{len(calls)}"
+        directory.mkdir()
+        path = directory / "environment.yml"
+        path.write_text(install_module._build_bootstrap_yaml(), encoding="utf-8")
+        return path
+
+    with (
+        patch.object(install_module, "_ensure_conda_available", return_value=["conda"]),
+        patch.object(install_module, "_conda_env_exists", return_value=True),
+        patch.object(install_module, "_write_environment_yaml", side_effect=make_yaml),
+        patch.object(
+            install_module,
+            "_remove_conda_env",
+            side_effect=lambda *args: calls.append(("remove", *args)),
+        ),
+        patch.object(
+            install_module,
+            "_create_conda_env",
+            side_effect=lambda *args: calls.append(("create", *args)),
+        ),
+        patch.object(
+            install_module,
+            "_update_conda_env",
+            side_effect=lambda *args: calls.append(("update", *args)),
+        ),
+        patch.object(
+            install_module,
+            "_install_package_in_env",
+            side_effect=lambda *args, **kwargs: calls.append(
+                ("install", *args, kwargs)
+            ),
+        ),
+        patch.object(
+            install_module,
+            "_verify_env",
+            side_effect=lambda *args: calls.append(("verify", *args)),
+        ),
+        patch.object(install_module, "_print"),
+    ):
+        install_module.bootstrap_environment(
+            env_name="fastmdx",
+            python_version="3.11",
+            force=True,
+            package_name=".",
+            editable=True,
+        )
+        install_module.bootstrap_environment(
+            env_name="fastmdx",
+            python_version="3.10",
+            force=False,
+        )
+
+    assert [call[0] for call in calls].count("remove") == 1
+    assert [call[0] for call in calls].count("create") == 1
+    assert [call[0] for call in calls].count("update") == 1
+    assert [call[0] for call in calls].count("install") == 2
+    assert [call[0] for call in calls].count("verify") == 2

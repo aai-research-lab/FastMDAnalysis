@@ -149,10 +149,186 @@ class SessionPresenter:
         self._session_start: float | None = None
         self._phase_start: float | None = None
         self._current_phase: str | None = None
+        self._welcome_shown: bool = False
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+    def welcome(
+        self,
+        *,
+        dashboard_url: str = "http://127.0.0.1:8765",
+        dashboard_enabled: bool = False,
+    ) -> None:
+        """Print the centered FastMDXplora startup identity once.
+
+        The startup screen is deliberately minimal: one responsive wordmark,
+        the product name and tagline, and the dashboard address.  It performs
+        no simulation work and does not print the full command help.
+
+        ``dashboard_enabled`` is retained for API compatibility with older
+        callers, but the startup design intentionally avoids active/inactive
+        status wording.
+        """
+        if self.quiet or self._welcome_shown:
+            return
+
+        self._welcome_shown = True
+        _ = dashboard_enabled
+
+        # Five-row block glyphs are rendered as one plain-text block before
+        # ANSI styling is applied. This keeps width calculations accurate and
+        # prevents individual lines from drifting away from the shared center.
+        glyphs = {
+            "A": ("01110", "10001", "11111", "10001", "10001"),
+            "D": ("11110", "10001", "10001", "10001", "11110"),
+            "F": ("11111", "10000", "11110", "10000", "10000"),
+            "L": ("10000", "10000", "10000", "10000", "11111"),
+            "M": ("10001", "11011", "10101", "10001", "10001"),
+            "O": ("01110", "10001", "10001", "10001", "01110"),
+            "P": ("11110", "10001", "11110", "10000", "10000"),
+            "R": ("11110", "10001", "11110", "10100", "10010"),
+            "S": ("01111", "10000", "01110", "00001", "11110"),
+            "T": ("11111", "00100", "00100", "00100", "00100"),
+            "X": ("10001", "01010", "00100", "01010", "10001"),
+        }
+        word = "FASTMDXPLORA"
+
+        def render_wordmark(cell_width: int, gap: int) -> list[str]:
+            on = "█" * cell_width
+            off = " " * cell_width
+            separator = " " * gap
+            rows: list[str] = []
+            for row_index in range(5):
+                letters = [
+                    "".join(
+                        on if bit == "1" else off
+                        for bit in glyphs[letter][row_index]
+                    )
+                    for letter in word
+                ]
+                rows.append(separator.join(letters).rstrip())
+            return rows
+
+        usable_width = max(36, self.width - 4)
+        target_width = max(1, int(usable_width * 0.88))
+
+        if usable_width >= 131:
+            # Two-column pixels produce the largest wordmark. Select the gap
+            # dynamically so the logo occupies most of wide terminals.
+            gap = max(1, min(4, (target_width - 120) // 11))
+            logo = render_wordmark(cell_width=2, gap=gap)
+        elif usable_width >= 71:
+            # One-column pixels remain crisp on normal terminals while a
+            # variable gap prevents the wordmark from looking undersized.
+            gap = max(1, min(4, (target_width - 60) // 11))
+            logo = render_wordmark(cell_width=1, gap=gap)
+        else:
+            logo = ["FASTMDXPLORA"]
+
+        def center_plain(text: str, width: int | None = None) -> str:
+            available = self.width if width is None else width
+            padding = max(0, (available - _visual_width(text)) // 2)
+            return (" " * padding) + text
+
+        def purple_bold(text: str) -> str:
+            if not self._color:
+                return text
+            return f"{_C['purple']}{_C['bold']}{text}{_C['reset']}"
+
+        # Normalize every row to one block width and apply one shared left
+        # padding value. The block therefore has a single visual center axis.
+        logo_width = max(_visual_width(line) for line in logo)
+        normalized_logo = [line.ljust(logo_width) for line in logo]
+        logo_left = max(0, (self.width - logo_width) // 2)
+
+        self._write("")
+        for logo_line in normalized_logo:
+            plain_line = (" " * logo_left) + logo_line
+            self._write(self._c(plain_line, "purple"))
+
+        product_name = "FastMDXplora"
+        tagline = "Fully Automated SysTem for Molecular Dynamics eXploration"
+
+        def wrap_words(text: str, limit: int) -> list[str]:
+            words = text.split()
+            lines: list[str] = []
+            current: list[str] = []
+            current_width = 0
+            for word in words:
+                added = len(word) if not current else len(word) + 1
+                if current and current_width + added > limit:
+                    lines.append(" ".join(current))
+                    current = [word]
+                    current_width = len(word)
+                else:
+                    current.append(word)
+                    current_width += added
+            if current:
+                lines.append(" ".join(current))
+            return lines or [""]
+
+        self._write("")
+        self._write(purple_bold(center_plain(product_name)))
+        for tagline_line in wrap_words(tagline, max(20, self.width - 4)):
+            self._write(self._c(center_plain(tagline_line), "purple"))
+        self._write("")
+
+        # The box is centered as one unit; each content line is then centered
+        # inside the box. All branding uses the same purple palette.
+        box_width = min(
+            max(64, _visual_width(tagline) + 8),
+            max(36, self.width - 4),
+        )
+        inner_width = max(1, box_width - 2)
+
+        def fit(text: str) -> str:
+            if _visual_width(text) <= inner_width:
+                return text
+            if inner_width <= 3:
+                return text[:inner_width]
+            return text[: inner_width - 3] + "..."
+
+        def box_line(text: str) -> str:
+            fitted = fit(text)
+            visible = _visual_width(fitted)
+            left = max(0, (inner_width - visible) // 2)
+            right = max(0, inner_width - visible - left)
+            return "│" + (" " * left) + fitted + (" " * right) + "│"
+
+        box_left = max(0, (self.width - box_width) // 2)
+        box_prefix = " " * box_left
+        top = "╭" + ("─" * inner_width) + "╮"
+        bottom = "╰" + ("─" * inner_width) + "╯"
+
+        # Keep the wordmark purple, but make the dashboard call-to-action
+        # visually distinct with a cyan border, white heading/instruction,
+        # and a bright cyan URL.
+        self._write(self._c(box_prefix + top, "cyan"))
+        self._write(
+            self._c(
+                box_prefix + box_line("DASHBOARD"),
+                "white",
+            )
+        )
+        self._write(
+            self._c(
+                box_prefix + box_line(dashboard_url),
+                "cyan",
+            )
+        )
+        self._write(
+            self._c(
+                box_prefix
+                + box_line(
+                    "Open the dashboard to configure and launch a simulation."
+                ),
+                "white",
+            )
+        )
+        self._write(self._c(box_prefix + bottom, "cyan"))
+        self._write("")
+
     def banner(self, **fields: str) -> None:
         import os as _os
         import sys as _sys
@@ -344,7 +520,40 @@ class SessionPresenter:
         trajectory_display = resolve_trajectory_display()
 
         report_title = arg_value("--report-title", default="FastMDXplora Run")
-        dashboard_link = _os.environ.get("FASTMDX_DASHBOARD_URL", "")
+        # Resolve the dashboard URL from an explicitly supplied field,
+        # an environment variable, or the dashboard CLI flags.
+        dashboard_link = str(
+            fields.get("Dashboard")
+            or fields.get("dashboard_url")
+            or _os.environ.get("FASTMDX_DASHBOARD_URL", "")
+        )
+
+        dashboard_enabled = (
+            "--dashboard" in argv
+            or "--live-dashboard" in argv
+            or _os.environ.get("FASTMDX_DASHBOARD_ACTIVE") == "1"
+        )
+
+        if not dashboard_link:
+            dashboard_host = arg_value(
+                "--dashboard-host",
+                "--host",
+                default="127.0.0.1",
+            )
+            dashboard_port = arg_value(
+                "--dashboard-port",
+                "--port",
+                default="8765",
+            )
+
+            # 0.0.0.0 and :: are server bind addresses, not useful browser URLs.
+            display_host = (
+                "127.0.0.1"
+                if dashboard_host in {"0.0.0.0", "::", "[::]"}
+                else dashboard_host
+            )
+
+            dashboard_link = f"http://{display_host}:{dashboard_port}"
         started = _time.strftime("%Y-%m-%d %H:%M:%S")
 
         H = chr(0x2500)
@@ -355,52 +564,86 @@ class SessionPresenter:
         BR = chr(0x256F)
         CHECK = chr(0x2713)
 
-        box_width = min(max(40, self.width - 2), 112)
+        # Every run-information box uses one shared width and one shared
+        # indentation. The boxes are centered beneath the startup wordmark,
+        # while their internal content remains left-aligned for readability.
+        box_width = min(112, max(72, self.width - 24))
+        box_width = min(box_width, max(38, self.width - 2))
         content_w = box_width - 4
+        box_indent = max(0, (self.width - box_width) // 2)
+        box_prefix = " " * box_indent
 
-        ascii_logo = [
-            r" ______        _   __  __ _______   __      _                 ",
-            r"|  ____|      | | |  \/  |  __ \ \ / /     | |                ",
-            r"| |__ __ _ ___| |_| \  / | |  | \ V / _ __ | | ___  _ __ __ _ ",
-            r"|  __/ _` / __| __| |\/| | |  | |> < | '_ \| |/ _ \| '__/ _` |",
-            r"| | | (_| \__ \ |_| |  | | |__| / . \| |_) | | (_) | | | (_| |",
-            r"|_|  \__,_|___/\__|_|  |_|_____/_/ \_\ .__/|_|\___/|_|  \__,_|",
-            r"                                     | |                      ",
-            r"                                     |_|                      ",
-        ]
-
-        def fit(text: str) -> str:
+        def fit(text: str, limit: int | None = None) -> str:
             text = str(text)
-            if len(text) <= content_w:
+            available = content_w if limit is None else max(0, limit)
+            if _visual_width(text) <= available:
                 return text
-            return text[: max(0, content_w - 3)] + "..."
+            if available <= 3:
+                return text[:available]
+            return text[: max(0, available - 3)] + "..."
 
         def top(color: str) -> None:
-            self._write(self._c(TL + H * (box_width - 2) + TR, color))
+            self._write(
+                box_prefix + self._c(TL + H * (box_width - 2) + TR, color)
+            )
 
         def bottom(color: str) -> None:
-            self._write(self._c(BL + H * (box_width - 2) + BR, color))
+            self._write(
+                box_prefix + self._c(BL + H * (box_width - 2) + BR, color)
+            )
 
-        def line(text: str = "", border: str = "cyan", text_color: str | None = None) -> None:
+        def line(
+            text: str = "",
+            border: str = "cyan",
+            text_color: str | None = None,
+        ) -> None:
             raw = fit(text)
-            pad = " " * max(0, content_w - len(raw))
+            pad = " " * max(0, content_w - _visual_width(raw))
             body = self._c(raw, text_color) if text_color else raw
-            self._write(self._c(V, border) + " " + body + pad + " " + self._c(V, border))
+            self._write(
+                box_prefix
+                + self._c(V, border)
+                + " "
+                + body
+                + pad
+                + " "
+                + self._c(V, border)
+            )
 
         def title(text: str, border: str) -> None:
             line(text, border, "white")
             line(H * len(text), border, border)
 
-        def kv(label: str, value: str, border: str, value_color: str = "white") -> None:
-            line(f"{label:<16} {value}", border, value_color)
+        def kv(
+            label: str,
+            value: str,
+            border: str,
+            *,
+            label_color: str | None = None,
+            value_color: str = "white",
+        ) -> None:
+            label_width = min(16, max(8, content_w // 3))
+            label_raw = fit(label, label_width).ljust(label_width)
+            value_limit = max(0, content_w - label_width - 1)
+            value_raw = fit(value, value_limit)
+            visible = _visual_width(label_raw) + 1 + _visual_width(value_raw)
+            pad = " " * max(0, content_w - visible)
+            self._write(
+                box_prefix
+                + self._c(V, border)
+                + " "
+                + self._c(label_raw, label_color or border)
+                + " "
+                + self._c(value_raw, value_color)
+                + pad
+                + " "
+                + self._c(V, border)
+            )
 
-        self._write("")
-
-        for logo_line in ascii_logo:
-            self._write(self._c(logo_line, "purple"))
-
-        self._write(self._c("Fully Automated SysTem for Molecular Dynamics eXploration", "cyan"))
-        self._write("")
+        self.welcome(
+            dashboard_url=dashboard_link,
+            dashboard_enabled=dashboard_enabled,
+        )
 
         top("green")
         title("CURRENT RUN", "green")
@@ -433,18 +676,40 @@ class SessionPresenter:
         bottom("orange")
         self._write("")
 
-        top("purple")
-        title("ANALYSIS & REPORT", "purple")
-        kv("Dashboard", dashboard_link if dashboard_link else " ", "purple")
-        kv("Report", report_title, "purple")
-        bottom("purple")
+        # Analysis and report information uses a blue frame, cyan labels,
+        # and white values. The box itself shares the same centered layout as
+        # every other run-information section; its contents remain left-aligned.
+        top("blue")
+        title("ANALYSIS & REPORT", "blue")
+        kv(
+            "Dashboard",
+            dashboard_link if dashboard_link else "Not available",
+            "blue",
+            label_color="cyan",
+        )
+        kv(
+            "Report",
+            report_title,
+            "blue",
+            label_color="cyan",
+        )
+        bottom("blue")
         self._write("")
 
-        top("blue")
-        title("REPORTING & OUTPUTS", "blue")
-        line(f"{CHECK} Markdown report      {CHECK} HTML summary        {CHECK} PDF figures", "blue", "white")
-        line(f"{CHECK} PowerPoint slides    {CHECK} PNG/SVG plots       {CHECK} ZIP result bundle", "blue", "white")
-        bottom("blue")
+        # Use green here to balance the cyan, orange, and blue sections above.
+        top("green")
+        title("REPORTING & OUTPUTS", "green")
+        line(
+            f"{CHECK} Markdown report      {CHECK} HTML summary        {CHECK} PDF figures",
+            "green",
+            "white",
+        )
+        line(
+            f"{CHECK} PowerPoint slides    {CHECK} PNG/SVG plots       {CHECK} ZIP result bundle",
+            "green",
+            "white",
+        )
+        bottom("green")
         self._write("")
 
         badges = [
@@ -459,11 +724,11 @@ class SessionPresenter:
             return "  ".join(self._c(CHECK, "green") + f" {item}" for item in items)
 
         all_badges = badge_line(badges)
-        if _visual_width(all_badges) <= self.width + 20:
-            self._write(all_badges)
+        if _visual_width(all_badges) <= box_width:
+            self._write(box_prefix + all_badges)
         else:
-            self._write(badge_line(badges[:3]))
-            self._write(badge_line(badges[3:]))
+            self._write(box_prefix + badge_line(badges[:3]))
+            self._write(box_prefix + badge_line(badges[3:]))
         self._write("")
 
     def phase_start(self, name: str) -> None:

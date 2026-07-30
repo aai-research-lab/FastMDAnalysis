@@ -126,7 +126,24 @@ def build_analysis_summary_figure(
 
     fig.tight_layout(pad=0.6)
     figure_path = output_dir / "analysis_summary.png"
-    fig.savefig(figure_path, dpi=250, bbox_inches="tight")
+    fig.savefig(
+        figure_path,
+        dpi=300,
+        bbox_inches="tight",
+        facecolor="white",
+        edgecolor="white",
+        transparent=False,
+    )
+    svg_path = figure_path.with_suffix(".svg")
+    fig.savefig(
+        svg_path,
+        format="svg",
+        bbox_inches="tight",
+        facecolor="white",
+        edgecolor="white",
+        transparent=False,
+    )
     plt.close(fig)
+    artifacts.insert(0, "analysis_summary.svg")
     artifacts.insert(0, "analysis_summary.png")
     return artifacts

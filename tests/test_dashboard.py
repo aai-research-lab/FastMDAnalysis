@@ -6,8 +6,9 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from PIL import Image
 
-from fastmdxplora.report.dashboard import build_dashboard
+from fastmdxplora.report.dashboard import build_dashboard, _write_dashboard_chart
 from fastmdxplora.report.region_highlights import (
     RegionHighlight,
     build_pymol_script,
@@ -186,3 +187,24 @@ def _write_plot(root: Path, image_rel: str, data_rel: str | None, data: str | No
         path = root / data_rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(data, encoding="utf-8")
+
+
+def test_report_chart_assets_use_publication_white_background_and_labels(tmp_path: Path) -> None:
+    data = tmp_path / "rmsd.dat"
+    data.write_text("0 0.10\n1 0.20\n2 0.15\n", encoding="utf-8")
+    output = tmp_path / "rmsd_dashboard.png"
+
+    _write_dashboard_chart(
+        data_path=data,
+        output_path=output,
+        kind="line",
+        color="#4E79A7",
+        xlabel="Time (ns)",
+        ylabel="RMSD (nm)",
+    )
+
+    assert output.is_file()
+    with Image.open(output).convert("RGB") as image:
+        # Corners are outside the axes and should remain opaque white.
+        assert image.getpixel((0, 0)) == (255, 255, 255)
+        assert image.getpixel((image.width - 1, image.height - 1)) == (255, 255, 255)

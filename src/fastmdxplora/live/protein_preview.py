@@ -15,11 +15,17 @@ PREVIEW_CANDIDATES = (
     "simulation/protein_preview.png",
 )
 
+# Prefer the prepared solute for browser rendering.  The simulation topology
+# normally contains the entire solvent box and can easily be tens of megabytes,
+# which makes a browser viewer slow and also obscures the protein/ligand.  Live
+# frames and trajectory playback still use the full simulation topology where
+# atom-for-atom correspondence is required.
 STRUCTURE_CANDIDATES = (
+    "setup/prepared.pdb",
+    "simulation/final.pdb",
     "simulation/topology.pdb",
     "setup/topology.pdb",
     "setup/solvated.pdb",
-    "simulation/final.pdb",
 )
 
 AMINO_ACID_RESNAMES = {

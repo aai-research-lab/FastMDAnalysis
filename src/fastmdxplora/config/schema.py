@@ -280,9 +280,22 @@ SIMULATION = PhaseSchema(
               "crash recovery. 0 disables checkpointing."),
         Field("live_telemetry", bool, False,
               "Write live_status.json, live_metrics.csv, and live_events.log "
-              "for the local live dashboard."),
+              "for the local live dashboard. Also writes a live-frame PDB so "
+              "the molecular viewer can refresh on the simulation."),
         Field("telemetry_interval", int, 1000,
               "Minimum step interval for live dashboard telemetry updates."),
+        Field("dashboard_ligand_resname", str, None,
+              "Override the ligand residue name surfaced in the dashboard's "
+              "ligand tools pane. Auto-detected when omitted.",
+              example="EPE"),
+        Field("dashboard_binding_pocket_cutoff_A", float, 5.0,
+              "Default binding-pocket cutoff in angstrom for the dashboard "
+              "molecular viewer (used by the 'show pocket' tools).",
+              example=5.0),
+        Field("dashboard_max_playback_frames", int, 200,
+              "Maximum frames the trajectory-playback panel will load. "
+              "Frames are downsampled evenly from the full DCD.",
+              example=200),
         Field("plumed", dict, None,
               "Optional PLUMED enhanced-sampling config: a dict with "
               "`enabled` (bool) and `script` (inline PLUMED text or a path "

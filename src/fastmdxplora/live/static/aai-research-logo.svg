@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 96" fill="none" role="img" aria-label="AAI Research Lab logo">
+  <title>AAI Research Lab</title>
+  <desc>Three-node molecular mark with the AAI Research Lab wordmark.</desc>
+  <!-- Molecular mark: three nodes around a central atom, with restrained accents -->
+  <g transform="translate(8,4)">
+    <!-- Bounding hex outline, thin graphite -->
+    <polygon points="44,4 78,24 78,64 44,84 10,64 10,24"
+             stroke="rgba(245,245,247,0.18)" stroke-width="1.2" fill="rgba(255,255,255,0.02)"/>
+    <!-- Bonds -->
+    <line x1="44" y1="44" x2="78" y2="24" stroke="rgba(99,230,255,0.55)" stroke-width="1.6"/>
+    <line x1="44" y1="44" x2="78" y2="64" stroke="rgba(167,139,250,0.55)" stroke-width="1.6"/>
+    <line x1="44" y1="44" x2="10" y2="24" stroke="rgba(167,139,250,0.55)" stroke-width="1.6"/>
+    <line x1="44" y1="44" x2="10" y2="64" stroke="rgba(99,230,255,0.55)" stroke-width="1.6"/>
+    <line x1="44" y1="44" x2="44" y2="6" stroke="rgba(245,245,247,0.35)" stroke-width="1.4"/>
+    <!-- Central atom -->
+    <circle cx="44" cy="44" r="5.5" fill="#ffffff" stroke="rgba(0,0,0,0.2)" stroke-width="0.6"/>
+    <!-- Surrounding atoms -->
+    <circle cx="78" cy="24" r="4.0" fill="#63e6ff"/>
+    <circle cx="78" cy="64" r="4.0" fill="#a78bfa"/>
+    <circle cx="10" cy="24" r="4.0" fill="#a78bfa"/>
+    <circle cx="10" cy="64" r="4.0" fill="#63e6ff"/>
+    <circle cx="44" cy="6" r="2.6" fill="#d8d8dd"/>
+    <!-- Orbit ellipse, very faint -->
+    <ellipse cx="44" cy="44" rx="40" ry="14"
+             stroke="rgba(245,245,247,0.10)" stroke-width="1"
+             fill="none" transform="rotate(-22 44 44)"/>
+  </g>
+  <!-- Wordmark -->
+  <g font-family="'Inter', 'Segoe UI', system-ui, sans-serif" fill="#f5f5f7">
+    <text x="108" y="44" font-size="22" font-weight="700" letter-spacing="0.4">AAI</text>
+    <text x="156" y="44" font-size="22" font-weight="300" letter-spacing="0.6">Research Lab</text>
+    <text x="108" y="68" font-size="10" font-weight="500" letter-spacing="3.2"
+          fill="#b5b5bb" text-transform="uppercase">MOLECULAR DYNAMICS</text>
+  </g>
+</svg>

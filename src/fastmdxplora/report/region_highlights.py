@@ -349,7 +349,23 @@ def _plot_region_summary(
 
     fig.tight_layout(pad=0.6)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=250, bbox_inches="tight")
+    fig.savefig(
+        output_path,
+        dpi=300,
+        bbox_inches="tight",
+        facecolor="white",
+        edgecolor="white",
+        transparent=False,
+    )
+    if output_path.suffix.lower() != ".svg":
+        fig.savefig(
+            output_path.with_suffix(".svg"),
+            format="svg",
+            bbox_inches="tight",
+            facecolor="white",
+            edgecolor="white",
+            transparent=False,
+        )
     plt.close(fig)
 
 

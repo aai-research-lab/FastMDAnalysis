@@ -687,9 +687,9 @@ def _write_dashboard_chart(
             alpha=0.95,
         )
         cbar = fig.colorbar(points, ax=ax, pad=0.02, fraction=0.05)
-        cbar.ax.tick_params(colors="#a7b5c6", labelsize=7)
-        cbar.outline.set_edgecolor("#34506a")
-        cbar.set_label("Frame", color="#cbd7e6", fontsize=8)
+        cbar.ax.tick_params(colors="black", labelsize=7)
+        cbar.outline.set_edgecolor("#666666")
+        cbar.set_label("Frame", color="black", fontsize=8)
         summary = f"{len(rows)} frames"
     elif kind == "cluster":
         rows = _numeric_rows(data_path)
@@ -739,9 +739,9 @@ def _write_dashboard_chart(
         ax.set_xlim(-180, 180)
         ax.set_ylim(-180, 180)
         cbar = fig.colorbar(points, ax=ax, pad=0.02, fraction=0.05)
-        cbar.ax.tick_params(colors="#a7b5c6", labelsize=7)
-        cbar.outline.set_edgecolor("#34506a")
-        cbar.set_label("Frame", color="#cbd7e6", fontsize=8)
+        cbar.ax.tick_params(colors="black", labelsize=7)
+        cbar.outline.set_edgecolor("#666666")
+        cbar.set_label("Frame", color="black", fontsize=8)
         summary = f"{len(rows)} angles"
     elif kind == "ss":
         matrix, residues, frames = _secondary_structure_matrix(data_path)
@@ -827,21 +827,38 @@ def _plot_dashboard_dendrogram(
 
 
 def _style_dashboard_axes(fig, ax) -> None:
-    fig.patch.set_facecolor("#0f1a2a")
-    ax.set_facecolor("#0f1a2a")
+    """Apply publication-safe styling to report chart assets."""
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("white")
     for spine in ax.spines.values():
-        spine.set_color("#34506a")
-    ax.tick_params(colors="#a7b5c6", labelsize=8)
-    ax.xaxis.label.set_color("#cbd7e6")
-    ax.yaxis.label.set_color("#cbd7e6")
+        spine.set_color("#333333")
+    ax.tick_params(colors="black", labelsize=8)
+    ax.xaxis.label.set_color("black")
+    ax.yaxis.label.set_color("black")
     ax.xaxis.label.set_size(8)
     ax.yaxis.label.set_size(8)
-    ax.grid(True, color="#34506a", alpha=0.25, linewidth=0.7)
+    ax.grid(True, color="#d9d9d9", alpha=0.8, linewidth=0.6, linestyle="--")
 
 
 def _finish_dashboard_chart(fig, ax, output_path: Path) -> None:
     fig.tight_layout(pad=0.75)
-    fig.savefig(output_path, facecolor=fig.get_facecolor(), bbox_inches="tight")
+    fig.savefig(
+        output_path,
+        dpi=300,
+        facecolor="white",
+        edgecolor="white",
+        transparent=False,
+        bbox_inches="tight",
+    )
+    if output_path.suffix.lower() != ".svg":
+        fig.savefig(
+            output_path.with_suffix(".svg"),
+            format="svg",
+            facecolor="white",
+            edgecolor="white",
+            transparent=False,
+            bbox_inches="tight",
+        )
     import matplotlib.pyplot as plt
 
     plt.close(fig)
