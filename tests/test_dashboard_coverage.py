@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 
 from fastmdxplora.live import launcher as launch
@@ -104,6 +105,54 @@ def test_playback_dcd_cache_fallback_and_helpers(tmp_path: Path, monkeypatch) ->
     monkeypatch.setattr(playback, "_import_mdtraj", lambda: _MD(dcd_fail=True))
     result = playback.playback_info(out, force=True)
     assert result["source_kind"] == "live-history"
+
+
+def test_playback_streams_multiple_dcd_chunks(tmp_path: Path, monkeypatch) -> None:
+    topology = tmp_path / "topology.pdb"
+    dcd = tmp_path / "production.dcd"
+    companion_pdb = tmp_path / "playback.pdb"
+    companion_idx = tmp_path / "playback_index.json"
+    topology.write_text(_atom() + "\nEND\n", encoding="utf-8")
+    dcd.write_bytes(b"dcd")
+
+    class Chunk:
+        def __init__(self, start: int) -> None:
+            self.n_frames = 2
+            self.xyz = np.arange(start * 6, (start + 2) * 6, dtype=float).reshape(2, 2, 3)
+            self.time = np.array([float(start), float(start + 1)])
+
+    class ChunkedTrajectory:
+        def __init__(self, xyz, topology, time) -> None:
+            self.xyz = xyz
+            self.topology = topology
+            self.time = time
+            self.n_frames = len(time)
+
+        def save_pdb(self, path) -> None:
+            Path(path).write_text(_atom() + "\nEND\n", encoding="utf-8")
+
+    class ChunkedMD(_MD):
+        Trajectory = ChunkedTrajectory
+
+        def iterload(self, *_args, **_kwargs):
+            yield Chunk(0)
+            yield Chunk(2)
+
+    result = playback._generate_from_dcd(
+        md=ChunkedMD(),
+        topology_path=topology,
+        dcd_path=dcd,
+        companion_pdb=companion_pdb,
+        companion_idx=companion_idx,
+        max_browser_frames=3,
+        simulation_time_ns_total=3.0,
+        source_signature="chunks",
+    )
+
+    assert result["n_frames_total"] == 4
+    assert result["n_frames_browser"] == 3
+    assert result["frame_indices"] == [0, 2, 3]
+    assert companion_pdb.exists()
 
 
 def test_playback_error_branches_and_neighborhood(tmp_path: Path) -> None:

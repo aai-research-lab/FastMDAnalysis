@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -12,6 +13,7 @@ import pytest
 from fastmdxplora.dependencies import MissingDependency
 from fastmdxplora.live.launcher import (
     DashboardRuntime,
+    _json_mapping,
     build_launcher_command,
     launcher_environment_error,
     launcher_defaults,
@@ -106,6 +108,12 @@ def test_launcher_environment_preflight_is_workflow_aware() -> None:
     probe.assert_called_once_with(include_analysis=False)
 
 
+def test_launcher_json_mapping_handles_invalid_json(tmp_path: Path) -> None:
+    path = tmp_path / "invalid.json"
+    path.write_text("not-json", encoding="utf-8")
+    assert _json_mapping(path) == {}
+
+
 def test_runtime_launches_without_shell(tmp_path: Path) -> None:
     runtime = DashboardRuntime(
         workspace_root=tmp_path / "workspace",
@@ -122,6 +130,34 @@ def test_runtime_launches_without_shell(tmp_path: Path) -> None:
     assert kwargs["shell"] is False
     assert kwargs["env"]["FASTMDX_DASHBOARD_ACTIVE"] == "1"
     assert runtime.data_root().name == "trpcage_test"
+
+
+def test_runtime_stop_escalates_after_terminate_timeout(tmp_path: Path) -> None:
+    runtime = DashboardRuntime(
+        workspace_root=tmp_path / "workspace",
+        launch_root=tmp_path / "runs",
+    )
+    calls: list[str] = []
+    wait_calls = 0
+
+    def wait(*, timeout: int) -> None:
+        nonlocal wait_calls
+        wait_calls += 1
+        calls.append(f"wait:{timeout}")
+        if wait_calls == 1:
+            raise subprocess.TimeoutExpired("fake", timeout)
+
+    runtime.process = SimpleNamespace(
+        poll=lambda: None,
+        terminate=lambda: calls.append("terminate"),
+        wait=wait,
+        kill=lambda: calls.append("kill"),
+    )
+
+    result = runtime.stop()
+
+    assert result["stopped"] is True
+    assert calls == ["terminate", "wait:5", "kill", "wait:5"]
 
 
 def test_runtime_refuses_launch_when_simulation_dependencies_are_missing(
@@ -269,6 +305,10 @@ def test_remote_dashboard_disables_workflow_control_and_path_leak(tmp_path: Path
         )
         with pytest.raises(urllib.error.HTTPError) as exc_info:
             urllib.request.urlopen(request)
+        assert exc_info.value.code == 403
+
+        with pytest.raises(urllib.error.HTTPError) as exc_info:
+            urllib.request.urlopen(f"http://127.0.0.1:{session.port}/api/open-output")
         assert exc_info.value.code == 403
 
         with urllib.request.urlopen(

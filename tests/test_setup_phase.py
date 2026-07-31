@@ -22,6 +22,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from fastmdxplora.dependencies import MissingDependency
 from fastmdxplora.setup import pdbfix as _pdbfix_mod
 from fastmdxplora.setup import prepare as _prepare_mod
 from fastmdxplora.setup.pipeline import (
@@ -354,6 +355,34 @@ class TestPipelineRun:
         assert resolved["name"] == "charmm36"
         assert "charmm36.xml" in resolved["xmls"]
         assert "charmm36/water.xml" in resolved["xmls"]
+
+    def test_openmm_parameterization_failure_writes_manifest(
+        self, stub_orchestrator, mini_pdb
+    ):
+        """A missing OpenMM parameterization backend preserves actionable output."""
+        out_dir = stub_orchestrator.output_dir / "setup"
+        out_dir.mkdir()
+        with (
+            patch(
+                "fastmdxplora.setup.prepare.prepare_system",
+                side_effect=ImportError("openmm missing"),
+            ),
+            patch(
+                "fastmdxplora.setup.pipeline.missing_dependencies",
+                return_value=[MissingDependency("OpenMM", "openmm.app", "openmm")],
+            ),
+        ):
+            artifacts = setup_run(
+                orchestrator=stub_orchestrator,
+                output_dir=out_dir,
+                fixed_pdb=str(mini_pdb),
+            )
+
+        assert artifacts[-1] == "setup_parameters.json"
+        manifest = json.loads(
+            (out_dir / "setup_parameters.json").read_text(encoding="utf-8")
+        )
+        assert "conda install -c conda-forge openmm" in " ".join(manifest["notes"])
 
     @pytest.mark.skipif(HAS_SETUP_DEPS, reason="graceful-degradation path only")
     def test_skips_chemistry_when_deps_missing(self, stub_orchestrator):

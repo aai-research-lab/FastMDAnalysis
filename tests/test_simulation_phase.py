@@ -245,8 +245,9 @@ class TestPipelineGracefulDegradation:
         out = tmp_path / "simulation"
         out.mkdir()
 
-        with pytest.raises(RuntimeError, match="(setup outputs are missing|conda install -c conda-forge)"):
-            _pipeline.run(orchestrator=orch, output_dir=out)
+        with patch.object(_pipeline, "missing_dependencies", return_value=[]):
+            with pytest.raises(RuntimeError, match="setup outputs are missing"):
+                _pipeline.run(orchestrator=orch, output_dir=out)
 
         assert (out / "simulation_parameters.json").exists()
         manifest = json.loads((out / "simulation_parameters.json").read_text(encoding="utf-8"))
