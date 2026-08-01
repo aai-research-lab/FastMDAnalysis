@@ -11,8 +11,21 @@ from unittest.mock import patch
 
 import pytest
 
+from fastmdxplora.dependencies import missing_dependencies
 from fastmdxplora.orchestrator import FastMDXplora
 from fastmdxplora.cli.main import main
+
+
+def _chemistry_exit_code() -> int:
+    """Exit code a chemistry workflow should return in this environment.
+
+    CI runs without OpenMM and PDBFixer, where a run that reaches the setup
+    or simulation phase is expected to stop cleanly with a non-zero status.
+    On a full install the same command must succeed. Asserting against the
+    environment keeps both paths honest; hard-coding the CI result would mean
+    the suite never verifies that the pipeline actually works.
+    """
+    return 1 if missing_dependencies() else 0
 
 
 def _make_pdb_stub(tmp_path: Path) -> Path:
@@ -85,7 +98,7 @@ def test_cli_explore(tmp_path: Path) -> None:
     pdb = _make_pdb_stub(tmp_path)
     out = tmp_path / "run"
     rc = main(["explore", "-system", str(pdb), "--output", str(out), "--simulate-nvt-steps", "2", "--simulate-npt-steps", "2", "--simulate-production-steps", "4", "--simulate-trajectory-interval-steps", "1"])
-    assert rc == 1
+    assert rc == _chemistry_exit_code()
     assert (out / "manifest.json").exists()
     assert (out / "setup" / "setup_parameters.json").exists()
     assert (out / "simulation" / "simulation_parameters.json").exists()
@@ -95,15 +108,15 @@ def test_cli_xplore_is_alias(tmp_path: Path) -> None:
     pdb = _make_pdb_stub(tmp_path)
     out = tmp_path / "run"
     rc = main(["xplore", "-system", str(pdb), "--output", str(out), "--simulate-nvt-steps", "2", "--simulate-npt-steps", "2", "--simulate-production-steps", "4", "--simulate-trajectory-interval-steps", "1"])
-    assert rc == 1
+    assert rc == _chemistry_exit_code()
 
 
 def test_cli_explore_with_pdb_id(tmp_path: Path) -> None:
     out = tmp_path / "run"
 
     # This test verifies that a 4-char PDB ID is fetched and routed through
-    # setup. The local test environment does not include the chemistry stack,
-    # so the requested full workflow must stop with a non-zero status.
+    # setup. Simulation is mocked, so the exit code depends only on whether
+    # the chemistry stack is present for the setup phase.
     def _fake_run_simulation(*, topology_pdb, output_dir, **kwargs):
         import mdtraj as md
         from fastmdxplora.simulation.runner import SimulationResult
@@ -142,7 +155,7 @@ def test_cli_explore_with_pdb_id(tmp_path: Path) -> None:
         side_effect=_fake_run_simulation,
     ):
         rc = main(["explore", "--system", "1L2Y", "--output", str(out)])
-    assert rc == 1
+    assert rc == _chemistry_exit_code()
     assert (out / "setup" / "setup_parameters.json").exists()
 
 
@@ -180,7 +193,7 @@ def test_cli_explore_no_report(tmp_path: Path) -> None:
     pdb = _make_pdb_stub(tmp_path)
     out = tmp_path / "run"
     rc = main(["explore", "-system", str(pdb), "--output", str(out), "--no-report", "--simulate-nvt-steps", "2", "--simulate-npt-steps", "2", "--simulate-production-steps", "4", "--simulate-trajectory-interval-steps", "1"])
-    assert rc == 1
+    assert rc == _chemistry_exit_code()
     assert not (out / "report").exists() or not any((out / "report").iterdir())
 
 
