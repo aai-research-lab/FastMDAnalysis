@@ -635,12 +635,16 @@ class SessionPresenter:
         # every other run-information section; its contents remain left-aligned.
         top("blue")
         title("ANALYSIS & REPORT", "blue")
-        kv(
-            "Dashboard",
-            dashboard_link if dashboard_link else "Not available",
-            "blue",
-            label_color="cyan",
-        )
+        # Only list the GUI when one was actually requested for this run.
+        # Printing the address unconditionally sent users to a refused
+        # connection, since `explore` does not start a server on its own.
+        if dashboard_enabled and dashboard_link:
+            kv(
+                "GUI",
+                dashboard_link,
+                "blue",
+                label_color="cyan",
+            )
         kv(
             "Report",
             report_title,

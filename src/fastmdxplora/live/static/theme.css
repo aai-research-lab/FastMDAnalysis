@@ -1,0 +1,70 @@
+/* FastMDXplora design tokens.
+ *
+ * The single source of truth for colour, type, and motion across both
+ * surfaces: the live GUI links this file, and the static report inlines
+ * it at generation time so a report stays a self-contained page. Change a
+ * value here and both follow.
+ */
+:root {
+    color-scheme: dark;
+
+    /* Backgrounds */
+    --background-primary: #050505;
+    --background-secondary: #0a0a0b;
+    --background-elevated: #101012;
+    --background-soft: #151518;
+
+    /* Panels (frosted) */
+    --panel-glass: rgba(18, 18, 20, 0.84);
+    --panel-hover: rgba(27, 27, 31, 0.95);
+
+    /* Borders */
+    --border-primary: rgba(255, 255, 255, 0.13);
+    --border-strong: rgba(255, 255, 255, 0.25);
+    --border-subtle: rgba(255, 255, 255, 0.07);
+
+    /* Text */
+    --text-primary: #f5f5f7;
+    --text-secondary: #b5b5bb;
+    --text-muted: #777780;
+
+    /* Accents */
+    --accent-white: #ffffff;
+    --accent-silver: #d8d8dd;
+    --accent-cyan: #63e6ff;
+    --accent-blue: #6ea8ff;
+    --accent-violet: #a78bfa;
+    --accent-green: #67e8a3;
+    --accent-orange: #ffb86b;
+    --accent-red: #ff7272;
+
+    /* Status */
+    --status-live: var(--accent-cyan);
+    --status-waiting: var(--accent-orange);
+    --status-error: var(--accent-red);
+    --status-completed: var(--accent-green);
+    --status-stale: var(--text-muted);
+
+    /* Surfaces */
+    --shadow-card: 0 14px 40px rgba(0, 0, 0, 0.42);
+    --shadow-modal: 0 28px 80px rgba(0, 0, 0, 0.55);
+
+    /* Layout */
+    --sidebar-width: 248px;
+    --topbar-height: 64px;
+
+    /* Typography */
+    --font-stack: "Inter", "IBM Plex Sans", "Segoe UI", system-ui,
+                  -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: "JetBrains Mono", "SFMono-Regular", "IBM Plex Mono",
+                 "Consolas", "Menlo", monospace;
+
+    /* Motion */
+    --duration-fast: 120ms;
+    --duration-medium: 220ms;
+    --duration-slow: 460ms;
+    --ease: cubic-bezier(.2, .8, .2, 1);
+}
+
+/* Colour used inside composed box-shadows. */
+:root { --shadow-color: rgba(0, 0, 0, 0.42); }

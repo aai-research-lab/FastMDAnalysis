@@ -1193,6 +1193,22 @@ def _format_number(value: object) -> str:
     return f"{number:,.3g}"
 
 
+
+def _theme_tokens() -> str:
+    """Return the shared design tokens for inlining into a static report.
+
+    The live GUI links ``live/static/theme.css``; a generated report has to
+    stand alone as a single file, so the same tokens are inlined here.
+    Reading the file rather than duplicating it keeps the two surfaces from
+    drifting apart.
+    """
+    theme = Path(__file__).resolve().parent.parent / "live" / "static" / "theme.css"
+    try:
+        return theme.read_text(encoding="utf-8")
+    except OSError:  # pragma: no cover - only if the installed package is incomplete
+        return ":root { color-scheme: dark; }"
+
+
 def _render_dashboard(
     *,
     title: str,
@@ -1208,6 +1224,7 @@ def _render_dashboard(
     output_folder: str,
     live_html: str,
 ) -> str:
+    theme_tokens = _theme_tokens()
     nav_html = _render_sidebar(sections, links)
     card_html = "\n".join(_render_card(card) for card in cards)
     sections_html = "\n".join(_render_section(section) for section in sections)
@@ -1239,30 +1256,14 @@ def _render_dashboard(
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{escape(title)} - FastMDXplora Dashboard</title>
   <style>
-    :root {{
-      color-scheme: dark;
-      --bg: #07101b;
-      --sidebar: #071321;
-      --panel: #101a28;
-      --panel-2: #152437;
-      --panel-3: #0c1724;
-      --line: #22364b;
-      --text: #edf4fb;
-      --muted: #a7b5c6;
-      --accent: #39b7c9;
-      --accent-blue: #4d9df7;
-      --accent-2: #7cc66a;
-      --warn: #efb35e;
-      --danger: #e35d6a;
-      --shadow: rgba(0, 0, 0, 0.25);
-    }}
+    {theme_tokens}
     * {{ box-sizing: border-box; }}
     body {{
       margin: 0;
       background:
         radial-gradient(circle at top left, rgba(57, 183, 201, 0.12), transparent 34rem),
-        linear-gradient(180deg, #07101b 0%, #0a1724 100%);
-      color: var(--text);
+        linear-gradient(180deg, var(--background-primary) 0%, var(--background-secondary) 100%);
+      color: var(--text-primary);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
         "Segoe UI", sans-serif;
       line-height: 1.5;
@@ -1278,7 +1279,7 @@ def _render_dashboard(
       top: 0;
       height: 100vh;
       overflow-y: auto;
-      border-right: 1px solid var(--line);
+      border-right: 1px solid var(--border-primary);
       background: linear-gradient(180deg, rgba(7, 19, 33, 0.98), rgba(5, 13, 23, 0.98));
       padding: 22px 16px;
     }}
@@ -1288,7 +1289,7 @@ def _render_dashboard(
       gap: 12px;
       align-items: center;
       padding-bottom: 22px;
-      border-bottom: 1px solid var(--line);
+      border-bottom: 1px solid var(--border-primary);
       margin-bottom: 20px;
     }}
     .mark {{
@@ -1299,7 +1300,7 @@ def _render_dashboard(
       border-radius: 12px;
       border: 1px solid rgba(77, 157, 247, 0.5);
       background: rgba(77, 157, 247, 0.12);
-      color: #7ed5ff;
+      color: var(--accent-cyan);
       font-weight: 800;
     }}
     .logo-title {{
@@ -1308,13 +1309,13 @@ def _render_dashboard(
       line-height: 1.1;
     }}
     .logo-subtitle {{
-      color: var(--muted);
+      color: var(--text-muted);
       font-size: 0.72rem;
       margin-top: 3px;
     }}
     .nav-section {{ margin: 18px 0; }}
     .nav-heading {{
-      color: #7d8da2;
+      color: var(--text-muted);
       font-size: 0.72rem;
       font-weight: 800;
       letter-spacing: 0.07em;
@@ -1328,7 +1329,7 @@ def _render_dashboard(
       min-height: 34px;
       padding: 7px 10px;
       border-radius: 8px;
-      color: #d4deea;
+      color: var(--text-secondary);
       text-decoration: none;
       font-size: 0.9rem;
     }}
@@ -1343,7 +1344,7 @@ def _render_dashboard(
     .nav-icon {{
       width: 1.35em;
       text-align: center;
-      color: var(--accent);
+      color: var(--accent-cyan);
     }}
     .shell {{
       width: min(1480px, calc(100% - 36px));
@@ -1356,15 +1357,15 @@ def _render_dashboard(
       gap: 20px;
       align-items: end;
       padding: 20px 0 24px;
-      border-bottom: 1px solid var(--line);
+      border-bottom: 1px solid var(--border-primary);
     }}
     .breadcrumb {{
-      color: var(--muted);
+      color: var(--text-muted);
       font-size: 0.86rem;
       margin-top: 5px;
     }}
     .brand {{
-      color: var(--accent);
+      color: var(--accent-cyan);
       font-size: 0.82rem;
       font-weight: 700;
       letter-spacing: 0.08em;
@@ -1376,34 +1377,34 @@ def _render_dashboard(
       line-height: 1.05;
       letter-spacing: 0;
     }}
-    .subtle {{ color: var(--muted); }}
+    .subtle {{ color: var(--text-muted); }}
     .status {{
       display: inline-flex;
       align-items: center;
       gap: 8px;
       padding: 8px 12px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--border-primary);
       border-radius: 8px;
       background: rgba(255, 255, 255, 0.04);
-      color: var(--muted);
+      color: var(--text-muted);
       white-space: nowrap;
     }}
     .dot {{
       width: 9px;
       height: 9px;
       border-radius: 99px;
-      background: var(--warn);
+      background: var(--accent-orange);
     }}
-    .dot.ok {{ background: var(--accent-2); }}
-    .dot.error {{ background: var(--danger); }}
-    .dot.unknown {{ background: var(--warn); }}
+    .dot.ok {{ background: var(--accent-green); }}
+    .dot.error {{ background: var(--accent-red); }}
+    .dot.unknown {{ background: var(--accent-orange); }}
     .notice {{
       margin: 20px 0 0;
       padding: 14px 16px;
       border: 1px solid rgba(57, 183, 201, 0.38);
       border-radius: 8px;
       background: rgba(57, 183, 201, 0.09);
-      color: #d9f8fc;
+      color: var(--accent-cyan);
     }}
     .notice strong {{
       display: block;
@@ -1429,12 +1430,12 @@ def _render_dashboard(
     .live-mini-card {{
       border: 1px solid rgba(148, 163, 184, 0.16);
       border-radius: 8px;
-      background: #0b1626;
+      background: var(--background-elevated);
       padding: 10px;
     }}
     .live-mini-card span {{
       display: block;
-      color: var(--muted);
+      color: var(--text-muted);
       font-size: 0.75rem;
       margin-bottom: 4px;
     }}
@@ -1448,17 +1449,17 @@ def _render_dashboard(
       margin: 22px 0;
     }}
     .card, .plot-card, .output-link, .empty-state, .panel-block, .action-link {{
-      border: 1px solid var(--line);
+      border: 1px solid var(--border-primary);
       border-radius: 8px;
       background: linear-gradient(180deg, rgba(19, 35, 56, 0.92), rgba(16, 27, 41, 0.96));
-      box-shadow: 0 16px 42px var(--shadow);
+      box-shadow: var(--shadow-card);
     }}
     .card {{
       min-height: 124px;
       padding: 18px;
     }}
     .card .label {{
-      color: var(--muted);
+      color: var(--text-muted);
       font-size: 0.88rem;
       margin-bottom: 10px;
     }}
@@ -1467,10 +1468,10 @@ def _render_dashboard(
       font-weight: 760;
       overflow-wrap: anywhere;
     }}
-    .card.good .value {{ color: var(--accent-2); }}
-    .card.warn .value {{ color: var(--warn); }}
+    .card.good .value {{ color: var(--accent-green); }}
+    .card.warn .value {{ color: var(--accent-orange); }}
     .card .detail {{
-      color: var(--muted);
+      color: var(--text-muted);
       font-size: 0.86rem;
       margin-top: 8px;
       overflow-wrap: anywhere;
@@ -1539,7 +1540,7 @@ def _render_dashboard(
     .size-button, .reset-layout {{
       border: 1px solid rgba(148, 163, 184, 0.28);
       background: rgba(15, 26, 42, 0.88);
-      color: var(--muted);
+      color: var(--text-muted);
       border-radius: 6px;
       padding: 3px 6px;
       font: inherit;
@@ -1559,13 +1560,13 @@ def _render_dashboard(
       align-items: center;
       justify-content: center;
       overflow: hidden;
-      background: #0b1626;
+      background: var(--background-elevated);
       border-radius: 12px;
       padding: 8px;
       border: 1px solid rgba(148, 163, 184, 0.18);
     }}
     .plot-card.fallback .plot-frame {{
-      background: #0b1626;
+      background: var(--background-elevated);
       padding: 12px;
     }}
     .plot-frame a {{
@@ -1585,7 +1586,7 @@ def _render_dashboard(
       height: 100%;
       object-fit: contain;
       border-radius: 6px;
-      background: #0f1a2a;
+      background: var(--background-soft);
     }}
     .plot-card.fallback .plot-frame img {{
       background: white;
@@ -1614,19 +1615,19 @@ def _render_dashboard(
       padding: 3px 7px;
       border-radius: 999px;
       border: 1px solid rgba(57, 183, 201, 0.32);
-      color: #b9ecf3;
+      color: var(--accent-cyan);
       background: rgba(57, 183, 201, 0.10);
       font-size: 0.72rem;
       white-space: nowrap;
     }}
     .summary-value {{
-      color: var(--text);
+      color: var(--text-primary);
       font-size: 0.84rem;
       margin-top: 9px;
     }}
     .source {{
       padding: 10px 2px 0;
-      color: var(--muted);
+      color: var(--text-muted);
       font-size: 0.82rem;
       overflow-wrap: anywhere;
       word-break: break-word;
@@ -1637,7 +1638,7 @@ def _render_dashboard(
       font-size: 0.82rem;
     }}
     .category-label {{
-      color: var(--muted);
+      color: var(--text-muted);
       font-size: 0.78rem;
       margin-top: 8px;
     }}
@@ -1670,17 +1671,17 @@ def _render_dashboard(
       width: 22px;
       height: 18px;
       border-radius: 99px;
-      background: #33465c;
+      background: var(--border-strong);
       color: white;
       font-size: 0.58rem;
       font-weight: 800;
     }}
-    .phase-row.ok .phase-dot {{ background: var(--accent-2); }}
-    .phase-row.error .phase-dot {{ background: var(--danger); }}
-    .phase-row.skipped .phase-dot {{ background: var(--warn); }}
-    .phase-row.not-run .phase-dot {{ background: #536274; }}
+    .phase-row.ok .phase-dot {{ background: var(--accent-green); }}
+    .phase-row.error .phase-dot {{ background: var(--accent-red); }}
+    .phase-row.skipped .phase-dot {{ background: var(--accent-orange); }}
+    .phase-row.not-run .phase-dot {{ background: var(--text-muted); }}
     .phase-detail {{
-      color: var(--muted);
+      color: var(--text-muted);
       font-size: 0.84rem;
     }}
     table {{
@@ -1695,12 +1696,12 @@ def _render_dashboard(
       vertical-align: top;
     }}
     th {{
-      color: var(--muted);
+      color: var(--text-muted);
       font-weight: 700;
     }}
     td.num {{ text-align: right; }}
     .table-empty {{
-      color: var(--muted);
+      color: var(--text-muted);
       text-align: center;
     }}
     .outputs {{
@@ -1720,7 +1721,7 @@ def _render_dashboard(
     }}
     .output-link span {{
       display: block;
-      color: var(--muted);
+      color: var(--text-muted);
       font-size: 0.78rem;
       overflow-wrap: anywhere;
       word-break: break-word;
@@ -1731,7 +1732,7 @@ def _render_dashboard(
     }}
     .outputs-extra summary {{
       cursor: pointer;
-      color: #b9ecf3;
+      color: var(--accent-cyan);
       font-size: 0.84rem;
       margin-bottom: 10px;
     }}
@@ -1752,7 +1753,7 @@ def _render_dashboard(
     .action-subtitle {{
       display: block;
       margin-top: 4px;
-      color: var(--muted);
+      color: var(--text-muted);
       font-size: 0.9rem;
     }}
     .artifact-path {{
@@ -1762,17 +1763,17 @@ def _render_dashboard(
     }}
     .folder-note {{
       margin-top: 12px;
-      color: var(--muted);
+      color: var(--text-muted);
       font-size: 0.82rem;
       overflow-wrap: anywhere;
     }}
     .empty-state {{
       padding: 20px;
-      color: var(--muted);
+      color: var(--text-muted);
     }}
     footer {{
       margin-top: 30px;
-      color: var(--muted);
+      color: var(--text-muted);
       font-size: 0.82rem;
     }}
     @media (max-width: 720px) {{
@@ -1781,7 +1782,7 @@ def _render_dashboard(
         position: relative;
         height: auto;
         border-right: 0;
-        border-bottom: 1px solid var(--line);
+        border-bottom: 1px solid var(--border-primary);
       }}
       .shell {{ width: min(100% - 20px, 1480px); padding-top: 14px; }}
       header {{ grid-template-columns: 1fr; align-items: start; }}

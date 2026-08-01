@@ -305,3 +305,53 @@ def test_banner_respects_terminal_width():
     for line in lines:
         if line.strip():
             assert _visual_width(line) <= 50 + 20  # generous slack for box chars
+
+
+def test_orchestrator_reuses_the_process_presenter() -> None:
+    """The banner is shown once per presenter, so there must be only one.
+
+    The orchestrator used to construct its own SessionPresenter, which made
+    the startup wordmark print twice: once from the CLI and again when a
+    study began.
+    """
+    from fastmdxplora.orchestrator import FastMDXplora
+    from fastmdxplora.utils import presenter as presenter_module
+
+    presenter_module._PRESENTER = None
+    cli_presenter = presenter_module.get_presenter()
+    fmdx = FastMDXplora(system="1L2Y", output_dir="/tmp/does-not-need-to-exist")
+    assert fmdx._presenter is cli_presenter
+
+
+def test_run_summary_lists_the_gui_only_when_one_was_requested(monkeypatch) -> None:
+    """`explore` does not start a server, so it must not advertise one.
+
+    The run summary printed the dashboard address unconditionally, sending
+    users to a refused connection.
+    """
+    import io
+    import sys
+
+    from fastmdxplora.utils import presenter as presenter_module
+
+    # Other tests activate dashboard telemetry in this process; make the
+    # precondition explicit instead of depending on test order.
+    monkeypatch.delenv("FASTMDX_DASHBOARD_ACTIVE", raising=False)
+    monkeypatch.delenv("FASTMDX_DASHBOARD_URL", raising=False)
+
+    def render(argv: list[str]) -> str:
+        presenter_module._PRESENTER = None
+        pr = presenter_module.get_presenter()
+        buffer = io.StringIO()
+        pr.stream = buffer
+        pr._color = False
+        pr.width = 120
+        monkeypatch.setattr(sys, "argv", ["fastmdx", *argv])
+        pr.banner(System="1L2Y", Output="/tmp/run")
+        return buffer.getvalue()
+
+    without = render(["explore", "--system", "1L2Y"])
+    assert "127.0.0.1" not in without
+
+    with_gui = render(["explore", "--system", "1L2Y", "--dashboard"])
+    assert "127.0.0.1" in with_gui

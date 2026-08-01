@@ -2,66 +2,6 @@
    Matte black, dark charcoal panels, restrained cyan/violet accents.
    No external fonts or CDN dependencies. */
 
-:root {
-    color-scheme: dark;
-
-    /* Backgrounds */
-    --background-primary: #050505;
-    --background-secondary: #0a0a0b;
-    --background-elevated: #101012;
-    --background-soft: #151518;
-
-    /* Panels (frosted) */
-    --panel-glass: rgba(18, 18, 20, 0.84);
-    --panel-hover: rgba(27, 27, 31, 0.95);
-
-    /* Borders */
-    --border-primary: rgba(255, 255, 255, 0.13);
-    --border-strong: rgba(255, 255, 255, 0.25);
-    --border-subtle: rgba(255, 255, 255, 0.07);
-
-    /* Text */
-    --text-primary: #f5f5f7;
-    --text-secondary: #b5b5bb;
-    --text-muted: #777780;
-
-    /* Accents */
-    --accent-white: #ffffff;
-    --accent-silver: #d8d8dd;
-    --accent-cyan: #63e6ff;
-    --accent-blue: #6ea8ff;
-    --accent-violet: #a78bfa;
-    --accent-green: #67e8a3;
-    --accent-orange: #ffb86b;
-    --accent-red: #ff7272;
-
-    /* Status */
-    --status-live: var(--accent-cyan);
-    --status-waiting: var(--accent-orange);
-    --status-error: var(--accent-red);
-    --status-completed: var(--accent-green);
-    --status-stale: var(--text-muted);
-
-    /* Surfaces */
-    --shadow-card: 0 14px 40px rgba(0, 0, 0, 0.42);
-    --shadow-modal: 0 28px 80px rgba(0, 0, 0, 0.55);
-
-    /* Layout */
-    --sidebar-width: 248px;
-    --topbar-height: 64px;
-
-    /* Typography */
-    --font-stack: "Inter", "IBM Plex Sans", "Segoe UI", system-ui,
-                  -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-mono: "JetBrains Mono", "SFMono-Regular", "IBM Plex Mono",
-                 "Consolas", "Menlo", monospace;
-
-    /* Motion */
-    --duration-fast: 120ms;
-    --duration-medium: 220ms;
-    --duration-slow: 460ms;
-    --ease: cubic-bezier(.2, .8, .2, 1);
-}
 
 @media (prefers-reduced-motion: reduce) {
     :root {
@@ -166,15 +106,7 @@ button {
     top: 0;
 }
 .sidebar-brand {
-    display: grid;
-    grid-template-columns: 56px 1fr;
-    gap: 14px;
-    align-items: center;
-}
-.brand-logo {
-    width: 56px;
-    height: auto;
-    filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.6));
+    display: block;
 }
 .brand-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .brand-product {
@@ -235,6 +167,13 @@ button {
     opacity: 0.45;
 }
 .nav-link.active .nav-icon { opacity: 1; }
+
+.nav-link-pending {
+    opacity: 0.45;
+}
+.nav-link-pending:hover {
+    opacity: 0.75;
+}
 
 .sidebar-footer {
     margin-top: auto;
@@ -894,12 +833,6 @@ button {
     color: var(--text-muted);
     padding: 36px;
 }
-.empty-watermark {
-    width: 76px;
-    height: 76px;
-    background: url("/static/aai-research-mark.svg") no-repeat center / contain;
-    opacity: 0.35;
-}
 .empty-title { font-size: 18px; color: var(--text-secondary); font-weight: 600; }
 .empty-detail { font-size: 12px; max-width: 480px; }
 
@@ -1233,12 +1166,6 @@ body.state-ready .loading-screen {
     max-width: 520px;
     padding: 32px;
 }
-.loading-logo {
-    width: 220px;
-    height: auto;
-    filter: drop-shadow(0 8px 24px rgba(0,0,0,0.7));
-    margin-bottom: 24px;
-}
 .loading-product {
     font-size: 28px;
     font-weight: 700;
@@ -1297,16 +1224,6 @@ body.state-ready .loading-screen {
     opacity: 0.55;
     mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
 }
-.loading-watermark {
-    position: absolute;
-    bottom: 24px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 64px;
-    height: 64px;
-    background: url("/static/aai-research-mark.svg") no-repeat center / contain;
-    opacity: 0.25;
-}
 
 /* ============================================================ */
 /* Responsive                            */
@@ -1327,8 +1244,6 @@ body.state-ready .loading-screen {
         gap: 10px;
         border-bottom: 1px solid var(--border-subtle);
     }
-    .sidebar-brand { grid-template-columns: 40px 1fr; gap: 10px; }
-    .brand-logo { width: 40px; }
     .sidebar-nav { display: none; }
     .sidebar-footer { display: none; }
     .top-bar {

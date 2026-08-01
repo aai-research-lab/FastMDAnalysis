@@ -337,6 +337,17 @@
       setText("sidebar-run-name", "No active run");
       setText("sidebar-platform", "—");
     }
+    // Sections that only have content once a run exists are dimmed until one
+    // does, so a fresh workspace points at the builder instead of offering
+    // five empty views.
+    $$("[data-requires-run]").forEach((element) => {
+      element.classList.toggle("nav-link-pending", !activeRun);
+      if (activeRun) {
+        element.removeAttribute("title");
+      } else {
+        element.setAttribute("title", "Available once a run exists in this workspace");
+      }
+    });
     emit("app-state", payload || {});
   }
 
@@ -397,7 +408,7 @@
       setText("sidebar-platform", "—");
       setText("sidebar-run-name", "No active run");
       setText("topbar-run-id", "workspace");
-      setText("topbar-run-title", "FastMDXplora Dashboard");
+      setText("topbar-run-title", "No active run");
       return;
     }
     const statusName = String(health.state || status.status || "waiting").toLowerCase();

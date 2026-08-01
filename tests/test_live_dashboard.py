@@ -476,7 +476,6 @@ def test_dashboard_html_has_aai_branding(tmp_path: Path) -> None:
         server.server_close()
 
     # Branding hierarchy
-    assert "AAI Research Lab" in html or "aai-research-logo" in html
     assert "FastMDXplora" in html
     assert "Fully Automated SysTem for Molecular Dynamics eXploration" in html
 
@@ -491,7 +490,6 @@ def test_dashboard_html_has_aai_branding(tmp_path: Path) -> None:
     assert "/static/charts.js" in html
     assert "/static/molecule-viewer.js" in html
     assert "/static/3Dmol-min.js" in html
-    assert "/static/aai-research-logo.svg" in html or "/static/aai-research-mark.svg" in html
 
     # Pages
     for page in ("overview", "live", "viewer", "analysis", "files", "settings"):
@@ -514,12 +512,17 @@ def test_dashboard_html_has_aai_branding(tmp_path: Path) -> None:
 
 
 def test_dashboard_css_uses_black_scientific_palette() -> None:
-    css_path = Path(make_handler.__module__.split(".")[0])
     import fastmdxplora.live as live_pkg
-    css = (Path(live_pkg.__file__).with_name("static") / "dashboard.css").read_text(encoding="utf-8")
+
+    static = Path(live_pkg.__file__).with_name("static")
+    # Design tokens live in theme.css (shared with the static report);
+    # dashboard.css carries the layout that consumes them.
+    theme = (static / "theme.css").read_text(encoding="utf-8")
+    css = (static / "dashboard.css").read_text(encoding="utf-8")
     for token in ("--background-primary", "--accent-cyan", "--accent-violet",
-                  "--text-primary", "prefers-reduced-motion", "Inter"):
-        assert token in css
+                  "--text-primary", "Inter"):
+        assert token in theme
+    assert "prefers-reduced-motion" in css
 
 
 def test_dashboard_endpoint_no_inline_html_css() -> None:
@@ -784,29 +787,27 @@ def test_live_json_endpoints_are_sane_for_empty_run(tmp_path: Path) -> None:
     assert ligands_payload["valid"] is False
 
 
-def test_aai_logo_assets_are_packaged(tmp_path: Path) -> None:
+def test_static_assets_are_packaged(tmp_path: Path) -> None:
     import fastmdxplora.live as live_pkg
     static = Path(live_pkg.__file__).with_name("static")
-    assert (static / "aai-research-logo.svg").is_file()
-    assert (static / "aai-research-mark.svg").is_file()
     assert (static / "dashboard.css").is_file()
     assert (static / "dashboard.js").is_file()
     assert (static / "charts.js").is_file()
     assert (static / "molecule-viewer.js").is_file()
 
 
-def test_static_logo_endpoint_serves_svg(tmp_path: Path) -> None:
+def test_static_endpoint_serves_packaged_assets(tmp_path: Path) -> None:
     run = tmp_path / "run"
     run.mkdir()
     server, base_url = start_test_server(run)
     try:
-        response = urlopen(f"{base_url}/static/aai-research-logo.svg", timeout=5)
+        response = urlopen(f"{base_url}/static/dashboard.css", timeout=5)
         body = response.read().decode("utf-8", errors="ignore")
     finally:
         server.shutdown()
         server.server_close()
-    assert response.headers["Content-Type"].startswith("image/svg+xml") or "svg" in body.lower()
-    assert "AAI" in body
+    assert response.headers["Content-Type"].startswith("text/css")
+    assert ".sidebar" in body
 
 # ---------------------------------------------------------------------------
 # Regression coverage for the functional dashboard wiring
@@ -1112,3 +1113,69 @@ def test_dashboard_assets_include_svg_download_and_first_model_miniviewer_fix() 
     assert "const hadModel" in viewer_js
     assert "opts.center !== false || !hadModel" in viewer_js
     assert "resolveProteinSelection" in viewer_js
+
+
+def test_run_dependent_nav_sections_are_marked(tmp_path: Path) -> None:
+    """Sections that need a run are marked so the shell can dim them.
+
+    Opening the GUI in an empty workspace should point at the builder rather
+    than offering five views that have nothing to show.
+    """
+    run = tmp_path / "run"
+    run.mkdir()
+    server, base_url = start_test_server(run)
+    try:
+        html = urlopen(f"{base_url}/", timeout=5).read().decode("utf-8")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    for view in ("overview", "live", "viewer", "analysis", "files"):
+        assert f'data-view-link="{view}" data-requires-run="true"' in html
+    # The builder is always reachable; it is what an empty workspace needs.
+    assert 'data-view-link="builder" data-requires-run' not in html
+
+
+def test_live_gui_and_static_report_share_one_theme(tmp_path: Path) -> None:
+    """Both surfaces read their design tokens from ``live/static/theme.css``.
+
+    The live GUI links the file; a generated report inlines it so the page
+    stays self-contained. Duplicating the palette is what made the two look
+    like different products, so this asserts a single source of truth.
+    """
+    import datetime
+
+    import fastmdxplora.live as live_pkg
+    from fastmdxplora.report import dashboard as report_dashboard
+
+    theme = Path(live_pkg.__file__).with_name("static") / "theme.css"
+    assert theme.is_file(), "theme.css must ship with the package"
+    tokens = theme.read_text(encoding="utf-8")
+    assert "--background-primary" in tokens
+    assert "--accent-cyan" in tokens
+
+    # The GUI links it ahead of its own stylesheet.
+    template = Path(live_pkg.__file__).with_name("templates") / "dashboard.html"
+    shell = template.read_text(encoding="utf-8")
+    assert shell.index("/static/theme.css") < shell.index("/static/dashboard.css")
+
+    # The static report inlines the very same tokens.
+    html = report_dashboard._render_dashboard(
+        title="Theme check",
+        system="1L2Y",
+        status="completed",
+        generated_at=datetime.datetime.now(datetime.timezone.utc),
+        phase_notice="",
+        cards=[],
+        sections=[],
+        links=[],
+        phase_rows=[],
+        metrics=[],
+        output_folder=str(tmp_path),
+        live_html="",
+    )
+    assert "--background-primary" in html
+    assert "--accent-cyan" in html
+    # The superseded navy palette must not reappear.
+    assert "#07101b" not in html
+    assert "var(--bg)" not in html

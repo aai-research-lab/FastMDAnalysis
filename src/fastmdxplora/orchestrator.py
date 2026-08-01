@@ -821,7 +821,12 @@ class FastMDXplora:
         internally by :class:`SessionPresenter`) or when stdout is not a
         TTY (handled by color auto-detection). Users wanting different
         behaviour can replace ``self._presenter`` after construction.
-        """
-        from fastmdxplora.utils.presenter import SessionPresenter
 
-        return SessionPresenter()
+        This returns the process-wide presenter rather than a new instance.
+        The startup banner is shown once per presenter, so constructing a
+        second one made it print twice: once from the CLI and again when the
+        orchestrator started a study.
+        """
+        from fastmdxplora.utils.presenter import get_presenter
+
+        return get_presenter()

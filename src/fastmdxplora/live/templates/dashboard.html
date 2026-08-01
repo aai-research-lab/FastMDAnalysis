@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <title>FastMDXplora Live Dashboard</title>
-  <link rel="icon" type="image/svg+xml" href="/static/aai-research-mark.svg">
+  <link rel="stylesheet" href="/static/theme.css">
   <link rel="stylesheet" href="/static/dashboard.css">
   <meta name="fastmdx-expansion" content="Fully Automated SysTem for Molecular Dynamics eXploration">
 </head>
@@ -13,7 +13,6 @@
   <!-- Loading screen -->
   <div id="loading-screen" class="loading-screen" aria-hidden="false">
     <div class="loading-shell">
-      <img class="loading-logo" src="/static/aai-research-logo.svg" alt="AAI Research Lab">
       <div class="loading-product">FastMDXplora</div>
       <div class="loading-tagline">Fully Automated SysTem for Molecular Dynamics eXploration</div>
       <div class="loading-status" id="loading-status">
@@ -31,22 +30,13 @@
         </div>
       </div>
       <div class="loading-particles" aria-hidden="true"></div>
-      <div class="loading-watermark" aria-hidden="true"></div>
     </div>
-  </div>
-
-  <!-- Empty state (AAI watermark fallback for terminal states without data) -->
-  <div id="empty-watermark-template" hidden aria-hidden="true">
-    <svg class="empty-watermark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-      <use href="/static/aai-research-mark.svg#mark"/>
-    </svg>
   </div>
 
   <div class="app-shell">
     <!-- Sidebar -->
     <aside class="sidebar" aria-label="Dashboard navigation">
       <div class="sidebar-brand">
-        <img class="brand-logo" src="/static/aai-research-logo.svg" alt="AAI Research Lab">
         <div class="brand-text">
           <div class="brand-product">FastMDXplora</div>
           <div class="brand-tagline">Fully Automated SysTem for Molecular Dynamics eXploration</div>
@@ -58,23 +48,23 @@
           <span class="nav-icon nav-icon-launch" aria-hidden="true"></span>
           <span>New Exploration</span>
         </a>
-        <a href="#" class="nav-link" data-view-link="overview">
+        <a href="#" class="nav-link" data-view-link="overview" data-requires-run="true">
           <span class="nav-icon" aria-hidden="true"></span>
           <span>Overview</span>
         </a>
-        <a href="#" class="nav-link" data-view-link="live">
+        <a href="#" class="nav-link" data-view-link="live" data-requires-run="true">
           <span class="nav-icon" aria-hidden="true"></span>
           <span>Live Simulation</span>
         </a>
-        <a href="#" class="nav-link" data-view-link="viewer">
+        <a href="#" class="nav-link" data-view-link="viewer" data-requires-run="true">
           <span class="nav-icon" aria-hidden="true"></span>
           <span>Molecular Viewer</span>
         </a>
-        <a href="#" class="nav-link" data-view-link="analysis">
+        <a href="#" class="nav-link" data-view-link="analysis" data-requires-run="true">
           <span class="nav-icon" aria-hidden="true"></span>
           <span>Analysis</span>
         </a>
-        <a href="#" class="nav-link" data-view-link="files">
+        <a href="#" class="nav-link" data-view-link="files" data-requires-run="true">
           <span class="nav-icon" aria-hidden="true"></span>
           <span>Files &amp; Reports</span>
         </a>
@@ -119,7 +109,7 @@
       <header class="top-bar">
         <div class="top-bar-left">
           <div class="run-id" id="topbar-run-id">system</div>
-          <div class="run-title" id="topbar-run-title">FastMDXplora Live</div>
+          <div class="run-title" id="topbar-run-title">No active run</div>
         </div>
         <div class="top-bar-center">
           <div class="status-cluster" role="status" aria-live="polite">
@@ -568,7 +558,6 @@
               <div class="viewer-canvas-frame" id="viewer-canvas-frame">
                 <div id="viewer-canvas" class="viewer-canvas" aria-label="Molecular viewer canvas"></div>
                 <div class="viewer-empty" id="viewer-empty">
-                  <div class="empty-watermark"></div>
                   <div class="empty-title">Waiting for structure</div>
                   <div class="empty-detail muted">The 3D viewer will initialize when a topology or prepared PDB becomes available.</div>
                 </div>
@@ -764,7 +753,6 @@
           </div>
           <div class="analysis-grid" id="analysis-grid"></div>
           <div class="empty-state" id="analysis-empty">
-            <div class="empty-watermark"></div>
             <div class="empty-title">Analysis outputs not available yet</div>
             <div class="empty-detail muted">
               Analyses and reports appear here after the analysis/report phases run.
