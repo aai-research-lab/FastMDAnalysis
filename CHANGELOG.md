@@ -9,46 +9,59 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [2.1.0] — 2026-08-01
 
-Live monitoring, guided installation, and Python 3.13 support. A run can now
-be watched in a browser while it happens, a fresh machine can be set up with
-one command, and the analysis phase can reproduce the settings published in
-FastMDXplora version 1.
+A graphical interface, publication-ready figures, and Python 3.13 support.
+An exploration can now be designed, launched, watched, and reviewed from a
+browser, and the figures it produces are drawn for print.
 
 ### Added
 - **Graphical interface.** `fastmdx gui` opens a local browser interface with
-  sections for building a study, launching it, watching it run, viewing the
-  structure and trajectory, and browsing results.
-- **Config files from the GUI.** The study builder can save its selection as a
-  FastMDXplora `.yml` config instead of launching, so a study designed in the
-  browser can be run anywhere, including on a cluster where the GUI cannot run.
-- **Live telemetry view.** A dependency-free localhost server that watches a
-  project output directory while an exploration is in progress:
-  phase telemetry, live trajectory frames, an interactive 3D molecular viewer,
-  playback controls, and per-analysis charts. It observes and launches runs;
-  it does not reimplement any phase science.
-- **Static HTML dashboard** written alongside the other report artifacts, so a
-  finished run can be browsed without starting a server.
-- **`v1` analysis compatibility profile** (`--compat v1`, `--analyze-compat
-  v1`): reproduces the analysis settings of FastMDXplora version 1, including
-  the scope, selection, stride, analysis set, and per-analysis options used in
-  the published BPTI case study.
+  sections for building an exploration, starting it, watching it run, viewing
+  the structure and trajectory, browsing analyses, and reaching the report.
+- **Config files from the GUI.** The builder can save its selection as a
+  FastMDXplora `.yml` file instead of starting a run, so an exploration
+  designed in the browser can be submitted anywhere, including on a cluster
+  where the GUI cannot run. The GUI guide documents the rsync pattern for
+  watching a cluster job from a workstation.
+- **Live telemetry.** A dependency-free localhost server that watches an
+  output directory while an exploration is in progress: phase progress, live
+  trajectory frames, an interactive 3D molecular viewer with playback, and
+  per-analysis charts. It observes and starts explorations; it does not
+  reimplement any phase science.
+- **Report content in the GUI.** Summary cards, per-phase progress including
+  phases that did not run, trajectory statistics with means and standard
+  deviations, categorised analysis sections, and quick-action links. These are
+  computed once and shown identically in the browser and in the report.
+- **`v1` analysis compatibility profile** (`--compat v1`): reproduces the
+  scope, selection, stride, analysis set, and per-analysis options of the
+  published BPTI case study from FastMDXplora version 1.
 - **PDB smoke campaign** (`scripts/run_pdb_smoke_campaign.py`) for exercising
-  the pipeline across many structures, with accompanying documentation.
+  the pipeline across many structures.
 - **Report additions:** region highlights and a single-figure run summary.
 - **Python 3.13 support** across the whole supported range (3.9 to 3.13).
-- **Documentation:** a beginner's guide, a CLI reference, a GUI and
-  live-dashboard guide including the rsync pattern for monitoring cluster
-  runs, a production-run guide, region-highlight and smoke-campaign pages,
-  plus a substantially expanded installation guide.
-- Terminal banner and a reworked presentation layer for phase output.
+- **Documentation:** a beginner's guide, a CLI reference, a GUI guide, a
+  production-run guide, region-highlight and smoke-campaign pages, and a
+  substantially expanded installation guide.
 
 ### Changed
-- **Explorer nomenclature throughout.** The GUI starts an *exploration* rather
-  than launching a job: `Start Exploration` in the interface, `/api/explore/*`
-  endpoints, and `fastmdxplora.gui.exploration` in the Python API.
-- The CLI opens the GUI home when invoked with no arguments, and workflow
-  commands can start the live view directly.
-- `bootstrap.py` is now `install.py`, matching the command it backs.
+- **Publication-ready figures.** The palette is now Okabe-Ito, which stays
+  distinguishable under common colour vision deficiencies and in greyscale;
+  the previous palette's red and green converged in both. Axes are closed with
+  inward major and minor ticks, and tick density adapts to each panel's
+  physical size, so long trajectories no longer crowd their axes. Legends get
+  a translucent backing and headroom so they stay readable over dense data.
+- **One interface module.** All user-interface code now lives in
+  `fastmdxplora.gui`: the localhost server, the browser application and its
+  assets, and the static dashboard written into a report. Both surfaces share
+  one set of design tokens and display the same figures.
+- **Explorer nomenclature throughout.** An exploration is started rather than a
+  job launched: `Start Exploration` in the interface, `/api/explore/*`
+  endpoints, `fastmdxplora.gui.exploration` in the Python API, and exploration
+  wording in the terminal.
+- **Each analysis has its own section.** Sections used to be merged when they
+  held three figures or fewer, so an analysis appeared under its own name or a
+  catch-all depending on how many plots that run produced.
+- The startup banner is one left-aligned block; `info` carries the version,
+  authors, DOI, phase availability, and backend status.
 - CI runs on Python 3.9 through 3.13 across Linux, macOS, and Windows, with
   actions updated to Node 24 compatible versions.
 - `STRUCTURE.md` rewritten to match the current tree.
@@ -56,27 +69,32 @@ FastMDXplora version 1.
 ### Fixed
 - Simulation robustness, with clearer diagnostics when an integration step
   produces a NaN.
-- Batch early-stop behaviour when a run fails.
+- Batch early-stop behaviour when an exploration fails.
 - Report-only invocation and phase validation.
-- Windows: path comparison, dashboard port reuse, and platform-specific
-  command handling.
-- The CLI now degrades cleanly when the chemistry backends are absent, rather
-  than failing mid-phase.
-- Documentation examples are covered by drift tests so they cannot silently
-  go stale.
+- Windows: path comparison, server port reuse, and platform-specific commands.
+- The CLI degrades cleanly when the chemistry backends are absent rather than
+  failing mid-phase.
+- The startup banner printed twice, and advertised a GUI address even when no
+  GUI was running.
+- Figures were listed twice, once for the PNG and once for the SVG of the same
+  plot.
+- CLI tests asserted the exit code of a machine without OpenMM, so they passed
+  in CI and failed on a working install.
+- Documentation examples are covered by drift tests so they cannot go stale.
 
 ### Removed
+- The bundled installer and repository doctor. Installation now follows
+  standard routes: pip for analysis and reporting, pip plus conda-forge for the
+  full chemistry stack, or a clone with the bundled `environment.yml`.
+- The `dashboard` subcommand; `fastmdx gui --output DIR` opens the same
+  interface pointed at an existing run.
+- The curated chart pipeline, which redrew 17 figures in a second style that
+  nothing displayed once both surfaces settled on the analysis figures.
+- The live pressure metric. OpenMM's `StateDataReporter` cannot supply it, so
+  the card could only ever read zero; the barostat setpoint remains in the run
+  summary.
 - `driftmd_workbench`, a separate package that duplicated the analysis and
   report pipeline without using it.
-- The `install` / `bootstrap` / `install-e` subcommands and the Miniforge
-  bootstrapper behind them. FastMDXplora now uses standard installation
-  routes: pip for analysis and reporting, pip plus conda-forge for the full
-  chemistry stack, or a clone with the bundled `environment.yml`. See the
-  installation guide.
-- The `health` subcommand and the repository doctor script. `info` reports
-  backend status, and missing backends are detected at the point of use.
-- The `dashboard` subcommand. `fastmdx gui --output DIR` opens the same
-  interface pointed at an existing run.
 
 ## [2.0.0] — 2026-05-25
 
