@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastmdxplora.report.bundle import build_bundle
-from fastmdxplora.report.dashboard import build_dashboard
+from fastmdxplora.gui.report_dashboard import build_dashboard
 from fastmdxplora.report.document import build_document
 from fastmdxplora.report.region_highlights import build_region_highlight_artifacts
 from fastmdxplora.report.slides import build_slides

@@ -231,4 +231,4 @@ builds for them.
 - [Beginner's guide](getting_started.md) for a full first run
 - [CLI reference](cli_reference.md) for the complete flag list
 - [Configuration files](configuration.md) for YAML-driven studies
-- [Live dashboard](live_dashboard.md) to watch a run in progress
+- [Live dashboard](gui.md) to watch a run in progress

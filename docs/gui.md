@@ -1,4 +1,4 @@
-# Live simulation dashboard
+# The FastMDXplora GUI
 
 For the shortest beginner path, start with [Beginner's guide](getting_started.md).
 For GPU validation, staging, and checkpoint recovery, see
@@ -39,7 +39,7 @@ The live dashboard is a plain-HTTP Python server with no Node or frontend
 build step. Assets are vendored locally and the dashboard runs fully offline.
 
 ```
-src/fastmdxplora/live/
+src/fastmdxplora/gui/
 ├── server.py                # HTTP handlers + route table
 ├── telemetry.py             # existing telemetry reader
 ├── protein_preview.py       # existing static preview generator

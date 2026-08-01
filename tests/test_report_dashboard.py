@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from fastmdxplora.report.dashboard import build_dashboard, _write_dashboard_chart
+from fastmdxplora.gui.report_dashboard import build_dashboard, _write_dashboard_chart
 from fastmdxplora.report.region_highlights import (
     RegionHighlight,
     build_pymol_script,

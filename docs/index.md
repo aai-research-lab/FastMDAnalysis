@@ -37,7 +37,7 @@ cli_reference
 usage_examples
 configuration
 region_highlights
-live_dashboard
+gui
 pdb_smoke_campaign
 ```
 

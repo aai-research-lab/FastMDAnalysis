@@ -45,7 +45,7 @@ FastMDXplora version 1.
 ### Changed
 - **Explorer nomenclature throughout.** The GUI starts an *exploration* rather
   than launching a job: `Start Exploration` in the interface, `/api/explore/*`
-  endpoints, and `fastmdxplora.live.exploration` in the Python API.
+  endpoints, and `fastmdxplora.gui.exploration` in the Python API.
 - The CLI opens the GUI home when invoked with no arguments, and workflow
   commands can start the live view directly.
 - `bootstrap.py` is now `install.py`, matching the command it backs.

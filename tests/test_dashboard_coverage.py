@@ -10,12 +10,12 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from fastmdxplora.live import exploration as launch
-from fastmdxplora.live import live_frames as frames
-from fastmdxplora.live import telemetry
-from fastmdxplora.live import trajectory_playback as playback
-from fastmdxplora.live.ligand_detection import detect_ligands, filter_pdb_to_ligand
-from fastmdxplora.live.structure_info import _count_structure_cached, count_structure, ligand_atom_counts
+from fastmdxplora.gui import exploration as launch
+from fastmdxplora.gui import live_frames as frames
+from fastmdxplora.gui import telemetry
+from fastmdxplora.gui import trajectory_playback as playback
+from fastmdxplora.gui.ligand_detection import detect_ligands, filter_pdb_to_ligand
+from fastmdxplora.gui.structure_info import _count_structure_cached, count_structure, ligand_atom_counts
 from fastmdxplora.simulation import runner
 
 
@@ -279,7 +279,7 @@ def test_ligand_and_structure_edge_paths(tmp_path: Path) -> None:
     assert _count_structure_cached(str(tmp_path), 0, 0)["reason"].startswith("read-error")
 
     fake_path = SimpleNamespace(is_file=lambda: True, stat=lambda: (_ for _ in ()).throw(OSError("stat")), as_posix=lambda: "fake")
-    with patch("fastmdxplora.live.structure_info.Path", return_value=fake_path):
+    with patch("fastmdxplora.gui.structure_info.Path", return_value=fake_path):
         assert count_structure(structure)["reason"].startswith("stat-error")
     with patch.object(Path, "open", side_effect=OSError("read")):
         assert ligand_atom_counts(structure) == {}
@@ -305,9 +305,9 @@ def test_orchestrator_dashboard_telemetry_paths(tmp_path: Path, monkeypatch) -> 
     writer = Writer()
     monkeypatch.setenv("FASTMDX_DASHBOARD_ACTIVE", "1")
     monkeypatch.setenv("FASTMDX_DASHBOARD_OUTPUT", str(app.output_dir))
-    monkeypatch.setattr("fastmdxplora.live.telemetry.TelemetryWriter", lambda *_a, **_k: writer)
+    monkeypatch.setattr("fastmdxplora.gui.telemetry.TelemetryWriter", lambda *_a, **_k: writer)
     assert app._dashboard_writer() is writer
-    monkeypatch.setattr("fastmdxplora.live.telemetry.TelemetryWriter", lambda *_a, **_k: 1 / 0)
+    monkeypatch.setattr("fastmdxplora.gui.telemetry.TelemetryWriter", lambda *_a, **_k: 1 / 0)
     assert app._dashboard_writer() is None
 
     FastMDXplora._initialize_dashboard_timeline(writer, ["setup", "simulation", "report"])
@@ -322,7 +322,7 @@ def test_orchestrator_dashboard_telemetry_paths(tmp_path: Path, monkeypatch) -> 
     ok = PhaseResult("simulation", "ok", app.output_dir)
     skipped = PhaseResult("report", "skipped", app.output_dir)
     failed = PhaseResult("analysis", "error", app.output_dir, message="boom")
-    monkeypatch.setattr("fastmdxplora.live.telemetry.read_status", lambda _root: {
+    monkeypatch.setattr("fastmdxplora.gui.telemetry.read_status", lambda _root: {
         "stage_states": {"minimization": "waiting", "nvt": "current",
                          "npt": "completed", "production": "waiting"}
     })
@@ -335,7 +335,7 @@ def test_orchestrator_dashboard_telemetry_paths(tmp_path: Path, monkeypatch) -> 
 
 
 def test_server_helpers_cover_changed_display_branches(tmp_path: Path, monkeypatch) -> None:
-    from fastmdxplora.live import server
+    from fastmdxplora.gui import server
 
     assert server.DashboardConfig(binding_pocket_cutoff_A=4.5).binding_pocket_cutoff_m == 4.5
     assert server._artifact_records(tmp_path / "missing") == []
@@ -383,7 +383,7 @@ def test_server_helpers_cover_changed_display_branches(tmp_path: Path, monkeypat
 def test_server_error_and_exploration_routes(tmp_path: Path, monkeypatch) -> None:
     import urllib.error
     import urllib.request
-    from fastmdxplora.live import server as live_server
+    from fastmdxplora.gui import server as live_server
 
     root = tmp_path / "run"
     root.mkdir()
@@ -756,19 +756,19 @@ def test_cli_dashboard_remaining_lifecycle_and_startup_branches(
         ligand_resname=None,
         binding_pocket_cutoff_A=None,
     )
-    with patch("fastmdxplora.live.server.serve_dashboard") as serve:
+    with patch("fastmdxplora.gui.server.serve_dashboard") as serve:
         assert cli._cmd_gui(gui_args) == 0
     assert serve.call_args.kwargs["output"] == tmp_path
     assert serve.call_args.kwargs["config"].binding_pocket_cutoff_A == 5.0
 
     gui_args.no_browser = False
     with (
-        patch("fastmdxplora.live.server.serve_dashboard"),
+        patch("fastmdxplora.gui.server.serve_dashboard"),
         patch("webbrowser.open", side_effect=RuntimeError("headless")),
     ):
         assert cli._cmd_gui(gui_args) == 0
 
-    with patch("fastmdxplora.live.server.serve_dashboard") as serve_home:
+    with patch("fastmdxplora.gui.server.serve_dashboard") as serve_home:
         assert cli._cmd_dashboard_home() == 0
     assert serve_home.call_args.kwargs == {
         "output": Path.cwd(),

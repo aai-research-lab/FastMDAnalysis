@@ -1,7 +1,7 @@
 """Browser-safe trajectory playback for the live dashboard.
 
 While a run is active, playback is compiled from the rolling solvent-stripped
-PDB snapshots written by :mod:`fastmdxplora.live.live_frames`.  After the run
+PDB snapshots written by :mod:`fastmdxplora.gui.live_frames`.  After the run
 completes, the scientific DCD is read with MDTraj and downsampled to a bounded,
 solvent-stripped multi-model PDB.  Neither source is modified.
 """
@@ -17,7 +17,7 @@ from typing import Any
 
 import numpy as np
 
-from fastmdxplora.live.live_frames import read_live_frame_history
+from fastmdxplora.gui.live_frames import read_live_frame_history
 
 PLAYBACK_FILE = "playback.pdb"
 PLAYBACK_INDEX_FILE = "playback_index.json"

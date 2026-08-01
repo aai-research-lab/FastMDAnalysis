@@ -508,7 +508,7 @@ class FastMDXplora:
             return None
 
         try:
-            from fastmdxplora.live.telemetry import TelemetryWriter
+            from fastmdxplora.gui.telemetry import TelemetryWriter
 
             return TelemetryWriter(
                 self.output_dir / "simulation",
@@ -593,7 +593,7 @@ class FastMDXplora:
             state = "failed"
 
         if phase == "simulation":
-            from fastmdxplora.live.telemetry import read_status
+            from fastmdxplora.gui.telemetry import read_status
 
             status = read_status(writer.root.parent)
             stages = (

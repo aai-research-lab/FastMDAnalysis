@@ -807,7 +807,7 @@ def _start_dashboard_for_command(args: argparse.Namespace, output_dir: Path):
     os.environ["FASTMDX_DASHBOARD_ACTIVE"] = "1"
     os.environ["FASTMDX_DASHBOARD_OUTPUT"] = str(output_dir)
 
-    from fastmdxplora.live.server import (
+    from fastmdxplora.gui.server import (
         DashboardConfig,
         start_dashboard_session,
     )
@@ -1086,7 +1086,7 @@ def _missing_chemistry_backends() -> list[str]:
 
 def _cmd_gui(args: argparse.Namespace) -> int:
     """Serve the full GUI: study builder, exploration, telemetry, and viewer."""
-    from fastmdxplora.live.server import DashboardConfig, serve_dashboard
+    from fastmdxplora.gui.server import DashboardConfig, serve_dashboard
 
     output = Path(args.output) if getattr(args, "output", None) else Path.cwd()
     config = DashboardConfig(
@@ -1141,7 +1141,7 @@ def _startup_dashboard_details(argv: Sequence[str]) -> tuple[str, bool]:
 
 def _cmd_dashboard_home() -> int:
     """Start the dashboard home screen for an empty CLI invocation."""
-    from fastmdxplora.live.server import serve_dashboard
+    from fastmdxplora.gui.server import serve_dashboard
 
     serve_dashboard(
         output=Path.cwd(),

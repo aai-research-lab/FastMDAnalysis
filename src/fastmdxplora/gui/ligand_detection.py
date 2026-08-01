@@ -6,7 +6,7 @@ ligand tools. Never assumes the ligand is named "LIG" – the detection
 is residue-name driven and accepts an explicit CLI override.
 
 The water/ion residue sets live here (where they semantically belong)
-and are re-exported from :mod:`fastmdxplora.live.structure_info` so
+and are re-exported from :mod:`fastmdxplora.gui.structure_info` so
 that :func:`structure_info.count_structure` can re-use them.
 """
 
@@ -75,7 +75,7 @@ def detect_ligands(
     ----------
     residue_keys
         Iterable of (chain, resname, resi) tuples. Typically produced by
-        :mod:`fastmdxplora.live.structure_info` walking the PDB.
+        :mod:`fastmdxplora.gui.structure_info` walking the PDB.
     explicit
         Optional iterable of residue names that should always be treated
         as ligands, even if they would otherwise be filtered out

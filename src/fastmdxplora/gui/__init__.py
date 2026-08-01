@@ -1,6 +1,6 @@
 """Local live-dashboard helpers for simulation telemetry."""
 
-from fastmdxplora.live.telemetry import (
+from fastmdxplora.gui.telemetry import (
     TelemetryWriter,
     analyze_health,
     read_events,

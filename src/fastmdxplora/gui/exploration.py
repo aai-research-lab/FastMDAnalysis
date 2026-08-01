@@ -594,7 +594,7 @@ class DashboardRuntime:
         if self.active_root is None:
             return
         try:
-            from fastmdxplora.live.telemetry import TelemetryWriter, read_status
+            from fastmdxplora.gui.telemetry import TelemetryWriter, read_status
 
             status = read_status(self.active_root)
             states = status.get("stage_states")

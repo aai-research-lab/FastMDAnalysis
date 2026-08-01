@@ -20,31 +20,31 @@ from types import SimpleNamespace
 import pytest
 
 from fastmdxplora.cli.main import _build_parser, _enable_dashboard_telemetry
-from fastmdxplora.live import protein_preview
-from fastmdxplora.live.ligand_detection import detect_ligands, normalise_ligand_resname
-from fastmdxplora.live.live_frames import (
+from fastmdxplora.gui import protein_preview
+from fastmdxplora.gui.ligand_detection import detect_ligands, normalise_ligand_resname
+from fastmdxplora.gui.live_frames import (
     dashboard_display_pdb,
     read_live_frame_history,
     write_live_frame,
     write_openmm_live_frame,
 )
-from fastmdxplora.live.protein_preview import protein_preview_payload
-from fastmdxplora.live.server import (
+from fastmdxplora.gui.protein_preview import protein_preview_payload
+from fastmdxplora.gui.server import (
     DashboardConfig,
     make_handler,
     start_dashboard_session,
     start_test_server,
 )
-from fastmdxplora.live.structure_info import count_structure, ligand_atom_counts
+from fastmdxplora.gui.structure_info import count_structure, ligand_atom_counts
 from fastmdxplora.simulation.runner import _maybe_write_live_frame
-from fastmdxplora.live.telemetry import (
+from fastmdxplora.gui.telemetry import (
     TelemetryWriter,
     analyze_health,
     read_events,
     read_metrics,
     read_status,
 )
-from fastmdxplora.live.trajectory_playback import (
+from fastmdxplora.gui.trajectory_playback import (
     PlaybackUnavailable,
     neighborhood_residues,
     playback_info,
@@ -370,7 +370,7 @@ def test_playback_returns_unavailable_when_missing(tmp_path: Path) -> None:
 
 def test_playback_generation_failure_is_safe(tmp_path: Path, monkeypatch) -> None:
     # Force a failure inside the writer.
-    import fastmdxplora.live.trajectory_playback as mod
+    import fastmdxplora.gui.trajectory_playback as mod
     monkeypatch.setattr(mod, "_import_mdtraj", lambda: None)
     (tmp_path / "simulation").mkdir(parents=True)
     (tmp_path / "simulation" / "topology.pdb").write_text(_tiny_pdb(), encoding="utf-8")
@@ -459,8 +459,8 @@ def test_dashboard_display_pdb_strips_solvent_and_keeps_ligand() -> None:
 def test_dashboard_html_uses_separated_template() -> None:
     """The HTML shell lives on disk next to the module rather than as a giant f-string."""
     template_path = Path(make_handler.__module__.split(".")[0])
-    import fastmdxplora.live as live_pkg
-    layout = Path(live_pkg.__file__).with_name("templates") / "dashboard.html"
+    import fastmdxplora.gui as gui_pkg
+    layout = Path(gui_pkg.__file__).with_name("templates") / "dashboard.html"
     assert layout.is_file()
 
 
@@ -512,9 +512,9 @@ def test_dashboard_html_has_aai_branding(tmp_path: Path) -> None:
 
 
 def test_dashboard_css_uses_black_scientific_palette() -> None:
-    import fastmdxplora.live as live_pkg
+    import fastmdxplora.gui as gui_pkg
 
-    static = Path(live_pkg.__file__).with_name("static")
+    static = Path(gui_pkg.__file__).with_name("static")
     # Design tokens live in theme.css (shared with the static report);
     # dashboard.css carries the layout that consumes them.
     theme = (static / "theme.css").read_text(encoding="utf-8")
@@ -532,8 +532,8 @@ def test_dashboard_endpoint_no_inline_html_css() -> None:
     inline template — a tautology-free check.
     """
     server_path = Path(make_handler.__module__.split(".")[0])
-    import fastmdxplora.live as live_pkg
-    src = (Path(live_pkg.__file__).with_name("server.py")).read_text(encoding="utf-8")
+    import fastmdxplora.gui as gui_pkg
+    src = (Path(gui_pkg.__file__).with_name("server.py")).read_text(encoding="utf-8")
     for marker in (
         'onclick="setProteinPreviewExpanded',
         'spectrum count, rainbow, prot, byres=1',
@@ -788,8 +788,8 @@ def test_live_json_endpoints_are_sane_for_empty_run(tmp_path: Path) -> None:
 
 
 def test_static_assets_are_packaged(tmp_path: Path) -> None:
-    import fastmdxplora.live as live_pkg
-    static = Path(live_pkg.__file__).with_name("static")
+    import fastmdxplora.gui as gui_pkg
+    static = Path(gui_pkg.__file__).with_name("static")
     assert (static / "dashboard.css").is_file()
     assert (static / "dashboard.js").is_file()
     assert (static / "charts.js").is_file()
@@ -959,9 +959,9 @@ def test_artifact_download_route_sets_attachment_header(tmp_path: Path) -> None:
 
 
 def test_frontend_assets_wire_functional_dashboard_sections() -> None:
-    import fastmdxplora.live as live_pkg
+    import fastmdxplora.gui as gui_pkg
 
-    root = Path(live_pkg.__file__).parent
+    root = Path(gui_pkg.__file__).parent
     html = (root / "templates" / "dashboard.html").read_text(encoding="utf-8")
     css = (root / "static" / "dashboard.css").read_text(encoding="utf-8")
     dashboard_js = (root / "static" / "dashboard.js").read_text(encoding="utf-8")
@@ -1006,7 +1006,7 @@ def test_runner_live_frame_helper_calls_writer_with_valid_keyword(
         calls.append({"output_dir": output_dir, **kwargs})
         return {"ok": True}
 
-    import fastmdxplora.live.live_frames as live_frames_module
+    import fastmdxplora.gui.live_frames as live_frames_module
 
     monkeypatch.setattr(
         live_frames_module,
@@ -1104,9 +1104,9 @@ def test_svg_bundle_endpoint_downloads_generated_vector_figures(tmp_path: Path) 
 
 def test_dashboard_assets_include_svg_download_and_first_model_miniviewer_fix() -> None:
     root = Path(__file__).resolve().parents[1]
-    html = (root / "src" / "fastmdxplora" / "live" / "templates" / "dashboard.html").read_text(encoding="utf-8")
-    dashboard_js = (root / "src" / "fastmdxplora" / "live" / "static" / "dashboard.js").read_text(encoding="utf-8")
-    viewer_js = (root / "src" / "fastmdxplora" / "live" / "static" / "molecule-viewer.js").read_text(encoding="utf-8")
+    html = (root / "src" / "fastmdxplora" / "gui" / "templates" / "dashboard.html").read_text(encoding="utf-8")
+    dashboard_js = (root / "src" / "fastmdxplora" / "gui" / "static" / "dashboard.js").read_text(encoding="utf-8")
+    viewer_js = (root / "src" / "fastmdxplora" / "gui" / "static" / "molecule-viewer.js").read_text(encoding="utf-8")
 
     assert 'id="download-all-svg"' in html
     assert "Download SVG" in dashboard_js
@@ -1145,17 +1145,17 @@ def test_live_gui_and_static_report_share_one_theme(tmp_path: Path) -> None:
     """
     import datetime
 
-    import fastmdxplora.live as live_pkg
-    from fastmdxplora.report import dashboard as report_dashboard
+    import fastmdxplora.gui as gui_pkg
+    from fastmdxplora.gui import report_dashboard
 
-    theme = Path(live_pkg.__file__).with_name("static") / "theme.css"
+    theme = Path(gui_pkg.__file__).with_name("static") / "theme.css"
     assert theme.is_file(), "theme.css must ship with the package"
     tokens = theme.read_text(encoding="utf-8")
     assert "--background-primary" in tokens
     assert "--accent-cyan" in tokens
 
     # The GUI links it ahead of its own stylesheet.
-    template = Path(live_pkg.__file__).with_name("templates") / "dashboard.html"
+    template = Path(gui_pkg.__file__).with_name("templates") / "dashboard.html"
     shell = template.read_text(encoding="utf-8")
     assert shell.index("/static/theme.css") < shell.index("/static/dashboard.css")
 

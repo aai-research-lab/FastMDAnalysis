@@ -1,7 +1,7 @@
 """Dependency-free localhost dashboard server.
 
 The HTML shell, CSS, and JavaScript live in
-:mod:`fastmdxplora.live.templates` and :mod:`fastmdxplora.live.static`.
+:mod:`fastmdxplora.gui.templates` and :mod:`fastmdxplora.gui.static`.
 ``_dashboard_shell`` reads ``dashboard.html`` from disk on first request
 and caches the result.
 """
@@ -25,21 +25,21 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from fastmdxplora.dependencies import dependency_error_message, missing_dependencies
-from fastmdxplora.live.exploration import (
+from fastmdxplora.gui.exploration import (
     DashboardRuntime,
     build_config_yaml,
     build_exploration_command,
     exploration_defaults,
     validate_exploration_payload,
 )
-from fastmdxplora.live.ligand_detection import detect_ligands, normalise_ligand_resname
-from fastmdxplora.live.live_frames import live_frame_exists, read_live_frame_index
-from fastmdxplora.live.protein_preview import find_structure, protein_preview_payload
-from fastmdxplora.live.structure_info import count_structure, ligand_atom_counts
-from fastmdxplora.live.telemetry import analyze_health, read_events, read_metrics, read_status
-from fastmdxplora.live.trajectory_playback import playback_info
+from fastmdxplora.gui.ligand_detection import detect_ligands, normalise_ligand_resname
+from fastmdxplora.gui.live_frames import live_frame_exists, read_live_frame_index
+from fastmdxplora.gui.protein_preview import find_structure, protein_preview_payload
+from fastmdxplora.gui.structure_info import count_structure, ligand_atom_counts
+from fastmdxplora.gui.telemetry import analyze_health, read_events, read_metrics, read_status
+from fastmdxplora.gui.trajectory_playback import playback_info
 
-logger = logging.getLogger("fastmdxplora.live.server")
+logger = logging.getLogger("fastmdxplora.gui.server")
 
 PLOT_TITLE_ALIASES = {
     "rmsd": "RMSD",

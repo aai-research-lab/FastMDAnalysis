@@ -13,7 +13,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from fastmdxplora.live.ligand_detection import (
+from fastmdxplora.gui.ligand_detection import (
     AMINO_ACID_RESNAMES,
     ION_RESNAMES,
     WATER_RESNAMES,

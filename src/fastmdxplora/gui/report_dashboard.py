@@ -12,13 +12,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
-from fastmdxplora.report.context import load_phase_context
 from fastmdxplora.utils.logging import get_logger
 
 if TYPE_CHECKING:
     from fastmdxplora.orchestrator import FastMDXplora
 
-logger = get_logger("report.dashboard")
+logger = get_logger("gui.report_dashboard")
 
 SECTION_ORDER: tuple[str, ...] = (
     "Core Metrics",
@@ -314,6 +313,11 @@ def build_dashboard(
     manifest = _load_json(project_root / "manifest.json")
     analysis_manifest = _load_json(project_root / "analysis" / "analysis_manifest.json")
     sim_manifest = _load_json(project_root / "simulation" / "simulation_parameters.json")
+    # Imported here rather than at module scope: `report` imports this
+    # module to build the dashboard, so a top-level import would be
+    # circular.
+    from fastmdxplora.report.context import load_phase_context
+
     phase_context = load_phase_context(project_root)
     generated_at = datetime.now(timezone.utc)
 
@@ -407,6 +411,11 @@ def _summary_cards(
     n_atoms = analysis_manifest.get("n_atoms")
     if n_atoms is not None:
         cards.append(DashboardCard("Atom count", _format_number(n_atoms), "topology metadata"))
+
+    # Imported here rather than at module scope: `report` imports this
+    # module to build the dashboard, so a top-level import would be
+    # circular.
+    from fastmdxplora.report.context import load_phase_context
 
     phase_context = load_phase_context(project_root)
     if phase_context.simulation_present:
@@ -1197,12 +1206,12 @@ def _format_number(value: object) -> str:
 def _theme_tokens() -> str:
     """Return the shared design tokens for inlining into a static report.
 
-    The live GUI links ``live/static/theme.css``; a generated report has to
-    stand alone as a single file, so the same tokens are inlined here.
-    Reading the file rather than duplicating it keeps the two surfaces from
-    drifting apart.
+    The GUI links ``gui/static/theme.css``; a generated report has to stand
+    alone as a single file, so the same tokens are inlined here. Reading the
+    file rather than duplicating it keeps the two surfaces from drifting
+    apart.
     """
-    theme = Path(__file__).resolve().parent.parent / "live" / "static" / "theme.css"
+    theme = Path(__file__).resolve().parent / "static" / "theme.css"
     try:
         return theme.read_text(encoding="utf-8")
     except OSError:  # pragma: no cover - only if the installed package is incomplete
@@ -2076,7 +2085,7 @@ def _render_output_list(links: list[DashboardLink]) -> str:
 
 
 def _render_static_live_panel(project_root: Path) -> str:
-    from fastmdxplora.live.telemetry import analyze_health, read_metrics, read_status
+    from fastmdxplora.gui.telemetry import analyze_health, read_metrics, read_status
 
     serve_command = f"fastmdx gui --output {project_root.as_posix()}"
     escaped_command = escape(serve_command)

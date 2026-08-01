@@ -11,7 +11,7 @@ FastMDXplora/
 │       ├── cli/
 │       │   ├── __init__.py
 │       │   └── main.py            # `fastmdx` entry point (explore/xplore/setup/simulate/
-│       │                          #   analyze/report/dashboard/info/init-config)
+│       │                          #   analyze/report/gui/info/init-config)
 │       ├── setup/
 │       │   ├── pipeline.py        # Phase driver: fix, protonate, solvate, ionize
 │       │   ├── prepare.py         # Modeller assembly, ligand merge, clash checks
@@ -35,19 +35,19 @@ FastMDXplora/
 │       │   ├── run.py             # Top-level report() entry point
 │       │   ├── document.py        # Structured Markdown report
 │       │   ├── slides.py          # .pptx slide deck (with markdown fallback)
-│       │   ├── dashboard.py       # Static HTML dashboard of a completed run
 │       │   ├── summary_figure.py  # Single-figure run summary
 │       │   ├── region_highlights.py  # Per-region annotations for the report
 │       │   ├── context.py         # Shared report context
 │       │   └── bundle.py          # Self-contained .zip project archive
-│       ├── live/                  # Local GUI: builder, telemetry, viewer
+│       ├── gui/                   # All user-interface code: server, views, assets
 │       │   ├── exploration.py     # Study builder, config export, run control
 │       │   ├── server.py          # Dependency-free ThreadingHTTPServer (127.0.0.1 only)
 │       │   ├── telemetry.py       # Phase/progress telemetry feed
 │       │   ├── trajectory_playback.py, live_frames.py   # Frame streaming
 │       │   ├── protein_preview.py, structure_info.py, ligand_detection.py
-│       │   ├── static/            # dashboard.css/js, molecule-viewer.js, charts.js,
-│       │   │                      #   vendored 3Dmol.js (+ licenses), AAI logos
+│       │   ├── report_dashboard.py  # Static dashboard written into a report
+│       │   ├── static/            # theme.css (shared tokens), dashboard.css/js,
+│       │   │                      #   molecule-viewer.js, charts.js, vendored 3Dmol.js
 │       │   └── templates/         # dashboard.html
 │       ├── batch/
 │       │   ├── explorer.py        # Multi-run driver (sequential/parallel)
@@ -113,7 +113,8 @@ Three subsystems sit alongside the phases rather than inside them:
 
 - **`batch/`** runs many studies (multiple systems, parameter sweeps) and
   compares them. Each run is structurally identical to a single study.
-- **`live/`** serves a localhost dashboard that watches a run in progress.
+- **`gui/`** owns every user interface: the localhost server and browser
+  application, and the static dashboard written into a report.
   It never reimplements phase science; it observes and launches.
 - **`dependencies.py`** detects the optional chemistry backends. Missing
   backends are reported at the point of use with the exact install command,

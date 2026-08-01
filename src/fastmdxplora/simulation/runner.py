@@ -778,7 +778,7 @@ def run_simulation(
     log_fh = log_path.open("w", encoding="utf-8")
     telemetry = None
     if live_telemetry:
-        from fastmdxplora.live.telemetry import TelemetryWriter
+        from fastmdxplora.gui.telemetry import TelemetryWriter
 
         planned_frames = (
             plan["production_steps"] // trajectory_interval_steps
@@ -1058,7 +1058,7 @@ def run_simulation(
         if telemetry is not None:
             telemetry.event(f"error: {type(exc).__name__}: {exc}", level="error")
             try:
-                from fastmdxplora.live.telemetry import read_status
+                from fastmdxplora.gui.telemetry import read_status
 
                 current = str(read_status(output_dir.parent).get("stage") or "production").lower()
                 if current in {"minimization", "nvt", "npt", "production"}:
@@ -1271,7 +1271,7 @@ def _maybe_write_live_frame(
     must never terminate the run.
     """
     try:
-        from fastmdxplora.live.live_frames import write_openmm_live_frame
+        from fastmdxplora.gui.live_frames import write_openmm_live_frame
         positions_state = simulation.context.getState(
             getPositions=True, enforcePeriodicBox=True
         )

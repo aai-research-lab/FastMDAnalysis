@@ -97,10 +97,10 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 fastmdxplora = [
-    "live/static/*",
-    "live/static/**/*",
-    "live/templates/*.html",
-    "live/templates/**/*",
+    "gui/static/*",
+    "gui/static/**/*",
+    "gui/templates/*.html",
+    "gui/templates/**/*",
 ]
 
 [tool.setuptools_scm]

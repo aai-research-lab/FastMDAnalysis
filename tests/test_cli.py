@@ -268,7 +268,7 @@ def test_cli_dashboard_starts_server_and_prints_url(tmp_path: Path, capsys) -> N
     session = _FakeDashboardSession()
 
     with patch(
-        "fastmdxplora.live.server.start_dashboard_session",
+        "fastmdxplora.gui.server.start_dashboard_session",
         return_value=session,
     ) as start:
         rc = main(
@@ -307,7 +307,7 @@ def test_cli_explore_dashboard_does_not_read_missing_output_dir(
         return [SimpleNamespace(status="ok")]
 
     with patch(
-        "fastmdxplora.live.server.start_dashboard_session",
+        "fastmdxplora.gui.server.start_dashboard_session",
         return_value=session,
     ) as start, patch.object(FastMDXplora, "explore", fake_explore):
         rc = main(
@@ -340,7 +340,7 @@ def test_cli_phase_dashboard_uses_cli_output_path(tmp_path: Path) -> None:
     session = _FakeDashboardSession()
 
     with patch(
-        "fastmdxplora.live.server.start_dashboard_session",
+        "fastmdxplora.gui.server.start_dashboard_session",
         return_value=session,
     ) as start, patch.object(
         FastMDXplora,
@@ -375,7 +375,7 @@ def test_cli_dashboard_uses_cli_output_path_for_other_phases(
 
     method_name = {"simulate": "simulate", "analyze": "analyze", "report": "report"}[command]
     with patch(
-        "fastmdxplora.live.server.start_dashboard_session",
+        "fastmdxplora.gui.server.start_dashboard_session",
         return_value=session,
     ) as start, patch.object(
         FastMDXplora,
@@ -414,7 +414,7 @@ def test_cli_dashboard_prints_port_conflict_and_host_warning(
     )
 
     with patch(
-        "fastmdxplora.live.server.start_dashboard_session",
+        "fastmdxplora.gui.server.start_dashboard_session",
         return_value=session,
     ):
         rc = main(
@@ -446,7 +446,7 @@ def test_cli_dashboard_implies_live_telemetry_for_simulation(tmp_path: Path) -> 
     session = _FakeDashboardSession()
 
     with patch(
-        "fastmdxplora.live.server.start_dashboard_session",
+        "fastmdxplora.gui.server.start_dashboard_session",
         return_value=session,
     ), patch.object(
         FastMDXplora,

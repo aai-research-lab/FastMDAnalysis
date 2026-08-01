@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from fastmdxplora.dependencies import MissingDependency
-from fastmdxplora.live.exploration import (
+from fastmdxplora.gui.exploration import (
     DashboardRuntime,
     _json_mapping,
     build_exploration_command,
@@ -19,7 +19,7 @@ from fastmdxplora.live.exploration import (
     exploration_defaults,
     validate_exploration_payload,
 )
-from fastmdxplora.live.server import start_dashboard_session, start_test_server
+from fastmdxplora.gui.server import start_dashboard_session, start_test_server
 
 
 def _payload() -> dict:
@@ -94,7 +94,7 @@ def test_exploration_command_uses_module_entrypoint(tmp_path: Path) -> None:
 
 def test_exploration_environment_preflight_is_workflow_aware() -> None:
     missing = [MissingDependency("PDBFixer", "pdbfixer", "pdbfixer")]
-    with patch("fastmdxplora.live.exploration.missing_dependencies", return_value=missing):
+    with patch("fastmdxplora.gui.exploration.missing_dependencies", return_value=missing):
         detail = exploration_environment_error(_payload())
 
     assert detail is not None
@@ -103,7 +103,7 @@ def test_exploration_environment_preflight_is_workflow_aware() -> None:
 
     payload = _payload()
     payload["workflow"]["run_analysis"] = False
-    with patch("fastmdxplora.live.exploration.missing_dependencies", return_value=missing) as probe:
+    with patch("fastmdxplora.gui.exploration.missing_dependencies", return_value=missing) as probe:
         exploration_environment_error(payload)
     probe.assert_called_once_with(include_analysis=False)
 
@@ -121,8 +121,8 @@ def test_runtime_launches_without_shell(tmp_path: Path) -> None:
     )
     fake_process = SimpleNamespace(pid=42, poll=lambda: None, terminate=lambda: None)
     with (
-        patch("fastmdxplora.live.exploration.exploration_environment_error", return_value=None),
-        patch("fastmdxplora.live.exploration.subprocess.Popen", return_value=fake_process) as popen,
+        patch("fastmdxplora.gui.exploration.exploration_environment_error", return_value=None),
+        patch("fastmdxplora.gui.exploration.subprocess.Popen", return_value=fake_process) as popen,
     ):
         result = runtime.launch(_payload(), dashboard_url="http://127.0.0.1:8765")
     assert result["launched"] is True
@@ -169,8 +169,8 @@ def test_runtime_refuses_launch_when_simulation_dependencies_are_missing(
     )
     detail = "Simulation dependencies are unavailable: OpenMM, PDBFixer."
     with (
-        patch("fastmdxplora.live.exploration.exploration_environment_error", return_value=detail),
-        patch("fastmdxplora.live.exploration.subprocess.Popen") as popen,
+        patch("fastmdxplora.gui.exploration.exploration_environment_error", return_value=detail),
+        patch("fastmdxplora.gui.exploration.subprocess.Popen") as popen,
     ):
         result = runtime.launch(_payload())
     assert result["valid"] is False
@@ -279,7 +279,7 @@ def test_home_validation_reports_missing_backend_install_command(tmp_path: Path)
         )
         missing = [MissingDependency("OpenMM", "openmm.app", "openmm")]
         with patch(
-            "fastmdxplora.live.server.missing_dependencies",
+            "fastmdxplora.gui.server.missing_dependencies",
             return_value=missing,
         ):
             with urllib.request.urlopen(request) as response:
@@ -332,7 +332,7 @@ class TestBuildConfigYaml:
 
     @staticmethod
     def _config(*, setup=None, simulation=None, workflow=None, **top):
-        from fastmdxplora.live.exploration import validate_exploration_payload
+        from fastmdxplora.gui.exploration import validate_exploration_payload
 
         payload = {"system": "1L2Y", **top}
         if setup:
@@ -347,7 +347,7 @@ class TestBuildConfigYaml:
 
     def test_generated_yaml_loads_through_the_config_loader(self, tmp_path: Path) -> None:
         from fastmdxplora.config.loader import load_config_file
-        from fastmdxplora.live.exploration import build_config_yaml
+        from fastmdxplora.gui.exploration import build_config_yaml
 
         text = build_config_yaml(self._config(run_name="round trip"), tmp_path / "out")
         target = tmp_path / "study.yml"
@@ -362,7 +362,7 @@ class TestBuildConfigYaml:
     def test_phases_follow_the_workflow_selection(self, tmp_path: Path) -> None:
         import yaml
 
-        from fastmdxplora.live.exploration import build_config_yaml
+        from fastmdxplora.gui.exploration import build_config_yaml
 
         full = yaml.safe_load(build_config_yaml(self._config(), tmp_path))
         assert full["include"] == ["setup", "simulation", "analysis", "report"]
@@ -382,7 +382,7 @@ class TestBuildConfigYaml:
     def test_non_default_options_are_written(self, tmp_path: Path) -> None:
         import yaml
 
-        from fastmdxplora.live.exploration import build_config_yaml
+        from fastmdxplora.gui.exploration import build_config_yaml
 
         config = self._config(
             setup={
@@ -404,7 +404,7 @@ class TestBuildConfigYaml:
         assert doc["report"]["slides"] is False
 
     def test_header_documents_how_to_run_it(self, tmp_path: Path) -> None:
-        from fastmdxplora.live.exploration import build_config_yaml
+        from fastmdxplora.gui.exploration import build_config_yaml
 
         text = build_config_yaml(self._config(), tmp_path)
         assert text.startswith("# FastMDXplora study configuration")
@@ -413,7 +413,7 @@ class TestBuildConfigYaml:
     def test_run_name_cannot_escape_the_output_root(self, tmp_path: Path) -> None:
         import yaml
 
-        from fastmdxplora.live.exploration import build_config_yaml
+        from fastmdxplora.gui.exploration import build_config_yaml
 
         config = self._config(run_name="../../etc/passwd")
         doc = yaml.safe_load(build_config_yaml(config, tmp_path / "runs"))

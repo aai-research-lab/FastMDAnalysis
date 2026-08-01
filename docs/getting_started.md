@@ -527,7 +527,7 @@ the reproducibility record.
 
 - [Installation and troubleshooting](installation.md)
 - [CLI reference](cli_reference.md)
-- [Live dashboard](live_dashboard.md)
+- [Live dashboard](gui.md)
 - [Production and GPU runs](production.md)
 - [Configuration files and campaigns](configuration.md)
 - [The four phases](phases.md)

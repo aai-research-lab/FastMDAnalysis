@@ -244,6 +244,6 @@ requires a deliberate continuation procedure rather than a blind restart.
 ## Related pages
 
 - [Beginner's guide](getting_started.md)
-- [Live dashboard](live_dashboard.md)
+- [Live dashboard](gui.md)
 - [CLI reference](cli_reference.md)
 - [Configuration](configuration.md)
