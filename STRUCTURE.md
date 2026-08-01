@@ -4,51 +4,89 @@
 FastMDXplora/
 ├── src/
 │   └── fastmdxplora/
-│       ├── __init__.py            # Top-level exports + metadata
-│       ├── _version.py            # Written by setuptools-scm
+│       ├── __init__.py            # Top-level exports, metadata, supported Python range
+│       ├── _version.py            # Written by setuptools-scm (not committed)
 │       ├── orchestrator.py        # FastMDXplora project-level orchestrator
+│       ├── dependencies.py        # Optional-backend detection (OpenMM, PDBFixer, …)
+│       ├── install.py             # Miniforge/conda bootstrap behind `fastmdx install`
 │       ├── cli/
 │       │   ├── __init__.py
-│       │   └── main.py            # `fastmdx` entry point (explore/xplore/setup/simulate/analyze/report/info)
+│       │   └── main.py            # `fastmdx` entry point (explore/xplore/setup/simulate/
+│       │                          #   analyze/report/dashboard/install/health/info/init-config)
 │       ├── setup/
-│       │   ├── __init__.py
-│       │   └── pipeline.py        # System preparation: fix, protonate, solvate, ionize
+│       │   ├── pipeline.py        # Phase driver: fix, protonate, solvate, ionize
+│       │   ├── prepare.py         # Modeller assembly, ligand merge, clash checks
+│       │   ├── pdbfix.py          # PDBFixer wrapper
+│       │   ├── forcefields.py     # Named force-field selector
+│       │   └── ligand.py          # OpenFF small-molecule parameterization
 │       ├── simulation/
-│       │   ├── __init__.py
-│       │   └── pipeline.py        # MD simulation: minimize, NVT, NPT, production
+│       │   ├── pipeline.py        # Phase driver
+│       │   ├── runner.py          # minimize → NVT → NPT → production, reporters, platforms
+│       │   └── plumed.py          # PLUMED enhanced sampling on the production stage
 │       ├── analysis/
-│       │   ├── __init__.py
-│       │   └── analyze.py         # Analysis-level orchestrator (RMSD, RMSF, Rg, …)
+│       │   ├── orchestrator.py    # Analysis-phase orchestrator + auto-detection
+│       │   ├── analyze.py         # Top-level analyze() entry point
+│       │   ├── base.py            # Analysis base class and shared I/O
+│       │   ├── loading.py         # Trajectory/topology loading, scope and selection
+│       │   ├── plotting.py        # Shared figure style
+│       │   ├── rmsd.py rmsf.py rg.py qvalue.py sasa.py ss.py
+│       │   ├── hbonds.py dihedrals.py cluster.py dimred.py
+│       │   └── contacts.py ligand_rmsd.py ligand_rmsf.py pl_hbonds.py   # protein-ligand
 │       ├── report/
-│       │   ├── __init__.py
 │       │   ├── run.py             # Top-level report() entry point
 │       │   ├── document.py        # Structured Markdown report
 │       │   ├── slides.py          # .pptx slide deck (with markdown fallback)
+│       │   ├── dashboard.py       # Static HTML dashboard of a completed run
+│       │   ├── summary_figure.py  # Single-figure run summary
+│       │   ├── region_highlights.py  # Per-region annotations for the report
+│       │   ├── context.py         # Shared report context
 │       │   └── bundle.py          # Self-contained .zip project archive
+│       ├── live/                  # Live localhost dashboard (served during a run)
+│       │   ├── launcher.py        # Dashboard-first workflow launcher
+│       │   ├── server.py          # Dependency-free ThreadingHTTPServer (127.0.0.1 only)
+│       │   ├── telemetry.py       # Phase/progress telemetry feed
+│       │   ├── trajectory_playback.py, live_frames.py   # Frame streaming
+│       │   ├── protein_preview.py, structure_info.py, ligand_detection.py
+│       │   ├── static/            # dashboard.css/js, molecule-viewer.js, charts.js,
+│       │   │                      #   vendored 3Dmol.js (+ licenses), AAI logos
+│       │   └── templates/         # dashboard.html
+│       ├── batch/
+│       │   ├── explorer.py        # Multi-run driver (sequential/parallel)
+│       │   ├── sweep.py           # Parameter cross-product expansion
+│       │   └── compare.py         # Cross-run comparison report
+│       ├── config/
+│       │   ├── schema.py          # Config schema (single source of truth for options)
+│       │   ├── loader.py          # YAML load, merge, strict validation
+│       │   └── generate.py        # `fastmdx init-config` templates
 │       ├── datasets/
-│       │   ├── __init__.py
 │       │   └── trp_cage.py        # Reference dataset stub (from version 1)
 │       └── utils/
-│           └── __init__.py
+│           ├── logging.py         # Structured logging
+│           ├── presenter.py       # Terminal presentation layer (banner, phase output)
+│           └── native_output.py   # Terminal capability detection
+├── tests/                         # 32 modules, ~705 test functions
+├── docs/                          # Sphinx + MyST sources (Read the Docs)
+├── scripts/
+│   ├── run_pdb_smoke_campaign.py  # Multi-PDB smoke campaign
+│   └── make_benzene.py
 ├── shim-package/                  # `fastmdx` alias on PyPI
 │   ├── pyproject.toml
 │   ├── README.md
 │   └── src/fastmdx/__init__.py
-├── tests/
-│   ├── test_imports.py
-│   ├── test_orchestrator.py
-│   └── test_cli.py
-├── recipes/                       # conda-forge submission packages
+├── recipes/                       # conda-forge submission recipes
 │   ├── fastmdxplora/meta.yaml
 │   └── fastmdx-alias/meta.yaml
 ├── .github/workflows/
-│   ├── tests.yml                  # CI: matrix tests + CLI smoke test
+│   ├── tests.yml                  # CI: OS × Python matrix, CLI smoke test, coverage
 │   └── publish.yml                # PyPI trusted publishing on `v*` tag
-├── docs/
-├── examples/
-├── scripts/
+├── examples/                      # Example inputs (e.g. pdb_list.txt)
 ├── assets/
+├── fastmdx                        # Launcher for an uninstalled checkout
+├── health.py                      # Repository doctor: layout, deps, smoke test
+├── environment.yml                # conda environment for the full install
 ├── pyproject.toml                 # Primary package config
+├── pytest.ini
+├── requirements.txt
 ├── README.md
 ├── LICENSE
 ├── CITATION.cff
@@ -73,6 +111,15 @@ This continues the orchestrator pattern of **FastMDXplora version 1** (Aina & Kw
 JCC 2026), which orchestrates analysis modules within a trajectory.
 FastMDXplora applies the same pattern one level up the hierarchy.
 
+Three subsystems sit alongside the phases rather than inside them:
+
+- **`batch/`** runs many studies (multiple systems, parameter sweeps) and
+  compares them. Each run is structurally identical to a single study.
+- **`live/`** serves a localhost dashboard that watches a run in progress.
+  It never reimplements phase science; it observes and launches.
+- **`install.py` / `health.py`** handle environment bootstrap and diagnosis,
+  which matter because the chemistry stack is conda-distributed.
+
 ### Key design principles
 
 1. **Self-contained.** FastMDXplora has no runtime dependency on
@@ -81,11 +128,12 @@ FastMDXplora applies the same pattern one level up the hierarchy.
 
 2. **Intent over DAG.** Users express intent (`include=["setup", "analysis"]`,
    `exclude=["report"]`, per-phase option overrides). The workflow is
-   built-in — this is not a general-purpose workflow engine.
+   built-in, so this is not a general-purpose workflow engine.
 
 3. **Structured I/O at every phase.** Every phase writes a JSON parameters
    manifest plus its canonical artifacts. The orchestrator writes a
-   top-level `manifest.json` recording the session.
+   top-level `manifest.json` and a `resolved_config.yml` recording the
+   session exactly as it ran.
 
 4. **Lazy phase imports.** Each phase is imported only when invoked, so
    optional heavy dependencies (OpenMM, PDBFixer) do not impose a cost on
@@ -95,6 +143,11 @@ FastMDXplora applies the same pattern one level up the hierarchy.
    same module taxonomy (`rmsd`, `rmsf`, `rg`, `hbonds`, `ss`, `cluster`,
    `sasa`, `dimred`, `qvalue`, `dihedrals`) established in FastMDXplora
    version 1, now extended with protein-ligand analyses.
+
+6. **One source of truth per fact.** The config schema defines the option
+   surface for both the CLI and the Python API; `MIN_PYTHON` / `MAX_PYTHON`
+   in `__init__.py` define the supported Python range for `pyproject.toml`,
+   `environment.yml`, `install.py`, and `health.py`.
 
 ### Naming alignment
 
