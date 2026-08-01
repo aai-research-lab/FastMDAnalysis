@@ -332,9 +332,9 @@
 
     if (!activeRun) {
       setText("topbar-run-id", "workspace");
-      setText("topbar-run-title", "No active run");
+      setText("topbar-run-title", "No active exploration");
       setText("topbar-stage", "configure a simulation");
-      setText("sidebar-run-name", "No active run");
+      setText("sidebar-run-name", "No active exploration");
       setText("sidebar-platform", "—");
     }
     // Sections that only have content once a run exists are dimmed until one
@@ -345,7 +345,7 @@
       if (activeRun) {
         element.removeAttribute("title");
       } else {
-        element.setAttribute("title", "Available once a run exists in this workspace");
+        element.setAttribute("title", "Available once an exploration exists in this workspace");
       }
     });
     emit("app-state", payload || {});
@@ -406,9 +406,9 @@
       setText("topbar-temperature", "—");
       setText("sidebar-connection-state", "ready");
       setText("sidebar-platform", "—");
-      setText("sidebar-run-name", "No active run");
+      setText("sidebar-run-name", "No active exploration");
       setText("topbar-run-id", "workspace");
-      setText("topbar-run-title", "No active run");
+      setText("topbar-run-title", "No active exploration");
       return;
     }
     const statusName = String(health.state || status.status || "waiting").toLowerCase();
@@ -430,11 +430,21 @@
     setText("topbar-temperature", temperature != null ? `${formatNumber(temperature, 1)} K` : "—");
     setText("sidebar-connection-state", statusName);
     setText("sidebar-platform", status.platform || state.simManifest.platform || "not available");
-    setText("sidebar-run-name", state.runTitle);
+    setTextWithTooltip("sidebar-run-name", state.runTitle);
 
     state.runId = status.system_id || state.results?.system?.system || state.runId;
-    setText("topbar-run-id", state.runId || "system");
-    setText("topbar-run-title", state.runTitle);
+    setTextWithTooltip("topbar-run-id", state.runId || "system");
+    setTextWithTooltip("topbar-run-title", state.runTitle);
+  }
+
+  function setTextWithTooltip(id, value) {
+    // Long paths are truncated with an ellipsis, so keep the full value
+    // reachable on hover rather than losing it.
+    const element = byId(id);
+    if (!element) return;
+    const text = value == null ? "" : String(value);
+    element.textContent = text;
+    if (text) element.title = text; else element.removeAttribute("title");
   }
 
   function stateDotClass(value) {
@@ -746,12 +756,17 @@
     const cards = Array.isArray(payload.summary_cards) ? payload.summary_cards : [];
     const cardHost = byId("overview-summary-cards");
     if (cardHost) {
-      cardHost.innerHTML = cards.map((card) => `
+      cardHost.innerHTML = cards.map((card) => {
+        const value = card.value || "—";
+        // Paths get monospace at a smaller size; everything else stays large.
+        const kind = /[\\/]/.test(value) ? "path" : "text";
+        return `
         <div class="metric-card">
           <div class="metric-card-label">${escapeHTML(card.label || "")}</div>
-          <div class="metric-card-value mono">${escapeHTML(card.value || "—")}</div>
-          <div class="metric-card-unit">${escapeHTML(card.detail || "")}</div>
-        </div>`).join("");
+          <div class="metric-card-value mono" data-kind="${kind}" title="${escapeAttr(value)}">${escapeHTML(value)}</div>
+          <div class="metric-card-unit" title="${escapeAttr(card.detail || "")}">${escapeHTML(card.detail || "")}</div>
+        </div>`;
+      }).join("");
       cardHost.hidden = cards.length === 0;
     }
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from html import escape
@@ -19,43 +20,54 @@ if TYPE_CHECKING:
 
 logger = get_logger("gui.report_dashboard")
 
+# Each analysis gets its own section, in the order the analysis phase runs
+# them. Grouping several analyses under invented headings ("Core Metrics",
+# "Additional Analysis") made the placement look arbitrary: whether SASA got
+# its own heading depended on how many figures it happened to produce.
 SECTION_ORDER: tuple[str, ...] = (
-    "Core Metrics",
-    "Additional Analysis",
-    "SASA",
+    "RMSD",
+    "RMSF",
+    "Radius of Gyration",
+    "Hydrogen Bonds",
     "Secondary Structure",
-    "Dimensionality Reduction",
+    "Solvent Accessible Surface Area",
+    "Dihedrals",
+    "Q-value",
     "Clustering",
+    "Dimensionality Reduction",
+    "Ligand Pose RMSD",
+    "Ligand RMSF",
+    "Protein-Ligand Contacts",
+    "Protein-Ligand Hydrogen Bonds",
     "Region Highlights",
     "Apo/Holo Comparison",
     "Other",
 )
 
 SECTION_ANCHORS: dict[str, str] = {
-    "Core Metrics": "core-metrics",
-    "Additional Analysis": "additional-analysis",
-    "SASA": "sasa-section",
-    "Secondary Structure": "secondary-structure-section",
-    "Dimensionality Reduction": "dimensionality-reduction",
-    "Clustering": "clustering-section",
-    "Region Highlights": "region-highlights",
-    "Apo/Holo Comparison": "apo-holo-comparison",
-    "Other": "other-analysis",
+    title: re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+    for title in SECTION_ORDER
 }
 
 ANALYSIS_SECTION_BY_FOLDER: dict[str, str] = {
-    "rmsd": "Core Metrics",
-    "rmsf": "Core Metrics",
-    "rg": "Core Metrics",
-    "hbonds": "Core Metrics",
-    "sasa": "SASA",
+    "rmsd": "RMSD",
+    "rmsf": "RMSF",
+    "rg": "Radius of Gyration",
+    "hbonds": "Hydrogen Bonds",
     "ss": "Secondary Structure",
-    "dimred": "Dimensionality Reduction",
+    "sasa": "Solvent Accessible Surface Area",
+    "dihedrals": "Dihedrals",
+    "qvalue": "Q-value",
     "cluster": "Clustering",
+    "dimred": "Dimensionality Reduction",
+    "ligand_rmsd": "Ligand Pose RMSD",
+    "ligand_rmsf": "Ligand RMSF",
+    "contacts": "Protein-Ligand Contacts",
+    "pl_hbonds": "Protein-Ligand Hydrogen Bonds",
     "apo_holo": "Apo/Holo Comparison",
-    "dihedrals": "Other",
-    "qvalue": "Other",
 }
+
+
 
 DASHBOARD_ASSET_TITLE_ALIASES: dict[str, tuple[str, ...]] = {
     "RMSD": ("RMSD",),
@@ -1017,17 +1029,14 @@ def _analysis_sections(
 def _group_sparse_sections(
     grouped: dict[str, list[DashboardPanel]],
 ) -> dict[str, list[DashboardPanel]]:
-    """Move small non-core/non-clustering sections into Additional Analysis."""
-    merged = {section: list(panels) for section, panels in grouped.items()}
-    additional: list[DashboardPanel] = list(merged.get("Additional Analysis", []))
-    for section, panels in list(merged.items()):
-        if section in {"Core Metrics", "Additional Analysis", "Clustering"}:
-            continue
-        if panels and len(panels) <= 3:
-            additional.extend(panels)
-            merged[section] = []
-    merged["Additional Analysis"] = additional
-    return merged
+    """Return the grouping unchanged.
+
+    Sections used to be merged when they held three figures or fewer, which
+    meant an analysis appeared under its own name or under a catch-all
+    depending on how many plots it produced. Each analysis now keeps its own
+    section regardless of size.
+    """
+    return {section: list(panels) for section, panels in grouped.items()}
 
 
 def _discover_analysis_images(project_root: Path) -> list[Path]:

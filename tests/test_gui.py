@@ -1276,7 +1276,7 @@ def test_overview_hosts_the_report_panels(tmp_path: Path) -> None:
     # Both tables carry the statistics columns the report shows.
     assert "Std. dev." in html
     assert "Trajectory statistics" in html
-    assert "Run progress" in html
+    assert "Exploration progress" in html
 
     import fastmdxplora.gui as gui_pkg
 
@@ -1310,7 +1310,8 @@ def test_results_payload_carries_categorised_sections(tmp_path: Path) -> None:
     assert sections, "expected categorised sections"
 
     titles = {section["title"] for section in sections}
-    assert "Core Metrics" in titles
+    # Each analysis keeps its own heading rather than being pooled.
+    assert {"RMSD", "Clustering", "Dimensionality Reduction"} <= titles
 
     panels = [panel for section in sections for panel in section["panels"]]
     assert any(panel["title"] == "RMSD" for panel in panels)
@@ -1416,3 +1417,96 @@ def test_pressure_is_not_advertised_as_a_live_metric(tmp_path: Path) -> None:
         server.shutdown()
         server.server_close()
     assert 'data-metric="pressure"' not in html
+
+
+def test_each_analysis_gets_its_own_section(tmp_path: Path) -> None:
+    """Sections follow the analyses, not invented groupings.
+
+    Placement used to depend on figure count: a section holding three figures
+    or fewer was merged into "Additional Analysis", so SASA appeared under its
+    own heading or a catch-all depending on the run.
+    """
+    import json
+
+    from fastmdxplora.gui.server import _results_payload
+
+    run = tmp_path / "run"
+    (run / "analysis").mkdir(parents=True)
+    (run / "manifest.json").write_text(json.dumps({"system": "1L2Y", "phases": []}))
+    for folder, figures in {
+        "rmsd": ["rmsd"],
+        "sasa": ["sasa_total"],
+        "cluster": ["kmeans_trajectory", "kmeans_population", "dendrogram"],
+    }.items():
+        (run / "analysis" / folder).mkdir(parents=True)
+        for name in figures:
+            (run / "analysis" / folder / f"{name}.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+            (run / "analysis" / folder / f"{name}.svg").write_text("<svg/>", encoding="utf-8")
+
+    sections = {s["title"]: s for s in _results_payload(run)["analysis_sections"]}
+
+    # A one-figure analysis keeps its own heading.
+    assert "Solvent Accessible Surface Area" in sections
+    assert "RMSD" in sections
+    assert "Clustering" in sections
+    assert "Additional Analysis" not in sections
+    assert "Core Metrics" not in sections
+
+    # PNG and SVG of the same plot count once.
+    assert len(sections["RMSD"]["panels"]) == 1
+    assert len(sections["Clustering"]["panels"]) == 3
+
+    # Anchors are derived from the title, so new analyses need no extra entry.
+    assert sections["Solvent Accessible Surface Area"]["anchor"] == (
+        "solvent-accessible-surface-area"
+    )
+
+
+def test_long_paths_truncate_instead_of_wrapping() -> None:
+    """text-overflow only applies to a single unwrapped line."""
+    import fastmdxplora.gui as gui_pkg
+
+    css = (Path(gui_pkg.__file__).with_name("static") / "dashboard.css").read_text(
+        encoding="utf-8"
+    )
+    import re
+
+    for selector in (".footer-value", ".run-id", ".run-title"):
+        match = re.search(re.escape(selector) + r"\s*\{([^}]*)\}", css)
+        assert match, f"{selector} rule missing"
+        body = match.group(1)
+        if "text-overflow" in body:
+            assert "white-space: nowrap" in body, f"{selector} truncation needs nowrap"
+
+    script = (Path(gui_pkg.__file__).with_name("static") / "dashboard.js").read_text(
+        encoding="utf-8"
+    )
+    # Truncated values stay reachable on hover.
+    assert "function setTextWithTooltip(" in script
+    assert 'setTextWithTooltip("sidebar-run-name"' in script
+
+
+def test_summary_card_values_truncate_long_paths() -> None:
+    """The Output folder card holds a full path and must not wrap.
+
+    text-overflow needs white-space: nowrap to take effect, and the full value
+    is kept in the title attribute so truncation loses nothing.
+    """
+    import re
+
+    import fastmdxplora.gui as gui_pkg
+
+    css = (Path(gui_pkg.__file__).with_name("static") / "dashboard.css").read_text(
+        encoding="utf-8"
+    )
+    rule = re.search(r"\.metric-card-value\s*\{([^}]*)\}", css)
+    assert rule, ".metric-card-value rule missing"
+    body = rule.group(1)
+    assert "text-overflow: ellipsis" in body
+    assert "white-space: nowrap" in body
+
+    script = (Path(gui_pkg.__file__).with_name("static") / "dashboard.js").read_text(
+        encoding="utf-8"
+    )
+    assert 'title="${escapeAttr(value)}"' in script
+    assert 'data-kind="${kind}"' in script

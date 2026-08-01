@@ -490,12 +490,18 @@ class TestDashboard:
 
         assert result.status == "ok"
         text = (root / "report" / "dashboard.html").read_text(encoding="utf-8")
-        assert text.count('class="plot-grid"') == 1
-        assert "Additional Analysis" in text
-        assert 'id="additional-analysis"' in text
-        assert 'id="sasa-section"' not in text
-        assert 'id="secondary-structure-section"' not in text
-        assert 'id="dimensionality-reduction"' not in text
+        # SASA, secondary structure, and dimensionality reduction each keep
+        # their own section now, rather than being pooled because they hold
+        # a single figure apiece.
+        assert text.count('class="plot-grid"') == 3
+        for section in ("Solvent Accessible Surface Area", "Secondary Structure",
+                        "Dimensionality Reduction"):
+            assert section in text
+        # Each analysis anchors its own section, whatever its figure count.
+        assert 'id="solvent-accessible-surface-area"' in text
+        assert 'id="secondary-structure"' in text
+        assert 'id="dimensionality-reduction"' in text
+        assert 'id="additional-analysis"' not in text
         assert "Total SASA" in text
         assert "Secondary structure" in text
         assert "PCA" in text

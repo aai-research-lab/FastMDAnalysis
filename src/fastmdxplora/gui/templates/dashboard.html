@@ -92,7 +92,7 @@
           </div>
         </div>
         <div class="footer-row">
-          <div class="footer-label">Run</div>
+          <div class="footer-label">Exploring</div>
           <div class="footer-value" id="sidebar-run-name">not available</div>
         </div>
         <div class="footer-row">
@@ -108,7 +108,7 @@
       <header class="top-bar">
         <div class="top-bar-left">
           <div class="run-id" id="topbar-run-id">system</div>
-          <div class="run-title" id="topbar-run-title">No active run</div>
+          <div class="run-title" id="topbar-run-title">No active exploration</div>
         </div>
         <div class="top-bar-center">
           <div class="status-cluster" role="status" aria-live="polite">
@@ -170,7 +170,7 @@
                     <span class="field-error" data-error-for="system"></span>
                   </label>
                   <label class="builder-field">
-                    <span class="builder-label">Run name</span>
+                    <span class="builder-label">Exploration name</span>
                     <input type="text" id="builder-run-name" autocomplete="off" placeholder="Generated automatically">
                     <span class="field-error" data-error-for="run_name"></span>
                   </label>
@@ -354,7 +354,7 @@
           <div class="page-header">
             <div>
               <h1 class="page-title">Overview</h1>
-              <div class="page-subtitle">Health, run status, and quick actions</div>
+              <div class="page-subtitle">Health, exploration status, and quick actions</div>
             </div>
           </div>
 
@@ -364,7 +364,7 @@
             <div class="card hero-card" id="hero-card" data-state="running">
               <div class="hero-card-top">
                 <div>
-                  <div class="hero-label">Run status</div>
+                  <div class="hero-label">Exploration status</div>
                   <div class="hero-status" id="hero-status-text">not available</div>
                 </div>
                 <span class="stage-pill mono" id="hero-stage">—</span>
@@ -424,7 +424,7 @@
           <div class="grid grid-2">
             <div class="card" id="overview-phase-card" hidden>
               <div class="card-header">
-                <h2 class="card-title">Run progress</h2>
+                <h2 class="card-title">Exploration progress</h2>
               </div>
               <table class="kv-table">
                 <thead>
@@ -794,7 +794,7 @@
           </div>
 
           <div class="card summary-card" id="summary-card" hidden>
-            <div class="card-header"><h2 class="card-title">Run completed</h2></div>
+            <div class="card-header"><h2 class="card-title">Exploration completed</h2></div>
             <div class="summary-grid mono" id="summary-grid"></div>
           </div>
 
@@ -875,7 +875,7 @@
             </div>
           </div>
           <div class="card">
-            <div class="card-header"><h2 class="card-title">Run display</h2></div>
+            <div class="card-header"><h2 class="card-title">Exploration display</h2></div>
             <div class="kv-form mono">
               <label>Custom run display name
                 <input type="text" id="setting-run-name" placeholder="(auto from manifest)">

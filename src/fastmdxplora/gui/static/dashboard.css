@@ -201,6 +201,7 @@ button {
     overflow: hidden;
     text-overflow: ellipsis;
     font-family: var(--font-mono);
+    white-space: nowrap;
 }
 .status-dot {
     display: inline-block;
@@ -260,6 +261,7 @@ button {
     text-transform: uppercase;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
 }
 .top-bar-left .run-title {
     color: var(--accent-white);
@@ -267,6 +269,7 @@ button {
     font-size: 15px;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
 }
 .top-bar-center {
     display: flex;
@@ -420,6 +423,9 @@ button {
 .grid-2 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+/* Cards carry their own bottom margin; a grid of metric cards does not,
+   so give the summary row the same rhythm as the blocks around it. */
+#overview-summary-cards { margin-bottom: 16px; }
 @media (max-width: 1100px) {
     .grid-3, .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -623,6 +629,21 @@ button {
     margin-top: 4px;
     line-height: 1.2;
     transition: color var(--duration-fast) var(--ease);
+    /* Summary cards can hold a full filesystem path. Truncate rather than
+       wrap, and keep the full value in the element's title attribute. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+/* A path is unreadable at 22px in a narrow card, so shrink it to fit. */
+.metric-card-value[data-kind="path"] {
+    font-size: 13px;
+    font-family: var(--font-mono);
+}
+.metric-card-unit {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 .metric-card-unit {
     color: var(--text-muted);

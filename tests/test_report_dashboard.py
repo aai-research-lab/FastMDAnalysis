@@ -65,14 +65,14 @@ def test_static_dashboard_discovers_sections_links_and_dark_assets(tmp_path: Pat
 
     html = (root / "report" / "dashboard.html").read_text(encoding="utf-8")
     assert artifacts == ["dashboard.html"]
+    # One section per analysis; the old pooled headings are gone.
     for section in (
-        "Core Metrics",
-        "SASA",
+        "RMSD",
+        "Solvent Accessible Surface Area",
         "Secondary Structure",
         "Dimensionality Reduction",
         "Clustering",
         "Region Highlights",
-        "Other",
     ):
         assert section in html
     for link in (
