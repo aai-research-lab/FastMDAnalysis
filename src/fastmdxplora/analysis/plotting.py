@@ -33,7 +33,11 @@ if "MPLBACKEND" not in os.environ:
 import matplotlib.pyplot as plt  # noqa: E402  -- backend set above
 from matplotlib.axes import Axes  # noqa: E402
 from matplotlib.colorbar import Colorbar  # noqa: E402
-from matplotlib.ticker import FixedLocator, MaxNLocator  # noqa: E402
+from matplotlib.ticker import (  # noqa: E402
+    AutoMinorLocator,
+    FixedLocator,
+    MaxNLocator,
+)
 import numpy as np  # noqa: E402
 
 
@@ -41,17 +45,20 @@ NumericSeq = Optional[Union[Sequence[float], np.ndarray]]
 
 
 # Tableau 10 — colorblind-aware, distinct in print and on screen
+# Okabe-Ito: designed to stay distinguishable under the common forms of
+# colour vision deficiency and when printed in greyscale, which the previous
+# Tableau palette did not (its red and green converged in both cases).
 PALETTE = (
-    "#4E79A7",
-    "#F28E2B",
-    "#E15759",
-    "#76B7B2",
-    "#59A14F",
-    "#EDC948",
-    "#B07AA1",
-    "#FF9DA7",
-    "#9C755F",
-    "#BAB0AC",
+    "#0072B2",  # blue
+    "#D55E00",  # vermillion
+    "#009E73",  # bluish green
+    "#CC79A7",  # reddish purple
+    "#E69F00",  # orange
+    "#56B4E9",  # sky blue
+    "#F0E442",  # yellow
+    "#000000",  # black
+    "#8C8C8C",  # grey
+    "#7F3C8D",  # violet
 )
 
 PAPER_TICK_SIZE = 9.0
@@ -88,17 +95,36 @@ def apply_style() -> None:
             "axes.labelsize": PAPER_LABEL_SIZE,
             "axes.titlesize": PAPER_TITLE_SIZE,
             "axes.titleweight": "normal",
-            "axes.linewidth": 1.0,
-            "axes.spines.top": False,
-            "axes.spines.right": False,
+            "axes.linewidth": 0.8,
+            # A closed frame with inward ticks is the convention in most
+            # physics and chemistry journals, and it reads as more finished
+            # than open axes at figure size.
+            "axes.spines.top": True,
+            "axes.spines.right": True,
+            "axes.edgecolor": "#333333",
+            "axes.labelpad": 5.0,
             "axes.grid": True,
             "axes.axisbelow": True,
             "axes.prop_cycle": plt.cycler(color=PALETTE),
-            "grid.color": "#DDDDDD",
-            "grid.linewidth": 0.6,
+            "grid.color": "#E6E6E6",
+            "grid.linewidth": 0.5,
             "grid.linestyle": "--",
             "xtick.labelsize": PAPER_TICK_SIZE,
             "ytick.labelsize": PAPER_TICK_SIZE,
+            "xtick.direction": "in",
+            "ytick.direction": "in",
+            "xtick.top": True,
+            "ytick.right": True,
+            "xtick.minor.visible": True,
+            "ytick.minor.visible": True,
+            "xtick.major.size": 4.5,
+            "ytick.major.size": 4.5,
+            "xtick.minor.size": 2.5,
+            "ytick.minor.size": 2.5,
+            "xtick.major.width": 0.8,
+            "ytick.major.width": 0.8,
+            "xtick.minor.width": 0.6,
+            "ytick.minor.width": 0.6,
             "legend.fontsize": PAPER_TICK_SIZE,
             "legend.frameon": False,
             "figure.dpi": 100,
@@ -109,7 +135,7 @@ def apply_style() -> None:
             "savefig.edgecolor": "white",
             "savefig.transparent": False,
             "savefig.pad_inches": 0.08,
-            "lines.linewidth": 1.4,
+            "lines.linewidth": 1.6,
             "lines.markersize": 3.0,
         }
     )
@@ -258,9 +284,67 @@ def match_colorbar_font(colorbar: Colorbar, ax: Axes) -> None:
     getattr(colorbar.ax, f"{axis_name}axis").label.set_fontsize(label_size)
 
 
+def _tick_budget(ax: Axes, axis: str) -> int:
+    """How many major ticks fit on this axis without crowding.
+
+    Derived from the axes' physical size rather than a constant, so a wide
+    time series gets more ticks than a small square panel and neither ends up
+    with labels running into each other.
+    """
+    fig = ax.get_figure()
+    width_in, height_in = fig.get_size_inches()
+    box = ax.get_position()
+    inches = width_in * box.width if axis == "x" else height_in * box.height
+    # Roughly one tick per inch on x (labels are wide) and per 0.7in on y.
+    per_inch = 1.5 if axis == "x" else 2.0
+    return int(max(3, min(9, round(inches * per_inch))))
+
+
+def _has_categorical_ticks(ax: Axes, axis: str) -> bool:
+    """True when the axis carries fixed or text labels we must not relocate.
+
+    Matrices, dendrograms, and bar charts label specific positions; replacing
+    their locator would silently mislabel the data.
+    """
+    target = ax.xaxis if axis == "x" else ax.yaxis
+    if isinstance(target.get_major_locator(), FixedLocator):
+        return True
+    return any(label.get_text() and not label.get_text().lstrip("-").replace(".", "", 1).isdigit()
+               for label in target.get_ticklabels())
+
+
+def _finalise_axes(ax: Axes) -> None:
+    """Adaptive tick density and a legible legend, applied to every figure."""
+    for axis in ("x", "y"):
+        if _has_categorical_ticks(ax, axis):
+            continue
+        target = ax.xaxis if axis == "x" else ax.yaxis
+        scale = ax.get_xscale() if axis == "x" else ax.get_yscale()
+        if scale != "linear":
+            continue
+        target.set_major_locator(MaxNLocator(nbins=_tick_budget(ax, axis)))
+        target.set_minor_locator(AutoMinorLocator())
+
+    legend = ax.get_legend()
+    if legend is not None:
+        # `loc="best"` minimises overlap but cannot always avoid it on a full
+        # axes, so give the legend an opaque-enough backing to stay readable,
+        # and add headroom above the data for it to sit in.
+        frame = legend.get_frame()
+        frame.set_facecolor("white")
+        frame.set_edgecolor("none")
+        frame.set_alpha(0.85)
+        legend.set_frame_on(True)
+        if ax.get_yscale() == "linear":
+            low, high = ax.get_ylim()
+            if high > low:
+                ax.set_ylim(low, high + (high - low) * 0.12)
+
+
 def _style_all_axes(fig: plt.Figure) -> None:
     for ax in fig.axes:
         apply_slide_style(ax)
+        _finalise_axes(ax)
 
 
 def new_figure(
