@@ -704,24 +704,21 @@
       // Reuse the same card structure the flat grid uses so both routes
       // through this view look identical.
       const cards = panels.map((panel) => {
-        // When the report phase has produced a restyled chart the card shows
-        // that, and the analysis's own figure stays reachable beside it.
-        const restyled = Boolean(panel.original_href && panel.original_href !== panel.href);
+        // Show the figure the analysis produced. Those are drawn at
+        // publication settings (6.5x4.2in, 300 dpi, 9-11pt type); the report's
+        // compact restyled variant is smaller and would look different from
+        // what opening the figure gives you.
+        const figure = panel.original_href || panel.href;
         const links = [
-          `<a class="file-action" href="${escapeAttr(panel.href)}" target="_blank" rel="noopener">Open full size</a>`,
+          `<a class="file-action" href="${escapeAttr(figure)}" target="_blank" rel="noopener">Open full size</a>`,
         ];
-        if (restyled) {
-          links.push(
-            `<a class="file-action" href="${escapeAttr(panel.original_href)}" target="_blank" rel="noopener">Analysis figure</a>`
-          );
-        }
         return `
         <article class="analysis-card" data-state="complete">
           <div class="ac-header">
             <div class="ac-title">${escapeHTML(panel.title || "")}</div>
             <div class="ac-status">${escapeHTML(section.title || "")}</div>
           </div>
-          <div class="ac-frame"><img src="${escapeAttr(panel.href)}" alt="${escapeAttr(panel.title || "")}" loading="lazy"></div>
+          <div class="ac-frame"><img src="${escapeAttr(figure)}" alt="${escapeAttr(panel.title || "")}" loading="lazy"></div>
           <div class="ac-body">${escapeHTML(panel.summary || "")}</div>
           <div class="ac-footer">${links.join("")}</div>
         </article>`;

@@ -1025,7 +1025,8 @@ def _run_title(root: Path, manifest: dict[str, Any]) -> str:
         return str(title)
     system = manifest.get("system")
     if system:
-        return f"{Path(str(system)).stem} · FastMDXplora"
+        # Just the system. The product name is already in the sidebar.
+        return Path(str(system)).stem
     return root.name or "FastMDXplora Live"
 
 

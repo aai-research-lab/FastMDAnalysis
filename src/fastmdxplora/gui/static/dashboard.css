@@ -1096,7 +1096,9 @@ button {
 
 .analysis-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    /* Wide enough that a 6.5x4.2in publication figure stays readable rather
+       than being scaled down to a thumbnail. */
+    grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
     gap: 16px;
 }
 .analysis-card {
@@ -1136,7 +1138,10 @@ button {
 .analysis-card[data-state="failed"] .ac-status { color: var(--accent-red); }
 .analysis-card[data-state="skipped"] .ac-status { color: var(--text-muted); }
 .analysis-card .ac-frame {
-    height: 180px;
+    /* Match the 6.5:4.2 aspect of the figures so nothing is letterboxed. */
+    aspect-ratio: 6.5 / 4.2;
+    height: auto;
+    min-height: 220px;
     background: rgba(255,255,255,0.02);
     border-bottom: 1px solid var(--border-subtle);
     overflow: hidden;

@@ -1366,3 +1366,53 @@ def test_analysis_view_hosts_sections_and_quick_actions(tmp_path: Path) -> None:
     )
     assert "function renderAnalysisSections(" in script
     assert "renderAnalysisSections(payload);" in script
+
+
+def test_run_title_does_not_repeat_the_product_name(tmp_path: Path) -> None:
+    """The sidebar already says FastMDXplora; the run heading names the system."""
+    from fastmdxplora.gui.server import _run_title
+
+    assert _run_title(tmp_path, {"system": "1L2Y"}) == "1L2Y"
+    assert _run_title(tmp_path, {"system": "/data/protein.pdb"}) == "protein"
+    # An explicit report title still wins.
+    assert (
+        _run_title(tmp_path, {"system": "1L2Y", "options": {"report": {"title": "T4L apo"}}})
+        == "T4L apo"
+    )
+
+
+def test_analysis_cards_show_the_publication_figure() -> None:
+    """Cards display the figure the analysis wrote, not a second rendering.
+
+    The analyses draw at publication settings; the report's compact variant is
+    smaller, so showing it in the card would differ from what opening the
+    figure gives you.
+    """
+    import fastmdxplora.gui as gui_pkg
+
+    script = (Path(gui_pkg.__file__).with_name("static") / "dashboard.js").read_text(
+        encoding="utf-8"
+    )
+    assert "const figure = panel.original_href || panel.href;" in script
+    assert "Analysis figure</a>" not in script
+
+    css = (Path(gui_pkg.__file__).with_name("static") / "dashboard.css").read_text(
+        encoding="utf-8"
+    )
+    # A 180px-tall frame scaled a 1950px-wide figure to about 14%, which made
+    # axis labels illegible regardless of source DPI.
+    assert "aspect-ratio: 6.5 / 4.2;" in css
+    assert "minmax(440px, 1fr)" in css
+
+
+def test_pressure_is_not_advertised_as_a_live_metric(tmp_path: Path) -> None:
+    """OpenMM's StateDataReporter cannot report pressure, so no card claims it."""
+    run = tmp_path / "run"
+    run.mkdir()
+    server, base_url = start_test_server(run)
+    try:
+        html = urlopen(f"{base_url}/", timeout=5).read().decode("utf-8")
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert 'data-metric="pressure"' not in html
