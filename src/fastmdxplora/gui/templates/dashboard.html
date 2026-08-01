@@ -358,6 +358,9 @@
               <div class="page-subtitle">Health, run status, and quick actions</div>
             </div>
           </div>
+
+          <div class="grid grid-4 metric-cards" id="overview-summary-cards" hidden></div>
+
           <div class="grid grid-2">
             <div class="card hero-card" id="hero-card" data-state="running">
               <div class="hero-card-top">
@@ -417,6 +420,31 @@
               <li class="stage-step" data-stage="analysis"><span class="stage-marker"></span><span class="stage-label">Analysis</span></li>
               <li class="stage-step" data-stage="report"><span class="stage-marker"></span><span class="stage-label">Report</span></li>
             </ol>
+          </div>
+
+          <div class="grid grid-2">
+            <div class="card" id="overview-phase-card" hidden>
+              <div class="card-header">
+                <h2 class="card-title">Run progress</h2>
+              </div>
+              <table class="kv-table">
+                <thead>
+                  <tr><th>Phase</th><th>Status</th><th>Detail</th></tr>
+                </thead>
+                <tbody id="overview-phase-rows"></tbody>
+              </table>
+            </div>
+            <div class="card" id="overview-stats-card" hidden>
+              <div class="card-header">
+                <h2 class="card-title">Trajectory statistics</h2>
+              </div>
+              <table class="kv-table">
+                <thead>
+                  <tr><th>Metric</th><th>Average</th><th>Std. dev.</th><th>Unit</th></tr>
+                </thead>
+                <tbody id="overview-stat-rows"></tbody>
+              </table>
+            </div>
           </div>
 
           <div class="grid grid-3 metric-cards" id="overview-metric-cards">

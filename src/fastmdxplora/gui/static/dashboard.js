@@ -672,11 +672,55 @@
 
     renderTopBar(state.status, state.health);
     renderStageTimeline(state.status);
+    renderReportPanels(payload);
     renderAnalysis(payload);
     renderFiles(payload);
     renderRunSummary(payload);
     renderSimulationTab(state.structureInfo || {});
     emit("results-updated", payload);
+  }
+
+  function renderReportPanels(payload) {
+    // Summary cards, phase progress, and trajectory statistics come from the
+    // same computation the generated report uses, so both surfaces agree.
+    const cards = Array.isArray(payload.summary_cards) ? payload.summary_cards : [];
+    const cardHost = byId("overview-summary-cards");
+    if (cardHost) {
+      cardHost.innerHTML = cards.map((card) => `
+        <div class="metric-card">
+          <div class="metric-card-label">${escapeHTML(card.label || "")}</div>
+          <div class="metric-card-value mono">${escapeHTML(card.value || "—")}</div>
+          <div class="metric-card-unit">${escapeHTML(card.detail || "")}</div>
+        </div>`).join("");
+      cardHost.hidden = cards.length === 0;
+    }
+
+    const phases = Array.isArray(payload.phase_rows) ? payload.phase_rows : [];
+    const phaseHost = byId("overview-phase-rows");
+    const phaseCard = byId("overview-phase-card");
+    if (phaseHost) {
+      phaseHost.innerHTML = phases.map((row) => `
+        <tr>
+          <td>${escapeHTML(row.name || "")}</td>
+          <td><span class="stage-pill">${escapeHTML(row.status || "")}</span></td>
+          <td class="muted">${escapeHTML(row.detail || "")}</td>
+        </tr>`).join("");
+    }
+    if (phaseCard) phaseCard.hidden = phases.length === 0;
+
+    const stats = Array.isArray(payload.metric_rows) ? payload.metric_rows : [];
+    const statHost = byId("overview-stat-rows");
+    const statCard = byId("overview-stats-card");
+    if (statHost) {
+      statHost.innerHTML = stats.map((row) => `
+        <tr>
+          <td>${escapeHTML(row.metric || "")}</td>
+          <td class="mono">${escapeHTML(row.average || "—")}</td>
+          <td class="mono">${escapeHTML(row.stddev || "—")}</td>
+          <td class="muted">${escapeHTML(row.unit || "")}</td>
+        </tr>`).join("");
+    }
+    if (statCard) statCard.hidden = stats.length === 0;
   }
 
   function renderAnalysis(payload) {

@@ -1249,3 +1249,39 @@ def test_report_panels_never_break_the_dashboard(tmp_path: Path) -> None:
     payload = _results_payload(run)
     assert payload["summary_cards"] == [] or isinstance(payload["summary_cards"], list)
     assert "artifacts" in payload
+
+
+def test_overview_hosts_the_report_panels(tmp_path: Path) -> None:
+    """Overview has containers for the summary cards, phases, and statistics.
+
+    These mirror what the generated report shows, so the browser is no longer
+    the poorer of the two surfaces.
+    """
+    run = tmp_path / "run"
+    run.mkdir()
+    server, base_url = start_test_server(run)
+    try:
+        html = urlopen(f"{base_url}/", timeout=5).read().decode("utf-8")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    for container in (
+        'id="overview-summary-cards"',
+        'id="overview-phase-rows"',
+        'id="overview-stat-rows"',
+    ):
+        assert container in html
+
+    # Both tables carry the statistics columns the report shows.
+    assert "Std. dev." in html
+    assert "Trajectory statistics" in html
+    assert "Run progress" in html
+
+    import fastmdxplora.gui as gui_pkg
+
+    script = (Path(gui_pkg.__file__).with_name("static") / "dashboard.js").read_text(
+        encoding="utf-8"
+    )
+    assert "function renderReportPanels(" in script
+    assert "renderReportPanels(payload);" in script
