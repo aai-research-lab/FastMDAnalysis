@@ -48,6 +48,15 @@ pdb_smoke_campaign
 api
 ```
 
+```{toctree}
+:caption: Project
+:hidden:
+
+GitHub repository <https://github.com/aai-research-lab/FastMDXplora>
+PyPI <https://pypi.org/project/fastmdxplora/>
+Paper (JCC 2026) <https://doi.org/10.1002/jcc.70350>
+```
+
 ## Quick links
 
 - [GitHub repository](https://github.com/aai-research-lab/FastMDXplora)

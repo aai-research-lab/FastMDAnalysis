@@ -31,6 +31,9 @@ myst_enable_extensions = [
     "deflist",
 ]
 
+# Generate anchors for headings so pages can link to their own sections.
+myst_heading_anchors = 3
+
 autodoc_default_options = {
     "members": True,
     "undoc-members": True,
@@ -64,3 +67,19 @@ exclude_patterns = ["_build", "design"]
 
 html_theme = "sphinx_rtd_theme"
 html_static_path = ["_static"]
+
+html_theme_options = {
+    "style_external_links": True,
+    "collapse_navigation": False,
+    "navigation_depth": 2,
+}
+
+# Puts a "View page source" / "Edit on GitHub" link in the header of every
+# page, so the repository is one click away from anywhere in the docs.
+html_context = {
+    "display_github": True,
+    "github_user": "aai-research-lab",
+    "github_repo": "FastMDXplora",
+    "github_version": "main",
+    "conf_py_path": "/docs/",
+}
