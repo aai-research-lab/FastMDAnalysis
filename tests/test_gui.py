@@ -1179,3 +1179,73 @@ def test_live_gui_and_static_report_share_one_theme(tmp_path: Path) -> None:
     # The superseded navy palette must not reappear.
     assert "#07101b" not in html
     assert "var(--bg)" not in html
+
+
+def test_results_payload_carries_report_panels(tmp_path: Path) -> None:
+    """The GUI and the static report show the same numbers.
+
+    Summary cards, metric statistics, and phase rows are computed once in
+    ``gui.report_dashboard`` and served to the browser, rather than the two
+    surfaces calculating them independently and drifting.
+    """
+    import json
+
+    from fastmdxplora.gui.server import _results_payload
+
+    run = tmp_path / "run"
+    (run / "analysis").mkdir(parents=True)
+    (run / "simulation").mkdir(parents=True)
+    (run / "manifest.json").write_text(
+        json.dumps(
+            {
+                "system": "1L2Y",
+                "phases": [
+                    {
+                        "name": "setup",
+                        "status": "ok",
+                        "started_at": "2026-08-01T00:00:00+00:00",
+                        "finished_at": "2026-08-01T00:00:06+00:00",
+                    },
+                    {
+                        "name": "simulation",
+                        "status": "ok",
+                        "started_at": "2026-08-01T00:00:06+00:00",
+                        "finished_at": "2026-08-01T00:01:06+00:00",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run / "analysis" / "analysis_manifest.json").write_text(
+        json.dumps({"n_frames": 8, "n_atoms": 5080}), encoding="utf-8"
+    )
+    (run / "simulation" / "simulation_parameters.json").write_text(
+        json.dumps({"parameters": {"temperature_K": 300.0, "production_steps": 400}}),
+        encoding="utf-8",
+    )
+
+    payload = _results_payload(run)
+
+    labels = {card["label"] for card in payload["summary_cards"]}
+    assert {"Project status", "Phases completed", "Frames", "Atom count"} <= labels
+
+    phases = {row["name"]: row["status"] for row in payload["phase_rows"]}
+    assert phases["Setup"] == "ok"
+    assert phases["Analysis"] == "not-run"
+
+    metrics = {row["metric"] for row in payload["metric_rows"]}
+    assert "Frame count" in metrics
+
+
+def test_report_panels_never_break_the_dashboard(tmp_path: Path) -> None:
+    """A malformed run must not take the whole payload down."""
+    from fastmdxplora.gui.server import _results_payload
+
+    run = tmp_path / "broken"
+    run.mkdir()
+    (run / "manifest.json").write_text("{not json", encoding="utf-8")
+
+    payload = _results_payload(run)
+    assert payload["summary_cards"] == [] or isinstance(payload["summary_cards"], list)
+    assert "artifacts" in payload

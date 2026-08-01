@@ -706,6 +706,44 @@ def _compact_path(path: str, *, keep: int = 2) -> str:
     return ".../" + "/".join(parts[-keep:])
 
 
+
+def _report_panels(root: Path) -> dict[str, Any]:
+    """Summary cards and metric statistics, shared with the static report.
+
+    These are computed by :mod:`fastmdxplora.gui.report_dashboard`, which the
+    report phase already uses, so the browser and the generated report show
+    the same numbers rather than two independent calculations.
+    """
+    from dataclasses import asdict
+
+    from fastmdxplora.gui.report_dashboard import (
+        _metric_rows,
+        _phase_rows,
+        _summary_cards,
+    )
+
+    manifest = _load_json(root / "manifest.json")
+    analysis_manifest = _load_json(root / "analysis" / "analysis_manifest.json")
+    sim_manifest = _load_json(root / "simulation" / "simulation_parameters.json")
+    try:
+        cards = _summary_cards(
+            project_root=root,
+            manifest=manifest,
+            analysis_manifest=analysis_manifest,
+            sim_manifest=sim_manifest,
+        )
+        metrics = _metric_rows(root, analysis_manifest)
+        phases = _phase_rows(manifest)
+    except Exception:  # noqa: BLE001 - a panel must never break the dashboard
+        logger.debug("report panels unavailable", exc_info=True)
+        return {"summary_cards": [], "metric_rows": [], "phase_rows": []}
+    return {
+        "summary_cards": [asdict(card) for card in cards],
+        "metric_rows": [asdict(row) for row in metrics],
+        "phase_rows": [asdict(row) for row in phases],
+    }
+
+
 def _results_payload(root: Path) -> dict[str, Any]:
     artifacts = _artifact_records(root)
     by_path = {record["path"]: record for record in artifacts}
@@ -745,6 +783,7 @@ def _results_payload(root: Path) -> dict[str, Any]:
         "svg_bundle_href": "/analysis-figures-svg.zip",
         "reports": reports,
         "artifacts": artifacts,
+        **_report_panels(root),
     }
 
 
