@@ -22,7 +22,7 @@ fastmdx explore --system 1L2Y --output runs/first_smoke \
 ```
 
 Then use the same output directory with `--dashboard` for live monitoring or
-`fastmdx dashboard serve --output ...` to reopen an existing run. For long
+`fastmdx gui --output ...` to reopen an existing run. For long
 GPU jobs, read [Production and GPU runs](production.md) first.
 
 ```{toctree}

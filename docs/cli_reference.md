@@ -13,11 +13,11 @@ the console script is not on your `PATH`, replace `fastmdx` with
 fastmdx info
 fastmdx explore --system 1L2Y
 fastmdx explore --system protein.pdb --dashboard
-fastmdx dashboard serve --output ./fastmdxplora_output_20260730
+fastmdx gui --output ./fastmdxplora_output_20260730
 ```
 
 `explore` runs `setup → simulation → analysis → report`. The `xplore` alias
-does the same thing. `dashboard serve` reopens an existing output directory;
+does the same thing. `gui --output DIR` reopens an existing output directory;
 it does not run a new simulation.
 
 ## Input and output

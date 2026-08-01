@@ -210,12 +210,11 @@ def test_pymol_script_uses_padded_uncropped_camera(tmp_path: Path, monkeypatch) 
     assert "dpi=300" in script
 
 
-def test_dashboard_serve_command_parses() -> None:
+def test_gui_command_parses() -> None:
     args = _build_parser().parse_args(
-        ["dashboard", "serve", "--output", "local_runs/my_run", "--port", "8766"]
+        ["gui", "--output", "local_runs/my_run", "--port", "8766"]
     )
-    assert args.command == "dashboard"
-    assert args.dashboard_command == "serve"
+    assert args.command == "gui"
     assert args.output == "local_runs/my_run"
     assert args.port == 8766
 

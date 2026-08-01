@@ -56,7 +56,7 @@
         <div class="nav-heading">Workspace</div>
         <a href="#builder" class="nav-link" data-view-link="builder">
           <span class="nav-icon nav-icon-launch" aria-hidden="true"></span>
-          <span>New Simulation</span>
+          <span>New Exploration</span>
         </a>
         <a href="#" class="nav-link" data-view-link="overview">
           <span class="nav-icon" aria-hidden="true"></span>
@@ -155,7 +155,7 @@
         <section class="page" data-page="builder" hidden>
           <div class="page-header builder-page-header">
             <div>
-              <h1 class="page-title">New Simulation</h1>
+              <h1 class="page-title">New Exploration</h1>
               <div class="page-subtitle">Configure and launch the standard FastMDXplora workflow from this dashboard.</div>
             </div>
             <div class="builder-run-state" id="builder-run-state" data-state="idle">
@@ -350,7 +350,8 @@
                 <div class="builder-actions">
                   <button type="button" class="ghost-btn" id="builder-reset">Reset defaults</button>
                   <button type="button" class="ghost-btn" id="builder-validate">Validate</button>
-                  <button type="submit" class="primary-btn" id="builder-launch">Launch Simulation</button>
+                  <button type="button" class="ghost-btn" id="builder-download-config">Save config file</button>
+                  <button type="submit" class="primary-btn" id="builder-explore">Start Exploration</button>
                   <button type="button" class="danger-btn" id="builder-stop" hidden>Stop Workflow</button>
                 </div>
                 <div class="builder-message" id="builder-message" role="status" aria-live="polite"></div>

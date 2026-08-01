@@ -81,7 +81,7 @@ project bundle.
 
 Key outputs: `report.md`, `dashboard.html`, `slides.pptx`,
 `project_bundle.zip`, dashboard assets, and report metadata. The static
-dashboard can be opened directly, while `fastmdx dashboard serve --output
+dashboard can be opened directly, while `fastmdx gui --output
 <run>` provides the live local view for an existing run.
 
 ## Output layout

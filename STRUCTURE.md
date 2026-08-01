@@ -40,8 +40,8 @@ FastMDXplora/
 │       │   ├── region_highlights.py  # Per-region annotations for the report
 │       │   ├── context.py         # Shared report context
 │       │   └── bundle.py          # Self-contained .zip project archive
-│       ├── live/                  # Live localhost dashboard (served during a run)
-│       │   ├── launcher.py        # Dashboard-first workflow launcher
+│       ├── live/                  # Local GUI: builder, telemetry, viewer
+│       │   ├── exploration.py     # Study builder, config export, run control
 │       │   ├── server.py          # Dependency-free ThreadingHTTPServer (127.0.0.1 only)
 │       │   ├── telemetry.py       # Phase/progress telemetry feed
 │       │   ├── trajectory_playback.py, live_frames.py   # Frame streaming

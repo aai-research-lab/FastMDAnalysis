@@ -25,11 +25,12 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from fastmdxplora.dependencies import dependency_error_message, missing_dependencies
-from fastmdxplora.live.launcher import (
+from fastmdxplora.live.exploration import (
     DashboardRuntime,
-    build_launcher_command,
-    launcher_defaults,
-    validate_launcher_payload,
+    build_config_yaml,
+    build_exploration_command,
+    exploration_defaults,
+    validate_exploration_payload,
 )
 from fastmdxplora.live.ligand_detection import detect_ligands, normalise_ligand_resname
 from fastmdxplora.live.live_frames import live_frame_exists, read_live_frame_index
@@ -184,7 +185,7 @@ def make_handler(
     root = Path(project_root).resolve()
     app_runtime = runtime or DashboardRuntime(
         workspace_root=root,
-        launch_root=root.parent,
+        exploration_root=root.parent,
         active_root=root,
     )
     cfg = config or DashboardConfig()
@@ -205,7 +206,7 @@ def make_handler(
         def do_POST(self) -> None:  # noqa: N802 - stdlib API
             try:
                 self._dispatch_post()
-            except Exception as exc:  # noqa: BLE001 — launcher errors stay local
+            except Exception as exc:  # noqa: BLE001 - exploration errors stay local
                 logger.warning("dashboard POST route failed: %s", exc)
                 self._send_json(
                     {"ok": False, "error": "Dashboard request failed."},
@@ -219,11 +220,11 @@ def make_handler(
             if path in {"/", "/index", "/results", "/live"}:
                 self._send_html(html)
                 return
-            if path == "/api/app-state" or path == "/api/launcher/state":
+            if path == "/api/app-state" or path == "/api/explore/state":
                 self._send_json(app_runtime.snapshot())
                 return
-            if path == "/api/launcher/defaults":
-                self._send_json(launcher_defaults())
+            if path == "/api/explore/defaults":
+                self._send_json(exploration_defaults())
                 return
             if path == "/api/status":
                 status = read_status(root)
@@ -326,9 +327,9 @@ def make_handler(
             parsed = urlparse(self.path)
             path = parsed.path
             if not allow_control and path in {
-                "/api/launcher/validate",
-                "/api/launcher/launch",
-                "/api/launcher/stop",
+                "/api/explore/validate",
+                "/api/explore/start",
+                "/api/explore/stop",
             }:
                 self._send_json(
                     {
@@ -342,13 +343,13 @@ def make_handler(
                 )
                 return
             payload = self._read_json_body()
-            if path == "/api/launcher/validate":
-                result = validate_launcher_payload(payload)
+            if path == "/api/explore/validate":
+                result = validate_exploration_payload(payload)
                 if result.get("valid"):
                     config_payload = result["config"]
-                    output_dir = app_runtime.launch_root / str(config_payload["run_name"])
+                    output_dir = app_runtime.exploration_root / str(config_payload["run_name"])
                     result["output"] = str(output_dir)
-                    result["command"] = build_launcher_command(config_payload, output_dir)
+                    result["command"] = build_exploration_command(config_payload, output_dir)
                     workflow = config_payload.get("workflow", {})
                     missing = missing_dependencies(
                         include_analysis=bool(workflow.get("run_analysis"))
@@ -357,12 +358,25 @@ def make_handler(
                         result["environment_error"] = dependency_error_message(missing)
                 self._send_json(result, status=200 if result.get("valid") else 422)
                 return
-            if path == "/api/launcher/launch":
+            if path == "/api/explore/config":
+                result = validate_exploration_payload(payload)
+                if not result.get("valid", True) or result.get("errors"):
+                    self._send_json(result, status=422)
+                    return
+                config_payload = result["config"]
+                run_name = str(config_payload["run_name"])
+                output_dir = app_runtime.exploration_root / run_name
+                self._send_json({
+                    "filename": f"{run_name}.yml",
+                    "yaml": build_config_yaml(config_payload, output_dir),
+                })
+                return
+            if path == "/api/explore/start":
                 dashboard_url = self.headers.get("Origin")
                 result = app_runtime.launch(payload, dashboard_url=dashboard_url)
                 self._send_json(result, status=201 if result.get("launched") else 422)
                 return
-            if path == "/api/launcher/stop":
+            if path == "/api/explore/stop":
                 self._send_json(app_runtime.stop())
                 return
             self.send_error(404, "Not found")
@@ -558,7 +572,7 @@ def serve_dashboard(
     port: int = 8765,
     config: DashboardConfig | None = None,
     home_mode: bool = False,
-    launch_root: str | Path | None = None,
+    exploration_root: str | Path | None = None,
 ) -> None:
     session = start_dashboard_session(
         output=output,
@@ -566,7 +580,7 @@ def serve_dashboard(
         port=port,
         config=config,
         home_mode=home_mode,
-        launch_root=launch_root,
+        exploration_root=exploration_root,
     )
     print(f"Live dashboard running at {session.url}")
     if session.port_was_changed:
@@ -592,14 +606,14 @@ def start_dashboard_session(
     max_port_tries: int = 50,
     config: DashboardConfig | None = None,
     home_mode: bool = False,
-    launch_root: str | Path | None = None,
+    exploration_root: str | Path | None = None,
 ) -> DashboardSession:
     """Start the local dashboard server in a background thread."""
     root = Path(output).resolve()
     root.mkdir(parents=True, exist_ok=True)
     runtime = DashboardRuntime(
         workspace_root=root,
-        launch_root=Path(launch_root).resolve() if launch_root is not None else root.parent,
+        exploration_root=Path(exploration_root).resolve() if exploration_root is not None else root.parent,
         active_root=None if home_mode else root,
     )
     requested_port = int(port)
@@ -648,7 +662,7 @@ def start_test_server(
     root = Path(project_root).resolve()
     runtime = DashboardRuntime(
         workspace_root=root,
-        launch_root=root.parent,
+        exploration_root=root.parent,
         active_root=None if home_mode else root,
     )
     handler = make_handler(root, config=config, runtime=runtime)

@@ -13,7 +13,7 @@ results = study.explore()
 The Python API runs the same setup, simulation, analysis, and report engine as
 the CLI. It does not need a separate Python dashboard implementation: enable
 simulation telemetry in `options`, then serve the resulting output with
-`fastmdx dashboard serve --output <run>` from another terminal. See the
+`fastmdx gui --output <run>` from another terminal. See the
 [Beginner's guide](getting_started.md) for a complete example.
 
 ## FastMDXplora

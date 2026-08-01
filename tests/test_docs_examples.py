@@ -43,7 +43,7 @@ from scripts.run_pdb_smoke_campaign import build_parser as build_campaign_parser
         ),
         "analyze --output ./trpcage_study --analyses rmsd rg --selection 'name CA'",
         "report --output ./trpcage_study --no-slides --dashboard",
-        "dashboard serve --output ./trpcage_study --port 8765",
+        "gui --output ./trpcage_study --port 8765",
         "init-config --minimal -o study.yml",
         "info",
     ],

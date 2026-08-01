@@ -15,8 +15,14 @@ one command, and the analysis phase can reproduce the settings published in
 FastMDXplora version 1.
 
 ### Added
-- **Live dashboard.** A dependency-free localhost server (`fastmdx dashboard
-  serve`) that watches a project output directory while a run is in progress:
+- **Graphical interface.** `fastmdx gui` opens a local browser interface with
+  sections for building a study, launching it, watching it run, viewing the
+  structure and trajectory, and browsing results.
+- **Config files from the GUI.** The study builder can save its selection as a
+  FastMDXplora `.yml` config instead of launching, so a study designed in the
+  browser can be run anywhere, including on a cluster where the GUI cannot run.
+- **Live telemetry view.** A dependency-free localhost server that watches a
+  project output directory while an exploration is in progress:
   phase telemetry, live trajectory frames, an interactive 3D molecular viewer,
   playback controls, and per-analysis charts. It observes and launches runs;
   it does not reimplement any phase science.
@@ -30,14 +36,18 @@ FastMDXplora version 1.
   the pipeline across many structures, with accompanying documentation.
 - **Report additions:** region highlights and a single-figure run summary.
 - **Python 3.13 support** across the whole supported range (3.9 to 3.13).
-- **Documentation:** a beginner's guide, a CLI reference, a live-dashboard
-  guide, a production-run guide, region-highlight and smoke-campaign pages,
+- **Documentation:** a beginner's guide, a CLI reference, a GUI and
+  live-dashboard guide including the rsync pattern for monitoring cluster
+  runs, a production-run guide, region-highlight and smoke-campaign pages,
   plus a substantially expanded installation guide.
 - Terminal banner and a reworked presentation layer for phase output.
 
 ### Changed
-- The CLI launches the dashboard home when invoked with no arguments, and
-  workflow commands can start the live dashboard directly.
+- **Explorer nomenclature throughout.** The GUI starts an *exploration* rather
+  than launching a job: `Start Exploration` in the interface, `/api/explore/*`
+  endpoints, and `fastmdxplora.live.exploration` in the Python API.
+- The CLI opens the GUI home when invoked with no arguments, and workflow
+  commands can start the live view directly.
 - `bootstrap.py` is now `install.py`, matching the command it backs.
 - CI runs on Python 3.9 through 3.13 across Linux, macOS, and Windows, with
   actions updated to Node 24 compatible versions.
@@ -65,6 +75,8 @@ FastMDXplora version 1.
   installation guide.
 - The `health` subcommand and the repository doctor script. `info` reports
   backend status, and missing backends are detected at the point of use.
+- The `dashboard` subcommand. `fastmdx gui --output DIR` opens the same
+  interface pointed at an existing run.
 
 ## [2.0.0] — 2026-05-25
 

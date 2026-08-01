@@ -4,6 +4,22 @@ For the shortest beginner path, start with [Beginner's guide](getting_started.md
 For GPU validation, staging, and checkpoint recovery, see
 [Production and GPU runs](production.md).
 
+## Opening the GUI
+
+```bash
+fastmdx gui
+```
+
+That serves the graphical interface on <http://127.0.0.1:8765> and opens a
+browser. The GUI is the umbrella for everything described on this page: a
+study builder that writes a config file or launches a run, live telemetry, the
+molecular viewer, analysis results, and a file browser. Pass `--output DIR` to
+open an existing run, `--port` to change the port, and `--no-browser` to skip
+opening a window.
+
+Use `--output DIR` to reopen a specific run rather than the current
+directory.
+
 FastMDXplora has two dashboard views:
 
 - **Results Dashboard**: the static `report/dashboard.html` written after
@@ -156,14 +172,75 @@ after the workflow finishes.
 You can still reopen an existing output directory without running a workflow:
 
 ```bash
-fastmdx dashboard serve --output local_runs/my_run
+fastmdx gui --output local_runs/my_run
 ```
 
 If the `fastmdx` console script is not on PATH:
 
 ```bash
-python -m fastmdxplora.cli.main dashboard serve --output local_runs/my_run
+python -m fastmdxplora.cli.main gui --output local_runs/my_run
 ```
+
+## Saving a config file instead of launching
+
+The **Builder** section collects the same options the CLI accepts. Two buttons
+act on that selection:
+
+- **Start Exploration** starts the run immediately on this machine.
+- **Save config file** downloads a `.yml` study configuration instead.
+
+The saved file is the canonical FastMDXplora config format, so it runs
+anywhere:
+
+```bash
+fastmdx explore --config my_run.yml
+```
+
+This is the route to use when the machine that will run the simulation is not
+the machine with the browser. Design the study in the GUI on your laptop, save
+the config, copy it to a workstation or cluster, and submit it there. The file
+is also worth keeping alongside the results: it records exactly what was run,
+and command-line flags override it, so one file can drive a family of related
+runs.
+
+## Watching a run on a cluster
+
+The GUI binds to `127.0.0.1` and serves a browser interface, so it cannot be
+used directly on a compute node reached through a batch scheduler. There is no
+browser there, the node is usually not addressable, and the exploration layer is
+meaningless when the scheduler owns job submission.
+
+Telemetry is written to plain files inside the output directory, so the
+practical pattern is to sync the output directory to a machine that does have a
+browser, and point the GUI at the copy:
+
+```bash
+# on your workstation, while the cluster job runs
+rsync -az --delete user@cluster:/scratch/$USER/runs/my_run/ ~/runs/my_run/
+fastmdx gui --output ~/runs/my_run
+```
+
+To keep it current, re-run the sync on a loop in a second terminal:
+
+```bash
+while true; do
+  rsync -az --delete user@cluster:/scratch/$USER/runs/my_run/ ~/runs/my_run/
+  sleep 60
+done
+```
+
+The dashboard then updates on its normal polling interval, delayed by at most
+one sync period. Telemetry, energy samples, live coordinates, and finished
+analyses all transfer, because they are ordinary files.
+
+Two practical notes. Use `--delete` so removed files do not linger in the
+copy, and exclude the trajectory if it is large and you only want progress:
+`--exclude 'production.dcd'` keeps the sync small, at the cost of the playback
+view.
+
+If you can open an SSH tunnel to the compute node and the job is interactive,
+`ssh -L 8765:<node>:8765 user@cluster` with `fastmdx gui --output <run>` on the
+node also works. The rsync route is usually less trouble.
 
 ## Live telemetry
 
@@ -274,7 +351,7 @@ Dashboard. It now also includes a Live Simulation sidebar entry:
 
 - If telemetry exists, it shows the last recorded status.
 - If telemetry does not exist, it explains how to start
-  `fastmdx explore ... --dashboard` or `fastmdx dashboard serve --output ...`.
+  `fastmdx explore ... --dashboard` or `fastmdx gui --output ...`.
 
 ## Demo or preview output
 
@@ -330,9 +407,9 @@ crashing.
 The home-mode simulation builder also uses these POST endpoints, but only when
 the server is loopback-bound:
 
-- `POST /api/launcher/validate` — validate a proposed workflow
-- `POST /api/launcher/launch` — launch the canonical CLI workflow
-- `POST /api/launcher/stop` — terminate the active workflow and wait for exit
+- `POST /api/explore/validate` — validate a proposed workflow
+- `POST /api/explore/start` — launch the canonical CLI workflow
+- `POST /api/explore/stop` — terminate the active workflow and wait for exit
 
 ## Live molecular coordinates and trajectory playback
 
@@ -409,7 +486,7 @@ the actual URL in the terminal banner, and opens the browser when possible.
 Set `FASTMDX_NO_BROWSER=1` to suppress automatic browser opening in headless
 or automated environments.
 
-The **New Simulation** page configures the standard FastMDXplora workflow. It
+The **New Exploration** page configures the standard FastMDXplora workflow. It
 does not implement a separate simulation engine: the dashboard validates the
 form and launches the canonical `python -m fastmdxplora.cli.main explore`
 command with the selected setup, simulation, analysis, and report options.
@@ -426,7 +503,7 @@ conda install -c conda-forge openmm pdbfixer
 ```
 
 Run the command in a terminal, restart the dashboard with the same environment,
-click **Validate** again, and then click **Launch Simulation**. The dashboard
+click **Validate** again, and then click **Start Exploration**. The dashboard
 does not start a workflow that it already knows cannot perform chemistry setup.
 
 Only one dashboard-launched workflow is active at a time. Scientific controls

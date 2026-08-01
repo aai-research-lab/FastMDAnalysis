@@ -420,7 +420,7 @@ def _common_input_args(p: argparse.ArgumentParser) -> None:
         action="store_true",
         default=False,
         help=(
-            "Launch the local live dashboard for this output folder before "
+            "Open the local GUI for this output folder before "
             "the workflow starts. Implies live telemetry when simulation runs."
         ),
     )
@@ -599,80 +599,37 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    dashboard = sub.add_parser(
-        "dashboard",
-        help="Serve local dashboard views for an existing output directory.",
+    gui = sub.add_parser(
+        "gui",
+        help="Open the FastMDXplora graphical interface in a browser.",
         description=(
-            "Serve a local-only dashboard for completed outputs and live "
-            "simulation telemetry. Binds to 127.0.0.1 by default."
+            "Serve the local FastMDXplora GUI: build and save a study "
+            "configuration, launch a run locally, watch live telemetry, view "
+            "the structure and trajectory, and browse results. Binds to "
+            "127.0.0.1 by default."
         ),
     )
-    dashboard_sub = dashboard.add_subparsers(dest="dashboard_command", metavar="<dashboard-command>")
-    serve = dashboard_sub.add_parser(
-        "serve",
-        help="Serve the live dashboard for an output directory.",
-        description="Start the local dashboard server for an existing FastMDXplora output.",
-    )
-    serve.add_argument(
+    gui.add_argument(
         "--output",
-        required=True,
+        default=None,
         metavar="DIR",
-        help="FastMDXplora output directory to watch.",
+        help=(
+            "Output directory to open. Defaults to the current directory, "
+            "which is the right choice when you are designing a new study."
+        ),
     )
-    serve.add_argument(
-        "--host",
-        default="127.0.0.1",
-        help="Bind address (default: 127.0.0.1).",
-    )
-    serve.add_argument(
-        "--port",
-        type=int,
-        default=8765,
-        help="Port to serve on (default: 8765).",
-    )
-    serve.add_argument(
-        "--refresh-seconds",
-        type=float,
-        default=None,
-        metavar="SECONDS",
-        help="Browser polling interval hint surfaced to the dashboard.",
-    )
-    serve.add_argument(
-        "--ligand-resname",
-        type=str,
-        default=None,
-        metavar="RESNAME",
-        help="Force a ligand residue name for the dashboard ligand tools.",
-    )
-    serve.add_argument(
-        "--binding-pocket-cutoff-A",
-        type=float,
-        default=None,
-        metavar="ANGSTROM",
-        help="Binding-pocket cutoff in angstrom (default 5.0).",
-    )
-    serve.add_argument(
-        "--frame-interval",
-        type=int,
-        default=None,
-        metavar="STEPS",
-        help="Simulation telemetry interval used by the live dashboard.",
-    )
-    serve.add_argument(
-        "--max-playback-frames",
-        type=int,
-        default=None,
-        metavar="FRAMES",
-        help="Maximum frames the molecular viewer will load for playback.",
-    )
-    serve.add_argument(
-        "--open-browser",
-        action="store_true",
-        default=False,
-        help="Open the dashboard URL in the user's default browser.",
-    )
+    gui.add_argument("--host", default="127.0.0.1",
+                     help="Bind address (default: 127.0.0.1).")
+    gui.add_argument("--port", type=int, default=8765,
+                     help="Port to serve on (default: 8765).")
+    gui.add_argument("--no-browser", action="store_true",
+                     help="Do not open a browser window automatically.")
+    gui.add_argument("--ligand-resname", type=str, default=None, metavar="RESNAME",
+                     help="Force a ligand residue name for the ligand tools.")
+    gui.add_argument("--binding-pocket-cutoff-A", type=float, default=None,
+                     metavar="ANGSTROM",
+                     help="Binding-pocket cutoff used by the viewer.")
 
-    # init-config: write a commented YAML template
     ic = sub.add_parser(
         "init-config",
         help="Write a commented YAML config template to edit.",
@@ -1127,39 +1084,32 @@ def _missing_chemistry_backends() -> list[str]:
     return sorted({("openmm" if name.startswith("openmm") else name) for name in failing})
 
 
-def _cmd_dashboard(args: argparse.Namespace) -> int:
-    if args.dashboard_command != "serve":
-        print("fastmdx: dashboard requires a subcommand, e.g. `dashboard serve`.", file=sys.stderr)
-        return 2
+def _cmd_gui(args: argparse.Namespace) -> int:
+    """Serve the full GUI: study builder, exploration, telemetry, and viewer."""
     from fastmdxplora.live.server import DashboardConfig, serve_dashboard
 
+    output = Path(args.output) if getattr(args, "output", None) else Path.cwd()
     config = DashboardConfig(
         ligand_resname=getattr(args, "ligand_resname", None),
         binding_pocket_cutoff_A=float(
             getattr(args, "binding_pocket_cutoff_A", 5.0) or 5.0
         ),
-        max_browser_frames=int(
-            getattr(args, "max_playback_frames", 200) or 200
-        ),
     )
+    if not getattr(args, "no_browser", False):
+        import webbrowser
+        try:
+            webbrowser.open(f"http://{args.host}:{args.port}", new=2)
+        except Exception:  # noqa: BLE001 - opening a browser is best effort
+            pass
     serve_dashboard(
-        output=args.output,
+        output=output,
         host=args.host,
         port=args.port,
         config=config,
     )
-    if getattr(args, "open_browser", False):
-        import webbrowser
-        try:
-            webbrowser.open(f"http://{args.host}:{args.port}", new=2)
-        except Exception:
-            pass
     return 0
 
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 def _startup_dashboard_details(argv: Sequence[str]) -> tuple[str, bool]:
     """Resolve the dashboard address shown by the startup wordmark."""
     host = "127.0.0.1"
@@ -1254,8 +1204,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "init-config":
         return _cmd_init_config(args)
-    if args.command == "dashboard":
-        return _cmd_dashboard(args)
+    if args.command == "gui":
+        return _cmd_gui(args)
 
     # Commands that build an orchestrator can hit config-file errors;
     # surface those cleanly rather than as a traceback.

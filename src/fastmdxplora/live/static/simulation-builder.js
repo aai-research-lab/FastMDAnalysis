@@ -24,7 +24,7 @@
     if (!form) return;
     wireForm();
     try {
-      builder.defaults = await requestJSON("/api/launcher/defaults");
+      builder.defaults = await requestJSON("/api/explore/defaults");
       populateDefaults(builder.defaults);
       builder.initialized = true;
       updateSummary();
@@ -61,6 +61,7 @@
       await launchSimulation();
     });
     byId("builder-validate")?.addEventListener("click", validateForm);
+    byId("builder-download-config")?.addEventListener("click", downloadConfig);
     byId("builder-reset")?.addEventListener("click", () => {
       if (builder.defaults) populateDefaults(builder.defaults);
       clearFieldErrors();
@@ -231,12 +232,12 @@
     clearFieldErrors();
     setMessage("Validating configuration…", "working");
     try {
-      const result = await postJSON("/api/launcher/validate", collectPayload());
+      const result = await postJSON("/api/explore/validate", collectPayload());
       builder.lastValidation = result;
       applyValidation(result);
       if (result.valid) {
         setMessage(
-          result.environment_error || "Configuration is valid and ready to launch.",
+          result.environment_error || "Configuration is valid and ready to explore.",
           result.environment_error ? "warning" : "ok",
         );
       }
@@ -267,6 +268,28 @@
     }
   }
 
+  async function downloadConfig() {
+    clearFieldErrors();
+    setMessage("Building configuration file\u2026", "working");
+    try {
+      const result = await postJSON("/api/explore/config", collectPayload());
+      const blob = new Blob([result.yaml], { type: "text/yaml" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = result.filename || "fastmdxplora.yml";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setMessage(`Saved ${link.download}. Run it with: fastmdx explore --config ${link.download}`, "ok");
+    } catch (error) {
+      const payload = error.payload || {};
+      applyValidation(payload);
+      setMessage(payload.error || "Please correct the highlighted fields.", "error");
+    }
+  }
+
   async function launchSimulation() {
     if (builder.appState.process_running) {
       setMessage("A workflow is already running.", "error");
@@ -274,18 +297,18 @@
     }
     clearFieldErrors();
     setBusy(true);
-    setMessage("Launching FastMDXplora…", "working");
+    setMessage("Starting exploration…", "working");
     try {
-      const result = await postJSON("/api/launcher/launch", collectPayload());
+      const result = await postJSON("/api/explore/start", collectPayload());
       applyValidation(result);
-      if (!result.launched) throw makeRequestError("Launch was not accepted.", result);
-      setMessage(`Workflow launched in ${result.output}`, "ok");
+      if (!result.launched) throw makeRequestError("Exploration was not accepted.", result);
+      setMessage(`Exploration started in ${result.output}`, "ok");
       applyAppState(result.state || {});
       window.FastMDXDashboard?.navigate("overview");
     } catch (error) {
       const payload = error.payload || {};
       applyValidation(payload);
-      setMessage(payload.error || error.message || "Could not launch the workflow.", "error");
+      setMessage(payload.error || error.message || "Could not start the exploration.", "error");
     } finally {
       setBusy(false);
     }
@@ -294,7 +317,7 @@
   async function stopWorkflow() {
     if (!window.confirm("Request termination of the running FastMDXplora workflow?")) return;
     try {
-      const result = await postJSON("/api/launcher/stop", {});
+      const result = await postJSON("/api/explore/stop", {});
       applyAppState(result.state || {});
       setMessage(result.detail || "Termination requested.", result.stopped ? "warning" : "error");
     } catch (error) {
@@ -322,7 +345,7 @@
       dot.className = `status-dot ${running ? "status-dot-live" : status === "failed" ? "status-dot-error" : status === "completed" ? "status-dot-completed" : "status-dot-waiting"}`;
     }
     byId("builder-stop")?.toggleAttribute("hidden", !running);
-    byId("builder-launch")?.toggleAttribute("disabled", running);
+    byId("builder-explore")?.toggleAttribute("disabled", running);
     if (payload.active_run) setText("builder-summary-output", payload.active_run);
   }
 
@@ -335,8 +358,9 @@
   }
 
   function setBusy(busy) {
-    byId("builder-launch")?.toggleAttribute("disabled", busy || builder.appState.process_running);
+    byId("builder-explore")?.toggleAttribute("disabled", busy || builder.appState.process_running);
     byId("builder-validate")?.toggleAttribute("disabled", busy);
+    byId("builder-download-config")?.toggleAttribute("disabled", busy);
   }
 
   function clearFieldErrors() {
@@ -351,7 +375,7 @@
   }
 
   async function requestJSON(url) {
-    const response = await fetch(url, {cache: "no-store", headers: {"X-FastMDX": "launcher"}});
+    const response = await fetch(url, {cache: "no-store", headers: {"X-FastMDX": "explore"}});
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw makeRequestError(payload.error || `HTTP ${response.status}`, payload);
     return payload;
@@ -361,7 +385,7 @@
     const response = await fetch(url, {
       method: "POST",
       cache: "no-store",
-      headers: {"Content-Type": "application/json", "X-FastMDX": "launcher"},
+      headers: {"Content-Type": "application/json", "X-FastMDX": "explore"},
       body: JSON.stringify(data),
     });
     const payload = await response.json().catch(() => ({}));

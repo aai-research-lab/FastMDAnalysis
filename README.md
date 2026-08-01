@@ -202,6 +202,17 @@ conda install -c conda-forge openmm pdbfixer openmmforcefields
 Until then, `setup` and `simulation` are skipped with a clear message, while
 `analysis` and `report` continue to work.
 
+### Graphical interface
+
+```bash
+fastmdx gui
+```
+
+Opens a local browser interface for building a study, saving it as a config
+file, launching a run, and watching live telemetry with a 3D molecular viewer.
+See [the GUI guide](docs/live_dashboard.md) for the cluster workflow, where you
+design a config in the GUI and submit it elsewhere.
+
 ### Where to go next
 
 - **Full walkthrough, GPU notes, and troubleshooting:** [`docs/installation.md`](docs/installation.md)

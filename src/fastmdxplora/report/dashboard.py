@@ -2077,7 +2077,7 @@ def _render_output_list(links: list[DashboardLink]) -> str:
 def _render_static_live_panel(project_root: Path) -> str:
     from fastmdxplora.live.telemetry import analyze_health, read_metrics, read_status
 
-    serve_command = f"fastmdx dashboard serve --output {project_root.as_posix()}"
+    serve_command = f"fastmdx gui --output {project_root.as_posix()}"
     escaped_command = escape(serve_command)
     status = read_status(project_root)
     metrics = read_metrics(project_root)

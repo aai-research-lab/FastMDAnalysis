@@ -10,7 +10,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from fastmdxplora.live import launcher as launch
+from fastmdxplora.live import exploration as launch
 from fastmdxplora.live import live_frames as frames
 from fastmdxplora.live import telemetry
 from fastmdxplora.live import trajectory_playback as playback
@@ -183,22 +183,22 @@ def test_playback_error_branches_and_neighborhood(tmp_path: Path) -> None:
     assert unreadable["reason"] == "not-enough-readable-history-frames"
 
 
-def test_launcher_validation_command_and_runtime_branches(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(launch, "launcher_environment_error", lambda _config: None)
+def test_exploration_validation_command_and_runtime_branches(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(launch, "exploration_environment_error", lambda _config: None)
     bad = _launch_payload()
     bad.update(system="x" * 4097)
     bad["setup"].update(ph="bad", forcefield="bad", ion_concentration_M="bad", solvent_padding_nm=99)
     bad["simulation"].update(integrator="bad", platform="bad", precision="bad", nvt_steps="bad")
     bad["workflow"].update(run_analysis=False, run_report=True, analyses="bad")
-    result = launch.validate_launcher_payload(bad)
+    result = launch.validate_exploration_payload(bad)
     assert not result["valid"] and result["warnings"]
     assert {"system", "setup.ph", "setup.forcefield", "simulation.integrator"} <= result["errors"].keys()
 
-    cfg = launch.validate_launcher_payload(_launch_payload())["config"]
+    cfg = launch.validate_exploration_payload(_launch_payload())["config"]
     cfg["setup"].update(water_model="tip3p", keep_heterogens=True, keep_water=True)
     cfg["simulation"]["minimize"] = False
     cfg["workflow"].update(run_analysis=False, report_document=False, report_slides=False, report_bundle=False)
-    command = launch.build_launcher_command(cfg, tmp_path / "out")
+    command = launch.build_exploration_command(cfg, tmp_path / "out")
     for flag in ("--setup-water-model", "--setup-keep-heterogens", "--setup-keep-water",
                  "--simulate-no-minimize", "--include", "--report-no-document",
                  "--report-no-slides", "--report-no-bundle"):
@@ -218,7 +218,7 @@ def test_launcher_validation_command_and_runtime_branches(tmp_path: Path, monkey
     assert runtime.launch(_launch_payload())["errors"]["run"]
 
     occupied = launch.DashboardRuntime(tmp_path / "w2", tmp_path / "runs2")
-    target = occupied.launch_root / "run"
+    target = occupied.exploration_root / "run"
     target.mkdir()
     (target / "file").write_text("x", encoding="utf-8")
     assert "not empty" in occupied.launch(_launch_payload())["errors"]["run_name"]
@@ -380,7 +380,7 @@ def test_server_helpers_cover_changed_display_branches(tmp_path: Path, monkeypat
     assert server._open_local_path(tmp_path) == (False, "no opener")
 
 
-def test_server_error_and_launcher_routes(tmp_path: Path, monkeypatch) -> None:
+def test_server_error_and_exploration_routes(tmp_path: Path, monkeypatch) -> None:
     import urllib.error
     import urllib.request
     from fastmdxplora.live import server as live_server
@@ -421,10 +421,10 @@ def test_server_error_and_launcher_routes(tmp_path: Path, monkeypatch) -> None:
         get("/artifacts/missing.txt", 404)
         get("/static/missing.txt", 404)
         get("/not-found", 404)
-        post("/api/launcher/launch", {"system": ""}, 422)
-        post("/api/launcher/stop", {}, 200)
+        post("/api/explore/start", {"system": ""}, 422)
+        post("/api/explore/stop", {}, 200)
         post("/not-found", {}, 404)
-        post("/api/launcher/validate", [], 500)
+        post("/api/explore/validate", [], 500)
 
         monkeypatch.setattr(live_server, "_results_payload", lambda _root: (_ for _ in ()).throw(RuntimeError("route")))
         get("/api/results", 500)
@@ -748,28 +748,25 @@ def test_cli_dashboard_remaining_lifecycle_and_startup_branches(
     assert configured == (tmp_path / "configured").resolve()
     assert generated.name.startswith("fastmdxplora_output_")
 
-    assert cli._cmd_dashboard(SimpleNamespace(dashboard_command=None)) == 2
-    dashboard_args = SimpleNamespace(
-        dashboard_command="serve",
+    gui_args = SimpleNamespace(
         output=tmp_path,
         host="127.0.0.1",
         port=8765,
+        no_browser=True,
         ligand_resname=None,
         binding_pocket_cutoff_A=None,
-        max_playback_frames=None,
-        open_browser=False,
     )
     with patch("fastmdxplora.live.server.serve_dashboard") as serve:
-        assert cli._cmd_dashboard(dashboard_args) == 0
+        assert cli._cmd_gui(gui_args) == 0
     assert serve.call_args.kwargs["output"] == tmp_path
     assert serve.call_args.kwargs["config"].binding_pocket_cutoff_A == 5.0
 
-    dashboard_args.open_browser = True
+    gui_args.no_browser = False
     with (
         patch("fastmdxplora.live.server.serve_dashboard"),
         patch("webbrowser.open", side_effect=RuntimeError("headless")),
     ):
-        assert cli._cmd_dashboard(dashboard_args) == 0
+        assert cli._cmd_gui(gui_args) == 0
 
     with patch("fastmdxplora.live.server.serve_dashboard") as serve_home:
         assert cli._cmd_dashboard_home() == 0

@@ -270,7 +270,7 @@ fastmdx explore --system input/protein.pdb \
 If a run already exists, serve it without starting a new simulation:
 
 ```bash
-fastmdx dashboard serve \
+fastmdx gui \
   --output runs/protein_dashboard \
   --open-browser
 ```
@@ -293,7 +293,7 @@ Running the CLI with no subcommand opens the local simulation builder:
 fastmdx
 ```
 
-Use **Validate** before **Launch Simulation**. The builder launches the same
+Use **Validate** before **Start Exploration**. The builder launches the same
 canonical `explore` workflow as the CLI; it is not a separate simulation
 engine. It can only launch a workflow when the server is loopback-bound.
 
@@ -404,7 +404,7 @@ study.explore()
 In another terminal, while the run is active or afterward:
 
 ```bash
-fastmdx dashboard serve --output runs/python_dashboard
+fastmdx gui --output runs/python_dashboard
 ```
 
 ## 7. Analyze with the version 1 compatibility profile
@@ -521,7 +521,7 @@ the reproducibility record.
 - Running a long simulation on an underpowered local workstation instead of a
   suitable production host.
 - Using an offline GPU host without manually staging all dependencies and input files.
-- Treating the static `report/dashboard.html` as a live monitor. Use `fastmdx dashboard serve` for live telemetry.
+- Treating the static `report/dashboard.html` as a live monitor. Use `fastmdx gui` for live telemetry.
 
 ## Next pages
 

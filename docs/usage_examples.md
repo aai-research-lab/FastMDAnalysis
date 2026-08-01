@@ -156,7 +156,7 @@ PowerShell fallback when `fastmdx` is not on PATH:
 python -m fastmdxplora.cli.main explore --system protein.pdb --output .\trpcage_study --include setup simulation --dashboard
 ```
 
-`fastmdx dashboard serve --output ./trpcage_study` remains available when you
+`fastmdx gui --output ./trpcage_study` remains available when you
 want to reopen an existing run folder manually.
 
 ### MD engine controls
