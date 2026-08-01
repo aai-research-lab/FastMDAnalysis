@@ -659,6 +659,24 @@ def _build_dashboard_assets(
             rel_path=f"report/dashboard_assets/{filename}",
             summary=summary,
         )
+    # Record what was produced so the browser can show the same curated
+    # charts without regenerating them on every poll.
+    if assets:
+        try:
+            asset_dir.mkdir(parents=True, exist_ok=True)
+            (asset_dir / "assets.json").write_text(
+                json.dumps(
+                    {
+                        title: {"rel_path": asset.rel_path, "summary": asset.summary}
+                        for title, asset in assets.items()
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+        except OSError:  # pragma: no cover - index is an optimisation, not required
+            logger.warning("dashboard: could not write the asset index")
+
     return assets
 
 
@@ -1201,6 +1219,48 @@ def _format_number(value: object) -> str:
         return f"{int(number):,}"
     return f"{number:,.3g}"
 
+
+
+
+def load_dashboard_assets(project_root: Path) -> dict[str, DashboardAsset]:
+    """Read the curated-chart index written by the report phase.
+
+    Returns an empty mapping when the report has not run yet, so callers fall
+    back to the figures each analysis produced.
+    """
+    index = project_root / "report" / "dashboard_assets" / "assets.json"
+    try:
+        raw = json.loads(index.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    assets: dict[str, DashboardAsset] = {}
+    for title, entry in raw.items():
+        if isinstance(entry, dict) and entry.get("rel_path"):
+            assets[str(title)] = DashboardAsset(
+                rel_path=str(entry["rel_path"]),
+                summary=str(entry.get("summary", "")),
+            )
+    return assets
+
+
+def analysis_sections_for(project_root: Path) -> list[DashboardSection]:
+    """Categorised analysis panels for a completed or in-progress run.
+
+    Uses the curated charts when the report phase has produced them and the
+    per-analysis figures otherwise, so the browser shows the same grouping
+    the generated report uses.
+    """
+    return _analysis_sections(
+        project_root, project_root, load_dashboard_assets(project_root)
+    )
+
+
+def quick_actions_for(project_root: Path, sections: list[DashboardSection]) -> list[DashboardLink]:
+    """The report's quick-action links, relative to the run directory."""
+    links = _artifact_links(
+        project_root, project_root, sections=sections, include_bundle_link=True
+    )
+    return _quick_action_links(links)
 
 
 def _theme_tokens() -> str:

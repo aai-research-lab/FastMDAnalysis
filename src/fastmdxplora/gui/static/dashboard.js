@@ -673,11 +673,71 @@
     renderTopBar(state.status, state.health);
     renderStageTimeline(state.status);
     renderReportPanels(payload);
+    renderAnalysisSections(payload);
     renderAnalysis(payload);
     renderFiles(payload);
     renderRunSummary(payload);
     renderSimulationTab(state.structureInfo || {});
     emit("results-updated", payload);
+  }
+
+  function renderAnalysisSections(payload) {
+    // Categorised panels and quick actions, matching the generated report.
+    // When the report phase has produced its curated charts these panels use
+    // them; otherwise they fall back to each analysis's own figure.
+    const actions = Array.isArray(payload.quick_actions) ? payload.quick_actions : [];
+    const actionHost = byId("analysis-quick-actions");
+    if (actionHost) {
+      actionHost.innerHTML = actions.map((action) => `
+        <a class="ghost-btn" href="${escapeHTML(action.href)}" target="_blank" rel="noopener"
+           title="${escapeHTML(action.detail || "")}">${escapeHTML(action.label || "Open")}</a>`).join("");
+      actionHost.hidden = actions.length === 0;
+    }
+
+    const sections = Array.isArray(payload.analysis_sections) ? payload.analysis_sections : [];
+    const host = byId("analysis-sections");
+    const flatGrid = byId("analysis-grid");
+    if (!host) return;
+
+    host.innerHTML = sections.map((section) => {
+      const panels = Array.isArray(section.panels) ? section.panels : [];
+      // Reuse the same card structure the flat grid uses so both routes
+      // through this view look identical.
+      const cards = panels.map((panel) => {
+        const links = [
+          `<a class="file-action" href="${escapeAttr(panel.href)}" target="_blank" rel="noopener">Open figure</a>`,
+        ];
+        if (panel.original_href && panel.original_href !== panel.href) {
+          links.push(
+            `<a class="file-action" href="${escapeAttr(panel.original_href)}" target="_blank" rel="noopener">Original figure</a>`
+          );
+        }
+        return `
+        <article class="analysis-card" data-state="complete">
+          <div class="ac-header">
+            <div class="ac-title">${escapeHTML(panel.title || "")}</div>
+            <div class="ac-status">${escapeHTML(panel.mode || "")}</div>
+          </div>
+          <div class="ac-frame"><img src="${escapeAttr(panel.href)}" alt="${escapeAttr(panel.title || "")}" loading="lazy"></div>
+          <div class="ac-body">${escapeHTML(panel.summary || "")}</div>
+          <div class="ac-footer">${links.join("")}</div>
+        </article>`;
+      }).join("");
+      return `
+        <section class="analysis-section">
+          <div class="analysis-section-heading">
+            <h2 class="analysis-section-title">${escapeHTML(section.title || "")}</h2>
+            <span class="analysis-section-count">${panels.length} figure${panels.length === 1 ? "" : "s"}</span>
+          </div>
+          <div class="analysis-grid">${cards}</div>
+        </section>`;
+    }).join("");
+
+    const haveSections = sections.length > 0;
+    host.hidden = !haveSections;
+    // The flat grid is the fallback for runs with no sectioned data; showing
+    // both would list every figure twice.
+    if (flatGrid) flatGrid.hidden = haveSections;
   }
 
   function renderReportPanels(payload) {

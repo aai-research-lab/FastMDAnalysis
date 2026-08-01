@@ -1285,3 +1285,84 @@ def test_overview_hosts_the_report_panels(tmp_path: Path) -> None:
     )
     assert "function renderReportPanels(" in script
     assert "renderReportPanels(payload);" in script
+
+
+def test_results_payload_carries_categorised_sections(tmp_path: Path) -> None:
+    """The GUI receives the report's grouping, not just a flat figure list."""
+    import json
+
+    from fastmdxplora.gui.server import _results_payload
+
+    run = tmp_path / "run"
+    for folder in ("analysis/rmsd", "analysis/cluster", "analysis/dimred", "report"):
+        (run / folder).mkdir(parents=True)
+    (run / "manifest.json").write_text(json.dumps({"system": "1L2Y", "phases": []}))
+    (run / "analysis" / "analysis_manifest.json").write_text(json.dumps({"n_frames": 8}))
+    for rel in (
+        "analysis/rmsd/rmsd.png",
+        "analysis/cluster/kmeans_trajectory.png",
+        "analysis/dimred/pca.png",
+    ):
+        (run / rel).write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    payload = _results_payload(run)
+    sections = payload["analysis_sections"]
+    assert sections, "expected categorised sections"
+
+    titles = {section["title"] for section in sections}
+    assert "Core Metrics" in titles
+
+    panels = [panel for section in sections for panel in section["panels"]]
+    assert any(panel["title"] == "RMSD" for panel in panels)
+    # Hrefs must be servable by the GUI, not relative to a report folder.
+    assert all(panel["href"].startswith("/artifacts/") for panel in panels)
+
+
+def test_curated_chart_index_round_trips(tmp_path: Path) -> None:
+    """The report records which curated charts it produced, for the GUI to reuse.
+
+    Without the index the browser would have to regenerate the charts on every
+    poll, which would be both slow and a write into the run directory.
+    """
+    import json
+
+    from fastmdxplora.gui.report_dashboard import load_dashboard_assets
+
+    run = tmp_path / "run"
+    assets_dir = run / "report" / "dashboard_assets"
+    assets_dir.mkdir(parents=True)
+
+    assert load_dashboard_assets(run) == {}, "absent index must not raise"
+
+    (assets_dir / "assets.json").write_text(
+        json.dumps(
+            {"RMSD": {"rel_path": "report/dashboard_assets/rmsd_dashboard.png",
+                      "summary": "mean 0.21 nm"}}
+        ),
+        encoding="utf-8",
+    )
+    assets = load_dashboard_assets(run)
+    assert assets["RMSD"].rel_path.endswith("rmsd_dashboard.png")
+    assert assets["RMSD"].summary == "mean 0.21 nm"
+
+
+def test_analysis_view_hosts_sections_and_quick_actions(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    run.mkdir()
+    server, base_url = start_test_server(run)
+    try:
+        html = urlopen(f"{base_url}/", timeout=5).read().decode("utf-8")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert 'id="analysis-sections"' in html
+    assert 'id="analysis-quick-actions"' in html
+
+    import fastmdxplora.gui as gui_pkg
+
+    script = (Path(gui_pkg.__file__).with_name("static") / "dashboard.js").read_text(
+        encoding="utf-8"
+    )
+    assert "function renderAnalysisSections(" in script
+    assert "renderAnalysisSections(payload);" in script

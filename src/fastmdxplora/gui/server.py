@@ -737,10 +737,49 @@ def _report_panels(root: Path) -> dict[str, Any]:
     except Exception:  # noqa: BLE001 - a panel must never break the dashboard
         logger.debug("report panels unavailable", exc_info=True)
         return {"summary_cards": [], "metric_rows": [], "phase_rows": []}
+    sections: list[dict[str, Any]] = []
+    quick_actions: list[dict[str, Any]] = []
+    try:
+        from fastmdxplora.gui.report_dashboard import (
+            analysis_sections_for,
+            quick_actions_for,
+        )
+
+        built = analysis_sections_for(root)
+        sections = [
+            {
+                "title": section.title,
+                "anchor": section.anchor,
+                "panels": [
+                    {
+                        "title": panel.title,
+                        "category": panel.category,
+                        "summary": panel.summary,
+                        "mode": panel.mode,
+                        "source": panel.source,
+                        "href": f"/artifacts/{panel.source}",
+                        "original_source": panel.original_source,
+                        "original_href": f"/artifacts/{panel.original_source}",
+                    }
+                    for panel in section.panels
+                ],
+            }
+            for section in built
+            if section.panels
+        ]
+        quick_actions = [
+            {"label": link.label, "href": f"/artifacts/{link.href}", "detail": link.detail}
+            for link in quick_actions_for(root, built)
+        ]
+    except Exception:  # noqa: BLE001 - a panel must never break the dashboard
+        logger.debug("analysis sections unavailable", exc_info=True)
+
     return {
         "summary_cards": [asdict(card) for card in cards],
         "metric_rows": [asdict(row) for row in metrics],
         "phase_rows": [asdict(row) for row in phases],
+        "analysis_sections": sections,
+        "quick_actions": quick_actions,
     }
 
 
