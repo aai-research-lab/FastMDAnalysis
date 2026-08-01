@@ -7,6 +7,65 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-08-01
+
+Live monitoring, guided installation, and Python 3.13 support. A run can now
+be watched in a browser while it happens, a fresh machine can be set up with
+one command, and the analysis phase can reproduce the settings published in
+FastMDXplora version 1.
+
+### Added
+- **Live dashboard.** A dependency-free localhost server (`fastmdx dashboard
+  serve`) that watches a project output directory while a run is in progress:
+  phase telemetry, live trajectory frames, an interactive 3D molecular viewer,
+  playback controls, and per-analysis charts. It observes and launches runs;
+  it does not reimplement any phase science.
+- **Static HTML dashboard** written alongside the other report artifacts, so a
+  finished run can be browsed without starting a server.
+- **`v1` analysis compatibility profile** (`--compat v1`, `--analyze-compat
+  v1`): reproduces the analysis settings of FastMDXplora version 1, including
+  the scope, selection, stride, analysis set, and per-analysis options used in
+  the published BPTI case study.
+- **PDB smoke campaign** (`scripts/run_pdb_smoke_campaign.py`) for exercising
+  the pipeline across many structures, with accompanying documentation.
+- **Report additions:** region highlights and a single-figure run summary.
+- **Python 3.13 support** across the whole supported range (3.9 to 3.13).
+- **Documentation:** a beginner's guide, a CLI reference, a live-dashboard
+  guide, a production-run guide, region-highlight and smoke-campaign pages,
+  plus a substantially expanded installation guide.
+- Terminal banner and a reworked presentation layer for phase output.
+
+### Changed
+- The CLI launches the dashboard home when invoked with no arguments, and
+  workflow commands can start the live dashboard directly.
+- `bootstrap.py` is now `install.py`, matching the command it backs.
+- CI runs on Python 3.9 through 3.13 across Linux, macOS, and Windows, with
+  actions updated to Node 24 compatible versions.
+- `STRUCTURE.md` rewritten to match the current tree.
+
+### Fixed
+- Simulation robustness, with clearer diagnostics when an integration step
+  produces a NaN.
+- Batch early-stop behaviour when a run fails.
+- Report-only invocation and phase validation.
+- Windows: path comparison, dashboard port reuse, and platform-specific
+  command handling.
+- The CLI now degrades cleanly when the chemistry backends are absent, rather
+  than failing mid-phase.
+- Documentation examples are covered by drift tests so they cannot silently
+  go stale.
+
+### Removed
+- `driftmd_workbench`, a separate package that duplicated the analysis and
+  report pipeline without using it.
+- The `install` / `bootstrap` / `install-e` subcommands and the Miniforge
+  bootstrapper behind them. FastMDXplora now uses standard installation
+  routes: pip for analysis and reporting, pip plus conda-forge for the full
+  chemistry stack, or a clone with the bundled `environment.yml`. See the
+  installation guide.
+- The `health` subcommand and the repository doctor script. `info` reports
+  backend status, and missing backends are detected at the point of use.
+
 ## [2.0.0] — 2026-05-25
 
 **FastMDXplora** — Fully Automated SysTem for Molecular Dynamics eXploration.

@@ -40,19 +40,17 @@ Choose the path that matches your goal:
 | Full setup and molecular-dynamics simulation | Ubuntu or another supported Linux distribution inside [WSL2](https://learn.microsoft.com/windows/wsl/install). |
 | GPU simulation from Windows | Run the Linux workflow inside WSL2 when the GPU and Windows driver expose CUDA to WSL2; otherwise use a separate Linux/HPC GPU host. |
 
-Native Windows is useful for the pip-installable portions of FastMDXplora and
-the test suite. The bootstrap contains a Windows x86_64 Miniforge path, but the
-full OpenMM/PDBFixer/OpenFF chemistry stack is documented and expected to be
-most reliable in Linux/WSL2. Windows ARM does not have a bundled Miniforge
-installer; use WSL2 or another supported x86_64 environment.
+Native Windows works well for the pip-installable parts of FastMDXplora and for
+the test suite. The full OpenMM/PDBFixer/OpenFF chemistry stack is most
+reliable on Linux, macOS, and WSL2.
 
 For a full workflow on Windows:
 
 1. Install WSL2 and an Ubuntu distribution using Microsoft's instructions.
 2. Open the Ubuntu terminal; do not run the Linux commands in PowerShell.
-3. Clone the repository inside the WSL filesystem, for example under `~/src`,
-   rather than under `/mnt/c`, when possible.
-4. Run the Linux commands in the next section using `python3`/`python`.
+3. Keep the repository and your data inside the WSL filesystem, for example
+   under `~/src`, rather than under `/mnt/c`, when possible.
+4. Run the Linux commands in the next section.
 
 For analysis-only work in native PowerShell:
 
@@ -68,56 +66,13 @@ If PowerShell blocks activation, either run the commands through
 `.\.venv\Scripts\python.exe` directly or follow the execution-policy
 guidance in [Installation](installation.md).
 
-## 1. Install the full workflow
+## 1. Install
 
-For setup and simulation, use Linux, macOS, or Linux inside WSL2.
+FastMDXplora splits into two dependency footprints. Analysis and reporting are
+pure pip. Setup and simulation additionally need OpenMM and PDBFixer from
+conda-forge. Use Linux, macOS, or WSL2 for the full workflow.
 
-### Recommended: one bootstrap command after checkout
-
-There are two small commands to obtain and enter the source checkout, followed
-by one command that performs the complete core-environment setup:
-
-```bash
-git clone https://github.com/aai-research-lab/FastMDXplora.git
-cd FastMDXplora
-python fastmdx install
-```
-
-The important command is:
-
-```bash
-python fastmdx install
-```
-
-This single bootstrap command detects or installs Miniforge, creates the
-`fastmdxplora` environment, installs the core analysis/report dependencies plus
-OpenMM and PDBFixer, installs FastMDXplora, and runs an environment check. It
-does **not** automatically install optional packages for every workflow, such
-as OpenFF ligand tooling or an OpenMM-PLUMED build; those are documented in the
-[configuration](configuration.md) and
-[PLUMED production guide](production.md) sections.
-
-The repository intentionally uses a visible Python installer rather than an
-opaque command such as `curl URL | sh`. Piping a remote script directly into a
-shell downloads and executes code before it can be reviewed, and the remote
-content can change independently of a project release. The checked-in
-installer can be inspected, detects the platform explicitly, pins and verifies
-the Miniforge installer with SHA-256, and prints each setup step.
-
-This is therefore “one-command setup” for the environment **after** obtaining
-the repository, not a claim that cloning the repository is unnecessary.
-
-Activate it:
-
-```bash
-conda activate fastmdxplora
-```
-
-If conda/mamba is already installed, the bootstrap uses it. If not, it can
-install Miniforge. Python 3.9–3.13 is needed to start the bootstrap; the
-managed environment uses Python 3.10.
-
-For analysis/reporting only, no OpenMM is needed:
+### Analysis and reporting only
 
 ```bash
 python -m venv .venv
@@ -126,17 +81,43 @@ python -m pip install --upgrade pip
 python -m pip install fastmdxplora
 ```
 
-If you prefer not to clone the repository, the published-package route has two
-commands for the full core workflow:
+That is enough to analyze existing trajectories and build reports.
+
+### Full workflow, all four phases
+
+Create a conda environment with the chemistry stack, then install
+FastMDXplora into it:
 
 ```bash
-python -m pip install fastmdxplora
-fastmdx install
+conda create -n fastmdxplora "python>=3.9,<3.14"
+conda activate fastmdxplora
+conda install -c conda-forge openmm pdbfixer openmmforcefields
+pip install fastmdxplora
 ```
 
-The first command installs the CLI; the second runs the same bootstrap process
-using the installed package. A plain pip install by itself is sufficient for
-analysis and reporting, but not for setup and molecular-dynamics simulation.
+`mamba` is a faster drop-in replacement for the conda solver and is worth
+using here. If you have no conda at all, Miniforge is the easiest source:
+download the installer for your platform from
+<https://conda-forge.org/miniforge/>.
+
+### From a clone
+
+If you want to modify FastMDXplora, or want the exact environment the project
+develops against, the repository ships an `environment.yml` with the whole
+stack:
+
+```bash
+git clone https://github.com/aai-research-lab/FastMDXplora.git
+cd FastMDXplora
+mamba env create -f environment.yml || conda env create -f environment.yml
+conda activate fastmdxplora
+pip install -e ".[test]"
+```
+
+Optional tooling for specific workflows, such as OpenFF ligand
+parameterization or an OpenMM-PLUMED build, is documented in
+[Configuration](configuration.md) and the
+[production guide](production.md).
 
 ## 2. Verify the environment
 

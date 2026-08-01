@@ -56,7 +56,7 @@ __doi__ = "10.1002/jcc.70350"
 # simulation stages). MAX_PYTHON is the *exclusive* upper bound, so 3.13.x
 # is the highest supported, matching `pyproject.toml`'s
 # ``requires-python = ">=3.9, <3.14"``. Update all three (this file,
-# pyproject, and the embedded env yaml in install.py) together when
+# pyproject, and environment.yml) together when
 # the OpenMM / PDBFixer compatibility window moves.
 MIN_PYTHON: tuple[int, int] = (3, 9)
 MAX_PYTHON: tuple[int, int] = (3, 14)

@@ -590,25 +590,6 @@ def _build_parser() -> argparse.ArgumentParser:
         _common_input_args(pp)
         _attach_phase_options(pp, opts, group_title=f"{phase} options")
 
-    health = sub.add_parser(
-        "health",
-        help="Run repository health checks and environment diagnostics.",
-        description=(
-            "Run the repository doctor checks to validate the local checkout, "
-            "environment, and package readiness."
-        ),
-    )
-    health.add_argument(
-        "--no-fix",
-        action="store_true",
-        help="Only diagnose problems; do not install or modify anything.",
-    )
-    health.add_argument(
-        "--yes",
-        action="store_true",
-        help="Accept all fixes automatically.",
-    )
-
     sub.add_parser(
         "info",
         help="Print FastMDXplora environment information.",
@@ -718,61 +699,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "--force",
         action="store_true",
         help="Overwrite the output file if it already exists.",
-    )
-
-    def _add_bootstrap_parser(name: str, *, description: str, help_text: str) -> argparse.ArgumentParser:
-        parser_obj = sub.add_parser(
-            name,
-            help=help_text,
-            description=description,
-            formatter_class=argparse.RawDescriptionHelpFormatter,
-        )
-        parser_obj.add_argument(
-            "--env-name",
-            default="fastmdxplora",
-            help="Conda environment name to create (default: fastmdxplora).",
-        )
-        parser_obj.add_argument(
-            "--python-version",
-            default="3.10",
-            help="Python version to install in the environment (3.9-3.13).",
-        )
-        parser_obj.add_argument(
-            "--force",
-            action="store_true",
-            help="Recreate the environment if it already exists.",
-        )
-        parser_obj.add_argument(
-            "--yes",
-            "-y",
-            action="store_true",
-            help="Skip confirmation prompts if any.",
-        )
-        return parser_obj
-
-    _add_bootstrap_parser(
-        "install",
-        description=(
-            "Create a conda environment and install FastMDXplora. If you run it "
-            "inside a repository checkout, the local checkout is installed; "
-            "otherwise the published package is installed."
-        ),
-        help_text="Install FastMDXplora into a conda environment.",
-    )
-    _add_bootstrap_parser(
-        "bootstrap",
-        description=(
-            "Alias for `install`; kept for compatibility with older docs and scripts."
-        ),
-        help_text="Alias for install.",
-    )
-    _add_bootstrap_parser(
-        "install-e",
-        description=(
-            "Create a conda environment and install the current repository checkout "
-            "in editable mode for contributors and editors."
-        ),
-        help_text="Install the current repository checkout in editable mode.",
     )
 
     return parser
@@ -1154,51 +1080,6 @@ def _cmd_init_config(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_bootstrap(args: argparse.Namespace, *, editable: bool = False, package_name: str = "fastmdxplora") -> int:
-    from fastmdxplora.install import bootstrap_environment, BootstrapError
-
-    repo_root = Path.cwd()
-    repo_marker = (repo_root / "pyproject.toml").exists() and (repo_root / "src" / "fastmdxplora").exists()
-    resolved_package_name = "." if package_name == "." and repo_marker else package_name
-    resolved_editable = editable and repo_marker
-
-    try:
-        bootstrap_environment(
-            env_name=args.env_name,
-            python_version=args.python_version,
-            yes=args.yes,
-            force=args.force,
-            package_name=resolved_package_name,
-            editable=resolved_editable,
-        )
-        return 0
-    except BootstrapError as exc:
-        print(f"fastmdx: bootstrap failed: {exc}", file=sys.stderr)
-        return 1
-
-
-def _cmd_health(args: argparse.Namespace) -> int:
-    from health import main as health_main
-
-    argv: list[str] = []
-    if getattr(args, "no_fix", False):
-        argv.append("--no-fix")
-    if getattr(args, "yes", False):
-        argv.append("--yes")
-    return health_main(argv)
-
-
-# ---------------------------------------------------------------------------
-# Self-healing prologue
-# ---------------------------------------------------------------------------
-# `explore` / `xplore` / `setup` / `simulate` need OpenMM (and PDBFixer
-# for setup). Without the chemistry stack installed, the user would
-# otherwise get a long stack trace. Detect this here and offer a one-stop
-# install hint instead, while still letting `info` / `health` / etc.
-# proceed normally.
-_CHEMISTRY_PHASES = frozenset({"setup", "simulation"})
-
-
 def _needs_chemistry(args: argparse.Namespace) -> bool:
     """Return True if this command will actually invoke a chemistry phase."""
     cmd = getattr(args, "command", None)
@@ -1375,16 +1256,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_init_config(args)
     if args.command == "dashboard":
         return _cmd_dashboard(args)
-
-    if args.command == "health":
-        return _cmd_health(args)
-
-    if args.command == "install":
-        return _cmd_bootstrap(args, editable=False, package_name=".")
-    if args.command == "bootstrap":
-        return _cmd_bootstrap(args, editable=False, package_name=".")
-    if args.command == "install-e":
-        return _cmd_bootstrap(args, editable=True, package_name=".")
 
     # Commands that build an orchestrator can hit config-file errors;
     # surface those cleanly rather than as a traceback.

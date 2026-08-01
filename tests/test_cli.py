@@ -81,55 +81,6 @@ def test_repo_root_launcher_runs_without_installation() -> None:
     assert "FastMDXplora" in result.stdout
 
 
-def test_cli_health_subcommand_invokes_health() -> None:
-    with patch("health.main", return_value=0) as health_main:
-        rc = main(["health"])
-    assert rc == 0
-    health_main.assert_called_once_with([])
-
-
-def test_cli_install_subcommand_uses_local_checkout() -> None:
-    with patch("fastmdxplora.install.bootstrap_environment") as bootstrap_mock:
-        rc = main(["install"])
-    assert rc == 0
-    bootstrap_mock.assert_called_once_with(
-        env_name="fastmdxplora",
-        python_version="3.10",
-        yes=False,
-        force=False,
-        package_name=".",
-        editable=False,
-    )
-
-
-def test_cli_bootstrap_alias_uses_local_checkout_when_running_from_repo() -> None:
-    with patch("fastmdxplora.install.bootstrap_environment") as bootstrap_mock:
-        rc = main(["bootstrap"])
-    assert rc == 0
-    bootstrap_mock.assert_called_once_with(
-        env_name="fastmdxplora",
-        python_version="3.10",
-        yes=False,
-        force=False,
-        package_name=".",
-        editable=False,
-    )
-
-
-def test_cli_install_e_subcommand_uses_editable_checkout() -> None:
-    with patch("fastmdxplora.install.bootstrap_environment") as bootstrap_mock:
-        rc = main(["install-e"])
-    assert rc == 0
-    bootstrap_mock.assert_called_once_with(
-        env_name="fastmdxplora",
-        python_version="3.10",
-        yes=False,
-        force=False,
-        package_name=".",
-        editable=True,
-    )
-
-
 def test_cli_explore(tmp_path: Path) -> None:
     pdb = _make_pdb_stub(tmp_path)
     out = tmp_path / "run"

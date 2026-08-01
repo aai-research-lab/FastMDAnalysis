@@ -36,84 +36,107 @@
 
 ## Installation
 
-FastMDXplora runs analysis/reporting on Linux, macOS, and Windows. For the full OpenMM/PDBFixer workflow, use Linux, macOS, or Linux inside WSL2. Windows users should use native PowerShell for analysis/reporting and WSL2 for the full chemistry workflow; the [Read the Docs installation page](https://fastmdxplora.readthedocs.io/en/latest/installation.html) explains the decision and gives exact commands.
+FastMDXplora has two dependency footprints. The **analysis** and **report**
+phases are pure pip. The **setup** and **simulation** phases additionally need
+OpenMM and PDBFixer, which are distributed through conda-forge. Pick the route
+that matches what you need.
 
-### Quick install (Linux/macOS/WSL2 full workflow)
+Analysis and reporting run on Linux, macOS, and Windows. For the full
+OpenMM/PDBFixer workflow use Linux, macOS, or WSL2; on Windows, native
+PowerShell is fine for analysis and reporting.
+
+### Analysis and reporting only (pip)
 
 ```bash
-git clone https://github.com/aai-research-lab/FastMDXplora.git   # 1
-cd FastMDXplora                                                  # 2
-python fastmdx install                                           # 3
+pip install fastmdxplora
+fastmdx explore --system 1L2Y --include analysis report
 ```
 
-The third command:
+FastMDXplora is published under two names that resolve to the same package:
+`fastmdxplora` (canonical) and `fastmdx` (an alias). Either works. Both install
+a real `fastmdx` console script on `PATH`, declared by `[project.scripts]`, so
+it behaves the same on every platform.
 
-- detects whether conda/mamba is already installed; if not, downloads and installs **Miniforge** for your platform automatically
-- creates a `fastmdxplora` conda environment with Python 3.10
-- installs **OpenMM** and **PDBFixer** (the only heavy chemistry dependencies)
-- installs FastMDXplora itself
-- runs `fastmdx info` as a smoke test to confirm everything works
+### All four phases (pip plus the chemistry stack)
 
-> Why the `python fastmdx …` prefix? The repo includes a tiny `fastmdx` shim at its root so the CLI can run before any `pip install` step. See [`docs/installation.md § Why python fastmdx`](docs/installation.md#why-python-fastmdx) for the full behavior and the canonical `python -m fastmdxplora.cli.main …` fallback.
-
-Then activate and run your first simulation:
+Create a conda environment, add OpenMM and PDBFixer from conda-forge, then pip
+install FastMDXplora into it:
 
 ```bash
+conda create -n fastmdxplora "python>=3.9,<3.14"
 conda activate fastmdxplora
+conda install -c conda-forge openmm pdbfixer openmmforcefields
+pip install fastmdxplora
+```
+
+Then run your first study:
+
+```bash
 fastmdx explore --system 1L2Y
 ```
 
-`1L2Y` is a small trp-cage PDB that exercises every phase on a fast turnaround. Replace it with any 4-character PDB ID or with the path to a local `.pdb` / `.cif` file.
+`1L2Y` is a small trp-cage structure that exercises every phase quickly.
+Replace it with any 4-character PDB ID or a path to a local `.pdb` / `.cif`.
 
-### Three scenarios, two install paths
+If you already have a conda environment you want to use, only the
+`conda install` and `pip install` lines are needed.
 
-| Starting point | What you run |
-|---|---|
-| **Fresh Linux/macOS/WSL2 machine** | The 3 commands below. Miniforge is downloaded and installed automatically; Python 3.9–3.13 is needed to start the bootstrap. |
-| **You already have conda or mamba** | The same 3 commands. Miniforge download is skipped; the `fastmdxplora` environment is created directly. |
-| **You only want analysis + reports, no MD** | Skip the `install` step. Just `pip install fastmdxplora` then `fastmdx explore --system 1L2Y --include analyze report` (2 commands, no conda env required). To upgrade later to the full chemistry stack, see [Install from PyPI](#install-from-pypi-no-git-clone) below. |
+`mamba` is a drop-in, faster replacement for the conda solver and is worth
+using here, since solving the OpenMM stack is exactly where the classic solver
+is slow. If you have it, substitute `mamba` for `conda` above.
 
-### Install from PyPI (no git clone)
+### From a clone (development, or the pinned environment)
 
-If you don't want to clone the repository — for example, you only need FastMDXplora as a library to call from a script — install the published version straight from PyPI. FastMDXplora is published under two names that resolve to the same package: `fastmdxplora` (canonical) and `fastmdx` (a one-line alias). Either command installs the same software:
-
-```bash
-pip install fastmdxplora       # canonical name
-pip install fastmdx            # shorter alias; same install underneath
-```
-
-The CLI is exposed by either install as a real platform-native `fastmdx` console script on `PATH` (declared by `[project.scripts]` in `pyproject.toml`), so it behaves identically on Linux / macOS / Windows — no App Execution Aliases trap, no per-OS wrapper script.
-
-After install:
-
-- **Analysis + reports** (no MD): all four pip deps (MDTraj, matplotlib, scikit-learn, python-pptx) are present out of the box. Run `fastmdx explore --system 1L2Y --include analyze report`.
-- **Setup + simulation** (full chemistry stack): OpenMM and PDBFixer are **not** installed by plain pip because PDBFixer wheels aren't reliable across all platforms. Run `fastmdx install` after the pip install to drop them into the `fastmdxplora` conda env (auto-installs Miniforge if needed, same flow as the git-clone path).
-
-To upgrade a pip-only install to the full chemistry stack on any OS:
+The repository ships an `environment.yml` describing the full stack, so a
+clone-based install does not need the separate `conda install` step:
 
 ```bash
-pip install fastmdxplora                                      # 1
-fastmdx install                                               # 2 — creates the conda env, auto-installs Miniforge if needed
-conda activate fastmdxplora                                   # 3
-fastmdx explore --system 1L2Y                                 # 4 — first full sim
+git clone https://github.com/aai-research-lab/FastMDXplora.git
+cd FastMDXplora
+mamba env create -f environment.yml || conda env create -f environment.yml
+conda activate fastmdxplora
+pip install -e ".[test]"
 ```
 
-Miniforge is auto-installed on a fresh machine, OpenMM + PDBFixer drop into the `fastmdxplora` conda env, and `fastmdx info` is used as a smoke test — same flow as the git-clone path.
+The `-e` makes the install editable, so your changes take effect without
+reinstalling, and `[test]` adds pytest. Use `pip install .` if you only want to
+run it.
 
-On Windows PowerShell, use the Python launcher and the virtual environment's
-activation script:
+### conda-forge
+
+A single-command `conda install -c conda-forge fastmdxplora`, pulling every
+dependency including the chemistry stack, is planned once the recipe clears
+review. Until then, use one of the routes above.
+
+### Optional extras
+
+```bash
+pip install "fastmdxplora[ligand]"   # OpenFF small-molecule parameterization
+pip install "fastmdxplora[plumed]"   # PLUMED enhanced sampling
+```
+
+The `plumed` extra also needs the conda package:
+
+```bash
+conda install -c conda-forge openmm-plumed
+```
+
+There is also an `[md]` extra that attempts OpenMM and PDBFixer through pip.
+conda-forge is preferred, because PDBFixer wheels are not reliable on every
+platform.
+
+### Windows
+
+For analysis and reporting, a virtual environment works:
 
 ```powershell
-cd C:\Users\User\OneDrive\Documents\GitHub\FastMDXplora
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip setuptools wheel
-python -m pip install -e ".[test]"
-python -m fastmdxplora.cli.main --version
-python -m fastmdxplora.cli.main info
+python -m pip install --upgrade pip
+python -m pip install fastmdxplora
 ```
 
-If PowerShell blocks activation, allow local scripts for your user account:
+If PowerShell blocks activation, allow local scripts for your account:
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
@@ -122,18 +145,20 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 You can also skip activation and call the environment's Python directly:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -e ".[test]"
-.\.venv\Scripts\python.exe -m fastmdxplora.cli.main --version
+.\.venv\Scripts\python.exe -m fastmdxplora.cli.main info
 ```
+
+For the full chemistry workflow on Windows, use WSL2 and follow the Linux
+instructions there.
 
 ### Verify
 
 ```bash
-fastmdx --version    # reports the installed FastMDXplora version
-fastmdx info         # version + detected backends (OpenMM, PDBFixer, ...)
+fastmdx --version    # installed version
+fastmdx info         # version, phase availability, detected backends
 ```
 
-If `fastmdx` is not on PATH, these module commands are the safest fallback:
+If `fastmdx` is not on `PATH`, the module form is the portable fallback:
 
 ```bash
 python -m fastmdxplora.cli.main --version
@@ -151,42 +176,37 @@ print("CUDA available" if "CUDA" in plats else "CPU-only: simulations will run o
 PY
 ```
 
-### Where to go next
+### Troubleshooting
 
-- **Need the full walkthrough, GPU notes, or troubleshooting?** See [`docs/installation.md`](docs/installation.md).
-- **Already installed and ready to run?** Skip to [Examples](#examples).
-- **Want to contribute?** See [CONTRIBUTING.md](CONTRIBUTING.md).
+**`fastmdx` is not recognized.** The console-script directory is not on `PATH`.
+Check which Python has the package and where it writes scripts:
 
-### Troubleshooting: `fastmdx` is not recognized
-
-On Windows, especially with Microsoft Store Python or PowerShell, you may see:
-
-```text
-fastmdx : The term 'fastmdx' is not recognized as the name of a cmdlet, function, script file, or operable program.
-```
-
-First check which Python installed FastMDXplora and where console scripts are
-written:
-
-```powershell
+```bash
 python -m pip show fastmdxplora
-python -c "import sys; print(sys.executable)"
 python -c "import sysconfig; print(sysconfig.get_path('scripts'))"
 python -m fastmdxplora.cli.main --version
 ```
 
-If `import fastmdxplora` works but `fastmdx` is missing, the console-script
-directory is not on PATH. Use `python -m fastmdxplora.cli.main ...` as the
-portable fallback, or reinstall from the same Python to recreate the script:
+If `import fastmdxplora` works but `fastmdx` does not, use
+`python -m fastmdxplora.cli.main ...` as the portable fallback. Avoid mixing
+Python installations in one terminal: the interpreter used for `pip install`
+should be the one used to run the module.
 
-```powershell
-python -m pip install -e .
-python -m fastmdxplora.cli.main info
+**`fastmdx info` reports OpenMM or PDBFixer missing.** You have the pip-only
+install. Add the chemistry stack:
+
+```bash
+conda install -c conda-forge openmm pdbfixer openmmforcefields
 ```
 
-Avoid mixing multiple Python installs in the same terminal. The Python used for
-`python -m pip install ...` should be the same one used for
-`python -m fastmdxplora.cli.main ...`.
+Until then, `setup` and `simulation` are skipped with a clear message, while
+`analysis` and `report` continue to work.
+
+### Where to go next
+
+- **Full walkthrough, GPU notes, and troubleshooting:** [`docs/installation.md`](docs/installation.md)
+- **Already installed?** Skip to [Examples](#examples).
+- **Want to contribute?** See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Examples
 

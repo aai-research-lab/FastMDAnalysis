@@ -8,11 +8,10 @@ FastMDXplora/
 │       ├── _version.py            # Written by setuptools-scm (not committed)
 │       ├── orchestrator.py        # FastMDXplora project-level orchestrator
 │       ├── dependencies.py        # Optional-backend detection (OpenMM, PDBFixer, …)
-│       ├── install.py             # Miniforge/conda bootstrap behind `fastmdx install`
 │       ├── cli/
 │       │   ├── __init__.py
 │       │   └── main.py            # `fastmdx` entry point (explore/xplore/setup/simulate/
-│       │                          #   analyze/report/dashboard/install/health/info/init-config)
+│       │                          #   analyze/report/dashboard/info/init-config)
 │       ├── setup/
 │       │   ├── pipeline.py        # Phase driver: fix, protonate, solvate, ionize
 │       │   ├── prepare.py         # Modeller assembly, ligand merge, clash checks
@@ -82,7 +81,6 @@ FastMDXplora/
 ├── examples/                      # Example inputs (e.g. pdb_list.txt)
 ├── assets/
 ├── fastmdx                        # Launcher for an uninstalled checkout
-├── health.py                      # Repository doctor: layout, deps, smoke test
 ├── environment.yml                # conda environment for the full install
 ├── pyproject.toml                 # Primary package config
 ├── pytest.ini
@@ -117,8 +115,9 @@ Three subsystems sit alongside the phases rather than inside them:
   compares them. Each run is structurally identical to a single study.
 - **`live/`** serves a localhost dashboard that watches a run in progress.
   It never reimplements phase science; it observes and launches.
-- **`install.py` / `health.py`** handle environment bootstrap and diagnosis,
-  which matter because the chemistry stack is conda-distributed.
+- **`dependencies.py`** detects the optional chemistry backends. Missing
+  backends are reported at the point of use with the exact install command,
+  rather than failing mid-phase.
 
 ### Key design principles
 
@@ -147,7 +146,7 @@ Three subsystems sit alongside the phases rather than inside them:
 6. **One source of truth per fact.** The config schema defines the option
    surface for both the CLI and the Python API; `MIN_PYTHON` / `MAX_PYTHON`
    in `__init__.py` define the supported Python range for `pyproject.toml`,
-   `environment.yml`, `install.py`, and `health.py`.
+   and `environment.yml`.
 
 ### Naming alignment
 
