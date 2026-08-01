@@ -48,6 +48,7 @@ dependencies = [
     "pyyaml>=6.0",
     "mdtraj>=1.9.7",
     "matplotlib>=3.5",
+    "scipy>=1.7",
     "scikit-learn>=1.0",
     "pandas>=1.4",
     "python-pptx>=0.6.21",
