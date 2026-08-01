@@ -348,7 +348,7 @@ class FastMDXplora:
                 latest_error=failed.message if failed else None,
             )
             dashboard_writer.event(
-                "FastMDXplora workflow failed" if failed else "FastMDXplora workflow completed",
+                "FastMDXplora exploration failed" if failed else "FastMDXplora exploration completed",
                 level="error" if failed else "info",
             )
 

@@ -518,14 +518,14 @@ class SessionPresenter:
         BR = chr(0x256F)
         CHECK = chr(0x2713)
 
-        # Every run-information box uses one shared width and one shared
-        # indentation. The boxes are centered beneath the startup wordmark,
-        # while their internal content remains left-aligned for readability.
+        # One box holds every section. It is left-aligned with the startup
+        # wordmark rather than centred, so the whole introduction reads as a
+        # single left-hand column instead of drifting to the middle of a wide
+        # terminal.
         box_width = min(112, max(72, self.width - 24))
         box_width = min(box_width, max(38, self.width - 2))
         content_w = box_width - 4
-        box_indent = max(0, (self.width - box_width) // 2)
-        box_prefix = " " * box_indent
+        box_prefix = "  "
 
         def fit(text: str, limit: int | None = None) -> str:
             text = str(text)
@@ -594,31 +594,28 @@ class SessionPresenter:
                 + self._c(V, border)
             )
 
+        def section(text: str, border: str) -> None:
+            """Start a new section inside the shared box."""
+            line("", border)
+            title(text, border)
+
         self.welcome(
             dashboard_url=dashboard_link,
             dashboard_enabled=dashboard_enabled,
         )
 
         top("green")
-        title("CURRENT RUN", "green")
+        title("MD EXPLORATION", "green")
         kv("System", system, "green")
         kv("Output", output, "green")
         kv("Version", version, "green")
         kv("Started", started, "green")
         kv("Platform", f"{platform} ({precision} precision)", "green")
-        bottom("green")
-        self._write("")
-
-        top("cyan")
-        title("SETUP", "cyan")
+        section("SETUP", "cyan")
         kv("pH", setup_ph, "cyan")
         kv("Ion Conc.", f"{ion_conc} M", "cyan")
         kv("Force Field", forcefield, "cyan")
-        bottom("cyan")
-        self._write("")
-
-        top("orange")
-        title("SIMULATION", "orange")
+        section("SIMULATION", "orange")
         kv("NVT", f"{format_steps(nvt_steps)} steps", "orange")
         kv("NPT", f"{format_steps(npt_steps)} steps", "orange")
         kv("Production", f"{format_steps(prod_steps)} steps", "orange")
@@ -627,14 +624,11 @@ class SessionPresenter:
         kv("Temperature", f"{temperature} K", "orange")
         kv("Friction", f"{friction} / ps", "orange")
         kv("DCD Frames", trajectory_display, "orange")
-        bottom("orange")
-        self._write("")
 
         # Analysis and report information uses a blue frame, cyan labels,
         # and white values. The box itself shares the same centered layout as
         # every other run-information section; its contents remain left-aligned.
-        top("blue")
-        title("ANALYSIS & REPORT", "blue")
+        section("ANALYSIS & REPORT", "blue")
         # Only list the GUI when one was actually requested for this run.
         # Printing the address unconditionally sent users to a refused
         # connection, since `explore` does not start a server on its own.
@@ -651,12 +645,9 @@ class SessionPresenter:
             "blue",
             label_color="cyan",
         )
-        bottom("blue")
-        self._write("")
 
         # Use green here to balance the cyan, orange, and blue sections above.
-        top("green")
-        title("REPORTING & OUTPUTS", "green")
+        section("REPORTING & OUTPUTS", "green")
         line(
             f"{CHECK} Markdown report      {CHECK} HTML summary        {CHECK} PDF figures",
             "green",

@@ -266,13 +266,13 @@ class BatchExplorer:
         exclude = self._raw.get("exclude")
 
         if self.is_single:
-            logger.info("Running 1 study in %s", self.output_dir)
+            logger.info("Exploring 1 molecular system in %s", self.output_dir)
         else:
             (self.output_dir / "runs").mkdir(exist_ok=True)
             logger.info(
-                "Batch: %d runs in %s (mode=%s)", n, self.output_dir, self.mode
+                "Exploring %d molecular systems in %s (mode=%s)", n, self.output_dir, self.mode
             )
-            print(f"\nFastMDXplora: {n} runs ({self.mode})\n{'=' * 40}")
+            print(f"\nFastMDXplora: exploring {n} systems ({self.mode})\n{'=' * 40}")
 
         if self.mode == "parallel" and not self.is_single:
             self.results = self._run_parallel(include, exclude)

@@ -1035,11 +1035,24 @@ def _discover_analysis_images(project_root: Path) -> list[Path]:
     if not analysis_dir.is_dir():
         return []
     suffixes = {".png", ".jpg", ".jpeg", ".svg"}
-    return sorted(
+    found = [
         path
         for path in analysis_dir.rglob("*")
         if path.is_file() and path.suffix.lower() in suffixes
-    )
+    ]
+    # Analyses write the same figure as both PNG and SVG. They carry the same
+    # title, so listing both would show every figure twice; prefer the raster
+    # for display and let the SVG be reached through the download links.
+    raster = {".png", ".jpg", ".jpeg"}
+    by_stem: dict[tuple[Path, str], Path] = {}
+    for path in sorted(found):
+        key = (path.parent, path.stem)
+        current = by_stem.get(key)
+        if current is None or (
+            current.suffix.lower() not in raster and path.suffix.lower() in raster
+        ):
+            by_stem[key] = path
+    return sorted(by_stem.values())
 
 
 def _discover_report_images(project_root: Path) -> list[Path]:
@@ -2275,7 +2288,6 @@ def _quick_action_links(links: list[DashboardLink]) -> list[DashboardLink]:
         ("Slide deck", "Open Slides"),
         ("Project bundle", "Open Bundle"),
         ("Analysis manifest", "Open Analysis Manifest"),
-        ("Dashboard HTML", "Open Dashboard HTML"),
     ):
         link = by_label.get(label)
         if link:

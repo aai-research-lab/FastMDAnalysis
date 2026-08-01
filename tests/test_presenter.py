@@ -355,3 +355,41 @@ def test_run_summary_lists_the_gui_only_when_one_was_requested(monkeypatch) -> N
 
     with_gui = render(["explore", "--system", "1L2Y", "--dashboard"])
     assert "127.0.0.1" in with_gui
+
+
+def test_banner_is_one_left_aligned_box() -> None:
+    """All sections share a single box, aligned with the wordmark.
+
+    Five separate centred boxes drifted to the middle of a wide terminal and
+    read as five unrelated blocks.
+    """
+    import io
+    import sys
+
+    from fastmdxplora.utils import presenter as presenter_module
+
+    presenter_module._PRESENTER = None
+    pr = presenter_module.get_presenter()
+    buffer = io.StringIO()
+    pr.stream = buffer
+    pr._color = False
+    pr.width = 200
+    argv = sys.argv
+    sys.argv = ["fastmdx", "explore", "--system", "1L2Y"]
+    try:
+        pr.banner(System="1L2Y", Output="/tmp/run", Version="2.1.0")
+    finally:
+        sys.argv = argv
+    text = buffer.getvalue()
+
+    # Exactly one box: one top-left corner and one bottom-left corner.
+    assert text.count(chr(0x256D)) == 1
+    assert text.count(chr(0x2570)) == 1
+
+    # Every box line starts at the same two-space indent as the wordmark.
+    box_lines = [ln for ln in text.splitlines() if chr(0x2502) in ln or chr(0x256D) in ln]
+    assert box_lines
+    assert all(ln.startswith("  ") and not ln.startswith("   ") for ln in box_lines)
+
+    for heading in ("MD EXPLORATION", "SETUP", "SIMULATION", "REPORTING & OUTPUTS"):
+        assert heading in text

@@ -844,9 +844,9 @@ def _start_dashboard_for_command(args: argparse.Namespace, output_dir: Path):
     print(f"Watching output folder: {output_dir}")
     print("Open this URL in your browser to monitor the run.")
     if args.dashboard_stop_on_complete:
-        print("Dashboard will stop automatically after the workflow completes.")
+        print("The GUI stops automatically when the exploration completes.")
     else:
-        print("Press Ctrl+C to stop the dashboard after the workflow completes.")
+        print("Press Ctrl+C to stop the GUI after the exploration completes.")
     print()
     return session
 
@@ -858,8 +858,8 @@ def _finish_dashboard_for_command(session, args: argparse.Namespace) -> None:
         session.stop()
         return
     print()
-    print(f"Workflow complete. Live dashboard is still running at: {session.url}")
-    print("Press Ctrl+C to stop the dashboard.")
+    print(f"Exploration complete. The GUI is still running at: {session.url}")
+    print("Press Ctrl+C to stop the GUI.")
     try:
         session.wait_forever()
     except KeyboardInterrupt:
