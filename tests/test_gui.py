@@ -1319,33 +1319,36 @@ def test_results_payload_carries_categorised_sections(tmp_path: Path) -> None:
     assert all(panel["href"].startswith("/artifacts/") for panel in panels)
 
 
-def test_curated_chart_index_round_trips(tmp_path: Path) -> None:
-    """The report records which curated charts it produced, for the GUI to reuse.
+def test_data_files_are_summarised_without_plotting(tmp_path: Path) -> None:
+    """Panel captions come straight from the data now.
 
-    Without the index the browser would have to regenerate the charts on every
-    poll, which would be both slow and a write into the run directory.
+    They used to be produced as a side effect of rendering a second copy of
+    every figure, which meant drawing 17 charts nothing displayed.
     """
-    import json
+    from fastmdxplora.gui.report_dashboard import _summarise_data_file
 
-    from fastmdxplora.gui.report_dashboard import load_dashboard_assets
+    series = tmp_path / "rmsd.dat"
+    series.write_text("\n".join(f"{i} {0.2 + i * 0.01:.4f}" for i in range(10)),
+                      encoding="utf-8")
+    assert _summarise_data_file(series, "line").startswith("avg ")
 
-    run = tmp_path / "run"
-    assets_dir = run / "report" / "dashboard_assets"
-    assets_dir.mkdir(parents=True)
+    clusters = tmp_path / "clusters.dat"
+    clusters.write_text("\n".join(f"{i} {i % 3}" for i in range(30)), encoding="utf-8")
+    assert _summarise_data_file(clusters, "cluster") == "3 clusters"
+    assert _summarise_data_file(clusters, "cluster_counts") == "3 clusters"
 
-    assert load_dashboard_assets(run) == {}, "absent index must not raise"
+    projection = tmp_path / "pca.dat"
+    projection.write_text("\n".join(f"{i} {i * 0.1} {i * 0.2}" for i in range(12)),
+                          encoding="utf-8")
+    assert _summarise_data_file(projection, "scatter") == "12 frames"
 
-    (assets_dir / "assets.json").write_text(
-        json.dumps(
-            {"RMSD": {"rel_path": "report/dashboard_assets/rmsd_dashboard.png",
-                      "summary": "mean 0.21 nm"}}
-        ),
-        encoding="utf-8",
-    )
-    assets = load_dashboard_assets(run)
-    assert assets["RMSD"].rel_path.endswith("rmsd_dashboard.png")
-    assert assets["RMSD"].summary == "mean 0.21 nm"
+    # Malformed data raises rather than inventing a caption.
+    import pytest
 
+    bad = tmp_path / "bad.dat"
+    bad.write_text("1\n2\n3\n", encoding="utf-8")
+    with pytest.raises(ValueError):
+        _summarise_data_file(bad, "scatter")
 
 def test_analysis_view_hosts_sections_and_quick_actions(tmp_path: Path) -> None:
     run = tmp_path / "run"

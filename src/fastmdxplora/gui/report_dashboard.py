@@ -90,169 +90,27 @@ DASHBOARD_ASSET_TITLE_ALIASES: dict[str, tuple[str, ...]] = {
     "Dihedrals": ("Dihedrals",),
 }
 
-DASHBOARD_ASSET_SPECS: tuple[tuple[str, str, str, str, str, str, str], ...] = (
-    (
-        "RMSD",
-        "analysis/rmsd/rmsd.dat",
-        "rmsd_dashboard.png",
-        "#35a7ff",
-        "Frame",
-        "RMSD (nm)",
-        "line",
-    ),
-    (
-        "RMSF",
-        "analysis/rmsf/rmsf.dat",
-        "rmsf_dashboard.png",
-        "#d957c8",
-        "Residue",
-        "RMSF (nm)",
-        "line",
-    ),
-    (
-        "Radius of gyration",
-        "analysis/rg/rg.dat",
-        "rg_dashboard.png",
-        "#57c45d",
-        "Frame",
-        "Rg (nm)",
-        "line",
-    ),
-    (
-        "Hydrogen bonds",
-        "analysis/hbonds/hbonds.dat",
-        "hbonds_dashboard.png",
-        "#2ed3e6",
-        "Frame",
-        "H-bonds",
-        "line",
-    ),
-    (
-        "Total SASA",
-        "analysis/sasa/sasa.dat",
-        "sasa_dashboard.png",
-        "#43c7b7",
-        "Frame",
-        "SASA (nm^2)",
-        "line",
-    ),
-    (
-        "PCA",
-        "analysis/dimred/dimred_pca.dat",
-        "pca_dashboard.png",
-        "#35a7ff",
-        "PC1",
-        "PC2",
-        "scatter",
-    ),
-    (
-        "MDS",
-        "analysis/dimred/dimred_mds.dat",
-        "mds_dashboard.png",
-        "#7cc66a",
-        "MDS 1",
-        "MDS 2",
-        "scatter",
-    ),
-    (
-        "t-SNE",
-        "analysis/dimred/dimred_tsne.dat",
-        "tsne_dashboard.png",
-        "#d957c8",
-        "t-SNE 1",
-        "t-SNE 2",
-        "scatter",
-    ),
-    (
-        "KMeans trajectory scatter",
-        "analysis/cluster/cluster_kmeans.dat",
-        "kmeans_trajectory_dashboard.png",
-        "#7cc66a",
-        "Frame",
-        "Cluster",
-        "cluster",
-    ),
-    (
-        "KMeans population plot",
-        "analysis/cluster/cluster_kmeans.dat",
-        "kmeans_population_dashboard.png",
-        "#7cc66a",
-        "Cluster",
-        "Frames",
-        "cluster_counts",
-    ),
-    (
-        "Hierarchical trajectory scatter",
-        "analysis/cluster/cluster_hierarchical.dat",
-        "hierarchical_trajectory_dashboard.png",
-        "#efb35e",
-        "Frame",
-        "Cluster",
-        "cluster",
-    ),
-    (
-        "Hierarchical population plot",
-        "analysis/cluster/cluster_hierarchical.dat",
-        "hierarchical_population_dashboard.png",
-        "#efb35e",
-        "Cluster",
-        "Frames",
-        "cluster_counts",
-    ),
-    (
-        "Hierarchical dendrogram",
-        "analysis/cluster/hierarchical_linkage.npy",
-        "hierarchical_dendrogram_dashboard.png",
-        "#efb35e",
-        "Frame",
-        "Distance",
-        "dendrogram",
-    ),
-    (
-        "DBSCAN trajectory scatter",
-        "analysis/cluster/cluster_dbscan.dat",
-        "dbscan_trajectory_dashboard.png",
-        "#39b7c9",
-        "Frame",
-        "Cluster",
-        "cluster",
-    ),
-    (
-        "DBSCAN population plot",
-        "analysis/cluster/cluster_dbscan.dat",
-        "dbscan_population_dashboard.png",
-        "#39b7c9",
-        "Cluster",
-        "Frames",
-        "cluster_counts",
-    ),
-    (
-        "Secondary structure",
-        "analysis/ss/ss.dat",
-        "ss_dashboard.png",
-        "#35a7ff",
-        "Residue",
-        "Frame",
-        "ss",
-    ),
-    (
-        "Fraction of native contacts",
-        "analysis/qvalue/qvalue.dat",
-        "qvalue_dashboard.png",
-        "#57c45d",
-        "Frame",
-        "Q",
-        "line",
-    ),
-    (
-        "Dihedrals",
-        "analysis/dihedrals/dihedrals.dat",
-        "dihedrals_dashboard.png",
-        "#d957c8",
-        "Phi (degrees)",
-        "Psi (degrees)",
-        "dihedrals",
-    ),
+# Title, data file, and how to summarise it. The report used to redraw
+# each of these; now it only reads them for a caption.
+DASHBOARD_SUMMARY_SPECS: tuple[tuple[str, str, str], ...] = (
+    ("RMSD", "analysis/rmsd/rmsd.dat", "line"),
+    ("RMSF", "analysis/rmsf/rmsf.dat", "line"),
+    ("Radius of gyration", "analysis/rg/rg.dat", "line"),
+    ("Hydrogen bonds", "analysis/hbonds/hbonds.dat", "line"),
+    ("Total SASA", "analysis/sasa/sasa.dat", "line"),
+    ("PCA", "analysis/dimred/dimred_pca.dat", "scatter"),
+    ("MDS", "analysis/dimred/dimred_mds.dat", "scatter"),
+    ("t-SNE", "analysis/dimred/dimred_tsne.dat", "scatter"),
+    ("KMeans trajectory scatter", "analysis/cluster/cluster_kmeans.dat", "cluster"),
+    ("KMeans population plot", "analysis/cluster/cluster_kmeans.dat", "cluster_counts"),
+    ("Hierarchical trajectory scatter", "analysis/cluster/cluster_hierarchical.dat", "cluster"),
+    ("Hierarchical population plot", "analysis/cluster/cluster_hierarchical.dat", "cluster_counts"),
+    ("Hierarchical dendrogram", "analysis/cluster/hierarchical_linkage.npy", "dendrogram"),
+    ("DBSCAN trajectory scatter", "analysis/cluster/cluster_dbscan.dat", "cluster"),
+    ("DBSCAN population plot", "analysis/cluster/cluster_dbscan.dat", "cluster_counts"),
+    ("Secondary structure", "analysis/ss/ss.dat", "ss"),
+    ("Fraction of native contacts", "analysis/qvalue/qvalue.dat", "line"),
+    ("Dihedrals", "analysis/dihedrals/dihedrals.dat", "dihedrals"),
 )
 
 
@@ -339,7 +197,7 @@ def build_dashboard(
         analysis_manifest=analysis_manifest,
         sim_manifest=sim_manifest,
     )
-    dashboard_assets = _build_dashboard_assets(project_root, output_dir)
+    dashboard_assets = _dashboard_summaries(project_root)
     sections = _analysis_sections(project_root, output_dir, dashboard_assets)
     links = _artifact_links(
         project_root,
@@ -637,270 +495,79 @@ def _parse_datetime(value: object) -> datetime | None:
         return None
 
 
-def _build_dashboard_assets(
-    project_root: Path,
-    output_dir: Path,
-) -> dict[str, DashboardAsset]:
-    assets: dict[str, DashboardAsset] = {}
-    asset_dir = output_dir / "dashboard_assets"
-    if asset_dir.is_dir():
-        for stale in asset_dir.glob("*_dashboard.png"):
-            try:
-                stale.unlink()
-            except OSError:
-                logger.warning("dashboard: could not remove stale asset %s", stale)
-    for title, rel_data, filename, color, xlabel, ylabel, kind in DASHBOARD_ASSET_SPECS:
+def _dashboard_summaries(project_root: Path) -> dict[str, DashboardAsset]:
+    """Short captions for each analysis, keyed by figure title.
+
+    Previously this rendered a second, restyled copy of every figure and
+    returned the captions it computed along the way. The copies are no longer
+    shown anywhere, so only the captions remain.
+    """
+    summaries: dict[str, DashboardAsset] = {}
+    for title, rel_data, kind in DASHBOARD_SUMMARY_SPECS:
         data_path = project_root / rel_data
         if not data_path.is_file():
             continue
-        asset_path = asset_dir / filename
         try:
-            asset_dir.mkdir(parents=True, exist_ok=True)
-            summary = _write_dashboard_chart(
-                data_path=data_path,
-                output_path=asset_path,
-                kind=kind,
-                color=color,
-                xlabel=xlabel,
-                ylabel=ylabel,
-            )
-        except Exception as exc:  # noqa: BLE001 -- fallback to original figure
-            logger.warning("dashboard chart skipped for %s: %s", title, exc)
+            summary = _summarise_data_file(data_path, kind)
+        except Exception as exc:  # noqa: BLE001 - a caption must never fail a report
+            logger.debug("dashboard: no summary for %s: %s", title, exc)
             continue
-        assets[title] = DashboardAsset(
-            rel_path=f"report/dashboard_assets/{filename}",
-            summary=summary,
-        )
-    # Record what was produced so the browser can show the same curated
-    # charts without regenerating them on every poll.
-    if assets:
-        try:
-            asset_dir.mkdir(parents=True, exist_ok=True)
-            (asset_dir / "assets.json").write_text(
-                json.dumps(
-                    {
-                        title: {"rel_path": asset.rel_path, "summary": asset.summary}
-                        for title, asset in assets.items()
-                    },
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-        except OSError:  # pragma: no cover - index is an optimisation, not required
-            logger.warning("dashboard: could not write the asset index")
-
-    return assets
+        summaries[title] = DashboardAsset(rel_path=rel_data, summary=summary)
+    return summaries
 
 
-def _write_dashboard_chart(
-    *,
-    data_path: Path,
-    output_path: Path,
-    kind: str,
-    color: str,
-    xlabel: str,
-    ylabel: str,
-) -> str:
-    import matplotlib
 
-    matplotlib.use("Agg", force=True)
-    import matplotlib.pyplot as plt
+def _summarise_data_file(data_path: Path, kind: str) -> str:
+    """Describe a data file in one short phrase, without drawing anything.
 
-    fig, ax = plt.subplots(figsize=(5.6, 3.15), dpi=180)
-    _style_dashboard_axes(fig, ax)
+    The panel captions ("avg 0.21 nm", "12 clusters") used to be produced as a
+    side effect of rendering a second copy of each figure. Those copies are no
+    longer displayed, so the caption is computed directly from the data.
+    """
+    if kind == "ss":
+        _matrix, residues, frames = _secondary_structure_matrix(data_path)
+        if not _matrix:
+            raise ValueError("secondary structure data is empty")
+        return f"{len(frames)} frames, {len(residues)} residues"
+
+    if kind == "dendrogram":
+        import numpy as np
+
+        linkage_matrix = np.load(data_path)
+        if linkage_matrix.ndim != 2 or linkage_matrix.shape[1] != 4:
+            raise ValueError("hierarchical linkage data must be an n x 4 matrix")
+        return f"{linkage_matrix.shape[0] + 1} frames"
+
+    rows = _numeric_rows(data_path)
+    if not rows:
+        raise ValueError("numeric data is empty")
 
     if kind == "scatter":
-        rows = _numeric_rows(data_path)
-        if not rows or any(len(row) < 3 for row in rows):
-            raise ValueError("PCA data must include frame and two components")
-        frame = [row[0] for row in rows]
-        x = [row[1] for row in rows]
-        y = [row[2] for row in rows]
-        points = ax.scatter(
-            x,
-            y,
-            c=frame,
-            cmap="viridis",
-            s=28,
-            edgecolors="none",
-            alpha=0.95,
-        )
-        cbar = fig.colorbar(points, ax=ax, pad=0.02, fraction=0.05)
-        cbar.ax.tick_params(colors="black", labelsize=7)
-        cbar.outline.set_edgecolor("#666666")
-        cbar.set_label("Frame", color="black", fontsize=8)
-        summary = f"{len(rows)} frames"
-    elif kind == "cluster":
-        rows = _numeric_rows(data_path)
-        if not rows or any(len(row) < 2 for row in rows):
+        if any(len(row) < 3 for row in rows):
+            raise ValueError("projection data must include frame and two components")
+        return f"{len(rows)} frames"
+
+    if kind in {"cluster", "cluster_counts"}:
+        if any(len(row) < 2 for row in rows):
             raise ValueError("cluster data must include frame and cluster columns")
-        x = [row[0] for row in rows]
-        y = [row[1] for row in rows]
-        ax.step(x, y, where="mid", color=color, linewidth=1.8)
-        ax.scatter(x, y, color="#39b7c9", s=18, edgecolors="none", alpha=0.9)
-        clusters = sorted({int(value) for value in y})
-        summary = f"{len(clusters)} clusters"
-    elif kind == "cluster_counts":
-        rows = _numeric_rows(data_path)
-        if not rows or any(len(row) < 2 for row in rows):
-            raise ValueError("cluster data must include frame and cluster columns")
-        counts: dict[int, int] = {}
-        for row in rows:
-            cluster = int(row[1])
-            counts[cluster] = counts.get(cluster, 0) + 1
-        clusters = sorted(counts)
-        values = [counts[cluster] for cluster in clusters]
-        ax.bar(
-            [str(cluster) for cluster in clusters],
-            values,
-            color=color,
-            edgecolor="#b8f1ff",
-            linewidth=0.4,
-            alpha=0.88,
-        )
-        summary = f"{len(clusters)} clusters"
-    elif kind == "dihedrals":
-        rows = _numeric_rows(data_path)
-        if not rows or any(len(row) < 4 for row in rows):
+        clusters = {int(row[1]) for row in rows}
+        return f"{len(clusters)} clusters"
+
+    if kind == "dihedrals":
+        if any(len(row) < 4 for row in rows):
             raise ValueError("dihedral data must include frame, residue, phi, and psi")
-        frames = [row[0] for row in rows]
-        phi = [row[2] for row in rows]
-        psi = [row[3] for row in rows]
-        points = ax.scatter(
-            phi,
-            psi,
-            c=frames,
-            cmap="plasma",
-            s=12,
-            edgecolors="none",
-            alpha=0.82,
-        )
-        ax.set_xlim(-180, 180)
-        ax.set_ylim(-180, 180)
-        cbar = fig.colorbar(points, ax=ax, pad=0.02, fraction=0.05)
-        cbar.ax.tick_params(colors="black", labelsize=7)
-        cbar.outline.set_edgecolor("#666666")
-        cbar.set_label("Frame", color="black", fontsize=8)
-        summary = f"{len(rows)} angles"
-    elif kind == "ss":
-        matrix, residues, frames = _secondary_structure_matrix(data_path)
-        if not matrix:
-            raise ValueError("secondary structure data is empty")
-        from matplotlib.colors import ListedColormap
+        return f"{len(rows)} angles"
 
-        cmap = ListedColormap(["#1b3552", "#35a7ff", "#57c45d", "#d957c8"])
-        ax.imshow(matrix, aspect="auto", interpolation="nearest", cmap=cmap)
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel)
-        ax.set_xticks([0, max(0, len(residues) - 1)])
-        ax.set_xticklabels([residues[0], residues[-1]])
-        ax.set_yticks([0, max(0, len(frames) - 1)])
-        ax.set_yticklabels([frames[0], frames[-1]])
-        summary = f"{len(frames)} frames, {len(residues)} residues"
-        _finish_dashboard_chart(fig, ax, output_path)
-        return summary
-    elif kind == "dendrogram":
-        summary = _plot_dashboard_dendrogram(
-            ax=ax,
-            linkage_path=data_path,
-            color=color,
-            xlabel=xlabel,
-            ylabel=ylabel,
-        )
-        _finish_dashboard_chart(fig, ax, output_path)
-        return summary
-    else:
-        rows = _numeric_rows(data_path)
-        if not rows:
-            raise ValueError("numeric data is empty")
-        if all(len(row) == 1 for row in rows):
-            x = list(range(len(rows)))
-            y = [row[0] for row in rows]
-        else:
-            x = [row[0] for row in rows]
-            y = [row[-1] for row in rows]
-        ax.plot(x, y, color=color, linewidth=1.8)
-        ax.fill_between(x, y, min(y), color=color, alpha=0.10)
-        summary = f"avg {_format_metric_value(_mean(y))}"
-
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
-    _finish_dashboard_chart(fig, ax, output_path)
-    return summary
+    values = [row[0] for row in rows] if all(len(row) == 1 for row in rows) \
+        else [row[-1] for row in rows]
+    return f"avg {_format_metric_value(_mean(values))}"
 
 
-def _plot_dashboard_dendrogram(
-    *,
-    ax,
-    linkage_path: Path,
-    color: str,
-    xlabel: str,
-    ylabel: str,
-) -> str:
-    import numpy as np
-
-    try:
-        from scipy.cluster.hierarchy import dendrogram
-    except ImportError as exc:  # pragma: no cover - optional dependency
-        raise RuntimeError("SciPy is required for dashboard dendrogram rendering") from exc
-
-    linkage_matrix = np.load(linkage_path)
-    if linkage_matrix.ndim != 2 or linkage_matrix.shape[1] != 4:
-        raise ValueError("hierarchical linkage data must be an n x 4 matrix")
-    dendrogram(
-        linkage_matrix,
-        ax=ax,
-        no_labels=True,
-        color_threshold=None,
-        link_color_func=lambda _node_id: color,
-        above_threshold_color=color,
-    )
-    for collection in ax.collections:
-        collection.set_color(color)
-        collection.set_linewidth(1.2)
-        collection.set_alpha(0.95)
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
-    ax.set_ylim(bottom=0)
-    return f"{linkage_matrix.shape[0] + 1} frames"
 
 
-def _style_dashboard_axes(fig, ax) -> None:
-    """Apply publication-safe styling to report chart assets."""
-    fig.patch.set_facecolor("white")
-    ax.set_facecolor("white")
-    for spine in ax.spines.values():
-        spine.set_color("#333333")
-    ax.tick_params(colors="black", labelsize=8)
-    ax.xaxis.label.set_color("black")
-    ax.yaxis.label.set_color("black")
-    ax.xaxis.label.set_size(8)
-    ax.yaxis.label.set_size(8)
-    ax.grid(True, color="#d9d9d9", alpha=0.8, linewidth=0.6, linestyle="--")
 
 
-def _finish_dashboard_chart(fig, ax, output_path: Path) -> None:
-    fig.tight_layout(pad=0.75)
-    fig.savefig(
-        output_path,
-        dpi=300,
-        facecolor="white",
-        edgecolor="white",
-        transparent=False,
-        bbox_inches="tight",
-    )
-    if output_path.suffix.lower() != ".svg":
-        fig.savefig(
-            output_path.with_suffix(".svg"),
-            format="svg",
-            facecolor="white",
-            edgecolor="white",
-            transparent=False,
-            bbox_inches="tight",
-        )
-    import matplotlib.pyplot as plt
 
-    plt.close(fig)
 
 
 def _numeric_rows(path: Path) -> list[list[float]]:
@@ -1242,25 +909,6 @@ def _format_number(value: object) -> str:
 
 
 
-def load_dashboard_assets(project_root: Path) -> dict[str, DashboardAsset]:
-    """Read the curated-chart index written by the report phase.
-
-    Returns an empty mapping when the report has not run yet, so callers fall
-    back to the figures each analysis produced.
-    """
-    index = project_root / "report" / "dashboard_assets" / "assets.json"
-    try:
-        raw = json.loads(index.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    assets: dict[str, DashboardAsset] = {}
-    for title, entry in raw.items():
-        if isinstance(entry, dict) and entry.get("rel_path"):
-            assets[str(title)] = DashboardAsset(
-                rel_path=str(entry["rel_path"]),
-                summary=str(entry.get("summary", "")),
-            )
-    return assets
 
 
 def analysis_sections_for(project_root: Path) -> list[DashboardSection]:
@@ -1271,7 +919,7 @@ def analysis_sections_for(project_root: Path) -> list[DashboardSection]:
     the generated report uses.
     """
     return _analysis_sections(
-        project_root, project_root, load_dashboard_assets(project_root)
+        project_root, project_root, _dashboard_summaries(project_root)
     )
 
 

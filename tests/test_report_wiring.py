@@ -308,9 +308,6 @@ class TestDashboard:
         assert dashboard.is_file()
         text = dashboard.read_text(encoding="utf-8")
 
-        assets = project_with_analysis / "report" / "dashboard_assets"
-        assert (assets / "rmsd_dashboard.png").is_file()
-        assert (assets / "rg_dashboard.png").is_file()
         assert rmsd_png.read_bytes() == original_rmsd
         assert rg_png.read_bytes() == original_rg
 
@@ -376,8 +373,6 @@ class TestDashboard:
         assert "dummy" not in text.lower()
         with zipfile.ZipFile(project_with_analysis / "report" / "project_bundle.zip") as zf:
             names = set(zf.namelist())
-        assert "report/dashboard_assets/rmsd_dashboard.png" in names
-        assert "report/dashboard_assets/rg_dashboard.png" in names
 
     def test_dashboard_analysis_only_phase_aware_text(self, tmp_path: Path):
         root = tmp_path / "analysis_only_dashboard"
@@ -536,20 +531,6 @@ class TestDashboard:
         text = (
             project_with_multi_method / "report" / "dashboard.html"
         ).read_text(encoding="utf-8")
-        assets = project_with_multi_method / "report" / "dashboard_assets"
-        expected_assets = [
-            "pca_dashboard.png",
-            "tsne_dashboard.png",
-            "kmeans_trajectory_dashboard.png",
-            "kmeans_population_dashboard.png",
-            "dbscan_trajectory_dashboard.png",
-            "dbscan_population_dashboard.png",
-            "hierarchical_trajectory_dashboard.png",
-            "hierarchical_population_dashboard.png",
-            "hierarchical_dendrogram_dashboard.png",
-        ]
-        for name in expected_assets:
-            assert (assets / name).is_file()
         assert "Hierarchical dendrogram" in text
         assert "analysis/cluster/cluster_hierarchical_dendrogram.png" in text
         assert '<span class="tag">' in text
@@ -557,8 +538,6 @@ class TestDashboard:
             project_with_multi_method / "report" / "project_bundle.zip"
         ) as zf:
             names = set(zf.namelist())
-        for name in expected_assets:
-            assert f"report/dashboard_assets/{name}" in names
         for path, data in original_pngs.items():
             assert path.read_bytes() == data
 

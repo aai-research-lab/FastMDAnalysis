@@ -1251,7 +1251,9 @@ def _plot_record_priority(path: str) -> tuple[int, int]:
 
 
 def _plot_priority(path: str) -> int:
-    return 0 if path.startswith("report/dashboard_assets/") else 1
+    # dashboard_assets/ now holds only the viewer's protein preview, so it
+    # should never be chosen ahead of a figure an analysis produced.
+    return 1 if path.startswith("report/dashboard_assets/") else 0
 
 
 def _plot_title(path: str) -> str | None:
