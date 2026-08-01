@@ -735,7 +735,7 @@ def _build_parser() -> argparse.ArgumentParser:
         parser_obj.add_argument(
             "--python-version",
             default="3.10",
-            help="Python version to install in the environment (3.9-3.12).",
+            help="Python version to install in the environment (3.9-3.13).",
         )
         parser_obj.add_argument(
             "--force",

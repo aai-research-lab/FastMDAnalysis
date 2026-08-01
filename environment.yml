@@ -18,7 +18,7 @@ name: fastmdxplora
 channels:
   - conda-forge
 dependencies:
-  - python>=3.9,<3.13
+  - python>=3.9,<3.14
   - pip
   # Core (analysis + report)
   - numpy>=1.22

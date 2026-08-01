@@ -69,7 +69,7 @@ fastmdx explore --system 1L2Y
 
 | Starting point | What you run |
 |---|---|
-| **Fresh Linux/macOS/WSL2 machine** | The 3 commands below. Miniforge is downloaded and installed automatically; Python 3.9–3.12 is needed to start the bootstrap. |
+| **Fresh Linux/macOS/WSL2 machine** | The 3 commands below. Miniforge is downloaded and installed automatically; Python 3.9–3.13 is needed to start the bootstrap. |
 | **You already have conda or mamba** | The same 3 commands. Miniforge download is skipped; the `fastmdxplora` environment is created directly. |
 | **You only want analysis + reports, no MD** | Skip the `install` step. Just `pip install fastmdxplora` then `fastmdx explore --system 1L2Y --include analyze report` (2 commands, no conda env required). To upgrade later to the full chemistry stack, see [Install from PyPI](#install-from-pypi-no-git-clone) below. |
 

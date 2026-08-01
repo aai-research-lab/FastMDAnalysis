@@ -260,7 +260,7 @@ class TestSha256OfFile:
 # ---------------------------------------------------------------------------
 def test_platform_discovery_and_command_helpers(tmp_path: Path):
     yaml_text = install_module._build_bootstrap_yaml()
-    assert "python>=3.9,<3.13" in yaml_text
+    assert "python>=3.9,<3.14" in yaml_text
     assert "openmm>=8.0" in yaml_text
     assert install_module._normalize_arch("AMD64") == "x86_64"
     assert install_module._normalize_arch("arm64") == "aarch64"
@@ -431,7 +431,7 @@ def test_conda_manifest_and_bootstrap_orchestration(tmp_path: Path):
     with pytest.raises(BootstrapError, match="Invalid Python version"):
         install_module.bootstrap_environment(python_version="2.7")
     with pytest.raises(BootstrapError, match="outside the supported range"):
-        install_module.bootstrap_environment(python_version="3.13")
+        install_module.bootstrap_environment(python_version="3.14")
 
     calls: list[tuple] = []
 

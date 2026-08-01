@@ -688,7 +688,7 @@ def _format_conda_error(stderr: str, env_name: str, create: bool) -> str:
             "Package resolution failed. This often means the requested environment is unavailable for the selected Python version or platform."
         )
         hint_lines.append(
-            "Use Python 3.9–3.12 in the bootstrap environment and retry, or install Miniforge/conda with proper channels."
+            f"Use {python_range_string()} in the bootstrap environment and retry, or install Miniforge/conda with proper channels."
         )
     if "ResolvePackageNotFound" in stderr or "PackagesNotFoundError" in stderr:
         hint_lines.append(
@@ -780,7 +780,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--env-name", default=DEFAULT_ENV_NAME,
                         help="Name of the conda environment to create.")
     parser.add_argument("--python-version", default="3.10",
-                        help="Python version to install into the environment (3.9-3.12).")
+                        help=f"Python version to install into the environment ({python_range_string()}).")
     parser.add_argument("--force", action="store_true",
                         help="Recreate the conda environment if it already exists.")
     parser.add_argument("--yes", "-y", action="store_true",

@@ -53,7 +53,7 @@ try:
     )
 except Exception:  # pragma: no cover — only hit if checkout is broken
     _MIN_PYTHON = (3, 9)
-    _MAX_PYTHON = (3, 13)
+    _MAX_PYTHON = (3, 14)
 
     def _PYTHON_RANGE_STR() -> str:
         return (
@@ -686,7 +686,7 @@ def check_python_version() -> bool:
         print(help_note(f"Install {_PYTHON_RANGE_STR()} from https://python.org or Miniforge/Conda on Linux/macOS/Windows, then rerun this script."))
         return False
     if current >= _MAX_PYTHON:
-        print(fmt(f"Python {platform.python_version()} is too new; FastMDXplora supports {_PYTHON_RANGE_STR()} (the OpenMM/PDBFixer chemistry stack caps out at 3.12)", Status.FAILED))
+        print(fmt(f"Python {platform.python_version()} is too new; FastMDXplora supports {_PYTHON_RANGE_STR()}", Status.FAILED))
         print(help_note(f"Install {_PYTHON_RANGE_STR()} (3.10 or 3.11 recommended) into a dedicated environment with conda/Miniforge, then re-run this script."))
         return False
     print(fmt(f"Python {platform.python_version()} is present", Status.OK))

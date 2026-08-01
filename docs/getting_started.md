@@ -114,7 +114,7 @@ conda activate fastmdxplora
 ```
 
 If conda/mamba is already installed, the bootstrap uses it. If not, it can
-install Miniforge. Python 3.9–3.12 is needed to start the bootstrap; the
+install Miniforge. Python 3.9–3.13 is needed to start the bootstrap; the
 managed environment uses Python 3.10.
 
 For analysis/reporting only, no OpenMM is needed:

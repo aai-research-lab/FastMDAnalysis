@@ -28,7 +28,7 @@ python fastmdx install                                           # 3
 ```
 
 The third command (`install`) does everything else. It requires a working
-Python 3.9–3.12 interpreter to start the bootstrap script; it can install
+Python 3.9–3.13 interpreter to start the bootstrap script; it can install
 Miniforge and the remaining environment after that:
 
 1. Detects whether conda or mamba is already on your `PATH`.
@@ -129,7 +129,7 @@ conda install -c conda-forge openmm-plumed
 - `git` on `PATH` (preinstalled on modern macOS and Windows 10+; on bare Linux you may need to install via your package manager).
 - A terminal that supports **UTF-8** output (the CLI renders a box-drawing banner).
 - **~1.5 GB of free disk** for the full install (Miniforge downloads ~150 MB; the `fastmdxplora` conda environment adds another ~800 MB of OpenMM / MDTraj / matplotlib / etc.).
-- Python 3.9–3.12 is required to start the repository bootstrap command. The
+- Python 3.9–3.13 is required to start the repository bootstrap command. The
   bootstrap then installs the dedicated Python 3.10 conda environment used by
   the full workflow.
 
@@ -287,7 +287,7 @@ print("CUDA available" if "CUDA" in plats else "CPU-only: simulations will run o
 |---|---|---|
 | `git` not found | `git` is not installed (rare on modern Windows and macOS, but possible on stripped-down Linux installs) | Install Git from https://git-scm.com/downloads, then re-run the first command |
 | `python` isn't recognized | `python` is not on `PATH`, so the `install` command can't even start | Install Miniforge manually from https://conda-forge.org/miniforge/ — it ships Python and conda together — then re-run the install command |
-| `[FAILED] Python X.Y.Z is too new` from `python health.py` | Python ≥ 3.13 (the OpenMM / PDBFixer chemistry stack caps out at 3.12) | Use Python 3.10 or 3.11 — `install` defaults to 3.10, which is the smoothest supported version |
+| `[FAILED] Python X.Y.Z is too new` from `python health.py` | Python ≥ 3.14, which is outside the supported range | Use Python 3.10 or 3.11; `install` defaults to 3.10, the most widely tested version |
 | `conda` / `mamba` not on PATH after Miniforge install | New shell didn't pick it up | On Linux/macOS: `source ~/miniforge3/etc/profile.d/conda.sh`. On Windows: open a fresh `cmd` or PowerShell |
 | Simulation phase missing OpenMM | You used `pip install fastmdxplora` without installing the chemistry stack | `conda install -c conda-forge openmm pdbfixer` (recommended) or `pip install "fastmdxplora[md]"` (best-effort) |
 | Self-heal prints a friendly install hint at exit 2 | A `setup` / `simulate` / `explore` command needs OpenMM and it's missing | Follow the install command in the hint, or use `--include analyze report` to skip chemistry phases |
@@ -318,11 +318,11 @@ So the right command for your situation is:
 | Already ran `install` once (or `pip install fastmdxplora`) | `fastmdx install` (plain) |
 | Want the canonical modulepath form (always works) | `python -m fastmdxplora.cli.main install` |
 
-## Why Python 3.9–3.12 (and not 3.13)?
+## Why Python 3.9–3.13?
 
-The chemistry phases depend on **OpenMM** and **PDBFixer**, which are primarily distributed through **conda-forge**. Their current wheels target Python 3.9–3.12. The `health.py` doctor and the `install` command both enforce this range from a single source of truth (`fastmdxplora.MIN_PYTHON = (3, 9)` and `MAX_PYTHON = (3, 13)`). Python 3.13 and newer are detected as out-of-range.
+The chemistry phases depend on **OpenMM** and **PDBFixer**, which are primarily distributed through **conda-forge**. conda-forge publishes OpenMM builds for Python 3.13 on every supported platform (linux-64, win-64, osx-64, osx-arm64), and PDBFixer is a `noarch` package, so the whole chemistry stack works across this range. The `health.py` doctor and the `install` command enforce it from a single source of truth (`fastmdxplora.MIN_PYTHON = (3, 9)` and `MAX_PYTHON = (3, 14)`). Python 3.14 and newer are detected as out-of-range until the chemistry stack publishes builds for them.
 
-If your environment is too new, install Python 3.10 or 3.11 in a dedicated conda env, then re-run `install` (it already defaults to Python 3.10, the smoothest supported version).
+`install` defaults to Python 3.10, which is the most widely tested version. If you want a specific one, pass `--python-version`.
 
 ## Where to go next
 
