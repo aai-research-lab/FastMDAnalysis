@@ -94,10 +94,11 @@ def test_static_dashboard_discovers_sections_links_and_dark_assets(tmp_path: Pat
         "ss_dashboard.png",
         "qvalue_dashboard.png",
     ):
+        # The curated charts are still produced; panels display the
+        # analysis figures, so the page no longer links to these copies.
         assert (root / "report" / "dashboard_assets" / asset).is_file()
-        assert f"dashboard_assets/{asset}" in html
-    assert "dashboard view" in html
-    assert "artifact fallback" in html
+    # Every panel shows the analysis figure, tagged with its section.
+    assert '<span class="tag">' in html
     assert "Analysis/report workflow from existing trajectory." in html
 
 

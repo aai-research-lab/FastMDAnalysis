@@ -960,18 +960,16 @@ def _analysis_sections(
         folder = source.relative_to(project_root).parts[1]
         section = ANALYSIS_SECTION_BY_FOLDER.get(folder, "Other")
         title = _figure_title_from_path(source)
+        # Show the figure the analysis wrote, in every surface. The report used
+        # to display a restyled copy while the browser showed the original, so
+        # the same panel looked different depending on where you opened it. The
+        # analysis figures are also the publication-grade ones (6.5x4.2in,
+        # 300 dpi, 9-11pt type), so they are the right choice for both.
         asset = _asset_for_title(title, dashboard_assets)
-        if asset is not None:
-            display_path = project_root / asset.rel_path
-            display_rel = asset.rel_path
-            href = _href(display_path, output_dir)
-            mode = "dashboard view"
-            summary = asset.summary
-        else:
-            display_rel = rel
-            href = _href(source, output_dir)
-            mode = "artifact fallback"
-            summary = ""
+        display_rel = rel
+        href = _href(source, output_dir)
+        mode = "analysis figure"
+        summary = asset.summary if asset is not None else ""
         grouped[section].append(
             DashboardPanel(
                 title=title,
@@ -2092,11 +2090,9 @@ def _render_section(section: DashboardSection) -> str:
 
 
 def _render_panel(panel: DashboardPanel) -> str:
-    card_class = (
-        "plot-card card-md"
-        if panel.mode == "dashboard view"
-        else "plot-card fallback card-md"
-    )
+    # Every panel now shows the figure the analysis wrote, so there is no
+    # "fallback" case left to style differently.
+    card_class = "plot-card card-md"
     summary = (
         f'<div class="summary-value">{escape(panel.summary)}</div>'
         if panel.summary else ""
@@ -2118,7 +2114,7 @@ def _render_panel(panel: DashboardPanel) -> str:
         '<div class="plot-header">'
         '<div class="plot-title-group">'
         f"<h3>{escape(panel.title)}</h3>"
-        f'<span class="tag">{escape(panel.mode)}</span>'
+        f'<span class="tag">{escape(panel.category or panel.mode)}</span>'
         "</div>"
         '<div class="size-controls" aria-label="Card size">'
         '<button type="button" class="size-button" data-card-size="sm">S</button>'

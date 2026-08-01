@@ -1215,7 +1215,15 @@ def _plot_records(artifacts: list[dict[str, str]]) -> list[dict[str, str]]:
         display = min(records, key=lambda item: _plot_record_priority(item["path"]))
         svg_candidates = [item for item in records if Path(item["path"]).suffix.lower() == ".svg"]
         svg = min(svg_candidates, key=lambda item: _plot_priority(item["path"])) if svg_candidates else None
-        mode = "dashboard view" if display["path"].startswith("report/dashboard_assets/") else "artifact fallback"
+        # Prefer what the analysis wrote over the report's restyled copy, so
+        # every surface shows the same figure.
+        analysis_first = [
+            item for item in records
+            if not item["path"].startswith("report/dashboard_assets/")
+        ]
+        if analysis_first:
+            display = min(analysis_first, key=lambda item: _plot_record_priority(item["path"]))
+        mode = "analysis figure"
         enriched = dict(display)
         enriched.update(
             {

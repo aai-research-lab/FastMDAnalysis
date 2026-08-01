@@ -354,9 +354,9 @@ class TestDashboard:
         assert "plot-card large" not in text
         assert ".plot-card.card-lg { --col-span: 2; --row-span: 38; }" in text
         assert ".plot-card.card-wide { --col-span: 2; --row-span: 24; }" in text
-        assert "dashboard view" in text
-        assert "dashboard_assets/rmsd_dashboard.png" in text
-        assert "dashboard_assets/rg_dashboard.png" in text
+        assert '<span class="tag">' in text
+        assert "analysis/rmsd/rmsd.png" in text
+        assert "analysis/rg/rg.png" in text
         assert "Open Markdown Report" in text
         assert "Open Analysis Manifest" in text
         assert "output-list" in text
@@ -366,8 +366,6 @@ class TestDashboard:
         assert "action-subtitle" in text
         assert "artifact-path" in text
         assert "Std. Dev." in text
-        assert "original: <a href=\"../analysis/rmsd/rmsd.png\"" in text
-        assert "original: <a href=\"../analysis/rg/rg.png\"" in text
         assert "../analysis/analysis_manifest.json" in text
         assert "report.md" in text
         assert "slides.pptx" in text
@@ -429,7 +427,7 @@ class TestDashboard:
         assert "<span>Analysis</span><span class=\"phase-detail\">Completed</span>" in text
         assert "<span>Report</span><span class=\"phase-detail\">Completed</span>" in text
         assert 'class="plot-frame"' in text
-        assert "artifact fallback" in text
+        assert '<span class="tag">' in text
         assert "dashboard_assets" not in text
         assert "Quick Actions" in text
         assert "Recent Outputs" in text
@@ -505,7 +503,7 @@ class TestDashboard:
         assert "Total SASA" in text
         assert "Secondary structure" in text
         assert "PCA" in text
-        assert text.count('class="plot-card fallback card-md"') == len(artifacts)
+        assert text.count('class="plot-card card-md"') == len(artifacts)
         assert text.count('class="resize-handle"') == len(artifacts)
         assert text.count('class="plot-frame"') == len(artifacts)
         assert "plot-card large" not in text
@@ -513,7 +511,7 @@ class TestDashboard:
         assert ".plot-card.card-wide { --col-span: 2; --row-span: 24; }" in text
         assert "section-secondary-structure-section { --plot-min" not in text
         assert "section-sasa-section { --plot-min" not in text
-        assert "artifact fallback" in text
+        assert '<span class="tag">' in text
         assert "data-card-key=" in text
 
     def test_dashboard_multi_method_dark_assets(self, project_with_multi_method: Path):
@@ -552,13 +550,9 @@ class TestDashboard:
         ]
         for name in expected_assets:
             assert (assets / name).is_file()
-            assert f"dashboard_assets/{name}" in text
         assert "Hierarchical dendrogram" in text
-        assert "dashboard_assets/hierarchical_dendrogram_dashboard.png" in text
-        assert "original: <a href=\"../analysis/cluster/cluster_hierarchical_dendrogram.png\"" in text
-        assert "dashboard_assets/dbscan_trajectory_dashboard.png" in text
-        assert "dashboard_assets/dbscan_population_dashboard.png" in text
-        assert "dashboard view" in text
+        assert "analysis/cluster/cluster_hierarchical_dendrogram.png" in text
+        assert '<span class="tag">' in text
         with zipfile.ZipFile(
             project_with_multi_method / "report" / "project_bundle.zip"
         ) as zf:
@@ -631,10 +625,10 @@ class TestDashboard:
         assert result.status == "ok"
         text = (root / "report" / "dashboard.html").read_text(encoding="utf-8")
         assert text.count('<div class="plot-frame">') == len(artifact_names)
-        assert text.count('class="plot-card fallback card-md"') == len(artifact_names)
+        assert text.count('class="plot-card card-md"') == len(artifact_names)
         assert text.count('class="resize-handle"') == len(artifact_names)
-        assert text.count('<span class="tag">artifact fallback</span>') == len(artifact_names)
-        assert "artifact fallback" in text
+        assert text.count('class="plot-card card-md"') == len(artifact_names)
+        assert '<span class="tag">' in text
         assert "dashboard view" not in text
         assert "output-list" in text
         assert "outputs-extra" in text
