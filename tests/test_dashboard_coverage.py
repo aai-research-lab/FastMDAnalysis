@@ -710,7 +710,7 @@ def test_cli_dashboard_remaining_lifecycle_and_startup_branches(
     monkeypatch.delenv("FASTMDX_DASHBOARD_URL", raising=False)
 
     url, enabled = cli._startup_dashboard_details(
-        ["dashboard", "serve", "--host=0.0.0.0", "--port", "9001"]
+        ["gui", "--host=0.0.0.0", "--port", "9001"]
     )
     assert (url, enabled) == ("http://127.0.0.1:9001", True)
 

@@ -582,7 +582,7 @@ def serve_dashboard(
         home_mode=home_mode,
         exploration_root=exploration_root,
     )
-    print(f"Live dashboard running at {session.url}")
+    print(f"FastMDXplora GUI running at {session.url}")
     if session.port_was_changed:
         print(
             f"Requested port {session.requested_port} was busy, "

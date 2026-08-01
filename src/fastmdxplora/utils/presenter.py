@@ -95,6 +95,23 @@ def _visual_width(s: str) -> int:
 # ---------------------------------------------------------------------------
 # SessionPresenter
 # ---------------------------------------------------------------------------
+
+def _wrap(text: str, width: int) -> list[str]:
+    """Word-wrap ``text`` to ``width``, never splitting a word."""
+    lines: list[str] = []
+    current = ""
+    for word in text.split():
+        candidate = f"{current} {word}".strip()
+        if len(candidate) <= width or not current:
+            current = candidate
+        else:
+            lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines
+
+
 class SessionPresenter:
     """Print structured session output to stdout.
 
@@ -154,179 +171,116 @@ class SessionPresenter:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+    # Five-row block glyphs for the startup wordmark. Uppercase letters fill
+    # all five rows; lowercase sit on the x-height (rows 1-4) with ascenders
+    # on row 0 and descenders on row 4, so "FastMDXplora" reads in mixed case.
+    _GLYPHS: dict[str, tuple[str, ...]] = {
+        "F": ("11111", "10000", "11110", "10000", "10000"),
+        "M": ("10001", "11011", "10101", "10001", "10001"),
+        "D": ("11110", "10001", "10001", "10001", "11110"),
+        "X": ("10001", "01010", "00100", "01010", "10001"),
+        "a": ("00000", "01110", "10001", "10001", "01111"),
+        "s": ("00000", "01111", "11000", "00011", "11110"),
+        "t": ("01000", "11110", "01000", "01000", "00110"),
+        "p": ("00000", "11110", "10001", "11110", "10000"),
+        "l": ("11000", "01000", "01000", "01000", "01110"),
+        "o": ("00000", "01110", "10001", "10001", "01110"),
+        "r": ("00000", "10110", "11001", "10000", "10000"),
+    }
+    _WORDMARK = "FastMDXplora"
+
+    # Five-row block glyphs for the startup wordmark.
+    _GLYPHS: dict[str, tuple[str, ...]] = {
+        "F": ("11111", "10000", "11110", "10000", "10000"),
+        "A": ("01110", "10001", "11111", "10001", "10001"),
+        "S": ("01111", "10000", "01110", "00001", "11110"),
+        "T": ("11111", "00100", "00100", "00100", "00100"),
+        "M": ("10001", "11011", "10101", "10001", "10001"),
+        "D": ("11110", "10001", "10001", "10001", "11110"),
+        "X": ("10001", "01010", "00100", "01010", "10001"),
+        "P": ("11110", "10001", "11110", "10000", "10000"),
+        "L": ("10000", "10000", "10000", "10000", "11111"),
+        "O": ("01110", "10001", "10001", "10001", "01110"),
+        "R": ("11110", "10001", "11110", "10100", "10010"),
+    }
+    _WORDMARK = "FASTMDXPLORA"
+
+    # Five-row block glyphs for the startup wordmark.
+    _GLYPHS: dict[str, tuple[str, ...]] = {
+        "F": ("11111", "10000", "11110", "10000", "10000"),
+        "A": ("01110", "10001", "11111", "10001", "10001"),
+        "S": ("01111", "10000", "01110", "00001", "11110"),
+        "T": ("11111", "00100", "00100", "00100", "00100"),
+        "M": ("10001", "11011", "10101", "10001", "10001"),
+        "D": ("11110", "10001", "10001", "10001", "11110"),
+        "X": ("10001", "01010", "00100", "01010", "10001"),
+        "P": ("11110", "10001", "11110", "10000", "10000"),
+        "L": ("10000", "10000", "10000", "10000", "11111"),
+        "O": ("01110", "10001", "10001", "10001", "01110"),
+        "R": ("11110", "10001", "11110", "10100", "10010"),
+    }
+    _WORDMARK = "FASTMDXPLORA"
+    _TAGLINE = "Fully Automated SysTem for Molecular Dynamics eXploration"
+
     def welcome(
         self,
         *,
         dashboard_url: str = "http://127.0.0.1:8765",
         dashboard_enabled: bool = False,
     ) -> None:
-        """Print the centered FastMDXplora startup identity once.
+        """Print the FastMDXplora startup identity once.
 
-        The startup screen is deliberately minimal: one responsive wordmark,
-        the product name and tagline, and the dashboard address.  It performs
-        no simulation work and does not print the full command help.
+        Deliberately minimal: the wordmark, and the expansion of the name
+        justified to span it exactly. Nothing else. Version, backends, and
+        citation belong to ``fastmdx info``; the GUI address is printed by
+        the server that actually opens the socket.
 
-        ``dashboard_enabled`` is retained for API compatibility with older
-        callers, but the startup design intentionally avoids active/inactive
-        status wording.
+        ``dashboard_url`` and ``dashboard_enabled`` are accepted for call-site
+        compatibility and intentionally unused.
         """
         if self.quiet or self._welcome_shown:
             return
-
         self._welcome_shown = True
-        _ = dashboard_enabled
 
-        # Five-row block glyphs are rendered as one plain-text block before
-        # ANSI styling is applied. This keeps width calculations accurate and
-        # prevents individual lines from drifting away from the shared center.
-        glyphs = {
-            "A": ("01110", "10001", "11111", "10001", "10001"),
-            "D": ("11110", "10001", "10001", "10001", "11110"),
-            "F": ("11111", "10000", "11110", "10000", "10000"),
-            "L": ("10000", "10000", "10000", "10000", "11111"),
-            "M": ("10001", "11011", "10101", "10001", "10001"),
-            "O": ("01110", "10001", "10001", "10001", "01110"),
-            "P": ("11110", "10001", "11110", "10000", "10000"),
-            "R": ("11110", "10001", "11110", "10100", "10010"),
-            "S": ("01111", "10000", "01110", "00001", "11110"),
-            "T": ("11111", "00100", "00100", "00100", "00100"),
-            "X": ("10001", "01010", "00100", "01010", "10001"),
-        }
-        word = "FASTMDXPLORA"
+        logo = [
+            " ".join(
+                "".join("\u2588" if bit == "1" else " " for bit in self._GLYPHS[ch][row])
+                for ch in self._WORDMARK
+            )
+            for row in range(5)
+        ]
+        block = max(len(row) for row in logo)
+        pad = "  "
 
-        def render_wordmark(cell_width: int, gap: int) -> list[str]:
-            on = "█" * cell_width
-            off = " " * cell_width
-            separator = " " * gap
-            rows: list[str] = []
-            for row_index in range(5):
-                letters = [
-                    "".join(
-                        on if bit == "1" else off
-                        for bit in glyphs[letter][row_index]
-                    )
-                    for letter in word
-                ]
-                rows.append(separator.join(letters).rstrip())
-            return rows
+        self._write("")
 
-        usable_width = max(36, self.width - 4)
-        target_width = max(1, int(usable_width * 0.88))
+        if self.width < block + len(pad) + 1:
+            # Too narrow for the wordmark: plain text beats wrapping the
+            # glyph rows into noise.
+            self._write(self._c(pad + "FastMDXplora", "purple"))
+            for line in _wrap(self._TAGLINE, max(20, self.width - len(pad))):
+                self._write(pad + line)
+            self._write("")
+            return
 
-        if usable_width >= 131:
-            # Two-column pixels produce the largest wordmark. Select the gap
-            # dynamically so the logo occupies most of wide terminals.
-            gap = max(1, min(4, (target_width - 120) // 11))
-            logo = render_wordmark(cell_width=2, gap=gap)
-        elif usable_width >= 71:
-            # One-column pixels remain crisp on normal terminals while a
-            # variable gap prevents the wordmark from looking undersized.
-            gap = max(1, min(4, (target_width - 60) // 11))
-            logo = render_wordmark(cell_width=1, gap=gap)
+        for row in logo:
+            self._write(self._c(pad + row, "purple"))
+        self._write("")
+
+        # Spread the words so the expansion spans the wordmark exactly.
+        words = self._TAGLINE.split()
+        slack = block - sum(len(word) for word in words)
+        gaps = len(words) - 1
+        if gaps >= 1 and slack >= 0:
+            base, extra = divmod(slack, gaps)
+            spread = ""
+            for index, word in enumerate(words):
+                spread += word
+                if index < gaps:
+                    spread += " " * (base + (1 if index < extra else 0))
         else:
-            logo = ["FASTMDXPLORA"]
-
-        def center_plain(text: str, width: int | None = None) -> str:
-            available = self.width if width is None else width
-            padding = max(0, (available - _visual_width(text)) // 2)
-            return (" " * padding) + text
-
-        def purple_bold(text: str) -> str:
-            if not self._color:
-                return text
-            return f"{_C['purple']}{_C['bold']}{text}{_C['reset']}"
-
-        # Normalize every row to one block width and apply one shared left
-        # padding value. The block therefore has a single visual center axis.
-        logo_width = max(_visual_width(line) for line in logo)
-        normalized_logo = [line.ljust(logo_width) for line in logo]
-        logo_left = max(0, (self.width - logo_width) // 2)
-
-        self._write("")
-        for logo_line in normalized_logo:
-            plain_line = (" " * logo_left) + logo_line
-            self._write(self._c(plain_line, "purple"))
-
-        product_name = "FastMDXplora"
-        tagline = "Fully Automated SysTem for Molecular Dynamics eXploration"
-
-        def wrap_words(text: str, limit: int) -> list[str]:
-            words = text.split()
-            lines: list[str] = []
-            current: list[str] = []
-            current_width = 0
-            for word in words:
-                added = len(word) if not current else len(word) + 1
-                if current and current_width + added > limit:
-                    lines.append(" ".join(current))
-                    current = [word]
-                    current_width = len(word)
-                else:
-                    current.append(word)
-                    current_width += added
-            if current:
-                lines.append(" ".join(current))
-            return lines or [""]
-
-        self._write("")
-        self._write(purple_bold(center_plain(product_name)))
-        for tagline_line in wrap_words(tagline, max(20, self.width - 4)):
-            self._write(self._c(center_plain(tagline_line), "purple"))
-        self._write("")
-
-        # The box is centered as one unit; each content line is then centered
-        # inside the box. All branding uses the same purple palette.
-        box_width = min(
-            max(64, _visual_width(tagline) + 8),
-            max(36, self.width - 4),
-        )
-        inner_width = max(1, box_width - 2)
-
-        def fit(text: str) -> str:
-            if _visual_width(text) <= inner_width:
-                return text
-            if inner_width <= 3:
-                return text[:inner_width]
-            return text[: inner_width - 3] + "..."
-
-        def box_line(text: str) -> str:
-            fitted = fit(text)
-            visible = _visual_width(fitted)
-            left = max(0, (inner_width - visible) // 2)
-            right = max(0, inner_width - visible - left)
-            return "│" + (" " * left) + fitted + (" " * right) + "│"
-
-        box_left = max(0, (self.width - box_width) // 2)
-        box_prefix = " " * box_left
-        top = "╭" + ("─" * inner_width) + "╮"
-        bottom = "╰" + ("─" * inner_width) + "╯"
-
-        # Keep the wordmark purple, but make the dashboard call-to-action
-        # visually distinct with a cyan border, white heading/instruction,
-        # and a bright cyan URL.
-        self._write(self._c(box_prefix + top, "cyan"))
-        self._write(
-            self._c(
-                box_prefix + box_line("DASHBOARD"),
-                "white",
-            )
-        )
-        self._write(
-            self._c(
-                box_prefix + box_line(dashboard_url),
-                "cyan",
-            )
-        )
-        self._write(
-            self._c(
-                box_prefix
-                + box_line(
-                    "Open the dashboard to configure and launch a simulation."
-                ),
-                "white",
-            )
-        )
-        self._write(self._c(box_prefix + bottom, "cyan"))
+            spread = self._TAGLINE
+        self._write(pad + spread)
         self._write("")
 
     def banner(self, **fields: str) -> None:

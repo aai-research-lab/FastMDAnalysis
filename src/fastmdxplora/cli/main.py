@@ -830,7 +830,7 @@ def _start_dashboard_for_command(args: argparse.Namespace, output_dir: Path):
         port=args.dashboard_port,
         config=config,
     )
-    print(f"Live dashboard running at: {session.url}")
+    print(f"FastMDXplora GUI running at: {session.url}")
     if session.port_was_changed:
         print(
             f"Requested port {session.requested_port} was busy, "
@@ -985,12 +985,12 @@ def _cmd_phase(phase: str, args: argparse.Namespace) -> int:
 
 
 def _cmd_info() -> int:
-    print(f"FastMDXplora {__version__}")
-    print(f"  {__expansion__}")
+    print("FastMDXplora")
+    print(f"  version: {__version__}")
     print(f"  Authors: {__author__}")
     print(f"  DOI:     {__doi__}")
     print()
-    print("Phases:")
+    print("Molecular Dynamics Phases:")
     for name in ("setup", "simulation", "analysis", "report"):
         try:
             module = __import__(f"fastmdxplora.{name}", fromlist=["run"])
@@ -1000,7 +1000,7 @@ def _cmd_info() -> int:
             status = f"import error: {exc}"
         print(f"  {name:<11} {status}")
     print()
-    print("Optional backends (real chemistry):")
+    print("Optional backends:")
     for display_name, import_name, install_hint in (
         ("PDBFixer", "pdbfixer",
             "conda install -c conda-forge pdbfixer"),
@@ -1111,13 +1111,13 @@ def _cmd_gui(args: argparse.Namespace) -> int:
 
 
 def _startup_dashboard_details(argv: Sequence[str]) -> tuple[str, bool]:
-    """Resolve the dashboard address shown by the startup wordmark."""
+    """Resolve the GUI address shown by the startup wordmark."""
     host = "127.0.0.1"
     port = "8765"
     enabled = (
-        "--dashboard" in argv
+        "gui" in argv
+        or "--dashboard" in argv
         or "--live-dashboard" in argv
-        or ("dashboard" in argv and "serve" in argv)
         or os.getenv("FASTMDX_DASHBOARD_ACTIVE") == "1"
     )
 

@@ -277,7 +277,7 @@ def test_cli_dashboard_starts_server_and_prints_url(tmp_path: Path, capsys) -> N
     assert start.call_args.kwargs["port"] == 8765
     assert session.stopped is True
     text = capsys.readouterr().out
-    assert "Live dashboard running at: http://127.0.0.1:8765" in text
+    assert "FastMDXplora GUI running at: http://127.0.0.1:8765" in text
     assert f"Watching output folder: {out}" in text
     assert "Open this URL in your browser to monitor the run." in text
 
@@ -422,7 +422,7 @@ def test_cli_dashboard_prints_port_conflict_and_host_warning(
 
     assert rc == 0
     text = capsys.readouterr().out
-    assert "Live dashboard running at: http://0.0.0.0:8766" in text
+    assert "FastMDXplora GUI running at: http://0.0.0.0:8766" in text
     assert "Requested port 8765 was busy, so FastMDXplora used 8766." in text
     assert "Warning: dashboard is bound to 0.0.0.0" in text
 
