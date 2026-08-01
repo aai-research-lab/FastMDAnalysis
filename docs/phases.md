@@ -59,19 +59,19 @@ files, per-analysis option manifests, and `analysis_manifest.json`.
 
 The built-in analysis names are `rmsd`, `rmsf`, `rg`, `hbonds`, `ss`, `sasa`,
 `qvalue`, `dihedrals`, `cluster`, and `dimred`. The compatibility profile is
-named `fastmdanalysis` and is opt-in:
+named `v1` and is opt-in:
 
 ```bash
 # Direct analyze command
-fastmdx analyze --output run --compat fastmdanalysis
+fastmdx analyze --output run --compat v1
 
 # Phase-prefixed option when using explore
 fastmdx explore --system protein.pdb --include analysis report \
-  --analyze-compat fastmdanalysis
+  --analyze-compat v1
 ```
 
-There is no `--fastmdanalysis compact` command. The profile preserves the
-historical FastMDAnalysis defaults where that comparison is required.
+The profile preserves the version 1 defaults where that comparison is
+required.
 
 ## report
 

@@ -27,7 +27,7 @@ FastMDXplora/
 │       │   └── bundle.py          # Self-contained .zip project archive
 │       ├── datasets/
 │       │   ├── __init__.py
-│       │   └── trp_cage.py        # Reference dataset stub (from FastMDAnalysis)
+│       │   └── trp_cage.py        # Reference dataset stub (from version 1)
 │       └── utils/
 │           └── __init__.py
 ├── shim-package/                  # `fastmdx` alias on PyPI
@@ -69,7 +69,7 @@ per-phase options) and coordinates the four canonical phases:
   setup → simulation → analysis → report
 ```
 
-This continues the orchestrator pattern of **FastMDAnalysis** (Aina & Kwan,
+This continues the orchestrator pattern of **FastMDXplora version 1** (Aina & Kwan,
 JCC 2026), which orchestrates analysis modules within a trajectory.
 FastMDXplora applies the same pattern one level up the hierarchy.
 
@@ -91,11 +91,10 @@ FastMDXplora applies the same pattern one level up the hierarchy.
    optional heavy dependencies (OpenMM, PDBFixer) do not impose a cost on
    users who only use a subset of phases.
 
-5. **Continue FastMDAnalysis conventions.** The analysis subpackage uses the
+5. **Continue version 1 conventions.** The analysis subpackage uses the
    same module taxonomy (`rmsd`, `rmsf`, `rg`, `hbonds`, `ss`, `cluster`,
-   `sasa`, `dimred`, `qvalue`, `dihedrals`) established in FastMDAnalysis,
-   now extended with protein-ligand analyses — FastMDXplora being the
-   direct successor to that package.
+   `sasa`, `dimred`, `qvalue`, `dihedrals`) established in FastMDXplora
+   version 1, now extended with protein-ligand analyses.
 
 ### Naming alignment
 

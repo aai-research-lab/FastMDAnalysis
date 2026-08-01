@@ -38,8 +38,8 @@ simulation:
 analysis:
   scope: solute              # solute | protein | ligand | all
   include: [rmsd, rmsf, rg]  # omit to run the full suite
-  # For the published FastMDAnalysis comparison profile, use the CLI flag
-  # --analyze-compat fastmdanalysis or direct `analyze --compat ...`.
+  # For the published version 1 comparison profile, use the CLI flag
+  # --analyze-compat v1 or direct `analyze --compat ...`.
 
 report:
   title: "My study"
@@ -83,7 +83,7 @@ keys:
   `production_steps`), `integrator`, `timestep_fs`, `temperature_K`,
   `pressure_bar`, `platform`, `precision`, `plumed`.
 - **analysis**: `scope`, `selection`, `include`, `exclude`, `stride`,
-  `first`, `last`, `options`. The `fastmdanalysis` compatibility profile is a
+  `first`, `last`, `options`. The `v1` compatibility profile is a
   CLI comparison preset rather than a YAML field; use `--compat` for direct
   `analyze` or `--analyze-compat` under `explore`.
 - **report**: `title`, `author`, `document`, `slides`, `bundle`,

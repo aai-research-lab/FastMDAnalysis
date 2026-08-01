@@ -1,7 +1,6 @@
 cff-version: 1.2.0
 message: >-
-  If you use FastMDXplora in your work, please cite the foundational
-  FastMDAnalysis paper below.
+  If you use FastMDXplora in your work, please cite the paper below.
 title: "FastMDXplora: Fully Automated SysTem for Molecular Dynamics eXploration"
 type: software
 authors:

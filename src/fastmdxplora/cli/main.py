@@ -169,8 +169,9 @@ _ANALYSIS_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
         "help": "First frame index to include (default 0)."}),
     ("last", "last", {"type": int,
         "help": "Last frame index (exclusive). Default: full trajectory."}),
-    ("compat", "compat", {"choices": ["fastmdanalysis"],
-        "help": "Use a compatibility profile for a published FastMDAnalysis workflow."}),
+    ("compat", "compat", {"choices": ["v1"],
+        "help": "Reproduce the analysis settings of FastMDXplora version 1 "
+                "(the published BPTI workflow)."}),
     ("dimred-methods", "dimred_methods", {"nargs": "+", "choices": ["pca", "tsne", "umap"],
         "metavar": "METHOD",
         "help": "Dimensionality-reduction methods (e.g. pca)."}),
@@ -291,12 +292,12 @@ def _normalize_analysis_options(kwargs: dict[str, Any]) -> dict[str, Any]:
     """
     out = dict(kwargs)
     compat = out.pop("compat", None)
-    if compat == "fastmdanalysis":
+    if compat == "v1":
         # Settings used by the paper's BPTI case study. Explicit CLI values
         # still win, so this is a reproducible opt-in profile rather than a
         # change to FastMDXplora's general-purpose defaults.
         out.setdefault("scope", "protein")
-        # FastMDAnalysis uses the complete protein atom set when the BPTI
+        # Version 1 uses the complete protein atom set when the BPTI
         # options file does not provide an atom selection.  Set this at the
         # compatibility boundary so RMSD/RMSF do not fall back to Xplora's
         # CA-only defaults.
@@ -319,7 +320,7 @@ def _normalize_analysis_options(kwargs: dict[str, Any]) -> dict[str, Any]:
         },
     }
     options = dict(out.get("options") or {})
-    if compat == "fastmdanalysis":
+    if compat == "v1":
         paper_defaults = {
             "rmsd": {"ref": 0, "align": True},
             "rmsf": {"ref": 0, "per_residue": False},
@@ -328,7 +329,7 @@ def _normalize_analysis_options(kwargs: dict[str, Any]) -> dict[str, Any]:
                 "probe_radius": 0.14,
                 "n_sphere_points": 960,
             },
-            # FastMDAnalysis reports both donor/acceptor directions and
+            # Version 1 reports both donor/acceptor directions and
             # counts transient Baker-Hubbard bonds, rather than filtering
             # the per-frame series by the occupancy threshold first.
             "hbonds": {

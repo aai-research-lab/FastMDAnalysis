@@ -45,16 +45,16 @@ fastmdx explore --system protein.pdb --no-report
 `--include` and `--exclude` are mutually exclusive. The phase names are
 `setup`, `simulation`, `analysis`, and `report`.
 
-The `fastmdanalysis` compatibility profile is opt-in. It is not called
+The `v1` compatibility profile is opt-in. It is not called
 `compact`:
 
 ```bash
 # Direct analyze command
-fastmdx analyze --output ./run --compat fastmdanalysis
+fastmdx analyze --output ./run --compat v1
 
 # Prefixed form under explore
 fastmdx explore --system protein.pdb --include analysis report \
-  --analyze-compat fastmdanalysis
+  --analyze-compat v1
 ```
 
 ## Configure each phase

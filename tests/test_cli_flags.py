@@ -237,11 +237,11 @@ class TestMultiValuedFlags:
 
 
 class TestAnalysisCompatibility:
-    def test_fastmdanalysis_profile_sets_paper_defaults(self):
+    def test_v1_profile_sets_paper_defaults(self):
         parser = _build_parser()
         args = parser.parse_args([
             "analyze", "-system", "/tmp/bpti.pdb",
-            "--compat", "fastmdanalysis",
+            "--compat", "v1",
         ])
         from fastmdxplora.cli.main import _ANALYSIS_OPTIONS
         kwargs = _normalize_analysis_options(
@@ -273,7 +273,7 @@ class TestAnalysisCompatibility:
         parser = _build_parser()
         args = parser.parse_args([
             "analyze", "-system", "/tmp/bpti.pdb",
-            "--compat", "fastmdanalysis",
+            "--compat", "v1",
             "--stride", "4",
             "--cluster-methods", "kmeans",
             "--cluster-n-clusters", "3",

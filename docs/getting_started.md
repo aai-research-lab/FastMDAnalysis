@@ -426,19 +426,19 @@ In another terminal, while the run is active or afterward:
 fastmdx dashboard serve --output runs/python_dashboard
 ```
 
-## 7. Analyze with the FastMDAnalysis compatibility profile
+## 7. Analyze with the version 1 compatibility profile
 
-The current compatibility feature is named `fastmdanalysis`. It is **not** a
-`compact` mode and there is no `--fastmdanalysis compact` command.
+The profile is named `v1`. It reproduces the analysis settings of
+FastMDXplora version 1 so published results stay reproducible.
 
-For a direct analysis command, use `--compat fastmdanalysis`:
+For a direct analysis command, use `--compat v1`:
 
 ```bash
 fastmdx analyze \
   --output runs/bpti_reference \
   --trajectory trajectory/production.dcd \
   --topology trajectory/topology.pdb \
-  --compat fastmdanalysis
+  --compat v1
 ```
 
 When using `explore`, the same option is phase-prefixed:
@@ -450,10 +450,10 @@ fastmdx explore \
   --include analysis report \
   --analyze-trajectory trajectory/production.dcd \
   --analyze-topology trajectory/topology.pdb \
-  --analyze-compat fastmdanalysis
+  --analyze-compat v1
 ```
 
-The profile applies the published FastMDAnalysis-style defaults: protein
+The profile applies the published version 1 defaults: protein
 scope, protein selection, every-second-frame loading, RMSD alignment against
 frame 0, PCA, and hierarchical clustering with six clusters, plus the
 compatibility defaults for the standard analyses.
@@ -535,7 +535,7 @@ the reproducibility record.
 
 - Running `--simulate-duration-ns 100` as a first test. Use `--simulate-preset gentle` first.
 - Assuming `--simulate-platform CUDA` works because the package imports. Test a real CUDA context.
-- Using `--fastmdanalysis compact`. The valid profile is `--compat fastmdanalysis` or `--analyze-compat fastmdanalysis`.
+- Guessing at the profile flag. The valid forms are `--compat v1` and `--analyze-compat v1`.
 - Reusing an output directory and overwriting valid trajectory or PLUMED history. Use a new directory for each attempt.
 - Running a long simulation on an underpowered local workstation instead of a
   suitable production host.

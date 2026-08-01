@@ -11,7 +11,7 @@
 
 ---
 
-**FastMDXplora** explores a protein's behavior end to end from a single command. Given a structure (or just a PDB ID) it performs molecular dynamics exploration all the way through setup, simulation, analysis, and reporting, then hands back publication-ready results. Start with the [Beginner's guide](https://fastmdxplora.readthedocs.io/en/latest/getting_started.html) for the complete installation, CLI, dashboard, Python, GPU, and analysis workflow. The [CLI reference](https://fastmdxplora.readthedocs.io/en/latest/cli_reference.html) lists the current flags, including the `fastmdanalysis` compatibility profile:
+**FastMDXplora** explores a protein's behavior end to end from a single command. Given a structure (or just a PDB ID) it performs molecular dynamics exploration all the way through setup, simulation, analysis, and reporting, then hands back publication-ready results. Start with the [Beginner's guide](https://fastmdxplora.readthedocs.io/en/latest/getting_started.html) for the complete installation, CLI, dashboard, Python, GPU, and analysis workflow. The [CLI reference](https://fastmdxplora.readthedocs.io/en/latest/cli_reference.html) lists the current flags, including the `v1` compatibility profile:
 
 ```
   setup  →  simulation  →  analysis  →  report

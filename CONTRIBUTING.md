@@ -41,7 +41,7 @@ pytest
 - **Docstrings.** Public functions and classes get NumPy-style docstrings.
 - **Tests required for new functionality.** Smoke tests at minimum; full
   numerical/equivalence tests for any analytical code migrated from
-  FastMDAnalysis (which FastMDXplora is the successor to).
+  FastMDXplora version 1.
 - **Lazy imports for heavy optional dependencies** (OpenMM, PDBFixer,
   python-pptx, etc.).
 - **Consistent output structure.** Every phase writes its outputs to

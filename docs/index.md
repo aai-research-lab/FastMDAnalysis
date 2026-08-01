@@ -12,7 +12,7 @@ reports.
 New to FastMDXplora? Follow the [Beginner's guide](getting_started.md). It
 walks through installation, backend checks, a short smoke test, a complete
 CLI run, the live dashboard, the Python API, protein-ligand/PLUMED runs, and
-the `fastmdanalysis` compatibility profile.
+the `v1` compatibility profile.
 
 The shortest safe first run is:
 
