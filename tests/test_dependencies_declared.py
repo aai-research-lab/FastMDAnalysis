@@ -17,6 +17,17 @@ import re
 import sys
 from pathlib import Path
 
+import pytest
+
+# The check reads source files, so its verdict is the same on every Python.
+# `sys.stdlib_module_names` arrived in 3.10; rather than carry a duplicate
+# list of standard-library modules for 3.9, run the check where the
+# interpreter can answer the question itself.
+pytestmark = pytest.mark.skipif(
+    not hasattr(sys, "stdlib_module_names"),
+    reason="needs sys.stdlib_module_names (Python 3.10+); result is version-independent",
+)
+
 REPO = Path(__file__).resolve().parents[1]
 PACKAGE = REPO / "src" / "fastmdxplora"
 
