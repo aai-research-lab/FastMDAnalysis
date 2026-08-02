@@ -31,6 +31,40 @@ from fastmdxplora.utils.logging import get_logger
 logger = get_logger("setup.pdbfix")
 
 
+
+# Water and monatomic ions are removed as a matter of course and are not worth
+# reporting; anything else might be the ligand.
+_UNREMARKABLE_RESIDUES = frozenset({
+    "HOH", "WAT", "H2O", "TIP", "TIP3", "SOL", "DOD",
+    "NA", "K", "CL", "MG", "CA", "ZN", "MN", "FE", "CU", "BR", "IOD", "SO4",
+})
+
+
+def _heterogen_residue_counts(topology) -> dict[str, int]:
+    """Count non-water, non-ion heterogen residues about to be discarded."""
+    counts: dict[str, int] = {}
+    standard = _standard_residue_names()
+    for residue in topology.residues():
+        name = (residue.name or "").strip().upper()
+        if not name or name in standard or name in _UNREMARKABLE_RESIDUES:
+            continue
+        counts[name] = counts.get(name, 0) + 1
+    return counts
+
+
+def _standard_residue_names() -> frozenset[str]:
+    """Amino acids and nucleotides, which are not heterogens."""
+    amino = (
+        "ALA ARG ASN ASP CYS GLN GLU GLY HIS ILE LEU LYS MET PHE PRO SER THR "
+        "TRP TYR VAL HID HIE HIP HSD HSE HSP CYX ASH GLH LYN MSE"
+    ).split()
+    nucleic = (
+        "A C G U T DA DC DG DT DU RA RC RG RU "
+        "A3 A5 C3 C5 G3 G5 U3 U5 DA3 DA5 DC3 DC5 DG3 DG5 DT3 DT5"
+    ).split()
+    return frozenset(amino + nucleic)
+
+
 def fix_pdb_with_pdbfixer(
     input_pdb: str,
     output_pdb: str,
@@ -98,7 +132,23 @@ def fix_pdb_with_pdbfixer(
 
     fixer = PDBFixer(filename=str(inp))
     if not keep_heterogens:
+        removed = _heterogen_residue_counts(fixer.topology)
         fixer.removeHeterogens(keepWater=keep_water)
+        if removed:
+            summary = ", ".join(
+                f"{name} ({count})" if count > 1 else name
+                for name, count in sorted(removed.items())
+            )
+            # Removing crystallization additives is usually right, but a bound
+            # ligand looks identical to a buffer molecule at this stage. Say
+            # what went, so a silently apo run cannot be mistaken for a holo
+            # one.
+            logger.warning(
+                "Removed heterogens: %s. Pass --setup-keep-heterogens (or "
+                "setup.keep_heterogens: true) to retain them, for example when "
+                "one of these is the ligand you intend to simulate.",
+                summary,
+            )
     fixer.findMissingResidues()
     fixer.findMissingAtoms()
     fixer.addMissingAtoms()
