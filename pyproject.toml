@@ -62,6 +62,13 @@ md = [
 ligand = [
     "openff-toolkit>=0.16",
     "openmmforcefields>=0.12",
+    # Used directly to read chemical definitions and detect ionizable groups.
+    # It arrives with openff-toolkit in practice, but the dependency is real
+    # and belongs here rather than being inherited by accident.
+    "rdkit>=2023.3",
+    # Determines a ligand's pKa in the complex rather than in isolation, which
+    # is the only framing in which the question has a well-defined answer.
+    "propka>=3.5",
 ]
 plumed = [
     "openmm-plumed>=1.0",
