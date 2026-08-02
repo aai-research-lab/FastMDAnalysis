@@ -46,6 +46,7 @@ logger = get_logger("setup")
 DEFAULTS: dict[str, Any] = {
     # PDBFixer options
     "ph": 7.0,
+    "heterogens": "drop",
     "keep_heterogens": False,
     "keep_water": False,
     "fixed_pdb": None,             # skip PDBFixer; use this already-fixed PDB
@@ -135,6 +136,49 @@ def _resolve_input(
     else:
         raise ValueError(f"Unknown input_form {input_form!r}")
     return target
+
+
+
+def _keep_heterogens(params: dict, input_pdb) -> bool:
+    """Resolve the heterogen policy, reporting what it implies.
+
+    ``drop`` and ``keep`` are unconditional and match the historical options.
+    ``auto`` inspects the structure and decides per component, refusing to
+    proceed when the structure does not determine the answer.
+    """
+    from fastmdxplora.setup.heterogens import Action, resolve, summarize
+
+    policy = str(params.get("heterogens", "drop")).strip().lower()
+    if params.get("keep_heterogens"):
+        policy = "keep"
+
+    if policy == "keep":
+        return True
+
+    if policy == "auto":
+        # Raises AmbiguousStructureError when the structure is undetermined,
+        # which is the intended outcome rather than a failure to handle.
+        decisions = resolve(input_pdb, keep_water=bool(params.get("keep_water")))
+        logger.info("Heterogen decisions:\n%s", summarize(decisions))
+        wanted = [d for d in decisions if d.action is Action.SIMULATE]
+        if wanted:
+            names = ", ".join(f"{d.resname} x{d.count}" if d.count > 1 else d.resname
+                              for d in wanted)
+            raise ValueError(
+                f"heterogens: auto identified components to simulate ({names}), "
+                "but automatic ligand parameterization is not available yet. "
+                "Supply them as SDF or MOL2 files with the ligand option "
+                "(--setup-ligand under explore, --ligand under setup), or set "
+                "the heterogens policy to 'drop' to exclude them."
+            )
+        # Everything was solvent or additive: dropping is the right call.
+        return False
+
+    if policy != "drop":
+        raise ValueError(
+            f"heterogens: unknown policy {policy!r}; expected drop, keep, or auto"
+        )
+    return False
 
 
 def run(
@@ -274,7 +318,7 @@ def run(
                 str(input_pdb),
                 str(prepared_pdb),
                 ph=float(params["ph"]),
-                keep_heterogens=bool(params["keep_heterogens"]),
+                keep_heterogens=_keep_heterogens(params, input_pdb),
                 keep_water=bool(params["keep_water"]),
             )
             artifacts.append("prepared.pdb")

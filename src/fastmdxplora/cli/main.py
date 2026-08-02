@@ -39,6 +39,9 @@ from fastmdxplora import (
     __version__,
 )
 from fastmdxplora.orchestrator import FastMDXplora
+from fastmdxplora.utils.logging import get_logger
+
+logger = get_logger("cli")
 
 
 # ---------------------------------------------------------------------------
@@ -54,8 +57,11 @@ from fastmdxplora.orchestrator import FastMDXplora
 
 _SETUP_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
     ("ph", "ph", {"type": float, "help": "pH for hydrogen placement (default 7.0)."}),
+    ("heterogens", "heterogens", {"type": str, "choices": ["drop", "keep", "auto"],
+        "help": "How to treat non-standard residues: drop (default), keep, or "
+                "auto to decide per component and stop when ambiguous."}),
     ("keep-heterogens", "keep_heterogens", {"action": "store_true", "default": None,
-        "help": "Retain non-standard residues (ligands, cofactors, ions)."}),
+        "help": "Retain non-standard residues. Same as --setup-heterogens keep."}),
     ("keep-water", "keep_water", {"action": "store_true", "default": None,
         "help": "Retain crystallographic waters."}),
     ("fixed-pdb", "fixed_pdb", {"type": str, "metavar": "PATH",
@@ -977,6 +983,11 @@ def _cmd_phase(phase: str, args: argparse.Namespace) -> int:
         if session is not None:
             session.stop()
         raise
+    if result.status != "ok" and result.message:
+        # `explore` reports this through the orchestrator loop; a single-phase
+        # run has no such loop, so without this the reason for a refusal or a
+        # failure is discarded and the user sees only that it happened.
+        logger.error("Phase '%s' failed: %s", phase, result.message)
     print()
     print(f"Project output: {fmdx.output_dir}")
     rc = 0 if result.status == "ok" else 1

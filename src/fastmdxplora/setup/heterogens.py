@@ -59,7 +59,7 @@ ION_NAMES = frozenset({
 CRYSTALLIZATION_ADDITIVES = frozenset({
     # cryoprotectants and polyols
     "GOL", "EDO", "PGE", "PG4", "1PE", "2PE", "P6G", "PEG", "MPD", "TRD",
-    "DMS", "SUC", "TRE", "XYL", "MRD", "BU3", "IPA", "EOH", "ACN",
+    "DMS", "MRD", "BU3", "IPA", "EOH", "ACN",
     # buffers
     "EPE", "MES", "TRS", "BTB", "CAC", "IMD", "BIS", "TAM", "PIN", "HEZ",
     # salts and small counter-ions from the crystallization liquor
@@ -68,13 +68,28 @@ CRYSTALLIZATION_ADDITIVES = frozenset({
     # reductants and detergents
     "BME", "DTT", "DTU", "TCE", "LDA", "C8E", "OCT", "BOG", "LMT",
     # miscellaneous handling reagents
-    "NH4", "GLC", "MAN", "NAG", "EDT", "EDO",
+    "NH4", "EDT",
 })
 
-# Cofactors and prosthetic groups that a general small-molecule force field
-# cannot parameterize. They are chemically real and often essential, so they
-# must never be silently dropped, and they cannot be handled automatically
-# either. Encountering one stops setup.
+# Sugars are the one class that cannot be judged by name at all. The same
+# N-acetylglucosamine is a glycosylation site in one structure and a spectator
+# in another; sucrose and trehalose are usually cryoprotectants but are
+# substrates for the enzymes that act on them. Guessing would either delete a
+# covalent modification or simulate an antifreeze molecule, so the question is
+# handed back.
+SUGARS = frozenset({
+    "NAG", "NDG", "BMA", "MAN", "BGC", "GLC", "GAL", "GLA", "FUC", "FUL",
+    "XYP", "XYS", "XYL", "SIA", "NGA", "RIP", "RAM", "ARA", "ARB",
+    "SUC", "TRE", "MAL", "LAT", "CBI",
+})
+
+# Cofactors and prosthetic groups that need parameters a general small-molecule
+# force field does not supply. Most of these do have published parameters:
+# CHARMM36 covers heme and NAD/NADH natively, CGenFF and CHARMM-GUI's Ligand
+# Reader cover FAD and FMN, and AmberTools' MCPB.py builds bonded models for
+# metal centres. What none of them do is apply automatically, because PDB atom
+# names do not match the force field templates. So these are real, essential,
+# and outside what this pipeline can assign unaided.
 UNPARAMETERIZABLE = {
     "HEM": "heme", "HEC": "heme c", "HEB": "heme b", "HAS": "heme as",
     "SRM": "siroheme", "CLA": "chlorophyll a", "CHL": "chlorophyll b",
@@ -370,9 +385,12 @@ def _classify_one(
         return Decision(
             resname,
             Action.STOP,
-            f"{UNPARAMETERIZABLE[resname]} needs dedicated parameters that a "
-            "general small-molecule force field does not provide. Supply them, "
-            "or exclude this component deliberately",
+            f"{UNPARAMETERIZABLE[resname]} needs dedicated parameters that are "
+            "not assigned automatically. Parameters exist for most cofactors "
+            "(CHARMM36 covers heme and NAD/NADH; CGenFF and CHARMM-GUI's Ligand "
+            "Reader cover FAD and FMN; AmberTools' MCPB.py builds metal-centre "
+            "models), but they must be supplied deliberately. Provide them, or "
+            "exclude this component",
             pack,
         )
 
@@ -388,6 +406,18 @@ def _classify_one(
             f"{len(coordinated)} of {len(instances)} copies are coordinated by the "
             "protein and the rest are not, so keeping or dropping the component as "
             "a whole would be wrong either way. Select the copies explicitly",
+            pack,
+        )
+
+    if resname in SUGARS:
+        return Decision(
+            resname,
+            Action.STOP,
+            "a sugar can be a glycosylation site, a substrate, or a "
+            "cryoprotectant, and the structure does not say which. Glycans need "
+            "carbohydrate parameters (GLYCAM, or the CHARMM36 carbohydrate "
+            "files) rather than a small-molecule force field. State the intent: "
+            "keep it with --setup-ligand and suitable parameters, or exclude it",
             pack,
         )
 

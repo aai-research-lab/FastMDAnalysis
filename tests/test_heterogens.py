@@ -179,3 +179,136 @@ class TestParsing:
     def test_malformed_lines_do_not_crash_the_run(self) -> None:
         lines = list(PROTEIN) + ["HETATM    x garbage record"]
         resolve(_structure(lines))  # must not raise
+
+
+class TestSugarsAreNotAssumed:
+    """A sugar can be a modification, a substrate, or antifreeze."""
+
+    def test_n_acetylglucosamine_stops_rather_than_being_discarded(self) -> None:
+        """NAG is a glycosylation site as often as it is a spectator."""
+        lines = list(PROTEIN)
+        lines += [_atom("HETATM", 10, "C1", " ", "NAG", "A", 201, 5, 5, 5)]
+
+        with pytest.raises(AmbiguousStructureError, match="sugar"):
+            resolve(_structure(lines))
+
+    def test_sucrose_stops_too(self) -> None:
+        """Usually a cryoprotectant, but a substrate for invertases."""
+        lines = list(PROTEIN)
+        lines += [_atom("HETATM", 10, "C1", " ", "SUC", "A", 201, 5, 5, 5)]
+
+        with pytest.raises(AmbiguousStructureError, match="sugar"):
+            resolve(_structure(lines))
+
+    def test_the_message_points_at_carbohydrate_parameters(self) -> None:
+        lines = list(PROTEIN)
+        lines += [_atom("HETATM", 10, "C1", " ", "NAG", "A", 201, 5, 5, 5)]
+        with pytest.raises(AmbiguousStructureError) as excinfo:
+            resolve(_structure(lines))
+        assert "GLYCAM" in str(excinfo.value)
+
+
+class TestPolicy:
+    """The three-way policy, and what each setting implies."""
+
+    @staticmethod
+    def _with(names):
+        lines = list(PROTEIN)
+        for i, name in enumerate(names):
+            lines.append(_atom("HETATM", 10 + i, "C1", " ", name, "A", 201 + i,
+                               5 + i, 5, 5))
+        return _structure(lines)
+
+    def test_drop_is_unconditional_and_is_the_default(self) -> None:
+        from fastmdxplora.setup.pipeline import _keep_heterogens
+
+        assert _keep_heterogens({}, self._with(["BNZ"])) is False
+        assert _keep_heterogens({"heterogens": "drop"}, self._with(["BNZ"])) is False
+
+    def test_keep_is_unconditional(self) -> None:
+        from fastmdxplora.setup.pipeline import _keep_heterogens
+
+        assert _keep_heterogens({"heterogens": "keep"}, self._with(["BNZ"])) is True
+
+    def test_the_legacy_flag_still_means_keep(self) -> None:
+        from fastmdxplora.setup.pipeline import _keep_heterogens
+
+        assert _keep_heterogens({"keep_heterogens": True}, self._with(["BNZ"])) is True
+
+    def test_auto_drops_a_structure_holding_only_additives(self) -> None:
+        from fastmdxplora.setup.pipeline import _keep_heterogens
+
+        assert _keep_heterogens({"heterogens": "auto"}, self._with(["GOL", "HOH"])) is False
+
+    def test_auto_refuses_a_ligand_it_cannot_yet_parameterize(self) -> None:
+        """Better to stop than to quietly produce an apo trajectory."""
+        from fastmdxplora.setup.pipeline import _keep_heterogens
+
+        with pytest.raises(ValueError, match="setup-ligand"):
+            _keep_heterogens({"heterogens": "auto"}, self._with(["BNZ"]))
+
+    def test_an_unknown_policy_is_rejected(self) -> None:
+        from fastmdxplora.setup.pipeline import _keep_heterogens
+
+        with pytest.raises(ValueError, match="unknown policy"):
+            _keep_heterogens({"heterogens": "sometimes"}, self._with(["GOL"]))
+
+
+class TestFailuresExplainThemselves:
+    """A refusal is only useful if its reason reaches the user."""
+
+    def test_single_phase_runs_report_why_they_failed(self, tmp_path) -> None:
+        """`explore` reports through the orchestrator; `setup` had no such path.
+
+        Without this the user saw that setup failed but not that a ligand had
+        been found and could not yet be parameterized, which is the whole
+        content of the refusal.
+        """
+        import io
+        import logging
+
+        from fastmdxplora.cli.main import main
+
+        # The package logger does not propagate to root, so pytest's caplog
+        # never sees it; attach to the package logger directly.
+        captured = io.StringIO()
+        handler = logging.StreamHandler(captured)
+        package_logger = logging.getLogger("fastmdx")
+        package_logger.addHandler(handler)
+
+        structure = tmp_path / "s.pdb"
+        structure.write_text(
+            "ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00  0.00           N\n"
+            "HETATM   10  C1  BNZ A 201       5.000   5.000   5.000  1.00  0.00           C\n"
+            "END\n",
+            encoding="utf-8",
+        )
+
+        try:
+            code = main([
+                "setup", "--system", str(structure),
+                "--output", str(tmp_path / "run"), "--heterogens", "auto",
+            ])
+        finally:
+            package_logger.removeHandler(handler)
+
+        assert code == 1
+        assert "automatic ligand parameterization" in captured.getvalue()
+
+    def test_the_message_does_not_assume_a_flag_prefix(self, tmp_path) -> None:
+        """The same option is --heterogens or --setup-heterogens by command."""
+        from fastmdxplora.setup.heterogens import Action
+        from fastmdxplora.setup.pipeline import _keep_heterogens
+
+        structure = tmp_path / "s.pdb"
+        structure.write_text(
+            "ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00  0.00           N\n"
+            "HETATM   10  C1  BNZ A 201       5.000   5.000   5.000  1.00  0.00           C\n"
+            "END\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError) as excinfo:
+            _keep_heterogens({"heterogens": "auto"}, structure)
+        message = str(excinfo.value)
+        assert "--setup-ligand under explore" in message
+        assert "--ligand under setup" in message

@@ -116,8 +116,13 @@ SETUP = PhaseSchema(
     fields=(
         Field("ph", float, 7.0,
               "pH for hydrogen placement (sets protonation states)."),
+        Field("heterogens", str, "drop",
+              "How to treat non-standard residues: 'drop' removes them all "
+              "(reporting what went), 'keep' retains them all, 'auto' decides "
+              "per component and stops if the structure is ambiguous.",
+              example="auto"),
         Field("keep_heterogens", bool, False,
-              "Retain non-standard residues (ligands, cofactors, ions)."),
+              "Retain non-standard residues. Equivalent to heterogens: keep."),
         Field("keep_water", bool, False,
               "Retain crystallographic waters."),
         Field("fixed_pdb", str, None,
