@@ -39,6 +39,7 @@ requirements:
     - scikit-learn >=1.0
     - pandas >=1.4
     - python-pptx >=0.6.21
+    - pillow >=10.0
     # fastmdxplora accepts AMBER NetCDF trajectories. mdtraj can read them
     # through scipy, but warns that this path is significantly slower and
     # declares netcdf4 in its own metadata; conda-forge's mdtraj does not
@@ -50,6 +51,14 @@ requirements:
     # PyPI package covers analysis and reporting alone.
     - openmm >=8.0
     - pdbfixer
+    # Protein-ligand systems need small-molecule parameterization, and the
+    # chemistry a structure omits has to be read and its protonation settled
+    # in the complex. On PyPI these are the [ligand] extra; here they belong
+    # in the package, because one install command is the point.
+    - openff-toolkit >=0.16
+    - openmmforcefields >=0.12
+    - rdkit >=2023.3
+    - propka >=3.5
 
 tests:
   - python:
