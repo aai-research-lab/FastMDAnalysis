@@ -10,6 +10,11 @@ import pytest
 
 from fastmdxplora.setup import ccd
 
+# Reading chemical definitions and detecting ionizable groups needs RDKit,
+# which ships in the optional ligand extra. CI installs the test extra only,
+# so these skip there rather than failing.
+pytest.importorskip("rdkit", reason="requires the [ligand] extra")
+
 
 @pytest.fixture(autouse=True)
 def _isolated_cache(tmp_path, monkeypatch):

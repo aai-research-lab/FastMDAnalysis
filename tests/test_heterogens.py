@@ -240,12 +240,15 @@ class TestPolicy:
 
         assert _keep_heterogens({"heterogens": "auto"}, self._with(["GOL", "HOH"])) is False
 
-    def test_auto_refuses_a_ligand_it_cannot_yet_parameterize(self) -> None:
-        """Better to stop than to quietly produce an apo trajectory."""
+    def test_auto_strips_the_originals_because_ligands_are_re_added(self) -> None:
+        """Components worth simulating go through the small-molecule path.
+
+        PDBFixer removes them from the structure, and they return carrying
+        real parameters rather than being kept as unparameterized residues.
+        """
         from fastmdxplora.setup.pipeline import _keep_heterogens
 
-        with pytest.raises(ValueError, match="setup-ligand"):
-            _keep_heterogens({"heterogens": "auto"}, self._with(["BNZ"]))
+        assert _keep_heterogens({"heterogens": "auto"}, self._with(["BNZ"])) is False
 
     def test_an_unknown_policy_is_rejected(self) -> None:
         from fastmdxplora.setup.pipeline import _keep_heterogens
@@ -260,9 +263,9 @@ class TestFailuresExplainThemselves:
     def test_single_phase_runs_report_why_they_failed(self, tmp_path) -> None:
         """`explore` reports through the orchestrator; `setup` had no such path.
 
-        Without this the user saw that setup failed but not that a ligand had
-        been found and could not yet be parameterized, which is the whole
-        content of the refusal.
+        A local file carries no PDB entry, so its ligand chemistry cannot be
+        looked up. That refusal has to reach the user, or setup merely appears
+        to have broken.
         """
         import io
         import logging
@@ -293,12 +296,11 @@ class TestFailuresExplainThemselves:
             package_logger.removeHandler(handler)
 
         assert code == 1
-        assert "automatic ligand parameterization" in captured.getvalue()
+        assert "PDB identifier" in captured.getvalue()
 
-    def test_the_message_does_not_assume_a_flag_prefix(self, tmp_path) -> None:
-        """The same option is --heterogens or --setup-heterogens by command."""
-        from fastmdxplora.setup.heterogens import Action
-        from fastmdxplora.setup.pipeline import _keep_heterogens
+    def test_a_local_file_cannot_have_its_chemistry_looked_up(self, tmp_path) -> None:
+        """There is no entry to retrieve the component from."""
+        from fastmdxplora.setup.pipeline import _auto_ligands
 
         structure = tmp_path / "s.pdb"
         structure.write_text(
@@ -307,8 +309,21 @@ class TestFailuresExplainThemselves:
             "END\n",
             encoding="utf-8",
         )
-        with pytest.raises(ValueError) as excinfo:
-            _keep_heterogens({"heterogens": "auto"}, structure)
-        message = str(excinfo.value)
-        assert "--setup-ligand under explore" in message
-        assert "--ligand under setup" in message
+        with pytest.raises(ValueError, match="PDB identifier"):
+            _auto_ligands({"ph": 7.0, "forcefield": "amber-openff"},
+                          structure, tmp_path, None)
+
+    def test_a_force_field_without_ligand_support_stops(self, tmp_path) -> None:
+        """The protein force field is a scientific choice, not ours to change."""
+        from fastmdxplora.setup.pipeline import _auto_ligands
+
+        structure = tmp_path / "s.pdb"
+        structure.write_text(
+            "ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00  0.00           N\n"
+            "HETATM   10  C1  BNZ A 201       5.000   5.000   5.000  1.00  0.00           C\n"
+            "END\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="cannot parameterize small molecules"):
+            _auto_ligands({"ph": 7.0, "forcefield": "charmm36"},
+                          structure, tmp_path, "4W52")

@@ -1,4 +1,5 @@
 
+import pytest
 
 def test_removed_heterogens_are_reported() -> None:
     """A stripped ligand must not pass silently.
@@ -90,3 +91,56 @@ class TestHeterogenRemovalIsAnnounced:
             self._topology(["ALA", "MSE", "HID", "HIE", "CYX", "DA", "DT"])
         )
         assert counts == {}
+
+
+class TestMultipleLigands:
+    """Several ligands, cofactors, or copies can be parameterized together.
+
+    They must stay distinguishable: two ligands sharing a residue name cannot
+    be told apart in the topology, and every analysis that selects by residue
+    would silently conflate them.
+    """
+
+    def test_one_ligand_uses_the_name_given(self) -> None:
+        from fastmdxplora.setup.prepare import _resolve_ligand_names
+
+        assert _resolve_ligand_names(["bnz.sdf"], "BNZ") == ["BNZ"]
+        assert _resolve_ligand_names(["x.sdf"], None) == ["LIG"]
+
+    def test_several_ligands_take_their_names_from_the_files(self) -> None:
+        from fastmdxplora.setup.prepare import _resolve_ligand_names
+
+        names = _resolve_ligand_names(["BNZ.sdf", "ATP.sdf", "GOL.sdf"], None)
+        assert names == ["BNZ", "ATP", "GOL"]
+
+    def test_explicit_names_are_accepted_one_per_ligand(self) -> None:
+        from fastmdxplora.setup.prepare import _resolve_ligand_names
+
+        assert _resolve_ligand_names(["a", "b"], ["L01", "L02"]) == ["L01", "L02"]
+
+    def test_one_name_for_several_ligands_is_refused(self) -> None:
+        from fastmdxplora.setup.prepare import _resolve_ligand_names
+
+        with pytest.raises(ValueError, match="single ligand name"):
+            _resolve_ligand_names(["a", "b"], "LIG")
+
+    def test_duplicate_names_are_refused(self) -> None:
+        from fastmdxplora.setup.prepare import _resolve_ligand_names
+
+        with pytest.raises(ValueError, match="must be distinct"):
+            _resolve_ligand_names(["a", "b"], ["X", "X"])
+
+    def test_a_mismatched_number_of_names_is_refused(self) -> None:
+        from fastmdxplora.setup.prepare import _resolve_ligand_names
+
+        with pytest.raises(ValueError, match="ligand names given"):
+            _resolve_ligand_names(["a", "b"], ["X"])
+
+    def test_charges_are_broadcast_or_given_per_ligand(self) -> None:
+        from fastmdxplora.setup.prepare import _resolve_ligand_charges
+
+        assert _resolve_ligand_charges(["a", "b"], None) == [None, None]
+        assert _resolve_ligand_charges(["a", "b"], [0, -2]) == [0, -2]
+
+        with pytest.raises(ValueError, match="ligand charges given"):
+            _resolve_ligand_charges(["a", "b"], [0])

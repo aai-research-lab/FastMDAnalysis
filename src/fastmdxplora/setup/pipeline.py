@@ -156,22 +156,9 @@ def _keep_heterogens(params: dict, input_pdb) -> bool:
         return True
 
     if policy == "auto":
-        # Raises AmbiguousStructureError when the structure is undetermined,
-        # which is the intended outcome rather than a failure to handle.
-        decisions = resolve(input_pdb, keep_water=bool(params.get("keep_water")))
-        logger.info("Heterogen decisions:\n%s", summarize(decisions))
-        wanted = [d for d in decisions if d.action is Action.SIMULATE]
-        if wanted:
-            names = ", ".join(f"{d.resname} x{d.count}" if d.count > 1 else d.resname
-                              for d in wanted)
-            raise ValueError(
-                f"heterogens: auto identified components to simulate ({names}), "
-                "but automatic ligand parameterization is not available yet. "
-                "Supply them as SDF or MOL2 files with the ligand option "
-                "(--setup-ligand under explore, --ligand under setup), or set "
-                "the heterogens policy to 'drop' to exclude them."
-            )
-        # Everything was solvent or additive: dropping is the right call.
+        # Components worth simulating have already been written as ligand
+        # files and routed through the small-molecule path, so the originals
+        # are stripped here and re-added with real parameters.
         return False
 
     if policy != "drop":
@@ -179,6 +166,133 @@ def _keep_heterogens(params: dict, input_pdb) -> bool:
             f"heterogens: unknown policy {policy!r}; expected drop, keep, or auto"
         )
     return False
+
+
+
+
+def _validate_ligand_forcefield(params: dict) -> None:
+    """Ligand parameterization needs a force field that can do it.
+
+    Checked before any OpenMM or OpenFF import, so the message is the same
+    whichever backends happen to be installed.
+    """
+    from fastmdxplora.setup.forcefields import (
+        available_forcefields,
+        resolve_forcefield,
+    )
+
+    if params["force_field"]:
+        raise ValueError(
+            "A ligand was supplied with a raw `force_field` XML list. "
+            "Protein-ligand parameterization needs the named `forcefield` "
+            "selector (use forcefield='amber-openff'), which wires the OpenFF "
+            "small-molecule generator."
+        )
+    choice = resolve_forcefield(params["forcefield"])
+    if not choice.supports_ligand:
+        valid = ", ".join(
+            n for n in available_forcefields() if resolve_forcefield(n).supports_ligand
+        )
+        raise ValueError(
+            f"Force field {choice.name!r} does not support ligands. For "
+            f"protein-ligand systems use a ligand-capable force field: {valid}."
+        )
+
+
+def _auto_ligands(params: dict, input_pdb, output_dir, entry_id: str | None) -> list[str]:
+    """Turn the classifier's SIMULATE decisions into files the ligand path takes.
+
+    The chemistry a structure omits is fetched from RCSB, completed with
+    hydrogens, and checked for a determined protonation in the complex. What
+    comes back is an ordinary ligand file, so everything downstream is the
+    existing protein-ligand route rather than a parallel one.
+
+    Returns the ligand files written, empty when the structure holds nothing
+    worth simulating.
+    """
+    from fastmdxplora.setup.ccd import fetch_chemistry
+    from fastmdxplora.setup.forcefields import (
+        available_forcefields,
+        resolve_forcefield,
+    )
+    from fastmdxplora.setup.heterogens import Action, resolve, summarize
+    from fastmdxplora.setup.protonation import settle
+
+    decisions = resolve(input_pdb, keep_water=bool(params.get("keep_water")))
+    logger.info("Heterogen decisions:\n%s", summarize(decisions))
+    wanted = [d for d in decisions if d.action is Action.SIMULATE]
+    if not wanted:
+        return []
+
+    names = ", ".join(
+        f"{d.resname} x{d.count}" if d.count > 1 else d.resname for d in wanted
+    )
+
+    if entry_id is None:
+        raise ValueError(
+            f"heterogens: auto identified components to simulate ({names}), but "
+            "their chemistry can only be retrieved for a structure given by PDB "
+            "identifier: a local file carries no entry to look them up in. "
+            "Supply the ligands as SDF or MOL2 files instead."
+        )
+
+    # A ligand needs a force field that can parameterize small molecules. The
+    # protein force field is a scientific choice, so it is not changed here on
+    # the user's behalf.
+    choice = resolve_forcefield(params.get("forcefield"))
+    if not choice.supports_ligand:
+        capable = ", ".join(
+            n for n in available_forcefields() if resolve_forcefield(n).supports_ligand
+        )
+        raise ValueError(
+            f"heterogens: auto identified components to simulate ({names}), but "
+            f"force field {choice.name!r} cannot parameterize small molecules. "
+            f"Choose a ligand-capable force field ({capable}), or set the "
+            "heterogens policy to 'drop' to exclude them."
+        )
+
+    copies = [(d, het) for d in wanted for het in d.instances]
+    ligand_dir = Path(output_dir) / "setup" / "ligands"
+    ligand_dir.mkdir(parents=True, exist_ok=True)
+
+    files: list[str] = []
+    names: list[str] = []
+    charges: list[int] = []
+    for decision, instance in copies:
+        chemistry = fetch_chemistry(
+            entry_id,
+            decision.resname,
+            chain=instance.chain,
+            resseq=instance.resseq,
+            expected_heavy_atoms=sum(
+                1 for atom in instance.atoms if atom.element.upper() != "H"
+            ),
+        )
+        state = settle(
+            input_pdb,
+            decision.resname,
+            chain=instance.chain,
+            resseq=instance.resseq,
+            ph=float(params["ph"]),
+            expected_ionizable=bool(chemistry.titratable_groups),
+        )
+        logger.info("%s %s%s: %s", decision.resname, instance.chain,
+                    instance.resseq, state.reason)
+
+        # Copies of one component need distinct residue names, or nothing
+        # downstream can tell them apart.
+        suffix = "" if len(copies) == 1 else f"_{instance.chain}{instance.resseq}"
+        target = ligand_dir / f"{decision.resname}{suffix}.sdf"
+        target.write_text(chemistry.path.read_text(encoding="utf-8"), encoding="utf-8")
+        files.append(str(target))
+        names.append(decision.resname if len(copies) == 1
+                     else f"{decision.resname[:1]}{len(names):02d}")
+        charges.append(chemistry.formal_charge)
+
+    params["ligand_name"] = names[0] if len(names) == 1 else names
+    if params.get("ligand_net_charge") is None:
+        params["ligand_net_charge"] = charges[0] if len(charges) == 1 else charges
+    return files
 
 
 def run(
@@ -226,29 +340,7 @@ def run(
     # OpenMM/OpenFF dependency, so the user gets a clear error regardless of
     # which backends are installed).
     if params.get("ligand"):
-        from fastmdxplora.setup.forcefields import (
-            available_forcefields,
-            resolve_forcefield,
-        )
-
-        if params["force_field"]:
-            raise ValueError(
-                "A ligand was supplied with a raw `force_field` XML list. "
-                "Protein-ligand parameterization needs the named "
-                "`forcefield` selector (use forcefield='amber-openff'), "
-                "which wires the OpenFF small-molecule generator."
-            )
-        choice = resolve_forcefield(params["forcefield"])
-        if not choice.supports_ligand:
-            valid = ", ".join(
-                n for n in available_forcefields()
-                if resolve_forcefield(n).supports_ligand
-            )
-            raise ValueError(
-                f"Force field {choice.name!r} does not support ligands. "
-                f"For protein-ligand systems use a ligand-capable force "
-                f"field: {valid}."
-            )
+        _validate_ligand_forcefield(params)
 
     input_form = _classify_input(orchestrator.system)
     logger.debug("setup: input form detected as %s", input_form)
@@ -260,6 +352,7 @@ def run(
     # ---- Stage 1: resolve input ----------------------------------------
     try:
         input_pdb = _resolve_input(orchestrator.system, input_form, output_dir)
+
         artifacts.append("input.pdb")
         if presenter:
             label = (
@@ -292,6 +385,30 @@ def run(
         _write_manifest(output_dir, orchestrator, input_form, params, artifacts, notes)
         artifacts.append("setup_parameters.json")
         return artifacts
+
+    # With the auto policy, the structure decides what to simulate and the
+    # chemistry it omits is retrieved before preparation runs, so the rest of
+    # the phase sees an ordinary protein-ligand job.
+    #
+    # Deliberately outside the input-resolution try above: that handler
+    # downgrades failures to a warning and carries on, which would turn a
+    # refusal into a run that reports success while having simulated nothing
+    # of the kind.
+    if str(params.get("heterogens", "drop")).strip().lower() == "auto" \
+            and not params.get("keep_heterogens") and not params.get("ligand"):
+        discovered = _auto_ligands(
+            params,
+            input_pdb,
+            output_dir,
+            orchestrator.system if input_form == "pdb_id" else None,
+        )
+        if discovered:
+            params["ligand"] = discovered
+            _validate_ligand_forcefield(params)
+            logger.info(
+                "Prepared %d ligand file(s) from the structure: %s",
+                len(discovered), ", ".join(Path(d).name for d in discovered),
+            )
 
     # ---- Stage 2: PDBFixer (or skip via fixed_pdb) ---------------------
     prepared_pdb = output_dir / "prepared.pdb"

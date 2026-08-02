@@ -202,8 +202,8 @@ def prepare_system(
         if water_model is None:
             water_model = ff_choice.water_model
 
-    # Normalize the ligand argument to a list (the config is list-shaped from
-    # day one; only single-ligand is implemented for now).
+    # Normalize the ligand argument to a list; several ligands, cofactors, or
+    # copies of one component may be parameterized together.
     ligands = _normalize_ligands(ligand)
     if ligands:
         # A ligand requires a ligand-capable force field. Raw XML lists can't
@@ -225,12 +225,6 @@ def prepare_system(
                 f"For protein-ligand systems use a ligand-capable force "
                 f"field: {valid}."
             )
-        if len(ligands) > 1:
-            raise ValueError(
-                f"{len(ligands)} ligands supplied; only single-ligand "
-                f"parameterization is implemented currently."
-            )
-
     constraints_obj = _resolve_constraints(omm, constraints)
 
     # ----- 1. Load topology + positions -----
@@ -250,20 +244,28 @@ def prepare_system(
             "Building protein-ligand ForceField: %s + small-molecule %s",
             force_field, sm_ff,
         )
-        ligand_mol = load_ligand(
-            ligands[0], name=ligand_name, net_charge=ligand_net_charge,
-        )
+        names = _resolve_ligand_names(ligands, ligand_name)
+        charges = _resolve_ligand_charges(ligands, ligand_net_charge)
+        ligand_mols = [
+            load_ligand(path, name=name, net_charge=charge)
+            for path, name, charge in zip(ligands, names, charges)
+        ]
         ff, system_generator = _build_ligand_forcefield(
-            force_field, sm_ff, ligand_mol,
+            force_field, sm_ff, ligand_mols,
         )
-        n_protein_atoms = modeller.topology.getNumAtoms()
-        _add_ligand_to_modeller(omm, modeller, ligand_mol, ligand_name=ligand_name)
-        if check_ligand_clashes:
-            _check_ligand_clashes(
-                modeller, n_protein_atoms, unit,
-                threshold_nm=ligand_clash_threshold_nm,
-                ligand_name=ligand_name,
-            )
+        # Each ligand is placed in turn, and each is clash-checked against
+        # everything already present: the protein for the first, and the
+        # protein plus earlier ligands for the rest, since two ligands can
+        # overlap each other as readily as they can overlap the protein.
+        for ligand_mol, name in zip(ligand_mols, names):
+            n_atoms_before = modeller.topology.getNumAtoms()
+            _add_ligand_to_modeller(omm, modeller, ligand_mol, ligand_name=name)
+            if check_ligand_clashes:
+                _check_ligand_clashes(
+                    modeller, n_atoms_before, unit,
+                    threshold_nm=ligand_clash_threshold_nm,
+                    ligand_name=name,
+                )
     else:
         logger.info("Building ForceField: %s", force_field)
         ff = omm["ForceField"](*force_field)
@@ -428,8 +430,62 @@ def _normalize_ligands(
     return list(ligand)
 
 
-def _build_ligand_forcefield(force_field, small_molecule_ff, ligand_mol):
-    """Build an OpenMM ForceField wired for a small-molecule ligand.
+
+def _resolve_ligand_names(ligands, ligand_name) -> list[str]:
+    """A residue name for every ligand, distinct from the others.
+
+    One name may be given for one ligand, or a list matching them. Otherwise
+    the file stem is used, which for chemistry retrieved from the structure is
+    the component code and is exactly what the analyses expect to select on.
+    """
+    from pathlib import Path as _Path
+
+    if isinstance(ligand_name, (list, tuple)):
+        names = [str(n).strip().upper() for n in ligand_name]
+        if len(names) != len(ligands):
+            raise ValueError(
+                f"{len(names)} ligand names given for {len(ligands)} ligands; "
+                "give one name per ligand, or none to use the file names."
+            )
+    elif len(ligands) == 1:
+        names = [str(ligand_name or "LIG").strip().upper()]
+    elif ligand_name:
+        # One name cannot serve several ligands: they would be
+        # indistinguishable in the topology and in every later selection.
+        raise ValueError(
+            f"a single ligand name ({ligand_name!r}) was given for "
+            f"{len(ligands)} ligands. Give one name per ligand, or none to "
+            "take them from the file names."
+        )
+    else:
+        # A single name across several ligands would make them
+        # indistinguishable in the topology and in every later selection.
+        names = [_Path(str(p)).stem.strip().upper()[:3] or "LIG" for p in ligands]
+
+    if len(set(names)) != len(names):
+        raise ValueError(
+            f"ligand residue names must be distinct, got {names}. Two ligands "
+            "sharing a name cannot be told apart in the topology or in any "
+            "analysis that selects by residue."
+        )
+    return names
+
+
+def _resolve_ligand_charges(ligands, ligand_net_charge) -> list:
+    """A net charge for every ligand; ``None`` means infer it from the file."""
+    if isinstance(ligand_net_charge, (list, tuple)):
+        charges = list(ligand_net_charge)
+        if len(charges) != len(ligands):
+            raise ValueError(
+                f"{len(charges)} ligand charges given for {len(ligands)} "
+                "ligands; give one per ligand, or none to infer them."
+            )
+        return charges
+    return [ligand_net_charge] * len(ligands)
+
+
+def _build_ligand_forcefield(force_field, small_molecule_ff, ligand_mols):
+    """Build an OpenMM ForceField wired for one or more small-molecule ligands.
 
     Uses ``openmmforcefields``' ``SystemGenerator`` to combine the protein/
     water force field XMLs with the OpenFF small-molecule force field and the
@@ -453,7 +509,7 @@ def _build_ligand_forcefield(force_field, small_molecule_ff, ligand_mol):
     system_generator = SystemGenerator(
         forcefields=list(force_field),
         small_molecule_forcefield=small_molecule_ff,
-        molecules=[ligand_mol],
+        molecules=list(ligand_mols),
     )
     return system_generator.forcefield, system_generator
 

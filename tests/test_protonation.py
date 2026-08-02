@@ -99,3 +99,37 @@ class TestPropkaIntegration:
         # Asking about a component that is not present must return nothing
         # rather than raising: absence is a valid answer.
         assert ligand_pka(structure, "BNZ", chain="A", resseq=201) == []
+
+
+@pytest.mark.network
+class TestRealComplex:
+    """Evidence that deciding from the complex is operational, not aspirational.
+
+    Deselected by default; run with ``pytest -m network``. It exists so that a
+    regression in PROPKA's ligand handling is detectable, because the claim
+    that FastMDXplora determines ligand protonation from the bound state rests
+    entirely on this working.
+    """
+
+    def test_biotin_in_streptavidin_shifts_from_its_solution_pka(self, tmp_path) -> None:
+        import urllib.request
+
+        pytest.importorskip("propka")
+
+        structure = tmp_path / "1STP.pdb"
+        urllib.request.urlretrieve(  # noqa: S310 - RCSB
+            "https://files.rcsb.org/download/1STP.pdb", structure
+        )
+
+        groups = ligand_pka(structure, "BTN", chain="A", resseq=300)
+        assert groups, "PROPKA returned no ionizable group for biotin"
+
+        # Biotin's carboxylate: about 4.5 in water, lower in the pocket.
+        carboxylate = [g for g in groups if g.group_type == "OCO"]
+        assert carboxylate, "the carboxylate should be detected"
+        assert carboxylate[0].model_pka == pytest.approx(4.5, abs=0.3)
+        assert carboxylate[0].shift < 0, "streptavidin should lower it"
+
+        # Every group sits well below physiological pH, so the state is settled.
+        state = decide("BTN", groups, 7.4, expected_ionizable=True)
+        assert state.protonated is False
