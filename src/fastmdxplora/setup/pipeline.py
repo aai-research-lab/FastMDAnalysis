@@ -414,21 +414,23 @@ def run(
         _write_manifest(output_dir, orchestrator, input_form, params, artifacts, notes)
         artifacts.append("setup_parameters.json")
         return artifacts
-    except Exception as exc:  # noqa: BLE001 -- network, IO, etc.
-        # Anything else (RCSB fetch failure, IO error) becomes a graceful
-        # degradation: write the manifest with a note explaining what
-        # went wrong and stop. The orchestrator's per-phase error handler
-        # still sees a clean "ok" return; the manifest is the source of
-        # truth for what actually happened.
+    except Exception as exc:  # noqa: BLE001 -- network, IO, refusals
+        # The manifest is written first, so whatever was learned before the
+        # failure survives for diagnosis. Then the failure is raised.
+        #
+        # It used to be swallowed, on the reasoning that the manifest was the
+        # source of truth. In practice that meant a mistyped PDB identifier
+        # produced an empty output directory and exit code 0, and any refusal
+        # raised here was reported as a successful run. A phase that could not
+        # do its job must say so through the channel callers actually read.
+        #
+        # Note that this is a different situation from an absent optional
+        # dependency, which is handled below and does degrade gracefully by
+        # design: not having OpenMM installed is a choice, whereas failing to
+        # fetch a structure is a failure.
         notes.append(f"Failed to resolve input ({input_form}): {exc}")
-        if presenter:
-            presenter.step(
-                f"Could not resolve input ({input_form}): {exc}",
-                status="warning",
-            )
         _write_manifest(output_dir, orchestrator, input_form, params, artifacts, notes)
-        artifacts.append("setup_parameters.json")
-        return artifacts
+        raise
 
     # With the auto policy, the structure decides what to simulate and the
     # chemistry it omits is retrieved before preparation runs, so the rest of
