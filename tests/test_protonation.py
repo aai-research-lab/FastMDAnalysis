@@ -481,3 +481,58 @@ class TestThePoisedBand:
         state = decide("LIG", [group], ph=7.4, expected_ionizable=True,
                        margin=0.2)
         assert state.protonated is False
+
+
+class TestGroupsTheMoleculeDoesNotCarry:
+    """The disagreement between the two readings runs both ways.
+
+    A ligand carrying an ionizable group the calculation reported nothing for
+    is already refused. The reverse -- the calculation reporting a class the
+    molecule does not have -- quoted the model pKa of that class, which is the
+    wrong reference compound, and refused on it.
+    """
+
+    @staticmethod
+    def _group(group_type, pka, model):
+        from fastmdxplora.setup.protonation import GroupPka
+
+        return GroupPka("FOL", "A", 187, group_type, pka, model)
+
+    def test_a_class_the_molecule_lacks_is_ignored(self):
+        """Folate's N10 lies between a methylene and an aromatic ring.
+
+        It was read as an aliphatic secondary amine and given that class's
+        model pKa of 10.0. An aniline is nearer 4.6 and this nitrogen is less
+        basic still, so a value of 8.35 "within a unit of pH 7.4" was an
+        arithmetic that never applied.
+        """
+        from fastmdxplora.setup.protonation import decide
+
+        state = decide(
+            "FOL",
+            [self._group("N32", 8.35, 10.00), self._group("OCO", 3.5, 4.5)],
+            ph=7.4,
+            expected_ionizable=True,
+            known_groups=("carboxylic acid", "aromatic nitrogen"),
+        )
+        decided = dict(state.per_group)
+        # The carboxyl is decided, in whichever form it is written.
+        assert decided["carboxylic acid"] is False
+        # The amine the calculation invented is not there to be decided.
+        assert "primary or secondary amine" not in decided
+
+    def test_a_class_the_molecule_carries_still_decides(self):
+        """Donepezil's piperidine is a real aliphatic tertiary amine."""
+        from fastmdxplora.setup.protonation import ProtonationError, decide
+
+        with pytest.raises(ProtonationError, match="ionizable groups"):
+            decide("E20", [self._group("N33", 7.92, 10.00)], ph=7.4,
+                   expected_ionizable=True, known_groups=("tertiary amine",))
+
+    def test_nothing_is_dropped_when_the_chemistry_was_not_inspected(self):
+        """Without a second reading there is nothing to disagree with."""
+        from fastmdxplora.setup.protonation import ProtonationError, decide
+
+        with pytest.raises(ProtonationError, match="ionizable groups"):
+            decide("FOL", [self._group("N32", 8.35, 10.00)], ph=7.4,
+                   expected_ionizable=True)

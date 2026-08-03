@@ -105,6 +105,29 @@ class Row:
         return "both fail"
 
 
+#: A new log record opens with a timestamp; anything else continues the one
+#: before it.
+RECORD_START = re.compile(r"^\s*\d{2}:\d{2}:\d{2}\s")
+
+
+def _error_block(combined: str, limit: int = 700) -> str:
+    """The last error record together with the lines that explain it."""
+    lines = combined.splitlines()
+    starts = [i for i, line in enumerate(lines) if "ERROR" in line]
+    if not starts:
+        tail = [l for l in lines if " - " in l]
+        return " ".join(tail[-3:])[:limit] if tail else combined[-300:]
+
+    first = starts[-1]
+    block = [lines[first]]
+    for line in lines[first + 1:]:
+        if RECORD_START.match(line):
+            break
+        if line.strip():
+            block.append(line)
+    return " ".join(part.strip() for part in block)[:limit]
+
+
 def run_setup(structure: str, policy: str, root: Path, forcefield: str) -> Outcome:
     out = root / policy / structure
     started = time.time()
@@ -124,14 +147,14 @@ def run_setup(structure: str, policy: str, root: Path, forcefield: str) -> Outco
 
     detail = ""
     if not produced:
-        # The reason a run stopped is on the ERROR lines. Progress notes were
-        # being mixed in and, once truncated, displaced them: a refusal read as
-        # "wrote fixed PDB to ...", which looks like a run that wrote a file
-        # and then failed for no stated reason.
-        lines = [l for l in combined.splitlines() if "ERROR" in l]
-        if not lines:
-            lines = [l for l in combined.splitlines() if " - " in l]
-        detail = " ".join(lines[-3:])[:500] if lines else combined[-300:]
+        # A refusal is a paragraph, not a line: the reason is on the ERROR
+        # record and the evidence for it -- which group, what pKa, how far
+        # shifted -- follows on continuation lines that carry no level of their
+        # own. Selecting on "ERROR" alone kept the claim and dropped the
+        # evidence; selecting on progress notes as well let them displace the
+        # claim once truncated. So the block is taken whole: the last ERROR
+        # record and everything after it until the next timestamped line.
+        detail = _error_block(combined)
     return Outcome(ok=produced, seconds=elapsed, detail=detail, ligands=ligands)
 
 

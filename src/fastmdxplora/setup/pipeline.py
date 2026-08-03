@@ -418,6 +418,7 @@ def _auto_ligands(params: dict, input_pdb, output_dir, entry_id: str | None) -> 
             ph=float(params["ph"]),
             expected_ionizable=bool(chemistry.titratable_groups),
             margin=float(params.get("protonation_margin") or POISED_MARGIN),
+            known_groups=tuple(chemistry.titratable_groups),
         )
         logger.info("%s %s%s: %s", decision.resname, instance.chain,
                     instance.resseq, state.reason)

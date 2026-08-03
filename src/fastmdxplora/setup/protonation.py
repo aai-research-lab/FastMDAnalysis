@@ -468,6 +468,46 @@ def ligand_pka(
     return found
 
 
+def _drop_misclassified(resname, groups, known_groups):
+    """Discard groups of a class the molecule does not actually carry.
+
+    PROPKA assigns a ligand group by local connectivity and then quotes the
+    model pKa of that class. Where its reading and this pipeline's disagree,
+    the number comes from the wrong reference compound: folate's N10 sits
+    between a methylene and an aromatic ring, and was read as an aliphatic
+    secondary amine and given the model pKa of one, 10.0. An aniline is nearer
+    4.6, and folate's nitrogen is less basic still. Refusing on that number
+    would be refusing over an arithmetic that never applied.
+
+    The classifying patterns exclude a nitrogen bonded to an aromatic ring or
+    to a carbonyl for exactly this reason, so where they find no group of the
+    class, there is none to have a pKa. The discard is announced, because the
+    other reading is that this pipeline's vocabulary is the incomplete one.
+    """
+    if not known_groups:
+        return groups
+
+    known = set(known_groups)
+    kept, dropped = [], []
+    for group in groups:
+        labels = PROPKA_GROUP_TO_LABEL.get(group.group_type, ())
+        if labels and not (set(labels) & known):
+            dropped.append(group)
+        else:
+            kept.append(group)
+
+    if dropped:
+        logger.info(
+            "%s: ignoring %s reported by the pKa calculation -- this molecule "
+            "carries no group of that class (it has %s), so the model pKa "
+            "quoted is not the right reference.",
+            resname,
+            ", ".join(sorted({f"{g.group_type} at pKa {g.pka:.2f}" for g in dropped})),
+            ", ".join(sorted(known)) or "none",
+        )
+    return kept
+
+
 def decide(
     resname: str,
     groups: list[GroupPka],
@@ -475,13 +515,19 @@ def decide(
     *,
     expected_ionizable: bool,
     margin: float = POISED_MARGIN,
+    known_groups: tuple[str, ...] = (),
 ) -> ProtonationState:
     """Settle a ligand's protonation, or refuse.
 
     ``expected_ionizable`` comes from inspecting the ligand's chemistry: if it
     carries an ionizable group but PROPKA reported none, the two disagree and
     the disagreement is itself a reason not to proceed.
+
+    ``known_groups`` is what that same inspection found. The disagreement runs
+    both ways: PROPKA can report a class the molecule does not have, and the
+    pKa it then quotes comes from the wrong reference compound.
     """
+    groups = _drop_misclassified(resname, groups, known_groups)
     if not groups:
         if expected_ionizable:
             raise ProtonationError(
@@ -553,6 +599,7 @@ def settle(
     ph: float,
     expected_ionizable: bool,
     margin: float = POISED_MARGIN,
+    known_groups: tuple[str, ...] = (),
 ) -> ProtonationState:
     """Determine a ligand's protonation in the complex, or raise.
 
@@ -570,4 +617,5 @@ def settle(
         )
     groups = ligand_pka(complex_pdb, resname, chain=chain, resseq=resseq)
     return decide(resname, groups, ph, expected_ionizable=expected_ionizable,
+                  known_groups=known_groups,
                   margin=margin)
