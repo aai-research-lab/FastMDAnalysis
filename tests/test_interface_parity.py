@@ -318,3 +318,133 @@ class TestIonConnectivityIsNotCovalent:
         assert "CONECT" not in text
         assert "NE2 HIS B  10" in text
         assert "ZN    ZN B  31" in text
+
+
+class TestHelpTextDoesNotStateItsOwnDefaults:
+    """A default written into help text drifts from the one in force.
+
+    The help said pH 7.0 after it had moved to 7.4, and named charmm36 after
+    the force field became auto. Someone reading --help has no way to tell and
+    no reason to doubt it, so the value is rendered from the schema instead.
+    """
+
+    def test_no_option_table_spells_out_a_default(self) -> None:
+        import re
+        from fastmdxplora.cli.main import (
+            _ANALYSIS_OPTIONS, _REPORT_OPTIONS, _SETUP_OPTIONS,
+            _SIMULATION_OPTIONS,
+        )
+
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        # Where the schema default is None or a flag, nothing is rendered and
+        # a sentence explaining the behaviour is the only way to convey it --
+        # "adaptive, about 2000 frames" is not a value. The rule is narrower:
+        # do not write out a default the schema would print for you.
+        tables = (
+            (_SETUP_OPTIONS, "setup"), (_SIMULATION_OPTIONS, "simulation"),
+            (_ANALYSIS_OPTIONS, "analysis"), (_REPORT_OPTIONS, "report"),
+        )
+        offenders = []
+        for table, phase in tables:
+            schema = {f.name: f.default for f in PHASE_SCHEMAS[phase].fields}
+            for _flag, kwarg, kwargs in table:
+                help_text = kwargs.get("help", "")
+                default = schema.get(kwarg)
+                rendered = (kwarg in schema and default is not None
+                            and not isinstance(default, bool))
+                if rendered and re.search(r"default", help_text, re.I):
+                    offenders.append(f"--{kwarg} ({default!r}): {help_text}")
+        assert not offenders, (
+            "these write out a default the schema already renders: "
+            + "; ".join(offenders)
+        )
+
+    def test_the_rendered_help_carries_the_schema_default(self) -> None:
+        from fastmdxplora.cli.main import _build_parser
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        parser = _build_parser()
+        setup = parser._subparsers._group_actions[0].choices["setup"]
+        rendered = {a.dest: (a.help or "") for a in setup._actions}
+        schema = {f.name: f.default for f in PHASE_SCHEMAS["setup"].fields}
+
+        for option in ("ph", "heterogens", "forcefield", "protonation_margin"):
+            assert f"Default: {schema[option]}." in rendered[option], (
+                f"--{option} help does not carry its schema default "
+                f"{schema[option]!r}: {rendered[option]!r}"
+            )
+
+    def test_every_cli_phase_name_maps_to_a_schema_group(self) -> None:
+        """The CLI names a phase for the verb, the schema for the noun."""
+        from fastmdxplora.cli.main import _PHASE_SPEC, _SCHEMA_KEY
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        for phase in _PHASE_SPEC:
+            assert _SCHEMA_KEY.get(phase) in PHASE_SCHEMAS, (
+                f"CLI phase {phase!r} has no schema group, so its defaults "
+                "would silently stop being rendered"
+            )
+
+
+class TestSettableThingsAreReachable:
+    """A setting the software tells you to change must be changeable.
+
+    protonation_margin was added to the schema and to the phase, and a refusal
+    message pointed at it, but no flag existed: the only way to reach it was a
+    config file.
+    """
+
+    def test_protonation_margin_has_a_flag(self) -> None:
+        from fastmdxplora.cli.main import _SETUP_OPTIONS
+
+        assert any(kwarg == "protonation_margin"
+                   for _flag, kwarg, _kwargs in _SETUP_OPTIONS)
+
+    def test_every_setup_flag_names_a_real_schema_field(self) -> None:
+        from fastmdxplora.cli.main import _SETUP_OPTIONS
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        known = set(PHASE_SCHEMAS["setup"].field_names())
+        unknown = {kwarg for _f, kwarg, _k in _SETUP_OPTIONS} - known
+        assert not unknown, f"flags with no schema field: {unknown}"
+
+
+class TestTheBrowserAgreesWithTheSchema:
+    """A control that falls back to a stale default is a silent disagreement.
+
+    The builder offered "Remove them (default)" and fell back to drop after the
+    default had become auto, and to pH 7 after it had become 7.4. Nothing fails
+    when this drifts: the browser simply sends a different study from the one
+    the same settings would produce anywhere else.
+    """
+
+    @staticmethod
+    def _sources():
+        return (
+            (GUI / "static" / "simulation-builder.js").read_text(encoding="utf-8"),
+            (GUI / "templates" / "dashboard.html").read_text(encoding="utf-8"),
+        )
+
+    def test_the_heterogen_fallbacks_match_the_schema(self) -> None:
+        script, _ = self._sources()
+        default = {f.name: f.default for f in all_schemas()["setup"].fields}["heterogens"]
+        assert f'|| "{default}"' in script
+        assert '|| "drop"' not in script, (
+            "the builder still falls back to drop, which is no longer the default"
+        )
+
+    def test_the_ph_fallback_matches_the_schema(self) -> None:
+        script, _ = self._sources()
+        default = {f.name: f.default for f in all_schemas()["setup"].fields}["ph"]
+        assert f'numberValue("builder-ph", {default})' in script
+
+    def test_the_option_marked_default_is_the_default(self) -> None:
+        _, markup = self._sources()
+        default = {f.name: f.default for f in all_schemas()["setup"].fields}["heterogens"]
+        import re
+
+        marked = re.findall(r'<option value="([a-z]+)">[^<]*\(default\)</option>', markup)
+        assert marked == [default], (
+            f"the browser marks {marked} as the default; the schema says {default!r}"
+        )

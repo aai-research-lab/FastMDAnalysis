@@ -20,8 +20,9 @@ systems:
     system: 1L2Y             # PDB ID, file path, or one-letter sequence
 
 setup:
-  ph: 7.0
-  forcefield: charmm36       # charmm36 | amber14 | amber-fb15 | amber-openff
+  ph: 7.4                    # physiological; the default
+  forcefield: auto           # auto | charmm36 | amber14 | amber-fb15 | amber-openff
+  heterogens: auto           # auto | drop | keep
   solvent_padding_nm: 1.0
   ion_concentration_M: 0.15
 

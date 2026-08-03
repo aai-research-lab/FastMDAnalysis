@@ -15,20 +15,34 @@ You can run the whole pipeline at once, or restrict it to specific phases with
 ## setup
 
 Prepares a raw structure into a simulation-ready system. PDBFixer repairs the
-input (missing atoms and residues, protonation at a chosen pH), then the
-system is solvated in a water box and neutralized with ions. A named force
-field is selected (CHARMM36 by default; AMBER variants and an OpenFF
-small-molecule path are available). When a ligand is supplied, it is
-parameterized with OpenFF and its bound pose is clash-checked before the run
-proceeds.
+input (missing atoms and residues, protonation at a chosen pH, 7.4 by
+default), then the system is solvated in a water box and neutralized with
+ions. The force field is chosen for you unless you name one: `auto` resolves
+to `amber-openff`, which is the stack that can take a ligand.
+
+A crystal structure carries the ligand you care about alongside the buffer
+that kept the protein soluble, and a PDB record distinguishes them only by
+name. Setup decides per component: a bound ligand is parameterized, a
+cryoprotectant discarded, a coordinated metal kept and prepared in place. It
+retrieves the bond orders, formal charges, and hydrogens a PDB record omits,
+and settles the ligand's protonation from the pKa it has in the pocket rather
+than in solution.
+
+Where the structure does not determine what should be simulated, setup stops
+and says what must be decided — a covalent adduct, a cofactor needing
+parameters no small-molecule force field supplies, a free sugar that could be
+substrate or cryoprotectant, a protonation the pH does not settle. Producing a
+plausible trajectory from a guess is worse than producing none. Pass
+`--setup-heterogens drop` to discard every non-standard residue instead, which
+is what earlier versions did.
 
 Key outputs: `prepared.pdb`, `solvated.pdb`, `topology.pdb`, `system.xml`,
-`setup_parameters.json`.
+`setup_parameters.json`, and `ligands/*.sdf` for anything parameterized.
 
-For a ligand, use `--setup-forcefield amber-openff`, provide one or more
-`--setup-ligand` files, and set `--setup-ligand-name` when the residue name is
-not `LIG`. Keep `--setup-keep-heterogens` when cofactors or other nonstandard
-residues must remain in the prepared structure.
+To supply a ligand yourself rather than take it from the structure, give one or
+more `--setup-ligand` files and set `--setup-ligand-name` when the residue name
+is not `LIG`. A ligand supplied this way is used as given, so its protonation
+and net charge are yours to state.
 
 ## simulation
 

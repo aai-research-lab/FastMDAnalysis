@@ -33,7 +33,7 @@ then hands back publication-ready results.
 
 | Phase | What it does |
 |---|---|
-| **setup** | Cleans up your structure and builds a simulation-ready system: fixes missing atoms, adds hydrogens, solvates, and adds ions. |
+| **setup** | Cleans up your structure and builds a simulation-ready system: fixes missing atoms, adds hydrogens, solvates, and adds ions. Decides what each non-standard residue means — a bound ligand is parameterized, a cryoprotectant discarded, a coordinated metal kept — and stops where the structure does not say. |
 | **simulation** | Runs the molecular dynamics (energy minimization, equilibration, and production), with optional enhanced sampling. |
 | **analysis** | Computes the standard structural and dynamic metrics (and protein-ligand metrics when a ligand is present), with figures ready to use. |
 | **report** | Packages everything into a slide deck, a written report, and a self-contained bundle you can share. |

@@ -117,7 +117,7 @@
     // keep_heterogens still lands on "keep".
     const heterogens = byId("builder-heterogens");
     if (heterogens) {
-      heterogens.value = setup.keep_heterogens ? "keep" : (setup.heterogens || "drop");
+      heterogens.value = setup.keep_heterogens ? "keep" : (setup.heterogens || "auto");
     }
     byId("builder-keep-water").checked = !!setup.keep_water;
     byId("builder-minimize").checked = sim.minimize !== false;
@@ -176,10 +176,10 @@
       setup: {
         forcefield: byId("builder-forcefield")?.value || "auto",
         water_model: byId("builder-water-model")?.value.trim() || "auto",
-        ph: numberValue("builder-ph", 7),
+        ph: numberValue("builder-ph", 7.4),
         ion_concentration_M: numberValue("builder-ion", 0.15),
         solvent_padding_nm: numberValue("builder-padding", 1),
-        heterogens: byId("builder-heterogens")?.value || "drop",
+        heterogens: byId("builder-heterogens")?.value || "auto",
         keep_water: !!byId("builder-keep-water")?.checked,
       },
       simulation: {

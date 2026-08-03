@@ -362,7 +362,7 @@ study = FastMDXplora(
     output_dir="runs/python_phases",
 )
 
-setup = study.setup(ph=7.0, forcefield="charmm36")
+setup = study.setup(ph=7.4, forcefield="amber-openff")
 print("setup:", setup.status)
 
 simulation = study.simulate(
