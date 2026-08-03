@@ -206,6 +206,18 @@ class TestStructuralComplaintsAreCaptured:
         assert "Unexpected number" not in captured.err
 
 
+@pytest.fixture
+def _needs_rdkit():
+    """Adjusting a ligand's protonation needs RDKit, which is the [ligand] extra.
+
+    The logic being tested is chemistry, not plumbing, so there is nothing
+    useful to assert without it: a mock would only check that the mock was
+    called.
+    """
+    pytest.importorskip("rdkit", reason="requires the [ligand] extra")
+
+
+@pytest.mark.usefixtures("_needs_rdkit")
 class TestSettledStateReachesTheForceField:
     """The pKa is determined in the pocket; the file must carry that answer.
 
