@@ -184,3 +184,21 @@ class TestAutoResolvesConsistently:
             "--setup-heterogens auto must work without also naming a force "
             "field, or the feature needs two flags instead of one"
         )
+
+
+class TestArtifactLayout:
+    """Ligands prepared from a structure sit with the other setup artifacts."""
+
+    def test_ligands_are_not_written_to_a_nested_setup_directory(self) -> None:
+        """output_dir is already the setup directory.
+
+        Appending "setup" again buried them in setup/setup/ligands, where
+        nothing else looks and no other artifact lives.
+        """
+        import inspect
+
+        from fastmdxplora.setup import pipeline
+
+        source = inspect.getsource(pipeline._auto_ligands)
+        assert 'Path(output_dir) / "ligands"' in source
+        assert '"setup" / "ligands"' not in source

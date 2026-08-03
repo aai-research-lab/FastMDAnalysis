@@ -266,9 +266,13 @@ def parse_structure(pdb_path: str | Path) -> tuple[list[Atom], list[Atom], set[t
             logger.debug("skipping unparsable coordinate line: %s", raw[:30])
             continue
 
-        if atom.resname in standard and record == "ATOM":
+        # Modified residues are deposited as HETATM: an oxidised cysteine in
+        # a protease is written that way, and requiring an ATOM record meant
+        # the list of known polymer residues never applied to any of them.
+        # The name settles it, not the record type.
+        if atom.resname in standard:
             polymer.append(atom)
-        elif record == "HETATM" or atom.resname not in standard:
+        else:
             heteroatoms.append(atom)
 
     return polymer, heteroatoms, linked
@@ -312,6 +316,49 @@ def _min_distance_to_polymer(het: Heterogen, polymer: list[Atom]) -> float:
                 if best < 1.0:  # already unambiguous
                     return best
     return best
+
+
+
+#: Two ions closer than this are alternate positions for one site rather than
+#: two sites: even the shortest metal-metal contacts in real structures are
+#: longer, and anything this close cannot be simultaneously occupied.
+SAME_SITE_CUTOFF_A = 1.5
+
+
+def _mutually_overlapping(instances: list[Heterogen]) -> list[Heterogen]:
+    """Copies of one component that occupy the same position."""
+    if len(instances) < 2:
+        return []
+    overlapping: list[Heterogen] = []
+    for i, first in enumerate(instances):
+        for second in instances[i + 1:]:
+            for a in first.atoms:
+                for b in second.atoms:
+                    if math.dist((a.x, a.y, a.z), (b.x, b.y, b.z)) < SAME_SITE_CUTOFF_A:
+                        for h in (first, second):
+                            if h not in overlapping:
+                                overlapping.append(h)
+                        break
+    return overlapping
+
+
+def _resolve_by_occupancy(instances: list[Heterogen]) -> tuple[bool, str]:
+    """Rank alternate positions by occupancy, or report that they tie."""
+    ranked = sorted(
+        instances,
+        key=lambda h: max((a.occupancy for a in h.atoms), default=0.0),
+        reverse=True,
+    )
+    best = max((a.occupancy for a in ranked[0].atoms), default=0.0)
+    runner_up = max((a.occupancy for a in ranked[1].atoms), default=0.0)
+    if abs(best - runner_up) < OCCUPANCY_TIE_TOLERANCE:
+        return False, (
+            f"occupancies are {best:.2f} and {runner_up:.2f}."
+        )
+    return True, (
+        f"{ranked[0].label} at occupancy {best:.2f} kept over "
+        f"{ranked[1].label} at {runner_up:.2f}; they occupy one site."
+    )
 
 
 def _altloc_decision(het: Heterogen) -> tuple[bool, str]:
@@ -371,6 +418,29 @@ def _classify_one(
         return Decision(resname, Action.DISCARD, "solvent; the system is re-solvated", pack)
 
     if resname in ION_NAMES:
+        # Two ions of one element sitting almost on top of each other are
+        # alternate positions for a single site, not two sites: partially
+        # occupied metals on a symmetry axis are ordinary in the PDB. Keeping
+        # both puts two atoms within bonding distance, which the force field
+        # rejects, and would be wrong even if it did not.
+        overlapping = _mutually_overlapping(instances)
+        if overlapping:
+            resolved, explanation = _resolve_by_occupancy(overlapping)
+            if not resolved:
+                labels = ", ".join(h.label for h in overlapping)
+                return Decision(
+                    resname,
+                    Action.STOP,
+                    f"{len(overlapping)} copies occupy the same site "
+                    f"({labels}) at indistinguishable occupancy, so they are "
+                    f"alternate positions for one ion and the structure does "
+                    f"not say which is real. {explanation} Choose one",
+                    pack,
+                )
+            instances = [h for h in instances if h not in overlapping[1:]]
+            pack = tuple(instances)
+            logger.info("%s: %s", resname, explanation)
+
         # A LINK record naming a monatomic ion describes coordination, not a
         # covalent bond: the legacy PDB format uses one record type for both,
         # and only mmCIF distinguishes them (struct_conn.conn_type_id is

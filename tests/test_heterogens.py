@@ -403,3 +403,78 @@ class TestFailuresExplainThemselves:
         with pytest.raises(ValueError, match="cannot parameterize small molecules"):
             _auto_ligands({"ph": 7.0, "forcefield": "charmm36"},
                           structure, tmp_path, "4W52")
+
+
+class TestModifiedResiduesAreNotLigands:
+    """A modified residue is deposited as HETATM but is still polymer.
+
+    An oxidised cysteine in a protease is written with a HETATM record, so
+    requiring an ATOM record to count as polymer meant the list of known
+    residue names never applied to any of them. 1HVR refused on its CSO as
+    though a covalent inhibitor were bound.
+    """
+
+    def test_a_modified_cysteine_is_polymer_not_a_ligand(self) -> None:
+        lines = list(PROTEIN)
+        lines += ["LINK         SG  CSO A  67                 C   ALA A   1"]
+        lines += [_atom("HETATM", 20, "SG", " ", "CSO", "A", 67, 3, 0, 0,
+                        element="S")]
+
+        # Nothing to decide: preparation replaces it with cysteine.
+        assert resolve(_structure(lines)) == []
+
+    def test_a_ligand_alongside_one_is_still_found(self) -> None:
+        lines = list(PROTEIN)
+        lines += [_atom("HETATM", 20, "SG", " ", "CSO", "A", 67, 3, 0, 0,
+                        element="S")]
+        lines += [_atom("HETATM", 30, "C1", " ", "BNZ", "A", 200, 9, 9, 9)]
+
+        actions = _actions(_structure(lines))
+        assert "CSO" not in actions
+        assert actions["BNZ"] is Action.SIMULATE
+
+    def test_selenomethionine_too(self) -> None:
+        lines = list(PROTEIN)
+        lines += [_atom("HETATM", 20, "SE", " ", "MSE", "A", 5, 3, 0, 0,
+                        element="SE")]
+        assert resolve(_structure(lines)) == []
+
+
+class TestIonsSharingOneSite:
+    """Partially occupied metals on a symmetry axis are one site, not several.
+
+    Insulin's zincs sit on a three-fold axis at partial occupancy: alternate
+    positions for a single ion. Keeping both puts two metals within bonding
+    distance, and OpenMM rejects the result ("the set of externally bonded
+    atoms has 1 Zn atom too many"). It would be wrong even if it did not.
+    """
+
+    @staticmethod
+    def _two_zincs(occupancy_a: float, occupancy_b: float):
+        return [
+            _atom("ATOM", 1, "NE2", " ", "HIS", "A", 1, 0, 0, 0, element="N"),
+            _atom("HETATM", 50, "ZN", " ", "ZN", "B", 31, 2.1, 0, 0,
+                  occupancy=occupancy_a, element="ZN"),
+            _atom("HETATM", 51, "ZN", " ", "ZN", "B", 32, 2.6, 0, 0,
+                  occupancy=occupancy_b, element="ZN"),
+        ]
+
+    def test_equal_occupancy_stops(self) -> None:
+        """Nothing in the structure says which position is real."""
+        with pytest.raises(AmbiguousStructureError, match="same site"):
+            resolve(_structure(self._two_zincs(0.5, 0.5)))
+
+    def test_the_dominant_position_wins_when_occupancy_separates_them(self) -> None:
+        actions = _actions(_structure(self._two_zincs(0.7, 0.3)))
+        assert actions["ZN"] is Action.SIMULATE
+
+    def test_genuinely_separate_sites_are_both_kept(self) -> None:
+        """Two metals far apart are two sites and both belong."""
+        lines = [
+            _atom("ATOM", 1, "NE2", " ", "HIS", "A", 1, 0, 0, 0, element="N"),
+            _atom("ATOM", 2, "NE2", " ", "HIS", "A", 2, 30, 0, 0, element="N"),
+            _atom("HETATM", 50, "ZN", " ", "ZN", "B", 31, 2.1, 0, 0, element="ZN"),
+            _atom("HETATM", 51, "ZN", " ", "ZN", "B", 32, 32.1, 0, 0, element="ZN"),
+        ]
+        actions = _actions(_structure(lines))
+        assert actions["ZN"] is Action.SIMULATE

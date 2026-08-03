@@ -230,6 +230,30 @@ def _repaired_complex(input_pdb, output_dir, ph: float):
         return input_pdb
 
 
+
+def _retain_in_structure(input_pdb, output_dir, keep_decisions):
+    """Write a structure holding the polymer plus the components to retain.
+
+    PDBFixer keeps heterogens all or nothing, so selecting a few means
+    filtering the input first. Everything the classifier discarded is dropped
+    here; what remains is prepared by the protein force field, in place, under
+    its own residue name, at its own coordinates.
+    """
+    keep = {d.resname.upper() for d in keep_decisions}
+    target = Path(output_dir) / "retained.pdb"
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    lines = []
+    for raw in Path(input_pdb).read_text(
+        encoding="utf-8", errors="ignore"
+    ).splitlines():
+        if raw[:6].strip() == "HETATM" and raw[17:20].strip().upper() not in keep:
+            continue
+        lines.append(raw)
+    target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return target
+
+
 def _auto_ligands(params: dict, input_pdb, output_dir, entry_id: str | None) -> list[str]:
     """Turn the classifier's SIMULATE decisions into files the ligand path takes.
 
@@ -282,8 +306,33 @@ def _auto_ligands(params: dict, input_pdb, output_dir, entry_id: str | None) -> 
             "heterogens policy to 'drop' to exclude them."
         )
 
-    copies = [(d, het) for d in wanted for het in d.instances]
-    ligand_dir = Path(output_dir) / "setup" / "ligands"
+    # Monatomic ions are kept in the structure rather than extracted. The
+    # protein force field already carries validated ion parameters, and the
+    # small-molecule route is both unnecessary and destructive: a zinc pulled
+    # out to an SDF and re-added came back renamed, in a different chain, and
+    # at coordinates that were not its coordination site.
+    from fastmdxplora.setup.heterogens import ION_NAMES
+
+    ions = [d for d in wanted if d.resname in ION_NAMES]
+    molecules = [d for d in wanted if d.resname not in ION_NAMES]
+    if ions:
+        params["_retained_pdb"] = str(
+            _retain_in_structure(input_pdb, output_dir, ions)
+        )
+        logger.info(
+            "Keeping %s in the structure; the protein force field provides "
+            "ion parameters.",
+            ", ".join(f"{d.resname} x{d.count}" if d.count > 1 else d.resname
+                      for d in ions),
+        )
+    if not molecules:
+        return []
+
+    copies = [(d, het) for d in molecules for het in d.instances]
+    # output_dir is already the setup directory: input.pdb and prepared.pdb
+    # sit directly in it. Appending "setup" again buried the ligands in
+    # setup/setup/ligands.
+    ligand_dir = Path(output_dir) / "ligands"
     ligand_dir.mkdir(parents=True, exist_ok=True)
 
     files: list[str] = []
@@ -481,11 +530,16 @@ def run(
         try:
             from fastmdxplora.setup.pdbfix import fix_pdb_with_pdbfixer
 
+            # When ions are being kept, PDBFixer runs on a structure already
+            # filtered to the polymer plus those ions, so "keep heterogens"
+            # retains exactly them and nothing else.
+            retained = params.get("_retained_pdb")
             fix_pdb_with_pdbfixer(
-                str(input_pdb),
+                retained or str(input_pdb),
                 str(prepared_pdb),
                 ph=float(params["ph"]),
-                keep_heterogens=_keep_heterogens(params, input_pdb),
+                keep_heterogens=(True if params.get("_retained_pdb")
+                                 else _keep_heterogens(params, input_pdb)),
                 keep_water=bool(params["keep_water"]),
                 reinstated=tuple(params.get("_reinstated_heterogens", ())),
                 explained=tuple(params.get("_explained_heterogens", ())),
