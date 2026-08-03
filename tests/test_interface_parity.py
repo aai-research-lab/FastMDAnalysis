@@ -202,3 +202,116 @@ class TestArtifactLayout:
         source = inspect.getsource(pipeline._auto_ligands)
         assert 'Path(output_dir) / "ligands"' in source
         assert '"setup" / "ligands"' not in source
+
+
+class TestFilteredStructuresStayConsistent:
+    """Removing atoms must remove the records that referred to them.
+
+    CONECT records name atoms by serial number and OpenMM builds bonds from
+    them. Left pointing at atoms that are no longer present, they bond
+    whatever now holds those serials: a filtered insulin structure gained a
+    bond between two zincs 9.6 A apart, and the force field refused it with a
+    message about templates that gave no hint of the real cause.
+    """
+
+    @staticmethod
+    def _source(tmp_path):
+        path = tmp_path / "in.pdb"
+        path.write_text(
+            "ATOM      1  N   ALA A   1       1.000   2.000   3.000  1.00  0.00           N\n"
+            "ATOM      2  SG  CYS A   6       4.000   2.000   3.000  1.00  0.00           S\n"
+            "ATOM      3  SG  CYS A  11       6.000   2.000   3.000  1.00  0.00           S\n"
+            "HETATM   50 ZN    ZN A 112      11.000  12.000  13.000  1.00  0.00          ZN\n"
+            "HETATM   60  C1  GOL A 300      21.000  22.000  23.000  1.00  0.00           C\n"
+            "CONECT    2    3\n"
+            "CONECT   60   50\n"
+            "END\n",
+            encoding="utf-8",
+        )
+        return path
+
+    class _Decision:
+        def __init__(self, resname):
+            self.resname = resname
+
+    def test_records_naming_removed_atoms_are_dropped(self, tmp_path) -> None:
+        from fastmdxplora.setup.pipeline import _retain_in_structure
+
+        out = _retain_in_structure(
+            self._source(tmp_path), tmp_path, [self._Decision("ZN")]
+        )
+        text = out.read_text(encoding="utf-8")
+
+        assert "CONECT   60" not in text, "a record naming the removed glycerol"
+        assert "CONECT    2    3" in text, "a record naming only retained atoms"
+
+    def test_the_retained_ion_is_unchanged(self, tmp_path) -> None:
+        from fastmdxplora.setup.pipeline import _retain_in_structure
+
+        out = _retain_in_structure(
+            self._source(tmp_path), tmp_path, [self._Decision("ZN")]
+        )
+        zinc = next(l for l in out.read_text().splitlines()
+                    if l.startswith("HETATM"))
+        assert zinc[17:20].strip() == "ZN"
+        assert "11.000  12.000  13.000" in zinc
+
+
+class TestIonConnectivityIsNotCovalent:
+    """A CONECT naming a retained ion states a bond that is not there.
+
+    The legacy PDB format writes coordination and covalency with the same
+    record type; only mmCIF separates them, through struct_conn.conn_type_id.
+    OpenMM's ion templates permit no external bonds, so such a record makes the
+    ion unmatchable and setup fails reporting a missing template for a residue
+    whose atoms and bonds do in fact match. 1ZNI reaches this, with two zincs
+    and three chlorides named in CONECT records.
+    """
+
+    class _Decision:
+        def __init__(self, resname):
+            self.resname = resname
+
+    @staticmethod
+    def _write(tmp_path, body):
+        path = tmp_path / "in.pdb"
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_ion_to_ion_records_are_dropped(self, tmp_path) -> None:
+        from fastmdxplora.setup.pipeline import _retain_in_structure
+
+        source = self._write(tmp_path, (
+            "HETATM 1569 ZN    ZN B  31      10.000  10.000  10.000  1.00  0.00          ZN\n"
+            "HETATM 1571 CL    CL B  33      12.200  10.000  10.000  1.00  0.00          CL\n"
+            "CONECT 1569 1571\n"
+            "CONECT 1571 1569\n"
+            "END\n"
+        ))
+        out = _retain_in_structure(
+            source, tmp_path, [self._Decision("ZN"), self._Decision("CL")]
+        )
+        text = out.read_text(encoding="utf-8")
+
+        assert "CONECT" not in text
+        # Only the asserted bond goes; the ions themselves are retained and
+        # parameterized from the force field's non-bonded ion model.
+        assert "ZN    ZN B  31" in text
+        assert "CL    CL B  33" in text
+
+    def test_ion_to_protein_records_are_dropped(self, tmp_path) -> None:
+        """Coordination to a histidine is the common case, and the same rule."""
+        from fastmdxplora.setup.pipeline import _retain_in_structure
+
+        source = self._write(tmp_path, (
+            "ATOM    880  NE2 HIS B  10       9.000  10.000  10.000  1.00  0.00           N\n"
+            "HETATM 1569 ZN    ZN B  31      10.000  10.000  10.000  1.00  0.00          ZN\n"
+            "CONECT  880 1569\n"
+            "END\n"
+        ))
+        out = _retain_in_structure(source, tmp_path, [self._Decision("ZN")])
+        text = out.read_text(encoding="utf-8")
+
+        assert "CONECT" not in text
+        assert "NE2 HIS B  10" in text
+        assert "ZN    ZN B  31" in text

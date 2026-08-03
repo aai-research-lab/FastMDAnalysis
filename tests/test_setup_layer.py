@@ -275,3 +275,138 @@ class TestMultipleLigandNamesSurvive:
 
         with pytest.raises(ValueError, match="single ligand name"):
             _resolve_ligand_names(["a", "b", "c"], "['Z00', 'Z01', 'Z02']")
+
+
+class TestUntemplatedGapPruning:
+    """Rebuilds are cancelled for residues with no chemical template.
+
+    ``removeHeterogens`` strips components from the topology but not from the
+    deposited sequence, so the gap they leave is read as unresolved polymer and
+    scheduled for reconstruction. PDBFixer cannot build a component it just
+    discarded, and fails with an ``AttributeError`` naming nothing. 6LU7 reaches
+    this: its inhibitor chain interleaves standard residues with 010, 02J, PJE.
+    """
+
+    @staticmethod
+    def _fixer_with_missing(missing, templates):
+        class _Fixer:
+            def __init__(self):
+                self.missingResidues = dict(missing)
+
+            def _getTemplate(self, name):
+                return templates.get(name)
+
+        return _Fixer()
+
+    def test_untemplated_names_are_dropped(self):
+        from fastmdxplora.setup.pdbfix import _drop_untemplated_gaps
+
+        fixer = self._fixer_with_missing({(0, 1): ["PJE"]}, {"ALA": object()})
+        _drop_untemplated_gaps(fixer)
+        assert fixer.missingResidues == {}
+
+    def test_buildable_names_survive_alongside_dropped_ones(self):
+        from fastmdxplora.setup.pdbfix import _drop_untemplated_gaps
+
+        fixer = self._fixer_with_missing(
+            {(0, 3): ["PJE", "ALA"], (0, 7): ["GLY"]},
+            {"ALA": object(), "GLY": object()},
+        )
+        _drop_untemplated_gaps(fixer)
+        assert fixer.missingResidues == {(0, 3): ["ALA"], (0, 7): ["GLY"]}
+
+    def test_insertion_indices_are_left_untouched(self):
+        """The keys index the topology gaps were counted against.
+
+        Recomputing them against a topology the heterogens have been removed
+        from shifts every later insertion point down by one, which rebuilds an
+        unresolved loop at the chain terminus instead of in its gap.
+        """
+        from fastmdxplora.setup.pdbfix import _drop_untemplated_gaps
+
+        fixer = self._fixer_with_missing({(0, 12): ["GLY"]}, {"GLY": object()})
+        _drop_untemplated_gaps(fixer)
+        assert fixer.missingResidues == {(0, 12): ["GLY"]}
+
+    def test_no_missing_residues_is_a_no_op(self):
+        from fastmdxplora.setup.pdbfix import _drop_untemplated_gaps
+
+        fixer = self._fixer_with_missing({}, {})
+        _drop_untemplated_gaps(fixer)
+        assert fixer.missingResidues == {}
+
+
+class _FakeResidue:
+    def __init__(self, name, rid, n_atoms):
+        self.name, self.id = name, rid
+        self._atoms = [_FakeAtom(self) for _ in range(n_atoms)]
+
+    def atoms(self):
+        return iter(self._atoms)
+
+
+class _FakeAtom:
+    def __init__(self, residue):
+        self.residue = residue
+
+
+class _FakeTopology:
+    def __init__(self, bonds):
+        self._bonds = list(bonds)
+
+
+def _bond(res_a, res_b):
+    return (next(res_a.atoms()), next(res_b.atoms()))
+
+
+class TestIonCoordinationBonds:
+    """Coordination written as a covalent bond is not honoured.
+
+    OpenMM's monatomic ion templates declare no external bonds, so a CONECT
+    record tying a metal to the residue holding it makes the ion unmatchable.
+    1ZNI reaches this: two zincs and three chlorides, each named in a CONECT
+    record, all five reported as having no template.
+    """
+
+    def test_ion_bonds_are_dropped(self):
+        from fastmdxplora.setup.prepare import _drop_ion_coordination_bonds
+
+        zn = _FakeResidue("ZN", "31", 1)
+        cl = _FakeResidue("CL", "33", 1)
+        topology = _FakeTopology([_bond(zn, cl)])
+        dropped = _drop_ion_coordination_bonds(topology)
+        assert dropped == ["ZN31-CL33"]
+        assert topology._bonds == []
+
+    def test_disulfides_survive(self):
+        """Insulin carries three per monomer; losing them unfolds the protein."""
+        from fastmdxplora.setup.prepare import _drop_ion_coordination_bonds
+
+        cys_a = _FakeResidue("CYS", "6", 11)
+        cys_b = _FakeResidue("CYS", "11", 11)
+        topology = _FakeTopology([_bond(cys_a, cys_b)])
+        assert _drop_ion_coordination_bonds(topology) == []
+        assert len(topology._bonds) == 1
+
+    def test_alpha_carbon_is_not_a_calcium_ion(self):
+        """``CA`` names both; only the one-atom residue is the metal."""
+        from fastmdxplora.setup.prepare import _is_monatomic_ion
+
+        calcium = _FakeResidue("CA", "401", 1)
+        assert _is_monatomic_ion(next(calcium.atoms())) is True
+
+        # A residue named CA with many atoms is not an ion; and an alpha carbon
+        # lives inside an amino acid residue, which is never one atom.
+        alanine = _FakeResidue("ALA", "12", 10)
+        assert _is_monatomic_ion(next(alanine.atoms())) is False
+
+    def test_only_the_bonded_ions_are_touched(self):
+        """A free ion has no bond to drop and is left exactly as it was."""
+        from fastmdxplora.setup.prepare import _drop_ion_coordination_bonds
+
+        zn_bound = _FakeResidue("ZN", "32", 1)
+        cl = _FakeResidue("CL", "34", 1)
+        cys_a, cys_b = _FakeResidue("CYS", "7", 11), _FakeResidue("CYS", "7", 11)
+        topology = _FakeTopology([_bond(zn_bound, cl), _bond(cys_a, cys_b)])
+        assert _drop_ion_coordination_bonds(topology) == ["ZN32-CL34"]
+        assert len(topology._bonds) == 1

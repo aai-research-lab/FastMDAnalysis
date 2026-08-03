@@ -65,6 +65,54 @@ def _standard_residue_names() -> frozenset[str]:
     return frozenset(amino + nucleic)
 
 
+def _drop_untemplated_gaps(fixer) -> None:
+    """Cancel rebuilds of residues PDBFixer has no chemical template for.
+
+    ``fixer.missingResidues`` maps an insertion point to the residue names to
+    build there. A name with no template cannot be built; leaving it scheduled
+    raises an ``AttributeError`` from deep inside ``addMissingAtoms`` that names
+    nothing useful. Entries are dropped in place, so the surviving insertion
+    indices stay consistent with the topology they were counted against.
+    """
+    missing = getattr(fixer, "missingResidues", None)
+    if not missing:
+        return
+
+    # _getTemplate is PDBFixer's own lookup, and covers definitions downloaded
+    # for non-standard components as well as the built-in set. Fall back to the
+    # public dict if a future version drops the private helper.
+    lookup = getattr(fixer, "_getTemplate", None)
+    if lookup is None:
+        lookup = getattr(fixer, "templates", {}).get
+
+    pruned: dict = {}
+    dropped: dict[str, int] = {}
+    for insertion_point, names in missing.items():
+        buildable = []
+        for name in names:
+            if lookup(name) is None:
+                dropped[name] = dropped.get(name, 0) + 1
+            else:
+                buildable.append(name)
+        if buildable:
+            pruned[insertion_point] = buildable
+
+    if not dropped:
+        return
+
+    summary = ", ".join(
+        f"{name} ({count})" if count > 1 else name
+        for name, count in sorted(dropped.items())
+    )
+    logger.info(
+        "Not rebuilding %s: the deposited sequence lists them but no chemical "
+        "template is available, which is expected for components removed as "
+        "heterogens. The chain is prepared with those positions left as a gap.",
+        summary,
+    )
+    fixer.missingResidues = pruned
+
+
 def fix_pdb_with_pdbfixer(
     input_pdb: str,
     output_pdb: str,
@@ -172,6 +220,24 @@ def fix_pdb_with_pdbfixer(
                 summary,
             )
     fixer.findMissingResidues()
+
+    # removeHeterogens() deletes components from the topology but not from
+    # SEQRES, so findMissingResidues() reads the hole they leave as unresolved
+    # polymer and schedules it for rebuilding. PDBFixer holds no template for a
+    # component it has just discarded, and dies inside addMissingAtoms with
+    # "'NoneType' object has no attribute 'topology'" -- a message that names
+    # neither the residue nor the cause. 6LU7 reaches it, because its inhibitor
+    # chain interleaves standard residues with 010, 02J and PJE.
+    #
+    # The scheduled rebuilds are pruned rather than the calls reordered.
+    # Calling findMissingResidues() before removeHeterogens() also clears the
+    # crash, but its keys are (chain index, residue index) counted on the
+    # topology that still holds the heterogens; removing them afterwards shifts
+    # every later index down by one, and a genuinely unresolved loop is then
+    # rebuilt at the wrong place -- appended to the chain terminus instead of
+    # inserted into its gap. That failure is silent, and a quietly wrong
+    # structure is worse than a loud crash.
+    _drop_untemplated_gaps(fixer)
 
     # Modified residues are part of the polymer, not ligands: a selenomethionine
     # or an oxidised cysteine belongs in the chain. Left in place they reach the

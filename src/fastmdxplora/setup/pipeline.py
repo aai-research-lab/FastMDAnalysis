@@ -243,14 +243,62 @@ def _retain_in_structure(input_pdb, output_dir, keep_decisions):
     target = Path(output_dir) / "retained.pdb"
     target.parent.mkdir(parents=True, exist_ok=True)
 
-    lines = []
+    from fastmdxplora.setup.heterogens import ION_NAMES
+
+    lines: list[str] = []
+    dropped: set[str] = set()
+    ions: set[str] = set()
     for raw in Path(input_pdb).read_text(
         encoding="utf-8", errors="ignore"
     ).splitlines():
-        if raw[:6].strip() == "HETATM" and raw[17:20].strip().upper() not in keep:
+        record = raw[:6].strip()
+        if record == "HETATM" and raw[17:20].strip().upper() not in keep:
+            dropped.add(raw[6:11].strip())
             continue
+        if record in ("ATOM", "HETATM") and raw[17:20].strip().upper() in ION_NAMES:
+            ions.add(raw[6:11].strip())
         lines.append(raw)
-    target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    # CONECT records name atoms by serial number, and OpenMM builds bonds from
+    # them. Left pointing at atoms that are no longer here, they bond whatever
+    # now holds those serials: a filtered structure produced a bond between
+    # two zincs 9.6 A apart, which the force field rightly rejected. Any
+    # record naming a removed atom is dropped with it.
+    #
+    # A record naming a retained ion is dropped too, and for a separate reason.
+    # The legacy PDB format writes coordination and covalency with the same
+    # record type -- only mmCIF separates them -- so a CONECT tying a metal to
+    # the residue holding it asserts a bond that is not there. The classifier
+    # above already applies that rule to LINK records; it holds here as well.
+    # The force field could not honour the bond in any case: these ions are
+    # modelled as Lennard-Jones plus a charge, with no bonded term to apply,
+    # and OpenMM's ion templates permit no external bonds, so the bond makes
+    # the ion unmatchable. 1ZNI reaches this, with two zincs and three
+    # chlorides tied to each other.
+    kept: list[str] = []
+    coordination = 0
+    for raw in lines:
+        if raw[:6].strip() != "CONECT":
+            kept.append(raw)
+            continue
+        serials = [raw[i:i + 5].strip() for i in range(6, min(len(raw), 31), 5)]
+        present = [serial for serial in serials if serial]
+        if any(serial in dropped for serial in present):
+            continue
+        if any(serial in ions for serial in present):
+            coordination += 1
+            continue
+        kept.append(raw)
+
+    if coordination:
+        logger.info(
+            "Dropped %d connectivity record(s) naming a retained ion: they "
+            "describe coordination rather than a covalent bond, which the "
+            "non-bonded ion parameters already represent.",
+            coordination,
+        )
+
+    target.write_text("\n".join(kept) + "\n", encoding="utf-8")
     return target
 
 

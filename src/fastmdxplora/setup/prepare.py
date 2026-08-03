@@ -230,6 +230,7 @@ def prepare_system(
     # ----- 1. Load topology + positions -----
     logger.info("Loading prepared PDB: %s", prepared_path)
     pdb = omm["PDBFile"](str(prepared_path))
+    _drop_ion_coordination_bonds(pdb.topology)
 
     # ----- 2. Build force field (+ ligand) -----
     modeller = omm["Modeller"](pdb.topology, pdb.positions)
@@ -379,7 +380,10 @@ def prepare_system(
                     f"the box."
                 )
 
-    system = ff.createSystem(modeller.topology, **create_system_kwargs)
+    try:
+        system = ff.createSystem(modeller.topology, **create_system_kwargs)
+    except ValueError as exc:
+        raise _explain_unparameterized(exc, ff, modeller.topology) from exc
 
     # ----- 5. Capture initial State -----
     # Use a no-op integrator just to obtain a Context for State serialization.
@@ -482,6 +486,127 @@ def _resolve_ligand_charges(ligands, ligand_net_charge) -> list:
             )
         return charges
     return [ligand_net_charge] * len(ligands)
+
+
+def _is_monatomic_ion(atom) -> bool:
+    """Whether an atom is a lone ion rather than part of a molecule.
+
+    The residue name alone is not enough. ``CA`` names both the calcium ion and
+    the alpha carbon of every amino acid, and ``CL``, ``NA`` and ``FE`` appear
+    as atom names inside organic ligands. Requiring that the residue hold
+    exactly one atom settles it: a calcium ion is a residue of one atom, an
+    alpha carbon never is.
+    """
+    from fastmdxplora.setup.heterogens import ION_NAMES
+
+    residue = atom.residue
+    if residue.name.strip().upper() not in ION_NAMES:
+        return False
+    return sum(1 for _ in residue.atoms()) == 1
+
+
+def _drop_ion_coordination_bonds(topology) -> list[str]:
+    """Remove bonds that describe metal coordination as though it were covalent.
+
+    A CONECT record between a metal and the residue holding it states a
+    covalent bond. For a monatomic ion that is a misdescription, and the
+    classifier in :mod:`fastmdxplora.setup.heterogens` already says so: the
+    legacy PDB format writes coordination and covalency with the same record
+    type, and only mmCIF separates them.
+
+    The consequence is not cosmetic. OpenMM's ion templates declare no external
+    bonds, so one such bond makes the ion unmatchable and ``createSystem``
+    reports "No template found for residue" -- naming a residue whose atoms and
+    bonds do in fact match, and whose real defect is an external bond the
+    template does not allow. The force field could not honour the bond in any
+    case: AMBER models these ions as 12-6 Lennard-Jones plus a charge, with no
+    bonded term to apply, so coordination is already carried by electrostatics.
+
+    Bonds between two ordinary residues are left alone, disulfides included. A
+    genuine covalent adduct keeps its bond and reaches the classifier, which
+    refuses it with an explanation rather than silently simulating a bond the
+    force field cannot describe.
+    """
+    bonds = getattr(topology, "_bonds", None)
+    if bonds is None:  # pragma: no cover - depends on OpenMM internals
+        return []
+
+    kept = []
+    dropped: list[str] = []
+    for bond in bonds:
+        first, second = bond[0], bond[1]
+        if _is_monatomic_ion(first) or _is_monatomic_ion(second):
+            dropped.append(
+                f"{first.residue.name}{first.residue.id}-"
+                f"{second.residue.name}{second.residue.id}"
+            )
+        else:
+            kept.append(bond)
+
+    if dropped:
+        topology._bonds = kept
+        logger.info(
+            "Ignoring %d connectivity record(s) that bond a monatomic ion to "
+            "its surroundings (%s). The ion is kept and parameterized from the "
+            "force field's non-bonded ion model, which is how metal "
+            "coordination is represented.",
+            len(dropped),
+            ", ".join(sorted(set(dropped))),
+        )
+    return dropped
+
+
+def _explain_unparameterized(exc: ValueError, ff, topology) -> Exception:
+    """Turn OpenMM's template failure into a message that names the component.
+
+    ``createSystem`` reports the residue by topology index -- a number that
+    counts solvent, so it points at nothing a user can find in their input. The
+    residue is resolved back to a name, chain and composition here.
+
+    The check runs after ``createSystem`` rather than before it. A pre-flight
+    ``getUnmatchedResidues`` looked like the tidier design, but it consults only
+    the registered XML templates: the small-molecule template generators are
+    invoked inside ``createSystem`` and nowhere else, so every OpenFF-handled
+    ligand would be reported as unparameterizable. Letting the call fail and
+    explaining the failure keeps anything the force field *can* parameterize
+    working, which is the point of the automatic policy.
+    """
+    message = str(exc)
+    if "No template found for residue" not in message:
+        return exc
+
+    unmatched = []
+    try:
+        unmatched = ff.getUnmatchedResidues(topology)
+    except Exception:  # pragma: no cover - diagnostics must not mask the error
+        pass
+
+    # Solvent and ions added during solvation are not what the user supplied;
+    # naming a water would send them looking in the wrong place.
+    named = []
+    for residue in unmatched:
+        elements = sorted(
+            {a.element.symbol for a in residue.atoms() if a.element is not None}
+        )
+        atom_count = len(list(residue.atoms()))
+        named.append(
+            f"{residue.name} (chain {residue.chain.id}, residue "
+            f"{residue.id}, {atom_count} atom(s): {', '.join(elements)})"
+        )
+
+    if not named:
+        return exc
+
+    return ValueError(
+        "The force field has no parameters for "
+        + "; ".join(named)
+        + ". A component reaches this point only when it was kept for "
+        "simulation but no template matched it. Either supply parameters for "
+        "it explicitly, exclude it from the system, or -- if it is the ligand "
+        "you meant to simulate -- pass it through the small-molecule path with "
+        "--setup-ligand so it is parameterized rather than assumed. "
+        f"OpenMM reported: {message}"
+    )
 
 
 def _build_ligand_forcefield(force_field, small_molecule_ff, ligand_mols):
