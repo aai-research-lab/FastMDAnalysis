@@ -173,10 +173,14 @@ class TestForceFieldSchemaAndCLI:
         assert f.default == "auto"
 
     def test_cli_has_setup_forcefield_flag(self):
-        from fastmdxplora.cli.main import _SETUP_OPTIONS
+        from fastmdxplora.cli.main import _SETUP_OPTIONS, _build_parser
+
         flags = {flag for flag, _kw, _opts in _SETUP_OPTIONS}
         assert "forcefield" in flags
-        # choices are constrained to the registered names
-        for flag, _kw, opts in _SETUP_OPTIONS:
-            if flag == "forcefield":
-                assert {"charmm36", "amber14", "amber-fb15"} <= set(opts["choices"])
+        # The accepted names are asked of the parser rather than the option
+        # table: the table no longer carries them, because the schema declares
+        # them once and the parser reads them from there. What a user meets is
+        # the parser, so that is what is checked.
+        setup = _build_parser()._subparsers._group_actions[0].choices["setup"]
+        choices = next(a.choices for a in setup._actions if a.dest == "forcefield")
+        assert {"charmm36", "amber14", "amber-fb15"} <= set(choices)

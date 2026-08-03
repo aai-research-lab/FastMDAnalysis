@@ -34,6 +34,7 @@ from typing import Any
 import mdtraj as md
 
 from fastmdxplora.analysis.base import Analysis, AnalysisResult
+from fastmdxplora.config.schema import ANALYSIS
 from fastmdxplora.analysis.loading import (
     PathLike,
     TrajectoryInput,
@@ -50,7 +51,13 @@ logger = get_logger("analysis.orchestrator")
 #: Valid analysis scopes. Scope resolves to a default atom selection used by
 #: analyses that don't define their own, so analyses never run on the full
 #: solvated system (water + ions) by accident.
-VALID_SCOPES = ("solute", "protein", "ligand", "all")
+_SCOPE_DEFAULT = next(
+    f.default for f in ANALYSIS.fields if f.name == "scope"
+)
+
+VALID_SCOPES = next(
+    f.choices for f in ANALYSIS.fields if f.name == "scope"
+)
 
 
 def _resolve_scope(scope: str, ligand_resname: str | None) -> str | None:
@@ -62,7 +69,7 @@ def _resolve_scope(scope: str, ligand_resname: str | None) -> str | None:
     - ``ligand``  : the ligand residue(s) only (requires ``ligand_resname``).
     - ``all``     : no selection (operate on every atom) — escape hatch.
     """
-    key = (scope or "solute").strip().lower()
+    key = (scope or _SCOPE_DEFAULT).strip().lower()
     if key not in VALID_SCOPES:
         raise ValueError(
             f"Unknown analysis scope {scope!r}. Valid: {', '.join(VALID_SCOPES)}."

@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastmdxplora.dependencies import MissingBackendError, missing_dependencies
+from fastmdxplora.config.schema import SIMULATION
 from fastmdxplora.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -58,46 +59,11 @@ logger = get_logger("simulation")
 
 
 # Default parameters — see runner.py for the precise step counts.
-DEFAULTS: dict[str, Any] = {
-    "preset": None,               # e.g. "gentle" for conservative smoke tests
-    # Stages
-    "minimize": True,
-    "minimize_tolerance_kjmol_per_nm": 10.0,
-    "minimize_max_iterations": 0,
-    "nvt_steps": None,            # None means "use runner default"
-    "npt_steps": None,
-    "production_steps": None,
-    "duration_ns": None,          # production time only (standard MD convention)
-    "nvt_duration_ns": None,      # equilibration override (ns-flavored)
-    "npt_duration_ns": None,
-
-    # Integrator
-    "integrator": "langevin_middle",
-    "integrator_error_tolerance": 0.001,  # variable-step integrators only
-    "timestep_fs": 2.0,
-    "temperature_K": 300.0,
-    "friction_per_ps": 1.0,
-    "pressure_bar": None,         # OpenMM-native unit (defaults to 1 bar)
-    "pressure_atm": None,         # accepted alternative; converted to bar
-    "barostat_frequency": 25,
-    "random_seed": None,
-
-    # Hardware
-    "platform": "auto",
-    "precision": "mixed",
-    "device_index": None,         # GPU index for multi-GPU machines
-
-    # Reporters
-    "trajectory_interval_steps": None,   # None = adaptive
-    "state_interval_steps": 1000,
-    "checkpoint_interval_steps": 10000,  # binary .chk for restart
-    "live_telemetry": False,
-    "telemetry_interval": 1000,
-
-    # Enhanced sampling (PLUMED). None/absent = disabled. When set, a dict:
-    #   {"enabled": true, "script": "<inline script or path to .dat>"}
-    "plumed": None,
-}
+#: What each option starts as, read from the schema that declares it.
+#: This was a second copy of those values, and the two drifted: the pH
+#: default was 7.4 in the schema and 7.0 here. There is one declaration
+#: now, and a phase reads it rather than restating it.
+DEFAULTS: dict[str, Any] = SIMULATION.defaults()
 
 PRESETS: dict[str, dict[str, Any]] = {
     "gentle": {

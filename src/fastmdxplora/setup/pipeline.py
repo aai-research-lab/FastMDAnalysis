@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastmdxplora.dependencies import dependency_error_message, missing_dependencies
+from fastmdxplora.config.schema import SETUP
 from fastmdxplora.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -43,45 +44,11 @@ logger = get_logger("setup")
 # Default parameters. The CHARMM36 + CHARMM36 water choice matches
 # sensible protein-only defaults so users
 # between the two tools see identical out-of-the-box parameterization.
-DEFAULTS: dict[str, Any] = {
-    # PDBFixer options
-    "ph": 7.4,
-    "replace_nonstandard_residues": True,
-    "heterogens": "auto",
-    "protonation_margin": 1.0,
-    "keep_heterogens": False,
-    "keep_water": False,
-    "fixed_pdb": None,             # skip PDBFixer; use this already-fixed PDB
-    # System preparation options
-    "forcefield": "auto",      # named selector (resolved to XMLs + water)
-    "force_field": None,           # raw XML-list override (power users)
-    "water_model": None,           # default derived from the named forcefield
-    # Ligand / cofactor (protein-ligand systems; list-shaped, single impl)
-    "ligand": None,                # path or list of SDF/MOL2 ligand files
-    "ligand_forcefield": None,     # OpenFF small-molecule FF (default per FF)
-    "ligand_name": "LIG",          # residue/molecule name
-    "ligand_net_charge": None,     # inferred from SDF unless set
-    "check_ligand_clashes": True,  # fail setup on a clashing ligand pose
-    "ligand_clash_threshold_nm": 0.15,  # min ligand-protein contact (nm)
-    "solvent_padding_nm": 1.0,
-    "box_shape": "cube",
-    "ion_positive": "Na+",
-    "ion_negative": "Cl-",
-    "ion_concentration_M": 0.15,
-    "neutralize": True,
-    # createSystem pass-throughs
-    "nonbonded_method": "PME",
-    "nonbonded_cutoff_nm": 1.0,
-    "ewald_error_tolerance": 0.0005,
-    "use_switching_function": True,
-    "switch_distance_nm": None,    # default: 0.9 * cutoff
-    "dispersion_correction": True,
-    "remove_cm_motion": True,   # OpenMM's own default
-    "constraints": "HBonds",
-    "rigid_water": True,
-    "hydrogen_mass_amu": None,
-    "temperature_K": 300.0,
-}
+#: What each option starts as, read from the schema that declares it.
+#: This was a second copy of those values, and the two drifted: the pH
+#: default was 7.4 in the schema and 7.0 here. There is one declaration
+#: now, and a phase reads it rather than restating it.
+DEFAULTS: dict[str, Any] = SETUP.defaults()
 
 
 def _classify_input(system: str | None) -> str:

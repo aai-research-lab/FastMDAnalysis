@@ -245,10 +245,15 @@ class TestScopeSchemaAndCLI:
         assert f.default == "solute"
 
     def test_cli_has_scope(self):
-        from fastmdxplora.cli.main import _ANALYSIS_OPTIONS
-        for flag, _kw, opts in _ANALYSIS_OPTIONS:
-            if flag == "scope":
-                assert set(opts["choices"]) == {"solute", "protein", "ligand", "all"}
-                break
-        else:
-            pytest.fail("--scope not found in _ANALYSIS_OPTIONS")
+        from fastmdxplora.cli.main import _ANALYSIS_OPTIONS, _build_parser
+
+        assert any(flag == "scope" for flag, _kw, _opts in _ANALYSIS_OPTIONS), (
+            "--scope not found in _ANALYSIS_OPTIONS"
+        )
+        # The accepted values are asked of the parser, not the option table.
+        # The schema declares them once and the parser reads them from there,
+        # so the table no longer carries a copy -- and the parser is what a
+        # user meets.
+        analyze = _build_parser()._subparsers._group_actions[0].choices["analyze"]
+        choices = next(a.choices for a in analyze._actions if a.dest == "scope")
+        assert set(choices) == {"solute", "protein", "ligand", "all"}

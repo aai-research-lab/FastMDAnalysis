@@ -190,13 +190,14 @@ class TestLigandPlumbing:
             assert setup.get(f) is not None, f"missing schema field {f}"
 
     def test_cli_has_ligand_flags(self):
-        from fastmdxplora.cli.main import _SETUP_OPTIONS
+        from fastmdxplora.cli.main import _SETUP_OPTIONS, _build_parser
+
         flags = {flag for flag, _kw, _opts in _SETUP_OPTIONS}
         assert {"ligand", "ligand-forcefield", "ligand-name", "ligand-net-charge"} <= flags
-        # amber-openff added to the forcefield choices
-        for flag, _kw, opts in _SETUP_OPTIONS:
-            if flag == "forcefield":
-                assert "amber-openff" in opts["choices"]
+        # The schema declares the accepted force fields; the parser reads them.
+        setup = _build_parser()._subparsers._group_actions[0].choices["setup"]
+        choices = next(a.choices for a in setup._actions if a.dest == "forcefield")
+        assert "amber-openff" in choices
 
     def test_normalize_ligands(self):
         assert prepare_mod._normalize_ligands(None) == []

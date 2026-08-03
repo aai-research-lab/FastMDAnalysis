@@ -61,8 +61,7 @@ _SETUP_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
         "help": "How close a ligand's pKa may come to the pH before setup "
                 "stops rather than choose a charge state. Narrow it only for "
                 "a ligand whose protonation you already know."}),
-    ("heterogens", "heterogens", {"type": str, "choices": ["drop", "keep", "auto"],
-        "help": "How to treat non-standard residues: auto decides per "
+    ("heterogens", "heterogens", {"type": str, "help": "How to treat non-standard residues: auto decides per "
                 "component and stops where the structure does not determine "
                 "what to simulate; drop removes them all; keep retains them."}),
     ("keep-heterogens", "keep_heterogens", {"action": "store_true", "default": None,
@@ -71,8 +70,7 @@ _SETUP_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
         "help": "Retain crystallographic waters."}),
     ("fixed-pdb", "fixed_pdb", {"type": str, "metavar": "PATH",
         "help": "Use an already-fixed PDB and skip PDBFixer."}),
-    ("forcefield", "forcefield", {"choices": ["auto", "charmm36", "amber14", "amber-fb15", "amber-openff"],
-        "help": "Named force field, resolved to the right XMLs and water "
+    ("forcefield", "forcefield", {"help": "Named force field, resolved to the right XMLs and water "
                 "model. 'amber-openff' is the one that takes a ligand."}),
     ("force-field", "force_field", {"nargs": "+", "metavar": "XML",
         "help": "Raw OpenMM XML(s), overriding --forcefield (power users)."}),
@@ -94,11 +92,8 @@ _SETUP_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
         "help": "Water model for Modeller (e.g. 'tip3p', 'tip4pew')."}),
     ("solvent-padding-nm", "solvent_padding_nm", {"type": float,
         "help": "Min distance between solute and box wall in nm."}),
-    ("box-shape", "box_shape", {"choices": ["cube", "dodecahedron", "octahedron"],
-        "help": "Periodic box geometry."}),
-    ("nonbonded-method", "nonbonded_method", {"choices": [
-        "NoCutoff", "CutoffNonPeriodic", "CutoffPeriodic", "PME", "Ewald"],
-        "help": "Nonbonded method."}),
+    ("box-shape", "box_shape", {"help": "Periodic box geometry."}),
+    ("nonbonded-method", "nonbonded_method", {"help": "Nonbonded method."}),
     ("ion-positive", "ion_positive", {"type": str, "metavar": "ION",
         "help": "Counter-ion cation."}),
     ("ion-negative", "ion_negative", {"type": str, "metavar": "ION",
@@ -110,8 +105,7 @@ _SETUP_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
 ]
 
 _SIMULATION_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
-    ("preset", "preset", {"choices": ["gentle"],
-        "help": "Simulation preset. 'gentle' uses conservative smoke-test settings."}),
+    ("preset", "preset", {"help": "Simulation preset. 'gentle' uses conservative smoke-test settings."}),
     ("duration-ns", "duration_ns", {"type": float,
         "help": "Production length in ns (standard MD convention; equilibration is independent)."}),
     ("nvt-duration-ns", "nvt_duration_ns", {"type": float,
@@ -126,10 +120,7 @@ _SIMULATION_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
         "help": "Production step count (overrides --duration-ns)."}),
     ("timestep-fs", "timestep_fs", {"type": float,
         "help": "Integrator timestep in fs."}),
-    ("integrator", "integrator", {"choices": [
-        "langevin_middle", "langevin", "brownian", "verlet",
-        "variable_langevin", "variable_verlet"],
-        "help": "Integrator."}),
+    ("integrator", "integrator", {"help": "Integrator."}),
     ("temperature-K", "temperature_K", {"type": float,
         "help": "Production temperature in K."}),
     ("pressure-bar", "pressure_bar", {"type": float,
@@ -138,11 +129,9 @@ _SIMULATION_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
         "help": "Barostat pressure in atm (converted to bar)."}),
     ("friction-per-ps", "friction_per_ps", {"type": float,
         "help": "Langevin friction in 1/ps."}),
-    ("platform", "platform", {"choices": ["auto", "CUDA", "OpenCL", "CPU", "HIP"],
-        "help": "OpenMM compute platform. 'auto' tries CUDA, then OpenCL, "
+    ("platform", "platform", {"help": "OpenMM compute platform. 'auto' tries CUDA, then OpenCL, "
                 "then CPU."}),
-    ("precision", "precision", {"choices": ["single", "mixed", "double"],
-        "help": "GPU precision."}),
+    ("precision", "precision", {"help": "GPU precision."}),
     ("device-index", "device_index", {"type": str, "metavar": "IDX",
         "help": "GPU device index for multi-GPU machines (e.g. '0' or '0,1')."}),
     ("checkpoint-interval-steps", "checkpoint_interval_steps", {"type": int,
@@ -173,8 +162,7 @@ _ANALYSIS_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
         "help": "Analyses to skip. Mutually exclusive with --analyses."}),
     ("selection", "selection", {"type": str, "metavar": "EXPR",
         "help": "Default MDTraj atom selection (e.g. 'name CA'). Overrides --scope."}),
-    ("scope", "scope", {"choices": ["solute", "protein", "ligand", "all"],
-        "help": "Atom scope for analyses. 'solute' is protein plus ligand."}),
+    ("scope", "scope", {"help": "Atom scope for analyses. 'solute' is protein plus ligand."}),
     ("stride", "stride", {"type": int,
         "help": "Frame stride for trajectory loading (default 1)."}),
     ("first", "first", {"type": int,
@@ -253,6 +241,16 @@ def _schema_defaults(phase: str) -> dict[str, Any]:
     return {field.name: field.default for field in group.fields}
 
 
+def _schema_choices(phase: str) -> dict[str, tuple[str, ...]]:
+    """Every accepted-value list for a phase, from the schema that declares it."""
+    from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+    group = PHASE_SCHEMAS.get(_SCHEMA_KEY.get(phase, phase))
+    if group is None:
+        return {}
+    return {f.name: f.choices for f in group.fields if f.choices}
+
+
 def _with_default(help_text: str, kwarg: str, defaults: dict[str, Any]) -> str:
     """Append the schema's default to a help string.
 
@@ -297,6 +295,7 @@ def _attach_phase_options(
     """
     group = parser.add_argument_group(group_title)
     defaults = _schema_defaults(phase)
+    choices = _schema_choices(phase)
     for cli_suffix, kwarg, argparse_kwargs in options:
         if prefix:
             flag = f"--{prefix}-{cli_suffix}"
@@ -307,6 +306,13 @@ def _attach_phase_options(
         argparse_kwargs = dict(argparse_kwargs)
         argparse_kwargs["help"] = _with_default(
             argparse_kwargs.get("help", ""), kwarg, defaults)
+        # The accepted values come from the schema too. They were written out
+        # here as well, and in the browser, and beside the code that validates
+        # them -- four copies of one list, agreeing by nobody having touched
+        # them.
+        allowed = choices.get(kwarg)
+        if allowed and "choices" not in argparse_kwargs:
+            argparse_kwargs["choices"] = list(allowed)
         group.add_argument(flag, dest=dest, **argparse_kwargs)
 
 

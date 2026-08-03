@@ -33,6 +33,11 @@ from typing import Any
 # ---------------------------------------------------------------------------
 # Field descriptor
 # ---------------------------------------------------------------------------
+#: Distinguishes "no separate phase value" from a phase value of ``None``,
+#: which is itself meaningful.
+_UNSET = object()
+
+
 @dataclass(frozen=True)
 class Field:
     """One configurable option.
@@ -47,15 +52,30 @@ class Field:
         (MD option lists are heterogeneous enough that element-level
         checking causes more false positives than it's worth).
     default : Any
-        The value used when the option is absent. ``None`` means "the
-        phase supplies its own default" — we don't duplicate phase
-        defaults here; we record ``None`` so the phase's DEFAULTS table
-        remains the single source for the actual value.
+        The value a user gets when the option is absent. This is what the
+        documentation, the config template, and ``--help`` all report, and
+        what the phase initialises with unless ``phase_sentinel`` says
+        otherwise. It is declared here and nowhere else.
     help : str
         One-line human-readable description (used in the template).
     example : Any, optional
         A representative value shown in the generated template when the
         default is ``None`` (so the template is illustrative, not blank).
+    choices : tuple of str, optional
+        The complete set of accepted values, where there is one. Declared
+        here so that argparse, the browser's controls, the config template,
+        and validation all offer the same list. They used to hold four
+        separate copies of it.
+    phase_sentinel : Any, optional
+        What the phase table holds, where that must differ from the value
+        the user is told about. ``pressure_bar`` is the case this exists
+        for: its effective default is 1 bar, but the phase must start from
+        ``None`` so that ``pressure_atm`` can be recognised as the setting
+        the user actually gave. Writing 1.0 into the phase table would make
+        bar always present, and bar wins, so an explicit ``pressure_atm``
+        would be silently ignored.
+
+        Both meanings then live in one declaration, next to the reason.
     """
 
     name: str
@@ -63,6 +83,13 @@ class Field:
     default: Any
     help: str
     example: Any = None
+    choices: tuple[str, ...] | None = None
+    phase_sentinel: Any = _UNSET
+
+    @property
+    def phase_value(self) -> Any:
+        """What the phase should initialise this option with."""
+        return self.default if self.phase_sentinel is _UNSET else self.phase_sentinel
 
 
 @dataclass(frozen=True)
@@ -75,6 +102,15 @@ class PhaseSchema:
 
     def field_names(self) -> set[str]:
         return {f.name for f in self.fields}
+
+    def defaults(self) -> dict[str, Any]:
+        """The table a phase initialises from.
+
+        A phase used to keep its own copy of this, which is how the pH default
+        came to be 7.4 in one place and 7.0 in another. There is one
+        declaration now, and this reads it.
+        """
+        return {f.name: f.phase_value for f in self.fields}
 
     def get(self, name: str) -> Field | None:
         for f in self.fields:
@@ -129,6 +165,7 @@ SETUP = PhaseSchema(
               "them all. 'drop' was the default before 2.0. It never stops, "
               "but a discarded ligand changes what the run answers without "
               "saying so.",
+              choices=("auto", "drop", "keep"),
               example="drop"),
         Field("protonation_margin", float, 1.0,
               "How close a ligand's pKa may come to the pH before setup stops "
@@ -150,9 +187,15 @@ SETUP = PhaseSchema(
               "PDBFixer. Default: run PDBFixer on the input.",
               example="prepared.pdb"),
         Field("forcefield", str, "auto",
-              "Named force field: charmm36 (default), amber14, amber-fb15. "
+              "Named force field. "
               "Resolves to the right XML files and water model. For an "
               "unlisted combination, use `force_field` instead.",
+              # The registry in setup.forcefields defines these. It cannot
+              # be imported here: reaching it runs the setup package's
+              # __init__, which imports the phase, which imports this module.
+              # So the names are restated and a test holds them level.
+              choices=("auto", "amber-fb15", "amber-openff", "amber14",
+                       "charmm36"),
               example="charmm36"),
         Field("force_field", list, None,
               "Raw OpenMM force-field XML file(s) — power-user escape hatch "
@@ -185,7 +228,8 @@ SETUP = PhaseSchema(
         Field("solvent_padding_nm", float, 1.0,
               "Minimum distance (nm) between solute and the box wall."),
         Field("box_shape", str, "cube",
-              "Periodic box geometry: cube, dodecahedron, or octahedron."),
+              "Periodic box geometry: cube, dodecahedron, or octahedron.",
+              choices=("cube", "dodecahedron", "octahedron")),
         Field("ion_positive", str, "Na+",
               "Counter-ion cation."),
         Field("ion_negative", str, "Cl-",
@@ -196,7 +240,9 @@ SETUP = PhaseSchema(
               "Add ions to neutralize the net solute charge."),
         Field("nonbonded_method", str, "PME",
               "Nonbonded method: NoCutoff, CutoffNonPeriodic, "
-              "CutoffPeriodic, PME, or Ewald."),
+              "CutoffPeriodic, PME, or Ewald.",
+              choices=("NoCutoff", "CutoffNonPeriodic", "CutoffPeriodic",
+                       "PME", "Ewald")),
         Field("nonbonded_cutoff_nm", float, 1.0,
               "Real-space nonbonded cutoff in nm (cutoff/PME/Ewald methods)."),
         Field("ewald_error_tolerance", float, 0.0005,
@@ -237,6 +283,7 @@ SIMULATION = PhaseSchema(
               "Optional simulation preset. 'gentle' uses conservative "
               "smoke-test settings: 0.5 fs, 100 K, 5/ps friction, no NPT, "
               "and short NVT/production.",
+              choices=("gentle",),
               example="gentle"),
         Field("duration_ns", (int, float), None,
               "Production length in ns (standard MD convention — "
@@ -263,7 +310,9 @@ SIMULATION = PhaseSchema(
               "Run energy minimization before equilibration."),
         Field("integrator", str, "langevin_middle",
               "Integrator: langevin_middle, langevin, brownian, verlet, "
-              "variable_langevin, or variable_verlet."),
+              "variable_langevin, or variable_verlet.",
+              choices=("langevin_middle", "langevin", "brownian", "verlet",
+                       "variable_langevin", "variable_verlet")),
         Field("integrator_error_tolerance", float, 0.001,
               "Error tolerance for the variable-timestep integrators "
               "(variable_langevin / variable_verlet)."),
@@ -276,7 +325,11 @@ SIMULATION = PhaseSchema(
         Field("temperature_K", (int, float), 300.0,
               "Production temperature in K."),
         Field("pressure_bar", (int, float), 1.0,
-              "Pressure for the Monte Carlo barostat in bar (OpenMM-native)."),
+              "Pressure for the Monte Carlo barostat in bar (OpenMM-native).",
+              # The phase must start from None. Bar wins when both units are
+              # given, so a phase table holding 1.0 would make bar always
+              # present and quietly override an explicit pressure_atm.
+              phase_sentinel=None),
         Field("pressure_atm", (int, float), None,
               "Pressure in atm (converted to bar internally). Accepted as "
               "an alternative to pressure_bar; bar wins if both are given.",
@@ -289,9 +342,11 @@ SIMULATION = PhaseSchema(
               "Integrator random seed for reproducibility. Default: unset.",
               example=42),
         Field("platform", str, "auto",
-              "OpenMM compute platform: auto, CUDA, OpenCL, CPU, or HIP."),
+              "OpenMM compute platform: auto, CUDA, OpenCL, CPU, or HIP.",
+              choices=("auto", "CUDA", "OpenCL", "CPU", "HIP")),
         Field("precision", str, "mixed",
-              "GPU precision: single, mixed, or double."),
+              "GPU precision: single, mixed, or double.",
+              choices=("single", "mixed", "double")),
         Field("device_index", str, None,
               "GPU device index for multi-GPU machines (e.g. '0' or '0,1').",
               example="0"),
@@ -358,6 +413,7 @@ ANALYSIS = PhaseSchema(
               "Atom scope for analyses that don't set their own selection: "
               "solute (protein+ligand, default), protein, ligand, or all. "
               "Keeps analyses off solvent/ions.",
+              choices=("solute", "protein", "ligand", "all"),
               example="solute"),
         Field("stride", int, None,
               "Load every Nth frame from the trajectory.",

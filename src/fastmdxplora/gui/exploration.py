@@ -26,15 +26,21 @@ from fastmdxplora.dependencies import dependency_error_message, missing_dependen
 
 _FORCEFIELDS = ("auto", "charmm36", "amber14", "amber-fb15", "amber-openff")
 _PLATFORMS = ("auto", "CPU", "CUDA", "OpenCL", "HIP")
-_PRECISIONS = ("single", "mixed", "double")
-_INTEGRATORS = (
-    "langevin_middle",
-    "langevin",
-    "brownian",
-    "verlet",
-    "variable_langevin",
-    "variable_verlet",
-)
+# The accepted values are declared once, in the schema, and read here. The
+# browser used to keep its own copies alongside the CLI's, and a control
+# offering something the CLI rejects is a worse failure than either list
+# being wrong: it looks like the tool disagreeing with itself.
+def _schema_choices(phase: str, field: str) -> tuple[str, ...]:
+    """The accepted values for one option, from the schema that declares them."""
+    from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+    return next(
+        f.choices for f in PHASE_SCHEMAS[phase].fields if f.name == field
+    )
+
+
+_PRECISIONS = _schema_choices("simulation", "precision")
+_INTEGRATORS = _schema_choices("simulation", "integrator")
 _ANALYSES = (
     "rmsd",
     "rmsf",

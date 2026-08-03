@@ -93,17 +93,59 @@ class TestHeterogensReachesEveryInterface:
 
 
 class TestDefaultsAgree:
-    """One default, however the option is reached."""
+    """One default, however the option is reached.
 
-    @pytest.mark.parametrize("option", ["heterogens", "ph", "forcefield"])
-    def test_the_phase_default_matches_the_schema(self, option) -> None:
-        from fastmdxplora.setup.pipeline import DEFAULTS
+    A phase used to keep its own table of these, and checking three options by
+    name was all that stood between them. That is how the pH default came to be
+    7.4 in the schema and 7.0 in a constant beside it. A phase now reads the
+    schema, so agreement is structural rather than asserted.
+    """
 
-        schema = {f.name: f.default for f in all_schemas()["setup"].fields}
-        assert DEFAULTS[option] == schema[option], (
-            f"{option} defaults to {DEFAULTS[option]!r} in the phase but "
-            f"{schema[option]!r} in the schema"
+    @pytest.mark.parametrize("phase,module", [
+        ("setup", "fastmdxplora.setup.pipeline"),
+        ("simulation", "fastmdxplora.simulation.pipeline"),
+    ])
+    def test_the_phase_table_is_the_schema_s(self, phase, module) -> None:
+        import importlib
+
+        table = importlib.import_module(module).DEFAULTS
+        assert table == all_schemas()[phase].defaults()
+
+    def test_no_phase_writes_a_table_of_its_own(self) -> None:
+        """Deriving it is only worth anything while nothing restates it."""
+        import pathlib
+        import re
+
+        src = pathlib.Path(__file__).resolve().parents[1] / "src" / "fastmdxplora"
+        offenders = [
+            str(path.relative_to(src))
+            for path in src.rglob("*.py")
+            if re.search(r"^DEFAULTS[^=]*= *\{", path.read_text(encoding="utf-8"), re.M)
+        ]
+        assert not offenders, (
+            "these declare a defaults table instead of reading the schema, "
+            f"which is a second place for a default to live: {offenders}"
         )
+
+    def test_a_documented_default_and_a_phase_sentinel_can_differ(self) -> None:
+        """pressure_bar is the case the distinction exists for.
+
+        A user is told the default is 1 bar, which is true. The phase must
+        start from None so that pressure_atm is recognised as the setting they
+        actually gave -- bar wins when both are present, so a phase holding 1.0
+        would override an explicit pressure_atm without saying so.
+        """
+        from fastmdxplora.simulation.runner import DEFAULT_PRESSURE_BAR
+
+        group = all_schemas()["simulation"]
+        field = next(f for f in group.fields if f.name == "pressure_bar")
+        assert field.default == DEFAULT_PRESSURE_BAR, "what the user is told"
+        assert group.defaults()["pressure_bar"] is None, "what the phase starts from"
+
+    def test_a_field_without_a_sentinel_uses_its_default(self) -> None:
+        group = all_schemas()["setup"]
+        field = next(f for f in group.fields if f.name == "ph")
+        assert field.phase_value == field.default == 7.4
 
     def test_centre_of_mass_motion_is_removed_by_default(self) -> None:
         """OpenMM removes it by default; silently differing would surprise."""
@@ -448,3 +490,161 @@ class TestTheBrowserAgreesWithTheSchema:
         assert marked == [default], (
             f"the browser marks {marked} as the default; the schema says {default!r}"
         )
+
+
+class TestDefaultConstantsAgreeWithTheSchema:
+    """A module constant naming a default is a second place for it to live.
+
+    DEFAULT_PH sat in the setup package, read by nothing, and stayed at 7.0
+    when the pH default became 7.4. Nothing failed, because nothing used it --
+    but the next person to reach for it would have got the old value with no
+    sign that it was stale. These constants are read by the code that applies
+    them, so where one restates a schema field, the two must agree.
+    """
+
+    #: Constant -> the schema field it restates. Written out because the names
+    #: do not correspond mechanically, and a constant with no field here is one
+    #: nothing in the schema describes, which is fine.
+    RESTATED = [
+        ("setup", "solvent_padding_nm", "fastmdxplora.setup.prepare", "DEFAULT_PADDING_NM"),
+        ("setup", "ion_concentration_M", "fastmdxplora.setup.prepare", "DEFAULT_IONIC_STRENGTH_M"),
+        ("setup", "forcefield", "fastmdxplora.setup.forcefields", "DEFAULT_FORCEFIELD"),
+        ("simulation", "timestep_fs", "fastmdxplora.simulation.runner", "DEFAULT_TIMESTEP_FS"),
+        ("simulation", "temperature_K", "fastmdxplora.simulation.runner", "DEFAULT_TEMPERATURE_K"),
+        ("simulation", "friction_per_ps", "fastmdxplora.simulation.runner", "DEFAULT_FRICTION_PER_PS"),
+        ("simulation", "pressure_bar", "fastmdxplora.simulation.runner", "DEFAULT_PRESSURE_BAR"),
+        ("simulation", "barostat_frequency", "fastmdxplora.simulation.runner", "DEFAULT_BAROSTAT_FREQUENCY"),
+        ("simulation", "integrator", "fastmdxplora.simulation.runner", "DEFAULT_INTEGRATOR"),
+        ("simulation", "integrator_error_tolerance", "fastmdxplora.simulation.runner",
+         "DEFAULT_INTEGRATOR_ERROR_TOLERANCE"),
+        ("simulation", "minimize_max_iterations", "fastmdxplora.simulation.runner",
+         "DEFAULT_MINIMIZE_MAX_ITERATIONS"),
+        ("simulation", "minimize_tolerance_kjmol_per_nm", "fastmdxplora.simulation.runner",
+         "DEFAULT_MINIMIZE_TOLERANCE_KJMOL_PER_NM"),
+        ("simulation", "checkpoint_interval_steps", "fastmdxplora.simulation.runner",
+         "DEFAULT_CHECKPOINT_INTERVAL_STEPS"),
+        ("simulation", "state_interval_steps", "fastmdxplora.simulation.runner",
+         "DEFAULT_STATE_INTERVAL_STEPS"),
+    ]
+
+    @pytest.mark.parametrize(
+        "phase,field,module,constant", RESTATED,
+        ids=[f"{c}" for _p, _f, _m, c in RESTATED],
+    )
+    def test_the_constant_matches_the_field(self, phase, field, module, constant) -> None:
+        import importlib
+
+        schema = {f.name: f.default for f in all_schemas()[phase].fields}
+        value = getattr(importlib.import_module(module), constant)
+        assert value == schema[field], (
+            f"{constant} is {value!r} but the schema says {phase}.{field} "
+            f"is {schema[field]!r}"
+        )
+
+    def test_no_default_constant_is_unread(self) -> None:
+        """An unread constant cannot drift loudly, so it must not exist."""
+        import pathlib
+        import re
+
+        # Only the package is scanned. Counting the tests too would let this
+        # test's own prose name a constant and thereby report it as used, which
+        # is exactly what happened the first time it was written.
+        src = pathlib.Path(__file__).resolve().parents[1] / "src" / "fastmdxplora"
+        declared: set[str] = set()
+        mentions: dict[str, int] = {}
+        for path in src.rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            declared.update(re.findall(r"^(DEFAULT_[A-Z0-9_]+) *=", text, re.M))
+            # Comments are stripped before counting. A note explaining why a
+            # constant was removed names it, and naming it was enough to make
+            # this test report it as used -- which it did, twice, before the
+            # comments were taken out.
+            code = re.sub(r"#[^\n]*", "", text)
+            for name in re.findall(r"\bDEFAULT_[A-Z0-9_]+\b", code):
+                mentions[name] = mentions.get(name, 0) + 1
+
+        # One mention is the declaration and nothing else.
+        orphans = sorted(n for n in declared if mentions.get(n, 0) <= 1)
+        assert not orphans, (
+            "these state a default nothing reads, so nothing notices when they "
+            f"fall out of date: {orphans}"
+        )
+
+
+class TestAcceptedValuesAreDeclaredOnce:
+    """One list of accepted values, wherever an option is offered.
+
+    The force-field names, the analysis scopes, the integrators, and the
+    precisions each existed in two or more places: the CLI's option table, the
+    browser's controls, and beside the code that validates them. They agreed,
+    but only because nobody had touched them. A control offering something the
+    CLI rejects is worse than either list being wrong -- it looks like the tool
+    disagreeing with itself.
+    """
+
+    def test_every_default_is_one_of_its_own_choices(self) -> None:
+        """The invariant that makes a choices list worth having."""
+        broken = []
+        for phase, group in all_schemas().items():
+            for f in group.fields:
+                if f.choices and f.default is not None and f.default not in f.choices:
+                    broken.append(f"{phase}.{f.name}: {f.default!r} not in {f.choices}")
+        assert not broken, broken
+
+    def test_no_cli_table_restates_a_schema_list(self) -> None:
+        from fastmdxplora.cli.main import (
+            _ANALYSIS_OPTIONS, _REPORT_OPTIONS, _SETUP_OPTIONS,
+            _SIMULATION_OPTIONS,
+        )
+
+        tables = (
+            (_SETUP_OPTIONS, "setup"), (_SIMULATION_OPTIONS, "simulation"),
+            (_ANALYSIS_OPTIONS, "analysis"), (_REPORT_OPTIONS, "report"),
+        )
+        offenders = []
+        for table, phase in tables:
+            described = {f.name for f in all_schemas()[phase].fields if f.choices}
+            for _flag, kwarg, kwargs in table:
+                if kwarg in described and "choices" in kwargs:
+                    offenders.append(f"--{kwarg}")
+        assert not offenders, (
+            "these carry their own list of accepted values while the schema "
+            f"also declares one: {offenders}"
+        )
+
+    def test_the_parser_offers_what_the_schema_declares(self) -> None:
+        from fastmdxplora.cli.main import _build_parser
+
+        parser = _build_parser()
+        subcommands = parser._subparsers._group_actions[0].choices
+        for phase, sub in (("setup", "setup"), ("simulation", "simulate"),
+                           ("analysis", "analyze")):
+            declared = {f.name: list(f.choices)
+                        for f in all_schemas()[phase].fields if f.choices}
+            offered = {a.dest: list(a.choices)
+                       for a in subcommands[sub]._actions if a.choices}
+            for name, values in declared.items():
+                assert offered.get(name) == values, (
+                    f"--{name} offers {offered.get(name)}, schema says {values}"
+                )
+
+    def test_the_browser_reads_the_same_lists(self) -> None:
+        from fastmdxplora.gui.exploration import _INTEGRATORS, _PRECISIONS
+
+        declared = {f.name: f.choices for f in all_schemas()["simulation"].fields}
+        assert _INTEGRATORS == declared["integrator"]
+        assert _PRECISIONS == declared["precision"]
+
+    def test_the_force_field_names_match_the_registry(self) -> None:
+        """The schema restates these because it cannot import the registry.
+
+        Reaching setup.forcefields runs the setup package's __init__, which
+        imports the phase, which imports the schema. So the names are written
+        twice and held level here.
+        """
+        from fastmdxplora.setup.forcefields import available_forcefields
+
+        declared = next(
+            f.choices for f in all_schemas()["setup"].fields if f.name == "forcefield"
+        )
+        assert sorted(declared) == sorted(("auto",) + available_forcefields())

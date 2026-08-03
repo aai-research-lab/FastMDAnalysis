@@ -54,10 +54,12 @@ logger = get_logger("setup.prepare")
 # (The default force field now lives in setup/forcefields.py, the single
 # source of truth for the named force-field registry.)
 # ---------------------------------------------------------------------------
-DEFAULT_PROBE_RADIUS_NM = 0.14
 DEFAULT_PADDING_NM = 1.0
 DEFAULT_IONIC_STRENGTH_M = 0.15
-DEFAULT_PH = 7.0
+# DEFAULT_PH is deliberately absent. It existed here, unread by anything, and
+# stayed at 7.0 when the pH default became 7.4 -- an unused constant stating a
+# value that is no longer true is a trap for whoever reaches for it next. The
+# pH default lives in the schema, and the setup phase reads it from there.
 
 
 def _import_openmm():
