@@ -171,18 +171,42 @@ class TestRemovalReporting:
         )
         captured = io.StringIO()
         handler = logging.StreamHandler(captured)
+        handler.setLevel(logging.INFO)
         package_logger = logging.getLogger("fastmdx")
         package_logger.addHandler(handler)
+        # A handler alone is not enough: the logger's own level filters
+        # records before any handler sees them, so an INFO message about a
+        # reinstated component would never arrive.
+        previous = package_logger.level
+        package_logger.setLevel(logging.INFO)
         try:
             fix_pdb_with_pdbfixer(str(structure), str(tmp_path / "out.pdb"), **kwargs)
         finally:
             package_logger.removeHandler(handler)
+            package_logger.setLevel(previous)
         return captured.getvalue()
 
     def test_dropping_everything_warns_about_everything(self, tmp_path) -> None:
         text = self._fix(tmp_path)
         assert "Removed heterogens" in text
         assert "BNZ" in text
+        assert "EPE" in text
+
+    def test_a_judged_component_is_not_second_guessed(self, tmp_path) -> None:
+        """The classifier reported EPE as a buffer, with a reason.
+
+        Warning that it "was removed, and might be the ligand you meant to
+        simulate" contradicts that, and invites the user to overturn a correct
+        decision.
+        """
+        text = self._fix(tmp_path, reinstated=("BNZ",), explained=("BNZ", "EPE"))
+        assert "Removed heterogens" not in text
+        assert "re-added with small-molecule parameters" in text
+
+    def test_an_unjudged_component_still_warns(self, tmp_path) -> None:
+        """The safety net stays: silence is only earned by having reasoned."""
+        text = self._fix(tmp_path, reinstated=("BNZ",), explained=("BNZ",))
+        assert "Removed heterogens" in text
         assert "EPE" in text
 
     def test_a_reinstated_component_is_not_reported_as_lost(self, tmp_path) -> None:

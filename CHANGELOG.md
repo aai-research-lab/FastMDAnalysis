@@ -7,6 +7,69 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [2.2.0] — 2026-08-03
+
+Protein-ligand systems from a PDB identifier alone. A crystal structure
+carries the ligand you care about alongside the buffer that kept the protein
+soluble, and a PDB record says which is which only by name. FastMDXplora now
+decides, retrieves the chemistry the structure omits, and refuses where the
+structure does not determine the answer.
+
+### Added
+- **Automatic protein-ligand preparation.** `--setup-heterogens auto` inspects
+  the structure, decides what each non-standard residue means, retrieves the
+  chemistry for anything worth simulating, and prepares it. A bound ligand no
+  longer has to be extracted and rebuilt by hand.
+- **Ligand chemistry from the Protein Data Bank.** A PDB record carries no bond
+  orders, formal charges, or hydrogens, and a force field needs all three.
+  These are retrieved from RCSB at the crystallographic pose, completed with
+  hydrogens, and cached, so a run that worked once works again offline.
+- **Protonation decided in the complex.** A ligand's pKa in a binding site is a
+  property of the complex, not of the molecule: a buried acid can sit several
+  units from its solution value. PROPKA is asked about the bound state, in a
+  structure repaired first so the electrostatics are those of the system that
+  will be simulated. States decisively away from the pH are adopted and
+  reported with their environment shift; poised ones are refused.
+- **Several ligands, cofactors, or copies** may be parameterized together.
+  Each is placed and clash-checked against everything already present, since
+  two ligands can overlap each other as readily as they can the protein.
+- **`--setup-heterogens`** with `drop` (the default), `keep`, and `auto`.
+
+### Changed
+- **Ambiguity is refused rather than resolved.** Where a structure does not
+  determine what should be simulated, setup stops and says what must be
+  decided: a covalently bonded adduct, an unidentified component, a cofactor
+  needing parameters a small-molecule force field cannot supply, alternate
+  conformations at indistinguishable occupancy, a metal coordinated in some
+  copies and not others, or a sugar that may be a glycosylation site, a
+  substrate, or a cryoprotectant. Producing a plausible trajectory from a
+  guess is worse than producing none.
+- Removing a heterogen is announced. A bound ligand and a buffer molecule are
+  indistinguishable in a PDB file, and both used to be discarded silently, so
+  a run could be apo while reading as holo.
+
+### Fixed
+- **A failed phase reports failure.** Setup swallowed any failure resolving its
+  input and returned success, so a mistyped PDB identifier produced an empty
+  directory and exit code 0. An absent optional backend still degrades
+  gracefully, because choosing not to install OpenMM is a choice rather than a
+  failure.
+- Single-phase commands report why they failed; only `explore` did.
+- The run summary reflects the run. Options were read under their `explore`
+  spelling only, so `fastmdx setup --ph 6.5` displayed the default instead,
+  for all fifteen of them.
+- `scipy` and `pillow` are declared rather than arriving through
+  `scikit-learn` and `python-pptx`. A test now compares what the source
+  imports against what is declared.
+- `netcdf4` and `umap-learn` become optional extras, matching their guarded
+  imports.
+
+### Packaging
+- Available from conda-forge: `conda install -c conda-forge fastmdxplora`,
+  including the small-molecule stack, so protein-ligand preparation works from
+  a single install command.
+- The conda recipe uses the v1 format.
+
 ## [2.1.0] — 2026-08-01
 
 A graphical interface, publication-ready figures, and Python 3.13 support.

@@ -333,6 +333,9 @@ def _auto_ligands(params: dict, input_pdb, output_dir, entry_id: str | None) -> 
     params["_reinstated_heterogens"] = tuple(
         sorted({decision.resname for decision, _ in copies})
     )
+    # Every component the classifier judged, so preparation does not warn
+    # about ones whose fate has already been reported with a reason.
+    params["_explained_heterogens"] = tuple(sorted({d.resname for d in decisions}))
     params["ligand_name"] = names[0] if len(names) == 1 else names
     if params.get("ligand_net_charge") is None:
         params["ligand_net_charge"] = charges[0] if len(charges) == 1 else charges
@@ -484,6 +487,7 @@ def run(
                 keep_heterogens=_keep_heterogens(params, input_pdb),
                 keep_water=bool(params["keep_water"]),
                 reinstated=tuple(params.get("_reinstated_heterogens", ())),
+                explained=tuple(params.get("_explained_heterogens", ())),
             )
             artifacts.append("prepared.pdb")
             if presenter:

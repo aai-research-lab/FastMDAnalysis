@@ -711,7 +711,11 @@ class FastMDXplora:
             )
         except Exception as exc:  # noqa: BLE001 -- we log and record
             finished = datetime.now(timezone.utc).isoformat()
-            logger.exception("Phase '%s' raised an exception", phase)
+            # The reason is reported once, by whoever is driving: the explore
+            # loop below, or the per-phase command. Logging it here as well
+            # produced two lines, the first of which said nothing useful.
+            # The traceback stays available under --verbose.
+            logger.debug("Phase '%s' raised an exception", phase, exc_info=True)
             return PhaseResult(
                 name=phase,
                 status="error",

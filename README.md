@@ -23,6 +23,7 @@ then hands back publication-ready results.
 ## Highlights
 
 - Explore a protein's full dynamics with a single command, covering setup, simulation, analysis, and reporting
+- Build a protein-ligand system from a PDB identifier alone: the ligand is identified, its chemistry retrieved, and its protonation settled in the binding site, with a refusal rather than a guess where the structure is ambiguous
 - Probe protein-ligand binding automatically with analyses for pose stability, contacts, and protein-ligand hydrogen bonds
 - Reach beyond plain MD with built-in PLUMED enhanced sampling (metadynamics, umbrella sampling, steered MD)
 - Design, start, watch, and review an exploration from a browser, with a 3D viewer and live telemetry

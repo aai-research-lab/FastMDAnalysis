@@ -73,6 +73,7 @@ def fix_pdb_with_pdbfixer(
     keep_heterogens: bool = False,
     keep_water: bool = False,
     reinstated: tuple[str, ...] = (),
+    explained: tuple[str, ...] = (),
 ) -> None:
     """Strict PDBFixer wrapper: raises on failure.
 
@@ -136,7 +137,12 @@ def fix_pdb_with_pdbfixer(
         removed = _heterogen_residue_counts(fixer.topology)
         fixer.removeHeterogens(keepWater=keep_water)
         kept = {name.upper() for name in reinstated}
-        discarded = {n: c for n, c in removed.items() if n.upper() not in kept}
+        # Components the caller has already reasoned about and reported on.
+        # Warning that a buffer molecule "was removed, and might be the ligand
+        # you meant to simulate" contradicts a decision just explained to the
+        # user, and invites them to second-guess a correct one.
+        accounted = kept | {name.upper() for name in explained}
+        discarded = {n: c for n, c in removed.items() if n.upper() not in accounted}
 
         if kept:
             # Under the auto policy the components worth simulating have
