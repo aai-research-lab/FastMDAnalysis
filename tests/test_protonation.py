@@ -52,7 +52,7 @@ class TestDeterminedStates:
 class TestRefusals:
     def test_a_poised_group_stops(self) -> None:
         """Within a unit of the pH both states are appreciably populated."""
-        with pytest.raises(ProtonationError, match="both charge states"):
+        with pytest.raises(ProtonationError, match="minor state"):
             decide("LIG", [_group(7.0)], 7.4, expected_ionizable=True)
 
     def test_one_poised_group_among_several_stops(self) -> None:
@@ -441,3 +441,43 @@ class TestPerGroupDecisions:
 
         assert PROPKA_GROUP_TO_LABEL["C2N"] == ("amidine",)
         assert PROPKA_GROUP_TO_LABEL["CG"] == ("guanidine",)
+
+
+class TestThePoisedBand:
+    """The band is where the calculation cannot tell, not a tolerance.
+
+    A margin much below one pKa unit would decide a question finer than PROPKA
+    resolves -- its error on protein residues is near 0.8 units, and less well
+    characterised on ligands. Someone who knows their ligand can narrow it; the
+    default should not.
+    """
+
+    def test_the_default_matches_the_calculation_s_resolution(self):
+        from fastmdxplora.setup.protonation import POISED_MARGIN
+
+        assert POISED_MARGIN == 1.0
+
+    def test_the_phase_and_the_schema_agree(self):
+        from fastmdxplora.setup.pipeline import DEFAULTS
+        from fastmdxplora.setup.protonation import POISED_MARGIN
+
+        assert DEFAULTS["protonation_margin"] == POISED_MARGIN
+
+    def test_the_refusal_reports_the_share_of_the_ensemble_left_out(self):
+        """A threshold in pKa units means little; a population can be weighed."""
+        from fastmdxplora.setup.protonation import (
+            GroupPka, ProtonationError, decide,
+        )
+
+        # 0.4 units from the pH puts about 28% in the state the pH disfavours.
+        group = GroupPka("LIG", "A", 201, "OCO", 7.0, 4.0)
+        with pytest.raises(ProtonationError, match=r"28% in the minor state"):
+            decide("LIG", [group], ph=7.4, expected_ionizable=True)
+
+    def test_narrowing_the_margin_lets_a_group_through(self):
+        from fastmdxplora.setup.protonation import GroupPka, decide
+
+        group = GroupPka("LIG", "A", 201, "OCO", 7.0, 4.0)
+        state = decide("LIG", [group], ph=7.4, expected_ionizable=True,
+                       margin=0.2)
+        assert state.protonated is False

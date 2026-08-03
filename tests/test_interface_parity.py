@@ -174,12 +174,15 @@ class TestAutoResolvesConsistently:
         from fastmdxplora.setup.forcefields import resolve_forcefield
         from fastmdxplora.setup.pipeline import DEFAULTS
 
-        # heterogens stays opt-in for now: the classifier keeps coordinated
-        # metals that the clash check then rejects, so making it the default
-        # would break structures that prepare cleanly today. The force field
-        # is nonetheless ligand-capable, so turning the policy on needs no
-        # second flag.
-        assert DEFAULTS["heterogens"] == "drop"
+        # This was opt-in while the classifier kept coordinated metals that
+        # later stages then rejected, which would have broken structures that
+        # prepared cleanly. That is fixed, and a comparison across thirty
+        # ordinary structures now shows nothing failing except by a refusal
+        # the pipeline states a reason for. What decided it is the other side:
+        # under 'drop' a bound ligand is discarded in silence, so rhodopsin
+        # prepares as opsin and haemoglobin as globin, and each run completes
+        # looking like an answer to the question that was asked.
+        assert DEFAULTS["heterogens"] == "auto"
         assert resolve_forcefield(DEFAULTS["forcefield"]).supports_ligand, (
             "--setup-heterogens auto must work without also naming a force "
             "field, or the feature needs two flags instead of one"

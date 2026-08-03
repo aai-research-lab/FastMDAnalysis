@@ -391,12 +391,16 @@ sweep:
   setup.temperature_K: [300]
 """)
         BatchExplorer(config=str(cfg)).run()
-        # b has ph 6.5, a has default 7.0; both have temperature_K 300
+        # b overrides ph, a takes the default; both have temperature_K 300.
+        # The default is read rather than written out: what this test checks is
+        # that a per-system setting reaches one run and not the other, and
+        # spelling the value here made it fail when the default moved.
+        from fastmdxplora.setup.pipeline import DEFAULTS
         a = json.loads((tmp_path / "batch" / "runs" / "a__temperature-K-300"
                         / "setup" / "setup_parameters.json").read_text(encoding="utf-8"))
         b = json.loads((tmp_path / "batch" / "runs" / "b__temperature-K-300"
                         / "setup" / "setup_parameters.json").read_text(encoding="utf-8"))
-        assert a["parameters"]["ph"] == 7.0
+        assert a["parameters"]["ph"] == DEFAULTS["ph"]
         assert b["parameters"]["ph"] == 6.5
         assert a["parameters"]["temperature_K"] == 300
         assert b["parameters"]["temperature_K"] == 300

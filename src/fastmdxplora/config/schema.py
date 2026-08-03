@@ -114,14 +114,29 @@ SETUP = PhaseSchema(
     name="setup",
     description="System preparation: fix structure, solvate, ionize, parameterize.",
     fields=(
-        Field("ph", float, 7.0,
-              "pH for hydrogen placement (sets protonation states)."),
-        Field("heterogens", str, "drop",
-              "How to treat non-standard residues: 'drop' (the default) "
-              "removes them all, reporting what went; 'auto' decides per "
-              "component, prepares any ligand, and stops where the structure "
-              "is ambiguous; 'keep' retains them all.",
-              example="auto"),
+        Field("ph", float, 7.4,
+              "pH for hydrogen placement, which sets protonation states. The "
+              "default is physiological: blood is 7.4, and a protein studied "
+              "without a stated reason otherwise is studied there. Cytosol "
+              "sits near 7.2, a lysosome near 4.7, so a compartment-specific "
+              "study should say so.",
+              example=7.0),
+        Field("heterogens", str, "auto",
+              "How to treat non-standard residues: 'auto' (the default) "
+              "decides per component, prepares any ligand it can, and stops "
+              "where the structure does not determine what to simulate; "
+              "'drop' removes them all, reporting what went; 'keep' retains "
+              "them all. 'drop' was the default before 2.0. It never stops, "
+              "but a discarded ligand changes what the run answers without "
+              "saying so.",
+              example="drop"),
+        Field("protonation_margin", float, 1.0,
+              "How close a ligand's pKa may come to the pH before setup stops "
+              "rather than pick a charge state. The default is about the "
+              "uncertainty of the pKa calculation itself, so the band marks "
+              "where the answer is unresolved rather than merely close. "
+              "Narrow it only for a ligand whose protonation you know.",
+              example=0.5),
         Field("replace_nonstandard_residues", bool, True,
               "Substitute modified residues (selenomethionine, oxidised "
               "cysteine) with their standard equivalents. They are part of "

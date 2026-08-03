@@ -39,9 +39,21 @@ from fastmdxplora.utils.logging import get_logger
 
 logger = get_logger("setup.protonation")
 
-#: A group whose pKa is within this many units of the simulation pH is
-#: appreciably populated in both states: one unit corresponds to roughly a
-#: 9:1 ratio. Choosing one state would misrepresent the ensemble.
+#: How close a pKa may come to the simulation pH before neither state can be
+#: chosen.
+#:
+#: The obvious reading is a population one: a unit is roughly a 9:1 ratio, so a
+#: tighter band would accept misrepresenting more of the ensemble. True, but
+#: not what sets the value. What sets it is that PROPKA's own error is of the
+#: same order -- near 0.8 pKa units on protein residues, and less well
+#: characterised on ligands, where its group definitions are coarser. A margin
+#: much below one unit would decide a question finer than the calculation
+#: resolves: a pKa reported at 7.6 could as easily be 6.8, and "decisively
+#: deprotonated" would be a claim the number does not support.
+#:
+#: So this is not a policy about tolerable error. It marks the region where the
+#: calculation cannot tell, and asking is the honest answer there. Someone who
+#: knows their ligand better can narrow it with setup.protonation_margin.
 POISED_MARGIN = 1.0
 
 
@@ -488,11 +500,19 @@ def decide(
 
     poised = [g for g in groups if abs(g.pka - ph) < margin]
     if poised:
-        detail = "\n".join(f"  {g}" for g in poised)
+        described = []
+        for group in poised:
+            # Henderson-Hasselbalch. A threshold in pKa units means little on
+            # its own; this is the share of the ensemble a single choice would
+            # leave out, which is the number a reader can weigh.
+            minor = 1.0 / (1.0 + 10.0 ** abs(group.pka - ph))
+            described.append(f"  {group} -- {minor:.0%} in the minor state")
+        detail = "\n".join(described)
         raise ProtonationError(
             f"{resname} has ionizable groups whose pKa sits within {margin:g} "
-            f"unit of pH {ph:g}, so both charge states are appreciably "
-            f"populated and neither represents the ensemble:\n{detail}\n"
+            f"unit of pH {ph:g}, which is also about the uncertainty of the "
+            f"calculation itself, so which state dominates is not determined:"
+            f"\n{detail}\n"
             "Both states are real here, so neither can be chosen for you. "
             "State which you intend:\n"
             "  --setup-ligand <file>.sdf   supply the ligand already in that "

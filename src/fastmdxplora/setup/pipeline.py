@@ -45,9 +45,10 @@ logger = get_logger("setup")
 # between the two tools see identical out-of-the-box parameterization.
 DEFAULTS: dict[str, Any] = {
     # PDBFixer options
-    "ph": 7.0,
+    "ph": 7.4,
     "replace_nonstandard_residues": True,
-    "heterogens": "drop",
+    "heterogens": "auto",
+    "protonation_margin": 1.0,
     "keep_heterogens": False,
     "keep_water": False,
     "fixed_pdb": None,             # skip PDBFixer; use this already-fixed PDB
@@ -149,7 +150,7 @@ def _keep_heterogens(params: dict, input_pdb) -> bool:
     """
     from fastmdxplora.setup.heterogens import Action, resolve, summarize
 
-    policy = str(params.get("heterogens", "drop")).strip().lower()
+    policy = str(params.get("heterogens", "auto")).strip().lower()
     if params.get("keep_heterogens"):
         policy = "keep"
 
@@ -212,7 +213,9 @@ def _repaired_complex(input_pdb, output_dir, ph: float):
     """
     from fastmdxplora.setup.pdbfix import fix_pdb_with_pdbfixer
 
-    repaired = Path(output_dir) / "setup" / "complex_for_pka.pdb"
+    # output_dir is already the setup directory, as it is for the ligand
+    # files: appending "setup" again buried this in setup/setup/.
+    repaired = Path(output_dir) / "complex_for_pka.pdb"
     repaired.parent.mkdir(parents=True, exist_ok=True)
     try:
         fix_pdb_with_pdbfixer(
@@ -319,7 +322,9 @@ def _auto_ligands(params: dict, input_pdb, output_dir, entry_id: str | None) -> 
         resolve_forcefield,
     )
     from fastmdxplora.setup.heterogens import Action, resolve, summarize
-    from fastmdxplora.setup.protonation import apply_settled_state, settle
+    from fastmdxplora.setup.protonation import (
+        POISED_MARGIN, apply_settled_state, settle,
+    )
 
     decisions = resolve(input_pdb, keep_water=bool(params.get("keep_water")))
     logger.info("Heterogen decisions:\n%s", summarize(decisions))
@@ -412,6 +417,7 @@ def _auto_ligands(params: dict, input_pdb, output_dir, entry_id: str | None) -> 
             resseq=instance.resseq,
             ph=float(params["ph"]),
             expected_ionizable=bool(chemistry.titratable_groups),
+            margin=float(params.get("protonation_margin") or POISED_MARGIN),
         )
         logger.info("%s %s%s: %s", decision.resname, instance.chain,
                     instance.resseq, state.reason)
@@ -546,7 +552,7 @@ def run(
     # downgrades failures to a warning and carries on, which would turn a
     # refusal into a run that reports success while having simulated nothing
     # of the kind.
-    if str(params.get("heterogens", "drop")).strip().lower() == "auto" \
+    if str(params.get("heterogens", "auto")).strip().lower() == "auto" \
             and not params.get("keep_heterogens") and not params.get("ligand"):
         discovered = _auto_ligands(
             params,

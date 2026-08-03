@@ -124,7 +124,13 @@ def run_setup(structure: str, policy: str, root: Path, forcefield: str) -> Outco
 
     detail = ""
     if not produced:
-        lines = [l for l in combined.splitlines() if "ERROR" in l or " - " in l]
+        # The reason a run stopped is on the ERROR lines. Progress notes were
+        # being mixed in and, once truncated, displaced them: a refusal read as
+        # "wrote fixed PDB to ...", which looks like a run that wrote a file
+        # and then failed for no stated reason.
+        lines = [l for l in combined.splitlines() if "ERROR" in l]
+        if not lines:
+            lines = [l for l in combined.splitlines() if " - " in l]
         detail = " ".join(lines[-3:])[:500] if lines else combined[-300:]
     return Outcome(ok=produced, seconds=elapsed, detail=detail, ligands=ligands)
 

@@ -410,3 +410,53 @@ class TestIonCoordinationBonds:
         topology = _FakeTopology([_bond(zn_bound, cl), _bond(cys_a, cys_b)])
         assert _drop_ion_coordination_bonds(topology) == ["ZN32-CL34"]
         assert len(topology._bonds) == 1
+
+
+class TestSetupArtifactsAreNotNested:
+    """``output_dir`` is the setup directory; appending "setup" buries things.
+
+    This has been written three times: once for the ligand files, once for the
+    structure built for the pKa calculation, and it was only caught the second
+    time because a refusal message happened to quote the path. Pinning each
+    function as it turns up does not stop the next one, so the whole module is
+    checked instead.
+
+    The name is what invites it. ``output_dir`` reads like the project's output
+    directory, and for every other phase that is what it would be; here the
+    phase directory has already been appended by the caller. Renaming the
+    parameter to ``setup_dir`` would end the mistake rather than catch it.
+    """
+
+    def test_nothing_appends_a_setup_directory_to_the_setup_directory(self) -> None:
+        import inspect
+        import re
+        from fastmdxplora.setup import pipeline
+
+        offenders = [
+            line.strip()
+            for line in inspect.getsource(pipeline).splitlines()
+            if re.search(r'output_dir\s*\)?\s*/\s*"setup"', line)
+        ]
+        assert not offenders, (
+            "output_dir is already the setup directory, so these write into "
+            "setup/setup/: " + "; ".join(offenders)
+        )
+
+    def test_the_pka_structure_sits_beside_the_other_artifacts(self) -> None:
+        import inspect
+        from fastmdxplora.setup import pipeline
+
+        source = inspect.getsource(pipeline._repaired_complex)
+        assert 'Path(output_dir) / "complex_for_pka.pdb"' in source
+
+
+class TestPhysiologicalPhIsTheDefault:
+    """Blood is 7.4, and a protein studied without a stated reason is there."""
+
+    def test_the_phase_and_the_schema_agree(self) -> None:
+        from fastmdxplora.config.schema import SETUP
+        from fastmdxplora.setup.pipeline import DEFAULTS
+
+        assert DEFAULTS["ph"] == 7.4
+        schema = {f.name: f.default for f in SETUP.fields}
+        assert schema["ph"] == DEFAULTS["ph"]
