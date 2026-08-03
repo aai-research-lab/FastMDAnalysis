@@ -40,23 +40,30 @@ then hands back publication-ready results.
 
 ## Install
 
-Analysis and reporting are pure pip. Setup and simulation additionally need
-OpenMM and PDBFixer, which come from conda-forge.
+From conda-forge, which brings every backend with it:
 
 ```bash
-# analysis and reporting only
-pip install fastmdxplora
-
-# all four phases
-conda create -n fastmdxplora "python>=3.9,<3.14"
+conda create -n fastmdxplora -c conda-forge fastmdxplora
 conda activate fastmdxplora
-conda install -c conda-forge openmm pdbfixer openmmforcefields
-pip install fastmdxplora
 ```
 
-To work on FastMDXplora itself, clone the repository and use the bundled
-`environment.yml`. Full instructions, including Windows and WSL2, optional
-extras, and troubleshooting, are in the
+This is the recommended route. OpenMM, PDBFixer, OpenFF, RDKit, and PROPKA are
+conda-forge packages, and the ligand path needs all of them; installing them
+any other way is more work for the same result.
+
+From PyPI, if you already manage those yourself or only need part of the
+pipeline:
+
+```bash
+pip install fastmdxplora            # analysis and reporting
+pip install "fastmdxplora[md]"      # adds setup and simulation
+pip install "fastmdxplora[ligand]"  # adds protein-ligand preparation
+```
+
+Run `fastmdx info` afterwards to see which backends were found.
+
+Working on FastMDXplora itself, Windows and WSL2, and troubleshooting a partial
+install are covered in the
 [installation guide](https://fastmdxplora.readthedocs.io/en/latest/installation.html).
 
 ## Quick start

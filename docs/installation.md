@@ -1,14 +1,20 @@
 # Installation
 
-FastMDXplora has two dependency footprints:
+FastMDXplora is packaged for conda-forge with every backend it can use, so a
+single command gets the whole pipeline. The routes below exist for the cases
+where that is not what you want.
+
+The dependency footprint has three tiers:
 
 - **Analysis and report** need only pip-installable packages (MDTraj, NumPy,
   SciPy, scikit-learn, matplotlib, pandas, python-pptx).
-- **Setup and simulation** additionally need **OpenMM** and **PDBFixer**, which
-  are distributed through **conda-forge**.
+- **Setup and simulation** additionally need **OpenMM** and **PDBFixer**.
+- **Protein-ligand preparation** additionally needs **OpenFF**,
+  **openmmforcefields**, **RDKit**, and **PROPKA** — to retrieve a ligand's
+  chemistry, parameterize it, and settle its protonation in the binding site.
 
-Choose the route that matches what you need. Every route below is a standard
-Python installation; FastMDXplora ships no bespoke installer.
+All of those are conda-forge packages. They are on PyPI too, with varying
+build quality; conda-forge is where they get the most use.
 
 ## Platform support
 
@@ -22,7 +28,25 @@ Python installation; FastMDXplora ships no bespoke installer.
 The chemistry stack is most reliable on Linux, macOS, and WSL2, which is where
 conda-forge's OpenMM builds get the most use.
 
-## Route 1: pip, analysis and reporting
+## Route 1: conda-forge, everything
+
+```bash
+conda create -n fastmdxplora -c conda-forge fastmdxplora
+conda activate fastmdxplora
+fastmdx info
+```
+
+This installs FastMDXplora with OpenMM, PDBFixer, openmmforcefields, OpenFF,
+RDKit, and PROPKA, which is every backend any phase uses. Nothing further is
+needed for a protein-ligand study from a PDB identifier.
+
+Into an environment you already have:
+
+```bash
+conda install -c conda-forge fastmdxplora
+```
+
+## Route 2: pip, analysis and reporting
 
 ```bash
 pip install fastmdxplora
@@ -44,17 +68,24 @@ FastMDXplora detects the missing backends before running, prints the exact
 install command, and exits with an error status. It does not report a
 simulation as completed.
 
-## Route 2: pip plus the chemistry stack, all four phases
+## Route 3: pip plus the chemistry stack
 
-Create a conda environment, add the chemistry packages from conda-forge, then
-pip install FastMDXplora into that environment:
+For an environment where FastMDXplora itself must come from PyPI — an editable
+checkout, or a version not yet on conda-forge — install the backends from
+conda-forge and the package with pip:
 
 ```bash
 conda create -n fastmdxplora "python>=3.9,<3.14"
 conda activate fastmdxplora
-conda install -c conda-forge openmm pdbfixer openmmforcefields
+conda install -c conda-forge openmm pdbfixer openmmforcefields \
+    openff-toolkit rdkit propka
 pip install fastmdxplora
 ```
+
+Drop the second line of conda packages for setup and simulation without the
+ligand path. The pip extras declare the same dependencies, so
+`pip install "fastmdxplora[md,ligand]"` works where wheels are available for
+your platform.
 
 Verify and run:
 
@@ -77,7 +108,7 @@ ships conda and mamba preconfigured for conda-forge. Download the installer
 for your platform from <https://conda-forge.org/miniforge/> and follow the
 instructions there.
 
-## Route 3: from a clone
+## Route 4: from a clone
 
 Use this if you want to modify FastMDXplora, or if you want the exact pinned
 environment the project develops against. The repository ships an
@@ -106,18 +137,6 @@ ruff check src tests         # lint with project conventions
 For contributor conventions see
 [CONTRIBUTING.md](https://github.com/aai-research-lab/FastMDXplora/blob/main/CONTRIBUTING.md).
 
-## Route 4: conda-forge
-
-A single-command install that pulls every dependency, including the chemistry
-stack, is planned:
-
-```bash
-conda install -c conda-forge fastmdxplora
-```
-
-The recipe lives in `recipes/fastmdxplora/meta.yaml` and has not yet cleared
-conda-forge review. Use Route 2 or 3 until it does.
-
 ## Windows
 
 For analysis and reporting, a virtual environment works natively:
@@ -144,7 +163,7 @@ You can also skip activation and call the environment's Python directly:
 
 For the full four-phase workflow, install
 [WSL2](https://learn.microsoft.com/windows/wsl/install) with an Ubuntu
-distribution and follow Route 2 or 3 inside the Ubuntu terminal. Keep PDB
+distribution and follow Route 1 inside the Ubuntu terminal. Keep PDB
 files and output directories on the WSL filesystem for better I/O performance.
 
 ## Optional extras
@@ -207,6 +226,7 @@ PY
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `fastmdx info` says OpenMM or PDBFixer is missing | You have the pip-only install | `conda install -c conda-forge openmm pdbfixer openmmforcefields` in the same environment that runs `fastmdx` |
+| `fastmdx info` says OpenFF, RDKit, or PROPKA is missing | The ligand stack is absent, so setup can prepare apo systems only | `conda install -c conda-forge openff-toolkit openmmforcefields rdkit propka`, or reinstall from Route 1 |
 | `fastmdx` is not recognized | The console-script directory is not on `PATH` | Use `python -m fastmdxplora.cli.main ...`, or reinstall from the interpreter you are actually using |
 | `conda` or `mamba` not on `PATH` after installing Miniforge | The new shell did not pick it up | Linux/macOS: `source ~/miniforge3/etc/profile.d/conda.sh`. Windows: open a fresh terminal |
 | Conda cannot solve the environment | Channel priority, or a Python version outside the supported range | Add `-c conda-forge`, and use a Python between 3.9 and 3.13 |
