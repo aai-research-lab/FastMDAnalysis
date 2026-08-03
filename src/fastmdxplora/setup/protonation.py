@@ -31,6 +31,7 @@ from __future__ import annotations
 import contextlib
 import io
 import logging
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -91,6 +92,10 @@ class ProtonationState:
     protonated: bool
     groups: tuple[GroupPka, ...]
     reason: str
+    #: Per group of the classifying vocabulary, whether it holds its proton at
+    #: this pH. A single answer cannot describe a molecule that is both acid
+    #: and base, so a zwitterion needs one decision per group, not one overall.
+    per_group: tuple[tuple[str, bool], ...] = ()
 
 
 #: Whether each titratable pattern, when it matches, matched the protonated
@@ -109,6 +114,25 @@ WRITTEN_PROTONATED: dict[str, bool] = {
     "guanidine": False,
     "thiol": True,
     "tetrazole": True,
+}
+
+
+#: PROPKA names ionizable groups by chemical class, not by atom: OCO is a
+#: carboxyl, C2N an amidinium (two nitrogens, four hydrogens), CG a guanidinium
+#: (three and five), and N31/N32/N33 an amine by its degree of substitution.
+#: That makes matching a reported pKa to a group in the molecule a lookup
+#: rather than a search through atom names.
+PROPKA_GROUP_TO_LABEL: dict[str, tuple[str, ...]] = {
+    "OCO": ("carboxylic acid", "carboxylate"),
+    "C2N": ("amidine",),
+    "CG": ("guanidine",),
+    "N30": ("primary or secondary amine",),
+    "N31": ("primary or secondary amine",),
+    "N32": ("primary or secondary amine",),
+    "N33": ("tertiary amine",),
+    "OP": ("phosphate or phosphonate",),
+    "SH": ("thiol",),
+    "NAR": ("imidazole", "tetrazole"),
 }
 
 
@@ -132,6 +156,31 @@ PROTONATION_SITE: dict[str, tuple[str, int]] = {
     "thiol": ("[SX2H1]", 0),
     "tetrazole": ("c1nnn[nH]1", 1),
 }
+
+
+def _decide_per_group(groups, ph: float) -> tuple[tuple[str, bool], ...]:
+    """Decide each classifying group separately, or leave it undecided.
+
+    Groups are matched to the vocabulary by PROPKA's chemical class, so a
+    ligand carrying both a carboxyl and an amine gets one answer for each
+    rather than one answer for both.
+
+    Two groups of the *same* class cannot be told apart -- PROPKA reports the
+    class, not which atom -- but that only matters when they disagree. Two
+    carboxylates both well below the pH are both deprotonated whichever is
+    which, so the ambiguity is recorded as decided. Where they straddle the pH
+    the site matters and no decision is made, which leaves the caller to refuse.
+    """
+    by_label: dict[str, list[bool]] = defaultdict(list)
+    for group in groups:
+        for label in PROPKA_GROUP_TO_LABEL.get(group.group_type, ()):
+            by_label[label].append(group.pka > ph)
+
+    decided: list[tuple[str, bool]] = []
+    for label, answers in by_label.items():
+        if len(set(answers)) == 1:
+            decided.append((label, answers[0]))
+    return tuple(sorted(decided))
 
 
 def _rdkit():
@@ -189,37 +238,47 @@ def apply_settled_state(sdf_text: str, chemistry, state) -> tuple[str, int]:
     charge is usually what binds it: the amidinium of benzamidine, the
     carboxylate of retinoic acid, the ammonium of a tamoxifen.
 
-    Raises rather than guessing where the settled state cannot be placed
-    unambiguously -- an unrecognised group, or more than one titratable group,
-    which a single protonated/deprotonated answer cannot describe.
+    Each group is adjusted on its own answer, so a ligand that is both acid and
+    base is built as the zwitterion rather than forced to one side. Where a
+    group has no answer -- because two of its class straddle the pH and PROPKA
+    reports the class rather than the atom -- this raises instead of guessing.
     """
-    groups = tuple(chemistry.titratable_groups)
-    if not groups:
+    labels = tuple(chemistry.titratable_groups)
+    if not labels:
         return sdf_text, chemistry.formal_charge
 
-    if len(groups) > 1:
+    # Older callers, and the tests that predate per-group answers, pass a state
+    # carrying only the overall verdict.
+    decisions = dict(state.per_group) if state.per_group else {
+        label: state.protonated for label in labels
+    }
+
+    undecided = [label for label in labels if label not in decisions]
+    if undecided:
         raise ProtonationError(
-            f"{chemistry.resname} carries more than one titratable group "
-            f"({', '.join(groups)}), and a single settled answer cannot say "
-            "which is protonated and which is not: a molecule with both a basic "
-            "amine and an acid is a zwitterion, not uniformly one or the other."
-            "\nSupply the ligand with --setup-ligand as an SDF or MOL2 already "
-            "in the state you intend, with explicit hydrogens and its net "
-            "charge set."
+            f"{chemistry.resname} carries {', '.join(undecided)} whose "
+            "protonation was not settled for that group specifically: two "
+            "groups of one chemical class fall on opposite sides of the pH, "
+            "and the calculation names the class rather than the atom, so "
+            "which site holds its proton is not determined.\nSupply the ligand "
+            "with --setup-ligand as an SDF or MOL2 already in the state you "
+            "intend, with explicit hydrogens and its net charge set."
         )
 
-    label = groups[0]
-    site = PROTONATION_SITE.get(label)
-    if site is None:
+    unplaceable = [label for label in labels
+                   if decisions[label] != WRITTEN_PROTONATED.get(label)
+                   and label not in PROTONATION_SITE]
+    if unplaceable:
         raise ProtonationError(
-            f"{chemistry.resname} carries a {label}, whose protonation site is "
-            "not one this pipeline knows how to place. Supply the ligand with "
-            "--setup-ligand already in the state you intend."
+            f"{chemistry.resname} carries {', '.join(unplaceable)}, whose "
+            "protonation site is not one this pipeline can place: the pattern "
+            "matches either charge state and names no particular atom. Supply "
+            "the ligand with --setup-ligand already in the state you intend."
         )
 
-    smarts, offset = site
-    if WRITTEN_PROTONATED.get(label) == state.protonated:
-        # The reference chemistry is already in the settled state.
+    changes = [label for label in labels
+               if decisions[label] != WRITTEN_PROTONATED.get(label)]
+    if not changes:
         return sdf_text, chemistry.formal_charge
 
     Chem = _rdkit()
@@ -230,35 +289,56 @@ def apply_settled_state(sdf_text: str, chemistry, state) -> tuple[str, int]:
             "as a molecule, so its protonation cannot be adjusted."
         )
 
-    matches = mol.GetSubstructMatches(Chem.MolFromSmarts(smarts))
-    if len(matches) != 1:
-        raise ProtonationError(
-            f"{chemistry.resname} has {len(matches)} matches for its {label}, "
-            "so the settled protonation cannot be placed unambiguously. Supply "
-            "the ligand with --setup-ligand already in the state you intend."
+    expected = chemistry.formal_charge
+    for label in changes:
+        smarts, offset = PROTONATION_SITE[label]
+        pattern = Chem.MolFromSmarts(smarts)
+        sites = len(mol.GetSubstructMatches(pattern))
+
+        # A decided answer applies to every site of its class. Methotrexate
+        # carries two carboxylates and both sit well below pH 7, so which is
+        # which never arises; requiring a single site refused the ligand over
+        # an ambiguity that has no consequence. Where the sites disagree the
+        # label is left undecided upstream and never reaches here.
+        reported = sum(1 for group in state.groups
+                       if label in PROPKA_GROUP_TO_LABEL.get(group.group_type, ()))
+        allowed = reported if reported else 1
+        if sites != allowed:
+            raise ProtonationError(
+                f"{chemistry.resname} has {sites} site(s) matching its {label} "
+                f"but {allowed} were accounted for, so the settled protonation "
+                "cannot be placed. Supply the ligand with --setup-ligand "
+                "already in the state you intend."
+            )
+
+        protonating = decisions[label]
+        change = _add_proton if protonating else _remove_proton
+        # Adjusting a site stops it matching its own pattern -- a deprotonated
+        # acid is no longer a carboxylic acid, a protonated amine no longer an
+        # NX3 -- so rematching after each change walks the sites without
+        # tracking indices that shift underneath.
+        for _ in range(sites):
+            found = mol.GetSubstructMatches(pattern)
+            if not found:
+                break
+            mol = change(Chem, mol, found[0][offset])
+            expected += 1 if protonating else -1
+        logger.info(
+            "%s: %s %d %s site(s) to match the state settled in the complex.",
+            chemistry.resname,
+            "protonated" if protonating else "deprotonated", sites, label,
         )
 
-    index = matches[0][offset]
-    change = _add_proton if state.protonated else _remove_proton
-    adjusted = change(Chem, mol, index)
-
-    charge = Chem.GetFormalCharge(adjusted)
-    expected = chemistry.formal_charge + (1 if state.protonated else -1)
+    charge = Chem.GetFormalCharge(mol)
     if charge != expected:
         raise ProtonationError(
-            f"Adjusting {chemistry.resname}'s {label} produced a net charge of "
+            f"Adjusting {chemistry.resname} produced a net charge of "
             f"{charge:+d} where {expected:+d} was intended, so the reference "
             "chemistry is not what this pipeline assumed. Supply the ligand "
             "with --setup-ligand already in the state you intend."
         )
-    logger.info(
-        "%s: %s its %s to match the state settled in the complex; net charge "
-        "%+d.",
-        chemistry.resname,
-        "protonated" if state.protonated else "deprotonated",
-        label, charge,
-    )
-    return Chem.MolToMolBlock(adjusted), charge
+    logger.info("%s: net charge %+d.", chemistry.resname, charge)
+    return Chem.MolToMolBlock(mol), charge
 
 
 def _propka():
@@ -403,6 +483,7 @@ def decide(
         reason=(
             f"pKa determined in the complex at pH {ph:g}: {detail}"
         ),
+        per_group=_decide_per_group(groups, ph),
     )
     logger.info(
         "%s protonation settled from the complex: %d group(s), %s",

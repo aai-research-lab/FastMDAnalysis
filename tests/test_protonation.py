@@ -302,19 +302,86 @@ class TestSettledStateReachesTheForceField:
             self._state("ACD", True))
         assert text == original
 
-    def test_a_zwitterion_is_refused_rather_than_guessed(self):
-        """One answer cannot describe a molecule that is both acid and base."""
+    def test_a_zwitterion_is_built_as_one(self):
+        """An amino acid is not uniformly acid or base; it is both.
+
+        A single settled answer forced one side onto the other. Deciding each
+        group on its own pKa builds the species that actually exists at pH 7.
+        """
+        from rdkit import Chem
+        from fastmdxplora.setup.protonation import (
+            ProtonationState, apply_settled_state,
+        )
+
+        state = ProtonationState(
+            "ALA", True, (), "test",
+            per_group=(("carboxylic acid", False),
+                       ("primary or secondary amine", True)),
+        )
+        text, charge = apply_settled_state(
+            self._sdf("CC(N)C(=O)O"),
+            self._chemistry("ALA", ["carboxylic acid",
+                                    "primary or secondary amine"]),
+            state,
+        )
+        assert charge == 0, "the zwitterion is neutral overall"
+        mol = Chem.MolFromMolBlock(text, removeHs=False)
+        smiles = Chem.MolToSmiles(Chem.RemoveHs(mol))
+        assert "[NH3+]" in smiles and "[O-]" in smiles, smiles
+
+    def test_groups_of_one_class_that_straddle_the_ph_are_refused(self):
+        """The calculation names the class, not which atom carries the pKa."""
+        from fastmdxplora.setup.protonation import (
+            ProtonationError, apply_settled_state, ProtonationState,
+        )
+
+        # No decision recorded for the acid: two of them disagreed.
+        state = ProtonationState("DIA", True, (), "test",
+                                 per_group=(("tertiary amine", True),))
+        with pytest.raises(ProtonationError, match="not settled for that group"):
+            apply_settled_state(
+                self._sdf("CC(C)=CC(=O)O"),
+                self._chemistry("DIA", ["carboxylic acid"]),
+                state,
+            )
+
+    def test_more_sites_than_were_accounted_for_are_refused(self):
+        """Two amines in the molecule but one reported: the match is not sound."""
         from fastmdxplora.setup.protonation import (
             ProtonationError, apply_settled_state,
         )
 
-        with pytest.raises(ProtonationError, match="more than one titratable"):
+        with pytest.raises(ProtonationError, match="accounted for"):
             apply_settled_state(
-                self._sdf("NCCCCC(N)C(=O)O"),
-                self._chemistry(
-                    "ZWT", ["carboxylic acid", "primary or secondary amine"]),
-                self._state("ZWT", True),
+                self._sdf("NCCCCCN"),
+                self._chemistry("DAM", ["primary or secondary amine"]),
+                self._state("DAM", True),
             )
+
+    def test_one_answer_is_applied_to_every_site_of_its_class(self):
+        """Methotrexate carries two carboxylates, both well below pH 7.
+
+        Which is which never arises when both fall on the same side, so
+        refusing over the ambiguity refused the ligand for no reason.
+        """
+        from rdkit import Chem
+        from fastmdxplora.setup.protonation import (
+            GroupPka, ProtonationState, apply_settled_state,
+        )
+
+        both = (GroupPka("MTX", "A", 1, "OCO", 3.4, 4.5),
+                GroupPka("MTX", "A", 1, "OCO", 4.7, 4.5))
+        state = ProtonationState("MTX", False, both, "test",
+                                 per_group=(("carboxylic acid", False),))
+        text, charge = apply_settled_state(
+            self._sdf("OC(=O)CCC(N(C)C)C(=O)O"),
+            self._chemistry("MTX", ["carboxylic acid"]),
+            state,
+        )
+        assert charge == -2, "both carboxylates are deprotonated"
+        assert Chem.MolToSmiles(
+            Chem.RemoveHs(Chem.MolFromMolBlock(text, removeHs=False))
+        ).count("[O-]") == 2
 
     def test_an_unplaceable_group_is_refused(self):
         """The phosphate patterns match either form and name no site."""
@@ -328,3 +395,49 @@ class TestSettledStateReachesTheForceField:
                 self._chemistry("PHO", ["phosphate or phosphonate"]),
                 self._state("PHO", False),
             )
+
+
+class TestPerGroupDecisions:
+    """PROPKA reports a chemical class, which is enough to match a group.
+
+    OCO is a carboxyl, C2N an amidinium, CG a guanidinium, N31/N32/N33 an amine
+    by degree of substitution. Matching a reported pKa to a group in the
+    molecule is therefore a lookup, not a search through atom names.
+    """
+
+    @staticmethod
+    def _group(group_type, pka):
+        from fastmdxplora.setup.protonation import GroupPka
+
+        return GroupPka("LIG", "A", 1, group_type, pka, pka)
+
+    def test_an_acid_and_a_base_are_decided_separately(self):
+        from fastmdxplora.setup.protonation import _decide_per_group
+
+        decided = dict(_decide_per_group(
+            [self._group("OCO", 4.0), self._group("N31", 10.5)], 7.0))
+        assert decided["carboxylic acid"] is False
+        assert decided["primary or secondary amine"] is True
+
+    def test_two_of_one_class_agreeing_is_still_decided(self):
+        """Which carboxylate is which does not matter when both agree."""
+        from fastmdxplora.setup.protonation import _decide_per_group
+
+        decided = dict(_decide_per_group(
+            [self._group("OCO", 3.9), self._group("OCO", 4.4)], 7.0))
+        assert decided["carboxylic acid"] is False
+
+    def test_two_of_one_class_disagreeing_is_left_undecided(self):
+        """Here the site matters, and the class does not identify it."""
+        from fastmdxplora.setup.protonation import _decide_per_group
+
+        decided = dict(_decide_per_group(
+            [self._group("OCO", 3.9), self._group("OCO", 9.1)], 7.0))
+        assert "carboxylic acid" not in decided
+
+    def test_an_amidine_is_not_read_as_a_guanidine(self):
+        """PROPKA separates them: C2N has two nitrogens, CG has three."""
+        from fastmdxplora.setup.protonation import PROPKA_GROUP_TO_LABEL
+
+        assert PROPKA_GROUP_TO_LABEL["C2N"] == ("amidine",)
+        assert PROPKA_GROUP_TO_LABEL["CG"] == ("guanidine",)
