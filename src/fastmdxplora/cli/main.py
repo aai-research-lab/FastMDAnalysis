@@ -338,6 +338,24 @@ def _harvest_phase_options(
     return out
 
 
+#: Flags whose name does not become the option name by dropping the analysis
+#: prefix. --analyze-dimred-components reads better than
+#: --analyze-dimred-n-components, but the option is n_components, and stripping
+#: the prefix produced "components", which no analysis has ever accepted. The
+#: flag was therefore ignored in silence.
+_OPTION_KEY_OVERRIDES = {
+    ("dimred", "dimred_components"): "n_components",
+}
+
+
+def _option_key(analysis: str, flag_key: str) -> str:
+    """The option name a CLI flag stands for."""
+    override = _OPTION_KEY_OVERRIDES.get((analysis, flag_key))
+    if override is not None:
+        return override
+    return flag_key[len(analysis) + 1:] if flag_key.startswith(f"{analysis}_") else flag_key
+
+
 def _normalize_analysis_options(kwargs: dict[str, Any]) -> dict[str, Any]:
     """Move CLI analysis-method flags into the nested ``options`` mapping.
 
@@ -407,7 +425,7 @@ def _normalize_analysis_options(kwargs: dict[str, Any]) -> dict[str, Any]:
         if values:
             current = dict(options.get(name) or {})
             current.update(
-                {key.removeprefix(f"{name}_"): value for key, value in values.items()}
+                {_option_key(name, key): value for key, value in values.items()}
             )
             options[name] = current
     if options:

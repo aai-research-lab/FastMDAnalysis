@@ -372,8 +372,49 @@ class AnalysisOrchestrator:
                     raise ValueError(
                         f"options[{name!r}] must be a dict, got {type(opts).__name__}"
                     )
+                self._reject_unknown_options(name, opts)
                 merged[name].update(opts)
         return merged
+
+    @staticmethod
+    def _accepted_options(cls: type[Analysis]) -> set[str]:
+        """Every option an analysis names, its own and the base class's."""
+        accepted: set[str] = set()
+        for klass in cls.__mro__:
+            init = klass.__dict__.get("__init__")
+            if init is None:
+                continue
+            for param in inspect.signature(init).parameters.values():
+                if param.name == "self":
+                    continue
+                if param.kind in (
+                    inspect.Parameter.KEYWORD_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                ):
+                    accepted.add(param.name)
+        return accepted
+
+    @classmethod
+    def _reject_unknown_options(cls, name: str, opts: dict[str, Any]) -> None:
+        """Refuse a setting the analysis has no name for.
+
+        Every analysis ends its signature with ``**kwargs``, which the base
+        class stores and nothing reads. A misspelled option was therefore
+        accepted, ignored, and the run reported success: asking for
+        ``n_clusteres`` clustered at the default and said nothing. A setting
+        the user wrote and the software did not apply is worse than a stopped
+        run, because it looks like an answer to the question they asked.
+        """
+        analysis_cls = get_analysis_class(name)
+        accepted = cls._accepted_options(analysis_cls)
+        unknown = sorted(set(opts) - accepted)
+        if not unknown:
+            return
+        raise ValueError(
+            f"options[{name!r}] has no setting called "
+            f"{', '.join(repr(u) for u in unknown)}. "
+            f"{name} accepts: {', '.join(sorted(accepted))}."
+        )
 
     @staticmethod
     def _filter_kwargs(

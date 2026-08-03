@@ -511,3 +511,68 @@ def test_AnalysisOrchestrator_exposed_at_top_level():
     from fastmdxplora import AnalysisOrchestrator as AO
 
     assert AO is AnalysisOrchestrator
+
+
+class TestUnknownOptionsAreRefused:
+    """A setting the software did not apply must not look like one it did.
+
+    Every analysis ends its signature with ``**kwargs``, which the base class
+    stores in ``self.options`` and nothing reads. So a misspelled option was
+    accepted, ignored, and the run reported success: asking for
+    ``n_clusteres`` clustered at the default and said nothing about it.
+    """
+
+    def test_a_misspelled_option_stops_the_run(self, tmp_path) -> None:
+        import pytest
+        from fastmdxplora.analysis.orchestrator import AnalysisOrchestrator
+
+        with pytest.raises(ValueError, match="n_clusteres"):
+            AnalysisOrchestrator._reject_unknown_options(
+                "cluster", {"n_clusteres": 3})
+
+    def test_the_message_names_what_is_accepted(self) -> None:
+        import pytest
+        from fastmdxplora.analysis.orchestrator import AnalysisOrchestrator
+
+        with pytest.raises(ValueError, match="n_clusters"):
+            AnalysisOrchestrator._reject_unknown_options(
+                "cluster", {"n_clusteres": 3})
+
+    def test_a_real_option_passes(self) -> None:
+        from fastmdxplora.analysis.orchestrator import AnalysisOrchestrator
+
+        AnalysisOrchestrator._reject_unknown_options(
+            "cluster", {"n_clusters": 3, "linkage": "ward"})
+
+    def test_an_option_named_by_the_base_class_passes(self) -> None:
+        """selection and output_dir belong to every analysis."""
+        from fastmdxplora.analysis.orchestrator import AnalysisOrchestrator
+
+        AnalysisOrchestrator._reject_unknown_options(
+            "rmsd", {"ref": 0, "selection": "name CA", "title": "custom"})
+
+    def test_every_analysis_accepts_what_the_cli_can_send(self) -> None:
+        """The CLI builds option keys of its own; they must all be real.
+
+        --analyze-cluster-n-clusters becomes options['cluster']['n_clusters'],
+        and a rename that stopped matching would be silent again.
+        """
+        from fastmdxplora.analysis.orchestrator import AnalysisOrchestrator
+        from fastmdxplora.cli.main import _normalize_analysis_options
+
+        sent = _normalize_analysis_options({
+            "dimred_methods": ["pca"], "dimred_components": 2,
+            "cluster_methods": ["kmeans"], "cluster_n_clusters": 4,
+            "cluster_linkage": "ward",
+        })
+        for name, opts in sent["options"].items():
+            AnalysisOrchestrator._reject_unknown_options(name, opts)
+
+    def test_the_v1_profile_only_sends_real_options(self) -> None:
+        """--analyze-compat v1 writes a whole table of options by hand."""
+        from fastmdxplora.analysis.orchestrator import AnalysisOrchestrator
+        from fastmdxplora.cli.main import _normalize_analysis_options
+
+        sent = _normalize_analysis_options({"compat": "v1"})
+        for name, opts in sent["options"].items():
+            AnalysisOrchestrator._reject_unknown_options(name, opts)
