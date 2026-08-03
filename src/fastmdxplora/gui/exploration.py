@@ -24,7 +24,7 @@ from typing import Any, Mapping
 from fastmdxplora.dependencies import dependency_error_message, missing_dependencies
 
 
-_FORCEFIELDS = ("charmm36", "amber14", "amber-fb15", "amber-openff")
+_FORCEFIELDS = ("auto", "charmm36", "amber14", "amber-fb15", "amber-openff")
 _PLATFORMS = ("auto", "CPU", "CUDA", "OpenCL", "HIP")
 _PRECISIONS = ("single", "mixed", "double")
 _INTEGRATORS = (
@@ -93,10 +93,11 @@ def exploration_defaults() -> dict[str, Any]:
         "run_name": "",
         "setup": {
             "ph": float(setup_defaults.get("ph", 7.0)),
-            "forcefield": str(setup_defaults.get("forcefield", "charmm36")),
+            "forcefield": str(setup_defaults.get("forcefield", "auto")),
             "water_model": setup_defaults.get("water_model") or "auto",
             "ion_concentration_M": float(setup_defaults.get("ion_concentration_M", 0.15)),
             "solvent_padding_nm": float(setup_defaults.get("solvent_padding_nm", 1.0)),
+            "heterogens": str(setup_defaults.get("heterogens", "drop")),
             "keep_heterogens": bool(setup_defaults.get("keep_heterogens", False)),
             "keep_water": bool(setup_defaults.get("keep_water", False)),
         },
@@ -165,7 +166,7 @@ def validate_exploration_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
         setup["ph"] = _number(setup_in, "ph", default=7.0, minimum=0.0, maximum=14.0)
     except ValueError as exc:
         errors["setup.ph"] = str(exc)
-    forcefield = str(setup_in.get("forcefield") or "charmm36")
+    forcefield = str(setup_in.get("forcefield") or "auto")
     if forcefield not in _FORCEFIELDS:
         errors["setup.forcefield"] = "Choose a supported force field."
     else:
@@ -192,6 +193,13 @@ def validate_exploration_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
         )
     except ValueError as exc:
         errors["setup.solvent_padding_nm"] = str(exc)
+    heterogens = str(setup_in.get("heterogens", "drop")).strip().lower()
+    if heterogens not in {"drop", "keep", "auto"}:
+        errors["setup.heterogens"] = (
+            f"expected drop, keep, or auto; got {heterogens!r}"
+        )
+    else:
+        setup["heterogens"] = heterogens
     setup["keep_heterogens"] = bool(setup_in.get("keep_heterogens", False))
     setup["keep_water"] = bool(setup_in.get("keep_water", False))
 
@@ -319,6 +327,8 @@ def build_config_yaml(config: Mapping[str, Any], output_dir: Path | str) -> str:
     }
     if setup.get("water_model") and setup["water_model"] != "auto":
         setup_block["water_model"] = setup["water_model"]
+    if setup.get("heterogens") and setup["heterogens"] != "drop":
+        setup_block["heterogens"] = setup["heterogens"]
     if setup.get("keep_heterogens"):
         setup_block["keep_heterogens"] = True
     if setup.get("keep_water"):
@@ -432,6 +442,8 @@ def build_exploration_command(config: Mapping[str, Any], output_dir: Path) -> li
     ]
     if setup.get("water_model") and setup["water_model"] != "auto":
         command.extend(["--setup-water-model", str(setup["water_model"])])
+    if setup.get("heterogens") and setup["heterogens"] != "drop":
+        command.extend(["--setup-heterogens", str(setup["heterogens"])])
     if setup.get("keep_heterogens"):
         command.append("--setup-keep-heterogens")
     if setup.get("keep_water"):

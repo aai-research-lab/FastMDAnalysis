@@ -66,7 +66,7 @@ _SETUP_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
         "help": "Retain crystallographic waters."}),
     ("fixed-pdb", "fixed_pdb", {"type": str, "metavar": "PATH",
         "help": "Use an already-fixed PDB and skip PDBFixer."}),
-    ("forcefield", "forcefield", {"choices": ["charmm36", "amber14", "amber-fb15", "amber-openff"],
+    ("forcefield", "forcefield", {"choices": ["auto", "charmm36", "amber14", "amber-fb15", "amber-openff"],
         "help": "Named force field (default 'charmm36'). Resolves to the "
                 "right XMLs and water model. Use 'amber-openff' for ligands."}),
     ("force-field", "force_field", {"nargs": "+", "metavar": "XML",

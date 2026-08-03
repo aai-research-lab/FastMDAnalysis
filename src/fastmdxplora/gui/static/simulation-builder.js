@@ -113,7 +113,12 @@
     setPair("builder-friction-range", "builder-friction", sim.friction_per_ps);
 
     byId("builder-water-model").value = setup.water_model || "auto";
-    byId("builder-keep-heterogens").checked = !!setup.keep_heterogens;
+    // The legacy checkbox became a three-way choice; a saved study that set
+    // keep_heterogens still lands on "keep".
+    const heterogens = byId("builder-heterogens");
+    if (heterogens) {
+      heterogens.value = setup.keep_heterogens ? "keep" : (setup.heterogens || "drop");
+    }
     byId("builder-keep-water").checked = !!setup.keep_water;
     byId("builder-minimize").checked = sim.minimize !== false;
     byId("builder-trajectory-interval").value = sim.trajectory_interval_steps;
@@ -169,12 +174,12 @@
       system: byId("builder-system")?.value.trim() || "",
       run_name: byId("builder-run-name")?.value.trim() || "",
       setup: {
-        forcefield: byId("builder-forcefield")?.value || "charmm36",
+        forcefield: byId("builder-forcefield")?.value || "auto",
         water_model: byId("builder-water-model")?.value.trim() || "auto",
         ph: numberValue("builder-ph", 7),
         ion_concentration_M: numberValue("builder-ion", 0.15),
         solvent_padding_nm: numberValue("builder-padding", 1),
-        keep_heterogens: !!byId("builder-keep-heterogens")?.checked,
+        heterogens: byId("builder-heterogens")?.value || "drop",
         keep_water: !!byId("builder-keep-water")?.checked,
       },
       simulation: {

@@ -160,11 +160,25 @@ class TestRemovalReporting:
 
         structure = tmp_path / "in.pdb"
         structure.write_text(
-            "ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00  0.00           N\n"
-            "ATOM      2  CA  ALA A   1       1.400   0.000   0.000  1.00  0.00           C\n"
-            "ATOM      3  C   ALA A   1       2.000   1.400   0.000  1.00  0.00           C\n"
-            "ATOM      4  O   ALA A   1       1.300   2.400   0.000  1.00  0.00           O\n"
-            "HETATM   10  C1  BNZ A 200       9.000   9.000   9.000  1.00  0.00           C\n"
+            # A tripeptide rather than a lone residue: one amino acid is
+        # simultaneously N- and C-terminal, which AMBER has no template for.
+        # These fixtures test pipeline mechanics, not force-field edge cases.
+                "ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00  0.00           N\n"
+                "ATOM      2  CA  ALA A   1       1.458   0.000   0.000  1.00  0.00           C\n"
+        "ATOM      3  C   ALA A   1       2.009   1.420   0.000  1.00  0.00           C\n"
+        "ATOM      4  O   ALA A   1       1.251   2.390   0.000  1.00  0.00           O\n"
+        "ATOM      5  CB  ALA A   1       1.988  -0.773  -1.199  1.00  0.00           C\n"
+        "ATOM      6  N   GLY A   2       3.332   1.549   0.000  1.00  0.00           N\n"
+        "ATOM      7  CA  GLY A   2       3.972   2.849   0.000  1.00  0.00           C\n"
+        "ATOM      8  C   GLY A   2       5.486   2.705   0.000  1.00  0.00           C\n"
+        "ATOM      9  O   GLY A   2       6.008   1.593   0.000  1.00  0.00           O\n"
+        "ATOM     10  N   ALA A   3       6.171   3.845   0.000  1.00  0.00           N\n"
+        "ATOM     11  CA  ALA A   3       7.623   3.845   0.000  1.00  0.00           C\n"
+        "ATOM     12  C   ALA A   3       8.174   5.265   0.000  1.00  0.00           C\n"
+        "ATOM     13  O   ALA A   3       7.416   6.235   0.000  1.00  0.00           O\n"
+        "ATOM     14  CB  ALA A   3       8.153   3.072  -1.199  1.00  0.00           C\n"
+        "ATOM     15  OXT ALA A   3       9.400   5.400   0.000  1.00  0.00           O\n"
+        "HETATM   10  C1  BNZ A 200       9.000   9.000   9.000  1.00  0.00           C\n"
             "HETATM   20  C1  EPE A 300      20.000  20.000  20.000  1.00  0.00           C\n"
             "END\n",
             encoding="utf-8",
@@ -226,3 +240,38 @@ class TestRemovalReporting:
             line for line in text.splitlines() if "Removed heterogens" in line
         )
         assert "BNZ" not in warning_line
+
+
+class TestMultipleLigandNamesSurvive:
+    """A list of names must reach preparation as a list.
+
+    The auto path assigns one name per ligand, then the pipeline stringified
+    the list, so three ligands arrived as a single name of
+    "['Z00', 'Z01', 'Z02']". Multi-ligand support was defeated one line after
+    it was added, and every metalloprotein with several ions failed.
+    """
+
+    def test_a_list_is_not_stringified(self) -> None:
+        import inspect
+
+        from fastmdxplora.setup import pipeline
+
+        source = inspect.getsource(pipeline.run)
+        assert 'ligand_name=str(params["ligand_name"])' not in source, (
+            "stringifying the name list turns several names into one"
+        )
+
+    def test_prepare_accepts_the_list_the_pipeline_builds(self) -> None:
+        """The two halves must agree on the shape of the value."""
+        from fastmdxplora.setup.prepare import _resolve_ligand_names
+
+        names = _resolve_ligand_names(["a.sdf", "b.sdf", "c.sdf"],
+                                      ["Z00", "Z01", "Z02"])
+        assert names == ["Z00", "Z01", "Z02"]
+
+    def test_the_stringified_form_is_still_rejected_clearly(self) -> None:
+        """If it ever regresses, the message should say what happened."""
+        from fastmdxplora.setup.prepare import _resolve_ligand_names
+
+        with pytest.raises(ValueError, match="single ligand name"):
+            _resolve_ligand_names(["a", "b", "c"], "['Z00', 'Z01', 'Z02']")

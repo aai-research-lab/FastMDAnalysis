@@ -49,11 +49,21 @@ except ImportError:
 # ---------------------------------------------------------------------------
 MINI_PDB = """\
 HEADER    DUMMY                                   01-JAN-26                     
-ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00  0.00           N  
-ATOM      2  CA  ALA A   1       1.500   0.000   0.000  1.00  0.00           C  
-ATOM      3  C   ALA A   1       2.000   1.400   0.000  1.00  0.00           C  
-ATOM      4  O   ALA A   1       1.300   2.400   0.000  1.00  0.00           O  
-ATOM      5  CB  ALA A   1       2.000  -0.700   1.200  1.00  0.00           C  
+ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00  0.00           N
+ATOM      2  CA  ALA A   1       1.458   0.000   0.000  1.00  0.00           C
+ATOM      3  C   ALA A   1       2.009   1.420   0.000  1.00  0.00           C
+ATOM      4  O   ALA A   1       1.251   2.390   0.000  1.00  0.00           O
+ATOM      5  CB  ALA A   1       1.988  -0.773  -1.199  1.00  0.00           C
+ATOM      6  N   GLY A   2       3.332   1.549   0.000  1.00  0.00           N
+ATOM      7  CA  GLY A   2       3.972   2.849   0.000  1.00  0.00           C
+ATOM      8  C   GLY A   2       5.486   2.705   0.000  1.00  0.00           C
+ATOM      9  O   GLY A   2       6.008   1.593   0.000  1.00  0.00           O
+ATOM     10  N   ALA A   3       6.171   3.845   0.000  1.00  0.00           N
+ATOM     11  CA  ALA A   3       7.623   3.845   0.000  1.00  0.00           C
+ATOM     12  C   ALA A   3       8.174   5.265   0.000  1.00  0.00           C
+ATOM     13  O   ALA A   3       7.416   6.235   0.000  1.00  0.00           O
+ATOM     14  CB  ALA A   3       8.153   3.072  -1.199  1.00  0.00           C
+ATOM     15  OXT ALA A   3       9.400   5.400   0.000  1.00  0.00           O
 END
 """
 
@@ -186,15 +196,21 @@ class TestPDBFixWrapper:
 # prepare.prepare_system — mocked OpenMM
 # ===========================================================================
 class TestPrepareSystem:
-    def test_default_forcefield_resolves_to_charmm36(self):
-        """The default named force field resolves to CHARMM36 XMLs."""
+    def test_the_default_resolves_to_a_ligand_capable_stack(self):
+        """Unspecified means auto, which must be able to take a ligand.
+
+        The default heterogen policy prepares a bound ligand without being
+        asked, so a protein-only default would refuse on any structure that
+        has one.
+        """
         from fastmdxplora.setup.forcefields import (
             DEFAULT_FORCEFIELD,
             resolve_forcefield,
         )
-        assert DEFAULT_FORCEFIELD == "charmm36"
+        assert DEFAULT_FORCEFIELD == "auto"
         choice = resolve_forcefield(None)
-        assert choice.xmls == ("charmm36.xml", "charmm36/water.xml")
+        assert choice.supports_ligand
+        assert choice.small_molecule_forcefield
         assert _prepare_mod.DEFAULT_PADDING_NM == 1.0
         assert _prepare_mod.DEFAULT_IONIC_STRENGTH_M == 0.15
 
@@ -342,19 +358,19 @@ class TestPipelineRun:
         assert manifest["phase"] == "setup"
         assert manifest["input"]["form"] == "pdb_file"
 
-    def test_charmm36_default_in_manifest(self, stub_orchestrator):
-        """Setup records CHARMM36 as the resolved force field by default."""
+    def test_the_resolved_force_field_is_recorded(self, stub_orchestrator):
+        """`auto` must never leave a run ambiguous about what it used."""
         out_dir = stub_orchestrator.output_dir / "setup"
         out_dir.mkdir()
         setup_run(orchestrator=stub_orchestrator, output_dir=out_dir)
         manifest = json.loads((out_dir / "setup_parameters.json").read_text(encoding="utf-8"))
         # Default uses the named selector; the resolved block records the XMLs.
-        assert manifest["parameters"]["forcefield"] == "charmm36"
+        assert manifest["parameters"]["forcefield"] == "auto"
         resolved = manifest["resolved_forcefield"]
         assert resolved["source"] == "named"
-        assert resolved["name"] == "charmm36"
-        assert "charmm36.xml" in resolved["xmls"]
-        assert "charmm36/water.xml" in resolved["xmls"]
+        # What auto chose, recorded concretely rather than as the word "auto".
+        assert resolved["name"] == "amber-openff"
+        assert resolved["xmls"], "the manifest must name the XML files used"
 
     def test_openmm_parameterization_failure_writes_manifest(
         self, stub_orchestrator, mini_pdb
@@ -449,7 +465,7 @@ class TestPipelineRun:
 class TestDefaults:
     def test_charmm36_protein_default(self):
         """Pipeline default uses the named charmm36 selector; raw list off."""
-        assert DEFAULTS["forcefield"] == "charmm36"
+        assert DEFAULTS["forcefield"] == "auto"
         assert DEFAULTS["force_field"] is None
 
     def test_physiological_ionic_strength(self):

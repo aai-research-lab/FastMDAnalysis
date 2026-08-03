@@ -384,8 +384,18 @@ class SessionPresenter:
         )
         forcefield = arg_value(
             "--setup-forcefield", "--forcefield",
-            default=field_value("Force Field", "forcefield", "setup_forcefield", default=_SETUP_DEFAULTS.get("forcefield", "charmm36")),
+            default=field_value("Force Field", "forcefield", "setup_forcefield",
+                                default=_SETUP_DEFAULTS.get("forcefield", "auto")),
         )
+        if str(forcefield).strip().lower() == "auto":
+            # "auto" tells the reader nothing about what was simulated. Show
+            # what it resolves to, and say that it was chosen rather than named.
+            try:
+                from fastmdxplora.setup.forcefields import resolve_forcefield
+
+                forcefield = f"{resolve_forcefield('auto').name} (auto)"
+            except Exception:  # noqa: BLE001 - the banner must never fail a run
+                pass
 
         timestep = arg_value(
             "--simulate-timestep-fs", "--timestep-fs",

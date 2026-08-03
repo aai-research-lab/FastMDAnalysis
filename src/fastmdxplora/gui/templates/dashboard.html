@@ -218,9 +218,16 @@
                     </div>
                     <span class="field-error" data-error-for="setup.solvent_padding_nm"></span>
                   </label>
+                  <label class="builder-field">
+                    <span class="builder-label">Non-standard residues</span>
+                    <select id="builder-heterogens">
+                      <option value="drop">Remove them (default)</option>
+                      <option value="auto">Decide automatically</option>
+                      <option value="keep">Keep them all</option>
+                    </select>
+                  </label>
                   <div class="builder-field builder-toggle-group">
                     <span class="builder-label">Structure retention</span>
-                    <label class="checkbox-row"><input type="checkbox" id="builder-keep-heterogens"> Keep heterogens</label>
                     <label class="checkbox-row"><input type="checkbox" id="builder-keep-water"> Keep crystallographic water</label>
                   </div>
                 </div>

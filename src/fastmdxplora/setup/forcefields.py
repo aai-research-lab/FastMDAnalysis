@@ -95,25 +95,40 @@ _REGISTRY: dict[str, ForceFieldChoice] = {
     ),
     "amber-openff": ForceFieldChoice(
         name="amber-openff",
-        xmls=("amber14/protein.ff14SB.xml", "amber14/tip3p.xml"),
+        # The full AMBER14 bundle rather than the protein file alone: it
+        # carries DNA (OL15), RNA (OL3), lipids, and glycans, so a structure
+        # containing nucleic acid can be prepared at all. With only
+        # protein.ff14SB.xml, a DNA duplex failed with "no template found for
+        # residue DC", which reads as a broken structure rather than a missing
+        # force field.
+        xmls=("amber14-all.xml", "amber14/tip3p.xml"),
         water_model="tip3p",
         supports_ligand=True,
         small_molecule_forcefield="openff-2.2.1",
         description=(
-            "AMBER ff14SB protein + TIP3P water + OpenFF Sage 2.2.1 for "
-            "small-molecule ligands (protein-ligand systems)."
+            "AMBER14 biopolymers (ff14SB protein, OL15 DNA, OL3 RNA) + TIP3P "
+            "water + OpenFF Sage 2.2.1 for small-molecule ligands."
         ),
     ),
 }
 
-#: The default force field when the user specifies none. CHARMM36 is the
-#: verified default that protein-only workflows have used since v0.1.0.
-DEFAULT_FORCEFIELD = "charmm36"
+#: What an unspecified force field means. ``auto`` picks a stack that
+#: can parameterize a bound ligand, so the common case needs no flags.
+DEFAULT_FORCEFIELD = "auto"
 
 
 def available_forcefields() -> tuple[str, ...]:
     """Return the registered force-field names, sorted for stable display."""
     return tuple(sorted(_REGISTRY))
+
+
+#: What ``auto`` resolves to. A single stack, whatever the structure holds:
+#: choosing per-system would mean an apo run and its holo partner used
+#: different protein force fields, and comparing them would be meaningless.
+#: This one is ligand-capable, so a structure with a bound ligand needs no
+#: special handling, and OpenFF was developed against exactly this protein
+#: model and water.
+AUTO_FORCEFIELD = "amber-openff"
 
 
 def resolve_forcefield(name: str | None) -> ForceFieldChoice:
@@ -136,6 +151,8 @@ def resolve_forcefield(name: str | None) -> ForceFieldChoice:
         valid choices.
     """
     key = (name or DEFAULT_FORCEFIELD).strip().lower()
+    if key == "auto":
+        key = AUTO_FORCEFIELD
     choice = _REGISTRY.get(key)
     if choice is None:
         valid = ", ".join(available_forcefields())

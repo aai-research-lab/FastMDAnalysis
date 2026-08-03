@@ -46,12 +46,13 @@ logger = get_logger("setup")
 DEFAULTS: dict[str, Any] = {
     # PDBFixer options
     "ph": 7.0,
+    "replace_nonstandard_residues": True,
     "heterogens": "drop",
     "keep_heterogens": False,
     "keep_water": False,
     "fixed_pdb": None,             # skip PDBFixer; use this already-fixed PDB
     # System preparation options
-    "forcefield": "charmm36",      # named selector (resolved to XMLs + water)
+    "forcefield": "auto",      # named selector (resolved to XMLs + water)
     "force_field": None,           # raw XML-list override (power users)
     "water_model": None,           # default derived from the named forcefield
     # Ligand / cofactor (protein-ligand systems; list-shaped, single impl)
@@ -74,7 +75,7 @@ DEFAULTS: dict[str, Any] = {
     "use_switching_function": True,
     "switch_distance_nm": None,    # default: 0.9 * cutoff
     "dispersion_correction": True,
-    "remove_cm_motion": False,
+    "remove_cm_motion": True,   # OpenMM's own default
     "constraints": "HBonds",
     "rigid_water": True,
     "hydrogen_mass_amu": None,
@@ -488,6 +489,7 @@ def run(
                 keep_water=bool(params["keep_water"]),
                 reinstated=tuple(params.get("_reinstated_heterogens", ())),
                 explained=tuple(params.get("_explained_heterogens", ())),
+                replace_nonstandard=bool(params["replace_nonstandard_residues"]),
             )
             artifacts.append("prepared.pdb")
             if presenter:
@@ -520,7 +522,14 @@ def run(
             water_model=params["water_model"],
             ligand=params["ligand"],
             ligand_forcefield=params["ligand_forcefield"],
-            ligand_name=str(params["ligand_name"]),
+            # A list of names, one per ligand, must not be stringified: doing
+            # so produced a single "name" of "['Z00', 'Z01', 'Z02']" and
+            # defeated multi-ligand support one line after it was added.
+            ligand_name=(
+                params["ligand_name"]
+                if isinstance(params["ligand_name"], (list, tuple))
+                else str(params["ligand_name"])
+            ),
             ligand_net_charge=params["ligand_net_charge"],
             check_ligand_clashes=bool(params["check_ligand_clashes"]),
             ligand_clash_threshold_nm=float(params["ligand_clash_threshold_nm"]),

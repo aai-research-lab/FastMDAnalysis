@@ -42,7 +42,24 @@ from fastmdxplora.orchestrator import PhaseResult, RunResult
 def stub_pdb(tmp_path: Path) -> Path:
     p = tmp_path / "protein.pdb"
     p.write_text(
-        "ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\n"
+        # A tripeptide, not a lone residue: one amino acid is simultaneously
+        # N- and C-terminal, and AMBER has no template for that. CHARMM36
+        # tolerated it, so this fixture survived until the default changed.
+        "ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00  0.00           N\n"
+        "ATOM      2  CA  ALA A   1       1.458   0.000   0.000  1.00  0.00           C\n"
+        "ATOM      3  C   ALA A   1       2.009   1.420   0.000  1.00  0.00           C\n"
+        "ATOM      4  O   ALA A   1       1.251   2.390   0.000  1.00  0.00           O\n"
+        "ATOM      5  CB  ALA A   1       1.988  -0.773  -1.199  1.00  0.00           C\n"
+        "ATOM      6  N   GLY A   2       3.332   1.549   0.000  1.00  0.00           N\n"
+        "ATOM      7  CA  GLY A   2       3.972   2.849   0.000  1.00  0.00           C\n"
+        "ATOM      8  C   GLY A   2       5.486   2.705   0.000  1.00  0.00           C\n"
+        "ATOM      9  O   GLY A   2       6.008   1.593   0.000  1.00  0.00           O\n"
+        "ATOM     10  N   ALA A   3       6.171   3.845   0.000  1.00  0.00           N\n"
+        "ATOM     11  CA  ALA A   3       7.623   3.845   0.000  1.00  0.00           C\n"
+        "ATOM     12  C   ALA A   3       8.174   5.265   0.000  1.00  0.00           C\n"
+        "ATOM     13  O   ALA A   3       7.416   6.235   0.000  1.00  0.00           O\n"
+        "ATOM     14  CB  ALA A   3       8.153   3.072  -1.199  1.00  0.00           C\n"
+        "ATOM     15  OXT ALA A   3       9.400   5.400   0.000  1.00  0.00           O\n"
         "END\n"
     )
     return p

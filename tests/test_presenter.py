@@ -440,9 +440,19 @@ class TestBannerReflectsTheRun:
         assert "amber-openff" in text
         assert "6.5" in text
 
-    def test_defaults_show_when_nothing_is_given(self) -> None:
+    def test_the_resolved_force_field_is_shown_not_the_word_auto(self) -> None:
+        """"auto" tells the reader nothing about what was simulated."""
         text = self._banner(["fastmdx", "setup", "--system", "4W52"])
+        assert "amber-openff" in text
+        # ...while still making clear it was chosen rather than named.
+        assert "(auto)" in text
+
+    def test_a_named_force_field_is_shown_as_given(self) -> None:
+        text = self._banner([
+            "fastmdx", "setup", "--system", "4W52", "--forcefield", "charmm36",
+        ])
         assert "charmm36" in text
+        assert "(auto)" not in text
 
     def test_simulation_settings_follow_the_same_rule(self) -> None:
         text = self._banner([

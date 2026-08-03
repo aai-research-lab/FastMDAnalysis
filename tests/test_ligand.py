@@ -118,7 +118,9 @@ class TestForceFieldCoherence:
         c = resolve_forcefield("amber-openff")
         assert c.supports_ligand is True
         assert c.small_molecule_forcefield == "openff-2.2.1"
-        assert c.xmls == ("amber14/protein.ff14SB.xml", "amber14/tip3p.xml")
+        # The full AMBER14 bundle rather than the protein file alone, so a
+        # structure containing DNA or RNA can be prepared at all.
+        assert c.xmls == ("amber14-all.xml", "amber14/tip3p.xml")
 
     def test_protein_only_ffs_not_ligand_capable(self):
         for name in ("charmm36", "amber14", "amber-fb15"):

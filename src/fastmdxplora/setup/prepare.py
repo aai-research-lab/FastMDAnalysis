@@ -124,7 +124,7 @@ def prepare_system(
     use_switching_function: bool = True,
     switch_distance_nm: float | None = None,
     dispersion_correction: bool = True,
-    remove_cm_motion: bool = False,
+    remove_cm_motion: bool = True,
     constraints: str = "HBonds",
     rigid_water: bool = True,
     hydrogen_mass_amu: float | None = None,
@@ -545,6 +545,15 @@ def _add_ligand_to_modeller(omm, modeller, ligand_mol, ligand_name="LIG") -> Non
             residue.name = ligand_name
 
 
+#: Metals coordinate at 1.9-2.6 A, well inside any van der Waals threshold.
+#: A coordinated ion is *supposed* to be that close, so measuring it against a
+#: contact threshold asks the wrong question entirely.
+_COORDINATING_ELEMENTS = frozenset({
+    "Zn", "Mg", "Ca", "Fe", "Mn", "Cu", "Ni", "Co", "Cd", "Hg", "Na", "K",
+    "Li", "Sr", "Ba",
+})
+
+
 def _check_ligand_clashes(
     modeller, n_protein_atoms: int, unit, *, threshold_nm: float, ligand_name: str,
 ) -> None:
@@ -586,8 +595,44 @@ def _check_ligand_clashes(
         # skip the geometric check.
         return
 
-    protein = coords[:n_protein_atoms]
-    ligand = coords[n_protein_atoms:n_total]
+    # Hydrogens are excluded on both sides. Their positions are inferred
+    # rather than observed: PDBFixer places the protein's, and the ligand's
+    # come from its own geometry with no knowledge of the pocket. An inferred
+    # hydrogen sitting close to something is not evidence of a bad pose, and
+    # minimization moves it in the first few steps. A heavy-atom overlap is
+    # the real thing this check exists to catch.
+    try:
+        elements = [
+            (atom.element.symbol if atom.element is not None else "X")
+            for atom in modeller.topology.atoms()
+        ]
+    except (AttributeError, TypeError):
+        elements = []
+    if len(elements) != len(coords):
+        # Without reliable element information every atom is treated as heavy.
+        # Excluding atoms we cannot identify would silently disable the check,
+        # which is the opposite of what it is for.
+        elements = ["X"] * len(coords)
+    protein = [
+        c for c, e in zip(coords[:n_protein_atoms], elements[:n_protein_atoms])
+        if e != "H"
+    ]
+    ligand_pairs = [
+        (c, e) for c, e in zip(coords[n_protein_atoms:n_total],
+                               elements[n_protein_atoms:n_total])
+        if e != "H"
+    ]
+
+    # A monatomic metal is here because it is coordinated by the protein, so
+    # a short contact is the reason it was kept, not a fault.
+    if ligand_pairs and all(e in _COORDINATING_ELEMENTS for _c, e in ligand_pairs):
+        logger.info(
+            "Clash check skipped for %s: a coordinated metal is expected to "
+            "sit inside contact distance.", ligand_name,
+        )
+        return
+
+    ligand = [c for c, _e in ligand_pairs]
     if not ligand or not protein:
         return
 
@@ -612,7 +657,9 @@ def _check_ligand_clashes(
             f"coordinates must be a feasible bound pose (from a co-crystal "
             f"structure or docking), not an arbitrary position. Provide a "
             f"properly placed ligand, or if the contact is acceptable, lower "
-            f"`ligand_clash_threshold_nm` or set `check_ligand_clashes=False`."
+            f"`ligand_clash_threshold_nm` or set `check_ligand_clashes=False`. "
+            f"(Hydrogens are excluded from this check, so these are "
+            f"heavy-atom overlaps.)"
         )
     logger.info(
         "Ligand-protein clash check passed (closest contact %.3f nm).",

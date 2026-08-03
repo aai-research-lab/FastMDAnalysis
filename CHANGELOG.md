@@ -36,6 +36,26 @@ structure does not determine the answer.
 - **`--setup-heterogens`** with `drop` (the default), `keep`, and `auto`.
 
 ### Changed
+- **The default force field is now chosen for you, and it has changed.**
+  `forcefield` defaults to `auto`, which resolves to `amber-openff`: the
+  ff14SB protein model with TIP3P water and the OpenFF Sage small-molecule
+  force field. Previously the default was CHARMM36. **Runs that relied on the
+  default will produce different numbers from this release onward.** Name
+  `charmm36` explicitly to keep it.
+
+  `auto` resolves to one stack whatever the structure contains, deliberately.
+  Choosing per-system would give an apo run and its holo partner different
+  protein force fields, and the comparison between them is usually the point.
+  CHARMM36 remains protein-only here because its native small-molecule
+  partner is CGenFF; pairing it with OpenFF would be an unvalidated mixture.
+- `heterogens` remains `drop` by default. `auto` is a flag away and needs no
+  second one, since the default force field can parameterize a ligand. It is
+  not yet the default because a coordinated metal, correctly kept, then fails
+  the ligand clash check, which assumes van der Waals contact rather than
+  coordination. Making it the default would stop structures that prepare
+  cleanly today.
+- **Centre-of-mass motion is removed by default**, matching OpenMM's own
+  default. The previous setting let the system drift as a whole.
 - **Ambiguity is refused rather than resolved.** Where a structure does not
   determine what should be simulated, setup stops and says what must be
   decided: a covalently bonded adduct, an unidentified component, a cofactor
@@ -63,6 +83,19 @@ structure does not determine the answer.
   imports against what is declared.
 - `netcdf4` and `umap-learn` become optional extras, matching their guarded
   imports.
+
+### Known limitations
+- A coordinated metal ion kept by `--setup-heterogens auto` can fail the
+  ligand clash check: a zinc sits about 2 A from its donor atom and closer to
+  that residue's hydrogens, well inside the 1.5 A threshold. Lower
+  `ligand_clash_threshold_nm`, or exclude the metal.
+- Hydrogens added to a retrieved ligand are placed from its own geometry,
+  without reference to the surrounding protein, so a tight pocket can produce
+  an apparent clash.
+- No named force field loads nucleic acid parameters, so DNA and RNA cannot
+  be prepared.
+- Non-standard residues such as modified cysteines are treated as components
+  rather than being replaced with their standard equivalents.
 
 ### Packaging
 - Available from conda-forge: `conda install -c conda-forge fastmdxplora`,

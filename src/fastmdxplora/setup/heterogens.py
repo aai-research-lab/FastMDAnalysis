@@ -197,11 +197,21 @@ def _standard_residues() -> frozenset[str]:
         "TRP TYR VAL HID HIE HIP HSD HSE HSP CYX CYM ASH GLH LYN MSE SEC PYL "
         "ACE NME NHE"
     ).split()
+    # Modified residues are polymer, not ligands. Preparation substitutes the
+    # standard equivalent, so classifying them here would refuse a structure
+    # that is about to be made perfectly ordinary. An oxidised cysteine in a
+    # protease is not a bound ligand, and reporting it as a covalent adduct
+    # helps nobody.
+    modified = (
+        "CSO CSD OCS CSS CME CSX SEP TPO PTR HYP PCA MLY M3L KCX ALY "
+        "LLP CGU CIR DAL DAR DAS DCY DGL DGN DHI DIL DLE DLY DPN DPR "
+        "DSG DSN DTH DTR DTY DVA FME TYS SMC SAH NLE ABA AIB ORN"
+    ).split()
     nucleic = (
         "A C G U T I DA DC DG DT DU DI RA RC RG RU "
         "A3 A5 C3 C5 G3 G5 U3 U5 T3 T5 DA3 DA5 DC3 DC5 DG3 DG5 DT3 DT5"
     ).split()
-    return frozenset(amino + nucleic)
+    return frozenset(amino + modified + nucleic)
 
 
 def parse_structure(pdb_path: str | Path) -> tuple[list[Atom], list[Atom], set[tuple]]:
@@ -360,6 +370,65 @@ def _classify_one(
             return Decision(resname, Action.SIMULATE, "crystallographic water retained on request", pack)
         return Decision(resname, Action.DISCARD, "solvent; the system is re-solvated", pack)
 
+    if resname in ION_NAMES:
+        # A LINK record naming a monatomic ion describes coordination, not a
+        # covalent bond: the legacy PDB format uses one record type for both,
+        # and only mmCIF distinguishes them (struct_conn.conn_type_id is
+        # "metalc" for a metal and "covale" for a covalent bond). Reading
+        # every LINK as covalent made every metalloprotein refuse, which is
+        # most of the zinc, iron, magnesium, and calcium structures in the
+        # PDB. The geometric test below is the one that answers the question.
+        linked = [h for h in instances if h.covalent_to]
+        coordinated = [
+            h for h in instances
+            if h.covalent_to
+            or _min_distance_to_polymer(h, polymer) <= COORDINATION_CUTOFF_A
+        ]
+        if coordinated and len(coordinated) == len(instances):
+            how = "named in a LINK record" if linked else f"within {COORDINATION_CUTOFF_A} A"
+            return Decision(resname, Action.SIMULATE,
+                            f"coordinated by the protein ({how})", pack)
+        if not coordinated:
+            return Decision(resname, Action.DISCARD,
+                            "not coordinated by the protein; from the "
+                            "crystallization liquor", pack)
+        return Decision(
+            resname,
+            Action.STOP,
+            f"{len(coordinated)} of {len(instances)} copies are coordinated by the "
+            "protein and the rest are not, so keeping or dropping the component as "
+            "a whole would be wrong either way. Select the copies explicitly",
+            pack,
+        )
+
+    # Checked before the covalent rule: a haem is bonded to its protein, and
+    # being told it is "a covalent adduct" is true but useless. What the user
+    # needs to know is that it is a haem and needs haem parameters.
+    if resname in UNPARAMETERIZABLE:
+        return Decision(
+            resname,
+            Action.STOP,
+            f"{UNPARAMETERIZABLE[resname]} needs dedicated parameters that are "
+            "not assigned automatically. Parameters exist for most cofactors "
+            "(CHARMM36 covers heme and NAD/NADH; CGenFF and CHARMM-GUI's Ligand "
+            "Reader cover FAD and FMN; AmberTools' MCPB.py builds metal-centre "
+            "models), but they must be supplied deliberately. Provide them, or "
+            "exclude this component",
+            pack,
+        )
+
+    if resname in SUGARS:
+        return Decision(
+            resname,
+            Action.STOP,
+            "a sugar can be a glycosylation site, a substrate, or a "
+            "cryoprotectant, and the structure does not say which. Glycans need "
+            "carbohydrate parameters (GLYCAM, or the CHARMM36 carbohydrate "
+            "files) rather than a small-molecule force field. State the intent: "
+            "keep it with --setup-ligand and suitable parameters, or exclude it",
+            pack,
+        )
+
     covalent = [h for h in instances if h.covalent_to]
     if covalent:
         return Decision(
@@ -378,46 +447,6 @@ def _classify_one(
             Action.STOP,
             "the structure does not say what this molecule is, so it cannot be "
             "parameterized. Supply it explicitly with --setup-ligand, or exclude it",
-            pack,
-        )
-
-    if resname in UNPARAMETERIZABLE:
-        return Decision(
-            resname,
-            Action.STOP,
-            f"{UNPARAMETERIZABLE[resname]} needs dedicated parameters that are "
-            "not assigned automatically. Parameters exist for most cofactors "
-            "(CHARMM36 covers heme and NAD/NADH; CGenFF and CHARMM-GUI's Ligand "
-            "Reader cover FAD and FMN; AmberTools' MCPB.py builds metal-centre "
-            "models), but they must be supplied deliberately. Provide them, or "
-            "exclude this component",
-            pack,
-        )
-
-    if resname in ION_NAMES:
-        coordinated = [h for h in instances if _min_distance_to_polymer(h, polymer) <= COORDINATION_CUTOFF_A]
-        if coordinated and len(coordinated) == len(instances):
-            return Decision(resname, Action.SIMULATE, f"coordinated by the protein (within {COORDINATION_CUTOFF_A} A)", pack)
-        if not coordinated:
-            return Decision(resname, Action.DISCARD, "not coordinated by the protein; from the crystallization liquor", pack)
-        return Decision(
-            resname,
-            Action.STOP,
-            f"{len(coordinated)} of {len(instances)} copies are coordinated by the "
-            "protein and the rest are not, so keeping or dropping the component as "
-            "a whole would be wrong either way. Select the copies explicitly",
-            pack,
-        )
-
-    if resname in SUGARS:
-        return Decision(
-            resname,
-            Action.STOP,
-            "a sugar can be a glycosylation site, a substrate, or a "
-            "cryoprotectant, and the structure does not say which. Glycans need "
-            "carbohydrate parameters (GLYCAM, or the CHARMM36 carbohydrate "
-            "files) rather than a small-molecule force field. State the intent: "
-            "keep it with --setup-ligand and suitable parameters, or exclude it",
             pack,
         )
 

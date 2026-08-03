@@ -61,7 +61,7 @@ def _payload() -> dict:
 
 def test_exploration_defaults_are_backend_derived() -> None:
     defaults = exploration_defaults()
-    assert defaults["setup"]["forcefield"] == "charmm36"
+    assert defaults["setup"]["forcefield"] == "auto"
     assert defaults["simulation"]["nvt_steps"] == 250_000
     assert "CPU" in defaults["choices"]["platforms"]
 

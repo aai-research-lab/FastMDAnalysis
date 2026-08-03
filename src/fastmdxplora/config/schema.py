@@ -117,10 +117,15 @@ SETUP = PhaseSchema(
         Field("ph", float, 7.0,
               "pH for hydrogen placement (sets protonation states)."),
         Field("heterogens", str, "drop",
-              "How to treat non-standard residues: 'drop' removes them all "
-              "(reporting what went), 'keep' retains them all, 'auto' decides "
-              "per component and stops if the structure is ambiguous.",
+              "How to treat non-standard residues: 'drop' (the default) "
+              "removes them all, reporting what went; 'auto' decides per "
+              "component, prepares any ligand, and stops where the structure "
+              "is ambiguous; 'keep' retains them all.",
               example="auto"),
+        Field("replace_nonstandard_residues", bool, True,
+              "Substitute modified residues (selenomethionine, oxidised "
+              "cysteine) with their standard equivalents. They are part of "
+              "the polymer, and few force fields describe them directly."),
         Field("keep_heterogens", bool, False,
               "Retain non-standard residues. Equivalent to heterogens: keep."),
         Field("keep_water", bool, False,
@@ -129,7 +134,7 @@ SETUP = PhaseSchema(
               "Path to an already-fixed PDB to use directly, skipping "
               "PDBFixer. Default: run PDBFixer on the input.",
               example="prepared.pdb"),
-        Field("forcefield", str, "charmm36",
+        Field("forcefield", str, "auto",
               "Named force field: charmm36 (default), amber14, amber-fb15. "
               "Resolves to the right XML files and water model. For an "
               "unlisted combination, use `force_field` instead.",
@@ -189,8 +194,9 @@ SETUP = PhaseSchema(
               example=0.9),
         Field("dispersion_correction", bool, True,
               "Apply the long-range dispersion (vdW tail) correction."),
-        Field("remove_cm_motion", bool, False,
-              "Add a center-of-mass motion remover."),
+        Field("remove_cm_motion", bool, True,
+              "Add a center-of-mass motion remover. Matches OpenMM's own "
+              "default; without it the system is free to drift as a whole."),
         Field("constraints", str, "HBonds",
               "Bond constraints: None, HBonds, AllBonds, or HAngles."),
         Field("rigid_water", bool, True,

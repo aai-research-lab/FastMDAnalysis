@@ -74,6 +74,7 @@ def fix_pdb_with_pdbfixer(
     keep_water: bool = False,
     reinstated: tuple[str, ...] = (),
     explained: tuple[str, ...] = (),
+    replace_nonstandard: bool = True,
 ) -> None:
     """Strict PDBFixer wrapper: raises on failure.
 
@@ -171,6 +172,27 @@ def fix_pdb_with_pdbfixer(
                 summary,
             )
     fixer.findMissingResidues()
+
+    # Modified residues are part of the polymer, not ligands: a selenomethionine
+    # or an oxidised cysteine belongs in the chain. Left in place they reach the
+    # heterogen classifier, which can only refuse them, and a structure with a
+    # single modified cysteine becomes unusable. PDBFixer substitutes the
+    # standard equivalent, which is the ordinary preparation choice and what
+    # every comparable tool does.
+    if replace_nonstandard:
+        fixer.findNonstandardResidues()
+        substitutions = list(getattr(fixer, "nonstandardResidues", []) or [])
+        if substitutions:
+            described = ", ".join(
+                f"{residue.name}{getattr(residue, 'id', '')}->{standard}"
+                for residue, standard in substitutions
+            )
+            logger.info(
+                "Replaced %d modified residue(s) with their standard "
+                "equivalents: %s", len(substitutions), described,
+            )
+            fixer.replaceNonstandardResidues()
+
     fixer.findMissingAtoms()
     fixer.addMissingAtoms()
     fixer.addMissingHydrogens(pH=float(ph))

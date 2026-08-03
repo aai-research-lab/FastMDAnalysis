@@ -51,11 +51,15 @@ def stub_orchestrator(tmp_path: Path):
 # Resolver
 # ---------------------------------------------------------------------------
 class TestResolveForceField:
-    def test_default_is_charmm36(self):
-        assert DEFAULT_FORCEFIELD == "charmm36"
+    def test_the_default_is_chosen_rather_than_named(self):
+        """Unspecified means auto, which picks a ligand-capable stack."""
+        assert DEFAULT_FORCEFIELD == "auto"
 
     def test_none_resolves_to_default(self):
-        assert resolve_forcefield(None).name == "charmm36"
+        from fastmdxplora.setup.forcefields import AUTO_FORCEFIELD
+
+        assert resolve_forcefield(None).name == AUTO_FORCEFIELD
+        assert resolve_forcefield("auto").name == AUTO_FORCEFIELD
 
     def test_charmm36_xmls(self):
         c = resolve_forcefield("charmm36")
@@ -166,7 +170,7 @@ class TestForceFieldSchemaAndCLI:
         setup = PHASE_SCHEMAS["setup"]
         f = setup.get("forcefield")
         assert f is not None
-        assert f.default == "charmm36"
+        assert f.default == "auto"
 
     def test_cli_has_setup_forcefield_flag(self):
         from fastmdxplora.cli.main import _SETUP_OPTIONS
