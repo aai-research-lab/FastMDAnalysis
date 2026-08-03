@@ -156,6 +156,44 @@ class TestRefusals:
         actions = _actions(_structure(lines))
         assert actions["ZN"] is Action.SIMULATE
 
+    def test_a_link_from_a_ligand_to_a_metal_is_coordination(self) -> None:
+        """The metal rule read from the other end of the same record.
+
+        Both partners of a LINK are recorded, so a nucleotide chelating a
+        magnesium was marked as linked and refused as a covalent adduct. 5P21
+        (Ras with GppNHp and Mg) and 1ATP (protein kinase A with ATP and Mn)
+        are the canonical cases, and neither ligand is bonded to anything.
+        """
+        lines = list(PROTEIN)
+        lines += [
+            "LINK        O2G  GNP A 200                MG    MG A 201     1555   1555  2.05",
+            _atom("HETATM", 400, "O2G", " ", "GNP", "A", 200, 6, 0, 0, element="O"),
+            _atom("HETATM", 401, "MG", " ", "MG", "A", 201, 8.05, 0, 0, element="MG"),
+        ]
+        actions = _actions(_structure(lines))
+        assert actions["GNP"] is Action.SIMULATE
+
+    def test_a_ligand_bonded_to_both_a_metal_and_the_polymer_still_stops(self) -> None:
+        """One innocent partner does not excuse a genuine covalent linkage."""
+        lines = list(PROTEIN)
+        lines += [
+            "LINK        O2G  GNP A 200                MG    MG A 201     1555   1555  2.05",
+            "LINK         C1  GNP A 200                 SG  CYS A   1",
+            _atom("HETATM", 400, "O2G", " ", "GNP", "A", 200, 6, 0, 0, element="O"),
+            _atom("HETATM", 401, "MG", " ", "MG", "A", 201, 8.05, 0, 0, element="MG"),
+        ]
+        with pytest.raises(AmbiguousStructureError, match="covalently bonded"):
+            resolve(_structure(lines))
+
+    def test_the_refusal_names_what_the_component_is_bonded_to(self) -> None:
+        """"Bonded to the polymer" does not say where to look."""
+        lines = list(PROTEIN)
+        lines += ["LINK         C1  PJE C   5                 SG  CYS A   1"]
+        lines += [_atom("HETATM", 10, "C1", " ", "PJE", "C", 5, 3, 0, 0)]
+
+        with pytest.raises(AmbiguousStructureError, match="bonded to CYS"):
+            resolve(_structure(lines))
+
     def test_a_link_record_to_an_organic_group_is_still_covalent(self) -> None:
         """A covalent inhibitor or a glycan must still stop the run."""
         lines = list(PROTEIN)

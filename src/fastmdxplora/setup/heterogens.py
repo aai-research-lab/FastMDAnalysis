@@ -214,33 +214,46 @@ def _standard_residues() -> frozenset[str]:
     return frozenset(amino + modified + nucleic)
 
 
-def parse_structure(pdb_path: str | Path) -> tuple[list[Atom], list[Atom], set[tuple]]:
+def parse_structure(pdb_path: str | Path) -> tuple[list[Atom], list[Atom], dict[tuple, set[str]]]:
     """Read a PDB file into polymer atoms, heterogen atoms, and covalent links.
 
     Returns
     -------
     polymer, heterogens, linked
-        ``linked`` holds the residue keys named in LINK records, which is how
-        a covalently attached group announces itself.
+        ``linked`` maps each residue key named in a LINK record to the names of
+        the residues on the other end. The partner is recorded, not merely the
+        fact of a link, because a LINK to a monatomic ion means coordination
+        while a LINK to an amino acid means covalency, and the two demand
+        opposite answers.
     """
     standard = _standard_residues()
     polymer: list[Atom] = []
     heteroatoms: list[Atom] = []
-    linked: set[tuple] = set()
+    linked: dict[tuple, set[str]] = defaultdict(set)
 
     for raw in Path(pdb_path).read_text(encoding="utf-8", errors="ignore").splitlines():
         record = raw[:6].strip()
 
         if record == "LINK":
-            # LINK records name the two partners of a covalent bond by
-            # residue. Columns follow the legacy PDB specification.
+            # LINK records name the two partners of a bond by residue. Columns
+            # follow the legacy PDB specification. Both ends are read together
+            # so each can be told what it is bonded to.
+            ends = []
             for start in (17, 47):
                 resname = raw[start:start + 3].strip().upper()
                 chain = raw[start + 4:start + 5].strip()
                 seq = raw[start + 5:start + 9].strip()
                 icode = raw[start + 9:start + 10]
                 if resname and seq.lstrip("-").isdigit():
-                    linked.add((resname, chain, int(seq), icode))
+                    ends.append((resname, chain, int(seq), icode))
+            if len(ends) == 2:
+                first, second = ends
+                linked[first].add(second[0])
+                linked[second].add(first[0])
+            elif len(ends) == 1:
+                # A malformed half-record still announces that something is
+                # bonded here; record it without a partner name.
+                linked[ends[0]].add("")
             continue
 
         if record not in {"ATOM", "HETATM"}:
@@ -279,7 +292,7 @@ def parse_structure(pdb_path: str | Path) -> tuple[list[Atom], list[Atom], set[t
 
 
 def group_heterogens(
-    heteroatoms: list[Atom], linked: set[tuple]
+    heteroatoms: list[Atom], linked: dict[tuple, set[str]]
 ) -> list[Heterogen]:
     """Collect heterogen atoms into residue instances."""
     grouped: dict[tuple, list[Atom]] = defaultdict(list)
@@ -288,7 +301,7 @@ def group_heterogens(
 
     out: list[Heterogen] = []
     for (resname, chain, resseq, icode), atoms in sorted(grouped.items()):
-        partners = ("polymer",) if (resname, chain, resseq, icode) in linked else ()
+        partners = tuple(sorted(linked.get((resname, chain, resseq, icode), ())))
         out.append(
             Heterogen(
                 resname=resname,
@@ -499,12 +512,29 @@ def _classify_one(
             pack,
         )
 
-    covalent = [h for h in instances if h.covalent_to]
+    # A LINK to a monatomic ion is coordination, not covalency -- the same rule
+    # the ion branch above applies, seen from the other end. Both partners of a
+    # LINK are recorded, so a nucleotide chelating a magnesium was marked linked
+    # and refused as a covalent adduct: 5P21 (Ras with GppNHp and Mg) and 1ATP
+    # (protein kinase A with ATP and Mn) are the canonical cases, and neither
+    # ligand is bonded to anything. Only a partner that is not an ion makes the
+    # component part of the macromolecule.
+    covalent = [
+        h for h in instances
+        if any(partner not in ION_NAMES for partner in h.covalent_to)
+    ]
     if covalent:
+        bonded_to = sorted({
+            partner
+            for h in covalent
+            for partner in h.covalent_to
+            if partner and partner not in ION_NAMES
+        })
+        attachment = f" to {', '.join(bonded_to)}" if bonded_to else ""
         return Decision(
             resname,
             Action.STOP,
-            f"covalently bonded to the polymer ({', '.join(h.label for h in covalent)}). "
+            f"covalently bonded{attachment} ({', '.join(h.label for h in covalent)}). "
             "A covalent adduct is part of the macromolecule and cannot be treated "
             "as a free ligand; prepare it with a force field that describes the "
             "linkage, or remove it deliberately",

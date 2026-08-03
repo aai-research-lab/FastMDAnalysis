@@ -93,6 +93,61 @@ class ProtonationState:
     reason: str
 
 
+#: Whether each titratable pattern, when it matches, matched the protonated
+#: form. The SMARTS already carry this: a carboxylic acid pattern matches only
+#: the neutral acid and a carboxylate only the anion, and the amine patterns
+#: exclude ``[N+]``, so they match only the neutral base. The phosphate and
+#: sulfonate patterns accept either form and so cannot report which they found;
+#: they are absent here and no claim is made about them.
+WRITTEN_PROTONATED: dict[str, bool] = {
+    "carboxylic acid": True,
+    "carboxylate": False,
+    "primary or secondary amine": False,
+    "tertiary amine": False,
+    "imidazole": False,
+    "guanidine": False,
+    "thiol": True,
+    "tetrazole": True,
+}
+
+
+def check_state_was_applied(chemistry, state) -> None:
+    """Refuse when the settled protonation is not the one in the file.
+
+    ``settle`` decides a ligand's charge state in the pocket, but the file
+    handed to the small-molecule force field is the reference chemistry, which
+    carries whatever protonation the dictionary happens to hold. When those
+    disagree the ligand is parameterized in the wrong charge state, and nothing
+    downstream notices: the run completes and the result is wrong.
+
+    Benzamidine exposed this only by luck. Neutral amidine carries an undefined
+    C=N stereocentre that the small-molecule toolkit rejects, so it crashed;
+    the amidinium cation it should have been has no stereocentre at all. A
+    ligand whose neutral form is stereochemically clean passes straight
+    through. 3ERT (a tertiary amine settled protonated) and 1CBS (a carboxylic
+    acid settled deprotonated) both did, and both reported success.
+
+    This is a guard, not a repair. Applying the settled state means adding or
+    removing a specific proton in the reference file, which is worth doing
+    properly rather than quickly. Until then, refusing is the honest answer.
+    """
+    for label in chemistry.titratable_groups:
+        written = WRITTEN_PROTONATED.get(label)
+        if written is None or written == state.protonated:
+            continue
+        settled = "protonated" if state.protonated else "deprotonated"
+        evidence = "; ".join(str(group) for group in state.groups)
+        raise ProtonationError(
+            f"{chemistry.resname} was settled {settled} in the complex, but the "
+            f"reference chemistry supplies its {label}, which is the "
+            f"{'protonated' if written else 'deprotonated'} form. Parameterizing "
+            f"that file would simulate the ligand in a charge state the pocket "
+            f"contradicts, and the charge is usually what binds it.\n  {evidence}\n"
+            "Supply the ligand with --setup-ligand as an SDF or MOL2 already in "
+            "the state you intend, with explicit hydrogens and its net charge set."
+        )
+
+
 def _propka():
     try:
         import propka.run

@@ -319,7 +319,7 @@ def _auto_ligands(params: dict, input_pdb, output_dir, entry_id: str | None) -> 
         resolve_forcefield,
     )
     from fastmdxplora.setup.heterogens import Action, resolve, summarize
-    from fastmdxplora.setup.protonation import settle
+    from fastmdxplora.setup.protonation import check_state_was_applied, settle
 
     decisions = resolve(input_pdb, keep_water=bool(params.get("keep_water")))
     logger.info("Heterogen decisions:\n%s", summarize(decisions))
@@ -415,6 +415,11 @@ def _auto_ligands(params: dict, input_pdb, output_dir, entry_id: str | None) -> 
         )
         logger.info("%s %s%s: %s", decision.resname, instance.chain,
                     instance.resseq, state.reason)
+
+        # The settled state has to be the one that reaches the force field.
+        # It is not applied to the reference chemistry yet, so where the two
+        # disagree the only honest answer is to stop.
+        check_state_was_applied(chemistry, state)
 
         # Copies of one component need distinct residue names, or nothing
         # downstream can tell them apart.

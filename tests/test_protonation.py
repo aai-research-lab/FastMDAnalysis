@@ -204,3 +204,81 @@ class TestStructuralComplaintsAreCaptured:
         captured = capsys.readouterr()
         assert "Unexpected number" not in captured.out
         assert "Unexpected number" not in captured.err
+
+
+class TestSettledStateReachesTheForceField:
+    """A settled protonation that is not applied is worse than a refusal.
+
+    ``settle`` decides the ligand's charge state in the pocket; the file handed
+    to the small-molecule force field carries whatever the reference chemistry
+    holds. Where they disagree the ligand is parameterized in the wrong charge
+    state and nothing downstream notices.
+    """
+
+    @staticmethod
+    def _chemistry(resname, groups, charge=0):
+        from fastmdxplora.setup.ccd import LigandChemistry
+        import inspect
+
+        fields = inspect.signature(LigandChemistry).parameters
+        kwargs = {"resname": resname, "formal_charge": charge,
+                  "titratable_groups": tuple(groups)}
+        for name, param in fields.items():
+            if name not in kwargs and param.default is inspect.Parameter.empty:
+                kwargs[name] = None
+        return LigandChemistry(**kwargs)
+
+    @staticmethod
+    def _state(resname, protonated):
+        from fastmdxplora.setup.protonation import ProtonationState
+
+        return ProtonationState(resname=resname, protonated=protonated,
+                                groups=(), reason="test")
+
+    def test_base_settled_protonated_but_written_neutral_stops(self):
+        """3ERT: a tertiary amine at pKa 10.2 is cationic at pH 7."""
+        from fastmdxplora.setup.protonation import (
+            ProtonationError, check_state_was_applied,
+        )
+
+        with pytest.raises(ProtonationError, match="settled protonated"):
+            check_state_was_applied(
+                self._chemistry("OHT", ["tertiary amine"]),
+                self._state("OHT", True),
+            )
+
+    def test_acid_settled_deprotonated_but_written_neutral_stops(self):
+        """1CBS: retinoic acid at pKa 3.8 is anionic at pH 7."""
+        from fastmdxplora.setup.protonation import (
+            ProtonationError, check_state_was_applied,
+        )
+
+        with pytest.raises(ProtonationError, match="settled deprotonated"):
+            check_state_was_applied(
+                self._chemistry("REA", ["carboxylic acid"]),
+                self._state("REA", False),
+            )
+
+    def test_agreement_passes(self):
+        from fastmdxplora.setup.protonation import check_state_was_applied
+
+        # An acid written protonated and settled protonated agree.
+        check_state_was_applied(
+            self._chemistry("X", ["carboxylic acid"]), self._state("X", True))
+        # A carboxylate written deprotonated and settled deprotonated agree.
+        check_state_was_applied(
+            self._chemistry("Y", ["carboxylate"]), self._state("Y", False))
+
+    def test_untitratable_ligand_is_never_blocked(self):
+        from fastmdxplora.setup.protonation import check_state_was_applied
+
+        check_state_was_applied(self._chemistry("BNZ", []), self._state("BNZ", False))
+
+    def test_patterns_matching_either_form_make_no_claim(self):
+        """The phosphate SMARTS accepts both, so it cannot report which."""
+        from fastmdxplora.setup.protonation import check_state_was_applied
+
+        check_state_was_applied(
+            self._chemistry("GNP", ["phosphate or phosphonate"]),
+            self._state("GNP", True),
+        )
