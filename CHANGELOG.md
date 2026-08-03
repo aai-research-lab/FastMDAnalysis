@@ -33,7 +33,7 @@ structure does not determine the answer.
 - **Several ligands, cofactors, or copies** may be parameterized together.
   Each is placed and clash-checked against everything already present, since
   two ligands can overlap each other as readily as they can the protein.
-- **`--setup-heterogens`** with `drop` (the default), `keep`, and `auto`.
+- **`--setup-heterogens`** with `auto` (the default), `drop`, and `keep`.
 
 ### Changed
 - **The default force field is now chosen for you, and it has changed.**
@@ -48,12 +48,28 @@ structure does not determine the answer.
   protein force fields, and the comparison between them is usually the point.
   CHARMM36 remains protein-only here because its native small-molecule
   partner is CGenFF; pairing it with OpenFF would be an unvalidated mixture.
-- `heterogens` remains `drop` by default. `auto` is a flag away and needs no
-  second one, since the default force field can parameterize a ligand. It is
-  not yet the default because a coordinated metal, correctly kept, then fails
-  the ligand clash check, which assumes van der Waals contact rather than
-  coordination. Making it the default would stop structures that prepare
-  cleanly today.
+- **`heterogens` now defaults to `auto`.** Previously every non-standard
+  residue was discarded. **A run that prepared an apo protein from a holo
+  structure will now prepare the complex, or stop and say why.** Pass
+  `--setup-heterogens drop` for the old behaviour.
+
+  What decided it is not that `auto` is convenient. Under `drop`, rhodopsin
+  prepares as opsin, haemoglobin as globin, and streptavidin without its
+  biotin — each completing in silence and reading like an answer to the
+  question that was asked. Across thirty ordinary structures `auto` now
+  prepares the ligand in twelve, matches `drop` in eight, and stops in ten,
+  every stop naming what the structure left undetermined. None fails without a
+  reason.
+- **The default pH is physiological.** `ph` moves from 7.0 to 7.4: blood is
+  7.4, and a protein studied without a stated reason otherwise is studied
+  there. Cytosol sits near 7.2 and a lysosome near 4.7, so a
+  compartment-specific study should say which. **Titratable groups near the
+  old value may settle differently.**
+- **`protonation_margin` is now a setting.** How close a ligand's pKa may come
+  to the pH before setup stops rather than choose. The default of one unit is
+  about the uncertainty of the pKa calculation itself, so the band marks where
+  the answer is unresolved rather than merely close; narrowing it is for a
+  ligand whose protonation is already known.
 - **Centre-of-mass motion is removed by default**, matching OpenMM's own
   default. The previous setting let the system drift as a whole.
 - **Ambiguity is refused rather than resolved.** Where a structure does not
@@ -69,6 +85,41 @@ structure does not determine the answer.
   a run could be apo while reading as holo.
 
 ### Fixed
+- **A ligand is parameterized in the charge state the pocket implies.** The pKa
+  settled in the complex was computed, logged, and then discarded: the file
+  handed to the small-molecule force field carried whatever protonation the
+  reference chemistry held. Retinoic acid was simulated as a neutral acid and
+  4-hydroxytamoxifen as a neutral amine, in both cases losing the charge that
+  binds them. Benzamidine revealed it only by crashing, on a stereocentre the
+  amidinium it should have been does not have.
+- **An amidine is no longer read as an amine.** Its cation is delocalised and
+  forms on the sp2 nitrogen; built on the sp3 one it is a different molecule.
+  Benzamidine is the ligand of half the trypsin structures in the PDB.
+- **Each ionizable group is settled on its own pKa.** One answer for the whole
+  ligand forced an amino acid onto one side rather than building the
+  zwitterion it is at pH 7.4.
+- **A pyridine-type nitrogen is read.** Quinazolines, pteridines and purines
+  were silently untitratable.
+- **A glycan is identified by what it is bonded to.** A LINK to an asparagine,
+  serine or threonine says a sugar is a glycosylation site rather than leaving
+  the question open; those are dropped and the protein prepared without them.
+  A sugar bonded only to other sugars, as in lysozyme's substrate, still is a
+  question.
+- **A nucleotide chelating a magnesium is not a covalent adduct.** Both ends of
+  a LINK record were marked bonded, so ATP and GTP complexes — among the most
+  common structures there are — refused as though bound to the protein.
+- **A group the pKa calculation reports but the molecule does not carry no
+  longer stops a run.** Folate's N10 lies between a methylene and an aromatic
+  ring; read as an aliphatic secondary amine, it was given that class's model
+  pKa of 10.0, when an aniline is nearer 4.6.
+- **A coordinated ion is prepared, not refused.** Connectivity records name
+  coordination and covalency alike, and one tying an ion to its surroundings
+  made it unmatchable against a force field whose ion templates allow no
+  external bonds.
+- **A residue removed as a heterogen is not rebuilt.** It remained in the
+  deposited sequence, so the gap it left was read as unresolved polymer and
+  scheduled for reconstruction from a template that no longer existed.
+- **Setup artifacts are not nested inside a second setup directory.**
 - **A failed phase reports failure.** Setup swallowed any failure resolving its
   input and returned success, so a mistyped PDB identifier produced an empty
   directory and exit code 0. An absent optional backend still degrades

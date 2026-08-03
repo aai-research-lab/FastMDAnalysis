@@ -421,10 +421,12 @@ class TestSetupArtifactsAreNotNested:
     function as it turns up does not stop the next one, so the whole module is
     checked instead.
 
-    The name is what invites it. ``output_dir`` reads like the project's output
+    The name was what invited it. ``output_dir`` reads like the project's output
     directory, and for every other phase that is what it would be; here the
-    phase directory has already been appended by the caller. Renaming the
-    parameter to ``setup_dir`` would end the mistake rather than catch it.
+    caller has already appended the phase directory. The helpers now say
+    ``setup_dir``, which makes the mistake hard to write rather than merely
+    caught, and the phase entry point keeps ``output_dir`` because that name is
+    the protocol every phase shares.
     """
 
     def test_nothing_appends_a_setup_directory_to_the_setup_directory(self) -> None:
@@ -435,7 +437,7 @@ class TestSetupArtifactsAreNotNested:
         offenders = [
             line.strip()
             for line in inspect.getsource(pipeline).splitlines()
-            if re.search(r'output_dir\s*\)?\s*/\s*"setup"', line)
+            if re.search(r'(?:output_dir|setup_dir)\s*\)?\s*/\s*"setup"', line)
         ]
         assert not offenders, (
             "output_dir is already the setup directory, so these write into "
@@ -447,7 +449,7 @@ class TestSetupArtifactsAreNotNested:
         from fastmdxplora.setup import pipeline
 
         source = inspect.getsource(pipeline._repaired_complex)
-        assert 'Path(output_dir) / "complex_for_pka.pdb"' in source
+        assert 'Path(setup_dir) / "complex_for_pka.pdb"' in source
 
 
 class TestPhysiologicalPhIsTheDefault:
@@ -460,3 +462,88 @@ class TestPhysiologicalPhIsTheDefault:
         assert DEFAULTS["ph"] == 7.4
         schema = {f.name: f.default for f in SETUP.fields}
         assert schema["ph"] == DEFAULTS["ph"]
+
+
+class TestUnparameterizedResiduesAreNamed:
+    """OpenMM reports the residue by topology index, which counts solvent.
+
+    That number points at nothing a user can find in their input, so the
+    residue is resolved back to a name, chain and composition before the error
+    reaches them.
+    """
+
+    class _Element:
+        def __init__(self, symbol):
+            self.symbol = symbol
+
+    class _Atom:
+        def __init__(self, element):
+            self.element = element
+
+    class _Chain:
+        def __init__(self, cid):
+            self.id = cid
+
+    class _Residue:
+        def __init__(self, name, chain, rid, elements):
+            self.name, self.chain, self.id = name, chain, rid
+            self._atoms = [
+                TestUnparameterizedResiduesAreNamed._Atom(
+                    TestUnparameterizedResiduesAreNamed._Element(e))
+                for e in elements
+            ]
+
+        def atoms(self):
+            return iter(self._atoms)
+
+    class _ForceField:
+        def __init__(self, unmatched):
+            self._unmatched = unmatched
+
+        def getUnmatchedResidues(self, topology):
+            return self._unmatched
+
+    def _residue(self, name="HEM", chain="A", rid="401", elements=("Fe", "N", "C")):
+        return self._Residue(name, self._Chain(chain), rid, elements)
+
+    def test_an_unrelated_error_passes_through_untouched(self):
+        from fastmdxplora.setup.prepare import _explain_unparameterized
+
+        original = ValueError("Particle coordinate is NaN")
+        assert _explain_unparameterized(
+            original, self._ForceField([]), None) is original
+
+    def test_the_residue_is_named_with_its_chain_and_composition(self):
+        from fastmdxplora.setup.prepare import _explain_unparameterized
+
+        explained = _explain_unparameterized(
+            ValueError("No template found for residue 412 (HEM)."),
+            self._ForceField([self._residue()]),
+            None,
+        )
+        text = str(explained)
+        assert "HEM (chain A, residue 401, 3 atom(s): C, Fe, N)" in text
+        # The original wording is kept, since it is what a search will find.
+        assert "No template found for residue 412" in text
+
+    def test_several_unmatched_residues_are_all_named(self):
+        from fastmdxplora.setup.prepare import _explain_unparameterized
+
+        explained = _explain_unparameterized(
+            ValueError("No template found for residue 5 (ZN)."),
+            self._ForceField([
+                self._residue("ZN", "B", "31", ("Zn",)),
+                self._residue("CL", "B", "33", ("Cl",)),
+            ]),
+            None,
+        )
+        assert "ZN (chain B, residue 31, 1 atom(s): Zn)" in str(explained)
+        assert "CL (chain B, residue 33, 1 atom(s): Cl)" in str(explained)
+
+    def test_nothing_to_name_leaves_the_error_as_it_was(self):
+        """The template failure is real even when the probe finds no culprit."""
+        from fastmdxplora.setup.prepare import _explain_unparameterized
+
+        original = ValueError("No template found for residue 9 (UNK).")
+        assert _explain_unparameterized(
+            original, self._ForceField([]), None) is original

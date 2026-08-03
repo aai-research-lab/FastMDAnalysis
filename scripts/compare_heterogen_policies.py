@@ -231,17 +231,24 @@ def main() -> int:
           f"  ({', '.join(r.structure for r in breaks) or 'none'})")
     print("=" * 68)
 
+    # auto is the default. This script no longer asks whether it should be; it
+    # asks whether it still earns the place, which is a question with a
+    # different answer every time the classifier changes.
     if breaks:
-        print("\nauto fails where drop succeeded, and not by refusing: these are")
-        print("bugs, not judgements. The default should stay drop.")
+        print("\nauto fails where drop succeeded, and not by refusing. These are")
+        print("bugs: a refusal names what the structure left undetermined, and")
+        print("these did not. Fix them before releasing.")
     elif refuses:
-        print("\nauto refuses some structures that drop prepared. That is the")
-        print("intended behaviour where the refusal is correct: check each")
-        print("reason above. A refusal on an ordinary complex argues against")
-        print("changing the default; one on a haem or a glycan does not.")
+        print("\nauto refuses structures drop prepared, each with a stated")
+        print("reason. Read them: a refusal on a haem, a covalent adduct, or a")
+        print("protonation the pH does not settle is the point. A refusal on an")
+        print("ordinary complex is a bug wearing a reason, and worth chasing.")
+        print("Note what drop does with the same structures -- it prepares them")
+        print("without the component, which answers a different question in")
+        print("silence.")
     else:
         print("\nauto costs nothing on this set and prepares ligands drop would")
-        print("have silently discarded. The default can change.")
+        print("have discarded. Nothing here argues against the default.")
 
     if args.json:
         args.json.write_text(json.dumps(

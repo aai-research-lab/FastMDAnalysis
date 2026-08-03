@@ -203,7 +203,7 @@ class TestArtifactLayout:
         from fastmdxplora.setup import pipeline
 
         source = inspect.getsource(pipeline._auto_ligands)
-        assert 'Path(output_dir) / "ligands"' in source
+        assert 'Path(setup_dir) / "ligands"' in source
         assert '"setup" / "ligands"' not in source
 
 

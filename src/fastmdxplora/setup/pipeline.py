@@ -120,10 +120,10 @@ def _fetch_pdb_from_rcsb(pdb_id: str, dest: Path) -> Path:
 
 
 def _resolve_input(
-    system: str, input_form: str, output_dir: Path
+    system: str, input_form: str, setup_dir: Path
 ) -> Path:
-    """Place the source PDB at ``output_dir/input.pdb``. Returns its path."""
-    target = output_dir / "input.pdb"
+    """Place the source PDB at ``setup_dir/input.pdb``. Returns its path."""
+    target = setup_dir / "input.pdb"
     if input_form == "pdb_file":
         shutil.copy2(system, target)
     elif input_form == "pdb_id":
@@ -202,7 +202,7 @@ def _validate_ligand_forcefield(params: dict) -> None:
 
 
 
-def _repaired_complex(input_pdb, output_dir, ph: float):
+def _repaired_complex(input_pdb, setup_dir, ph: float):
     """A structure with missing atoms rebuilt, for the pKa calculation.
 
     Crystal structures routinely leave surface side chains unmodelled where
@@ -213,9 +213,9 @@ def _repaired_complex(input_pdb, output_dir, ph: float):
     """
     from fastmdxplora.setup.pdbfix import fix_pdb_with_pdbfixer
 
-    # output_dir is already the setup directory, as it is for the ligand
+    # setup_dir is already the setup directory, as it is for the ligand
     # files: appending "setup" again buried this in setup/setup/.
-    repaired = Path(output_dir) / "complex_for_pka.pdb"
+    repaired = Path(setup_dir) / "complex_for_pka.pdb"
     repaired.parent.mkdir(parents=True, exist_ok=True)
     try:
         fix_pdb_with_pdbfixer(
@@ -234,7 +234,7 @@ def _repaired_complex(input_pdb, output_dir, ph: float):
 
 
 
-def _retain_in_structure(input_pdb, output_dir, keep_decisions):
+def _retain_in_structure(input_pdb, setup_dir, keep_decisions):
     """Write a structure holding the polymer plus the components to retain.
 
     PDBFixer keeps heterogens all or nothing, so selecting a few means
@@ -243,7 +243,7 @@ def _retain_in_structure(input_pdb, output_dir, keep_decisions):
     its own residue name, at its own coordinates.
     """
     keep = {d.resname.upper() for d in keep_decisions}
-    target = Path(output_dir) / "retained.pdb"
+    target = Path(setup_dir) / "retained.pdb"
     target.parent.mkdir(parents=True, exist_ok=True)
 
     from fastmdxplora.setup.heterogens import ION_NAMES
@@ -305,7 +305,7 @@ def _retain_in_structure(input_pdb, output_dir, keep_decisions):
     return target
 
 
-def _auto_ligands(params: dict, input_pdb, output_dir, entry_id: str | None) -> list[str]:
+def _auto_ligands(params: dict, input_pdb, setup_dir, entry_id: str | None) -> list[str]:
     """Turn the classifier's SIMULATE decisions into files the ligand path takes.
 
     The chemistry a structure omits is fetched from RCSB, completed with
@@ -370,7 +370,7 @@ def _auto_ligands(params: dict, input_pdb, output_dir, entry_id: str | None) -> 
     molecules = [d for d in wanted if d.resname not in ION_NAMES]
     if ions:
         params["_retained_pdb"] = str(
-            _retain_in_structure(input_pdb, output_dir, ions)
+            _retain_in_structure(input_pdb, setup_dir, ions)
         )
         logger.info(
             "Keeping %s in the structure; the protein force field provides "
@@ -382,10 +382,10 @@ def _auto_ligands(params: dict, input_pdb, output_dir, entry_id: str | None) -> 
         return []
 
     copies = [(d, het) for d in molecules for het in d.instances]
-    # output_dir is already the setup directory: input.pdb and prepared.pdb
+    # setup_dir is already the setup directory: input.pdb and prepared.pdb
     # sit directly in it. Appending "setup" again buried the ligands in
     # setup/setup/ligands.
-    ligand_dir = Path(output_dir) / "ligands"
+    ligand_dir = Path(setup_dir) / "ligands"
     ligand_dir.mkdir(parents=True, exist_ok=True)
 
     files: list[str] = []
@@ -408,7 +408,7 @@ def _auto_ligands(params: dict, input_pdb, output_dir, entry_id: str | None) -> 
         # repairing costs a second and otherwise changes nothing.
         pka_structure = input_pdb
         if chemistry.titratable_groups:
-            pka_structure = _repaired_complex(input_pdb, output_dir, float(params["ph"]))
+            pka_structure = _repaired_complex(input_pdb, setup_dir, float(params["ph"]))
 
         state = settle(
             pka_structure,
@@ -464,7 +464,7 @@ def run(
     ----------
     orchestrator : FastMDXplora
         The parent orchestrator instance.
-    output_dir : pathlib.Path
+    setup_dir : pathlib.Path
         Where to write setup artifacts.
     **options
         Per-call overrides of the module-level :data:`DEFAULTS`.
@@ -472,8 +472,15 @@ def run(
     Returns
     -------
     list of str
-        Paths (relative to ``output_dir``) of artifacts produced.
+        Paths (relative to ``setup_dir``) of artifacts produced.
     """
+    # The orchestrator hands each phase its own directory, under the name every
+    # phase uses. Here it is the setup directory, and calling it output_dir
+    # invited "setup" being appended to it -- which happened to the ligand
+    # files, to the structure built for the pKa calculation, and would have
+    # happened again.
+    setup_dir = output_dir
+
     params: dict[str, Any] = {**DEFAULTS, **options}
 
     # Force-field selection is either the named selector OR a raw XML list,
@@ -508,7 +515,7 @@ def run(
 
     # ---- Stage 1: resolve input ----------------------------------------
     try:
-        input_pdb = _resolve_input(orchestrator.system, input_form, output_dir)
+        input_pdb = _resolve_input(orchestrator.system, input_form, setup_dir)
 
         artifacts.append("input.pdb")
         if presenter:
@@ -519,12 +526,12 @@ def run(
             presenter.step(f"Loaded input: {label}")
     except NotImplementedError as exc:
         # Sequence input — manifest-only fallback
-        (output_dir / "input.sequence").write_text(f"{orchestrator.system}\n", encoding="utf-8")
+        (setup_dir / "input.sequence").write_text(f"{orchestrator.system}\n", encoding="utf-8")
         artifacts.append("input.sequence")
         notes.append(str(exc))
         if presenter:
             presenter.step(str(exc), status="warning")
-        _write_manifest(output_dir, orchestrator, input_form, params, artifacts, notes)
+        _write_manifest(setup_dir, orchestrator, input_form, params, artifacts, notes)
         artifacts.append("setup_parameters.json")
         return artifacts
     except Exception as exc:  # noqa: BLE001 -- network, IO, refusals
@@ -542,7 +549,7 @@ def run(
         # design: not having OpenMM installed is a choice, whereas failing to
         # fetch a structure is a failure.
         notes.append(f"Failed to resolve input ({input_form}): {exc}")
-        _write_manifest(output_dir, orchestrator, input_form, params, artifacts, notes)
+        _write_manifest(setup_dir, orchestrator, input_form, params, artifacts, notes)
         raise
 
     # With the auto policy, the structure decides what to simulate and the
@@ -558,7 +565,7 @@ def run(
         discovered = _auto_ligands(
             params,
             input_pdb,
-            output_dir,
+            setup_dir,
             orchestrator.system if input_form == "pdb_id" else None,
         )
         if discovered:
@@ -570,7 +577,7 @@ def run(
             )
 
     # ---- Stage 2: PDBFixer (or skip via fixed_pdb) ---------------------
-    prepared_pdb = output_dir / "prepared.pdb"
+    prepared_pdb = setup_dir / "prepared.pdb"
     fixed_pdb = params.get("fixed_pdb")
     if fixed_pdb:
         # User supplied an already-fixed PDB — skip PDBFixer entirely.
@@ -579,7 +586,7 @@ def run(
             notes.append(f"fixed_pdb not found: {fixed_src}")
             if presenter:
                 presenter.step(f"fixed_pdb not found: {fixed_src}", status="warning")
-            _write_manifest(output_dir, orchestrator, input_form, params, artifacts, notes)
+            _write_manifest(setup_dir, orchestrator, input_form, params, artifacts, notes)
             artifacts.append("setup_parameters.json")
             return artifacts
         shutil.copy2(fixed_src, prepared_pdb)
@@ -620,7 +627,7 @@ def run(
                     notes[-1],
                     status="warning",
                 )
-            _write_manifest(output_dir, orchestrator, input_form, params, artifacts, notes)
+            _write_manifest(setup_dir, orchestrator, input_form, params, artifacts, notes)
             artifacts.append("setup_parameters.json")
             return artifacts
 
@@ -630,7 +637,7 @@ def run(
 
         produced = prepare_system(
             prepared_pdb,
-            output_dir,
+            setup_dir,
             forcefield=params["forcefield"],
             force_field=params["force_field"],
             water_model=params["water_model"],
@@ -667,7 +674,7 @@ def run(
         )
 
         for _key, path in produced.items():
-            artifacts.append(path.relative_to(output_dir).as_posix())
+            artifacts.append(path.relative_to(setup_dir).as_posix())
         if presenter:
             if params["force_field"]:
                 ff_label = ", ".join(params["force_field"])
@@ -687,23 +694,23 @@ def run(
                 notes[-1],
                 status="warning",
             )
-        _write_manifest(output_dir, orchestrator, input_form, params, artifacts, notes)
+        _write_manifest(setup_dir, orchestrator, input_form, params, artifacts, notes)
         artifacts.append("setup_parameters.json")
         return artifacts
 
     # ---- Stage 4: Manifest --------------------------------------------
-    _write_manifest(output_dir, orchestrator, input_form, params, artifacts, notes)
+    _write_manifest(setup_dir, orchestrator, input_form, params, artifacts, notes)
     artifacts.append("setup_parameters.json")
 
     if presenter:
         presenter.step("Wrote setup_parameters.json")
 
-    logger.debug("setup: wrote %d artifact(s) to %s", len(artifacts), output_dir)
+    logger.debug("setup: wrote %d artifact(s) to %s", len(artifacts), setup_dir)
     return artifacts
 
 
 def _write_manifest(
-    output_dir: Path,
+    setup_dir: Path,
     orchestrator: "FastMDXplora",
     input_form: str,
     params: dict[str, Any],
@@ -772,5 +779,5 @@ def _write_manifest(
         "artifacts_written": list(artifacts),
         "notes": notes,
     }
-    with (output_dir / "setup_parameters.json").open("w", encoding="utf-8") as fh:
+    with (setup_dir / "setup_parameters.json").open("w", encoding="utf-8") as fh:
         json.dump(manifest, fh, indent=2, default=str)
