@@ -144,3 +144,61 @@ class TestMultipleLigands:
 
         with pytest.raises(ValueError, match="ligand charges given"):
             _resolve_ligand_charges(["a", "b"], [0])
+
+
+class TestRemovalReporting:
+    """Removing a component and re-adding it are different events."""
+
+    @staticmethod
+    def _fix(tmp_path, **kwargs):
+        """Run PDBFixer on a tiny structure, capturing what it logged."""
+        import io
+        import logging
+
+        pytest.importorskip("pdbfixer")
+        from fastmdxplora.setup.pdbfix import fix_pdb_with_pdbfixer
+
+        structure = tmp_path / "in.pdb"
+        structure.write_text(
+            "ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00  0.00           N\n"
+            "ATOM      2  CA  ALA A   1       1.400   0.000   0.000  1.00  0.00           C\n"
+            "ATOM      3  C   ALA A   1       2.000   1.400   0.000  1.00  0.00           C\n"
+            "ATOM      4  O   ALA A   1       1.300   2.400   0.000  1.00  0.00           O\n"
+            "HETATM   10  C1  BNZ A 200       9.000   9.000   9.000  1.00  0.00           C\n"
+            "HETATM   20  C1  EPE A 300      20.000  20.000  20.000  1.00  0.00           C\n"
+            "END\n",
+            encoding="utf-8",
+        )
+        captured = io.StringIO()
+        handler = logging.StreamHandler(captured)
+        package_logger = logging.getLogger("fastmdx")
+        package_logger.addHandler(handler)
+        try:
+            fix_pdb_with_pdbfixer(str(structure), str(tmp_path / "out.pdb"), **kwargs)
+        finally:
+            package_logger.removeHandler(handler)
+        return captured.getvalue()
+
+    def test_dropping_everything_warns_about_everything(self, tmp_path) -> None:
+        text = self._fix(tmp_path)
+        assert "Removed heterogens" in text
+        assert "BNZ" in text
+        assert "EPE" in text
+
+    def test_a_reinstated_component_is_not_reported_as_lost(self, tmp_path) -> None:
+        """Under the auto policy the ligand comes back with parameters.
+
+        Warning that it was removed describes a loss that did not happen, and
+        would send a user looking for a ligand that is in the system.
+        """
+        text = self._fix(tmp_path, reinstated=("BNZ",))
+
+        assert "re-added with small-molecule parameters" in text
+        # The buffer really was discarded, so it still warrants the warning.
+        assert "Removed heterogens" in text
+        assert "EPE" in text
+        # ...but benzene must not appear in the removal warning.
+        warning_line = next(
+            line for line in text.splitlines() if "Removed heterogens" in line
+        )
+        assert "BNZ" not in warning_line

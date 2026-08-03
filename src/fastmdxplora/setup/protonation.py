@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,6 +42,18 @@ logger = get_logger("setup.protonation")
 #: appreciably populated in both states: one unit corresponds to roughly a
 #: 9:1 ratio. Choosing one state would misrepresent the ensemble.
 POISED_MARGIN = 1.0
+
+
+
+class _CapturingHandler(logging.Handler):
+    """Collects PROPKA's own log records instead of letting them print."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.messages.append(record.getMessage())
 
 
 class ProtonationError(RuntimeError):
@@ -109,8 +122,16 @@ def ligand_pka(
     run = _propka()
     resname = resname.upper()
 
-    # PROPKA writes progress to stdout; keep it out of the phase output.
+    # PROPKA reports progress on stdout and structural complaints through
+    # logging. Both are captured: an unmodelled surface side chain is worth
+    # knowing about, but it belongs in the debug log rather than interleaved
+    # with the phase output.
     buffer = io.StringIO()
+    propka_logger = logging.getLogger("propka")
+    captured = _CapturingHandler()
+    previous_level = propka_logger.level
+    propka_logger.addHandler(captured)
+    propka_logger.setLevel(logging.WARNING)
     try:
         with contextlib.redirect_stdout(buffer):
             molecule = run.single(str(complex_pdb), optargs=("--quiet",), write_pka=False)
@@ -118,6 +139,20 @@ def ligand_pka(
         raise ProtonationError(
             f"PROPKA could not analyse the complex containing {resname}: {exc}"
         ) from exc
+    finally:
+        propka_logger.removeHandler(captured)
+        propka_logger.setLevel(previous_level)
+
+    incomplete = [m for m in captured.messages if "Unexpected number" in m]
+    if incomplete:
+        # Residues the depositors could not model. Surface side chains with
+        # poor density are ordinary; near the binding site they would matter.
+        logger.debug("PROPKA noted %d incomplete residues:\n  %s",
+                     len(incomplete), "\n  ".join(incomplete))
+        logger.info(
+            "%d residues in this structure are missing side-chain atoms; "
+            "pKa values are computed from what was modelled.", len(incomplete),
+        )
 
     if not molecule.conformation_names:
         raise ProtonationError("PROPKA returned no conformation to read.")
@@ -219,7 +254,20 @@ def settle(
     expected_ionizable: bool,
     margin: float = POISED_MARGIN,
 ) -> ProtonationState:
-    """Determine a ligand's protonation in the complex, or raise."""
+    """Determine a ligand's protonation in the complex, or raise.
+
+    A ligand with no ionizable group has one protonation state whatever its
+    surroundings, so the calculation is skipped: it could not change the
+    answer, and running it only invites complaints about a structure whose
+    imperfections are irrelevant here.
+    """
+    if not expected_ionizable:
+        return ProtonationState(
+            resname=resname,
+            protonated=False,
+            groups=(),
+            reason="no ionizable group; protonation is unambiguous",
+        )
     groups = ligand_pka(complex_pdb, resname, chain=chain, resseq=resseq)
     return decide(resname, groups, ph, expected_ionizable=expected_ionizable,
                   margin=margin)

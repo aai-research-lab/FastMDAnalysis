@@ -133,3 +133,74 @@ class TestRealComplex:
         # Every group sits well below physiological pH, so the state is settled.
         state = decide("BTN", groups, 7.4, expected_ionizable=True)
         assert state.protonated is False
+
+
+class TestWhenPropkaRuns:
+    """The calculation should run where it can change the answer, and not else."""
+
+    def test_a_ligand_with_no_ionizable_group_skips_the_calculation(self, tmp_path) -> None:
+        """Benzene's protonation does not depend on its surroundings.
+
+        Running PROPKA anyway costs a second and produces complaints about
+        unmodelled side chains that could not affect the result.
+        """
+        from fastmdxplora.setup import protonation
+
+        called = []
+        original = protonation.ligand_pka
+        protonation.ligand_pka = lambda *a, **k: called.append(a) or []
+        try:
+            state = protonation.settle(
+                tmp_path / "nonexistent.pdb", "BNZ",
+                chain="A", resseq=200, ph=7.4, expected_ionizable=False,
+            )
+        finally:
+            protonation.ligand_pka = original
+
+        assert called == [], "PROPKA should not have been consulted"
+        assert state.protonated is False
+        assert "unambiguous" in state.reason
+
+    def test_a_titratable_ligand_does_consult_propka(self, tmp_path) -> None:
+        from fastmdxplora.setup import protonation
+
+        called = []
+        original = protonation.ligand_pka
+        protonation.ligand_pka = lambda *a, **k: called.append(a) or [
+            GroupPka("AIN", "A", 1, "COO", 3.2, 4.0)
+        ]
+        try:
+            state = protonation.settle(
+                tmp_path / "x.pdb", "AIN",
+                chain="A", resseq=1, ph=7.4, expected_ionizable=True,
+            )
+        finally:
+            protonation.ligand_pka = original
+
+        assert len(called) == 1
+        assert state.protonated is False
+
+
+class TestStructuralComplaintsAreCaptured:
+    """PROPKA's own warnings belong in the log, not in the phase output."""
+
+    def test_incomplete_residues_do_not_print_raw(self, tmp_path, capsys) -> None:
+        pytest.importorskip("propka")
+
+        structure = tmp_path / "gappy.pdb"
+        # LYS missing its side chain past CB: PROPKA counts atoms per residue
+        # and complains, which is legitimate but should not spill into output.
+        structure.write_text(
+            "ATOM      1  N   LYS A   1       0.000   0.000   0.000  1.00 20.00           N\n"
+            "ATOM      2  CA  LYS A   1       1.400   0.000   0.000  1.00 20.00           C\n"
+            "ATOM      3  C   LYS A   1       2.000   1.400   0.000  1.00 20.00           C\n"
+            "ATOM      4  O   LYS A   1       1.300   2.400   0.000  1.00 20.00           O\n"
+            "ATOM      5  CB  LYS A   1       1.900  -0.800   1.200  1.00 20.00           C\n"
+            "TER\nEND\n",
+            encoding="utf-8",
+        )
+        ligand_pka(structure, "BNZ", chain="A", resseq=200)
+
+        captured = capsys.readouterr()
+        assert "Unexpected number" not in captured.out
+        assert "Unexpected number" not in captured.err

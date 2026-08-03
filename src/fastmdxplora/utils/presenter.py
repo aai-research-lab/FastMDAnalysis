@@ -296,6 +296,13 @@ class SessionPresenter:
         argv = list(_sys.argv[1:])
 
         def arg_value(*names: str, default: str = "") -> str:
+            """First matching option on the command line, else ``default``.
+
+            Each option is listed under both spellings: `fastmdx explore` uses
+            the phase-prefixed form (--setup-ph), while the per-phase commands
+            drop the prefix (--ph). Listing only one meant the summary showed
+            defaults for every option a per-phase run had actually set.
+            """
             for i, token in enumerate(argv):
                 for name in names:
                     if token == name and i + 1 < len(argv):
@@ -354,16 +361,16 @@ class SessionPresenter:
             _SIM_DEFAULTS = {}
 
         platform = arg_value(
-            "--simulate-platform",
+            "--simulate-platform", "--platform",
             default=field_value("Platform", "platform", default=_SIM_DEFAULTS.get("platform", "auto")),
         )
         precision = arg_value(
-            "--simulate-precision",
+            "--simulate-precision", "--precision",
             default=field_value("Precision", "precision", default=_SIM_DEFAULTS.get("precision", "mixed")),
         )
 
         setup_ph = arg_value(
-            "--setup-ph",
+            "--setup-ph", "--ph",
             default=field_value("pH", "ph", "setup_ph", default=_SETUP_DEFAULTS.get("ph", 7.0)),
         )
         ion_conc = arg_value(
@@ -376,12 +383,12 @@ class SessionPresenter:
             ),
         )
         forcefield = arg_value(
-            "--setup-forcefield",
+            "--setup-forcefield", "--forcefield",
             default=field_value("Force Field", "forcefield", "setup_forcefield", default=_SETUP_DEFAULTS.get("forcefield", "charmm36")),
         )
 
         timestep = arg_value(
-            "--simulate-timestep-fs",
+            "--simulate-timestep-fs", "--timestep-fs",
             default=field_value("Timestep", "timestep_fs", "simulate_timestep_fs", default=_SIM_DEFAULTS.get("timestep_fs", 2.0)),
         )
         temperature = arg_value(
@@ -389,7 +396,7 @@ class SessionPresenter:
             default=field_value("Temperature", "temperature_K", "simulate_temperature_K", default=_SIM_DEFAULTS.get("temperature_K", 300.0)),
         )
         friction = arg_value(
-            "--simulate-friction-per-ps",
+            "--simulate-friction-per-ps", "--friction-per-ps",
             default=field_value("Friction", "friction_per_ps", "simulate_friction_per_ps", default=_SIM_DEFAULTS.get("friction_per_ps", 1.0)),
         )
 
@@ -421,25 +428,25 @@ class SessionPresenter:
                 from fastmdxplora.simulation.pipeline import PRESETS as _SIM_PRESETS
                 from fastmdxplora.simulation.runner import plan_stages as _plan_stages
             except Exception:
-                nvt = maybe_int(arg_value("--simulate-nvt-steps", default=""))
-                npt = maybe_int(arg_value("--simulate-npt-steps", default=""))
-                prod = maybe_int(arg_value("--simulate-production-steps", default=""))
+                nvt = maybe_int(arg_value("--simulate-nvt-steps", "--nvt-steps", default=""))
+                npt = maybe_int(arg_value("--simulate-npt-steps", "--npt-steps", default=""))
+                prod = maybe_int(arg_value("--simulate-production-steps", "--production-steps", default=""))
                 total = None if None in (nvt, npt, prod) else int(nvt) + int(npt) + int(prod)
                 return nvt, npt, prod, total
 
             params = dict(_SIM_DEFAULTS)
-            preset = arg_value("--simulate-preset", default="")
+            preset = arg_value("--simulate-preset", "--preset", default="")
             if preset:
                 params.update(_SIM_PRESETS.get(preset.lower(), {}))
                 params["preset"] = preset.lower()
 
             overrides = {
-                "nvt_steps": maybe_int(arg_value("--simulate-nvt-steps", default="")),
-                "npt_steps": maybe_int(arg_value("--simulate-npt-steps", default="")),
-                "production_steps": maybe_int(arg_value("--simulate-production-steps", default="")),
-                "duration_ns": maybe_float(arg_value("--simulate-duration-ns", default="")),
-                "nvt_duration_ns": maybe_float(arg_value("--simulate-nvt-duration-ns", default="")),
-                "npt_duration_ns": maybe_float(arg_value("--simulate-npt-duration-ns", default="")),
+                "nvt_steps": maybe_int(arg_value("--simulate-nvt-steps", "--nvt-steps", default="")),
+                "npt_steps": maybe_int(arg_value("--simulate-npt-steps", "--npt-steps", default="")),
+                "production_steps": maybe_int(arg_value("--simulate-production-steps", "--production-steps", default="")),
+                "duration_ns": maybe_float(arg_value("--simulate-duration-ns", "--duration-ns", default="")),
+                "nvt_duration_ns": maybe_float(arg_value("--simulate-nvt-duration-ns", "--nvt-duration-ns", default="")),
+                "npt_duration_ns": maybe_float(arg_value("--simulate-npt-duration-ns", "--npt-duration-ns", default="")),
                 "timestep_fs": maybe_float(timestep),
             }
             params.update({k: v for k, v in overrides.items() if v is not None})
@@ -460,7 +467,7 @@ class SessionPresenter:
         nvt_steps, npt_steps, prod_steps, total_steps = resolve_stage_display()
 
         def resolve_trajectory_display() -> str:
-            raw = arg_value("--simulate-trajectory-interval-steps", default="")
+            raw = arg_value("--simulate-trajectory-interval-steps", "--trajectory-interval-steps", default="")
             explicit = maybe_int(raw)
             if explicit is not None:
                 return f"save frame every {explicit:,} production steps"
@@ -473,7 +480,7 @@ class SessionPresenter:
 
         trajectory_display = resolve_trajectory_display()
 
-        report_title = arg_value("--report-title", default="FastMDXplora Run")
+        report_title = arg_value("--report-title", "--title", default="FastMDXplora Run")
         # Resolve the dashboard URL from an explicitly supplied field,
         # an environment variable, or the dashboard CLI flags.
         dashboard_link = str(

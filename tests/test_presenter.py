@@ -393,3 +393,61 @@ def test_banner_is_one_left_aligned_box() -> None:
 
     for heading in ("MD EXPLORATION", "SETUP", "SIMULATION", "REPORTING & OUTPUTS"):
         assert heading in text
+
+
+class TestBannerReflectsTheRun:
+    """The summary box must show what was asked for, not what is usual.
+
+    The same option is spelled two ways: `fastmdx explore --setup-forcefield`
+    and `fastmdx setup --forcefield`. The banner knew only the first, so every
+    per-phase run displayed defaults regardless of its arguments, which is
+    worse than showing nothing.
+    """
+
+    @staticmethod
+    def _banner(argv):
+        import contextlib
+        import io
+        import sys
+
+        from fastmdxplora.utils.presenter import SessionPresenter
+
+        original = sys.argv
+        sys.argv = argv
+        buffer = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buffer):
+                SessionPresenter().banner(
+                    System="4W52", Output="/tmp/x", Version="0.0.0"
+                )
+        finally:
+            sys.argv = original
+        return buffer.getvalue()
+
+    def test_the_per_phase_spelling_is_recognised(self) -> None:
+        text = self._banner([
+            "fastmdx", "setup", "--system", "4W52",
+            "--forcefield", "amber-openff", "--ph", "6.5",
+        ])
+        assert "amber-openff" in text
+        assert "6.5" in text
+
+    def test_the_explore_spelling_still_works(self) -> None:
+        text = self._banner([
+            "fastmdx", "explore", "--system", "4W52",
+            "--setup-forcefield", "amber-openff", "--setup-ph", "6.5",
+        ])
+        assert "amber-openff" in text
+        assert "6.5" in text
+
+    def test_defaults_show_when_nothing_is_given(self) -> None:
+        text = self._banner(["fastmdx", "setup", "--system", "4W52"])
+        assert "charmm36" in text
+
+    def test_simulation_settings_follow_the_same_rule(self) -> None:
+        text = self._banner([
+            "fastmdx", "simulate", "--nvt-steps", "1234",
+            "--production-steps", "9876",
+        ])
+        assert "1,234" in text or "1234" in text
+        assert "9,876" in text or "9876" in text

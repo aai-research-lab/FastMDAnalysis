@@ -72,6 +72,7 @@ def fix_pdb_with_pdbfixer(
     ph: float = 7.0,
     keep_heterogens: bool = False,
     keep_water: bool = False,
+    reinstated: tuple[str, ...] = (),
 ) -> None:
     """Strict PDBFixer wrapper: raises on failure.
 
@@ -134,10 +135,24 @@ def fix_pdb_with_pdbfixer(
     if not keep_heterogens:
         removed = _heterogen_residue_counts(fixer.topology)
         fixer.removeHeterogens(keepWater=keep_water)
-        if removed:
+        kept = {name.upper() for name in reinstated}
+        discarded = {n: c for n, c in removed.items() if n.upper() not in kept}
+
+        if kept:
+            # Under the auto policy the components worth simulating have
+            # already been parameterized and are added back through the
+            # small-molecule path. Warning that they were "removed" would
+            # describe a loss that did not happen.
+            logger.info(
+                "Stripped %s from the structure; they are re-added with "
+                "small-molecule parameters.",
+                ", ".join(sorted(kept)),
+            )
+
+        if discarded:
             summary = ", ".join(
                 f"{name} ({count})" if count > 1 else name
-                for name, count in sorted(removed.items())
+                for name, count in sorted(discarded.items())
             )
             # Removing crystallization additives is usually right, but a bound
             # ligand looks identical to a buffer molecule at this stage. Say

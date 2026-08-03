@@ -199,6 +199,36 @@ def _validate_ligand_forcefield(params: dict) -> None:
         )
 
 
+
+def _repaired_complex(input_pdb, output_dir, ph: float):
+    """A structure with missing atoms rebuilt, for the pKa calculation.
+
+    Crystal structures routinely leave surface side chains unmodelled where
+    the density is poor. Computing a pKa in a structure with those gaps means
+    computing it in the wrong electrostatic environment, so the ligand and the
+    protein are repaired first. Falls back to the deposition if repair fails,
+    since a less accurate pKa is better than none.
+    """
+    from fastmdxplora.setup.pdbfix import fix_pdb_with_pdbfixer
+
+    repaired = Path(output_dir) / "setup" / "complex_for_pka.pdb"
+    repaired.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fix_pdb_with_pdbfixer(
+            str(input_pdb), str(repaired), ph=ph,
+            keep_heterogens=True,   # the ligand must be present to be assessed
+            keep_water=False,
+        )
+        return repaired
+    except Exception as exc:  # noqa: BLE001 - fall back rather than fail
+        logger.warning(
+            "Could not repair the structure for the pKa calculation (%s); "
+            "using the deposition as given, which may have unmodelled side "
+            "chains near the site.", exc,
+        )
+        return input_pdb
+
+
 def _auto_ligands(params: dict, input_pdb, output_dir, entry_id: str | None) -> list[str]:
     """Turn the classifier's SIMULATE decisions into files the ligand path takes.
 
@@ -268,8 +298,17 @@ def _auto_ligands(params: dict, input_pdb, output_dir, entry_id: str | None) -> 
                 1 for atom in instance.atoms if atom.element.upper() != "H"
             ),
         )
+        # A pKa is a property of the environment, so the environment should be
+        # the one that will be simulated: repaired, with the missing side
+        # chains rebuilt. The raw deposition has gaps that would bias the
+        # answer. Only built when the ligand is actually titratable, since
+        # repairing costs a second and otherwise changes nothing.
+        pka_structure = input_pdb
+        if chemistry.titratable_groups:
+            pka_structure = _repaired_complex(input_pdb, output_dir, float(params["ph"]))
+
         state = settle(
-            input_pdb,
+            pka_structure,
             decision.resname,
             chain=instance.chain,
             resseq=instance.resseq,
@@ -289,6 +328,11 @@ def _auto_ligands(params: dict, input_pdb, output_dir, entry_id: str | None) -> 
                      else f"{decision.resname[:1]}{len(names):02d}")
         charges.append(chemistry.formal_charge)
 
+    # Remembered so preparation can report these as re-added with parameters
+    # rather than warning that they were removed.
+    params["_reinstated_heterogens"] = tuple(
+        sorted({decision.resname for decision, _ in copies})
+    )
     params["ligand_name"] = names[0] if len(names) == 1 else names
     if params.get("ligand_net_charge") is None:
         params["ligand_net_charge"] = charges[0] if len(charges) == 1 else charges
@@ -437,6 +481,7 @@ def run(
                 ph=float(params["ph"]),
                 keep_heterogens=_keep_heterogens(params, input_pdb),
                 keep_water=bool(params["keep_water"]),
+                reinstated=tuple(params.get("_reinstated_heterogens", ())),
             )
             artifacts.append("prepared.pdb")
             if presenter:
