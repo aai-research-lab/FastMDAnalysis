@@ -102,6 +102,7 @@ class ProtonationState:
 WRITTEN_PROTONATED: dict[str, bool] = {
     "carboxylic acid": True,
     "carboxylate": False,
+    "amidine": False,
     "primary or secondary amine": False,
     "tertiary amine": False,
     "imidazole": False,
@@ -111,41 +112,153 @@ WRITTEN_PROTONATED: dict[str, bool] = {
 }
 
 
-def check_state_was_applied(chemistry, state) -> None:
-    """Refuse when the settled protonation is not the one in the file.
+#: Where the proton goes for each titratable group, as (SMARTS, index of the
+#: atom within the match). The site is not always the atom the classifying
+#: pattern is named for: an amidine and a guanidine protonate on the sp2
+#: nitrogen, because the cation is delocalised. Building it on the sp3 nitrogen
+#: gives a different molecule which also keeps the C=N double bond, and with it
+#: an undefined stereocentre the small-molecule toolkits refuse.
+#:
+#: Groups absent here have no unambiguous site. The phosphate and sulfonate
+#: patterns match either form and name no particular oxygen, so a settled state
+#: cannot be placed and the ligand is refused instead.
+PROTONATION_SITE: dict[str, tuple[str, int]] = {
+    "amidine": ("[NX3][CX3]=[NX2]", 2),
+    "guanidine": ("[NX3][CX3](=[NX2])[NX3]", 2),
+    "primary or secondary amine": ("[NX3;H2,H1;!$(NC=O);!$(N[a])]", 0),
+    "tertiary amine": ("[NX3;H0;!$(NC=O);!$(N[a]);!$([N+])]", 0),
+    "imidazole": ("c1cnc[nH]1", 2),
+    "carboxylic acid": ("[CX3](=O)[OX2H1]", 2),
+    "thiol": ("[SX2H1]", 0),
+    "tetrazole": ("c1nnn[nH]1", 1),
+}
 
-    ``settle`` decides a ligand's charge state in the pocket, but the file
-    handed to the small-molecule force field is the reference chemistry, which
-    carries whatever protonation the dictionary happens to hold. When those
-    disagree the ligand is parameterized in the wrong charge state, and nothing
-    downstream notices: the run completes and the result is wrong.
 
-    Benzamidine exposed this only by luck. Neutral amidine carries an undefined
-    C=N stereocentre that the small-molecule toolkit rejects, so it crashed;
-    the amidinium cation it should have been has no stereocentre at all. A
-    ligand whose neutral form is stereochemically clean passes straight
-    through. 3ERT (a tertiary amine settled protonated) and 1CBS (a carboxylic
-    acid settled deprotonated) both did, and both reported success.
+def _rdkit():
+    try:
+        from rdkit import Chem
 
-    This is a guard, not a repair. Applying the settled state means adding or
-    removing a specific proton in the reference file, which is worth doing
-    properly rather than quickly. Until then, refusing is the honest answer.
-    """
-    for label in chemistry.titratable_groups:
-        written = WRITTEN_PROTONATED.get(label)
-        if written is None or written == state.protonated:
-            continue
-        settled = "protonated" if state.protonated else "deprotonated"
-        evidence = "; ".join(str(group) for group in state.groups)
+        return Chem
+    except ImportError as exc:  # pragma: no cover - exercised by absence
         raise ProtonationError(
-            f"{chemistry.resname} was settled {settled} in the complex, but the "
-            f"reference chemistry supplies its {label}, which is the "
-            f"{'protonated' if written else 'deprotonated'} form. Parameterizing "
-            f"that file would simulate the ligand in a charge state the pocket "
-            f"contradicts, and the charge is usually what binds it.\n  {evidence}\n"
-            "Supply the ligand with --setup-ligand as an SDF or MOL2 already in "
-            "the state you intend, with explicit hydrogens and its net charge set."
+            "RDKit is needed to put a ligand into the protonation state settled "
+            "in the complex, and is not installed. Install it (conda install -c "
+            "conda-forge rdkit), or supply the ligand with --setup-ligand "
+            "already in the state you intend."
+        ) from exc
+
+
+def _add_proton(Chem, mol, index):
+    """Attach a proton, giving the new hydrogen a position."""
+    editable = Chem.RWMol(mol)
+    atom = editable.GetAtomWithIdx(index)
+    atom.SetFormalCharge(atom.GetFormalCharge() + 1)
+    atom.SetNumExplicitHs(atom.GetNumExplicitHs() + 1)
+    atom.SetNoImplicit(False)
+    built = editable.GetMol()
+    Chem.SanitizeMol(built)
+    return Chem.AddHs(built, addCoords=True, onlyOnAtoms=[index])
+
+
+def _remove_proton(Chem, mol, index):
+    """Strip a proton, preferring an explicit hydrogen if one is present."""
+    editable = Chem.RWMol(mol)
+    atom = editable.GetAtomWithIdx(index)
+    atom.SetFormalCharge(atom.GetFormalCharge() - 1)
+    hydrogen = next(
+        (n.GetIdx() for n in atom.GetNeighbors() if n.GetAtomicNum() == 1), None
+    )
+    if hydrogen is not None:
+        editable.RemoveAtom(hydrogen)
+    else:
+        atom.SetNumExplicitHs(max(0, atom.GetNumExplicitHs() - 1))
+    built = editable.GetMol()
+    Chem.SanitizeMol(built)
+    return built
+
+
+def apply_settled_state(sdf_text: str, chemistry, state) -> tuple[str, int]:
+    """Put the reference chemistry into the state settled in the complex.
+
+    Returns the rewritten SDF and its net formal charge.
+
+    The pKa is determined in the pocket, but the file handed to the
+    small-molecule force field is the reference chemistry, which carries
+    whatever protonation the dictionary happens to hold. Parameterizing that
+    file simulates the ligand in a charge state the pocket contradicts, and the
+    charge is usually what binds it: the amidinium of benzamidine, the
+    carboxylate of retinoic acid, the ammonium of a tamoxifen.
+
+    Raises rather than guessing where the settled state cannot be placed
+    unambiguously -- an unrecognised group, or more than one titratable group,
+    which a single protonated/deprotonated answer cannot describe.
+    """
+    groups = tuple(chemistry.titratable_groups)
+    if not groups:
+        return sdf_text, chemistry.formal_charge
+
+    if len(groups) > 1:
+        raise ProtonationError(
+            f"{chemistry.resname} carries more than one titratable group "
+            f"({', '.join(groups)}), and a single settled answer cannot say "
+            "which is protonated and which is not: a molecule with both a basic "
+            "amine and an acid is a zwitterion, not uniformly one or the other."
+            "\nSupply the ligand with --setup-ligand as an SDF or MOL2 already "
+            "in the state you intend, with explicit hydrogens and its net "
+            "charge set."
         )
+
+    label = groups[0]
+    site = PROTONATION_SITE.get(label)
+    if site is None:
+        raise ProtonationError(
+            f"{chemistry.resname} carries a {label}, whose protonation site is "
+            "not one this pipeline knows how to place. Supply the ligand with "
+            "--setup-ligand already in the state you intend."
+        )
+
+    smarts, offset = site
+    if WRITTEN_PROTONATED.get(label) == state.protonated:
+        # The reference chemistry is already in the settled state.
+        return sdf_text, chemistry.formal_charge
+
+    Chem = _rdkit()
+    mol = Chem.MolFromMolBlock(sdf_text, removeHs=False, sanitize=True)
+    if mol is None:
+        raise ProtonationError(
+            f"The reference chemistry for {chemistry.resname} could not be read "
+            "as a molecule, so its protonation cannot be adjusted."
+        )
+
+    matches = mol.GetSubstructMatches(Chem.MolFromSmarts(smarts))
+    if len(matches) != 1:
+        raise ProtonationError(
+            f"{chemistry.resname} has {len(matches)} matches for its {label}, "
+            "so the settled protonation cannot be placed unambiguously. Supply "
+            "the ligand with --setup-ligand already in the state you intend."
+        )
+
+    index = matches[0][offset]
+    change = _add_proton if state.protonated else _remove_proton
+    adjusted = change(Chem, mol, index)
+
+    charge = Chem.GetFormalCharge(adjusted)
+    expected = chemistry.formal_charge + (1 if state.protonated else -1)
+    if charge != expected:
+        raise ProtonationError(
+            f"Adjusting {chemistry.resname}'s {label} produced a net charge of "
+            f"{charge:+d} where {expected:+d} was intended, so the reference "
+            "chemistry is not what this pipeline assumed. Supply the ligand "
+            "with --setup-ligand already in the state you intend."
+        )
+    logger.info(
+        "%s: %s its %s to match the state settled in the complex; net charge "
+        "%+d.",
+        chemistry.resname,
+        "protonated" if state.protonated else "deprotonated",
+        label, charge,
+    )
+    return Chem.MolToMolBlock(adjusted), charge
 
 
 def _propka():

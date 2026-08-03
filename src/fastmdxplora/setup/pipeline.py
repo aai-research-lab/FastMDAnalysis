@@ -319,7 +319,7 @@ def _auto_ligands(params: dict, input_pdb, output_dir, entry_id: str | None) -> 
         resolve_forcefield,
     )
     from fastmdxplora.setup.heterogens import Action, resolve, summarize
-    from fastmdxplora.setup.protonation import check_state_was_applied, settle
+    from fastmdxplora.setup.protonation import apply_settled_state, settle
 
     decisions = resolve(input_pdb, keep_water=bool(params.get("keep_water")))
     logger.info("Heterogen decisions:\n%s", summarize(decisions))
@@ -417,19 +417,19 @@ def _auto_ligands(params: dict, input_pdb, output_dir, entry_id: str | None) -> 
                     instance.resseq, state.reason)
 
         # The settled state has to be the one that reaches the force field.
-        # It is not applied to the reference chemistry yet, so where the two
-        # disagree the only honest answer is to stop.
-        check_state_was_applied(chemistry, state)
+        sdf_text, net_charge = apply_settled_state(
+            chemistry.path.read_text(encoding="utf-8"), chemistry, state
+        )
 
         # Copies of one component need distinct residue names, or nothing
         # downstream can tell them apart.
         suffix = "" if len(copies) == 1 else f"_{instance.chain}{instance.resseq}"
         target = ligand_dir / f"{decision.resname}{suffix}.sdf"
-        target.write_text(chemistry.path.read_text(encoding="utf-8"), encoding="utf-8")
+        target.write_text(sdf_text, encoding="utf-8")
         files.append(str(target))
         names.append(decision.resname if len(copies) == 1
                      else f"{decision.resname[:1]}{len(names):02d}")
-        charges.append(chemistry.formal_charge)
+        charges.append(net_charge)
 
     # Remembered so preparation can report these as re-added with parameters
     # rather than warning that they were removed.

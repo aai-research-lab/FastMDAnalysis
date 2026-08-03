@@ -207,78 +207,124 @@ class TestStructuralComplaintsAreCaptured:
 
 
 class TestSettledStateReachesTheForceField:
-    """A settled protonation that is not applied is worse than a refusal.
+    """The pKa is determined in the pocket; the file must carry that answer.
 
-    ``settle`` decides the ligand's charge state in the pocket; the file handed
-    to the small-molecule force field carries whatever the reference chemistry
-    holds. Where they disagree the ligand is parameterized in the wrong charge
-    state and nothing downstream notices.
+    Settling a ligand's protonation and then handing the force field the
+    reference chemistry simulates a charge state the pocket contradicts, and
+    the charge is usually what binds it. Benzamidine exposed this by crashing
+    on a stereocentre the amidinium does not have; retinoic acid and
+    4-hydroxytamoxifen did not crash, and were simply wrong.
     """
 
     @staticmethod
-    def _chemistry(resname, groups, charge=0):
-        from fastmdxplora.setup.ccd import LigandChemistry
-        import inspect
+    def _sdf(smiles):
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
 
-        fields = inspect.signature(LigandChemistry).parameters
-        kwargs = {"resname": resname, "formal_charge": charge,
-                  "titratable_groups": tuple(groups)}
-        for name, param in fields.items():
-            if name not in kwargs and param.default is inspect.Parameter.empty:
-                kwargs[name] = None
-        return LigandChemistry(**kwargs)
+        mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+        AllChem.EmbedMolecule(mol, randomSeed=1)
+        return Chem.MolToMolBlock(mol)
+
+    @staticmethod
+    def _chemistry(resname, groups, charge=0):
+        from dataclasses import dataclass
+
+        @dataclass
+        class _Chemistry:
+            resname: str
+            formal_charge: int
+            titratable_groups: tuple
+
+        return _Chemistry(resname, charge, tuple(groups))
 
     @staticmethod
     def _state(resname, protonated):
         from fastmdxplora.setup.protonation import ProtonationState
 
-        return ProtonationState(resname=resname, protonated=protonated,
-                                groups=(), reason="test")
+        return ProtonationState(resname, protonated, (), "test")
 
-    def test_base_settled_protonated_but_written_neutral_stops(self):
-        """3ERT: a tertiary amine at pKa 10.2 is cationic at pH 7."""
-        from fastmdxplora.setup.protonation import (
-            ProtonationError, check_state_was_applied,
+    def _apply(self, resname, smiles, groups, protonated):
+        from fastmdxplora.setup.protonation import apply_settled_state
+
+        return apply_settled_state(
+            self._sdf(smiles), self._chemistry(resname, groups),
+            self._state(resname, protonated),
         )
 
-        with pytest.raises(ProtonationError, match="settled protonated"):
-            check_state_was_applied(
-                self._chemistry("OHT", ["tertiary amine"]),
-                self._state("OHT", True),
-            )
+    def test_an_amidine_protonates_on_its_sp2_nitrogen(self):
+        """Benzamidine, the ligand of half the trypsin structures in the PDB.
 
-    def test_acid_settled_deprotonated_but_written_neutral_stops(self):
+        The cation is delocalised. Building it on the sp3 nitrogen gives a
+        different molecule which also keeps the C=N double bond, and with it
+        the undefined stereocentre that made the toolkit refuse the neutral
+        form in the first place.
+        """
+        from rdkit import Chem
+
+        text, charge = self._apply("BEN", "c1ccc(cc1)C(=N)N", ["amidine"], True)
+        assert charge == 1
+        mol = Chem.MolFromMolBlock(text, removeHs=False)
+        assert Chem.MolToSmiles(Chem.RemoveHs(mol)) == "NC(=[NH2+])c1ccccc1"
+        undefined = [e for e in Chem.FindPotentialStereo(mol)
+                     if str(e.specified) == "Unspecified"]
+        assert undefined == [], "the amidinium has no stereocentre to specify"
+
+    def test_a_carboxylic_acid_settled_deprotonated_becomes_an_anion(self):
         """1CBS: retinoic acid at pKa 3.8 is anionic at pH 7."""
+        text, charge = self._apply(
+            "REA", "CC(C)=CC(=O)O", ["carboxylic acid"], False)
+        assert charge == -1
+        assert "M  CHG" in text
+
+    def test_an_amine_settled_protonated_becomes_a_cation(self):
+        """3ERT: the tamoxifen side chain at pKa 10.2 is cationic at pH 7."""
+        text, charge = self._apply(
+            "OHT", "CCN(CC)CCOc1ccccc1", ["tertiary amine"], True)
+        assert charge == 1
+        assert "M  CHG" in text
+
+    def test_an_untitratable_ligand_is_returned_untouched(self):
+        original = self._sdf("c1ccccc1")
+        from fastmdxplora.setup.protonation import apply_settled_state
+
+        text, charge = apply_settled_state(
+            original, self._chemistry("BNZ", []), self._state("BNZ", False))
+        assert text == original
+        assert charge == 0
+
+    def test_a_reference_already_in_the_settled_state_is_untouched(self):
+        original = self._sdf("CC(C)=CC(=O)O")
+        from fastmdxplora.setup.protonation import apply_settled_state
+
+        # An acid settled protonated already holds its proton.
+        text, charge = apply_settled_state(
+            original, self._chemistry("ACD", ["carboxylic acid"]),
+            self._state("ACD", True))
+        assert text == original
+
+    def test_a_zwitterion_is_refused_rather_than_guessed(self):
+        """One answer cannot describe a molecule that is both acid and base."""
         from fastmdxplora.setup.protonation import (
-            ProtonationError, check_state_was_applied,
+            ProtonationError, apply_settled_state,
         )
 
-        with pytest.raises(ProtonationError, match="settled deprotonated"):
-            check_state_was_applied(
-                self._chemistry("REA", ["carboxylic acid"]),
-                self._state("REA", False),
+        with pytest.raises(ProtonationError, match="more than one titratable"):
+            apply_settled_state(
+                self._sdf("NCCCCC(N)C(=O)O"),
+                self._chemistry(
+                    "ZWT", ["carboxylic acid", "primary or secondary amine"]),
+                self._state("ZWT", True),
             )
 
-    def test_agreement_passes(self):
-        from fastmdxplora.setup.protonation import check_state_was_applied
-
-        # An acid written protonated and settled protonated agree.
-        check_state_was_applied(
-            self._chemistry("X", ["carboxylic acid"]), self._state("X", True))
-        # A carboxylate written deprotonated and settled deprotonated agree.
-        check_state_was_applied(
-            self._chemistry("Y", ["carboxylate"]), self._state("Y", False))
-
-    def test_untitratable_ligand_is_never_blocked(self):
-        from fastmdxplora.setup.protonation import check_state_was_applied
-
-        check_state_was_applied(self._chemistry("BNZ", []), self._state("BNZ", False))
-
-    def test_patterns_matching_either_form_make_no_claim(self):
-        """The phosphate SMARTS accepts both, so it cannot report which."""
-        from fastmdxplora.setup.protonation import check_state_was_applied
-
-        check_state_was_applied(
-            self._chemistry("GNP", ["phosphate or phosphonate"]),
-            self._state("GNP", True),
+    def test_an_unplaceable_group_is_refused(self):
+        """The phosphate patterns match either form and name no site."""
+        from fastmdxplora.setup.protonation import (
+            ProtonationError, apply_settled_state,
         )
+
+        with pytest.raises(ProtonationError, match="not one this pipeline"):
+            apply_settled_state(
+                self._sdf("COP(=O)(O)O"),
+                self._chemistry("PHO", ["phosphate or phosphonate"]),
+                self._state("PHO", False),
+            )

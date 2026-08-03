@@ -50,8 +50,16 @@ FETCH_TIMEOUT_S = 30
 TITRATABLE_SMARTS: dict[str, str] = {
     "carboxylic acid": "[CX3](=O)[OX2H1]",
     "carboxylate": "[CX3](=O)[OX1H0-]",
-    "primary or secondary amine": "[NX3;H2,H1;!$(NC=O);!$(N[a])]",
-    "tertiary amine": "[NX3;H0;!$(NC=O);!$(N[a]);!$([N+])]",
+    # An amidine is not an amine. Benzamidine, the ligand of half the trypsin
+    # structures in the PDB, matched the amine pattern and would have been
+    # protonated on its sp3 nitrogen, which is the wrong molecule: the cation
+    # is delocalised and forms on the sp2 one. Guanidine is excluded here so
+    # each group is named once, by its most specific description.
+    "amidine": "[NX3][CX3;!$([CX3]([NX3])[NX3])]=[NX2]",
+    "primary or secondary amine":
+        "[NX3;H2,H1;!$(NC=O);!$(N[a]);!$(N[CX3]=[NX2])]",
+    "tertiary amine":
+        "[NX3;H0;!$(NC=O);!$(N[a]);!$([N+]);!$(N[CX3]=[NX2])]",
     "imidazole": "c1cnc[nH]1",
     "phosphate or phosphonate": "[PX4](=O)([OX2H1,OX1H0-])",
     "sulfonic acid": "[SX4](=O)(=O)[OX2H1,OX1H0-]",
