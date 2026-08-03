@@ -65,6 +65,14 @@ TITRATABLE_SMARTS: dict[str, str] = {
     "sulfonic acid": "[SX4](=O)(=O)[OX2H1,OX1H0-]",
     "thiol": "[SX2H1]",
     "tetrazole": "c1nnn[nH]1",
+    # A pyridine-type nitrogen: two connections, no hydrogen, lone pair in the
+    # ring plane and therefore basic. Restricted to six-membered rings, which
+    # separates it from the azoles named above without excluding a fused system
+    # like a purine or a pteridine. Basic nitrogens in five-membered rings that
+    # are not azoles -- oxazole, thiazole -- are left out deliberately: their
+    # pKa is around 1 to 3, so they are neutral across the whole biological
+    # range and nothing is decided by naming them.
+    "aromatic nitrogen": "[nX2;H0;!$([n+]);r6]",
     "guanidine": "[NX3][CX3](=[NX2])[NX3]",
 }
 

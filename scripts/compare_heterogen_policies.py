@@ -32,6 +32,7 @@ import re
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -55,10 +56,21 @@ DEFAULT_STRUCTURES = [
     "1BNA",   # B-DNA
 ]
 
+#: A refusal is a judgement the pipeline made and explained; anything else that
+#: fails is a bug. Getting this list wrong does not change behaviour, it
+#: changes the verdict at the bottom of the table -- a refusal counted as a
+#: break reads as "the default should stay drop" when the evidence says no such
+#: thing. Every message that can end a run deliberately belongs here.
 REFUSAL = re.compile(
     r"does not determine what should be simulated|needs dedicated parameters|"
-    r"a sugar can be|covalently bonded|cannot parameterize small molecules|"
-    r"can only be retrieved"
+    r"a sugar can be|a free sugar|covalently bonded|"
+    r"cannot parameterize small molecules|can only be retrieved|"
+    # protonation the structure does not settle: a group poised at the
+    # simulation pH, a class whose copies disagree, a site that cannot be
+    # placed, or a reference chemistry that carries no answer at all
+    r"ionizable groups whose pKa|was settled |not settled for that group|"
+    r"more than one titratable|protonation site is not one|"
+    r"cannot be placed|accounted for"
 )
 
 
@@ -124,26 +136,56 @@ def main() -> int:
     parser.add_argument("--forcefield", default="amber-openff",
                         help="the same one for both policies")
     parser.add_argument("--json", type=Path)
+    parser.add_argument(
+        "--jobs", type=int, default=1,
+        help="Structures to prepare at once (default: 1). Each run is an "
+             "independent subprocess writing to its own directory, so they do "
+             "not interact; the work is dominated by force-field assignment, "
+             "which is single-threaded. Values above about 8 mostly add "
+             "pressure on RCSB rather than speed.",
+    )
     args = parser.parse_args()
 
     structures = args.structures or DEFAULT_STRUCTURES
     args.output_root.mkdir(parents=True, exist_ok=True)
 
     rows: list[Row] = []
+    jobs = max(1, args.jobs)
     print(f"Comparing heterogens=drop against heterogens=auto on "
-          f"{args.forcefield}, {len(structures)} structures\n")
-    for structure in structures:
-        row = Row(structure=structure)
-        for policy in ("drop", "auto"):
-            row.results[policy] = run_setup(structure, policy,
-                                            args.output_root, args.forcefield)
-        rows.append(row)
-        drop, auto = row.results["drop"], row.results["auto"]
-        ligands = f"  ligands: {', '.join(auto.ligands)}" if auto.ligands else ""
-        print(f"  {structure:6} drop={'ok ' if drop.ok else 'FAIL':4} "
-              f"auto={'ok ' if auto.ok else 'FAIL':4}  {row.verdict}{ligands}")
-        if row.verdict in {"AUTO BREAKS", "auto refuses"}:
-            print(f"         {auto.detail[:150]}")
+          f"{args.forcefield}, {len(structures)} structures"
+          + (f", {jobs} at a time" if jobs > 1 else "") + "\n")
+
+    # Every run is submitted at once, but the table is printed in the order the
+    # structures were given: a comparison read out of order is hard to check
+    # against a previous one, and the whole point of this script is comparing
+    # runs. Waiting on each row in turn costs nothing, since the rest keep
+    # running in the background.
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        pending = {
+            (structure, policy): pool.submit(
+                run_setup, structure, policy, args.output_root, args.forcefield)
+            for structure in structures
+            for policy in ("drop", "auto")
+        }
+
+        for structure in structures:
+            row = Row(structure=structure)
+            for policy in ("drop", "auto"):
+                try:
+                    row.results[policy] = pending[(structure, policy)].result()
+                except Exception as exc:  # noqa: BLE001 - one run must not stop the rest
+                    row.results[policy] = Outcome(
+                        ok=False, seconds=0.0,
+                        detail=f"the run could not be completed: {exc}")
+            rows.append(row)
+            drop, auto = row.results["drop"], row.results["auto"]
+            ligands = (f"  ligands: {', '.join(auto.ligands)}"
+                       if auto.ligands else "")
+            print(f"  {structure:6} drop={'ok ' if drop.ok else 'FAIL':4} "
+                  f"auto={'ok ' if auto.ok else 'FAIL':4}  "
+                  f"{row.verdict}{ligands}", flush=True)
+            if row.verdict in {"AUTO BREAKS", "auto refuses"}:
+                print(f"         {auto.detail[:150]}", flush=True)
 
     breaks = [r for r in rows if r.verdict == "AUTO BREAKS"]
     refuses = [r for r in rows if r.verdict == "auto refuses"]

@@ -77,6 +77,11 @@ CRYSTALLIZATION_ADDITIVES = frozenset({
 # substrates for the enzymes that act on them. Guessing would either delete a
 # covalent modification or simulate an antifreeze molecule, so the question is
 # handed back.
+#: Residues that carry a glycan. N-linked glycans attach to asparagine,
+#: O-linked to serine or threonine; a LINK naming one of these identifies the
+#: sugar as a glycosylation site rather than a free molecule.
+GLYCOSYLATION_RESIDUES = frozenset({"ASN", "SER", "THR", "HYP", "TRP"})
+
 SUGARS = frozenset({
     "NAG", "NDG", "BMA", "MAN", "BGC", "GLC", "GAL", "GLA", "FUC", "FUL",
     "XYP", "XYS", "XYL", "SIA", "NGA", "RIP", "RAM", "ARA", "ARB",
@@ -243,7 +248,11 @@ def parse_structure(pdb_path: str | Path) -> tuple[list[Atom], list[Atom], dict[
                 resname = raw[start:start + 3].strip().upper()
                 chain = raw[start + 4:start + 5].strip()
                 seq = raw[start + 5:start + 9].strip()
-                icode = raw[start + 9:start + 10]
+                # A LINK record trimmed before its symmetry columns leaves no
+                # insertion code, and an absent one is a blank, not a different
+                # value. Without this the key never matches the residue it
+                # names and the bond is lost without a word.
+                icode = raw[start + 9:start + 10] or " "
                 if resname and seq.lstrip("-").isdigit():
                     ends.append((resname, chain, int(seq), icode))
             if len(ends) == 2:
@@ -411,9 +420,23 @@ def classify(
     for het in heterogens:
         by_name[het.resname].append(het)
 
+    # An N-glycan is a chain: only its first sugar is bonded to the protein and
+    # the rest hang off each other. Whether the structure is glycosylated at
+    # all is therefore a question about the whole structure, not about any one
+    # residue, and is answered once here. Without it a glycan's inner sugar
+    # looks exactly like a free oligosaccharide -- which is what lysozyme's
+    # NAG3 substrate is, and that one must stay a question.
+    glycosylated = any(
+        het.resname in SUGARS and partner in GLYCOSYLATION_RESIDUES
+        for het in heterogens for partner in het.covalent_to
+    )
+
     decisions: list[Decision] = []
     for resname, instances in sorted(by_name.items()):
-        decisions.append(_classify_one(resname, instances, polymer, keep_water))
+        decisions.append(
+            _classify_one(resname, instances, polymer, keep_water,
+                          glycosylated=glycosylated)
+        )
     return decisions
 
 
@@ -422,6 +445,8 @@ def _classify_one(
     instances: list[Heterogen],
     polymer: list[Atom],
     keep_water: bool,
+    *,
+    glycosylated: bool = False,
 ) -> Decision:
     pack = tuple(instances)
 
@@ -501,14 +526,51 @@ def _classify_one(
         )
 
     if resname in SUGARS:
+        # The three readings of a sugar are not equally uncertain. A LINK
+        # record to an asparagine, serine or threonine says this one is a
+        # glycosylation site: that is the structure answering the question, not
+        # withholding it. What follows is settled rather than guessed -- the
+        # glycan is a covalent modification, carbohydrate parameters are
+        # required to simulate it, and this pipeline does not assign them, so
+        # the protein is prepared without it. Deglycosylating is the ordinary
+        # choice and what a protein-only force field can represent; refusing
+        # instead would stop every glycoprotein over a question the deposition
+        # already answered.
+        attached = sorted({
+            partner for h in instances for partner in h.covalent_to
+            if partner in GLYCOSYLATION_RESIDUES
+        })
+        # An inner sugar of a glycan is bonded only to other sugars. It counts
+        # as part of the glycan when the structure is glycosylated somewhere;
+        # in a structure that is not, the same bonding pattern is a free
+        # oligosaccharide and the question stands.
+        if not attached and glycosylated and any(
+            partner in SUGARS for h in instances for partner in h.covalent_to
+        ):
+            attached = ["the glycan"]
+        if attached:
+            return Decision(
+                resname,
+                Action.DISCARD,
+                f"a glycan, attached to {', '.join(attached)}. The protein is "
+                "prepared without it: simulating a glycan needs carbohydrate "
+                "parameters (GLYCAM, or the CHARMM36 carbohydrate files) that "
+                "this pipeline does not assign. Supply them with --setup-ligand "
+                "to keep it",
+                pack,
+            )
+
+        # Unattached, the question stands: a free sugar in a pocket is a
+        # substrate, and the same sugar on the surface is a cryoprotectant.
         return Decision(
             resname,
             Action.STOP,
-            "a sugar can be a glycosylation site, a substrate, or a "
-            "cryoprotectant, and the structure does not say which. Glycans need "
-            "carbohydrate parameters (GLYCAM, or the CHARMM36 carbohydrate "
-            "files) rather than a small-molecule force field. State the intent: "
-            "keep it with --setup-ligand and suitable parameters, or exclude it",
+            "a free sugar, attached to nothing, can be a substrate or a "
+            "cryoprotectant, and the structure does not say which. Simulating "
+            "it as a substrate needs carbohydrate parameters (GLYCAM, or the "
+            "CHARMM36 carbohydrate files) rather than a small-molecule force "
+            "field. State the intent: keep it with --setup-ligand and suitable "
+            "parameters, or exclude it with --setup-heterogens drop",
             pack,
         )
 

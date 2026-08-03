@@ -114,6 +114,7 @@ WRITTEN_PROTONATED: dict[str, bool] = {
     "guanidine": False,
     "thiol": True,
     "tetrazole": True,
+    "aromatic nitrogen": False,
 }
 
 
@@ -132,7 +133,7 @@ PROPKA_GROUP_TO_LABEL: dict[str, tuple[str, ...]] = {
     "N33": ("tertiary amine",),
     "OP": ("phosphate or phosphonate",),
     "SH": ("thiol",),
-    "NAR": ("imidazole", "tetrazole"),
+    "NAR": ("imidazole", "tetrazole", "aromatic nitrogen"),
 }
 
 
@@ -155,6 +156,7 @@ PROTONATION_SITE: dict[str, tuple[str, int]] = {
     "carboxylic acid": ("[CX3](=O)[OX2H1]", 2),
     "thiol": ("[SX2H1]", 0),
     "tetrazole": ("c1nnn[nH]1", 1),
+    "aromatic nitrogen": ("[nX2;H0;!$([n+]);r6]", 0),
 }
 
 
@@ -253,7 +255,29 @@ def apply_settled_state(sdf_text: str, chemistry, state) -> tuple[str, int]:
         label: state.protonated for label in labels
     }
 
+    # A group the calculation reported nothing for is not an unanswered
+    # question. PROPKA saw the molecule and found nothing ionizable of that
+    # class within range -- a quinazoline sits near pKa 5, a pteridine near 6 --
+    # so the reference form stands, and saying so beats refusing. A group whose
+    # copies disagreed is a real question, and is refused below.
     undecided = [label for label in labels if label not in decisions]
+    unassessed, contested = [], []
+    for label in undecided:
+        reported = sum(1 for group in state.groups
+                       if label in PROPKA_GROUP_TO_LABEL.get(group.group_type, ()))
+        (contested if reported else unassessed).append(label)
+
+    if unassessed and state.groups:
+        logger.info(
+            "%s: the pKa calculation reported no ionizable group for its %s, "
+            "so it stays as the reference chemistry supplies it.",
+            chemistry.resname, ", ".join(sorted(unassessed)),
+        )
+        for label in unassessed:
+            decisions[label] = WRITTEN_PROTONATED.get(label)
+        unassessed = []
+
+    undecided = contested + unassessed
     if undecided:
         raise ProtonationError(
             f"{chemistry.resname} carries {', '.join(undecided)} whose "
@@ -469,8 +493,15 @@ def decide(
             f"{resname} has ionizable groups whose pKa sits within {margin:g} "
             f"unit of pH {ph:g}, so both charge states are appreciably "
             f"populated and neither represents the ensemble:\n{detail}\n"
-            "Choose the state you intend and supply the ligand explicitly, or "
-            "run at a pH where the group is not poised."
+            "Both states are real here, so neither can be chosen for you. "
+            "State which you intend:\n"
+            "  --setup-ligand <file>.sdf   supply the ligand already in that "
+            "state, with explicit hydrogens and its net charge set\n"
+            "  --setup-ph <value>          compute at a pH where the group is "
+            "not poised\n"
+            "  --setup-heterogens drop     leave the component out entirely\n"
+            "A shift of more than a pH unit from the model value is the pocket "
+            "speaking, not the solvent, and is worth reading before overriding."
         )
 
     # Every group is decisively on one side of the pH.

@@ -516,3 +516,70 @@ class TestIonsSharingOneSite:
         ]
         actions = _actions(_structure(lines))
         assert actions["ZN"] is Action.SIMULATE
+
+
+class TestGlycansAreIdentifiedNotGuessed:
+    """A LINK to an asparagine is the structure answering the question.
+
+    A sugar has three readings, but they are not equally uncertain. Attached to
+    Asn, Ser or Thr it is a glycosylation site and nothing else. Attached to
+    nothing it could be a substrate or a cryoprotectant, and that question
+    stands.
+    """
+
+    def test_a_sugar_bonded_to_asparagine_is_a_glycan(self) -> None:
+        lines = list(PROTEIN)
+        lines += [
+            "LINK         ND2 ASN A   1                 C1  NAG A 400",
+            _atom("HETATM", 300, "C1", " ", "NAG", "A", 400, 4, 0, 0),
+        ]
+        actions = _actions(_structure(lines))
+        assert actions["NAG"] is Action.DISCARD
+
+    def test_an_inner_sugar_of_a_glycan_goes_with_it(self) -> None:
+        """Only the first sugar touches the protein; the rest hang off it."""
+        lines = list(PROTEIN)
+        lines += [
+            "LINK         ND2 ASN A   1                 C1  NAG A 400",
+            "LINK         O4  NAG A 400                 C1  BMA A 401",
+            _atom("HETATM", 300, "C1", " ", "NAG", "A", 400, 4, 0, 0),
+            _atom("HETATM", 301, "C1", " ", "BMA", "A", 401, 6, 0, 0),
+        ]
+        actions = _actions(_structure(lines))
+        assert actions["NAG"] is Action.DISCARD
+        assert actions["BMA"] is Action.DISCARD
+
+    def test_a_free_oligosaccharide_is_still_a_question(self) -> None:
+        """Lysozyme's NAG3 is a substrate: sugars bonded only to each other."""
+        lines = list(PROTEIN)
+        lines += [
+            "LINK         O4  NAG A 400                 C1  NAG A 401",
+            _atom("HETATM", 300, "C1", " ", "NAG", "A", 400, 4, 0, 0),
+            _atom("HETATM", 301, "C1", " ", "NAG", "A", 401, 6, 0, 0),
+        ]
+        with pytest.raises(AmbiguousStructureError, match="free sugar"):
+            resolve(_structure(lines))
+
+    def test_an_unattached_sugar_is_still_a_question(self) -> None:
+        lines = list(PROTEIN)
+        lines += [_atom("HETATM", 300, "C1", " ", "GAL", "A", 400, 4, 0, 0)]
+        with pytest.raises(AmbiguousStructureError, match="free sugar"):
+            resolve(_structure(lines))
+
+
+def test_a_link_trimmed_before_its_symmetry_columns_is_still_read() -> None:
+    """An absent insertion code is a blank, not a different value.
+
+    Depositions from RCSB pad LINK records past column 57, so the field is
+    always present; a hand-edited or trimmed file has nothing there, and
+    reading that as an empty string made the key miss the residue it named.
+    The bond was then lost silently, which for a glycan means it stops looking
+    attached to the protein at all.
+    """
+    lines = list(PROTEIN)
+    lines += [
+        "LINK         ND2 ASN A   1                 C1  NAG A 400",
+        _atom("HETATM", 300, "C1", " ", "NAG", "A", 400, 4, 0, 0),
+    ]
+    actions = _actions(_structure(lines))
+    assert actions["NAG"] is Action.DISCARD
