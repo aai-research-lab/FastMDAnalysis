@@ -1513,3 +1513,190 @@ def test_summary_card_values_truncate_long_paths() -> None:
     )
     assert 'title="${escapeAttr(value)}"' in script
     assert 'data-kind="${kind}"' in script
+
+
+class TestTheBrowserCanReachEverySetting:
+    """The form was written by hand, one control at a time.
+
+    So it offered eleven of the eighty-three settings that exist, and whole
+    phases were missing: there was no way to configure an analysis or a report
+    from the browser at all. A field nobody thought to add was simply
+    unreachable, and nothing said so.
+
+    The page now reads the schema instead. Adding a field puts a control on the
+    page, and there is no second list to keep in step.
+    """
+
+    def test_every_schema_field_is_offered(self) -> None:
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+        from fastmdxplora.gui.schema_payload import schema_payload
+
+        payload = schema_payload()
+        for phase, group in PHASE_SCHEMAS.items():
+            offered = {f["name"] for f in payload["phases"][phase]["fields"]}
+            declared = set(group.field_names())
+            assert offered == declared, (
+                f"{phase}: not offered {sorted(declared - offered)}"
+            )
+
+    def test_no_phase_is_left_out(self) -> None:
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+        from fastmdxplora.gui.schema_payload import schema_payload
+
+        assert set(schema_payload()["phases"]) == set(PHASE_SCHEMAS)
+
+    def test_a_field_carries_what_a_control_needs(self) -> None:
+        from fastmdxplora.gui.schema_payload import schema_payload
+
+        payload = schema_payload()
+        for phase, block in payload["phases"].items():
+            for field in block["fields"]:
+                assert field["help"], f"{phase}.{field['name']} has no help"
+                assert field["control"], f"{phase}.{field['name']} has no control"
+
+    def test_a_field_with_choices_becomes_a_select(self) -> None:
+        from fastmdxplora.gui.schema_payload import schema_payload
+
+        fields = {f["name"]: f for f in
+                  schema_payload()["phases"]["setup"]["fields"]}
+        assert fields["heterogens"]["control"] == "select"
+        assert fields["heterogens"]["choices"] == ["auto", "drop", "keep"]
+        assert fields["ph"]["control"] == "number"
+
+    def test_it_is_json(self) -> None:
+        """It is sent over the wire, so it must survive the trip."""
+        import json
+
+        from fastmdxplora.gui.schema_payload import schema_payload
+
+        restored = json.loads(json.dumps(schema_payload()))
+        assert restored["phases"]["analysis"]["fields"]
+
+    def test_the_dashboard_serves_it(self) -> None:
+        """Found through the module, and read as the file was written.
+
+        Reading by a path relative to the working directory only works when
+        the tests are run from the repository root; and reading without naming
+        the encoding uses whatever the machine happens to default to, which is
+        ASCII on some and chokes on the first accented character in the file.
+        """
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        source = pathlib.Path(server.__file__).read_text(encoding="utf-8")
+        assert "/api/schema" in source
+
+    def test_per_analysis_settings_come_from_the_analyses(self) -> None:
+        from fastmdxplora.gui.schema_payload import schema_payload
+
+        options = schema_payload()["analysis_options"]
+        if not options["available"]:
+            import pytest
+
+            pytest.skip(options["reason"])
+        assert "cluster" in options["analyses"]
+        names = {o["name"] for o in options["analyses"]["cluster"]}
+        assert {"n_clusters", "linkage", "features"} <= names
+
+    def test_shared_settings_are_marked_apart(self) -> None:
+        """So a form can group what every analysis has separately."""
+        from fastmdxplora.gui.schema_payload import schema_payload
+
+        options = schema_payload()["analysis_options"]
+        if not options["available"]:
+            import pytest
+
+            pytest.skip(options["reason"])
+        by_name = {o["name"]: o for o in options["analyses"]["cluster"]}
+        assert by_name["n_clusters"]["shared"] is False
+        assert by_name["figsize"]["shared"] is True
+
+
+class TestPointingAtAFolderOfResults:
+    """A trajectory that already exists should be enough to start.
+
+    From GROMACS, from AMBER, from someone's own OpenMM script, from a run this
+    software did last week. Requiring a simulation to be reproduced here before
+    the browser is any use excludes everyone who already has the data, which is
+    most of the field.
+    """
+
+    @staticmethod
+    def _a_finished_run(root):
+        (root / "setup").mkdir(parents=True)
+        (root / "simulation").mkdir(parents=True)
+        (root / "setup" / "system.pdb").write_text("ATOM" * 200)
+        (root / "simulation" / "topology.pdb").write_text("ATOM" * 100)
+        (root / "simulation" / "production.dcd").write_bytes(b"x" * 5_000_000)
+        (root / "simulation" / "equilibration.dcd").write_bytes(b"x" * 100_000)
+        (root / "resolved_config.yml").write_text("setup: {}")
+        return root
+
+    def test_it_finds_the_trajectory_and_the_topology(self, tmp_path) -> None:
+        from fastmdxplora.gui.directory_inspect import inspect_directory
+
+        found = inspect_directory(self._a_finished_run(tmp_path / "run"))
+        assert found["ok"] and found["can_analyse"]
+        assert {t["name"] for t in found["trajectories"]} == {
+            "production.dcd", "equilibration.dcd"}
+
+    def test_it_suggests_the_production_run(self, tmp_path) -> None:
+        """The long one, found by size rather than by a naming convention.
+
+        Guessing from the name would only work for runs this software named.
+        """
+        from fastmdxplora.gui.directory_inspect import inspect_directory
+
+        found = inspect_directory(self._a_finished_run(tmp_path / "run"))
+        assert found["suggestion"]["trajectory"].endswith("production.dcd")
+
+    def test_it_pairs_the_topology_beside_it(self, tmp_path) -> None:
+        """Not the one in setup/, which describes a different stage."""
+        from fastmdxplora.gui.directory_inspect import inspect_directory
+
+        found = inspect_directory(self._a_finished_run(tmp_path / "run"))
+        assert found["suggestion"]["topology"].endswith(
+            "simulation/topology.pdb")
+
+    def test_it_recognises_a_previous_run(self, tmp_path) -> None:
+        from fastmdxplora.gui.directory_inspect import inspect_directory
+
+        found = inspect_directory(self._a_finished_run(tmp_path / "run"))
+        assert found["is_previous_run"]
+        assert "resolved_config.yml" in found["run_markers"]
+
+    def test_a_lone_structure_is_something_to_set_up(self, tmp_path) -> None:
+        """A PDB on its own is a simulation waiting to happen, not a result."""
+        from fastmdxplora.gui.directory_inspect import inspect_directory
+
+        (tmp_path / "only.pdb").write_text("ATOM" * 50)
+        found = inspect_directory(tmp_path)
+        assert found["can_set_up"] and not found["can_analyse"]
+        assert found["suggestion"]["trajectory"] is None
+
+    def test_a_missing_folder_says_so(self, tmp_path) -> None:
+        from fastmdxplora.gui.directory_inspect import inspect_directory
+
+        found = inspect_directory(tmp_path / "nowhere")
+        assert not found["ok"] and "No such directory" in found["error"]
+
+    def test_nothing_opens_the_trajectory(self, tmp_path) -> None:
+        """The files here are not trajectories at all -- they are filler.
+
+        Recognising them by extension costs nothing and cannot fail. Opening a
+        multi-gigabyte DCD to check would stall the page, and the frame count
+        is not needed until an analysis is actually asked for.
+        """
+        from fastmdxplora.gui.directory_inspect import inspect_directory
+
+        found = inspect_directory(self._a_finished_run(tmp_path / "run"))
+        assert found["ok"], "reading the file would have raised here"
+
+    def test_the_dashboard_serves_it(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        source = pathlib.Path(server.__file__).read_text(encoding="utf-8")
+        assert "/api/inspect-directory" in source

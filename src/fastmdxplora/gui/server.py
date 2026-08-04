@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from fastmdxplora.dependencies import dependency_error_message, missing_dependencies
 from fastmdxplora.gui.exploration import (
@@ -225,6 +225,28 @@ def make_handler(
                 return
             if path == "/api/explore/defaults":
                 self._send_json(exploration_defaults())
+                return
+            if path == "/api/inspect-directory":
+                # Someone with a trajectory already should be able to point at
+                # the folder and be offered the analyses, rather than being
+                # asked to reproduce the simulation first.
+                from fastmdxplora.gui.directory_inspect import inspect_directory
+
+                target = parse_qs(parsed.query).get("path", [""])[0]
+                if not target:
+                    self._send_json(
+                        {"ok": False, "error": "No directory given."}, status=400
+                    )
+                    return
+                self._send_json(inspect_directory(target))
+                return
+            if path == "/api/schema":
+                # Every setting the software accepts, described well enough
+                # for the page to draw a control for it. The form used to be
+                # written by hand and offered eleven of eighty-three.
+                from fastmdxplora.gui.schema_payload import schema_payload
+
+                self._send_json(schema_payload())
                 return
             if path == "/api/status":
                 status = read_status(root)
