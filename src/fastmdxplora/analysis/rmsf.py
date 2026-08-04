@@ -24,6 +24,20 @@ from fastmdxplora.analysis.base import Analysis
 from fastmdxplora.analysis.orchestrator import register_analysis
 
 
+def _atom_labels(atoms) -> "np.ndarray":
+    """Serial numbers for the atom axis, or positions where there are none.
+
+    ``Atom.serial`` is filled in by the file the topology came from. A
+    trajectory built in memory -- which the Python API allows and the tests
+    use -- has none, and ``None`` became NaN in the column, then a very large
+    negative integer once the plot cast it. The saved data carried the NaN.
+    """
+    return np.array([
+        atom.serial if atom.serial is not None else atom.index + 1
+        for atom in atoms
+    ], dtype=np.int64)
+
+
 class RMSF(Analysis):
     """Per-residue root-mean-square fluctuation.
 
@@ -110,7 +124,7 @@ class RMSF(Analysis):
         if not self.per_residue:
             # Return atom_serial, rmsf
             atoms = [traj.topology.atom(int(i)) for i in atom_idx]
-            atom_serials = np.array([a.serial for a in atoms])
+            atom_serials = _atom_labels(atoms)
             return np.column_stack([atom_serials, per_atom]).astype(np.float64)
 
         # Collapse to per-residue by averaging over each residue's atoms in

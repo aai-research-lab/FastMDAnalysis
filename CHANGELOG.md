@@ -33,6 +33,38 @@ gains an alternative, which changes nothing unless asked for.
   and the per-analysis options, all of which `fastmdx analyze --help` lists.
 
 ### Fixed
+- **The Q-value is measured as the paper it cites defines it.** Best, Hummer &
+  Eaton give Q through a switching function: each native contact is judged
+  against the distance it had natively, and stops counting gradually rather
+  than at a step. A single threshold was applied to every contact instead, so
+  one formed at 0.20 nm was held to the same standard as one formed at 0.44 nm.
+  On a hairpin coming apart, the threshold reached zero where the published
+  measure still read 0.62, and crossed a half at frame 27 where the paper's
+  crossed at 89. **Q values will differ from 2.2.0, and for a folding study
+  that is the result rather than a detail.** `beta` and `lambda_factor` are
+  exposed, at the paper's values.
+
+  One consequence: Q at the reference frame is now slightly under 1 rather
+  than exactly 1. That is inherent to a smooth measure, and the paper leaves
+  it unnormalised, so rescaling it to 1 would misstate what was measured.
+- **Secondary structure leaves out what has no backbone.** DSSP returns a
+  column for every residue and marks the ones without a backbone `NA`. Those
+  columns were kept, and since `NA` is not in the colour map they were drawn
+  as coil; worse, the residue labels were taken from the protein residues
+  alone, so the two lists came out different lengths and the numbering fell
+  back to counting from zero. **A protein numbered 10 to 15 was relabelled 0
+  to 6, with the ligand as the last row.** Scope defaults to protein and
+  ligand, so this was the ordinary case for a protein-ligand study.
+
+  Where nothing in the selection has a backbone -- a nucleic acid, a lone
+  ligand, a coarse-grained model -- the analysis now says so instead of
+  drawing an empty timeline.
+- **An atom column is always a number.** `Atom.serial` is supplied by the file
+  a topology came from; a trajectory built in memory has none, and `None`
+  became NaN in the RMSF and ligand-RMSF atom column. The saved data carried
+  the NaN, and the figure cast it to the most negative integer there is and
+  used that as an axis label. Where the file gives no serial, the atom's
+  position is used.
 - **Hydrogen bonds are counted in every frame they occur in.** Baker-Hubbard
   proposes bonds above an occupancy threshold, and only proposed bonds were
   evaluated frame by frame — so a bond present in five per cent of frames

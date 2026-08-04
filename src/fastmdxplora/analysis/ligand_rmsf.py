@@ -19,6 +19,7 @@ import numpy as np
 
 from fastmdxplora.analysis.base import Analysis
 from fastmdxplora.analysis.orchestrator import register_analysis
+from fastmdxplora.analysis.rmsf import _atom_labels
 
 
 class LigandRMSF(Analysis):
@@ -101,8 +102,8 @@ class LigandRMSF(Analysis):
         disp = xyz - mean_xyz
         per_atom = np.sqrt(np.mean(np.sum(disp * disp, axis=2), axis=0))
 
-        serials = np.array(
-            [traj.topology.atom(int(i)).serial for i in ligand_idx]
+        serials = _atom_labels(
+            [traj.topology.atom(int(i)) for i in ligand_idx]
         )
         return np.column_stack([serials, per_atom]).astype(np.float64)
 

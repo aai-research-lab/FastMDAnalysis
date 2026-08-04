@@ -832,3 +832,53 @@ class TestSecondaryStructureSaysWhenItDoesNotApply:
         # The orchestrator catches per-analysis failures and records them; the
         # refusal above therefore reaches the user as a stated reason rather
         # than as an empty figure or a stopped exploration.
+
+
+class TestAtomLabelsAreNeverNotANumber:
+    """The atom column is written to the data file, so it must hold a number.
+
+    ``Atom.serial`` is filled in by the file a topology came from. A trajectory
+    built in memory -- which the Python API allows -- has none, and ``None``
+    became NaN in the column. The saved ``.dat`` carried the NaN, and the plot
+    cast it to the most negative integer there is and used that as an axis
+    label.
+    """
+
+    @staticmethod
+    def _in_memory():
+        top = md.Topology()
+        chain = top.add_chain()
+        res = top.add_residue("ALA", chain, resSeq=1)
+        for name in ("N", "CA", "C", "O"):
+            top.add_atom(name, md.element.carbon, res)
+        xyz = np.random.RandomState(0).rand(10, 4, 3).astype(np.float32)
+        return md.Trajectory(xyz=xyz, topology=top)
+
+    def test_rmsf_labels_atoms_without_serials(self) -> None:
+        from fastmdxplora.analysis.rmsf import RMSF
+
+        out = RMSF(per_residue=False, selection="all").compute(self._in_memory())
+        assert not np.isnan(out[:, 0]).any()
+        assert out[:, 0].tolist() == [1.0, 2.0, 3.0, 4.0]
+
+    def test_a_file_supplied_serial_is_kept(self, tmp_path) -> None:
+        """Where the file says, the file wins: the number is the user's."""
+        from fastmdxplora.analysis.rmsf import RMSF
+
+        traj = self._in_memory()
+        path = tmp_path / "top.pdb"
+        traj[0].save_pdb(path)
+        loaded = md.load(str(path))
+        from_file = [a.serial for a in loaded.topology.atoms]
+
+        out = RMSF(per_residue=False, selection="all").compute(
+            md.Trajectory(xyz=traj.xyz, topology=loaded.topology))
+        assert out[:, 0].tolist() == [float(s) for s in from_file]
+
+    def test_ligand_rmsf_labels_survive_the_cast_the_plot_makes(self) -> None:
+        from fastmdxplora.analysis.rmsf import _atom_labels
+
+        traj = self._in_memory()
+        labels = _atom_labels(list(traj.topology.atoms))
+        assert labels.dtype == np.int64
+        assert (labels > 0).all()
