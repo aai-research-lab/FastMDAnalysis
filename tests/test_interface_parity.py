@@ -40,57 +40,6 @@ def _parse(argv):
     return _build_parser().parse_args(argv)
 
 
-class TestHeterogensReachesEveryInterface:
-    """The option behind 2.2.0's headline feature."""
-
-    def test_the_schema_defines_it(self) -> None:
-        setup = all_schemas()["setup"]
-        assert "heterogens" in setup.field_names()
-
-    def test_the_cli_exposes_it(self) -> None:
-        """Under both spellings: --heterogens on setup, --setup-heterogens on explore."""
-        from fastmdxplora.cli.main import _SETUP_OPTIONS
-
-        names = {cli_suffix for cli_suffix, _kwarg, _kw in _SETUP_OPTIONS}
-        assert "heterogens" in names
-
-        parsed = _parse(["explore", "--system", "4W52", "--setup-heterogens", "auto"])
-        assert getattr(parsed, "setup__heterogens", None) == "auto"
-
-        parsed = _parse(["setup", "--system", "4W52", "--heterogens", "auto"])
-        assert getattr(parsed, "heterogens", None) == "auto"
-
-    def test_a_config_file_carries_it(self, tmp_path) -> None:
-        from fastmdxplora.config.loader import load_config_file
-
-        config = tmp_path / "study.yml"
-        config.write_text(
-            "system: 4W52\nsetup:\n  heterogens: auto\n", encoding="utf-8"
-        )
-        loaded = load_config_file(str(config))
-        assert loaded["setup"]["heterogens"] == "auto"
-
-    def test_the_browser_offers_all_three_choices(self) -> None:
-        markup = (GUI / "templates" / "dashboard.html").read_text(encoding="utf-8")
-        assert 'id="builder-heterogens"' in markup
-        for choice in ("drop", "auto", "keep"):
-            assert f'value="{choice}"' in markup, f"the {choice} option is missing"
-
-    def test_the_browser_sends_it_and_the_server_validates_it(self) -> None:
-        script = (GUI / "static" / "simulation-builder.js").read_text(encoding="utf-8")
-        assert "heterogens:" in script, "the builder must send the choice"
-
-        backend = (GUI / "exploration.py").read_text(encoding="utf-8")
-        assert '"drop", "keep", "auto"' in backend, "the server must validate it"
-
-    def test_the_gui_puts_it_in_the_command_and_the_saved_config(self) -> None:
-        backend = (GUI / "exploration.py").read_text(encoding="utf-8")
-        assert "--setup-heterogens" in backend, "the launched command must carry it"
-        assert 'setup_block["heterogens"]' in backend, (
-            "a saved config must carry it, or a study designed in the browser "
-            "cannot be reproduced on a cluster"
-        )
-
 
 class TestDefaultsAgree:
     """One default, however the option is reached.
@@ -155,26 +104,6 @@ class TestDefaultsAgree:
         schema = {f.name: f.default for f in all_schemas()["setup"].fields}
         assert schema["remove_cm_motion"] is True
 
-
-class TestNoOptionIsQuietlyUnreachable:
-    """A broad sweep, so the next gap is caught without being looked for."""
-
-    def test_every_builder_setup_option_is_a_real_schema_field(self) -> None:
-        """The browser must not offer settings the schema does not know."""
-        import re
-
-        script = (GUI / "static" / "simulation-builder.js").read_text(encoding="utf-8")
-        # The payload's setup section, which is the object literal following
-        # the key. Slice past the key itself so it is not read as a field.
-        start = script.index("setup: {") + len("setup: {")
-        block = script[start: script.index("},", start)]
-        offered = set(re.findall(r"^\s*([a-z_]+):", block, re.M))
-
-        known = set(all_schemas()["setup"].field_names())
-        unknown = offered - known
-        assert not unknown, (
-            f"the builder sends settings the schema does not define: {unknown}"
-        )
 
 
 class TestAutoResolvesConsistently:
@@ -452,45 +381,65 @@ class TestSettableThingsAreReachable:
         assert not unknown, f"flags with no schema field: {unknown}"
 
 
-class TestTheBrowserAgreesWithTheSchema:
+class TestTheBrowserHasNoDefaultsOfItsOwn:
     """A control that falls back to a stale default is a silent disagreement.
 
     The builder offered "Remove them (default)" and fell back to drop after the
     default had become auto, and to pH 7 after it had become 7.4. Nothing fails
-    when this drifts: the browser simply sends a different study from the one
+    when that drifts: the browser simply sends a different study from the one
     the same settings would produce anywhere else.
+
+    Three tests used to hold those particular fallbacks to the schema. They are
+    replaced by one that says why they are no longer needed: the page has no
+    fallbacks, because it has no settings of its own. Every control is drawn
+    from what the schema reports, so there is nothing left to drift.
     """
 
     @staticmethod
-    def _sources():
-        return (
-            (GUI / "static" / "simulation-builder.js").read_text(encoding="utf-8"),
-            (GUI / "templates" / "dashboard.html").read_text(encoding="utf-8"),
+    def _browser_scripts():
+        """The scripts that build the form.
+
+        Not every file under static/: the viewer and the results dashboard
+        contain the words "first", "last" and "title" for reasons that have
+        nothing to do with settings, and a check that cannot tell those apart
+        would be noise rather than a guard.
+        """
+        return {
+            name: (GUI / "static" / name).read_text(encoding="utf-8")
+            for name in ("run-builder.js", "file-picker.js")
+        }
+
+    def test_no_script_writes_out_a_setting_the_schema_declares(self) -> None:
+        supplied = {"trajectory", "topology", "system", "output", "include",
+                    "exclude", "scope"}
+        named: list[str] = []
+        for filename, script in self._browser_scripts().items():
+            for phase, group in all_schemas().items():
+                for field in group.fields:
+                    if field.name in supplied:
+                        continue
+                    if f'"{field.name}"' in script or f"'{field.name}'" in script:
+                        named.append(f"{filename}: {phase}.{field.name}")
+        assert not named, f"settings written into the browser: {named}"
+
+    def test_no_script_writes_out_a_list_of_accepted_values(self) -> None:
+        """The schema declares those too, and a control offering something the
+        command line rejects looks like the tool disagreeing with itself."""
+        offenders: list[str] = []
+        for filename, script in self._browser_scripts().items():
+            for phase, group in all_schemas().items():
+                for field in group.fields:
+                    if not field.choices or len(field.choices) < 2:
+                        continue
+                    if all(f'"{choice}"' in script for choice in field.choices):
+                        offenders.append(f"{filename}: {phase}.{field.name}")
+        assert not offenders, f"choice lists written into the browser: {offenders}"
+
+    def test_the_page_asks_the_schema_instead(self) -> None:
+        scripts = self._browser_scripts()
+        assert any("/api/schema" in script for script in scripts.values()), (
+            "nothing asks the schema, so the controls come from somewhere else"
         )
-
-    def test_the_heterogen_fallbacks_match_the_schema(self) -> None:
-        script, _ = self._sources()
-        default = {f.name: f.default for f in all_schemas()["setup"].fields}["heterogens"]
-        assert f'|| "{default}"' in script
-        assert '|| "drop"' not in script, (
-            "the builder still falls back to drop, which is no longer the default"
-        )
-
-    def test_the_ph_fallback_matches_the_schema(self) -> None:
-        script, _ = self._sources()
-        default = {f.name: f.default for f in all_schemas()["setup"].fields}["ph"]
-        assert f'numberValue("builder-ph", {default})' in script
-
-    def test_the_option_marked_default_is_the_default(self) -> None:
-        _, markup = self._sources()
-        default = {f.name: f.default for f in all_schemas()["setup"].fields}["heterogens"]
-        import re
-
-        marked = re.findall(r'<option value="([a-z]+)">[^<]*\(default\)</option>', markup)
-        assert marked == [default], (
-            f"the browser marks {marked} as the default; the schema says {default!r}"
-        )
-
 
 class TestDefaultConstantsAgreeWithTheSchema:
     """A module constant naming a default is a second place for it to live.

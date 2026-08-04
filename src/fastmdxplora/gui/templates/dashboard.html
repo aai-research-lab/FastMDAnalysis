@@ -45,19 +45,7 @@
       <nav class="sidebar-nav" role="navigation" aria-label="Dashboard sections">
         <a href="#run" class="nav-link" data-view-link="run">
           <span class="nav-icon nav-icon-launch" aria-hidden="true"></span>
-          <span>New run</span>
-        </a>
-        <a href="#analyse" class="nav-link" data-view-link="analyse">
-          <span class="nav-icon" aria-hidden="true"></span>
-          <span>Analyze Existing Data</span>
-        </a>
-        <a href="#builder" class="nav-link" data-view-link="builder">
-          <span class="nav-icon" aria-hidden="true"></span>
-          <span>Classic builder</span>
-        </a>
-        <a href="#builder" class="nav-link" data-view-link="builder">
-          <span class="nav-icon" aria-hidden="true"></span>
-          <span>Classic builder</span>
+          <span>New Exploration</span>
         </a>
         <a href="#" class="nav-link" data-view-link="overview" data-requires-run="true">
           <span class="nav-icon" aria-hidden="true"></span>
@@ -198,7 +186,7 @@
               <label class="builder-field builder-field-wide" id="run-structure-field" hidden>
                 <span class="builder-label">Structure</span>
                 <input type="text" id="run-system" autocomplete="off" data-picks="structure"
-                       placeholder="1L2Y or /path/to/protein.pdb">
+                       placeholder="PDB ID, or a path to a structure file">
                 <span class="builder-card-note">
                   A four-character identifier is fetched from the PDB.
                 </span>
@@ -208,7 +196,6 @@
                 <div class="analyse-path-row">
                   <input type="text" id="run-trajectory" autocomplete="off" data-picks="trajectory"
                          placeholder="/path/to/production.dcd">
-                  <button type="button" class="ghost-btn" id="run-look">Find beside it</button>
                 </div>
                 <span class="builder-label" style="margin-top:10px">Structure</span>
                 <input type="text" id="run-topology" autocomplete="off" data-picks="structure"
@@ -308,356 +295,16 @@
               <button type="button" class="primary-btn" id="run-start-button" disabled>
                 Run here
               </button>
+              <button type="button" class="danger-btn" id="run-stop" hidden>
+                Stop the run
+              </button>
             </div>
             <div class="builder-card-note" id="run-note"></div>
             <pre class="mono small" id="run-config-preview" hidden></pre>
           </div>
         </section>
 
-        <section class="page" data-page="builder" hidden>
-          <div class="page-header builder-page-header">
-            <div>
-              <h1 class="page-title">New Exploration</h1>
-              <div class="page-subtitle">Configure and launch the standard FastMDXplora workflow.</div>
-            </div>
-            <div class="builder-run-state" id="builder-run-state" data-state="idle">
-              <span class="status-dot status-dot-waiting" id="builder-state-dot"></span>
-              <span id="builder-state-text">No active workflow</span>
-            </div>
-          </div>
-
-          <form id="simulation-builder-form" class="builder-layout" novalidate>
-            <div class="builder-main">
-              <div class="card builder-card">
-                <div class="card-header">
-                  <div>
-                    <h2 class="card-title">Molecular system</h2>
-                    <p class="builder-card-note">Enter a PDB ID, an amino-acid sequence, or a path visible to this computer.</p>
-                  </div>
-                  <span class="builder-step">01</span>
-                </div>
-                <div class="builder-grid builder-grid-2">
-                  <label class="builder-field builder-field-wide">
-                    <span class="builder-label">System</span>
-                    <input type="text" id="builder-system" autocomplete="off" placeholder="1L2Y or C:\path\protein.pdb" required>
-                    <span class="field-error" data-error-for="system"></span>
-                  </label>
-                  <label class="builder-field">
-                    <span class="builder-label">Exploration name</span>
-                    <input type="text" id="builder-run-name" autocomplete="off" placeholder="Generated automatically">
-                    <span class="field-error" data-error-for="run_name"></span>
-                  </label>
-                </div>
-              </div>
-
-              <div class="card builder-card">
-                <div class="card-header">
-                  <div>
-                    <h2 class="card-title">System setup</h2>
-                    <p class="builder-card-note">These values are passed to the existing setup phase.</p>
-                  </div>
-                  <span class="builder-step">02</span>
-                </div>
-                <div class="builder-grid builder-grid-3">
-                  <label class="builder-field">
-                    <span class="builder-label">Force field</span>
-                    <select id="builder-forcefield"></select>
-                  </label>
-                  <label class="builder-field">
-                    <span class="builder-label">Water model</span>
-                    <input type="text" id="builder-water-model" placeholder="auto">
-                  </label>
-                  <label class="builder-field">
-                    <span class="builder-label">pH</span>
-                    <div class="range-number-pair">
-                      <input type="range" id="builder-ph-range" min="0" max="14" step="0.1">
-                      <input type="number" id="builder-ph" min="0" max="14" step="0.1">
-                    </div>
-                    <span class="field-error" data-error-for="setup.ph"></span>
-                  </label>
-                  <label class="builder-field">
-                    <span class="builder-label">Ion concentration (M)</span>
-                    <div class="range-number-pair">
-                      <input type="range" id="builder-ion-range" min="0" max="1" step="0.01">
-                      <input type="number" id="builder-ion" min="0" max="5" step="0.01">
-                    </div>
-                    <span class="field-error" data-error-for="setup.ion_concentration_M"></span>
-                  </label>
-                  <label class="builder-field">
-                    <span class="builder-label">Solvent padding (nm)</span>
-                    <div class="range-number-pair">
-                      <input type="range" id="builder-padding-range" min="0.5" max="3" step="0.1">
-                      <input type="number" id="builder-padding" min="0.1" max="10" step="0.1">
-                    </div>
-                    <span class="field-error" data-error-for="setup.solvent_padding_nm"></span>
-                  </label>
-                  <label class="builder-field">
-                    <span class="builder-label">Non-standard residues</span>
-                    <select id="builder-heterogens">
-                      <option value="auto">Decide per component (default)</option>
-                      <option value="drop">Remove them all</option>
-                      <option value="keep">Keep them all</option>
-                    </select>
-                  </label>
-                  <div class="builder-field builder-toggle-group">
-                    <span class="builder-label">Structure retention</span>
-                    <label class="checkbox-row"><input type="checkbox" id="builder-keep-water"> Keep crystallographic water</label>
-                  </div>
-                </div>
-              </div>
-
-              <div class="card builder-card">
-                <div class="card-header">
-                  <div>
-                    <h2 class="card-title">Simulation stages</h2>
-                    <p class="builder-card-note">Use the sliders for quick changes or type exact step counts.</p>
-                  </div>
-                  <span class="builder-step">03</span>
-                </div>
-                <div class="builder-stage-list">
-                  <label class="builder-stage-row">
-                    <span class="builder-stage-name">NVT equilibration</span>
-                    <input type="range" id="builder-nvt-range" min="0" max="2000000" step="1000">
-                    <input type="number" id="builder-nvt" min="0" step="1000">
-                    <span class="builder-duration mono" id="builder-nvt-duration">— ns</span>
-                    <span class="field-error" data-error-for="simulation.nvt_steps"></span>
-                  </label>
-                  <label class="builder-stage-row">
-                    <span class="builder-stage-name">NPT equilibration</span>
-                    <input type="range" id="builder-npt-range" min="0" max="3000000" step="1000">
-                    <input type="number" id="builder-npt" min="0" step="1000">
-                    <span class="builder-duration mono" id="builder-npt-duration">— ns</span>
-                    <span class="field-error" data-error-for="simulation.npt_steps"></span>
-                  </label>
-                  <label class="builder-stage-row builder-stage-production">
-                    <span class="builder-stage-name">Production</span>
-                    <input type="range" id="builder-production-range" min="1000" max="5000000" step="1000">
-                    <input type="number" id="builder-production" min="1" step="1000">
-                    <span class="builder-duration mono" id="builder-production-duration">— ns</span>
-                    <span class="field-error" data-error-for="simulation.production_steps"></span>
-                  </label>
-                </div>
-              </div>
-
-              <div class="card builder-card">
-                <div class="card-header">
-                  <div>
-                    <h2 class="card-title">Dynamics and hardware</h2>
-                    <p class="builder-card-note">Scientific settings remain unchanged after the workflow starts.</p>
-                  </div>
-                  <span class="builder-step">04</span>
-                </div>
-                <div class="builder-grid builder-grid-3">
-                  <label class="builder-field">
-                    <span class="builder-label">Temperature (K)</span>
-                    <div class="range-number-pair">
-                      <input type="range" id="builder-temperature-range" min="50" max="500" step="1">
-                      <input type="number" id="builder-temperature" min="1" max="5000" step="1">
-                    </div>
-                  </label>
-                  <label class="builder-field">
-                    <span class="builder-label">Timestep (fs)</span>
-                    <div class="range-number-pair">
-                      <input type="range" id="builder-timestep-range" min="0.1" max="4" step="0.1">
-                      <input type="number" id="builder-timestep" min="0.01" max="20" step="0.1">
-                    </div>
-                  </label>
-                  <label class="builder-field">
-                    <span class="builder-label">Friction (1/ps)</span>
-                    <div class="range-number-pair">
-                      <input type="range" id="builder-friction-range" min="0" max="10" step="0.1">
-                      <input type="number" id="builder-friction" min="0" max="1000" step="0.1">
-                    </div>
-                  </label>
-                  <label class="builder-field"><span class="builder-label">Integrator</span><select id="builder-integrator"></select></label>
-                  <label class="builder-field"><span class="builder-label">Platform</span><select id="builder-platform"></select></label>
-                  <label class="builder-field"><span class="builder-label">Precision</span><select id="builder-precision"></select></label>
-                  <label class="builder-field"><span class="builder-label">Trajectory interval (steps)</span><input type="number" id="builder-trajectory-interval" min="1" step="1"></label>
-                  <label class="builder-field"><span class="builder-label">Dashboard frame interval (steps)</span><input type="number" id="builder-telemetry-interval" min="1" step="1"></label>
-                  <label class="builder-field"><span class="builder-label">Checkpoint interval (steps)</span><input type="number" id="builder-checkpoint-interval" min="0" step="1"></label>
-                  <label class="checkbox-row builder-checkbox"><input type="checkbox" id="builder-minimize" checked> Minimize before equilibration</label>
-                </div>
-              </div>
-
-              <div class="card builder-card">
-                <div class="card-header">
-                  <div>
-                    <h2 class="card-title">Analysis and reporting</h2>
-                    <p class="builder-card-note">The default full pipeline produces analyses, figures, slides, and a ZIP bundle.</p>
-                  </div>
-                  <span class="builder-step">05</span>
-                </div>
-                <div class="builder-workflow-options">
-                  <label class="checkbox-row"><input type="checkbox" id="builder-run-analysis" checked> Run trajectory analysis</label>
-                  <label class="checkbox-row"><input type="checkbox" id="builder-run-report" checked> Generate reports and dashboard artifacts</label>
-                  <label class="checkbox-row"><input type="checkbox" id="builder-report-document" checked> Markdown report</label>
-                  <label class="checkbox-row"><input type="checkbox" id="builder-report-slides" checked> PowerPoint slides</label>
-                  <label class="checkbox-row"><input type="checkbox" id="builder-report-bundle" checked> ZIP result bundle</label>
-                </div>
-                <div class="analysis-choice-grid" id="builder-analysis-choices" aria-label="Analyses"></div>
-              </div>
-            </div>
-
-            <aside class="builder-summary-column">
-              <div class="card builder-summary-card">
-                <div class="card-header"><h2 class="card-title">Review &amp; launch</h2></div>
-                <dl class="builder-summary-list mono">
-                  <div><dt>System</dt><dd id="builder-summary-system">—</dd></div>
-                  <div><dt>Output</dt><dd id="builder-summary-output">—</dd></div>
-                  <div><dt>NVT</dt><dd id="builder-summary-nvt">—</dd></div>
-                  <div><dt>NPT</dt><dd id="builder-summary-npt">—</dd></div>
-                  <div><dt>Production</dt><dd id="builder-summary-production">—</dd></div>
-                  <div><dt>Total simulated</dt><dd id="builder-summary-total">—</dd></div>
-                  <div><dt>Trajectory frames</dt><dd id="builder-summary-frames">—</dd></div>
-                  <div><dt>Platform</dt><dd id="builder-summary-platform">—</dd></div>
-                </dl>
-                <div class="builder-warning-list" id="builder-warning-list" hidden></div>
-                <div class="builder-command-preview">
-                  <div class="builder-label">Equivalent command</div>
-                  <code id="builder-command-preview">Validate to preview the command.</code>
-                </div>
-                <div class="builder-actions">
-                  <button type="button" class="ghost-btn" id="builder-reset">Reset defaults</button>
-                  <button type="button" class="ghost-btn" id="builder-validate">Validate</button>
-                  <button type="button" class="ghost-btn" id="builder-download-config">Save config file</button>
-                  <button type="submit" class="primary-btn" id="builder-explore">Start Exploration</button>
-                  <button type="button" class="danger-btn" id="builder-stop" hidden>Stop Workflow</button>
-                </div>
-                <div class="builder-message" id="builder-message" role="status" aria-live="polite"></div>
-              </div>
-            </aside>
-          </form>
-        </section>
-
         <!-- Loading shell renders here once data arrives -->
-        <section class="page" data-page="analyse" hidden>
-          <div class="page-header">
-            <div>
-              <h1 class="page-title">Analyze Existing Data</h1>
-              <div class="page-subtitle">
-                Point at a folder holding a trajectory and choose what to measure.
-                The simulation can have come from anywhere.
-              </div>
-            </div>
-            <div class="page-header-actions">
-              <div class="muted small mono" id="analyse-summary">Nothing selected yet</div>
-              <button type="button" class="ghost-btn" id="analyse-reset">
-                Reset to defaults
-              </button>
-            </div>
-          </div>
-
-          <div class="card builder-card">
-            <div class="card-header">
-              <div>
-                <h2 class="card-title">Where the data is</h2>
-                <p class="builder-card-note">
-                  A folder containing a trajectory and the structure it came from.
-                  Nothing is opened until an analysis runs.
-                </p>
-              </div>
-              <span class="builder-step">01</span>
-            </div>
-            <div class="builder-grid builder-grid-2">
-              <label class="builder-field builder-field-wide">
-                <span class="builder-label">Folder</span>
-                <input type="text" id="analyse-folder" autocomplete="off" data-picks="folder"
-                       placeholder="/path/to/simulation/output">
-                <span class="builder-card-note" id="analyse-folder-note"></span>
-              </label>
-              <div class="builder-field">
-                <span class="builder-label">&nbsp;</span>
-                <div class="page-header-actions">
-                  <button type="button" class="ghost-btn" id="analyse-look">Look</button>
-                </div>
-              </div>
-            </div>
-            <div class="builder-grid builder-grid-2" id="analyse-found" hidden>
-              <label class="builder-field">
-                <span class="builder-label">Trajectory</span>
-                <select id="analyse-trajectory"></select>
-                <span class="builder-card-note" id="analyse-trajectory-note">The largest is usually the production run.</span>
-              </label>
-              <label class="builder-field">
-                <span class="builder-label">Structure</span>
-                <select id="analyse-topology"></select>
-                <span class="builder-card-note">Describes the atoms the trajectory moves.</span>
-              </label>
-            </div>
-          </div>
-
-          <div class="card builder-card">
-            <div class="card-header">
-              <div>
-                <h2 class="card-title">What to measure</h2>
-                <p class="builder-card-note">
-                  Each analysis brings its own settings, read from the analysis itself.
-                  Leave one alone to use its default.
-                </p>
-              </div>
-              <span class="builder-step">02</span>
-            </div>
-            <div class="builder-grid builder-grid-2">
-              <label class="builder-field">
-                <span class="builder-label">Atoms to measure</span>
-                <select id="analyse-scope">
-                  <option value="solute">solute — protein and ligand</option>
-                  <option value="protein">protein</option>
-                  <option value="ligand">ligand</option>
-                  <option value="all">all — including water and ions</option>
-                </select>
-                <span class="builder-card-note">
-                  Measuring the water as well would report the size and motion of
-                  the solvent box rather than of the molecule in it.
-                </span>
-              </label>
-              <div class="builder-field">
-                <span class="builder-label">Results folder</span>
-                <div class="analyse-path-row">
-                  <input type="text" id="analyse-output" autocomplete="off" data-picks="folder"
-                         placeholder="analysis_output">
-                </div>
-                <span class="builder-card-note" id="analyse-output-note">
-                  Where the figures and data are written.
-                </span>
-              </div>
-            </div>
-            <div class="analyse-choices" id="analyse-choices"></div>
-          </div>
-
-          <div class="card builder-card">
-            <div class="card-header">
-              <div>
-                <h2 class="card-title">Run it here, or take it with you</h2>
-                <p class="builder-card-note">
-                  The same file either way. A laptop is a poor place to run a long
-                  trajectory; a cluster is a poor place to decide what to run.
-                </p>
-              </div>
-              <span class="builder-step">03</span>
-            </div>
-            <label class="analyse-full-toggle">
-              <input type="checkbox" id="analyse-full-config">
-              <span>
-                Write every setting, not only the ones I changed
-                <span class="builder-card-note">
-                  A full config records what the run actually used, so a default
-                  that moves in a later version cannot change what the file meant.
-                  Either form runs.
-                </span>
-              </span>
-            </label>
-            <div class="page-header-actions">
-              <button type="button" class="ghost-btn" id="analyse-preview" aria-expanded="false"
-                      aria-controls="analyse-config-preview">Show the config</button>
-              <button type="button" class="ghost-btn" id="analyse-download" disabled>Download config</button>
-              <button type="button" class="primary-btn" id="analyse-run" disabled>Run here</button>
-            </div>
-            <div class="builder-card-note" id="analyse-config-note"></div>
-            <pre class="mono small" id="analyse-config-preview" hidden></pre>
-          </div>
-        </section>
-
         <!-- Hidden like every other page. Left visible, it was what the GUI
              opened on: the overview of a run, before any state had loaded and
              often when there was no run at all. The router picks the page as
@@ -1218,8 +865,6 @@
 
   <script src="/static/3Dmol-min.js"></script>
   <script src="/static/dashboard.js"></script>
-  <script src="/static/simulation-builder.js"></script>
-    <script src="/static/analysis-builder.js"></script>
     <script src="/static/file-picker.js"></script>
     <script src="/static/run-builder.js"></script>
   <script src="/static/charts.js"></script>

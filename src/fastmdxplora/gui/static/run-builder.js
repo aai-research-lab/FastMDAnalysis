@@ -700,6 +700,39 @@
     return verdict;
   }
 
+  /* Stopping a run. This lived only on the page being retired, so deleting
+   * that page without bringing it across would have left the browser able to
+   * start something it could not stop. */
+  async function stopRunning() {
+    const button = el("run-stop");
+    button.disabled = true;
+    text(el("run-note"), "Stopping\u2026");
+    try {
+      const response = await fetch("/api/explore/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const stopped = await response.json();
+      text(el("run-note"), stopped.ok ? "Stopped." : (stopped.error || "Could not stop."));
+    } catch (error) {
+      text(el("run-note"), "Could not reach the server.");
+    }
+    button.disabled = false;
+  }
+
+  /* The button appears only while something is running, and the dashboard is
+   * what knows. */
+  function watchForARun() {
+    if (!window.FastMDXDashboard || !window.FastMDXDashboard.on) return;
+    // The handler is given the detail itself, not the event carrying it.
+    window.FastMDXDashboard.on("app-state", (detail) => {
+      const running = Boolean(detail && detail.active_run);
+      const stop = el("run-stop");
+      if (stop) stop.hidden = !running;
+    });
+  }
+
   async function start() {
     const button = el("run-start-button");
     button.disabled = true;
@@ -747,24 +780,6 @@
     renderAll();
   }
 
-  // -------------------------------------------------------------- the files
-
-  async function lookInFolder(inputId) {
-    const path = el(inputId).value.trim();
-    if (!path) return;
-    const response = await fetch(
-      "/api/inspect-directory?path=" + encodeURIComponent(path)
-    );
-    const found = await response.json();
-    if (!found.ok || !found.can_analyse) return;
-    state.found = found;
-    if (found.suggestion) {
-      el("run-trajectory").value = found.suggestion.trajectory || "";
-      el("run-topology").value = found.suggestion.topology || "";
-    }
-    updateSummary();
-  }
-
   // ------------------------------------------------------------------- wire
 
   function renderAll() {
@@ -774,6 +789,46 @@
     updateSummary();
   }
 
+
+  /* Where the results will actually be written, for whatever is in the box.
+   * Saying "a name lands in /somewhere" left the reader to do the joining;
+   * this says the path. */
+  function describeOutput() {
+    const box = el("run-output");
+    const where = (state.schema && state.schema.workspace) || "";
+    if (!box) return;
+    const typed = box.value.trim();
+    const name = typed || "fastmdxplora_output";
+    const absolute = name.startsWith("/") || name.startsWith("~");
+    const full = absolute ? name : (where ? `${where}/${name}` : name);
+    text(el("run-output-note"), `Results will be saved in ${full}`);
+  }
+
+  /* A trajectory usually sits beside the structure it moves. Choosing one and
+   * then being asked to find the other in the same folder is a step the page
+   * can take itself, and the button that used to do it said "Find beside it",
+   * which explained nothing. */
+  async function findStructureBeside() {
+    const trajectory = el("run-trajectory").value.trim();
+    const topology = el("run-topology");
+    if (!trajectory || !topology || topology.value.trim()) return;
+
+    const folder = trajectory.replace(/[/\\][^/\\]*$/, "");
+    if (!folder) return;
+    try {
+      const response = await fetch(
+        "/api/inspect-directory?path=" + encodeURIComponent(folder)
+      );
+      const found = await response.json();
+      if (found.ok && found.suggestion && found.suggestion.topology) {
+        topology.value = found.suggestion.topology;
+        updateSummary();
+      }
+    } catch (error) {
+      // Not finding one is not a failure: the field is still there to type in.
+    }
+  }
+
   function attach() {
     if (!el("run-start")) return;
 
@@ -781,6 +836,10 @@
       const input = el(id);
       if (input) input.addEventListener("input", updateSummary);
     });
+    const output = el("run-output");
+    if (output) output.addEventListener("input", describeOutput);
+    const trajectory = el("run-trajectory");
+    if (trajectory) trajectory.addEventListener("change", findStructureBeside);
 
     const configPath = el("run-config-path");
     if (configPath) configPath.addEventListener("change", checkConfigFile);
@@ -791,8 +850,6 @@
     const asIsButton = el("run-as-is");
     if (asIsButton) asIsButton.addEventListener("click", runAsItStands);
 
-    const look = el("run-look");
-    if (look) look.addEventListener("click", () => lookInFolder("run-trajectory"));
     const preview = el("run-preview");
     if (preview) preview.addEventListener("click", showConfig);
     const downloadButton = el("run-download");
@@ -801,13 +858,12 @@
     if (startButton) startButton.addEventListener("click", start);
     const reset = el("run-reset");
     if (reset) reset.addEventListener("click", resetEverything);
+    const stop = el("run-stop");
+    if (stop) stop.addEventListener("click", stopRunning);
+    watchForARun();
 
     loadSchema().then(() => {
-      const where = state.schema && state.schema.workspace;
-      if (where) {
-        text(el("run-output-note"),
-             `A name lands in ${where}. A full path is used as given.`);
-      }
+      describeOutput();
       renderAll();
     }).catch(() => {
       text(el("run-summary"), "Could not read the settings.");

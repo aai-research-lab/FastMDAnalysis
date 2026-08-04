@@ -245,7 +245,9 @@ def test_home_server_exposes_exploration_apis(tmp_path: Path) -> None:
         with urllib.request.urlopen(url + "/") as response:
             html = response.read().decode("utf-8")
         assert "New Exploration" in html
-        assert "/static/simulation-builder.js" in html
+        # The builder that page carried has been retired; the run page took
+        # its place and is what the dashboard now loads.
+        assert "/static/run-builder.js" in html
         with urllib.request.urlopen(url + "/api/app-state") as response:
             state = json.load(response)
         assert state["active_run"] is None

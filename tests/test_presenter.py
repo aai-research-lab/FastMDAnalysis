@@ -461,3 +461,98 @@ class TestBannerReflectsTheRun:
         ])
         assert "1,234" in text or "1234" in text
         assert "9,876" in text or "9876" in text
+
+
+class TestTheBannerDescribesThisRun:
+    """It was built entirely from command-line flags.
+
+    A run started with --config saw none of them and fell back to defaults, so
+    it announced a million production steps for a run that only analysed a
+    trajectory, and the setup pH of a config that said something else. Anyone
+    reading exploration.log to find out what a run did was told the wrong
+    thing.
+    """
+
+    @staticmethod
+    def _banner(argv, **fields):
+        import contextlib
+        import io
+        import sys
+
+        from fastmdxplora.utils.presenter import SessionPresenter
+
+        original = sys.argv
+        sys.argv = ["fastmdx"] + argv
+        buffer = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buffer):
+                SessionPresenter(stream=buffer).banner(**fields)
+        finally:
+            sys.argv = original
+        return buffer.getvalue()
+
+    @staticmethod
+    def _config(tmp_path, text):
+        path = tmp_path / "study.yml"
+        path.write_text(text, encoding="utf-8")
+        return str(path)
+
+    def test_an_analysis_run_announces_no_simulation(self, tmp_path) -> None:
+        config = self._config(tmp_path, (
+            "output: o\ninclude: [analysis]\nsystems: [{system: t.pdb}]\n"
+            "analysis: {trajectory: x.dcd, topology: t.pdb}\n"))
+        printed = self._banner(["explore", "--config", config],
+                               system="t.pdb", output="o")
+        assert "SIMULATION" not in printed
+        assert "SETUP" not in printed
+        assert "ANALYSIS" in printed
+
+    def test_a_full_run_announces_everything(self, tmp_path) -> None:
+        config = self._config(tmp_path, (
+            "output: o\ninclude: [setup, simulation, analysis]\n"
+            "systems: [{system: 1ubq}]\n"))
+        printed = self._banner(["explore", "--config", config],
+                               system="1ubq", output="o")
+        assert "SETUP" in printed and "SIMULATION" in printed
+
+    def test_without_a_config_nothing_changes(self) -> None:
+        """There is nothing to go on, and leaving a section out would be worse
+        than showing one for a phase that happens not to run."""
+        printed = self._banner(["explore", "--system", "1ubq"],
+                               system="1ubq", output="o")
+        assert "SETUP" in printed and "SIMULATION" in printed
+
+    def test_it_reports_what_the_config_says(self, tmp_path) -> None:
+        config = self._config(tmp_path, (
+            "output: o\ninclude: [setup, simulation]\nsystems: [{system: 1ubq}]\n"
+            "setup: {ph: 6.5, forcefield: charmm36}\n"
+            "simulation: {temperature_K: 310}\n"))
+        printed = self._banner(["explore", "--config", config],
+                               system="1ubq", output="o")
+        assert "6.5" in printed, "the default pH was printed instead"
+        assert "charmm36" in printed
+        assert "310" in printed
+
+    def test_a_config_without_include_names_what_it_describes(
+        self, tmp_path
+    ) -> None:
+        config = self._config(tmp_path, (
+            "output: o\nsystems: [{system: 1ubq}]\nsetup: {ph: 7.0}\n"))
+        printed = self._banner(["explore", "--config", config],
+                               system="1ubq", output="o")
+        assert "SETUP" in printed
+        assert "SIMULATION" not in printed
+
+    def test_an_unreadable_config_still_prints_a_banner(self, tmp_path) -> None:
+        """A banner is decoration; a run that cannot print one should start."""
+        config = self._config(tmp_path, "include: [analysis\n  broken: [")
+        printed = self._banner(["explore", "--config", config],
+                               system="t.pdb", output="o")
+        assert "MD EXPLORATION" in printed
+
+    def test_a_config_named_with_an_equals_sign_is_found(self, tmp_path) -> None:
+        config = self._config(tmp_path, (
+            "output: o\ninclude: [analysis]\nsystems: [{system: t.pdb}]\n"))
+        printed = self._banner([f"--config={config}", "explore"],
+                               system="t.pdb", output="o")
+        assert "SIMULATION" not in printed

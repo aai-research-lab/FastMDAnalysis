@@ -295,6 +295,62 @@ class SessionPresenter:
 
         argv = list(_sys.argv[1:])
 
+        def _config_on_the_command_line() -> dict:
+            """The config this run was given, if it was given one.
+
+            The banner was built entirely from command-line flags, so a run
+            started with --config saw none of them and fell back to defaults:
+            it announced a million production steps for a run that only
+            analysed a trajectory, and the setup pH of a config that said
+            something else. Reading the file is the difference between the
+            banner describing the run and describing a run.
+
+            Never raises. A banner is decoration; a run that cannot print one
+            should still start.
+            """
+            import yaml
+
+            for index, item in enumerate(argv):
+                path = None
+                if item in {"--config", "-c", "-config"} and index + 1 < len(argv):
+                    path = argv[index + 1]
+                elif item.startswith("--config="):
+                    path = item.split("=", 1)[1]
+                if not path:
+                    continue
+                try:
+                    data = yaml.safe_load(
+                        _os.fspath(path) and open(path, encoding="utf-8").read()
+                    )
+                except Exception:
+                    return {}
+                return data if isinstance(data, dict) else {}
+            return {}
+
+        from_config = _config_on_the_command_line()
+
+        def configured(phase: str, key: str) -> str:
+            """A value the config gives, as text, or empty."""
+            block = from_config.get(phase)
+            if not isinstance(block, dict):
+                return ""
+            value = block.get(key)
+            return "" if value is None else str(value)
+
+        def will_run(phase: str) -> bool:
+            """Whether this run includes a phase.
+
+            With no config there is nothing to go on, and a section left out
+            of the banner would be worse than one shown for a phase that
+            happens not to run.
+            """
+            if not from_config:
+                return True
+            included = from_config.get("include")
+            if isinstance(included, list) and included:
+                return phase in included
+            return isinstance(from_config.get(phase), dict)
+
         def arg_value(*names: str, default: str = "") -> str:
             """First matching option on the command line, else ``default``.
 
@@ -628,19 +684,32 @@ class SessionPresenter:
         kv("Version", version, "green")
         kv("Started", started, "green")
         kv("Platform", f"{platform} ({precision} precision)", "green")
-        section("SETUP", "cyan")
-        kv("pH", setup_ph, "cyan")
-        kv("Ion Conc.", f"{ion_conc} M", "cyan")
-        kv("Force Field", forcefield, "cyan")
-        section("SIMULATION", "orange")
-        kv("NVT", f"{format_steps(nvt_steps)} steps", "orange")
-        kv("NPT", f"{format_steps(npt_steps)} steps", "orange")
-        kv("Production", f"{format_steps(prod_steps)} steps", "orange")
-        kv("Total Planned", f"{format_steps(total_steps)} steps", "orange")
-        kv("Timestep", f"{timestep} fs", "orange")
-        kv("Temperature", f"{temperature} K", "orange")
-        kv("Friction", f"{friction} / ps", "orange")
-        kv("DCD Frames", trajectory_display, "orange")
+        # Only the phases this run includes. Announcing a million production
+        # steps for a run that only analyses a trajectory is not a small
+        # inaccuracy: it is the log saying the run did something it did not.
+        if will_run("setup"):
+            section("SETUP", "cyan")
+            kv("pH", configured("setup", "ph") or setup_ph, "cyan")
+            kv(
+                "Ion Conc.",
+                f"{configured('setup', 'ion_concentration_M') or ion_conc} M",
+                "cyan",
+            )
+            kv("Force Field", configured("setup", "forcefield") or forcefield, "cyan")
+        if will_run("simulation"):
+            section("SIMULATION", "orange")
+            kv("NVT", f"{format_steps(nvt_steps)} steps", "orange")
+            kv("NPT", f"{format_steps(npt_steps)} steps", "orange")
+            kv("Production", f"{format_steps(prod_steps)} steps", "orange")
+            kv("Total Planned", f"{format_steps(total_steps)} steps", "orange")
+            kv("Timestep", f"{timestep} fs", "orange")
+            kv(
+                "Temperature",
+                f"{configured('simulation', 'temperature_K') or temperature} K",
+                "orange",
+            )
+            kv("Friction", f"{friction} / ps", "orange")
+            kv("DCD Frames", trajectory_display, "orange")
 
         # Analysis and report information uses a blue frame, cyan labels,
         # and white values. The box itself shares the same centered layout as
