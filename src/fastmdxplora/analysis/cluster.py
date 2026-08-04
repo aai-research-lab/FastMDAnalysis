@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import matplotlib.pyplot as plt
 import mdtraj as md
@@ -72,10 +72,13 @@ class Cluster(Analysis):
 
     Parameters
     ----------
-    methods : list of str, default ``["kmeans"]``
-        Which clustering algorithms to run. Each method produces its own
-        output files. Valid values: ``"kmeans"``, ``"hierarchical"``,
-        ``"dbscan"``.
+    methods : sequence of str, default ``("kmeans", "hierarchical")``
+        Which clustering algorithms to run. Each produces its own output
+        files. Valid values: ``"kmeans"``, ``"hierarchical"``, ``"dbscan"``.
+        Two are run by default because they disagree in useful ways: k-means
+        insists every frame joins a cluster, while hierarchical linkage shows
+        how the clusters nest, and a conformational split that both find is
+        worth more than one only either sees.
     n_clusters : int, default 5
         Number of clusters (used by k-means and hierarchical).
     eps : float, default 0.2
@@ -114,7 +117,7 @@ class Cluster(Analysis):
     def __init__(
         self,
         *,
-        methods: list[str] | None = None,
+        methods: Sequence[str] = ("kmeans", "hierarchical"),
         features: str = "rmsd",
         n_clusters: int = 5,
         eps: float = 0.2,
@@ -123,6 +126,9 @@ class Cluster(Analysis):
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
+        # Declared as a tuple rather than filled in from None, so the default
+        # is visible to anything that reads the signature -- a form drawing a
+        # control for it could not otherwise say what it would do.
         methods = list(methods) if methods else ["kmeans", "hierarchical"]
         methods = [m.lower() for m in methods]
         unknown = [m for m in methods if m not in VALID_METHODS]

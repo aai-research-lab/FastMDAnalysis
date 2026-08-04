@@ -12,9 +12,18 @@ through the same validator the CLI uses before it is handed back, so a
 configuration that will fail on the cluster fails in the browser instead, while
 the person is still looking at the form that produced it.
 
-Values equal to their default are left out. A file that restates forty settings
-the software would have chosen anyway hides the three the person actually
-decided, and those three are the ones a reader of the methods section needs.
+A file can be written either way. Left to itself it names only what was
+decided: a file restating forty settings the software would have chosen anyway
+hides the three that were chosen, and those three are what a reader of the
+methods section needs.
+
+Asked for in full, it names everything, defaults included. That is the file to
+keep beside a result, because it says what the run did without the reader
+having to know which version of the software was current at the time -- a
+default that moves later cannot silently change what the file meant.
+
+Both are read back the same way. Neither is more correct; they answer
+different questions.
 """
 
 from __future__ import annotations
@@ -61,13 +70,86 @@ def _coerce(value: Any, field: Any) -> Any:
     return value
 
 
-def build_config(state: dict[str, Any]) -> dict[str, Any]:
-    """A config dict from the page's state, with the defaults left out.
+
+def _coerce_like(value: Any, default: Any) -> Any:
+    """Bring a nested option in from a form, guided by what it defaults to.
+
+    The per-analysis settings have no schema Field to consult, so the default
+    stands in for the type: a setting that defaults to 5 wants a number, and
+    one that defaults to a list wants a list. Left as text, a config would
+    record n_clusters: '8' -- which runs, because the analysis casts it, but
+    which reads as though somebody meant the string.
+    """
+    if isinstance(value, str):
+        text_value = value.strip()
+        if isinstance(default, bool):
+            return text_value.lower() in {"true", "1", "yes", "on"}
+        if isinstance(default, (list, tuple)):
+            return [p.strip() for p in text_value.split(",") if p.strip()]
+        if isinstance(default, int) and not isinstance(default, bool):
+            try:
+                return int(float(text_value))
+            except ValueError:
+                return value
+        if isinstance(default, float):
+            try:
+                return float(text_value)
+            except ValueError:
+                return value
+    return value
+
+
+def _analysis_option_defaults(names: Any) -> dict[str, dict[str, Any]]:
+    """Every setting each named analysis would use, at its default.
+
+    A full config that stopped at the phase boundary recorded the scope and
+    the stride and said nothing about how the clustering was done -- which is
+    where the decisions that change a result actually live. "Every setting"
+    has to mean the nested ones too.
+
+    Reading them needs the analysis stack. Where it is absent the file is
+    written without them rather than not at all: an incomplete record beats a
+    refused download.
+    """
+    try:
+        import fastmdxplora.analysis  # noqa: F401
+        from fastmdxplora.analysis.describe import describe_all
+    except Exception:  # noqa: BLE001
+        return {}
+
+    described = describe_all()
+    wanted = list(names) if names else list(described)
+    filled: dict[str, dict[str, Any]] = {}
+    for name in wanted:
+        options = described.get(name)
+        if not options:
+            continue
+        block = {
+            option.name: (
+                list(option.default)
+                if isinstance(option.default, tuple)
+                else option.default
+            )
+            for option in options
+            # Settings every analysis shares are recorded once, on the phase,
+            # rather than repeated under each of fourteen analyses.
+            if option.owner != "Analysis" and option.default is not None
+        }
+        if block:
+            filled[name] = block
+    return filled
+
+
+def build_config(state: dict[str, Any], *, full: bool = False) -> dict[str, Any]:
+    """A config dict from the page's state.
 
     ``state`` holds a block per phase, plus the top-level keys the run needs
     (``system``, ``output``, ``include``). Unknown phases and unknown fields
     are dropped rather than passed through: the page should not be able to
     write a file the command line will refuse to read.
+
+    With ``full``, every setting is named at whatever value it would take,
+    default or chosen. Without it, only what differs from the default.
     """
     config: dict[str, Any] = {}
 
@@ -89,13 +171,25 @@ def build_config(state: dict[str, Any]) -> dict[str, Any]:
     elif state.get("systems"):
         config["systems"] = state["systems"]
 
+    # A full config records what the run will use, so it names every phase the
+    # run includes -- not only the ones the form happened to touch. A phase
+    # left entirely alone still runs, and still uses values worth recording.
+    running = set(config.get("include") or PHASE_SCHEMAS.keys())
+
     for phase, group in PHASE_SCHEMAS.items():
         block = state.get(phase)
         if not isinstance(block, dict):
-            continue
+            if not (full and phase in running):
+                continue
+            block = {}
         defaults = _defaults_for(phase)
         fields = {f.name: f for f in group.fields}
         kept: dict[str, Any] = {}
+        if full:
+            # Start from what the run would use, then let the page's choices
+            # land on top. A setting nobody touched still appears, at the
+            # value it will actually take.
+            kept.update({k: v for k, v in defaults.items() if v is not None})
         for name, raw in block.items():
             field = fields.get(name)
             if field is None:
@@ -104,17 +198,36 @@ def build_config(state: dict[str, Any]) -> dict[str, Any]:
             if value is None:
                 continue
             # Restating a default tells a reader nothing and buries the
-            # settings that were actually chosen.
-            if value == defaults.get(name):
+            # settings that were actually chosen -- unless the whole point of
+            # this file is to record every value the run used.
+            if not full and value == defaults.get(name):
                 continue
             kept[name] = value
         if kept:
             config[phase] = kept
 
+    if full and "analysis" in running:
+        # The nested settings, which is where the decisions that change a
+        # result are made: which clustering methods, what they compare, how
+        # many clusters.
+        block = config.setdefault("analysis", {})
+        chosen = block.get("include")
+        defaults = _analysis_option_defaults(chosen)
+        if defaults:
+            given = block.get("options") or {}
+            for name, values in defaults.items():
+                merged = dict(values)
+                for key, chosen_value in (given.get(name) or {}).items():
+                    merged[key] = _coerce_like(chosen_value, values.get(key))
+                defaults[name] = merged
+            for name, values in given.items():
+                defaults.setdefault(name, values)
+            block["options"] = defaults
+
     return config
 
 
-def config_yaml(state: dict[str, Any]) -> dict[str, Any]:
+def config_yaml(state: dict[str, Any], *, full: bool = False) -> dict[str, Any]:
     """The config as text, validated, with what it will do stated plainly.
 
     Returns ``ok`` false and the validator's own message where the settings
@@ -123,7 +236,7 @@ def config_yaml(state: dict[str, Any]) -> dict[str, Any]:
     """
     import yaml
 
-    config = build_config(state)
+    config = build_config(state, full=full)
 
     try:
         validate_config(config)
@@ -138,11 +251,19 @@ def config_yaml(state: dict[str, Any]) -> dict[str, Any]:
         }
 
     header = (
-        "# Written by the FastMDXplora dashboard.\n"
+        "# Written by the FastMDXplora GUI.\n"
         "#\n"
-        "# Only settings that differ from the defaults appear here, so what\n"
-        "# this file says is what was decided. Run it anywhere:\n"
-        "#\n"
+        + (
+            "# Every setting is named here at the value the run will use,\n"
+            "# defaults included, so this file says what the run did without\n"
+            "# depending on which version of the software was current.\n"
+            if full
+            else
+            "# Only settings that differ from the defaults appear here, so\n"
+            "# what this file says is what was decided. Ask for the full\n"
+            "# config to record every value the run will use.\n"
+        )
+        + "#\n"
         "#     fastmdx explore --config this-file.yml\n"
         "#\n"
     )

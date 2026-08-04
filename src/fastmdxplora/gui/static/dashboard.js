@@ -20,7 +20,11 @@
     pollIntervalMs: 3000,
     lastUpdateMs: 0,
     refreshTimer: null,
-    pages: ["builder", "overview", "live", "viewer", "analysis", "files", "settings"],
+    /* The pages are the pages the document has. Naming them here as well
+     * meant adding a section was not enough to make it reachable: navigation
+     * fell back to the overview, silently, and the new page looked like it
+     * had been wired to the wrong link. */
+    pages: [],
     activePage: "overview",
     appState: {},
     initialRouteResolved: false,
@@ -65,6 +69,9 @@
   /* Navigation                                                          */
   /* ------------------------------------------------------------------ */
   function wireNavigation() {
+    state.pages = $$('.page')
+      .map((element) => element.getAttribute("data-page"))
+      .filter(Boolean);
     $$('[data-view-link]').forEach((element) => {
       element.addEventListener("click", (event) => {
         event.preventDefault();
@@ -327,7 +334,9 @@
     if (!state.initialRouteResolved) {
       state.initialRouteResolved = true;
       const requested = location.hash.replace(/^#/, "");
-      if (!requested && !activeRun) navigate("builder");
+      if (requested && state.pages.includes(requested)) navigate(requested);
+      else if (activeRun) navigate("overview");
+      else navigate("builder");
     }
 
     if (!activeRun) {

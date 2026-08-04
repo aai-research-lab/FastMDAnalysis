@@ -410,9 +410,12 @@ ANALYSIS = PhaseSchema(
               "Overrides `scope` when set.",
               example="name CA"),
         Field("scope", str, "solute",
-              "Atom scope for analyses that don't set their own selection: "
-              "solute (protein+ligand, default), protein, ligand, or all. "
-              "Keeps analyses off solvent/ions.",
+              "Which atoms an analysis measures when it has no selection of "
+              "its own. 'solute' is the protein and any ligand, and is the "
+              "default: including the water and ions would measure the "
+              "solvent box rather than the molecule in it, so a radius of "
+              "gyration would report the size of the box and barely move. "
+              "'all' is there for when the solvent is the point.",
               choices=("solute", "protein", "ligand", "all"),
               example="solute"),
         Field("stride", int, None,

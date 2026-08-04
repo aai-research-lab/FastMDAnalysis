@@ -1130,7 +1130,11 @@ def _cmd_gui(args: argparse.Namespace) -> int:
     """Serve the full GUI: study builder, exploration, telemetry, and viewer."""
     from fastmdxplora.gui.server import DashboardConfig, serve_dashboard
 
-    output = Path(args.output) if getattr(args, "output", None) else Path.cwd()
+    # Without --output there is no run to watch: the working directory is
+    # merely where the command was typed. Treating it as an active run made
+    # the GUI open on the overview of that run -- an overview of nothing.
+    watching_a_run = bool(getattr(args, "output", None))
+    output = Path(args.output) if watching_a_run else Path.cwd()
     config = DashboardConfig(
         ligand_resname=getattr(args, "ligand_resname", None),
         binding_pocket_cutoff_A=float(
@@ -1148,6 +1152,7 @@ def _cmd_gui(args: argparse.Namespace) -> int:
         host=args.host,
         port=args.port,
         config=config,
+        home_mode=not watching_a_run,
     )
     return 0
 

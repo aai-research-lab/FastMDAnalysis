@@ -23,7 +23,10 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-__all__ = ["OptionDoc", "describe_analysis", "describe_all", "undocumented_options"]
+__all__ = [
+    "OptionDoc", "describe_analysis", "describe_all", "explain_analysis",
+    "undocumented_options",
+]
 
 
 #: A numpy-style parameter entry: the name, then a type after the colon, then
@@ -142,6 +145,36 @@ def describe_analysis(name: str) -> tuple[OptionDoc, ...]:
                 )
             )
     return tuple(sorted(options, key=lambda o: o.name))
+
+
+def explain_analysis(name: str) -> dict[str, str]:
+    """What this analysis is for, in the words already written about it.
+
+    Every analysis module opens by saying what the measurement means and how
+    to read it -- what a rising profile indicates, which paper the definition
+    comes from, why the default is the default. That is exactly what somebody
+    choosing between analyses needs, and it was only ever visible to people
+    reading the source.
+    """
+    import inspect
+
+    from fastmdxplora.analysis.orchestrator import get_analysis_class
+
+    cls = get_analysis_class(name)
+    module = inspect.getmodule(cls)
+    paragraphs = [
+        " ".join(block.split())
+        for block in inspect.cleandoc(getattr(module, "__doc__", "") or "").split("\n\n")
+        if block.strip()
+    ]
+    return {
+        "title": getattr(cls, "description", name),
+        "summary": paragraphs[0] if paragraphs else "",
+        # The paragraph after the opening line is the one that explains how to
+        # read the result. Later ones drift into output files and references,
+        # which belong in the docs rather than beside a checkbox.
+        "detail": paragraphs[1] if len(paragraphs) > 1 else "",
+    }
 
 
 def describe_all() -> dict[str, tuple[OptionDoc, ...]]:

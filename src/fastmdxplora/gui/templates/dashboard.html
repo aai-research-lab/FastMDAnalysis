@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>FastMDXplora Live Dashboard</title>
+  <title>FastMDXplora GUI</title>
   <link rel="stylesheet" href="/static/theme.css">
   <link rel="stylesheet" href="/static/dashboard.css">
   <meta name="fastmdx-expansion" content="Fully Automated SysTem for Molecular Dynamics eXploration">
@@ -46,6 +46,10 @@
         <a href="#builder" class="nav-link" data-view-link="builder">
           <span class="nav-icon nav-icon-launch" aria-hidden="true"></span>
           <span>New Exploration</span>
+        </a>
+        <a href="#analyse" class="nav-link" data-view-link="analyse">
+          <span class="nav-icon" aria-hidden="true"></span>
+          <span>Analyse Existing Data</span>
         </a>
         <a href="#" class="nav-link" data-view-link="overview" data-requires-run="true">
           <span class="nav-icon" aria-hidden="true"></span>
@@ -141,11 +145,13 @@
       <!-- Page views -->
       <main class="page-shell" role="main">
         <!-- Dashboard-first simulation builder -->
-        <section class="page" data-page="builder" hidden>
+        <!-- Shown until the router knows better: with nothing running, the
+             thing to do is start something. -->
+        <section class="page" data-page="builder">
           <div class="page-header builder-page-header">
             <div>
               <h1 class="page-title">New Exploration</h1>
-              <div class="page-subtitle">Configure and launch the standard FastMDXplora workflow from this dashboard.</div>
+              <div class="page-subtitle">Configure and launch the standard FastMDXplora workflow.</div>
             </div>
             <div class="builder-run-state" id="builder-run-state" data-state="idle">
               <span class="status-dot status-dot-waiting" id="builder-state-dot"></span>
@@ -357,7 +363,156 @@
         </section>
 
         <!-- Loading shell renders here once data arrives -->
-        <section class="page" data-page="overview" data-status="loading">
+        <section class="page" data-page="analyse" hidden>
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">Analyse Existing Data</h1>
+              <div class="page-subtitle">
+                Point at a folder holding a trajectory and choose what to measure.
+                The simulation can have come from anywhere.
+              </div>
+            </div>
+            <div class="page-header-actions">
+              <div class="muted small mono" id="analyse-summary">Nothing selected yet</div>
+            </div>
+          </div>
+
+          <div class="card builder-card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">Where the data is</h2>
+                <p class="builder-card-note">
+                  A folder containing a trajectory and the structure it came from.
+                  Nothing is opened until an analysis runs.
+                </p>
+              </div>
+              <span class="builder-step">01</span>
+            </div>
+            <div class="builder-grid builder-grid-2">
+              <label class="builder-field builder-field-wide">
+                <span class="builder-label">Folder</span>
+                <input type="text" id="analyse-folder" autocomplete="off"
+                       placeholder="/path/to/simulation/output">
+                <span class="builder-card-note" id="analyse-folder-note"></span>
+              </label>
+              <div class="builder-field">
+                <span class="builder-label">&nbsp;</span>
+                <div class="page-header-actions">
+                  <button type="button" class="ghost-btn" id="analyse-browse">Browse…</button>
+                  <button type="button" class="ghost-btn" id="analyse-look">Look</button>
+                </div>
+              </div>
+            </div>
+            <div class="builder-grid builder-grid-2" id="analyse-found" hidden>
+              <label class="builder-field">
+                <span class="builder-label">Trajectory</span>
+                <select id="analyse-trajectory"></select>
+                <span class="builder-card-note" id="analyse-trajectory-note">The largest is usually the production run.</span>
+              </label>
+              <label class="builder-field">
+                <span class="builder-label">Structure</span>
+                <select id="analyse-topology"></select>
+                <span class="builder-card-note">Describes the atoms the trajectory moves.</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="card builder-card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">What to measure</h2>
+                <p class="builder-card-note">
+                  Each analysis brings its own settings, read from the analysis itself.
+                  Leave one alone to use its default.
+                </p>
+              </div>
+              <span class="builder-step">02</span>
+            </div>
+            <div class="builder-grid builder-grid-2">
+              <label class="builder-field">
+                <span class="builder-label">Atoms to measure</span>
+                <select id="analyse-scope">
+                  <option value="solute">solute — protein and ligand</option>
+                  <option value="protein">protein</option>
+                  <option value="ligand">ligand</option>
+                  <option value="all">all — including water and ions</option>
+                </select>
+                <span class="builder-card-note">
+                  Measuring the water as well would report the size and motion of
+                  the solvent box rather than of the molecule in it.
+                </span>
+              </label>
+              <div class="builder-field">
+                <span class="builder-label">Results folder</span>
+                <div class="analyse-path-row">
+                  <input type="text" id="analyse-output" autocomplete="off"
+                         placeholder="analysis_run">
+                  <button type="button" class="ghost-btn" id="analyse-browse-output">Browse…</button>
+                </div>
+                <span class="builder-card-note">Where the figures and data are written.</span>
+              </div>
+            </div>
+            <div class="analyse-choices" id="analyse-choices"></div>
+          </div>
+
+          <div class="card builder-card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">Run it here, or take it with you</h2>
+                <p class="builder-card-note">
+                  The same file either way. A laptop is a poor place to run a long
+                  trajectory; a cluster is a poor place to decide what to run.
+                </p>
+              </div>
+              <span class="builder-step">03</span>
+            </div>
+            <label class="analyse-full-toggle">
+              <input type="checkbox" id="analyse-full-config">
+              <span>
+                Write every setting, not only the ones I changed
+                <span class="builder-card-note">
+                  A full config records what the run actually used, so a default
+                  that moves in a later version cannot change what the file meant.
+                  Either form runs.
+                </span>
+              </span>
+            </label>
+            <div class="page-header-actions">
+              <button type="button" class="ghost-btn" id="analyse-preview">Show the config</button>
+              <button type="button" class="ghost-btn" id="analyse-download" disabled>Download config</button>
+              <button type="button" class="primary-btn" id="analyse-run" disabled>Run here</button>
+            </div>
+            <div class="builder-card-note" id="analyse-config-note"></div>
+            <pre class="mono small" id="analyse-config-preview" hidden></pre>
+          </div>
+
+          <div class="analyse-picker" id="analyse-picker" hidden>
+            <div class="analyse-picker-panel" role="dialog" aria-modal="true"
+                 aria-label="Choose a folder">
+              <div class="analyse-picker-head">
+                <div>
+                  <div class="builder-label">Folder</div>
+                  <div class="mono small" id="analyse-picker-path"></div>
+                  <div class="builder-card-note" id="analyse-picker-holds"></div>
+                </div>
+                <button type="button" class="ghost-btn" id="analyse-picker-cancel">Cancel</button>
+              </div>
+              <div class="analyse-picker-list" id="analyse-picker-list"></div>
+              <div class="analyse-picker-foot">
+                <button type="button" class="primary-btn" id="analyse-picker-choose">
+                  Use this folder
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Hidden like every other page. Left visible, it was what the GUI
+             opened on: the overview of a run, before any state had loaded and
+             often when there was no run at all. The router picks the page as
+             soon as it knows whether anything is running; until then, showing
+             nothing is better than showing the wrong thing. -->
+        <section class="page" data-page="overview" data-status="loading" hidden>
           <div class="page-header">
             <div>
               <h1 class="page-title">Overview</h1>
@@ -913,6 +1068,7 @@
   <script src="/static/3Dmol-min.js"></script>
   <script src="/static/dashboard.js"></script>
   <script src="/static/simulation-builder.js"></script>
+    <script src="/static/analysis-builder.js"></script>
   <script src="/static/charts.js"></script>
   <script src="/static/molecule-viewer.js"></script>
 </body>

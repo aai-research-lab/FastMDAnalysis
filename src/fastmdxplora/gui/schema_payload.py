@@ -79,7 +79,9 @@ def _analysis_options() -> dict[str, Any]:
     """
     try:
         import fastmdxplora.analysis  # noqa: F401  (populates the registry)
-        from fastmdxplora.analysis.describe import describe_all
+        from fastmdxplora.analysis.describe import (
+            describe_all, explain_analysis,
+        )
     except Exception as exc:  # noqa: BLE001
         return {
             "available": False,
@@ -89,10 +91,13 @@ def _analysis_options() -> dict[str, Any]:
                 "this page still works."
             ),
             "analyses": {},
+            "explanations": {},
         }
 
     analyses: dict[str, Any] = {}
+    explanations: dict[str, Any] = {}
     for name, options in describe_all().items():
+        explanations[name] = explain_analysis(name)
         analyses[name] = [
             {
                 "name": option.name,
@@ -111,7 +116,12 @@ def _analysis_options() -> dict[str, Any]:
             }
             for option in options
         ]
-    return {"available": True, "reason": None, "analyses": analyses}
+    return {
+        "available": True,
+        "reason": None,
+        "analyses": analyses,
+        "explanations": explanations,
+    }
 
 
 def schema_payload() -> dict[str, Any]:

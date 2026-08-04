@@ -226,6 +226,15 @@ def make_handler(
             if path == "/api/explore/defaults":
                 self._send_json(exploration_defaults())
                 return
+            if path == "/api/browse":
+                # Typing a path is a poor ask, and a browser cannot offer a
+                # dialog for a folder the server will read: the one it has
+                # uploads files to a page. So the walking happens here.
+                from fastmdxplora.gui.browse import browse
+
+                where = parse_qs(parsed.query).get("path", [""])[0]
+                self._send_json(browse(where or None))
+                return
             if path == "/api/inspect-directory":
                 # Someone with a trajectory already should be able to point at
                 # the folder and be offered the analyses, rather than being
@@ -375,7 +384,10 @@ def make_handler(
                 # form that produced it is still on the screen.
                 from fastmdxplora.gui.config_builder import config_yaml
 
-                self._send_json(config_yaml(payload or {}))
+                request = payload or {}
+                self._send_json(
+                    config_yaml(request, full=bool(request.get("full")))
+                )
                 return
             if path == "/api/explore/validate":
                 result = validate_exploration_payload(payload)

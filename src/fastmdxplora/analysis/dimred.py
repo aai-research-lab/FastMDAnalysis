@@ -26,7 +26,7 @@ van der Maaten, L.; Hinton, G. *J. Mach. Learn. Res.* **2008**, 9, 2579 (t-SNE).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import matplotlib.pyplot as plt
 import mdtraj as md
@@ -48,7 +48,7 @@ class DimRed(Analysis):
 
     Parameters
     ----------
-    methods : list of str, default ``["pca"]``
+    methods : sequence of str, default ``("pca",)``
         Which methods to run. Choices: ``"pca"``, ``"tsne"``, ``"umap"``.
     n_components : int, default 2
         Dimensionality of the embedding. For visualization keep at 2 (or 3).
@@ -82,7 +82,7 @@ class DimRed(Analysis):
     def __init__(
         self,
         *,
-        methods: list[str] | None = None,
+        methods: Sequence[str] = ("pca",),
         n_components: int = 2,
         perplexity: float = 30.0,
         n_neighbors: int = 15,
