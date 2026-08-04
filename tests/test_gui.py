@@ -1801,3 +1801,88 @@ class TestTheConfigTheBrowserWritesRunsElsewhere:
 
         source = pathlib.Path(server.__file__).read_text(encoding="utf-8")
         assert "/api/config" in source
+
+
+class TestARunStartsFromTheFileYouCouldTakeAway:
+    """One artifact, whether the compute is here or on a cluster.
+
+    A run used to start from a command assembled out of hand-picked flags --
+    four setup settings, a few simulation ones -- so the browser could only
+    start the kind of run somebody had thought to wire up, and the phase list
+    was fixed at setup and simulation before anything else was considered.
+    Analysing a trajectory that already existed was not expressible at all.
+
+    Starting from a config settles both: a config names its phases, and the
+    file that runs here is the file the download hands over.
+    """
+
+    @staticmethod
+    def _analyse_what_exists():
+        return {
+            "output": "runs/analysis",
+            "include": ["analysis"],
+            "systems": [{"system": "topology.pdb", "id": "existing"}],
+            "analysis": {
+                "trajectory": "production.dcd",
+                "topology": "topology.pdb",
+                "scope": "protein",
+                "include": "rmsd, rmsf, rg",
+            },
+        }
+
+    def test_an_analysis_of_existing_data_is_expressible(self, tmp_path) -> None:
+        from fastmdxplora.gui.run_from_config import prepare_run
+
+        run = prepare_run(self._analyse_what_exists(), tmp_path)
+        assert run["ok"], run["error"]
+
+    def test_what_runs_here_is_what_the_download_gives(self, tmp_path) -> None:
+        """Not a second implementation that happens to agree."""
+        from fastmdxplora.gui.config_builder import config_yaml
+        from fastmdxplora.gui.run_from_config import prepare_run
+
+        state = self._analyse_what_exists()
+        run = prepare_run(state, tmp_path)
+        assert run["config_yaml"] == config_yaml(state)["yaml"]
+
+    def test_the_config_is_written_beside_the_results(self, tmp_path) -> None:
+        """So a run can be repeated from the output directory rather than
+        from what somebody remembers typing."""
+        import pathlib
+
+        from fastmdxplora.gui.run_from_config import CONFIG_FILENAME, prepare_run
+
+        run = prepare_run(self._analyse_what_exists(), tmp_path)
+        written = pathlib.Path(run["config_path"])
+        assert written.name == CONFIG_FILENAME
+        assert written.parent == tmp_path
+        assert written.read_text(encoding="utf-8") == run["config_yaml"]
+
+    def test_the_command_runs_that_file(self, tmp_path) -> None:
+        from fastmdxplora.gui.run_from_config import prepare_run
+
+        run = prepare_run(self._analyse_what_exists(), tmp_path)
+        assert "--config" in run["command"]
+        assert run["config_path"] in run["command"]
+        assert "explore" in run["command"]
+
+    def test_the_command_line_accepts_that_file(self, tmp_path) -> None:
+        """The parser is asked, rather than the flag being assumed to exist."""
+        from fastmdxplora.cli.main import _build_parser
+        from fastmdxplora.gui.run_from_config import prepare_run
+
+        run = prepare_run(self._analyse_what_exists(), tmp_path)
+        parser = _build_parser()
+        # command[3:] drops the interpreter, -m and the module path.
+        parsed = parser.parse_args(run["command"][3:])
+        assert parsed.config == run["config_path"]
+
+    def test_a_configuration_that_would_be_refused_starts_nothing(
+        self, tmp_path
+    ) -> None:
+        from fastmdxplora.gui.run_from_config import prepare_run
+
+        run = prepare_run({"include": ["not_a_phase"]}, tmp_path)
+        assert not run["ok"]
+        assert run["command"] is None
+        assert not (tmp_path / "exploration.yml").exists()
