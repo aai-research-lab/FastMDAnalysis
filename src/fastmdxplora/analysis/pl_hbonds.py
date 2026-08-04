@@ -86,9 +86,39 @@ class ProteinLigandHBonds(Analysis):
                 f"atoms; cannot compute protein-ligand hydrogen bonds."
             )
 
-        # H-bond detection needs bond connectivity.
+        # H-bond detection needs bond connectivity: a donor is found as a
+        # nitrogen or oxygen with a hydrogen bonded to it. create_standard_bonds
+        # knows the residues in its library, which does not include a ligand.
         if traj.topology.n_bonds == 0:
             traj.topology.create_standard_bonds()
+
+        # A ligand whose bonds are absent cannot be seen to donate, only to
+        # accept, and the count then reports one direction under a name that
+        # promises both. The protein having bonds is no comfort here: a PDB
+        # without CONECT records for its ligand gives exactly that, and the
+        # guard above never fires because n_bonds is not zero.
+        ligand_hydrogens = {
+            atom.index for atom in traj.topology.atoms
+            if atom.index in ligand_idx and atom.element is not None
+            and atom.element.symbol == "H"
+        }
+        if ligand_hydrogens:
+            bonded = {
+                atom.index
+                for bond in traj.topology.bonds
+                for atom in bond
+            }
+            if not (ligand_hydrogens & bonded):
+                raise ValueError(
+                    f"The ligand {self.ligand_resname!r} has "
+                    f"{len(ligand_hydrogens)} hydrogen(s) and no bonds to "
+                    "them, so it cannot be seen to donate a hydrogen bond -- "
+                    "only to accept one. Counting under those conditions "
+                    "would report one direction as though it were both. Give "
+                    "a topology that carries the ligand's connectivity: a PDB "
+                    "with CONECT records for it, or the topology written by "
+                    "the setup phase."
+                )
 
         # Wernet-Nilsson returns, per frame, an array of (donor, H, acceptor)
         # atom-index triplets. Keep a triplet only if the donor and acceptor

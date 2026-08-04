@@ -1110,3 +1110,74 @@ class TestDistancesHonourThePeriodicBox:
         analysis = HBonds()
         assert analysis.periodic is True
         assert analysis.options["periodic"] is True
+
+
+class TestProteinLigandHBondsNeedsTheLigandsBonds:
+    """A donor is a nitrogen or oxygen with a hydrogen bonded to it.
+
+    A ligand whose bonds are absent from the topology therefore cannot be seen
+    to donate, only to accept -- and the count reports one direction under a
+    name that promises both. The guard that built missing bonds only fired when
+    the topology had none at all, which a PDB carrying the protein's
+    connectivity but no CONECT records for its ligand does not.
+    """
+
+    @staticmethod
+    def _complex(bond_the_ligand: bool):
+        top = md.Topology()
+        chain = top.add_chain()
+        res = top.add_residue("ALA", chain, resSeq=1)
+        n = top.add_atom("N", md.element.nitrogen, res)
+        ca = top.add_atom("CA", md.element.carbon, res)
+        c = top.add_atom("C", md.element.carbon, res)
+        o = top.add_atom("O", md.element.oxygen, res)
+        top.add_bond(n, ca)
+        top.add_bond(ca, c)
+        top.add_bond(c, o)
+
+        ligand_chain = top.add_chain()
+        ligand = top.add_residue("LIG", ligand_chain, resSeq=900)
+        lo = top.add_atom("O1", md.element.oxygen, ligand)
+        lh = top.add_atom("H1", md.element.hydrogen, ligand)
+        if bond_the_ligand:
+            top.add_bond(lo, lh)
+
+        # O1-H1 ... O : the ligand donating to the protein backbone oxygen.
+        frame = np.array([[[0, 0, 0], [0.15, 0, 0], [0.30, 0, 0], [0.42, 0, 0],
+                           [0.62, 0, 0], [0.52, 0, 0]]], dtype=np.float32)
+        return md.Trajectory(xyz=np.repeat(frame, 4, axis=0), topology=top)
+
+    def test_the_donation_is_found_when_the_bonds_are_there(self) -> None:
+        from fastmdxplora.analysis.pl_hbonds import ProteinLigandHBonds
+
+        counts = ProteinLigandHBonds(
+            ligand_resname="LIG", protein_selection="not resname LIG",
+            selection="all",
+        ).compute(self._complex(True))["n_hbonds"]
+        assert (counts == 1).all()
+
+    def test_it_refuses_rather_than_counting_one_direction(self) -> None:
+        import pytest
+
+        from fastmdxplora.analysis.pl_hbonds import ProteinLigandHBonds
+
+        with pytest.raises(ValueError, match="cannot be seen to donate"):
+            ProteinLigandHBonds(
+                ligand_resname="LIG", protein_selection="not resname LIG",
+                selection="all",
+            ).compute(self._complex(False))
+
+    def test_a_ligand_with_no_hydrogens_is_not_blocked(self) -> None:
+        """It can only accept, and that is a fact about the ligand."""
+        from fastmdxplora.analysis.pl_hbonds import ProteinLigandHBonds
+
+        traj = self._complex(True)
+        heavy_only = traj.atom_slice(
+            [a.index for a in traj.topology.atoms
+             if a.element is None or a.element.symbol != "H"]
+        )
+        counts = ProteinLigandHBonds(
+            ligand_resname="LIG", protein_selection="not resname LIG",
+            selection="all",
+        ).compute(heavy_only)["n_hbonds"]
+        assert len(counts) == traj.n_frames

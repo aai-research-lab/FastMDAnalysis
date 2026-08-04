@@ -59,6 +59,14 @@ gains an alternative, which changes nothing unless asked for.
   Where nothing in the selection has a backbone -- a nucleic acid, a lone
   ligand, a coarse-grained model -- the analysis now says so instead of
   drawing an empty timeline.
+- **Protein-ligand hydrogen bonds need the ligand's bonds.** A donor is found
+  as a nitrogen or oxygen with a hydrogen bonded to it, so a ligand whose
+  connectivity is missing from the topology can only be seen to accept, never
+  to donate -- and the count reported one direction under a name promising
+  both. The guard that supplied missing bonds fired only when the topology had
+  none at all, which a PDB carrying the protein's connectivity but no CONECT
+  records for its ligand does not. The analysis now says so instead of
+  counting half.
 - **Distances honour the periodic box.** Contacts and hydrogen bonds measured
   plain distances whatever the trajectory carried, while the Q-value measured
   with the box on the same frames -- two analyses answering "is this near
