@@ -308,3 +308,146 @@ class TestClashCheck:
         flags = {flag for flag, _kw, _opts in _SETUP_OPTIONS}
         assert "no-ligand-clash-check" in flags
         assert "ligand-clash-threshold-nm" in flags
+
+
+class TestHowTheLigandsChemistryWasKnown:
+    """A trajectory carries coordinates. Whether a nitrogen donates, whether a
+    ring is aromatic, whether a group is charged -- that is chemistry.
+
+    Other profilers perceive it from the coordinates every time, because they
+    accept arbitrary PDB files. This one often knows: setup resolves it from
+    the Chemical Component Dictionary and settles the protonation against the
+    pocket. Where it does not know, it says so, because a wrong bond order
+    moves a hydrogen and invents or destroys a hydrogen bond.
+    """
+
+    @staticmethod
+    def _ligand(smiles):
+        import numpy as np
+        import mdtraj as md
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+        AllChem.EmbedMolecule(mol, randomSeed=3)
+        elements = {"C": md.element.carbon, "O": md.element.oxygen,
+                    "N": md.element.nitrogen, "H": md.element.hydrogen}
+        top = md.Topology()
+        chain = top.add_chain()
+        residue = top.add_residue("LIG", chain, resSeq=1)
+        for index, atom in enumerate(mol.GetAtoms()):
+            top.add_atom(f"{atom.GetSymbol()}{index}",
+                         elements[atom.GetSymbol()], residue)
+        conf = mol.GetConformer()
+        xyz = np.array(
+            [[list(conf.GetAtomPosition(i)) for i in range(mol.GetNumAtoms())]],
+            dtype=np.float32) / 10.0
+        traj = md.Trajectory(xyz=xyz, topology=top)
+        return mol, traj, list(range(mol.GetNumAtoms()))
+
+    @staticmethod
+    def _double_bonds(mol):
+        return sum(1 for b in mol.GetBonds() if b.GetBondTypeAsDouble() == 2)
+
+    def test_a_supplied_file_is_used_and_named(self, tmp_path) -> None:
+        from rdkit import Chem
+
+        from fastmdxplora.analysis.ligand_chemistry import resolve_ligand_chemistry
+
+        mol, traj, idx = self._ligand("c1ccccc1O")
+        path = tmp_path / "given.sdf"
+        Chem.SDWriter(str(path)).write(mol)
+
+        got = resolve_ligand_chemistry(traj, "LIG", idx, supplied=path,
+                                       allow_fetch=False)
+        assert got.source == "supplied"
+        assert not got.is_perceived
+
+    def test_a_run_of_our_own_is_preferred_over_perceiving(self, tmp_path) -> None:
+        from rdkit import Chem
+
+        from fastmdxplora.analysis.ligand_chemistry import resolve_ligand_chemistry
+
+        mol, traj, idx = self._ligand("c1ccccc1O")
+        ligands = tmp_path / "setup" / "ligands"
+        ligands.mkdir(parents=True)
+        Chem.SDWriter(str(ligands / "LIG.sdf")).write(mol)
+
+        got = resolve_ligand_chemistry(traj, "LIG", idx, run_dir=tmp_path,
+                                       allow_fetch=False)
+        assert got.source == "run"
+
+    def test_a_definition_of_a_different_molecule_is_refused(
+        self, tmp_path
+    ) -> None:
+        """Worse than none: it would put donors and rings on atoms that are
+        not there."""
+        from rdkit import Chem
+
+        from fastmdxplora.analysis.ligand_chemistry import resolve_ligand_chemistry
+
+        _mol, traj, idx = self._ligand("c1ccccc1O")
+        other, _t, _i = self._ligand("CCO")
+        path = tmp_path / "wrong.sdf"
+        Chem.SDWriter(str(path)).write(other)
+
+        got = resolve_ligand_chemistry(traj, "LIG", idx, supplied=path,
+                                       allow_fetch=False)
+        assert got.source == "perceived", "a mismatched definition was accepted"
+
+    def test_perceiving_gets_ordinary_ligands_right(self) -> None:
+        from fastmdxplora.analysis.ligand_chemistry import resolve_ligand_chemistry
+
+        for smiles in ("c1ccccc1O", "NC(=N)c1ccccc1", "c1ccc2[nH]ccc2c1",
+                       "Cn1cnc2c1c(=O)n(C)c(=O)n2C"):
+            truth, traj, idx = self._ligand(smiles)
+            got = resolve_ligand_chemistry(traj, "LIG", idx, allow_fetch=False)
+            assert self._double_bonds(got.mol) == self._double_bonds(truth), smiles
+            aromatic = sum(1 for a in got.mol.GetAtoms() if a.GetIsAromatic())
+            expected = sum(1 for a in truth.GetAtoms() if a.GetIsAromatic())
+            assert aromatic == expected, smiles
+
+    def test_a_charge_that_only_one_value_explains_is_found(self) -> None:
+        """Acetate is -1, and only -1 balances. Assuming neutral would give it
+        no double bond at all -- and a carboxylate is what forms salt bridges,
+        so this is where guessing wrong costs most."""
+        from fastmdxplora.analysis.ligand_chemistry import resolve_ligand_chemistry
+
+        truth, traj, idx = self._ligand("CC(=O)[O-]")
+        got = resolve_ligand_chemistry(traj, "LIG", idx, allow_fetch=False)
+        assert self._double_bonds(got.mol) == self._double_bonds(truth)
+        assert not got.charge_was_ambiguous
+        assert "-1" in got.detail
+
+    def test_an_ambiguous_charge_is_reported_as_ambiguous(self) -> None:
+        """Guanidinium is +1, and both -1 and +1 give a molecule that
+        sanitises. Taking the first would make it an anion, the opposite of
+        the charge that forms its salt bridges."""
+        from fastmdxplora.analysis.ligand_chemistry import resolve_ligand_chemistry
+
+        _truth, traj, idx = self._ligand("NC(=[NH2+])N")
+        got = resolve_ligand_chemistry(traj, "LIG", idx, allow_fetch=False)
+        assert got.charge_was_ambiguous
+        assert "would also balance" in got.detail
+        assert got.as_record()["charge_was_ambiguous"] is True
+
+    def test_stating_the_charge_settles_it(self) -> None:
+        from fastmdxplora.analysis.ligand_chemistry import resolve_ligand_chemistry
+
+        truth, traj, idx = self._ligand("NC(=[NH2+])N")
+        got = resolve_ligand_chemistry(traj, "LIG", idx, net_charge=1,
+                                       allow_fetch=False)
+        assert self._double_bonds(got.mol) == self._double_bonds(truth)
+        assert not got.charge_was_ambiguous
+
+    def test_the_results_carry_how_they_were_arrived_at(self) -> None:
+        """So a reader knows whether an interaction rests on chemistry that
+        was resolved or chemistry that was inferred."""
+        from fastmdxplora.analysis.ligand_chemistry import resolve_ligand_chemistry
+
+        _truth, traj, idx = self._ligand("c1ccccc1O")
+        record = resolve_ligand_chemistry(
+            traj, "LIG", idx, allow_fetch=False).as_record()
+        assert record["source"] == "perceived"
+        assert "guess" in record["confidence"]
+        assert record["bond_orders_perceived"] is True
