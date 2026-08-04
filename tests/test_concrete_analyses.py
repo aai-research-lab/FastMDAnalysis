@@ -1181,3 +1181,239 @@ class TestProteinLigandHBondsNeedsTheLigandsBonds:
             selection="all",
         ).compute(heavy_only)["n_hbonds"]
         assert len(counts) == traj.n_frames
+
+
+class TestWhatHoldsALigandInPlace:
+    """Counting contacts says how much of the protein a ligand touches. It
+    does not say what is holding it.
+
+    Each rule is the published criterion, named in its docstring. Where a
+    widely used tool departs from the literature the departure is recorded
+    rather than quietly adopted: PLIP allows a hydrogen bond at 4.1 A and 100
+    degrees, which it says is tuned for structures where the hydrogen
+    positions are unknown. These frames have hydrogens from the force field,
+    so the angle is measured and the stricter criterion is the one the
+    measurement supports.
+    """
+
+    @staticmethod
+    def _complex():
+        """A ligand hydroxyl donating to a backbone oxygen, and a methyl
+        packed against a side chain. Both answers known by construction."""
+        top = md.Topology()
+        chain = top.add_chain()
+        residue = top.add_residue("ALA", chain, resSeq=1)
+        ca = top.add_atom("CA", md.element.carbon, residue)
+        cb = top.add_atom("CB", md.element.carbon, residue)
+        hb = top.add_atom("HB", md.element.hydrogen, residue)
+        o = top.add_atom("O", md.element.oxygen, residue)
+        for first, second in ((ca, cb), (cb, hb), (ca, o)):
+            top.add_bond(first, second)
+
+        ligand_chain = top.add_chain()
+        ligand = top.add_residue("LIG", ligand_chain, resSeq=900)
+        lo = top.add_atom("O1", md.element.oxygen, ligand)
+        lh = top.add_atom("H1", md.element.hydrogen, ligand)
+        alcohol = top.add_atom("C1", md.element.carbon, ligand)
+        methyl = top.add_atom("C2", md.element.carbon, ligand)
+        hm = top.add_atom("H2", md.element.hydrogen, ligand)
+        for first, second in ((lo, lh), (lo, alcohol), (alcohol, methyl),
+                              (methyl, hm)):
+            top.add_bond(first, second)
+
+        xyz = np.array([[
+            [0.15, 1.0, 0], [0.30, 1.0, 0], [0.30, 1.12, 0], [0.42, 1.0, 0],
+            [0.62, 1.0, 0], [0.52, 1.0, 0], [0.74, 1.0, 0],
+            [0.33, 1.05, 0], [0.33, 1.17, 0],
+        ]], dtype=np.float32)
+        traj = md.Trajectory(xyz=xyz, topology=top)
+        ligand_idx = [a.index for a in top.atoms if a.residue.name == "LIG"]
+        protein_idx = [a.index for a in top.atoms if a.residue.name != "LIG"]
+        return traj, ligand_idx, protein_idx
+
+    def test_the_hydrogen_bond_is_found_with_its_geometry(self) -> None:
+        from fastmdxplora.analysis.interactions import hydrogen_bonds
+
+        traj, ligand, protein = self._complex()
+        found = hydrogen_bonds(traj, ligand, protein, periodic=False)
+        assert len(found) == 1
+        bond = found[0]
+        assert bond.kind == "hydrogen_bond"
+        assert np.isclose(bond.distance_nm, 0.20, atol=1e-3)
+        assert np.isclose(bond.angle_deg, 180.0, atol=1.0)
+
+    def test_a_bent_donor_is_not_a_hydrogen_bond(self) -> None:
+        """Close is not enough. The angle is what distinguishes a hydrogen
+        bond from two polar atoms that happen to be near each other."""
+        from fastmdxplora.analysis.interactions import hydrogen_bonds
+
+        traj, ligand, protein = self._complex()
+        # Put the hydrogen behind the donor, so the angle collapses while the
+        # heavy-atom distance is unchanged.
+        moved = traj.xyz.copy()
+        moved[0, 5] = [0.70, 1.0, 0]
+        bent = md.Trajectory(xyz=moved, topology=traj.topology)
+        assert hydrogen_bonds(bent, ligand, protein, periodic=False) == []
+
+    def test_a_carbon_bonded_to_oxygen_is_not_hydrophobic(self) -> None:
+        """An alcohol carbon is polarised. Counting it would report the same
+        contact twice -- once here and once as a hydrogen bond."""
+        from fastmdxplora.analysis.interactions import hydrophobic_atoms
+
+        traj, ligand, _protein = self._complex()
+        names = {str(traj.topology.atom(i))
+                 for i in hydrophobic_atoms(traj.topology, ligand)}
+        assert names == {"LIG900-C2"}, names
+
+    def test_a_backbone_oxygen_is_not_hydrophobic_either(self) -> None:
+        from fastmdxplora.analysis.interactions import hydrophobic_atoms
+
+        traj, _ligand, protein = self._complex()
+        names = {str(traj.topology.atom(i))
+                 for i in hydrophobic_atoms(traj.topology, protein)}
+        assert names == {"ALA1-CB"}, names
+
+    def test_the_hydrophobic_contact_is_found(self) -> None:
+        from fastmdxplora.analysis.interactions import hydrophobic_contacts
+
+        traj, ligand, protein = self._complex()
+        found = hydrophobic_contacts(traj, ligand, protein, periodic=False)
+        assert len(found) == 1
+        assert found[0].kind == "hydrophobic"
+        assert found[0].angle_deg is None, "hydrophobic association has no geometry"
+
+    def test_both_directions_of_donation_are_looked_for(self) -> None:
+        """A protein donating to a ligand and a ligand donating to a protein
+        are different interactions, and a ligand that can only accept is a
+        fact about the ligand worth seeing."""
+        from fastmdxplora.analysis.interactions import donors_and_acceptors
+
+        traj, ligand, protein = self._complex()
+        ligand_donors, ligand_acceptors = donors_and_acceptors(
+            traj.topology, ligand)
+        protein_donors, protein_acceptors = donors_and_acceptors(
+            traj.topology, protein)
+        assert ligand_donors, "the ligand hydroxyl should donate"
+        assert protein_acceptors, "the backbone oxygen should accept"
+        assert not protein_donors, "this residue has no polar hydrogen"
+        assert ligand_acceptors
+
+    def test_the_threshold_is_a_setting_not_a_constant(self) -> None:
+        """The published values disagree, so which was used has to be
+        visible -- and PLIP's remain reachable."""
+        from fastmdxplora.analysis.interactions import hydrogen_bonds
+
+        traj, ligand, protein = self._complex()
+        assert hydrogen_bonds(traj, ligand, protein, distance_nm=0.15,
+                              periodic=False) == []
+        assert hydrogen_bonds(traj, ligand, protein, angle_deg=179.9,
+                              periodic=False)
+
+
+class TestATopologyThatCannotAnswerSaysSo:
+    """Found by comparing against another tool, which is what that is for.
+
+    A selection carrying hydrogens with no bonds to them cannot be seen to
+    donate, only to accept. The first version returned zero and said nothing --
+    the same defect fixed in the protein-ligand hydrogen bond analysis earlier,
+    reappearing in new code because the condition is easy to miss and silent
+    when hit.
+
+    It is not hypothetical. Renaming a residue in a PDB is enough to lose its
+    standard bonds, and a ligand deposited without CONECT records arrives the
+    same way.
+    """
+
+    @staticmethod
+    def _hydrogens_without_bonds():
+        top = md.Topology()
+        chain = top.add_chain()
+        residue = top.add_residue("LIG", chain, resSeq=1)
+        top.add_atom("N", md.element.nitrogen, residue)
+        top.add_atom("H", md.element.hydrogen, residue)   # no bond between them
+        other = top.add_chain()
+        second = top.add_residue("ALA", other, resSeq=2)
+        ca = top.add_atom("CA", md.element.carbon, second)
+        o = top.add_atom("O", md.element.oxygen, second)
+        top.add_bond(ca, o)
+        xyz = np.array([[[0, 0, 0], [0.1, 0, 0], [0.4, 0, 0], [0.3, 0, 0]]],
+                       dtype=np.float32)
+        return md.Trajectory(xyz=xyz, topology=top)
+
+    def test_it_refuses_rather_than_reporting_none(self) -> None:
+        import pytest
+
+        from fastmdxplora.analysis.interactions import donors_and_acceptors
+
+        traj = self._hydrogens_without_bonds()
+        with pytest.raises(ValueError, match="bonded to nothing"):
+            donors_and_acceptors(traj.topology, [0, 1])
+
+    def test_the_message_says_what_would_fix_it(self) -> None:
+        import pytest
+
+        from fastmdxplora.analysis.interactions import donors_and_acceptors
+
+        traj = self._hydrogens_without_bonds()
+        with pytest.raises(ValueError, match="CONECT"):
+            donors_and_acceptors(traj.topology, [0, 1])
+
+    def test_a_selection_with_no_hydrogens_is_not_blocked(self) -> None:
+        """Accepting only is a fact about that selection, not a gap in the
+        topology."""
+        from fastmdxplora.analysis.interactions import donors_and_acceptors
+
+        traj = self._hydrogens_without_bonds()
+        donors, acceptors = donors_and_acceptors(traj.topology, [2, 3])
+        assert donors == []
+        assert acceptors == [3]
+
+    def test_it_agrees_with_an_independent_implementation(self) -> None:
+        """The criterion is Baker and Hubbard's, and MDTraj implements the
+        same one in different code. Where two implementations of one published
+        rule agree on every atom pair, the rule is being read the same way."""
+        import itertools
+
+        from fastmdxplora.analysis.interactions import hydrogen_bonds
+
+        # A short peptide with real backbone geometry: N-H donors and
+        # carbonyl acceptors, bonded as a topology from a file would be.
+        rng = np.random.RandomState(4)
+        top = md.Topology()
+        chain = top.add_chain()
+        previous_c = None
+        for index in range(6):
+            residue = top.add_residue("ALA", chain, resSeq=index + 1)
+            n = top.add_atom("N", md.element.nitrogen, residue)
+            h = top.add_atom("H", md.element.hydrogen, residue)
+            ca = top.add_atom("CA", md.element.carbon, residue)
+            c = top.add_atom("C", md.element.carbon, residue)
+            o = top.add_atom("O", md.element.oxygen, residue)
+            for first, second in ((n, h), (n, ca), (ca, c), (c, o)):
+                top.add_bond(first, second)
+            if previous_c is not None:
+                top.add_bond(previous_c, n)
+            previous_c = c
+
+        base = rng.normal(scale=0.25, size=(top.n_atoms, 3))
+        traj = md.Trajectory(xyz=base[None].astype(np.float32), topology=top)
+
+        probe = np.array([a.index for a in top.atoms if a.residue.index == 2])
+        rest = np.array([a.index for a in top.atoms
+                         if a.residue.index not in (1, 2, 3)])
+
+        ours = {
+            (min(c.ligand_atom, c.protein_atom), max(c.ligand_atom, c.protein_atom))
+            for c in hydrogen_bonds(traj, probe, rest, periodic=False)
+        }
+        probe_set, rest_set = set(probe.tolist()), set(rest.tolist())
+        theirs = {
+            (min(int(d), int(a)), max(int(d), int(a)))
+            for d, _h, a in md.baker_hubbard(traj, freq=0.0, periodic=False)
+            if (int(d) in probe_set and int(a) in rest_set)
+            or (int(d) in rest_set and int(a) in probe_set)
+        }
+        # Baker-Hubbard measures hydrogen to acceptor and this measures donor
+        # to acceptor, so it is the stricter of the two: everything it finds
+        # must be here, though the reverse need not hold.
+        assert theirs <= ours, f"MDTraj found pairs we did not: {theirs - ours}"
