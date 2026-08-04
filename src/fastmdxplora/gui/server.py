@@ -365,6 +365,18 @@ def make_handler(
                 )
                 return
             payload = self._read_json_body()
+            if path == "/api/config":
+                # The file the page would run, handed back instead. A laptop
+                # is a poor place to run fifty nanoseconds and a cluster is a
+                # poor place to decide what to run, so the decisions are made
+                # here and the file goes where the compute is. It is put
+                # through the command line's own validator first, so a
+                # configuration that would fail there fails here, while the
+                # form that produced it is still on the screen.
+                from fastmdxplora.gui.config_builder import config_yaml
+
+                self._send_json(config_yaml(payload or {}))
+                return
             if path == "/api/explore/validate":
                 result = validate_exploration_payload(payload)
                 if result.get("valid"):

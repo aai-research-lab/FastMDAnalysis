@@ -1700,3 +1700,104 @@ class TestPointingAtAFolderOfResults:
 
         source = pathlib.Path(server.__file__).read_text(encoding="utf-8")
         assert "/api/inspect-directory" in source
+
+
+class TestTheConfigTheBrowserWritesRunsElsewhere:
+    """A laptop is a poor place to run fifty nanoseconds.
+
+    So the browser's job is to decide what to run, and the file it writes has
+    to work where the compute is. Which means it must be a file the command
+    line accepts -- checked here, with the command line's own validator, while
+    the form that produced it is still on the screen, rather than an hour into
+    a queue on a cluster.
+    """
+
+    @staticmethod
+    def _a_reasonable_form():
+        return {
+            "system": "1ubq",
+            "system_id": "ubiquitin",
+            "output": "runs/ubq",
+            "include": ["setup", "simulation", "analysis"],
+            "setup": {"ph": "6.5", "forcefield": "amber14",
+                      "keep_water": "true"},
+            "simulation": {"temperature_K": "310"},
+            "analysis": {"scope": "protein", "include": "rmsd, rmsf"},
+        }
+
+    def test_the_command_line_reads_back_what_the_browser_wrote(
+        self, tmp_path
+    ) -> None:
+        from fastmdxplora.config.loader import (
+            load_config_file, phase_options, validate_config,
+        )
+        from fastmdxplora.gui.config_builder import config_yaml
+
+        written = config_yaml(self._a_reasonable_form())
+        assert written["ok"], written["error"]
+
+        path = tmp_path / "exploration.yml"
+        path.write_text(written["yaml"], encoding="utf-8")
+
+        loaded = load_config_file(path)
+        validate_config(loaded)
+        options = phase_options(loaded)
+        assert options["setup"]["ph"] == 6.5
+        assert options["setup"]["forcefield"] == "amber14"
+        assert options["analysis"]["scope"] == "protein"
+
+    def test_a_setting_left_alone_is_left_out(self) -> None:
+        """A file restating forty defaults buries the three that were chosen.
+
+        Those three are what a reader of the methods section needs.
+        """
+        from fastmdxplora.gui.config_builder import build_config
+
+        form = self._a_reasonable_form()
+        form["setup"]["heterogens"] = "auto"      # the default
+        built = build_config(form)
+        assert "heterogens" not in built["setup"]
+        assert built["setup"]["forcefield"] == "amber14"
+
+    def test_text_from_a_form_becomes_the_right_type(self) -> None:
+        """Everything arrives as text, and a type may be several at once."""
+        from fastmdxplora.gui.config_builder import build_config
+
+        built = build_config(self._a_reasonable_form())
+        assert built["setup"]["ph"] == 6.5
+        assert built["setup"]["keep_water"] is True
+        assert built["simulation"]["temperature_K"] == 310
+        assert built["analysis"]["include"] == ["rmsd", "rmsf"]
+
+    def test_a_setting_that_does_not_exist_is_dropped(self) -> None:
+        """The page must not be able to write a file the CLI will refuse."""
+        from fastmdxplora.gui.config_builder import build_config
+
+        form = self._a_reasonable_form()
+        form["setup"]["not_a_real_setting"] = "x"
+        form["not_a_real_phase"] = {"y": 1}
+        built = build_config(form)
+        assert "not_a_real_setting" not in built["setup"]
+        assert "not_a_real_phase" not in built
+
+    def test_a_configuration_that_would_be_refused_says_so_here(self) -> None:
+        from fastmdxplora.gui.config_builder import config_yaml
+
+        out = config_yaml({"output": "o", "include": ["not_a_phase"]})
+        assert not out["ok"]
+        assert out["error"] and out["yaml"] is None
+
+    def test_one_system_is_written_the_way_forty_would_be(self) -> None:
+        """So a file for one protein and a file for a batch have one shape."""
+        from fastmdxplora.gui.config_builder import build_config
+
+        built = build_config(self._a_reasonable_form())
+        assert built["systems"] == [{"system": "1ubq", "id": "ubiquitin"}]
+
+    def test_the_dashboard_serves_it(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        source = pathlib.Path(server.__file__).read_text(encoding="utf-8")
+        assert "/api/config" in source
