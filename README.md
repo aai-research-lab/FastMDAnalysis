@@ -27,6 +27,8 @@ then hands back publication-ready results.
 - Probe protein-ligand binding automatically with analyses for pose stability, contacts, and protein-ligand hydrogen bonds
 - Reach beyond plain MD with built-in PLUMED enhanced sampling (metadynamics, umbrella sampling, steered MD)
 - Design, start, watch, and review an exploration from a browser, with a 3D viewer and live telemetry
+- Analyse a trajectory you already have, from any engine, without running the simulation again
+- Build a config in the browser and run it there, or take it to a cluster — the same file either way
 - Scale from a quick single-protein exploration to large parallel campaigns, driven the same way from the CLI or the Python API
 
 ## Phases of FastMDXplora

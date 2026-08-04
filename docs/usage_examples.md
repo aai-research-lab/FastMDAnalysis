@@ -99,13 +99,10 @@ fastmdx analyze  --output ./trpcage_study --analyses rmsd rg --selection "name C
 fastmdx report   --output ./trpcage_study --no-slides
 ```
 
-To reproduce the published version 1 BPTI case-study settings with the
-FastMDXplora CLI, use the explicit compatibility profile. It selects protein
-scope, every second frame, PCA, and six-state hierarchical clustering while
-leaving FastMDXplora's normal defaults unchanged:
-
-State the settings the comparison needs, rather than naming a profile that
-supplies them:
+To compare against another tool, state the settings the comparison needs.
+There is no profile that supplies them: reproducing a published result means
+running the same method and finding the same number, and a flag that supplies
+the number removes the thing being checked.
 
 ```bash
 fastmdx analyze \

@@ -799,8 +799,15 @@
     if (!box) return;
     const typed = box.value.trim();
     const name = typed || "fastmdxplora_output";
-    const absolute = name.startsWith("/") || name.startsWith("~");
-    const full = absolute ? name : (where ? `${where}/${name}` : name);
+    // A path is absolute on this machine, not on the one this was written on:
+    // C:\Users\... starts with neither a slash nor a tilde, and calling it
+    // relative would have the note claim the results land somewhere they
+    // will not. The server decides for real; this only has to agree.
+    const absolute =
+      name.startsWith("/") || name.startsWith("~") || /^[A-Za-z]:[\\/]/.test(name);
+    // And joined with whatever separator this machine uses.
+    const separator = where.includes("\\") ? "\\" : "/";
+    const full = absolute ? name : (where ? `${where}${separator}${name}` : name);
     text(el("run-output-note"), `Results will be saved in ${full}`);
   }
 

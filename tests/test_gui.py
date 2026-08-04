@@ -1652,12 +1652,20 @@ class TestPointingAtAFolderOfResults:
         assert found["suggestion"]["trajectory"].endswith("production.dcd")
 
     def test_it_pairs_the_topology_beside_it(self, tmp_path) -> None:
-        """Not the one in setup/, which describes a different stage."""
+        """Not the one in setup/, which describes a different stage.
+
+        Compared as paths rather than by the end of a string: a path on
+        Windows is joined with backslashes, and "simulation/topology.pdb" is
+        the end of nothing there.
+        """
+        import pathlib
+
         from fastmdxplora.gui.directory_inspect import inspect_directory
 
         found = inspect_directory(self._a_finished_run(tmp_path / "run"))
-        assert found["suggestion"]["topology"].endswith(
-            "simulation/topology.pdb")
+        chosen = pathlib.Path(found["suggestion"]["topology"])
+        assert chosen.name == "topology.pdb"
+        assert chosen.parent.name == "simulation"
 
     def test_it_recognises_a_previous_run(self, tmp_path) -> None:
         from fastmdxplora.gui.directory_inspect import inspect_directory
@@ -2178,8 +2186,12 @@ class TestChoosingBetweenSeveralTrajectories:
     def test_the_largest_is_chosen_but_not_forced(self, tmp_path) -> None:
         from fastmdxplora.gui.directory_inspect import inspect_directory
 
+        import pathlib
+
         found = inspect_directory(self._replicates(tmp_path))
-        assert found["suggestion"]["trajectory"].endswith("rep3/production.dcd")
+        chosen = pathlib.Path(found["suggestion"]["trajectory"])
+        assert chosen.name == "production.dcd"
+        assert chosen.parent.name == "rep3"
         # and the others remain on offer
         assert len(found["trajectories"]) == 3
 
@@ -3503,3 +3515,61 @@ class TestTheOldPagesAreGone:
                   / "run-builder.js").read_text(encoding="utf-8")
         assert "function watchForARun" in script
         assert "active_run" in script
+
+
+class TestPathsAreNotAssumedToUseSlashes:
+    """The tests run on Windows too, and so does the software.
+
+    Two assertions compared the end of a path string -- "rep3/production.dcd"
+    -- which is the end of nothing on a machine that joins with backslashes.
+    Both passed here and failed there, which is the worst way to find out.
+    """
+
+    def test_the_suggestion_is_compared_as_a_path(self) -> None:
+        import pathlib
+        import re
+
+        from fastmdxplora.gui import server
+
+        tests = pathlib.Path(server.__file__).parents[3] / "tests" / "test_gui.py"
+        if not tests.exists():          # installed rather than checked out
+            import pytest
+
+            pytest.skip("running against an installed copy")
+        source = tests.read_text(encoding="utf-8")
+        slashed = re.findall(r'endswith\("[^"]*/[^"]*"\)', source)
+        assert not slashed, (
+            f"these compare a path by the end of a string: {slashed}"
+        )
+
+    def test_the_page_knows_a_windows_path_is_absolute(self) -> None:
+        """C:\\Users\\... starts with neither a slash nor a tilde, and calling
+        it relative would have the note claim the results land somewhere they
+        will not."""
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        script = (pathlib.Path(server.__file__).parent / "static"
+                  / "run-builder.js").read_text(encoding="utf-8")
+        assert "[A-Za-z]:" in script, "a drive letter is not recognised"
+
+    def test_and_joins_with_the_separator_that_machine_uses(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        script = (pathlib.Path(server.__file__).parent / "static"
+                  / "run-builder.js").read_text(encoding="utf-8")
+        block = script[script.index("function describeOutput"):][:900]
+        assert "separator" in block
+
+    def test_the_folder_of_a_trajectory_is_found_either_way(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        script = (pathlib.Path(server.__file__).parent / "static"
+                  / "run-builder.js").read_text(encoding="utf-8")
+        block = script[script.index("function findStructureBeside"):][:600]
+        assert "\\\\" in block, "only forward slashes are split on"

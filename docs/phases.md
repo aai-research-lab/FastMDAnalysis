@@ -73,7 +73,42 @@ files, per-analysis option manifests, and `analysis_manifest.json`.
 
 The built-in analysis names are `rmsd`, `rmsf`, `rg`, `hbonds`, `ss`, `sasa`,
 `qvalue`, `dihedrals`, `cluster`, and `dimred`. Each accepts its own settings
-under `options`, which `fastmdx analyze --help` lists.
+under `options`, which `fastmdx analyze --help` lists. A setting an analysis
+does not have stops the run rather than being ignored: a measurement you asked
+for and did not get is worse than a stopped run, because it looks like an
+answer to the question you asked.
+
+### What each measure is, precisely
+
+The definition matters more than the name, and several of these are defined
+more than one way in the literature. What FastMDXplora computes:
+
+- **Radius of gyration** is mass-weighted, measured from the centre of mass,
+  as GROMACS's `gyrate` and cpptraj's `radgyr` report it. `mass_weighted=false`
+  gives the unweighted quantity, where every atom counts alike.
+- **Q-value** follows Best, Hummer & Eaton (PNAS 2013) including its switching
+  function: each native contact is judged against the distance it had natively
+  and stops counting gradually rather than at a step. `beta` and
+  `lambda_factor` are the paper's, and exposed. Q at the reference frame is
+  therefore slightly under 1, which is inherent to a smooth measure and left
+  unnormalised as published.
+- **Hydrogen bonds** are counted in every frame they occur in. Baker-Hubbard
+  proposes bonds above an occupancy threshold; `candidate_freq` defaults to 0
+  so every bond that occurs is evaluated, because a bond present in five per
+  cent of frames is present in those frames. `freq` reports how many bonds are
+  persistent rather than deciding which are seen at all.
+- **Clustering** compares frames by pairwise RMSD, each pair superposed
+  optimally, so the distance does not depend on where the molecule sits.
+  `features="coordinates"` superposes onto the first frame and compares
+  directly instead -- the cheaper approximation, scaled so a distance is still
+  an RMSD in nm.
+- **Secondary structure** covers the protein only. DSSP returns a column for
+  every residue and marks the others `NA`; a ligand has no secondary structure
+  and does not appear.
+- **Contacts and hydrogen bonds** measure across the periodic boundary when
+  the trajectory carries a unit cell. A solvated trajectory is not always
+  imaged, and a molecule split across the boundary looks far from everything
+  it is touching. `periodic=false` measures plain distances regardless.
 
 To compare against another tool, state the settings and run both. Where the
 numbers agree that is a reproduction; where they do not, the difference is a

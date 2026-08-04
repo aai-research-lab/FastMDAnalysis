@@ -65,13 +65,19 @@ The single-page app exposes:
 
 - **Sidebar** with the AAI Research Lab logo, the FastMDXplora product name, the
   full tagline (Fully Automated SysTem for Molecular Dynamics eXploration),
-  the persistent nav (Overview, Live Simulation, Molecular Viewer, Analysis,
-  Files & Reports, Run Settings, Documentation, GitHub), and dynamic footer
-  info (connection status, current run, detected platform).
+  the persistent nav (New Exploration, Overview, Live Simulation, Molecular
+  Viewer, Analysis, Files & Reports, Run Settings, Documentation, GitHub), and
+  dynamic footer info (connection status, current run, detected platform).
 - **Top bar** with system/PDB, run title, status pill, current stage, step/total,
   platform, temperature, refresh, and Pause Updates (browser-only).
-- **Pages**: Overview, Live Simulation, Molecular Viewer, Analysis,
-  Files & Reports, Run Settings.
+- **Pages**: New Exploration, Overview, Live Simulation, Molecular Viewer,
+  Analysis, Files & Reports, Run Settings.
+
+There is one page for building a run. There used to be two -- one starting from
+a protein, one from a trajectory -- and they were the same thing: both wrote a
+config and ran it, differing only in which phases the config named. Built
+separately, one of them offered eleven of the eighty-three settings that exist
+while the other offered all of them.
 
 ### Branding
 
@@ -396,6 +402,18 @@ The server exposes lightweight JSON endpoints (no database):
 - `GET /api/playback-info` — downsampled playback frames metadata
 - `GET /api/files` — alias for `/api/artifacts` generated file list
 - `GET /api/analyses` — alias for `/api/results` analysis summary
+- `GET /api/schema` — every setting the software accepts, with its help text,
+  accepted values, default, and the control to draw for it; plus each
+  analysis's own settings, read from the analyses themselves
+- `GET /api/browse` — folders, and files of a given `kind` (trajectory,
+  structure, config), for the file picker
+- `GET /api/inspect-directory` — what a folder holds and what that makes
+  possible
+- `POST /api/config` — the config the page describes, validated
+- `POST /api/check-config` — whether a config someone already has will run
+- `POST /api/load-config` — that config, in the shape the form works in
+- `POST /api/run` — start what the page describes
+- `POST /api/run-config` — start a config exactly as it stands
 - `GET /structure/topology.pdb` — served structure (latest available)
 - `GET /structure/live-frame.pdb` — latest OpenMM live frame (atomic swap)
 - `GET /structure/playback.pdb` — downsampled multi-MODEL PDB for playback
@@ -472,7 +490,7 @@ The redesign was manually validated against:
 - A package install at non-checkout locations to confirm templates and
   static assets ship correctly
 
-## Dashboard-first startup and simulation builder
+## Building a run
 
 Running FastMDXplora without a subcommand starts the local dashboard before a
 project exists:
@@ -486,12 +504,55 @@ the actual URL in the terminal banner, and opens the browser when possible.
 Set `FASTMDX_NO_BROWSER=1` to suppress automatic browser opening in headless
 or automated environments.
 
-The **New Exploration** page configures the standard FastMDXplora workflow. It
-does not implement a separate simulation engine: the dashboard validates the
-form and launches the canonical `python -m fastmdxplora.cli.main explore`
-command with the selected setup, simulation, analysis, and report options.
-The child process writes normal project artifacts and live telemetry, while
-the already-running dashboard switches to that output directory.
+The **New Exploration** page asks three questions, in the order they are
+answered.
+
+**What have you got?** A structure -- a four-character PDB identifier or a path
+to a file -- or a trajectory you already have, from anywhere, or a config
+written earlier. That answer sets what happens next.
+
+**What should happen?** Setup, Simulation, Analysis and Report, pre-selected
+from the first answer and adjustable. A run that only analyses is a run with
+one of them ticked. Where a phase has nothing to act on it is shown but
+unavailable, with the reason: a trajectory is already the result of setting up
+and simulating, and there is no supported way to continue a run from one.
+
+**Anything to change?** Every setting for the chosen phases, read from the
+schema, with the help text the command line and the config template use. When
+Analysis is included, each measurement appears with what it means and how to
+read it. Everything has a default that works; the settings are there for when
+it does not. **Reset to defaults** puts it all back.
+
+Then the run can start here, or the config can be downloaded and run
+elsewhere -- the same file either way. A laptop is a poor place to run a long
+simulation; a cluster is a poor place to decide what to run.
+
+Nothing on the page holds a list of what can be set. The controls are drawn
+from what the schema reports, and the per-analysis settings from the analyses
+themselves, so a new field appears without anything else being updated.
+
+The dashboard does not implement a separate simulation engine. It writes a
+config and launches the canonical `fastmdx explore --config` command; the child
+process writes normal project artifacts and live telemetry, while the
+already-running dashboard switches to that output directory. The config is
+written beside the results, so a run can be repeated from its output directory
+rather than from what somebody remembers clicking.
+
+### A config you already have
+
+It can be checked -- reporting YAML syntax errors, settings that do not exist,
+and on success what the file will do -- then either run exactly as it stands or
+opened into the form and changed. Opening never writes to it: the file may be
+committed beside a paper or be the record of a run that already happened, so
+anything changed is saved as a new file.
+
+### Choosing files
+
+Every field wanting a path has a **Browse…** button. A browser will not offer a
+dialog for a path the server has to open -- the one it has uploads files to a
+page -- so the walking is done by the server and drawn by the page. Only files
+of the kind being asked for are listed, and folders are marked with how much
+data they hold, counted by extension a few levels down.
 
 Click **Validate** before launching. Validation checks both the form and the
 Python environment behind the dashboard. If OpenMM or PDBFixer is missing,

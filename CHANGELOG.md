@@ -7,11 +7,60 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
-Three changes here alter numbers a 2.2.0 run produced. Hydrogen-bond counts
-rise, because a bond present in few frames was being left out of all of them.
-The `v1` analysis profile is gone, so a command that named it now fails rather
-than quietly applying a table of settings. Clustering keeps its default and
-gains an alternative, which changes nothing unless asked for.
+**Read this before upgrading a study in progress.** Every analysis was checked
+against the method it claims to implement -- a cited paper, a reference
+implementation, or the contract of the library underneath. Eight of the ten
+were wrong about something, and five of those change numbers a 2.2.0 run
+produced: hydrogen-bond counts rise, the Q-value becomes the switching function
+its cited paper defines, the radius of gyration becomes mass-weighted as the
+documentation always said it was, contacts and hydrogen bonds measure across
+the periodic boundary, and secondary-structure residue numbering was shifted
+whenever a ligand was present.
+
+Three more stop rather than report something meaningless: dimensionality
+reduction on a structure that does not move, secondary structure where nothing
+has a backbone, and protein-ligand hydrogen bonds where the ligand's
+connectivity is missing. The `v1` analysis profile is gone.
+
+### Changed
+- **One page builds a run, and it does everything.** There were two -- one
+  starting from a protein, one from a trajectory -- and they were the same
+  thing: both wrote a config and ran it, differing only in which phases the
+  config named. Built separately, one offered eleven of the eighty-three
+  settings that exist and the other offered all of them. The page that
+  replaces them asks what you have, what should happen to it, and what you
+  want to change, and draws every control from the schema.
+
+  It also takes a config you already have: checked for syntax and for settings
+  that do not exist, then run exactly as it stands or opened into the form and
+  changed. Opening never writes to it -- a change is saved as a new file,
+  because the one on disk may be committed beside a paper.
+
+- **A trajectory you already have is enough to start.** From GROMACS, from
+  AMBER, from your own script. Point the browser at the folder, choose what to
+  measure, and run it. The simulation does not have to be reproduced here
+  first, which is what asking for it excluded.
+
+- **Every field wanting a path can be browsed**, and only files of the kind
+  being asked for are listed.
+
+### Fixed
+- **The banner describes the run it is printing.** Built from command-line
+  flags, a run started with `--config` saw none of them: it announced a
+  million production steps for a run that only analysed a trajectory, and the
+  default pH for a config that said otherwise.
+- **The timeline shows only the stages a run can reach.** An analysis of an
+  existing trajectory reaches one of seven, and six greyed out forever reads
+  exactly like a run that stalled.
+- **The GUI opens on something to do.** `fastmdx gui` passed the working
+  directory as an active run, so it opened on the overview of a run that did
+  not exist.
+- **Results land where you point them.** A results folder given as a path was
+  flattened into a folder name, so `/Users/someone/work` became
+  `Users_someone_work` inside the launch directory.
+- **Clustering declares the methods it runs.** Its docstring named one where
+  the code ran two, and its default was filled in from `None` afterwards, so
+  nothing reading the signature could say what it would do.
 
 ### Removed
 - **`--compat v1` and `--analyze-compat v1`.** The profile applied a table of
