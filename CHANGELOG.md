@@ -59,6 +59,15 @@ gains an alternative, which changes nothing unless asked for.
   Where nothing in the selection has a backbone -- a nucleic acid, a lone
   ligand, a coarse-grained model -- the analysis now says so instead of
   drawing an empty timeline.
+- **Distances honour the periodic box.** Contacts and hydrogen bonds measured
+  plain distances whatever the trajectory carried, while the Q-value measured
+  with the box on the same frames -- two analyses answering "is this near
+  that" differently in one run. A solvated trajectory is not always imaged,
+  and a molecule split across the boundary looks far from everything it is
+  actually touching: a bound ligand sitting across the wall reported **no
+  contacts at all**. Both now use the unit cell when there is one, which
+  changes nothing where there is not. `periodic=False` restores the previous
+  measurement.
 - **The radius of gyration is mass-weighted.** The docstring said it used
   masses from the topology; `mdtraj.compute_rg` weights every atom equally
   unless told otherwise, and when given masses still measures from the

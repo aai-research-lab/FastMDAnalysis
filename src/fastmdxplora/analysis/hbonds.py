@@ -59,6 +59,11 @@ class HBonds(Analysis):
         frames is present in those frames, and a threshold applied here would
         drop it from all of them. Raise it only to restrict the series to
         bonds that persist. Has no effect on Wernet-Nilsson.
+    periodic : bool, default True
+        Measure across the periodic boundary when the trajectory carries a
+        unit cell. A solvated trajectory is not always imaged, and a molecule
+        split across the boundary looks far from what it is touching. Where
+        there is no unit cell this makes no difference.
     count_multiplier : int, default 1
         Multiplies the per-frame count, and is a compatibility device rather
         than a convention. MDTraj enumerates each hydrogen bond once, as one
@@ -91,6 +96,7 @@ class HBonds(Analysis):
         freq: float = 0.1,
         candidate_freq: float = 0.0,
         count_multiplier: int = 1,
+        periodic: bool = True,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -110,6 +116,7 @@ class HBonds(Analysis):
         self.candidate_freq: float = (
             0.0 if candidate_freq is None else float(candidate_freq)
         )  # None is still accepted: it meant "same as freq" before.
+        self.periodic: bool = bool(periodic)
         self.count_multiplier: int = int(count_multiplier)
         if self.count_multiplier < 1:
             raise ValueError("count_multiplier must be at least 1")
@@ -124,6 +131,7 @@ class HBonds(Analysis):
             )
         self.options.update(
             method=self.method,
+            periodic=self.periodic,
             freq=self.freq,
             candidate_freq=self.candidate_freq,
             count_multiplier=self.count_multiplier,
@@ -153,7 +161,7 @@ class HBonds(Analysis):
 
         if self.method == "wernet_nilsson":
             # Returns a list (one per frame) of (donor, H, acceptor) triplets.
-            per_frame = md.wernet_nilsson(traj)
+            per_frame = md.wernet_nilsson(traj, periodic=self.periodic)
             counts = np.array([len(bonds) for bonds in per_frame], dtype=int)
         else:
             # Baker-Hubbard returns aggregated bonds present above `freq`
@@ -164,9 +172,10 @@ class HBonds(Analysis):
                 traj,
                 freq=self.candidate_freq,
                 exclude_water=True,
-                periodic=False,
+                periodic=self.periodic,
             )
-            counts, occupancy = _per_frame_baker_hubbard(traj, bonds)
+            counts, occupancy = _per_frame_baker_hubbard(
+                traj, bonds, periodic=self.periodic)
             # Occupancy is already known per bond from the per-frame pass, so
             # reporting how many clear the threshold costs nothing. Without
             # this, freq decided which bonds were proposed and nothing else,
@@ -216,7 +225,7 @@ class HBonds(Analysis):
 
 
 def _per_frame_baker_hubbard(
-    traj: md.Trajectory, bonds: np.ndarray
+    traj: md.Trajectory, bonds: np.ndarray, periodic: bool = True
 ) -> tuple[np.ndarray, np.ndarray]:
     """Recompute per-frame occupancy for an aggregated Baker-Hubbard set.
 
@@ -233,11 +242,11 @@ def _per_frame_baker_hubbard(
 
     # Distances H-A
     h_a_pairs = bonds[:, [1, 2]]
-    distances = md.compute_distances(traj, h_a_pairs, periodic=False)
+    distances = md.compute_distances(traj, h_a_pairs, periodic=periodic)
 
     # Angles D-H-A (in radians)
     d_h_a_triples = bonds[:, [0, 1, 2]]
-    angles = md.compute_angles(traj, d_h_a_triples, periodic=False)
+    angles = md.compute_angles(traj, d_h_a_triples, periodic=periodic)
 
     # Mask: distance < 0.25 nm AND angle > 120° (2.0944 rad)
     cutoff_dist = 0.25

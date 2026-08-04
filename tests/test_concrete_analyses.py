@@ -1040,3 +1040,73 @@ class TestRadiusOfGyrationIsMassWeighted:
         )
         out = Rg(selection="all").compute(traj)
         assert np.isfinite(out).all()
+
+
+class TestDistancesHonourThePeriodicBox:
+    """A solvated trajectory is not always imaged.
+
+    A molecule split across the periodic boundary looks far from everything it
+    is actually touching. Contacts and hydrogen bonds measured plain distances
+    regardless, so a bound ligand sitting across the boundary reported no
+    contacts at all -- while the Q-value, on the same frames, measured with the
+    box because it never overrode MDTraj's default. Two analyses answering
+    "is this near that" differently on one trajectory.
+    """
+
+    @staticmethod
+    def _split_across_boundary(box: float = 5.0):
+        top = md.Topology()
+        chain = top.add_chain()
+        for i in range(4):
+            res = top.add_residue("ALA", chain, resSeq=i + 1)
+            for name in ("N", "CA", "C", "O"):
+                top.add_atom(name, md.element.carbon, res)
+        ligand_chain = top.add_chain()
+        ligand = top.add_residue("LIG", ligand_chain, resSeq=900)
+        for i in range(3):
+            top.add_atom(f"C{i}", md.element.carbon, ligand)
+
+        protein = np.column_stack(
+            [np.linspace(0.05, 0.5, 16), np.zeros(16), np.zeros(16)])
+        # Just the other side of the wall: close to the protein through it.
+        lig = np.array([[box - 0.2, 0, 0], [box - 0.15, 0, 0], [box - 0.25, 0, 0]])
+        xyz = np.vstack([protein, lig])[None].astype(np.float32)
+        traj = md.Trajectory(xyz=xyz, topology=top)
+        traj.unitcell_vectors = np.array(
+            [[[box, 0, 0], [0, box, 0], [0, 0, box]]], dtype=np.float32)
+        return traj
+
+    def test_contacts_are_found_through_the_boundary(self) -> None:
+        from fastmdxplora.analysis.contacts import Contacts
+
+        traj = self._split_across_boundary()
+        found = Contacts(ligand_resname="LIG", protein_selection="not resname LIG",
+                         selection="all").compute(traj)["n_contacts"][0]
+        assert found > 0, "the ligand is bound; it is the box that is in the way"
+
+    def test_the_old_behaviour_is_still_reachable(self) -> None:
+        from fastmdxplora.analysis.contacts import Contacts
+
+        traj = self._split_across_boundary()
+        found = Contacts(ligand_resname="LIG", protein_selection="not resname LIG",
+                         selection="all", periodic=False).compute(traj)["n_contacts"][0]
+        assert found == 0
+
+    def test_a_trajectory_without_a_box_is_unaffected(self) -> None:
+        """Where there is no unit cell, the setting changes nothing."""
+        from fastmdxplora.analysis.contacts import Contacts
+
+        traj = self._split_across_boundary()
+        traj.unitcell_vectors = None
+        with_box = Contacts(ligand_resname="LIG", protein_selection="not resname LIG",
+                            selection="all").compute(traj)["n_contacts"][0]
+        without = Contacts(ligand_resname="LIG", protein_selection="not resname LIG",
+                           selection="all", periodic=False).compute(traj)["n_contacts"][0]
+        assert with_box == without
+
+    def test_hydrogen_bonds_take_the_same_setting(self) -> None:
+        from fastmdxplora.analysis.hbonds import HBonds
+
+        analysis = HBonds()
+        assert analysis.periodic is True
+        assert analysis.options["periodic"] is True

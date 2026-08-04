@@ -43,6 +43,13 @@ class Contacts(Analysis):
     cutoff : float, default 0.4
         Contact distance cutoff in nm (0.4 nm = 4 Angstrom, a standard
         heavy-atom contact threshold).
+    periodic : bool, default True
+        Measure distances across the periodic boundary when the trajectory
+        carries a unit cell. A solvated trajectory is not always imaged, and
+        a molecule split across the boundary then looks far from everything it
+        is actually touching -- a bound ligand can report no contacts at all.
+        Where there is no unit cell this makes no difference. False measures
+        plain distances regardless.
     protein_selection : str, default "protein"
         Selection for the receptor side of the contact.
     **kwargs
@@ -60,6 +67,7 @@ class Contacts(Analysis):
         ligand_resname: str | None = None,
         cutoff: float = 0.4,
         protein_selection: str = "protein",
+        periodic: bool = True,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -71,7 +79,9 @@ class Contacts(Analysis):
         self.ligand_resname = str(ligand_resname)
         self.cutoff = float(cutoff)
         self.protein_selection = str(protein_selection)
+        self.periodic: bool = bool(periodic)
         self.options.update(
+            periodic=self.periodic,
             ligand_resname=self.ligand_resname,
             cutoff=self.cutoff,
             protein_selection=self.protein_selection,
@@ -104,7 +114,7 @@ class Contacts(Analysis):
         # atom indices near the query set.
         neighbor_lists = md.compute_neighbors(
             traj, self.cutoff, ligand_idx, haystack_indices=protein_idx,
-            periodic=False,
+            periodic=self.periodic,
         )
 
         # Map each protein atom to its residue, then reduce per frame to the
