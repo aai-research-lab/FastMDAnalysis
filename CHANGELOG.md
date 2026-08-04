@@ -59,6 +59,14 @@ gains an alternative, which changes nothing unless asked for.
   Where nothing in the selection has a backbone -- a nucleic acid, a lone
   ligand, a coarse-grained model -- the analysis now says so instead of
   drawing an empty timeline.
+- **The radius of gyration is mass-weighted.** The docstring said it used
+  masses from the topology; `mdtraj.compute_rg` weights every atom equally
+  unless told otherwise, and when given masses still measures from the
+  geometric centre rather than the centre of mass. So each hydrogen counted
+  for as much as each carbon, a few per cent from what GROMACS's `gyrate`,
+  cpptraj's `radgyr` and a published figure report. **Rg values will differ
+  from 2.2.0**, in the direction the documentation already claimed. Pass
+  `mass_weighted=False` for the unweighted quantity.
 - **Dimensionality reduction says when there is nothing to decompose.** A
   structure that does not move has no variance, and PCA divides each
   component's variance by the total: the ratios came out NaN and the figure

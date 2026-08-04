@@ -9,11 +9,18 @@ The formula::
 
     Rg(t) = sqrt( sum_i m_i * |r_i(t) - r_cm(t)|^2  /  sum_i m_i )
 
-is computed by MDTraj's :func:`mdtraj.compute_rg`. By default the
-calculation uses atomic masses from the topology (so the mass-weighted
-Rg is reported); if a residue has no mass information (e.g. a custom
-non-standard residue), MDTraj defaults to unit weights and the result
-becomes the unweighted Rg.
+The radius of gyration is mass-weighted, which is what GROMACS's
+``gyrate``, cpptraj's ``radgyr`` and a published Rg all report::
+
+    Rg = sqrt( sum_i m_i |r_i - R|^2 / sum_i m_i ),   R = sum_i m_i r_i / sum_i m_i
+
+It is computed here rather than by :func:`mdtraj.compute_rg`, which weights
+every atom equally unless told otherwise -- and which, when given masses,
+still measures from the geometric centre rather than the centre of mass.
+Weighting equally counts each hydrogen for as much as each carbon, which on a
+protein is a few per cent away from the mass-weighted value and enough to
+disagree with a number someone is comparing against. Pass
+``mass_weighted=False`` for the unweighted quantity.
 """
 
 from __future__ import annotations
@@ -28,11 +35,26 @@ from fastmdxplora.analysis.base import Analysis
 from fastmdxplora.analysis.orchestrator import register_analysis
 
 
+def _atom_weights(topology) -> "np.ndarray | None":
+    """Atomic masses, or None where the topology does not carry them."""
+    masses = []
+    for atom in topology.atoms:
+        element = getattr(atom, "element", None)
+        mass = getattr(element, "mass", None)
+        if not mass:
+            return None
+        masses.append(float(mass))
+    return np.asarray(masses, dtype=np.float64)
+
+
 class Rg(Analysis):
     """Per-frame radius of gyration.
 
     Parameters
     ----------
+    mass_weighted : bool, default True
+        Weight each atom by its mass and measure from the centre of mass, as
+        the conventional definition does. False weights every atom equally.
     by_chain : bool, default False
         If True, compute Rg separately for each chain in the topology
         (in addition to the whole-system Rg). Useful for multi-chain
@@ -58,11 +80,27 @@ class Rg(Analysis):
         self,
         *,
         by_chain: bool = False,
+        mass_weighted: bool = True,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self.by_chain: bool = bool(by_chain)
-        self.options.update(by_chain=self.by_chain)
+        self.mass_weighted: bool = bool(mass_weighted)
+        self.options.update(
+            by_chain=self.by_chain, mass_weighted=self.mass_weighted
+        )
+
+    def _rg(self, traj: md.Trajectory) -> np.ndarray:
+        """Radius of gyration per frame, by the definition above."""
+        xyz = traj.xyz.astype(np.float64)
+        weights = _atom_weights(traj.topology) if self.mass_weighted else None
+        if weights is None:
+            weights = np.ones(xyz.shape[1], dtype=np.float64)
+        weights = weights / weights.sum()
+
+        centre = (xyz * weights[None, :, None]).sum(axis=1)
+        squared = ((xyz - centre[:, None, :]) ** 2).sum(axis=2)
+        return np.sqrt((squared * weights[None, :]).sum(axis=1))
 
     def compute(self, traj: md.Trajectory) -> np.ndarray:
         """Compute Rg per frame.
@@ -82,7 +120,7 @@ class Rg(Analysis):
         else:
             sub = traj
 
-        rg_total = md.compute_rg(sub).astype(np.float64)
+        rg_total = self._rg(sub)
 
         if not self.by_chain:
             return rg_total
@@ -101,7 +139,7 @@ class Rg(Analysis):
             if not chain_atoms:
                 continue
             chain_traj = sub.atom_slice(chain_atoms)
-            columns.append(md.compute_rg(chain_traj).astype(np.float64))
+            columns.append(self._rg(chain_traj))
 
         self._n_chains = len(columns) - 1
         return np.column_stack(columns)

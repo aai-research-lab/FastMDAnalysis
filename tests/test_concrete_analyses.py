@@ -247,11 +247,22 @@ class TestRg:
         out = Rg().compute(backbone_traj)
         assert (out > 0).all()
 
-    def test_matches_mdtraj_compute_rg(self, backbone_traj: md.Trajectory):
-        """The unwrapped version must equal MDTraj's compute_rg exactly."""
-        ours = Rg().compute(backbone_traj)
+    def test_equal_weights_match_mdtraj_compute_rg(self, backbone_traj: md.Trajectory):
+        """MDTraj's compute_rg weights every atom equally, and says so.
+
+        This used to assert the default matched it, which held while the
+        default was a thin wrapper. The default is now mass-weighted, as the
+        docstring had always claimed and as the conventional definition has
+        it, so the equivalence is with the unweighted option.
+        """
+        ours = Rg(mass_weighted=False).compute(backbone_traj)
         theirs = md.compute_rg(backbone_traj)
         np.testing.assert_allclose(ours, theirs, atol=1e-8)
+
+    def test_the_default_is_mass_weighted(self, backbone_traj: md.Trajectory):
+        weighted = Rg().compute(backbone_traj)
+        equal = Rg(mass_weighted=False).compute(backbone_traj)
+        assert not np.allclose(weighted, equal, rtol=1e-4)
 
     def test_with_selection(self, backbone_traj: md.Trajectory):
         """Rg with a CA selection must differ from all-atom Rg (atoms differ)."""
@@ -948,3 +959,84 @@ class TestDimRedSaysWhenThereIsNothingToDecompose:
         embedding = analysis.compute(moving)["pca"]
         assert np.isfinite(embedding).all()
         assert np.isfinite(analysis._explained_variance).all()
+
+
+class TestRadiusOfGyrationIsMassWeighted:
+    """What was documented and what was computed had come apart.
+
+    The docstring said the radius of gyration used masses from the topology.
+    ``mdtraj.compute_rg`` weights every atom equally unless told otherwise --
+    its own Notes say so -- and when it is given masses it still measures from
+    the geometric centre rather than the centre of mass. So the reported number
+    counted each hydrogen for as much as each carbon, a few per cent from the
+    value GROMACS, cpptraj and a published figure all report.
+    """
+
+    @staticmethod
+    def _protein_like(n_residues: int = 30, n_frames: int = 3):
+        rng = np.random.RandomState(0)
+        top = md.Topology()
+        chain = top.add_chain()
+        for i in range(n_residues):
+            res = top.add_residue("ALA", chain, resSeq=i + 1)
+            for name, element in (("N", md.element.nitrogen),
+                                  ("CA", md.element.carbon),
+                                  ("C", md.element.carbon),
+                                  ("O", md.element.oxygen),
+                                  ("HA", md.element.hydrogen),
+                                  ("H", md.element.hydrogen)):
+                top.add_atom(name, element, res)
+        xyz = rng.normal(size=(n_frames, top.n_atoms, 3)).astype(np.float32)
+        return md.Trajectory(xyz=xyz, topology=top)
+
+    @staticmethod
+    def _reference(traj):
+        """The conventional definition, written out independently."""
+        masses = np.array([a.element.mass for a in traj.topology.atoms])
+        xyz = traj.xyz.astype(np.float64)
+        centre = (xyz * masses[None, :, None]).sum(axis=1) / masses.sum()
+        squared = ((xyz - centre[:, None, :]) ** 2).sum(axis=2)
+        return np.sqrt((squared * masses[None, :]).sum(axis=1) / masses.sum())
+
+    def test_it_matches_the_conventional_definition(self) -> None:
+        from fastmdxplora.analysis.rg import Rg
+
+        traj = self._protein_like()
+        assert np.allclose(
+            Rg(selection="all").compute(traj), self._reference(traj), atol=1e-9
+        )
+
+    def test_equal_weights_remain_available_and_match_mdtraj(self) -> None:
+        from fastmdxplora.analysis.rg import Rg
+
+        traj = self._protein_like()
+        assert np.allclose(
+            Rg(selection="all", mass_weighted=False).compute(traj),
+            md.compute_rg(traj),
+            atol=1e-6,
+        )
+
+    def test_the_two_differ_by_enough_to_matter(self) -> None:
+        """Hydrogens are half the atoms and a fraction of the mass."""
+        from fastmdxplora.analysis.rg import Rg
+
+        traj = self._protein_like()
+        weighted = Rg(selection="all").compute(traj)
+        equal = Rg(selection="all", mass_weighted=False).compute(traj)
+        assert not np.allclose(weighted, equal, rtol=1e-3)
+
+    def test_a_topology_without_masses_falls_back(self) -> None:
+        """A virtual site or a coarse-grained bead may carry no element."""
+        from fastmdxplora.analysis.rg import Rg
+
+        top = md.Topology()
+        chain = top.add_chain()
+        res = top.add_residue("UNK", chain)
+        for _ in range(4):
+            top.add_atom("X", md.element.virtual, res)
+        traj = md.Trajectory(
+            xyz=np.random.RandomState(1).rand(3, 4, 3).astype(np.float32),
+            topology=top,
+        )
+        out = Rg(selection="all").compute(traj)
+        assert np.isfinite(out).all()
