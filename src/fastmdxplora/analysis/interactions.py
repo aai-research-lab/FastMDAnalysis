@@ -26,9 +26,32 @@ __all__ = [
     "Contact",
     "hydrogen_bonds",
     "hydrophobic_contacts",
+    "salt_bridges",
     "donors_and_acceptors",
     "hydrophobic_atoms",
+    "protein_charged_groups",
+    "ligand_charged_groups",
 ]
+
+
+#: Charged side chains, by the atoms that carry the charge. Known rather than
+#: perceived: a protein is made of these twenty residues, and asking a
+#: perception routine which arginine is positive would be inviting it to be
+#: wrong about something already settled.
+#:
+#: Histidine is left out. It titrates near physiological pH, so whether it is
+#: charged depends on the pH and its environment -- which the setup phase
+#: decides when it protonates, and which is therefore visible in the topology
+#: as whether HD1 and HE2 are both present. Guessing here would contradict a
+#: decision already made with more information.
+_POSITIVE_GROUPS = {
+    "ARG": ("NH1", "NH2", "NE"),
+    "LYS": ("NZ",),
+}
+_NEGATIVE_GROUPS = {
+    "ASP": ("OD1", "OD2"),
+    "GLU": ("OE1", "OE2"),
+}
 
 
 #: Elements that donate and accept hydrogen bonds. Carbon is excluded: C-H
@@ -266,4 +289,161 @@ def hydrophobic_contacts(
             protein_atom=int(protein_atom),
             distance_nm=float(separations[frame, column]),
         ))
+    return found
+
+
+def protein_charged_groups(
+    topology: Any, atom_indices: Any
+) -> tuple[list[list[int]], list[list[int]]]:
+    """Charged side chains, as groups of atoms rather than single atoms.
+
+    A carboxylate's charge is shared between two oxygens and a guanidinium's
+    across three nitrogens, so the distance that matters is to the group's
+    centre, not to whichever atom happens to be nearest. Measuring to the
+    nearest atom would make the same salt bridge look shorter from one side
+    than the other.
+    """
+    wanted = set(int(i) for i in atom_indices)
+    positive: list[list[int]] = []
+    negative: list[list[int]] = []
+
+    for residue in topology.residues:
+        names = {a.name: a.index for a in residue.atoms if a.index in wanted}
+        if not names:
+            continue
+        for table, out in ((_POSITIVE_GROUPS, positive),
+                           (_NEGATIVE_GROUPS, negative)):
+            wanted_names = table.get(residue.name)
+            if not wanted_names:
+                continue
+            group = [names[n] for n in wanted_names if n in names]
+            # A side chain missing half its charged atoms is a truncated
+            # residue, and its centre would be somewhere the charge is not.
+            if len(group) == len(wanted_names):
+                out.append(group)
+    return positive, negative
+
+
+def ligand_charged_groups(
+    chemistry: Any, atom_indices: Any
+) -> tuple[list[list[int]], list[list[int]]]:
+    """Charged groups on the ligand, from its resolved chemistry.
+
+    Formal charges come from the chemistry, not from the coordinates, which is
+    why it has to be resolved first. A carboxylate carries -1 across two
+    oxygens whichever one the file happens to mark, so the charge is spread
+    over the group it is delocalised across.
+    """
+    from rdkit import Chem
+
+    mol = chemistry.mol
+    order = list(int(i) for i in atom_indices)
+
+    positive: list[list[int]] = []
+    negative: list[list[int]] = []
+
+    #: Delocalised groups, so the centre is the group's rather than one atom's.
+    #: The atoms kept are the ones the charge is on, not every atom the
+    #: pattern matched: a carboxylate's charge sits across its two oxygens and
+    #: not on the carbon between them, and including the carbon would put the
+    #: centre a third of a bond length off in the direction of the molecule.
+    patterns = (
+        ("-", Chem.MolFromSmarts("C(=[OX1])[OX1H0-]"), ("O",)),
+        ("-", Chem.MolFromSmarts("[PX4,SX4](=[OX1])[OX1H0-]"), ("O",)),
+        ("+", Chem.MolFromSmarts("[NX3][CX3](=[NX2,NX3+])[NX3]"), ("N",)),
+        ("+", Chem.MolFromSmarts("[NX3][CX3]=[NX3+]"), ("N",)),
+    )
+    claimed: set[int] = set()
+    for sign, pattern, elements in patterns:
+        if pattern is None:
+            continue
+        for match in mol.GetSubstructMatches(pattern):
+            group = [
+                order[i] for i in match
+                if i < len(order) and mol.GetAtomWithIdx(i).GetSymbol() in elements
+            ]
+            if not group or claimed.intersection(group):
+                continue
+            claimed.update(group)
+            (positive if sign == "+" else negative).append(group)
+
+    # Anything left carrying a formal charge stands on its own.
+    for atom in mol.GetAtoms():
+        index = atom.GetIdx()
+        if index >= len(order) or index in claimed:
+            continue
+        charge = atom.GetFormalCharge()
+        if charge > 0:
+            positive.append([order[index]])
+        elif charge < 0:
+            negative.append([order[index]])
+    return positive, negative
+
+
+def _group_centres(traj: Any, groups: Any) -> np.ndarray:
+    """One position per charged group, per frame."""
+    if not groups:
+        return np.zeros((traj.n_frames, 0, 3))
+    return np.stack(
+        [traj.xyz[:, np.array(group), :].mean(axis=1) for group in groups],
+        axis=1,
+    )
+
+
+def salt_bridges(
+    traj: Any,
+    chemistry: Any,
+    ligand_indices: Any,
+    protein_indices: Any,
+    *,
+    distance_nm: float = 0.45,
+    allow_ambiguous_charge: bool = False,
+) -> list[Contact]:
+    """Salt bridges between ligand and protein, in every frame.
+
+    Opposite charges within 4.5 A, which is ProLIF's threshold; PLIP uses
+    5.5 A. There is no angle: the interaction is electrostatic and has no
+    preferred direction, which is why every tool surveyed uses a distance
+    alone.
+
+    Refuses where the ligand's charge was not determined. A salt bridge is a
+    claim about charge, and the charge is exactly what perception from
+    coordinates is worst at: guanidinium is +1, and -1 also balances, so a
+    guessed charge can make a cation look like an anion and invent the bridge
+    it was supposed to detect. Where the chemistry was resolved rather than
+    perceived this does not arise; where it was not, state the charge or pass
+    ``allow_ambiguous_charge`` knowing what it means.
+    """
+    if getattr(chemistry, "charge_was_ambiguous", False) and not allow_ambiguous_charge:
+        raise ValueError(
+            f"The net charge of {chemistry.resname!r} was not determined -- "
+            f"{chemistry.detail}. A salt bridge is a claim about charge, and "
+            "reporting one computed from a charge that was guessed would be "
+            "asserting more than is known. State the ligand's net charge, or "
+            "supply its chemistry as an SDF."
+        )
+
+    ligand_positive, ligand_negative = ligand_charged_groups(
+        chemistry, ligand_indices)
+    protein_positive, protein_negative = protein_charged_groups(
+        traj.topology, protein_indices)
+
+    found: list[Contact] = []
+    for ligand_groups, protein_groups in ((ligand_positive, protein_negative),
+                                          (ligand_negative, protein_positive)):
+        if not ligand_groups or not protein_groups:
+            continue
+        ligand_centres = _group_centres(traj, ligand_groups)
+        protein_centres = _group_centres(traj, protein_groups)
+        separations = np.linalg.norm(
+            ligand_centres[:, :, None, :] - protein_centres[:, None, :, :], axis=-1
+        )
+        for frame, first, second in zip(*np.where(separations < distance_nm)):
+            found.append(Contact(
+                kind="salt_bridge",
+                frame=int(frame),
+                ligand_atom=int(ligand_groups[first][0]),
+                protein_atom=int(protein_groups[second][0]),
+                distance_nm=float(separations[frame, first, second]),
+            ))
     return found

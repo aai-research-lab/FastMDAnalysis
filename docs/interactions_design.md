@@ -132,3 +132,38 @@ Step 5 is where this stops being a reimplementation. Reporting an occupancy
 without saying how many observations it rests on is the same class of mistake
 as reporting a per-frame hydrogen-bond count that silently excluded transient
 bonds.
+
+
+## What checking against the other tools found
+
+The rules are checked against PLIP, ProLIF and MDTraj's own Baker-Hubbard on
+the same frames. Where they agree, the rule is being read the same way; where
+they do not, the difference is understood before continuing.
+
+**Hydrogen bonds agree exactly.** MDTraj's Baker-Hubbard finds the same five
+atom pairs on real coordinates. ProLIF finds the same four residue partners,
+and the same counts once two stated differences are accounted for: it requires
+a donor angle of 130 degrees where the literature standard used here is 120,
+and it reports one interaction per residue pair where this reports every atom
+pair. At 130 degrees counted per residue, the two agree frame for frame.
+
+Neither difference is a defect in either. They are the reason the thresholds
+are settings and the reason the count is left unreduced: which contact
+represents a residue is a choice, and making it silently would hide it.
+
+**And all three tools share one failure.** A topology without bonds cannot
+answer a question about hydrogen bonds -- a donor is an atom with a hydrogen
+bonded to it, and without bonds there are none. Given such a topology:
+
+- version 1 of this software counted every bond twice, because it called
+  `create_standard_bonds()` unconditionally on a topology that already had
+  them;
+- ProLIF returned an empty result and said nothing;
+- this software, in its first version, returned no donors and said nothing.
+
+Only the last of those is ours to fix, and it is fixed: a selection whose
+hydrogens are bonded to nothing now says how many, and what would settle it.
+But the pattern is worth naming, because it is the characteristic defect of
+this category of software and not of any one implementation. **An answer
+returned where the honest response is that the question cannot be answered
+from what was given.** It is silent, it looks like a result, and nothing fails.

@@ -1417,3 +1417,136 @@ class TestATopologyThatCannotAnswerSaysSo:
         # to acceptor, so it is the stricter of the two: everything it finds
         # must be here, though the reverse need not hold.
         assert theirs <= ours, f"MDTraj found pairs we did not: {theirs - ours}"
+
+
+class TestSaltBridgesAreAClaimAboutCharge:
+    """So they are not reported from a charge that was guessed.
+
+    Perception from coordinates is worst at exactly this: guanidinium is +1
+    and -1 also balances, so a guessed charge can turn a cation into an anion
+    and invent the bridge it was meant to detect.
+    """
+
+    @staticmethod
+    def _ligand(smiles, charge):
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        from fastmdxplora.analysis.ligand_chemistry import resolve_ligand_chemistry
+
+        mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+        AllChem.EmbedMolecule(mol, randomSeed=2)
+        elements = {"C": md.element.carbon, "O": md.element.oxygen,
+                    "N": md.element.nitrogen, "H": md.element.hydrogen}
+        top = md.Topology()
+        chain = top.add_chain()
+        residue = top.add_residue("LIG", chain, resSeq=1)
+        for index, atom in enumerate(mol.GetAtoms()):
+            top.add_atom(f"{atom.GetSymbol()}{index}",
+                         elements[atom.GetSymbol()], residue)
+        conf = mol.GetConformer()
+        xyz = np.array(
+            [[list(conf.GetAtomPosition(i)) for i in range(mol.GetNumAtoms())]],
+            dtype=np.float32) / 10.0
+        traj = md.Trajectory(xyz=xyz, topology=top)
+        indices = list(range(mol.GetNumAtoms()))
+        return traj, indices, resolve_ligand_chemistry(
+            traj, "LIG", indices, net_charge=charge, allow_fetch=False)
+
+    def test_the_charge_sits_on_the_atoms_that_carry_it(self) -> None:
+        """A carboxylate's charge is across its two oxygens, not on the carbon
+        between them. Including the carbon would put the centre a third of a
+        bond length into the molecule."""
+        from fastmdxplora.analysis.interactions import ligand_charged_groups
+
+        traj, indices, chemistry = self._ligand("CC(=O)[O-]", -1)
+        _positive, negative = ligand_charged_groups(chemistry, indices)
+        assert len(negative) == 1
+        names = {traj.topology.atom(i).name for i in negative[0]}
+        assert all(n.startswith("O") for n in names), names
+        assert len(names) == 2
+
+    def test_a_delocalised_cation_is_one_group(self) -> None:
+        from fastmdxplora.analysis.interactions import ligand_charged_groups
+
+        traj, indices, chemistry = self._ligand("NC(=[NH2+])N", 1)
+        positive, _negative = ligand_charged_groups(chemistry, indices)
+        assert len(positive) == 1, "guanidinium is one charge, not three"
+        names = {traj.topology.atom(i).name for i in positive[0]}
+        assert len(names) == 3 and all(n.startswith("N") for n in names)
+
+    def test_a_neutral_ligand_has_no_charged_groups(self) -> None:
+        from fastmdxplora.analysis.interactions import ligand_charged_groups
+
+        _traj, indices, chemistry = self._ligand("c1ccccc1O", 0)
+        positive, negative = ligand_charged_groups(chemistry, indices)
+        assert positive == [] and negative == []
+
+    def test_an_undetermined_charge_stops_the_measurement(self) -> None:
+        import pytest
+
+        from fastmdxplora.analysis.interactions import salt_bridges
+        from fastmdxplora.analysis.ligand_chemistry import resolve_ligand_chemistry
+
+        traj, indices, _stated = self._ligand("NC(=[NH2+])N", 1)
+        guessed = resolve_ligand_chemistry(traj, "LIG", indices,
+                                           allow_fetch=False)
+        assert guessed.charge_was_ambiguous, "this fixture should be ambiguous"
+        with pytest.raises(ValueError, match="claim about charge"):
+            salt_bridges(traj, guessed, indices, [])
+
+    def test_and_the_message_says_how_to_settle_it(self) -> None:
+        import pytest
+
+        from fastmdxplora.analysis.interactions import salt_bridges
+        from fastmdxplora.analysis.ligand_chemistry import resolve_ligand_chemistry
+
+        traj, indices, _stated = self._ligand("NC(=[NH2+])N", 1)
+        guessed = resolve_ligand_chemistry(traj, "LIG", indices,
+                                           allow_fetch=False)
+        with pytest.raises(ValueError, match="State the ligand's net charge"):
+            salt_bridges(traj, guessed, indices, [])
+
+    def test_stating_the_charge_lets_it_proceed(self) -> None:
+        from fastmdxplora.analysis.interactions import salt_bridges
+
+        traj, indices, chemistry = self._ligand("NC(=[NH2+])N", 1)
+        assert not chemistry.charge_was_ambiguous
+        assert salt_bridges(traj, chemistry, indices, []) == []
+
+    def test_a_protein_side_chain_is_known_not_perceived(self) -> None:
+        """A protein is made of twenty residues. Asking a perception routine
+        which arginine is positive would invite it to be wrong about something
+        already settled."""
+        from fastmdxplora.analysis.interactions import protein_charged_groups
+
+        top = md.Topology()
+        chain = top.add_chain()
+        arg = top.add_residue("ARG", chain, resSeq=1)
+        for name in ("CD", "NE", "CZ", "NH1", "NH2"):
+            element = md.element.carbon if name.startswith("C") else md.element.nitrogen
+            top.add_atom(name, element, arg)
+        asp = top.add_residue("ASP", chain, resSeq=2)
+        for name in ("CG", "OD1", "OD2"):
+            element = md.element.carbon if name.startswith("C") else md.element.oxygen
+            top.add_atom(name, element, asp)
+
+        positive, negative = protein_charged_groups(top, range(top.n_atoms))
+        assert len(positive) == 1 and len(negative) == 1
+        assert {top.atom(i).name for i in positive[0]} == {"NE", "NH1", "NH2"}
+        assert {top.atom(i).name for i in negative[0]} == {"OD1", "OD2"}
+
+    def test_histidine_is_left_to_the_topology(self) -> None:
+        """It titrates near physiological pH, so whether it is charged was
+        decided when setup protonated it. Guessing here would contradict a
+        decision made with more information."""
+        from fastmdxplora.analysis.interactions import protein_charged_groups
+
+        top = md.Topology()
+        chain = top.add_chain()
+        his = top.add_residue("HIS", chain, resSeq=1)
+        for name in ("CG", "ND1", "CE1", "NE2"):
+            element = md.element.carbon if name.startswith("C") else md.element.nitrogen
+            top.add_atom(name, element, his)
+        positive, _negative = protein_charged_groups(top, range(top.n_atoms))
+        assert positive == []
