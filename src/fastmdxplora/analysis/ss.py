@@ -105,21 +105,39 @@ class SS(Analysis):
             traj = traj.atom_slice(atom_idx)
 
         # md.compute_dssp returns an (n_frames, n_residues) array of
-        # single-letter strings. The "simplified" parameter controls
-        # whether output is H/E/C or full 8-letter DSSP alphabet.
+        # single-letter strings, one column for *every* residue -- not only
+        # the protein ones. A residue without backbone atoms gets the code
+        # "NA", which is how a ligand, an ion or a water announces itself.
         codes = md.compute_dssp(traj, simplified=self.simplified)
 
-        # Residue labels: prefer resSeq (PDB numbering) when available
+        # Those columns are dropped, and DSSP's own verdict decides which:
+        # asking the topology instead would be a second opinion about what
+        # counts as protein, and where the two disagreed the labels would
+        # stop lining up with the columns they name. Whether a residue has a
+        # backbone does not change during a run, so the first frame settles it.
         residues = list(traj.topology.residues)
-        try:
-            labels = [int(r.resSeq) for r in residues if r.is_protein]
-        except (AttributeError, TypeError):
-            labels = [r.index for r in residues if r.is_protein]
+        if codes.shape[1] == len(residues):
+            keep = codes[0] != "NA"
+            if not keep.any():
+                raise ValueError(
+                    "Secondary structure is undefined here: no residue in this "
+                    "selection has a protein backbone, so DSSP assigned every "
+                    "one of them 'NA'. A nucleic acid, a lone ligand or a "
+                    "coarse-grained model has no secondary structure to "
+                    "assign. Exclude this analysis, or select the protein."
+                )
+            codes = codes[:, keep]
+            residues = [r for r, k in zip(residues, keep) if k]
 
-        # md.compute_dssp returns one column per protein residue, so the
-        # shape may differ from total n_residues when waters/ions exist.
+        # Residue labels: prefer resSeq (PDB numbering) when available.
+        try:
+            labels = [int(r.resSeq) for r in residues]
+        except (AttributeError, TypeError):
+            labels = [r.index for r in residues]
+
         if len(labels) != codes.shape[1]:
-            # Fall back to numeric labels if alignment fails
+            # Nothing above should leave these out of step; if they are, plain
+            # numbering is better than labels naming the wrong residues.
             labels = list(range(codes.shape[1]))
 
         df = pd.DataFrame(codes, columns=labels)

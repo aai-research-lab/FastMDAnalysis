@@ -190,8 +190,15 @@ class TestQValue:
         out = QValue().compute(protein_traj)
         assert out.shape == (protein_traj.n_frames,)
 
-    def test_reference_frame_is_one(self):
-        """Q[ref] == 1 by construction, when native contacts exist.
+    def test_reference_frame_is_near_one(self):
+        """Q at the reference is high, and deliberately not exactly one.
+
+        A threshold makes Q[ref] exactly 1 by construction: every native
+        contact is inside the cutoff because that is how it was chosen. The
+        published measure is a switching function, so a contact sitting at its
+        native distance is well inside the tolerance but still short of
+        saturating -- how short depends on how close the contact is. Rescaling
+        to force 1.0 would misstate a measure the paper leaves unnormalised.
 
         Build a compact folded geometry so the residue pairs satisfying
         ``min_seq_separation=4`` are within the contact cutoff.
@@ -216,8 +223,11 @@ class TestQValue:
         traj = md.Trajectory(xyz=xyz.astype(np.float32), topology=top)
 
         out = QValue(ref=0).compute(traj)
-        # All native contacts present in reference → Q[ref] == 1
-        assert out[0] == pytest.approx(1.0, abs=1e-9)
+        # Every native contact is at its native distance in this frame.
+        assert 0.9 < out[0] <= 1.0
+        # And it is the highest point of the run: nothing is more folded than
+        # the structure the contacts were taken from.
+        assert out[0] == pytest.approx(out.max(), abs=1e-6)
 
     def test_values_in_unit_range(self, protein_traj):
         out = QValue().compute(protein_traj)
