@@ -25,7 +25,16 @@ from fastmdxplora.gui.directory_inspect import (
     TRAJECTORY_SUFFIXES,
 )
 
-__all__ = ["browse"]
+__all__ = ["browse", "KINDS"]
+
+#: What a field is asking for. A picker that lists every file in a directory
+#: makes somebody read past forty of them to find the one trajectory; a picker
+#: that lists none makes them type the path anyway.
+KINDS: dict[str, tuple[str, ...]] = {
+    "trajectory": TRAJECTORY_SUFFIXES,
+    "structure": TOPOLOGY_SUFFIXES,
+    "config": (".yml", ".yaml"),
+}
 
 #: Enough to scan by eye. A folder with more subdirectories than this is
 #: somewhere to type a path, not somewhere to click through.
@@ -88,8 +97,14 @@ def _interesting(directory: Path, depth: int = _LOOK_DEPTH) -> dict[str, Any]:
     }
 
 
-def browse(path: str | Path | None = None) -> dict[str, Any]:
-    """The directories inside ``path``, and the way back up.
+def browse(
+    path: str | Path | None = None, kind: str | None = None
+) -> dict[str, Any]:
+    """What is inside ``path``: the folders always, and the files worth naming.
+
+    ``kind`` says what is being looked for -- a trajectory, a structure, a
+    config -- and only those files are listed. Everything else in a working
+    directory is noise to somebody trying to find one file.
 
     With no path, starts at the home directory, which is where somebody's data
     usually is and never somewhere they cannot read.
@@ -107,17 +122,33 @@ def browse(path: str | Path | None = None) -> dict[str, Any]:
         # A file was given -- the folder holding it is what was meant.
         root = root.parent
 
+    wanted = KINDS.get(kind or "", ())
+
     entries: list[dict[str, Any]] = []
+    files: list[dict[str, Any]] = []
     try:
         for entry in sorted(root.iterdir(), key=lambda p: p.name.lower()):
             if entry.name.startswith("."):
                 continue
-            if not entry.is_dir():
+            if entry.is_dir():
+                if len(entries) < _MAX_ENTRIES:
+                    entries.append({"name": entry.name, "path": str(entry),
+                                    **_interesting(entry)})
                 continue
-            entries.append({"name": entry.name, "path": str(entry),
-                            **_interesting(entry)})
-            if len(entries) >= _MAX_ENTRIES:
-                break
+            if not wanted or entry.suffix.lower() not in wanted:
+                continue
+            if len(files) >= _MAX_ENTRIES:
+                continue
+            try:
+                size = entry.stat().st_size
+            except OSError:
+                size = 0
+            files.append({
+                "name": entry.name,
+                "path": str(entry),
+                "size_bytes": size,
+                "size_mb": round(size / 1e6, 2),
+            })
     except PermissionError:
         return {"ok": False, "error": f"Not allowed to read {root}"}
     except OSError as exc:
@@ -130,6 +161,8 @@ def browse(path: str | Path | None = None) -> dict[str, Any]:
         "parent": str(parent) if parent != root else None,
         "home": str(Path.home()),
         "entries": entries,
+        "files": files,
+        "kind": kind,
         "truncated": len(entries) >= _MAX_ENTRIES,
         # What this folder itself holds, so somebody can stop as soon as the
         # listing says there is something here.

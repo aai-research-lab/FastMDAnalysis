@@ -36,7 +36,14 @@ from fastmdxplora.gui.ligand_detection import detect_ligands, normalise_ligand_r
 from fastmdxplora.gui.live_frames import live_frame_exists, read_live_frame_index
 from fastmdxplora.gui.protein_preview import find_structure, protein_preview_payload
 from fastmdxplora.gui.structure_info import count_structure, ligand_atom_counts
-from fastmdxplora.gui.telemetry import analyze_health, read_events, read_metrics, read_status
+from fastmdxplora.gui.telemetry import (
+    analyze_health,
+    read_events,
+    read_metrics,
+    read_status,
+    run_phases,
+    run_stages,
+)
 from fastmdxplora.gui.trajectory_playback import playback_info
 
 logger = logging.getLogger("fastmdxplora.gui.server")
@@ -232,8 +239,10 @@ def make_handler(
                 # uploads files to a page. So the walking happens here.
                 from fastmdxplora.gui.browse import browse
 
-                where = parse_qs(parsed.query).get("path", [""])[0]
-                self._send_json(browse(where or None))
+                query = parse_qs(parsed.query)
+                where = query.get("path", [""])[0]
+                kind = query.get("kind", [""])[0]
+                self._send_json(browse(where or None, kind or None))
                 return
             if path == "/api/inspect-directory":
                 # Someone with a trajectory already should be able to point at
@@ -255,7 +264,12 @@ def make_handler(
                 # written by hand and offered eleven of eighty-three.
                 from fastmdxplora.gui.schema_payload import schema_payload
 
-                self._send_json(schema_payload())
+                payload = schema_payload()
+                # Where a results folder named rather than pathed will land.
+                # The page can then say it instead of leaving somebody to
+                # guess which directory "analysis_output" is relative to.
+                payload["workspace"] = str(app_runtime.exploration_root)
+                self._send_json(payload)
                 return
             if path == "/api/status":
                 status = read_status(root)
@@ -263,6 +277,11 @@ def make_handler(
                 payload = {
                     "status": status,
                     "health": analyze_health(status, metrics),
+                    # Which stages this run can actually reach. An
+                    # analysis-only run has no minimization to wait for, and a
+                    # stage greyed out forever reads as a run that stalled.
+                    "stages": run_stages(root),
+                    "phases": run_phases(root),
                 }
                 self._send_json(payload)
                 return
@@ -361,6 +380,8 @@ def make_handler(
                 "/api/explore/validate",
                 "/api/explore/start",
                 "/api/explore/stop",
+                "/api/run",
+                "/api/run-config",
             }:
                 self._send_json(
                     {
@@ -374,6 +395,49 @@ def make_handler(
                 )
                 return
             payload = self._read_json_body()
+            if path == "/api/run":
+                # Runs what the config describes rather than what a form was
+                # wired for, which is how an analysis of an existing
+                # trajectory can be started at all.
+                self._send_json(
+                    app_runtime.launch_from_config(
+                        payload or {},
+                        dashboard_url=self.headers.get("Origin"),
+                    )
+                )
+                return
+            if path == "/api/load-config":
+                # Bringing a config into the form so it can be changed. The
+                # file is read and never written: anything altered is saved as
+                # a new one.
+                from fastmdxplora.gui.config_builder import load_config_into_state
+
+                self._send_json(
+                    load_config_into_state(str((payload or {}).get("path") or ""))
+                )
+                return
+            if path == "/api/run-config":
+                # Running a config exactly as it stands, which is a different
+                # act from running what the form currently describes.
+                request = payload or {}
+                self._send_json(
+                    app_runtime.launch_existing_config(
+                        str(request.get("path") or ""),
+                        output=request.get("output"),
+                        dashboard_url=self.headers.get("Origin"),
+                    )
+                )
+                return
+            if path == "/api/check-config":
+                # A config that has been elsewhere -- edited by hand, carried
+                # to a cluster and back -- should be able to say whether it
+                # still runs before an hour of compute queues behind it.
+                from fastmdxplora.gui.config_builder import check_config_file
+
+                self._send_json(
+                    check_config_file(str((payload or {}).get("path") or ""))
+                )
+                return
             if path == "/api/config":
                 # The file the page would run, handed back instead. A laptop
                 # is a poor place to run fifty nanoseconds and a cluster is a

@@ -718,45 +718,166 @@ class DashboardRuntime:
                     "errors": {"run_name": f"Output folder already exists and is not empty: {output_dir}"},
                 }
             output_dir.mkdir(parents=True, exist_ok=True)
-            log_path = output_dir / "exploration.log"
             command = build_exploration_command(config, output_dir)
-            env = os.environ.copy()
-            env["FASTMDX_DASHBOARD_ACTIVE"] = "1"
-            env["FASTMDX_DASHBOARD_OUTPUT"] = str(output_dir)
-            if dashboard_url:
-                env["FASTMDX_DASHBOARD_URL"] = dashboard_url
-            log_handle = log_path.open("a", encoding="utf-8", buffering=1)
-            try:
-                process = subprocess.Popen(
-                    command,
-                    cwd=str(self.exploration_root),
-                    env=env,
-                    stdout=log_handle,
-                    stderr=subprocess.STDOUT,
-                    stdin=subprocess.DEVNULL,
-                    shell=False,
-                )
-            except Exception:
-                log_handle.close()
-                raise
-            # Popen owns an inherited OS handle. Closing our copy avoids a
-            # long-lived Python file object while the child continues writing.
+            started = self._spawn(command, output_dir, dashboard_url)
+            return {**result, **started}
+
+    def _spawn(
+        self,
+        command: list[str],
+        output_dir: Path,
+        dashboard_url: str | None,
+    ) -> dict[str, Any]:
+        """Start a run and take ownership of the process.
+
+        Shared, because there is more than one way to describe a run but only
+        one way to run it. Assumes the caller holds the lock and has already
+        refused a second concurrent run.
+        """
+        log_path = output_dir / "exploration.log"
+        env = os.environ.copy()
+        env["FASTMDX_DASHBOARD_ACTIVE"] = "1"
+        env["FASTMDX_DASHBOARD_OUTPUT"] = str(output_dir)
+        if dashboard_url:
+            env["FASTMDX_DASHBOARD_URL"] = dashboard_url
+        log_handle = log_path.open("a", encoding="utf-8", buffering=1)
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=str(self.exploration_root),
+                env=env,
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                shell=False,
+            )
+        except Exception:
             log_handle.close()
-            self.active_root = output_dir
-            self.process = process
-            self.process_started_at = _utc_now()
-            self.process_finished_at = None
-            self.process_returncode = None
-            self.completion_error = None
-            self.log_path = log_path
-            self.command = command
+            raise
+        # Popen owns an inherited OS handle. Closing our copy avoids a
+        # long-lived Python file object while the child continues writing.
+        log_handle.close()
+        self.active_root = output_dir
+        self.process = process
+        self.process_started_at = _utc_now()
+        self.process_finished_at = None
+        self.process_returncode = None
+        self.completion_error = None
+        self.log_path = log_path
+        self.command = command
+        return {
+            "launched": True,
+            "output": str(output_dir),
+            "pid": process.pid,
+            "command": command,
+            "state": self.snapshot(),
+        }
+
+    def launch_from_config(
+        self,
+        state: Mapping[str, Any],
+        *,
+        dashboard_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Run what a config describes, rather than what a form was wired for.
+
+        The other launch translates a fixed set of form fields into a fixed
+        set of flags, which is why it can only start the kind of run somebody
+        thought to wire up -- and why analysing a trajectory that already
+        existed was not among them. This one writes the config and runs it, so
+        anything a config can say, the browser can start.
+        """
+        from fastmdxplora.gui.run_from_config import prepare_run
+
+        with self.lock:
+            self._refresh_process()
+            if self.process is not None and self.process.poll() is None:
+                return {
+                    "ok": False,
+                    "error": "A FastMDXplora workflow is already running.",
+                }
+
+            # A results folder may be a name or a path. Browsing to one puts
+            # an absolute path in the box, and running that through the slug
+            # turned /Users/someone/work into a folder called
+            # Users_someone_work sitting inside the launch directory -- which
+            # is neither where they pointed nor anywhere they would look.
+            requested = str(dict(state).get("output") or "").strip()
+            if not requested:
+                requested = "analysis_output"
+            candidate = Path(requested).expanduser()
+            if candidate.is_absolute():
+                output_dir = candidate.resolve()
+            else:
+                # A bare name is a folder beside the others this GUI made.
+                output_dir = (self.exploration_root / _slug(requested)).resolve()
+
+            prepared = prepare_run(dict(state), output_dir)
+            if not prepared["ok"]:
+                return prepared
+
+            started = self._spawn(prepared["command"], output_dir, dashboard_url)
             return {
-                **result,
-                "launched": True,
-                "output": str(output_dir),
-                "pid": process.pid,
-                "command": command,
-                "state": self.snapshot(),
+                "ok": True,
+                "error": None,
+                "config_path": prepared["config_path"],
+                **started,
+            }
+
+    def launch_existing_config(
+        self,
+        config_path: str,
+        *,
+        output: str | None = None,
+        dashboard_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Run a config exactly as it is, without writing to it.
+
+        The file may be committed beside a paper, shared with somebody, or the
+        record of a run that already happened. Running it must not change it,
+        and must not quietly rewrite it into this software's own house style
+        either -- what ran should be what the person has.
+        """
+        from fastmdxplora.gui.config_builder import check_config_file
+
+        with self.lock:
+            self._refresh_process()
+            if self.process is not None and self.process.poll() is None:
+                return {
+                    "ok": False,
+                    "error": "A FastMDXplora workflow is already running.",
+                }
+
+            checked = check_config_file(config_path)
+            if not checked["ok"]:
+                return checked
+
+            source = Path(checked["path"])
+            requested = (output or "").strip()
+            if requested:
+                candidate = Path(requested).expanduser()
+                output_dir = (
+                    candidate.resolve()
+                    if candidate.is_absolute()
+                    else (self.exploration_root / _slug(requested)).resolve()
+                )
+            else:
+                # Beside the config, under a name taken from it, so a config
+                # kept with its data leaves its results there too.
+                output_dir = (source.parent / f"{source.stem}_output").resolve()
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            command = [
+                sys.executable, "-m", "fastmdxplora.cli.main", "explore",
+                "--config", str(source), "--output", str(output_dir),
+            ]
+            started = self._spawn(command, output_dir, dashboard_url)
+            return {
+                "ok": True,
+                "error": None,
+                "config_path": str(source),
+                "modified": False,
+                **started,
             }
 
     def stop(self) -> dict[str, Any]:

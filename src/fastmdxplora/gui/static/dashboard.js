@@ -28,6 +28,8 @@
     activePage: "overview",
     appState: {},
     initialRouteResolved: false,
+    stages: [],
+    phases: [],
     ligandResname: null,
     bindingPocketCutoff: 5,
     playbackAvailable: false,
@@ -336,7 +338,7 @@
       const requested = location.hash.replace(/^#/, "");
       if (requested && state.pages.includes(requested)) navigate(requested);
       else if (activeRun) navigate("overview");
-      else navigate("builder");
+      else navigate("run");
     }
 
     if (!activeRun) {
@@ -390,11 +392,33 @@
   /* ------------------------------------------------------------------ */
   /* Status                                                              */
   /* ------------------------------------------------------------------ */
+
+  /* Panels that only mean something for a phase this run does not include.
+   * An analysis of a trajectory that already exists has no simulation to be
+   * healthy or unhealthy, and a card announcing that the simulation became
+   * numerically unstable is not merely useless there -- it is alarming, and
+   * it is about a simulation that was never asked for. */
+  function applyPhaseVisibility() {
+    const phases = state.phases;
+    if (!phases || !phases.length) {
+      // Nothing said, so nothing is hidden.
+      $$('[data-needs-phase]').forEach((element) => { element.hidden = false; });
+      return;
+    }
+    $$('[data-needs-phase]').forEach((element) => {
+      const needed = element.getAttribute("data-needs-phase");
+      element.hidden = !phases.includes(needed);
+    });
+  }
+
   function applyStatus(payload) {
     const status = payload.status || {};
     const health = payload.health || {};
     state.status = status;
     state.health = health;
+    state.stages = Array.isArray(payload.stages) ? payload.stages : [];
+    state.phases = Array.isArray(payload.phases) ? payload.phases : [];
+    applyPhaseVisibility();
     renderTopBar(status, health);
     renderHero(status);
     renderHealth(health);
@@ -525,8 +549,21 @@
     const currentIndex = order.indexOf(current);
     const simulationDone = isPhaseDone(phaseMap.simulation);
 
+    /* Only the stages this run can reach. An analysis of a trajectory that
+     * already exists has no minimization to wait for, and a stage greyed out
+     * forever reads exactly like a run that stalled. Where the server cannot
+     * tell -- an older run, or one started outside the GUI -- every stage is
+     * listed, because hiding one that turns out to run is the worse mistake. */
+    const reachable = Array.isArray(state.stages) && state.stages.length
+      ? state.stages : null;
+
     $$('.stage-step').forEach((element) => {
       const stage = element.getAttribute("data-stage");
+      if (reachable && !reachable.includes(stage)) {
+        element.hidden = true;
+        return;
+      }
+      element.hidden = false;
       let stageState = phaseVisualState(liveStates[stage]);
 
       // Older/completed runs may not have the new live stage map, so retain

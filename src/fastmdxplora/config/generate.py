@@ -143,7 +143,7 @@ def generate_template(*, minimal: bool = False) -> str:
         "# ----------------------------------------------------------------------",
         "systems:",
         "  - id: protein1",
-        "    system: protein.pdb        # PDB/CIF path, 4-char PDB ID, or sequence",
+        "    system: protein.pdb        # PDB/CIF path, or a 4-char PDB ID",
         "  # - id: protein2",
         "  #   system: 1L2Y             # a PDB ID, fetched from RCSB",
         "  #   setup: { ph: 6.5 }       # optional per-system option overrides",

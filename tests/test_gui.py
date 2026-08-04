@@ -2149,14 +2149,22 @@ class TestChoosingAFolderWithoutTypingOne:
         assert "/api/browse" in source
 
     def test_both_folder_fields_can_be_browsed(self) -> None:
+        """Through the shared picker rather than a button per page.
+
+        Each page used to add its own, which is how the run page came to have
+        five path fields and no way to browse any of them.
+        """
         import pathlib
+        import re
 
         from fastmdxplora.gui import server
 
         page = (pathlib.Path(server.__file__).parent / "templates"
                 / "dashboard.html").read_text(encoding="utf-8")
-        assert 'id="analyse-browse"' in page
-        assert 'id="analyse-browse-output"' in page
+        for element_id in ("analyse-folder", "analyse-output"):
+            field = re.search(rf'<input[^>]*id="{element_id}"[^>]*>', page)
+            assert field, f"{element_id} is gone; check this test"
+            assert "data-picks=" in field.group(0)
 
 
 class TestASettingShowsWhatItWillDo:
@@ -2550,7 +2558,8 @@ class TestWhatTheGUIOpensOn:
 
     The overview was the only page left visible in the markup, so it was what
     the GUI opened on -- an overview of a run, before any state had loaded and
-    usually when there was no run at all.
+    usually when there was no run at all. It now opens on the page that builds
+    one.
     """
 
     @staticmethod
@@ -2568,7 +2577,7 @@ class TestWhatTheGUIOpensOn:
         sections = re.findall(
             r'<section class="page" data-page="([^"]+)"([^>]*)>', self._page())
         visible = [name for name, attrs in sections if "hidden" not in attrs]
-        assert visible == ["builder"], f"visible at load: {visible}"
+        assert visible == ["run"], f"visible at load: {visible}"
 
     def test_the_router_decides_once_it_knows(self) -> None:
         import pathlib
@@ -2579,7 +2588,7 @@ class TestWhatTheGUIOpensOn:
                   / "dashboard.js").read_text(encoding="utf-8")
         # A run to look at, a page asked for by name, or nothing yet.
         assert 'else if (activeRun) navigate("overview");' in script
-        assert 'else navigate("builder");' in script
+        assert 'else navigate("run");' in script
 
 
 class TestOpeningTheGUIWithNothingRunning:
@@ -2646,3 +2655,986 @@ class TestOpeningTheGUIWithNothingRunning:
             active_root=tmp_path,
         )
         assert runtime.snapshot()["active_run"] == str(tmp_path.resolve())
+
+
+class TestStartingAnAnalysisFromThePage:
+    """Run here, without a form having been wired for this kind of run.
+
+    The existing launch translates a fixed set of form fields into a fixed set
+    of flags, which is why the phases were pinned at setup and simulation.
+    Running from a config instead means anything a config can say, the browser
+    can start -- and the file it ran from is written beside the results.
+    """
+
+    @staticmethod
+    def _analysis_state(output="an_analysis"):
+        return {
+            "output": output,
+            "include": ["analysis"],
+            "systems": [{"system": "top.pdb"}],
+            "analysis": {"trajectory": "x.dcd", "topology": "top.pdb",
+                         "include": "rmsd"},
+        }
+
+    @staticmethod
+    def _runtime(tmp_path):
+        from fastmdxplora.gui.exploration import DashboardRuntime
+
+        return DashboardRuntime(
+            workspace_root=tmp_path / "ws",
+            exploration_root=tmp_path,
+            active_root=None,
+        )
+
+    def test_it_starts_and_says_where(self, tmp_path) -> None:
+        runtime = self._runtime(tmp_path)
+        try:
+            started = runtime.launch_from_config(self._analysis_state())
+            assert started["ok"], started.get("error")
+            assert started["launched"]
+            assert started["output"].endswith("an_analysis")
+        finally:
+            runtime.stop()
+
+    def test_the_config_is_written_beside_the_results(self, tmp_path) -> None:
+        import pathlib
+
+        runtime = self._runtime(tmp_path)
+        try:
+            started = runtime.launch_from_config(self._analysis_state())
+            written = pathlib.Path(started["config_path"])
+            assert written.exists()
+            assert written.parent == pathlib.Path(started["output"])
+        finally:
+            runtime.stop()
+
+    def test_it_runs_that_config_and_not_a_flag_list(self, tmp_path) -> None:
+        runtime = self._runtime(tmp_path)
+        try:
+            started = runtime.launch_from_config(self._analysis_state())
+            assert "--config" in started["command"]
+            assert started["config_path"] in started["command"]
+        finally:
+            runtime.stop()
+
+    def test_a_second_run_is_refused_while_one_is_going(self, tmp_path) -> None:
+        runtime = self._runtime(tmp_path)
+        try:
+            first = runtime.launch_from_config(self._analysis_state("first"))
+            assert first["ok"]
+            second = runtime.launch_from_config(self._analysis_state("second"))
+            assert not second["ok"]
+            assert "already running" in second["error"]
+        finally:
+            runtime.stop()
+
+    def test_results_cannot_land_outside_the_workspace(self, tmp_path) -> None:
+        """The GUI writes where it was started, not wherever it is told.
+
+        A name with .. in it is flattened rather than refused, so there is
+        nothing to reject: what matters is where the run actually lands.
+        """
+        import pathlib
+
+        runtime = self._runtime(tmp_path)
+        try:
+            started = runtime.launch_from_config(
+                self._analysis_state("../../somewhere_else"))
+            assert started["ok"]
+            landed = pathlib.Path(started["output"])
+            assert landed.is_relative_to(tmp_path), landed
+        finally:
+            runtime.stop()
+
+    def test_the_page_and_the_server_are_wired(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        root = pathlib.Path(server.__file__).parent
+        source = pathlib.Path(server.__file__).read_text(encoding="utf-8")
+        script = (root / "static" / "analysis-builder.js").read_text(
+            encoding="utf-8")
+        assert '"/api/run"' in source
+        assert '"/api/run"' in script
+
+    def test_starting_a_run_is_a_control_and_guarded_like_one(self) -> None:
+        """Disabled when the GUI is not on loopback, like the other controls.
+
+        Starting a run is the same kind of act as starting an exploration, so
+        it belongs behind the same door.
+        """
+        import pathlib
+        import re
+
+        from fastmdxplora.gui import server
+
+        source = pathlib.Path(server.__file__).read_text(encoding="utf-8")
+        guarded = re.search(
+            r"if not allow_control and path in \{([^}]*)\}", source)
+        assert guarded, "the control guard has moved; check this test"
+        assert '"/api/run"' in guarded.group(1)
+
+
+class TestATimelineShowsOnlyWhatCanHappen:
+    """A stage greyed out forever reads exactly like a run that stalled.
+
+    The timeline lists seven stages. An analysis of a trajectory that already
+    exists reaches one of them; the other six would sit waiting for a
+    minimization and a production run that were never asked for.
+    """
+
+    def test_an_analysis_output_has_one_stage(self, tmp_path) -> None:
+        from fastmdxplora.gui.telemetry import run_stages
+
+        (tmp_path / "exploration.yml").write_text(
+            "include: [analysis]\n", encoding="utf-8")
+        assert run_stages(tmp_path) == ["analysis"]
+
+    def test_a_full_run_has_all_of_them(self, tmp_path) -> None:
+        from fastmdxplora.gui.telemetry import run_stages
+
+        (tmp_path / "exploration.yml").write_text(
+            "include: [setup, simulation, analysis, report]\n", encoding="utf-8")
+        assert run_stages(tmp_path) == [
+            "setup", "minimization", "nvt", "npt", "production",
+            "analysis", "report",
+        ]
+
+    def test_the_stages_stay_in_the_order_they_happen(self, tmp_path) -> None:
+        """Whatever order the config happens to list them in."""
+        from fastmdxplora.gui.telemetry import run_stages
+
+        (tmp_path / "exploration.yml").write_text(
+            "include: [report, analysis, setup]\n", encoding="utf-8")
+        assert run_stages(tmp_path) == ["setup", "analysis", "report"]
+
+    def test_a_config_without_include_names_what_it_describes(
+        self, tmp_path
+    ) -> None:
+        from fastmdxplora.gui.telemetry import run_phases
+
+        (tmp_path / "exploration.yml").write_text(
+            "setup: {ph: 7.4}\nanalysis: {scope: protein}\n", encoding="utf-8")
+        assert run_phases(tmp_path) == ["setup", "analysis"]
+
+    def test_nothing_to_go_on_means_show_everything(self, tmp_path) -> None:
+        """An older run, or one started outside the GUI. Hiding a stage that
+        turns out to run is the worse mistake."""
+        from fastmdxplora.gui.telemetry import run_stages
+
+        assert len(run_stages(tmp_path)) == 7
+
+    def test_an_unreadable_config_is_not_fatal(self, tmp_path) -> None:
+        from fastmdxplora.gui.telemetry import run_stages
+
+        (tmp_path / "exploration.yml").write_text(
+            "include: [analysis\n  broken: [", encoding="utf-8")
+        assert len(run_stages(tmp_path)) == 7
+
+    def test_the_status_endpoint_reports_them(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        source = pathlib.Path(server.__file__).read_text(encoding="utf-8")
+        assert '"stages": run_stages(root)' in source
+        assert "run_stages," in source, "imported, or it fails when called"
+
+    def test_the_page_hides_the_rest(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        script = (pathlib.Path(server.__file__).parent / "static"
+                  / "dashboard.js").read_text(encoding="utf-8")
+        assert "state.stages" in script
+        assert "reachable.includes(stage)" in script
+
+
+class TestWhereTheResultsGo:
+    """A results folder may be a name or a path, and browsing gives a path.
+
+    Running an absolute path through the slug turned /Users/someone/work into
+    a folder called Users_someone_work inside the launch directory -- neither
+    where they pointed nor anywhere they would think to look.
+    """
+
+    @staticmethod
+    def _runtime(tmp_path):
+        from fastmdxplora.gui.exploration import DashboardRuntime
+
+        return DashboardRuntime(
+            workspace_root=tmp_path / "ws", exploration_root=tmp_path,
+            active_root=None,
+        )
+
+    @staticmethod
+    def _state(output):
+        return {
+            "output": output, "include": ["analysis"],
+            "systems": [{"system": "t.pdb"}],
+            "analysis": {"trajectory": "x.dcd", "topology": "t.pdb",
+                         "include": "rmsd"},
+        }
+
+    def test_an_absolute_path_is_where_the_results_land(self, tmp_path) -> None:
+        import pathlib
+
+        runtime = self._runtime(tmp_path)
+        wanted = tmp_path / "somewhere" / "else"
+        try:
+            started = runtime.launch_from_config(self._state(str(wanted)))
+            assert started["ok"], started.get("error")
+            assert pathlib.Path(started["output"]) == wanted.resolve()
+        finally:
+            runtime.stop()
+
+    def test_a_plain_name_lands_beside_the_other_runs(self, tmp_path) -> None:
+        import pathlib
+
+        runtime = self._runtime(tmp_path)
+        try:
+            started = runtime.launch_from_config(self._state("my_analysis"))
+            assert pathlib.Path(started["output"]) == (
+                tmp_path / "my_analysis").resolve()
+        finally:
+            runtime.stop()
+
+    def test_left_empty_it_has_a_default(self, tmp_path) -> None:
+        import pathlib
+
+        runtime = self._runtime(tmp_path)
+        try:
+            started = runtime.launch_from_config(self._state(""))
+            assert pathlib.Path(started["output"]).name == "analysis_output"
+        finally:
+            runtime.stop()
+
+    def test_the_page_shows_that_default(self) -> None:
+        """The placeholder says what happens if the box is left alone."""
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        page = (pathlib.Path(server.__file__).parent / "templates"
+                / "dashboard.html").read_text(encoding="utf-8")
+        assert 'id="analyse-output"' in page
+        marker = page[page.index('id="analyse-output"'):][:200]
+        assert 'placeholder="analysis_output"' in marker
+
+
+class TestPanelsForPhasesThatAreNotRunning:
+    """A card announcing that the simulation became numerically unstable is
+    not merely useless on an analysis run -- it is alarming, and it is about a
+    simulation that was never asked for."""
+
+    def test_the_simulation_panels_declare_what_they_need(self) -> None:
+        import pathlib
+        import re
+
+        from fastmdxplora.gui import server
+
+        page = (pathlib.Path(server.__file__).parent / "templates"
+                / "dashboard.html").read_text(encoding="utf-8")
+        for element_id in ("hero-card", "hero-health"):
+            block = re.search(rf'<div[^>]*id="{element_id}"[^>]*>', page)
+            assert block, f"{element_id} is gone; check this test"
+            assert 'data-needs-phase="simulation"' in block.group(0)
+
+    def test_the_page_hides_them_when_it_knows(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        script = (pathlib.Path(server.__file__).parent / "static"
+                  / "dashboard.js").read_text(encoding="utf-8")
+        assert "applyPhaseVisibility" in script
+        assert "data-needs-phase" in script
+
+    def test_and_hides_nothing_when_it_does_not(self) -> None:
+        """An older run says nothing about its phases; hiding a panel that
+        turns out to matter is the worse mistake."""
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        script = (pathlib.Path(server.__file__).parent / "static"
+                  / "dashboard.js").read_text(encoding="utf-8")
+        block = script[script.index("function applyPhaseVisibility"):][:700]
+        assert "if (!phases || !phases.length)" in block
+        assert "element.hidden = false;" in block
+
+
+class TestShowingAndHidingTheConfig:
+    """The button that opened it is where somebody looks to close it."""
+
+    def test_it_toggles(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        script = (pathlib.Path(server.__file__).parent / "static"
+                  / "analysis-builder.js").read_text(encoding="utf-8")
+        block = script[script.index("async function preview()"):][:900]
+        assert "if (!box.hidden)" in block
+        assert '"Hide the config"' in block
+
+    def test_it_says_so_to_a_screen_reader(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        page = (pathlib.Path(server.__file__).parent / "templates"
+                / "dashboard.html").read_text(encoding="utf-8")
+        assert 'aria-expanded="false"' in page
+        assert 'aria-controls="analyse-config-preview"' in page
+
+
+class TestSayingWhereTheResultsWillGo:
+    """"analysis_output" is a name. Which directory it is a name *in* was left
+    for somebody to guess, and the answer -- wherever the GUI was started --
+    is not visible from the page."""
+
+    def test_the_schema_endpoint_reports_the_workspace(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        source = pathlib.Path(server.__file__).read_text(encoding="utf-8")
+        assert 'payload["workspace"] = str(app_runtime.exploration_root)' in source
+
+    def test_the_page_says_it(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        root = pathlib.Path(server.__file__).parent
+        page = (root / "templates" / "dashboard.html").read_text(encoding="utf-8")
+        script = (root / "static" / "analysis-builder.js").read_text(
+            encoding="utf-8")
+        assert 'id="analyse-output-note"' in page
+        assert "A name lands in" in script
+
+    def test_and_says_a_path_is_used_as_given(self) -> None:
+        """Because browsing to a folder puts a path there, and that used to be
+        flattened into a folder name."""
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        script = (pathlib.Path(server.__file__).parent / "static"
+                  / "analysis-builder.js").read_text(encoding="utf-8")
+        assert "A full path is used as given" in script
+
+
+class TestPuttingEverythingBack:
+    """Somebody exploring what the settings do will change several and lose
+    track of which.
+
+    The config records only what differs from a default, so a forgotten change
+    is invisible in the file and turns up in the results instead.
+    """
+
+    @staticmethod
+    def _script():
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        return (pathlib.Path(server.__file__).parent / "static"
+                / "analysis-builder.js").read_text(encoding="utf-8")
+
+    def test_the_page_offers_it(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        page = (pathlib.Path(server.__file__).parent / "templates"
+                / "dashboard.html").read_text(encoding="utf-8")
+        assert 'id="analyse-reset"' in page
+        assert "Reset to defaults" in page
+
+    def test_it_clears_the_choices_rather_than_redrawing_them(self) -> None:
+        block = self._script()
+        reset = block[block.index("function resetEverything"):][:900]
+        for cleared in ("state.chosen.clear()", "state.options = {}",
+                        "state.expanded.clear()"):
+            assert cleared in reset, f"{cleared} is not cleared"
+
+    def test_the_scope_goes_back_to_what_the_schema_says(self) -> None:
+        """Not to a value written into the page, which could drift from it."""
+        block = self._script()
+        reset = block[block.index("function resetEverything"):][:900]
+        assert "state.schema.phases.analysis.fields" in reset
+
+    def test_and_the_config_on_screen_is_not_left_stale(self) -> None:
+        block = self._script()
+        reset = block[block.index("function resetEverything"):][:900]
+        assert "analyse-config-preview" in reset
+
+
+class TestTheDefaultResultsFolderIsNamedForWhatItHolds:
+    def test_it_is_analysis_output(self, tmp_path) -> None:
+        import pathlib
+
+        from fastmdxplora.gui.exploration import DashboardRuntime
+
+        runtime = DashboardRuntime(
+            workspace_root=tmp_path / "ws", exploration_root=tmp_path,
+            active_root=None,
+        )
+        try:
+            started = runtime.launch_from_config({
+                "output": "", "include": ["analysis"],
+                "systems": [{"system": "t.pdb"}],
+                "analysis": {"trajectory": "x.dcd", "topology": "t.pdb",
+                             "include": "rmsd"},
+            })
+            assert pathlib.Path(started["output"]).name == "analysis_output"
+        finally:
+            runtime.stop()
+
+    def test_the_page_says_the_same_name(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        page = (pathlib.Path(server.__file__).parent / "templates"
+                / "dashboard.html").read_text(encoding="utf-8")
+        assert 'placeholder="analysis_output"' in page
+
+
+class TestOnePageBuildsAnyRun:
+    """Two pages were the same thing.
+
+    One started from a protein and one from a trajectory, and both wrote a
+    config and ran it -- differing only in which phases the config named. Built
+    separately, one of them offered eleven of the eighty-three settings that
+    exist while the other offered all of them.
+    """
+
+    @staticmethod
+    def _files():
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        root = pathlib.Path(server.__file__).parent
+        return (
+            (root / "templates" / "dashboard.html").read_text(encoding="utf-8"),
+            (root / "static" / "run-builder.js").read_text(encoding="utf-8"),
+        )
+
+    def test_the_page_exists_and_leads(self) -> None:
+        page, _ = self._files()
+        assert 'data-page="run"' in page
+        assert 'data-view-link="run"' in page
+
+    def test_it_is_what_the_gui_opens_on(self) -> None:
+        import pathlib
+        import re
+
+        from fastmdxplora.gui import server
+
+        page, _ = self._files()
+        sections = re.findall(
+            r'<section class="page" data-page="([^"]+)"([^>]*)>', page)
+        visible = [name for name, attrs in sections if "hidden" not in attrs]
+        assert visible == ["run"]
+
+        script = (pathlib.Path(server.__file__).parent / "static"
+                  / "dashboard.js").read_text(encoding="utf-8")
+        assert 'else navigate("run");' in script
+
+    def test_every_phase_can_be_left_out(self) -> None:
+        """A run that only analyses is a run with one phase ticked."""
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        _, script = self._files()
+        for phase in PHASE_SCHEMAS:
+            assert f'name: "{phase}"' in script, f"{phase} cannot be chosen"
+
+    def test_the_settings_come_from_the_schema(self) -> None:
+        _, script = self._files()
+        assert "/api/schema" in script
+        assert "state.schema.phases" in script
+
+    def test_no_setting_is_named_in_the_page(self) -> None:
+        """The moment one is, the page has a list to keep in step -- which is
+        how the old form came to offer eleven of eighty-three."""
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        _, script = self._files()
+        # Fields the page supplies itself from earlier answers are named on
+        # purpose; everything else must come from the schema.
+        supplied = {"trajectory", "topology", "system", "output", "include"}
+        named = [
+            field.name
+            for group in PHASE_SCHEMAS.values()
+            for field in group.fields
+            if field.name not in supplied
+            and f'"{field.name}"' in script
+        ]
+        assert not named, f"these are written into the page: {named}"
+
+    def test_no_analysis_is_named_either(self) -> None:
+        import fastmdxplora.analysis  # noqa: F401
+        from fastmdxplora.analysis.orchestrator import available_analyses
+
+        _, script = self._files()
+        named = [n for n in available_analyses() if f'"{n}"' in script]
+        assert not named, f"these are written into the page: {named}"
+
+    def test_it_writes_a_config_and_can_run_it(self) -> None:
+        _, script = self._files()
+        assert "/api/config" in script
+        assert "/api/run" in script
+
+    def test_and_can_be_put_back(self) -> None:
+        _, script = self._files()
+        block = script[script.index("function resetEverything"):][:800]
+        for cleared in ("state.values = {}", "state.analyses.clear()",
+                        "state.analysisOptions = {}", "state.open.clear()"):
+            assert cleared in block, f"{cleared} is not cleared"
+
+    def test_the_styles_it_uses_are_defined(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        css = (pathlib.Path(server.__file__).parent / "static"
+               / "dashboard.css").read_text(encoding="utf-8")
+        for name in ("run-start", "run-start-choice", "run-phase",
+                     "run-section", "run-section-body"):
+            assert f".{name}" in css, f"{name} is used but never styled"
+
+    def test_the_script_is_loaded(self) -> None:
+        page, _ = self._files()
+        assert "/static/run-builder.js" in page
+
+
+class TestTheStartingPointIsOneChoice:
+    """What you have decides what can happen, so it is asked once.
+
+    Two buttons could not grow a third option without becoming a row of
+    buttons; a control with options can, and the third is worth having: a
+    config written earlier, edited by hand, or carried back from a cluster.
+    """
+
+    @staticmethod
+    def _files():
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        root = pathlib.Path(server.__file__).parent
+        return (
+            (root / "templates" / "dashboard.html").read_text(encoding="utf-8"),
+            (root / "static" / "run-builder.js").read_text(encoding="utf-8"),
+        )
+
+    def test_it_is_a_single_control(self) -> None:
+        page, _ = self._files()
+        assert '<select id="run-start">' in page
+
+    def test_the_description_belongs_to_the_option(self) -> None:
+        """It is what the option means, so it changes as the option does."""
+        page, script = self._files()
+        assert 'id="run-start-detail"' in page
+        assert "STARTING_POINTS[state.start].detail" in script
+
+    def test_a_config_already_written_is_one_of_them(self) -> None:
+        _, script = self._files()
+        assert "config: {" in script or 'config:' in script
+        assert "/api/check-config" in script
+
+    def test_a_config_is_checked_before_anything_runs(self, tmp_path) -> None:
+        from fastmdxplora.gui.config_builder import check_config_file
+
+        good = tmp_path / "good.yml"
+        good.write_text(
+            "output: o\nsystems: [{system: 1ubq}]\ninclude: [setup]\n",
+            encoding="utf-8")
+        verdict = check_config_file(str(good))
+        assert verdict["ok"] and verdict["phases"] == ["setup"]
+
+    def test_a_hand_edited_file_reports_its_syntax_error(self, tmp_path) -> None:
+        """Which is the most common thing to come back with."""
+        from fastmdxplora.gui.config_builder import check_config_file
+
+        broken = tmp_path / "broken.yml"
+        broken.write_text("output: o\n  systems: [oops\n", encoding="utf-8")
+        verdict = check_config_file(str(broken))
+        assert not verdict["ok"] and "not valid YAML" in verdict["error"]
+
+    def test_a_setting_that_does_not_exist_is_reported(self, tmp_path) -> None:
+        from fastmdxplora.gui.config_builder import check_config_file
+
+        wrong = tmp_path / "wrong.yml"
+        wrong.write_text("output: o\nnot_a_phase: {x: 1}\n", encoding="utf-8")
+        assert not check_config_file(str(wrong))["ok"]
+
+    def test_a_missing_file_says_so(self, tmp_path) -> None:
+        from fastmdxplora.gui.config_builder import check_config_file
+
+        verdict = check_config_file(str(tmp_path / "nowhere.yml"))
+        assert not verdict["ok"] and "No such file" in verdict["error"]
+
+
+class TestWhatAStartingPointCanOffer:
+    """A trajectory is already the result of setting up and simulating.
+
+    Offering those again is offering to do work that cannot connect to the
+    frames already recorded: there is no supported way to continue a run from
+    a trajectory, only from a checkpoint.
+    """
+
+    @staticmethod
+    def _script():
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        return (pathlib.Path(server.__file__).parent / "static"
+                / "run-builder.js").read_text(encoding="utf-8")
+
+    def test_a_trajectory_offers_only_what_it_can_feed(self) -> None:
+        script = self._script()
+        block = script[script.index("trajectory: {"):][:600]
+        assert 'offers: ["analysis", "report"]' in block
+
+    def test_a_structure_offers_everything(self) -> None:
+        script = self._script()
+        block = script[script.index("structure: {"):][:600]
+        assert '"setup", "simulation", "analysis", "report"' in block
+
+    def test_the_unavailable_ones_are_shown_and_explained(self) -> None:
+        """Rather than removed, so what the software does stays visible."""
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        script = self._script()
+        assert "box.disabled = !available" in script
+        assert "Nothing to act on" in script
+        css = (pathlib.Path(server.__file__).parent / "static"
+               / "dashboard.css").read_text(encoding="utf-8")
+        assert '.run-phase[data-available="false"]' in css
+
+
+class TestNothingPromisesASequence:
+    """The setup phase refuses one: sequence-to-structure is not implemented.
+
+    Offering it anywhere is offering a capability that raises.
+    """
+
+    def test_the_setup_phase_still_refuses_it(self, tmp_path) -> None:
+        import pytest
+
+        from fastmdxplora.setup.pipeline import _resolve_input
+
+        with pytest.raises(NotImplementedError, match="Sequence-to-structure"):
+            _resolve_input("ACDEFGHIKLMNPQRSTVWY", "sequence", tmp_path)
+
+    def test_the_page_does_not_offer_it(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        page = (pathlib.Path(server.__file__).parent / "templates"
+                / "dashboard.html").read_text(encoding="utf-8")
+        marker = page[page.index('id="run-system"'):][:220]
+        assert "sequence" not in marker.lower()
+
+    def test_nor_does_the_config_template(self) -> None:
+        from fastmdxplora.config.generate import generate_template
+
+        assert "or sequence" not in generate_template()
+
+
+class TestTheWordsMatchTheSoftware:
+    """Setup is the phase's name; preparing is what a person does beforehand.
+    Analyze is spelled the way the command spells it."""
+
+    def test_the_first_phase_is_called_setup(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        script = (pathlib.Path(server.__file__).parent / "static"
+                  / "run-builder.js").read_text(encoding="utf-8")
+        assert 'label: "Setup"' in script
+        assert 'label: "Prepare"' not in script
+
+    def test_analyze_is_spelled_as_the_command_spells_it(self) -> None:
+        import pathlib
+
+        from fastmdxplora.cli.main import _build_parser
+        from fastmdxplora.gui import server
+
+        subcommands = _build_parser()._subparsers._group_actions[0].choices
+        assert "analyze" in subcommands
+
+        root = pathlib.Path(server.__file__).parent
+        script = (root / "static" / "run-builder.js").read_text(encoding="utf-8")
+        page = (root / "templates" / "dashboard.html").read_text(encoding="utf-8")
+        assert 'label: "Analyze"' in script
+        # "Analyses" is the plural of analysis and correct either way; it is
+        # the verb that had drifted from the command.
+        assert "Analyse " not in page and "Analyse<" not in page
+
+    def test_the_results_folder_is_named_for_the_software(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        root = pathlib.Path(server.__file__).parent
+        page = (root / "templates" / "dashboard.html").read_text(encoding="utf-8")
+        script = (root / "static" / "run-builder.js").read_text(encoding="utf-8")
+        assert 'placeholder="fastmdxplora_output"' in page
+        assert '"fastmdxplora_output"' in script
+
+
+class TestEveryPathFieldCanBeBrowsed:
+    """A browser will not offer a dialog for a path the server has to open.
+
+    So the walking is done by the server and drawn by the page -- and every
+    field that wants a path gets the same control, rather than one page having
+    a picker and the rest asking people to type.
+    """
+
+    @staticmethod
+    def _files():
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        root = pathlib.Path(server.__file__).parent
+        return (
+            (root / "templates" / "dashboard.html").read_text(encoding="utf-8"),
+            (root / "static" / "file-picker.js").read_text(encoding="utf-8"),
+        )
+
+    def test_no_path_field_is_left_without_one(self) -> None:
+        import re
+
+        page, _ = self._files()
+        # Anything asking for a path, by the words its placeholder uses.
+        asking = re.findall(
+            r'<input[^>]*id="([^"]+)"[^>]*placeholder="([^"]*)"[^>]*>', page)
+        wants_path = [
+            (element_id, hint) for element_id, hint in asking
+            if "/" in hint or hint.endswith(("_output", "_run"))
+        ]
+        assert wants_path, "no path fields found; check this test"
+        marked = set(re.findall(r'id="([^"]+)"[^>]*data-picks=', page)) | set(
+            re.findall(r'data-picks="[^"]*"[^>]*id="([^"]+)"', page))
+        missing = [i for i, _ in wants_path if i not in marked]
+        assert not missing, f"these ask for a path and offer no picker: {missing}"
+
+    def test_a_new_field_needs_no_wiring(self) -> None:
+        """data-picks is the whole of it, so the next one cannot be forgotten
+        in the way these were."""
+        _, script = self._files()
+        assert "input[data-picks]" in script
+
+    def test_it_can_pick_a_file_not_only_a_folder(self) -> None:
+        _, script = self._files()
+        assert 'state.mode !== "folder"' in script
+        assert "else select(path);" in script
+
+    def test_the_page_is_told_the_value_changed(self) -> None:
+        """A value set from code fires neither event on its own, and the pages
+        watch their inputs to decide what to enable."""
+        _, script = self._files()
+        assert 'new Event("input"' in script
+        assert 'new Event("change"' in script
+
+    def test_only_the_files_being_looked_for_are_listed(self, tmp_path) -> None:
+        from fastmdxplora.gui.browse import browse
+
+        (tmp_path / "run.dcd").write_bytes(b"x")
+        (tmp_path / "top.pdb").write_text("ATOM")
+        (tmp_path / "config.yml").write_text("a: 1")
+        (tmp_path / "notes.txt").write_text("hello")
+
+        assert [f["name"] for f in browse(tmp_path, "trajectory")["files"]] == ["run.dcd"]
+        assert [f["name"] for f in browse(tmp_path, "structure")["files"]] == ["top.pdb"]
+        assert [f["name"] for f in browse(tmp_path, "config")["files"]] == ["config.yml"]
+
+    def test_asking_for_a_folder_lists_no_files(self, tmp_path) -> None:
+        from fastmdxplora.gui.browse import browse
+
+        (tmp_path / "run.dcd").write_bytes(b"x")
+        (tmp_path / "runs").mkdir()
+        listing = browse(tmp_path)
+        assert listing["files"] == []
+        assert [e["name"] for e in listing["entries"]] == ["runs"]
+
+    def test_the_endpoint_takes_the_kind(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        source = pathlib.Path(server.__file__).read_text(encoding="utf-8")
+        assert 'query.get("kind"' in source
+
+    def test_there_is_only_one_picker(self) -> None:
+        """It was written into the analyse page, and the moment a second page
+        needed one the markup was duplicated."""
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        root = pathlib.Path(server.__file__).parent
+        page = (root / "templates" / "dashboard.html").read_text(encoding="utf-8")
+        analyse = (root / "static" / "analysis-builder.js").read_text(
+            encoding="utf-8")
+        assert "analyse-picker" not in page
+        assert "openPicker" not in analyse
+
+    def test_the_markup_still_balances(self) -> None:
+        page, _ = self._files()
+        assert page.count("<div") == page.count("</div>")
+        assert page.count("<section") == page.count("</section>")
+
+
+class TestAConfigYouAlreadyHave:
+    """Three things to do with one, and none of them writes to it.
+
+    The file may be committed beside a paper, shared with somebody, or the
+    record of a run that already happened. It can be checked, run as it
+    stands, or opened into the form and changed -- and a change is saved as a
+    new file, because the one on disk is somebody's.
+    """
+
+    @staticmethod
+    def _config(tmp_path, name="study.yml"):
+        path = tmp_path / name
+        path.write_text(
+            "output: runs/x\n"
+            "include: [analysis]\n"
+            "systems: [{system: top.pdb, id: mine}]\n"
+            "analysis:\n"
+            "  trajectory: /data/prod.dcd\n"
+            "  topology: /data/top.pdb\n"
+            "  scope: protein\n"
+            "  include: [rmsd, cluster]\n"
+            "  options: {cluster: {n_clusters: 8}}\n",
+            encoding="utf-8")
+        return path
+
+    def test_it_can_be_checked(self, tmp_path) -> None:
+        from fastmdxplora.gui.config_builder import check_config_file
+
+        verdict = check_config_file(str(self._config(tmp_path)))
+        assert verdict["ok"] and verdict["phases"] == ["analysis"]
+
+    def test_it_can_be_opened_into_the_form(self, tmp_path) -> None:
+        from fastmdxplora.gui.config_builder import load_config_into_state
+
+        loaded = load_config_into_state(str(self._config(tmp_path)))
+        assert loaded["ok"]
+        got = loaded["state"]
+        assert got["trajectory"] == "/data/prod.dcd"
+        assert got["analyses"] == ["rmsd", "cluster"]
+        assert got["analysis_options"]["cluster"]["n_clusters"] == 8
+
+    def test_opening_works_out_where_it_was_meant_to_start(self, tmp_path) -> None:
+        """A config naming a trajectory was written to analyse one."""
+        from fastmdxplora.gui.config_builder import load_config_into_state
+
+        loaded = load_config_into_state(str(self._config(tmp_path)))
+        assert loaded["state"]["start"] == "trajectory"
+
+        structure = tmp_path / "build.yml"
+        structure.write_text(
+            "output: o\ninclude: [setup, simulation]\n"
+            "systems: [{system: 1ubq}]\n", encoding="utf-8")
+        assert load_config_into_state(str(structure))["state"]["start"] == "structure"
+
+    def test_it_can_be_run_exactly_as_it_stands(self, tmp_path) -> None:
+        from fastmdxplora.gui.exploration import DashboardRuntime
+
+        config = self._config(tmp_path)
+        original = config.read_text(encoding="utf-8")
+        runtime = DashboardRuntime(
+            workspace_root=tmp_path / "ws", exploration_root=tmp_path,
+            active_root=None)
+        try:
+            started = runtime.launch_existing_config(str(config))
+            assert started["ok"], started.get("error")
+            assert started["config_path"] == str(config)
+            assert "--config" in started["command"]
+            assert str(config) in started["command"]
+        finally:
+            runtime.stop()
+        assert config.read_text(encoding="utf-8") == original, (
+            "running it rewrote the file"
+        )
+
+    def test_its_results_land_beside_it(self, tmp_path) -> None:
+        """A config kept with its data leaves its results there too."""
+        import pathlib
+
+        from fastmdxplora.gui.exploration import DashboardRuntime
+
+        config = self._config(tmp_path)
+        runtime = DashboardRuntime(
+            workspace_root=tmp_path / "ws", exploration_root=tmp_path,
+            active_root=None)
+        try:
+            started = runtime.launch_existing_config(str(config))
+            assert pathlib.Path(started["output"]).name == "study_output"
+            assert pathlib.Path(started["output"]).parent == tmp_path
+        finally:
+            runtime.stop()
+
+    def test_a_config_that_will_not_run_starts_nothing(self, tmp_path) -> None:
+        from fastmdxplora.gui.exploration import DashboardRuntime
+
+        broken = tmp_path / "broken.yml"
+        broken.write_text("output: o\n  systems: [oops\n", encoding="utf-8")
+        runtime = DashboardRuntime(
+            workspace_root=tmp_path / "ws", exploration_root=tmp_path,
+            active_root=None)
+        try:
+            started = runtime.launch_existing_config(str(broken))
+            assert not started["ok"]
+            assert "not valid YAML" in started["error"]
+        finally:
+            runtime.stop()
+
+    def test_the_page_offers_all_three(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        root = pathlib.Path(server.__file__).parent
+        page = (root / "templates" / "dashboard.html").read_text(encoding="utf-8")
+        script = (root / "static" / "run-builder.js").read_text(encoding="utf-8")
+        for element_id in ("run-check-config", "run-open-config", "run-as-is"):
+            assert f'id="{element_id}"' in page, f"{element_id} is not offered"
+        assert "/api/load-config" in script
+        assert "/api/run-config" in script
+
+    def test_the_page_says_the_original_is_left_alone(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        page = (pathlib.Path(server.__file__).parent / "templates"
+                / "dashboard.html").read_text(encoding="utf-8")
+        assert "saved as" in page and "new file" in page
+
+    def test_running_one_is_a_control_and_guarded_like_one(self) -> None:
+        import pathlib
+        import re
+
+        from fastmdxplora.gui import server
+
+        source = pathlib.Path(server.__file__).read_text(encoding="utf-8")
+        guarded = re.search(
+            r"if not allow_control and path in \{([^}]*)\}", source)
+        assert guarded and '"/api/run-config"' in guarded.group(1)

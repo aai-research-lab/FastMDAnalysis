@@ -254,6 +254,66 @@ def read_status(project_root: str | Path) -> dict[str, Any]:
         return {}
 
 
+#: The files a run leaves behind that say what it was asked to do. The first
+#: is written by the GUI before the run starts, the second by the run itself.
+_CONFIG_NAMES = ("exploration.yml", "resolved_config.yml", "config.yml")
+
+#: Every phase, in the order they happen, with the stages each one accounts
+#: for on the timeline. A run that includes only `analysis` has no
+#: minimization to wait for, and a timeline showing one greyed out forever
+#: looks exactly like a run that stalled.
+PHASE_STAGES = {
+    "setup": ("setup",),
+    "simulation": ("minimization", "nvt", "npt", "production"),
+    "analysis": ("analysis",),
+    "report": ("report",),
+}
+
+
+def run_phases(project_root: str | Path) -> list[str]:
+    """Which phases this run includes, read from the config it kept.
+
+    Empty where nothing says -- an older run, or one started outside the GUI
+    without a config beside it. Callers should treat that as "assume all",
+    because hiding a stage that turns out to run is worse than showing one
+    that does not.
+    """
+    import yaml
+
+    root = Path(project_root)
+    for name in _CONFIG_NAMES:
+        path = root / name
+        if not path.is_file():
+            continue
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        included = data.get("include")
+        if isinstance(included, list) and included:
+            return [str(phase) for phase in included]
+        # No `include` means every phase the config describes.
+        named = [phase for phase in PHASE_STAGES if isinstance(data.get(phase), dict)]
+        if named:
+            return named
+    return []
+
+
+def run_stages(project_root: str | Path) -> list[str]:
+    """The timeline stages this run can actually reach."""
+    phases = run_phases(project_root)
+    if not phases:
+        return [stage for stages in PHASE_STAGES.values() for stage in stages]
+    return [
+        stage
+        for phase in PHASE_STAGES
+        if phase in phases
+        for stage in PHASE_STAGES[phase]
+    ]
+
+
 def read_metrics(project_root: str | Path, *, limit: int = 500) -> list[dict[str, Any]]:
     """Read dashboard metrics, enriching them from OpenMM's ``energy.csv``.
 

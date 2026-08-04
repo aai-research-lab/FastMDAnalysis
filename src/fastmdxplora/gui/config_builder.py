@@ -276,3 +276,123 @@ def config_yaml(state: dict[str, Any], *, full: bool = False) -> dict[str, Any]:
             len(v) for k, v in config.items() if isinstance(v, dict)
         ),
     }
+
+
+def check_config_file(path: str) -> dict[str, Any]:
+    """Read a config someone already has and say whether it will run.
+
+    The point of writing a config is that it goes elsewhere -- edited by hand,
+    committed beside a paper, carried to a cluster. It should be possible to
+    bring one back and be told whether it still works before queueing an hour
+    of compute behind it.
+
+    Reports the phases it names, so somebody can see at a glance whether the
+    file does what they remember it doing.
+    """
+    import yaml
+
+    from pathlib import Path
+
+    target = Path(path).expanduser()
+    if not target.exists():
+        return {"ok": False, "error": f"No such file: {target}"}
+    if target.is_dir():
+        return {"ok": False, "error": f"That is a folder, not a config: {target}"}
+
+    try:
+        raw = target.read_text(encoding="utf-8")
+    except OSError as exc:
+        return {"ok": False, "error": f"Could not read it: {exc}"}
+
+    try:
+        data = yaml.safe_load(raw)
+    except yaml.YAMLError as exc:
+        # A syntax error, which is the most common thing to come back with
+        # after somebody has edited a file by hand.
+        return {"ok": False, "error": f"That is not valid YAML: {exc}"}
+
+    if not isinstance(data, dict):
+        return {"ok": False, "error": "A config is a mapping of settings."}
+
+    try:
+        validate_config(data)
+    except ConfigError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    phases = data.get("include")
+    if not isinstance(phases, list) or not phases:
+        phases = [name for name in PHASE_SCHEMAS if isinstance(data.get(name), dict)]
+    systems = data.get("systems") or []
+    return {
+        "ok": True,
+        "error": None,
+        "path": str(target),
+        "phases": [str(p) for p in phases],
+        "systems": len(systems) if isinstance(systems, list) else 0,
+        "settings_named": sum(
+            len(v) for k, v in data.items() if isinstance(v, dict)
+        ),
+    }
+
+
+def load_config_into_state(path: str) -> dict[str, Any]:
+    """A config someone already has, in the shape the page's form works in.
+
+    So it can be looked at, changed, and run -- rather than only run as it
+    stands. What comes back is a starting position for the form, not a
+    promise: the file is never written to. Anything changed is written as a
+    new file, because the one on disk may be committed beside a paper, shared
+    with somebody, or the record of a run that already happened.
+    """
+    import yaml
+
+    from pathlib import Path
+
+    checked = check_config_file(path)
+    if not checked["ok"]:
+        return checked
+
+    data = yaml.safe_load(Path(path).expanduser().read_text(encoding="utf-8"))
+
+    systems = data.get("systems") or []
+    first = systems[0] if isinstance(systems, list) and systems else {}
+    analysis = data.get("analysis") if isinstance(data.get("analysis"), dict) else {}
+
+    state: dict[str, Any] = {
+        "system": str(first.get("system") or "") if isinstance(first, dict) else "",
+        "system_id": str(first.get("id") or "") if isinstance(first, dict) else "",
+        "output": str(data.get("output") or ""),
+        "include": checked["phases"],
+        # A config naming a trajectory was written to analyse one; a config
+        # naming only a structure was written to build one. The page needs to
+        # know which so it can ask the right questions.
+        "start": "trajectory" if analysis.get("trajectory") else "structure",
+        "trajectory": str(analysis.get("trajectory") or ""),
+        "topology": str(analysis.get("topology") or ""),
+        "phases": {},
+        "analyses": [],
+        "analysis_options": {},
+    }
+
+    for phase in PHASE_SCHEMAS:
+        block = data.get(phase)
+        if isinstance(block, dict):
+            state["phases"][phase] = {
+                key: value for key, value in block.items()
+                if key not in {"options", "trajectory", "topology"}
+            }
+
+    included = analysis.get("include")
+    if isinstance(included, str):
+        state["analyses"] = [p.strip() for p in included.split(",") if p.strip()]
+    elif isinstance(included, list):
+        state["analyses"] = [str(p) for p in included]
+
+    options = analysis.get("options")
+    if isinstance(options, dict):
+        state["analysis_options"] = {
+            name: dict(values) for name, values in options.items()
+            if isinstance(values, dict)
+        }
+
+    return {"ok": True, "error": None, "state": state, "summary": checked}

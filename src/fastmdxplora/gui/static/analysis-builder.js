@@ -289,90 +289,40 @@
   }
 
 
-  // ------------------------------------------------------------ the picker
 
-  /* A browser cannot open a folder dialog the server will read, so the
-   * walking is done by the server and drawn here. The text box stays: typing
-   * a path is faster when you know it, and pasting one from a terminal is how
-   * most people will arrive. */
-  let pickingFor = null;
+  // -------------------------------------------------------------- the reset
 
-  async function openPicker(targetId, startAt) {
-    pickingFor = targetId;
-    el("analyse-picker").hidden = false;
-    await showFolder(startAt || "");
-  }
+  /* Putting everything back is a real need, not a nicety: somebody exploring
+   * what the settings do will change several, lose track of which, and have
+   * no way to tell a considered choice from a leftover. The config records
+   * only what differs from the default, so a forgotten change is invisible in
+   * the file and shows up in the results. */
+  function resetEverything() {
+    state.chosen.clear();
+    state.options = {};
+    state.expanded.clear();
 
-  function closePicker() {
-    el("analyse-picker").hidden = true;
-    pickingFor = null;
-  }
-
-  async function showFolder(path) {
-    const response = await fetch(
-      "/api/browse" + (path ? "?path=" + encodeURIComponent(path) : "")
-    );
-    const listing = await response.json();
-    const body = el("analyse-picker-list");
-    const here = el("analyse-picker-path");
-
-    if (!listing.ok) {
-      body.innerHTML = `<div class="empty-detail muted">${listing.error}</div>`;
-      return;
+    const scope = el("analyse-scope");
+    if (scope) {
+      const fromSchema = (state.schema.phases.analysis.fields || [])
+        .find((field) => field.name === "scope");
+      scope.value = (fromSchema && fromSchema.default) || "solute";
     }
+    const output = el("analyse-output");
+    if (output) output.value = "";
+    const everything = el("analyse-full-config");
+    if (everything) everything.checked = false;
 
-    text(here, listing.path);
-    el("analyse-picker-choose").dataset.path = listing.path;
-
-    // What this folder itself holds, so somebody can stop here rather than
-    // opening it to find out.
-    const holds =
-      listing.trajectories || listing.structures
-        ? `${listing.trajectories} trajectory, ${listing.structures} structure file(s) here`
-        : "nothing to analyse directly in this folder";
-    text(el("analyse-picker-holds"), holds);
-
-    body.innerHTML = "";
-    if (listing.parent) {
-      body.appendChild(folderRow({ name: "..", path: listing.parent }, true));
+    const box = el("analyse-config-preview");
+    if (box) box.hidden = true;
+    const previewButton = el("analyse-preview");
+    if (previewButton) {
+      previewButton.textContent = "Show the config";
+      previewButton.setAttribute("aria-expanded", "false");
     }
-    listing.entries.forEach((entry) => body.appendChild(folderRow(entry)));
-    if (!listing.entries.length && !listing.parent) {
-      body.innerHTML = '<div class="empty-detail muted">No folders here.</div>';
-    }
-  }
+    text(el("analyse-config-note"), "Everything is back to its default.");
 
-  function folderRow(entry, isParent) {
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "analyse-folder-row";
-    const name = document.createElement("span");
-    name.className = "analyse-folder-name";
-    name.textContent = isParent ? "\u2191 up one level" : entry.name;
-    row.appendChild(name);
-    if (!isParent && (entry.trajectories || entry.structures)) {
-      const badge = document.createElement("span");
-      badge.className = "analyse-folder-holds";
-      // Counted by extension. Nothing in these folders has been opened.
-      badge.textContent = entry.trajectories
-        ? `${entry.trajectories} trajectory`
-        : `${entry.structures} structure`;
-      row.appendChild(badge);
-    }
-    row.addEventListener("click", () => showFolder(entry.path));
-    return row;
-  }
-
-  function choosePicked() {
-    const chosen = el("analyse-picker-choose").dataset.path;
-    if (pickingFor && chosen) {
-      el(pickingFor).value = chosen;
-      const target = pickingFor;
-      closePicker();
-      if (target === "analyse-folder") inspect();
-    } else {
-      closePicker();
-    }
+    render();
   }
 
   // ------------------------------------------------------------- the config
@@ -395,7 +345,7 @@
     if (Object.keys(nested).length) analysis.options = nested;
 
     return {
-      output: el("analyse-output").value.trim() || "analysis_run",
+      output: el("analyse-output").value.trim() || "analysis_output",
       include: ["analysis"],
       systems: [{ system: analysis.topology || "", id: "analysed" }],
       analysis,
@@ -450,12 +400,63 @@
     URL.revokeObjectURL(link.href);
   }
 
+  async function run() {
+    const note = el("analyse-config-note");
+    const button = el("analyse-run");
+    button.disabled = true;
+    text(note, "Starting\u2026");
+    let started;
+    try {
+      const response = await fetch("/api/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(currentState()),
+      });
+      started = await response.json();
+    } catch (error) {
+      text(note, "Could not reach the server.");
+      button.disabled = false;
+      return;
+    }
+    if (!started.ok) {
+      text(note, started.error || "Could not start.");
+      button.disabled = false;
+      return;
+    }
+    // The config it ran from is written beside the results, so the run can be
+    // repeated later without anybody remembering what was clicked.
+    text(note, `Running. Config written to ${started.config_path}`);
+    // Straight to the overview, where the run reports itself. The dashboard
+    // module owns navigation, so it is asked rather than the page reloaded.
+    if (window.FastMDXDashboard && window.FastMDXDashboard.navigate) {
+      window.FastMDXDashboard.navigate("overview");
+    } else {
+      location.hash = "#overview";
+      location.reload();
+    }
+  }
+
   async function preview() {
-    const built = await fetchConfig();
     const box = el("analyse-config-preview");
+    const button = el("analyse-preview");
     if (!box) return;
+    // Toggling, because the same button that opened it is where somebody
+    // will look to close it again.
+    if (!box.hidden) {
+      box.hidden = true;
+      if (button) {
+        button.textContent = "Show the config";
+        button.setAttribute("aria-expanded", "false");
+      }
+      return;
+    }
+    const built = await fetchConfig();
     box.textContent = built.ok ? built.yaml : built.error;
     box.hidden = false;
+    if (button) {
+      button.textContent = "Hide the config";
+      button.setAttribute("aria-expanded", "true");
+    }
   }
 
   // ------------------------------------------------------------------- wire
@@ -468,22 +469,18 @@
     const look = el("analyse-look");
     if (look) look.addEventListener("click", inspect);
 
-    const browseData = el("analyse-browse");
-    if (browseData) {
-      browseData.addEventListener("click", () =>
-        openPicker("analyse-folder", el("analyse-folder").value.trim())
-      );
+    const everything = el("analyse-full-config");
+    if (everything) {
+      everything.addEventListener("change", () => {
+        // If the config is on screen, it should be the one just asked for.
+        const box = el("analyse-config-preview");
+        if (box && !box.hidden) {
+          box.hidden = true;
+          preview();
+        }
+      });
     }
-    const browseOut = el("analyse-browse-output");
-    if (browseOut) {
-      browseOut.addEventListener("click", () =>
-        openPicker("analyse-output", el("analyse-output").value.trim())
-      );
-    }
-    const choose = el("analyse-picker-choose");
-    if (choose) choose.addEventListener("click", choosePicked);
-    const cancel = el("analyse-picker-cancel");
-    if (cancel) cancel.addEventListener("click", closePicker);
+
 
     const downloadButton = el("analyse-download");
     if (downloadButton) downloadButton.addEventListener("click", download);
@@ -491,7 +488,24 @@
     const previewButton = el("analyse-preview");
     if (previewButton) previewButton.addEventListener("click", preview);
 
-    loadSchema().then(render).catch(() => {
+    const runButton = el("analyse-run");
+    if (runButton) runButton.addEventListener("click", run);
+
+    const resetButton = el("analyse-reset");
+    if (resetButton) resetButton.addEventListener("click", resetEverything);
+
+    loadSchema().then((schema) => {
+      // Say where a plain name lands, rather than leaving somebody to guess
+      // which directory "analysis_output" is relative to.
+      const where = schema && schema.workspace;
+      if (where) {
+        text(
+          el("analyse-output-note"),
+          `A name lands in ${where}. A full path is used as given.`
+        );
+      }
+      render();
+    }).catch(() => {
       text(el("analyse-summary"), "Could not read the settings.");
     });
   }

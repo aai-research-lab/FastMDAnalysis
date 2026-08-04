@@ -1919,8 +1919,6 @@ body.state-ready .loading-screen {
 }
 /* Once chosen, the explanation has done its job and steps back. */
 .analyse-row[data-chosen="true"] .analyse-explains { color: var(--text-secondary); }
-<<<<<<< Updated upstream
-=======
 
 /* Choosing which kind of config to write. Placed above the buttons because it
    changes what they produce, and a choice that changes an action belongs
@@ -1937,4 +1935,142 @@ body.state-ready .loading-screen {
 }
 .analyse-full-toggle input { accent-color: var(--accent-cyan); margin-top: 3px; }
 .analyse-full-toggle .builder-card-note { display: block; margin-top: 4px; }
->>>>>>> Stashed changes
+
+/* ----------------------------------------------------------------------
+   Building a run.
+
+   The page asks three questions in the order somebody answers them, so the
+   structure is a sequence and the numbering says so. The one place with any
+   weight is the first question: it is a fork, not a field, and everything
+   after it depends on the answer.
+   ---------------------------------------------------------------------- */
+.run-start {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+.run-start-choice {
+    background: var(--background-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 18px 20px;
+    text-align: left;
+    transition: border-color var(--duration-fast, 120ms) ease,
+                background var(--duration-fast, 120ms) ease;
+}
+.run-start-choice:hover { background: var(--panel-hover); }
+.run-start-choice[data-chosen="true"] {
+    background: var(--panel-hover);
+    border-color: var(--accent-cyan);
+}
+.run-start-choice:focus-visible {
+    outline: 2px solid var(--accent-cyan);
+    outline-offset: 2px;
+}
+.run-start-label {
+    color: var(--text-primary);
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+.run-start-detail { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+
+.run-phases { display: grid; gap: 10px; }
+.run-phase {
+    align-items: flex-start;
+    background: var(--background-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    cursor: pointer;
+    display: flex;
+    gap: 12px;
+    padding: 12px 16px;
+}
+.run-phase[data-chosen="true"] { box-shadow: inset 3px 0 0 var(--accent-cyan); }
+.run-phase input { accent-color: var(--accent-cyan); margin-top: 3px; }
+.run-phase-naming { display: flex; flex-direction: column; gap: 3px; }
+.run-phase-label { color: var(--text-primary); font-size: 14px; }
+.run-phase-blurb { color: var(--text-muted); font-size: 12px; }
+
+.run-settings { display: grid; gap: 10px; }
+.run-section {
+    background: var(--background-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    overflow: hidden;
+}
+.run-section-head {
+    align-items: center;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    padding: 13px 16px;
+    width: 100%;
+}
+.run-section-head-static { cursor: default; }
+.run-section-head:focus-visible {
+    outline: 2px solid var(--accent-cyan);
+    outline-offset: -2px;
+}
+.run-section-name { font-size: 14px; }
+.run-section-count {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}
+.run-section-body {
+    border-top: 1px solid var(--border-subtle);
+    display: grid;
+    gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    padding: 16px;
+}
+.run-analyses { display: grid; gap: 1px; background: var(--border-subtle); }
+.run-section .analyse-row { border-radius: 0; }
+
+#run-config-preview {
+    background: var(--background-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    margin-top: 14px;
+    max-height: 340px;
+    overflow: auto;
+    padding: 14px 16px;
+    white-space: pre-wrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .run-start-choice { transition: none; }
+}
+
+/* A phase the starting point cannot offer. Shown rather than removed, so the
+   set of things this software does stays visible and the reason one of them
+   is unavailable is legible. */
+.run-phase[data-available="false"] {
+    box-shadow: none;
+    opacity: .5;
+}
+.run-phase[data-available="false"] .run-phase-label { color: var(--text-muted); }
+
+#run-config-verdict[data-ok="true"] { color: var(--accent-green, var(--accent-cyan)); }
+#run-config-verdict[data-ok="false"] { color: var(--accent-amber, var(--text-secondary)); }
+
+/* The picker's button sits with its field rather than in a row of its own,
+   so a path and the way to find one read as a single control. */
+.picker-button { flex: 0 0 auto; }
+.analyse-folder-row[data-folder="false"] .analyse-folder-name {
+    color: var(--text-primary);
+}
+.analyse-folder-row[data-folder="true"] .analyse-folder-name::before {
+    color: var(--text-muted);
+    content: "/ ";
+}

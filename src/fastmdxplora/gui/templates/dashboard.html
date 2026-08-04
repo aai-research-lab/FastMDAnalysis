@@ -43,13 +43,21 @@
         </div>
       </div>
       <nav class="sidebar-nav" role="navigation" aria-label="Dashboard sections">
-        <a href="#builder" class="nav-link" data-view-link="builder">
+        <a href="#run" class="nav-link" data-view-link="run">
           <span class="nav-icon nav-icon-launch" aria-hidden="true"></span>
-          <span>New Exploration</span>
+          <span>New run</span>
         </a>
         <a href="#analyse" class="nav-link" data-view-link="analyse">
           <span class="nav-icon" aria-hidden="true"></span>
-          <span>Analyse Existing Data</span>
+          <span>Analyze Existing Data</span>
+        </a>
+        <a href="#builder" class="nav-link" data-view-link="builder">
+          <span class="nav-icon" aria-hidden="true"></span>
+          <span>Classic builder</span>
+        </a>
+        <a href="#builder" class="nav-link" data-view-link="builder">
+          <span class="nav-icon" aria-hidden="true"></span>
+          <span>Classic builder</span>
         </a>
         <a href="#" class="nav-link" data-view-link="overview" data-requires-run="true">
           <span class="nav-icon" aria-hidden="true"></span>
@@ -147,7 +155,166 @@
         <!-- Dashboard-first simulation builder -->
         <!-- Shown until the router knows better: with nothing running, the
              thing to do is start something. -->
-        <section class="page" data-page="builder">
+        <section class="page" data-page="run">
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">New Exploration</h1>
+              <div class="page-subtitle">
+                Three questions: what you have, what should happen to it, and
+                anything you want to change.
+              </div>
+            </div>
+            <div class="page-header-actions">
+              <div class="muted small mono" id="run-summary">Nothing chosen yet</div>
+              <button type="button" class="ghost-btn" id="run-reset">Reset to defaults</button>
+            </div>
+          </div>
+
+          <div class="card builder-card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">What have you got?</h2>
+                <p class="builder-card-note">
+                  This sets what happens next. You can change it afterwards.
+                </p>
+              </div>
+              <span class="builder-step">01</span>
+            </div>
+            <div class="builder-grid builder-grid-2">
+              <label class="builder-field">
+                <span class="builder-label">Starting from</span>
+                <select id="run-start"></select>
+                <span class="builder-card-note" id="run-start-detail"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="card builder-card" id="run-input-card" hidden>
+            <div class="card-header">
+              <div><h2 class="card-title">Where is it?</h2></div>
+              <span class="builder-step">02</span>
+            </div>
+            <div class="builder-grid builder-grid-2">
+              <label class="builder-field builder-field-wide" id="run-structure-field" hidden>
+                <span class="builder-label">Structure</span>
+                <input type="text" id="run-system" autocomplete="off" data-picks="structure"
+                       placeholder="1L2Y or /path/to/protein.pdb">
+                <span class="builder-card-note">
+                  A four-character identifier is fetched from the PDB.
+                </span>
+              </label>
+              <div class="builder-field builder-field-wide" id="run-trajectory-field" hidden>
+                <span class="builder-label">Trajectory</span>
+                <div class="analyse-path-row">
+                  <input type="text" id="run-trajectory" autocomplete="off" data-picks="trajectory"
+                         placeholder="/path/to/production.dcd">
+                  <button type="button" class="ghost-btn" id="run-look">Find beside it</button>
+                </div>
+                <span class="builder-label" style="margin-top:10px">Structure</span>
+                <input type="text" id="run-topology" autocomplete="off" data-picks="structure"
+                       placeholder="/path/to/topology.pdb">
+                <span class="builder-card-note">
+                  The structure describing the atoms the trajectory moves.
+                </span>
+              </div>
+              <div class="builder-field builder-field-wide" id="run-config-field" hidden>
+                <span class="builder-label">Config file</span>
+                <div class="analyse-path-row">
+                  <input type="text" id="run-config-path" autocomplete="off" data-picks="config"
+                         placeholder="/path/to/fastmdxplora.yml">
+                  <button type="button" class="ghost-btn" id="run-check-config">Check it</button>
+                </div>
+                <span class="builder-card-note" id="run-config-verdict"></span>
+                <div class="page-header-actions" style="margin-top:10px">
+                  <button type="button" class="ghost-btn" id="run-open-config" disabled>
+                    Open and change it
+                  </button>
+                  <button type="button" class="primary-btn" id="run-as-is" disabled>
+                    Run it as it is
+                  </button>
+                </div>
+                <span class="builder-card-note">
+                  Opening it never writes to it. Anything you change is saved as
+                  a new file, so a config kept beside a paper stays as it was.
+                </span>
+              </div>
+              <div class="builder-field" id="run-output-field">
+                <span class="builder-label">Results folder</span>
+                <input type="text" id="run-output" autocomplete="off" data-picks="folder"
+                       placeholder="fastmdxplora_output">
+                <span class="builder-card-note" id="run-output-note"></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="card builder-card" id="run-phases-card" hidden>
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">What should happen?</h2>
+                <p class="builder-card-note">
+                  Each of these can be left out. A run that only analyses is a
+                  run with one of them ticked.
+                </p>
+              </div>
+              <span class="builder-step">03</span>
+            </div>
+            <div class="run-phases" id="run-phases"></div>
+          </div>
+
+          <div class="card builder-card" id="run-settings-card" hidden>
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">Anything to change?</h2>
+                <p class="builder-card-note">
+                  Every setting has a default that works. These are here for
+                  when it does not.
+                </p>
+              </div>
+              <span class="builder-step">04</span>
+            </div>
+            <div class="run-settings" id="run-settings"></div>
+          </div>
+
+          <div class="card builder-card" id="run-actions-card" hidden>
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">Run it here, or take it with you</h2>
+                <p class="builder-card-note">
+                  The same file either way. A laptop is a poor place to run a
+                  long simulation; a cluster is a poor place to decide what to
+                  run.
+                </p>
+              </div>
+              <span class="builder-step">05</span>
+            </div>
+            <label class="analyse-full-toggle">
+              <input type="checkbox" id="run-full-config">
+              <span>
+                Write every setting, not only the ones I changed
+                <span class="builder-card-note">
+                  A full config records what the run used, so a default that
+                  moves in a later version cannot change what the file meant.
+                </span>
+              </span>
+            </label>
+            <div class="page-header-actions">
+              <button type="button" class="ghost-btn" id="run-preview"
+                      aria-expanded="false" aria-controls="run-config-preview">
+                Show the config
+              </button>
+              <button type="button" class="ghost-btn" id="run-download" disabled>
+                Download config
+              </button>
+              <button type="button" class="primary-btn" id="run-start-button" disabled>
+                Run here
+              </button>
+            </div>
+            <div class="builder-card-note" id="run-note"></div>
+            <pre class="mono small" id="run-config-preview" hidden></pre>
+          </div>
+        </section>
+
+        <section class="page" data-page="builder" hidden>
           <div class="page-header builder-page-header">
             <div>
               <h1 class="page-title">New Exploration</h1>
@@ -366,7 +533,7 @@
         <section class="page" data-page="analyse" hidden>
           <div class="page-header">
             <div>
-              <h1 class="page-title">Analyse Existing Data</h1>
+              <h1 class="page-title">Analyze Existing Data</h1>
               <div class="page-subtitle">
                 Point at a folder holding a trajectory and choose what to measure.
                 The simulation can have come from anywhere.
@@ -374,6 +541,9 @@
             </div>
             <div class="page-header-actions">
               <div class="muted small mono" id="analyse-summary">Nothing selected yet</div>
+              <button type="button" class="ghost-btn" id="analyse-reset">
+                Reset to defaults
+              </button>
             </div>
           </div>
 
@@ -391,14 +561,13 @@
             <div class="builder-grid builder-grid-2">
               <label class="builder-field builder-field-wide">
                 <span class="builder-label">Folder</span>
-                <input type="text" id="analyse-folder" autocomplete="off"
+                <input type="text" id="analyse-folder" autocomplete="off" data-picks="folder"
                        placeholder="/path/to/simulation/output">
                 <span class="builder-card-note" id="analyse-folder-note"></span>
               </label>
               <div class="builder-field">
                 <span class="builder-label">&nbsp;</span>
                 <div class="page-header-actions">
-                  <button type="button" class="ghost-btn" id="analyse-browse">Browse…</button>
                   <button type="button" class="ghost-btn" id="analyse-look">Look</button>
                 </div>
               </div>
@@ -445,11 +614,12 @@
               <div class="builder-field">
                 <span class="builder-label">Results folder</span>
                 <div class="analyse-path-row">
-                  <input type="text" id="analyse-output" autocomplete="off"
-                         placeholder="analysis_run">
-                  <button type="button" class="ghost-btn" id="analyse-browse-output">Browse…</button>
+                  <input type="text" id="analyse-output" autocomplete="off" data-picks="folder"
+                         placeholder="analysis_output">
                 </div>
-                <span class="builder-card-note">Where the figures and data are written.</span>
+                <span class="builder-card-note" id="analyse-output-note">
+                  Where the figures and data are written.
+                </span>
               </div>
             </div>
             <div class="analyse-choices" id="analyse-choices"></div>
@@ -478,32 +648,13 @@
               </span>
             </label>
             <div class="page-header-actions">
-              <button type="button" class="ghost-btn" id="analyse-preview">Show the config</button>
+              <button type="button" class="ghost-btn" id="analyse-preview" aria-expanded="false"
+                      aria-controls="analyse-config-preview">Show the config</button>
               <button type="button" class="ghost-btn" id="analyse-download" disabled>Download config</button>
               <button type="button" class="primary-btn" id="analyse-run" disabled>Run here</button>
             </div>
             <div class="builder-card-note" id="analyse-config-note"></div>
             <pre class="mono small" id="analyse-config-preview" hidden></pre>
-          </div>
-
-          <div class="analyse-picker" id="analyse-picker" hidden>
-            <div class="analyse-picker-panel" role="dialog" aria-modal="true"
-                 aria-label="Choose a folder">
-              <div class="analyse-picker-head">
-                <div>
-                  <div class="builder-label">Folder</div>
-                  <div class="mono small" id="analyse-picker-path"></div>
-                  <div class="builder-card-note" id="analyse-picker-holds"></div>
-                </div>
-                <button type="button" class="ghost-btn" id="analyse-picker-cancel">Cancel</button>
-              </div>
-              <div class="analyse-picker-list" id="analyse-picker-list"></div>
-              <div class="analyse-picker-foot">
-                <button type="button" class="primary-btn" id="analyse-picker-choose">
-                  Use this folder
-                </button>
-              </div>
-            </div>
           </div>
         </section>
 
@@ -523,7 +674,7 @@
           <div class="grid grid-4 metric-cards" id="overview-summary-cards" hidden></div>
 
           <div class="grid grid-2">
-            <div class="card hero-card" id="hero-card" data-state="running">
+            <div class="card hero-card" id="hero-card" data-state="running" data-needs-phase="simulation">
               <div class="hero-card-top">
                 <div>
                   <div class="hero-label">Exploration status</div>
@@ -555,7 +706,7 @@
                 </div>
               </div>
             </div>
-            <div class="card hero-card" id="hero-health" data-state="normal">
+            <div class="card hero-card" id="hero-health" data-state="normal" data-needs-phase="simulation">
               <div class="hero-card-top">
                 <div>
                   <div class="hero-label">Simulation health</div>
@@ -1069,6 +1220,8 @@
   <script src="/static/dashboard.js"></script>
   <script src="/static/simulation-builder.js"></script>
     <script src="/static/analysis-builder.js"></script>
+    <script src="/static/file-picker.js"></script>
+    <script src="/static/run-builder.js"></script>
   <script src="/static/charts.js"></script>
   <script src="/static/molecule-viewer.js"></script>
 </body>
