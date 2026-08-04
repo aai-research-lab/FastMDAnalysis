@@ -7,6 +7,78 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+Three changes here alter numbers a 2.2.0 run produced. Hydrogen-bond counts
+rise, because a bond present in few frames was being left out of all of them.
+The `v1` analysis profile is gone, so a command that named it now fails rather
+than quietly applying a table of settings. Clustering keeps its default and
+gains an alternative, which changes nothing unless asked for.
+
+### Removed
+- **`--compat v1` and `--analyze-compat v1`.** The profile applied a table of
+  analysis options described as version 1's. Three of them were this
+  software's own defaults, one named a parameter version 1 does not have, and
+  two were neither implementation's: the hydrogen-bond entry multiplied the
+  per-frame count by two, and the clustering entry asked for six clusters
+  where version 1 falls back to three.
+
+  Neither version 1 nor MDTraj counts a hydrogen bond twice — version 1 takes
+  `len(baker_hubbard(frame))`, one row per donor-hydrogen-acceptor triplet —
+  so the multiplier modelled nothing. And the clustering entry could not have
+  reproduced version 1 at any number, because the two compare frames in
+  different spaces.
+
+  Reproducing a published result means running the same method and finding the
+  same number. A flag that supplies the number removes the thing being
+  checked. State the settings instead: `--scope`, `--selection`, `--stride`,
+  and the per-analysis options, all of which `fastmdx analyze --help` lists.
+
+### Fixed
+- **Hydrogen bonds are counted in every frame they occur in.** Baker-Hubbard
+  proposes bonds above an occupancy threshold, and only proposed bonds were
+  evaluated frame by frame — so a bond present in five per cent of frames
+  contributed to none of them, including the frames it was in. The series is
+  the number of hydrogen bonds per frame, and it was reporting the number of
+  persistent ones. **Counts will be higher than 2.2.0 reported.** Raise
+  `candidate_freq` to restrict the series again.
+- **`freq` reports what it names.** Its only effect had been deciding which
+  bonds were proposed; it now records how many are persistent at that
+  threshold, alongside how many were found, in the analysis manifest.
+- **An analysis option the software cannot apply stops the run.** Every
+  analysis ends its signature with `**kwargs`, which the base class stores and
+  nothing reads, so a misspelled setting was accepted, ignored, and the run
+  reported success. Asking for `n_clusteres` clustered at the default and said
+  nothing about it.
+- **`--analyze-dimred-components` had never worked.** The flag became an option
+  name by dropping the analysis prefix, which gives `components`, while the
+  option is `n_components`. Nothing accepted it, so anyone who set it reduced
+  to two components and was told the run succeeded.
+- **A default is declared once.** Three phase tables restated ninety values the
+  schema also declared, and four lists of accepted values existed in the
+  command line, the browser, and beside the code validating them. `DEFAULT_PH`
+  had already stopped agreeing: it sat unread in the setup package at 7.0
+  after the pH default became 7.4. A default must now also be one of its own
+  accepted values, which cannot be stated while the two live apart.
+
+### Added
+- **`--cluster-features`**, which states what clustering compares frames in.
+  `rmsd` (the default, and what 2.2.0 did) superposes every pair optimally, so
+  the distance cannot depend on where the molecule sits. `coordinates`
+  superposes each frame onto the first and compares directly, scaled by
+  1/sqrt(n_atoms) so a distance is still an RMSD in nm — the cheaper
+  approximation, and the space `ward` and k-means were defined in.
+
+  The choice changes the answer more than any parameter here does. Comparing
+  coordinates without superposing, as version 1 does, makes the leading
+  difference between frames where the molecule drifted and how it turned: on a
+  trajectory with a hinge motion and rigid-body drift, it recovers the two
+  conformations no better than chance, where pairwise RMSD recovers them
+  completely.
+- **`--setup-protonation-margin`**, so a setting the software tells you to
+  narrow can be reached without editing a config file.
+- Every analysis now describes the settings it accepts, read from its own
+  constructor and docstring rather than restated anywhere. A setting nobody
+  has explained fails a check, so the description cannot fall behind.
+
 ## [2.2.0] — 2026-08-03
 
 Protein-ligand systems from a PDB identifier alone. A crystal structure

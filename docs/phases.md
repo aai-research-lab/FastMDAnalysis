@@ -79,6 +79,14 @@ To compare against another tool, state the settings and run both. Where the
 numbers agree that is a reproduction; where they do not, the difference is a
 finding about the two methods rather than something to configure away.
 
+Two analyses are worth knowing about before comparing. Clustering and
+dimensionality reduction both depend on what the frames are compared in, and
+FastMDXplora superposes before either: without that, the leading difference
+between frames is where the molecule drifted and how it turned, not how its
+shape changed. A tool that does not superpose will not agree, and the
+disagreement is about method rather than settings. `--cluster-features` states
+the choice for clustering.
+
 ## report
 
 Assembles the results into shareable deliverables: a structured Markdown
