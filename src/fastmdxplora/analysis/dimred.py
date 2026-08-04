@@ -134,6 +134,22 @@ class DimRed(Analysis):
         # for t-SNE/UMAP to be scale-invariant.)
         coords = coords - coords.mean(axis=0)
 
+        # A structure that does not move has no variance to decompose. PCA
+        # divides the variance of each component by the total, which is zero
+        # here, so the ratios came out NaN and the figure was labelled
+        # "PC 1 (nan%)" over a scatter of coincident points. The other methods
+        # fare no better: there are no neighbourhoods to preserve among points
+        # that are all the same point.
+        if not np.any(coords.var(axis=0) > 0):
+            raise ValueError(
+                "There is nothing to decompose: once aligned, every frame of "
+                "the selected atoms is identical, so the coordinates have no "
+                "variance. A single repeated structure, a minimisation written "
+                "as a trajectory, or a selection whose atoms happen not to "
+                "move will do this. Widen the selection, or analyse a "
+                "trajectory that samples."
+            )
+
         results: dict[str, np.ndarray] = {}
         for method in self.methods:
             if method == "pca":

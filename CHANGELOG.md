@@ -59,6 +59,13 @@ gains an alternative, which changes nothing unless asked for.
   Where nothing in the selection has a backbone -- a nucleic acid, a lone
   ligand, a coarse-grained model -- the analysis now says so instead of
   drawing an empty timeline.
+- **Dimensionality reduction says when there is nothing to decompose.** A
+  structure that does not move has no variance, and PCA divides each
+  component's variance by the total: the ratios came out NaN and the figure
+  was labelled `PC 1 (nan%)` over a scatter of coincident points, which looks
+  like a result and is not one. The only sign was a numpy warning about
+  dividing by zero. All three methods now refuse, since there are no
+  neighbourhoods to preserve among points that are all the same point.
 - **An atom column is always a number.** `Atom.serial` is supplied by the file
   a topology came from; a trajectory built in memory has none, and `None`
   became NaN in the RMSF and ligand-RMSF atom column. The saved data carried

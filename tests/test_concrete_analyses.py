@@ -882,3 +882,69 @@ class TestAtomLabelsAreNeverNotANumber:
         labels = _atom_labels(list(traj.topology.atoms))
         assert labels.dtype == np.int64
         assert (labels > 0).all()
+
+
+class TestDimRedSaysWhenThereIsNothingToDecompose:
+    """Variance is what a decomposition decomposes.
+
+    A structure that does not move has none. PCA divides each component's
+    variance by the total, which is zero, so the ratios came out NaN and the
+    figure was labelled "PC 1 (nan%)" over a scatter of coincident points --
+    a plot that looks like a result and is not one. The only sign was a numpy
+    warning about dividing by zero, nine of them in one test run.
+    """
+
+    @staticmethod
+    def _motionless(n_frames: int = 10):
+        top = md.Topology()
+        chain = top.add_chain()
+        res = top.add_residue("ALA", chain)
+        for i in range(5):
+            top.add_atom(f"A{i}", md.element.carbon, res)
+        base = np.random.RandomState(0).rand(5, 3)
+        xyz = np.tile(base[None], (n_frames, 1, 1)).astype(np.float32)
+        return md.Trajectory(xyz=xyz, topology=top)
+
+    def test_it_refuses_and_says_why(self) -> None:
+        import pytest
+
+        from fastmdxplora.analysis.dimred import DimRed
+
+        with pytest.raises(ValueError, match="nothing to decompose"):
+            DimRed(methods=["pca"], selection="all").compute(self._motionless())
+
+    def test_no_division_by_zero_reaches_numpy(self) -> None:
+        import warnings
+
+        from fastmdxplora.analysis.dimred import DimRed
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            try:
+                DimRed(methods=["pca"], selection="all").compute(self._motionless())
+            except ValueError:
+                pass
+            assert not [w for w in caught if "invalid value" in str(w.message)]
+
+    def test_every_method_is_covered_not_only_pca(self) -> None:
+        """There are no neighbourhoods among points that are all one point."""
+        import pytest
+
+        from fastmdxplora.analysis.dimred import DimRed
+
+        with pytest.raises(ValueError, match="nothing to decompose"):
+            DimRed(methods=["tsne"], selection="all").compute(self._motionless())
+
+    def test_a_trajectory_that_moves_is_unaffected(self) -> None:
+        from fastmdxplora.analysis.dimred import DimRed
+
+        traj = self._motionless()
+        moving = md.Trajectory(
+            xyz=traj.xyz + np.random.RandomState(1).normal(
+                scale=0.01, size=traj.xyz.shape).astype(np.float32),
+            topology=traj.topology,
+        )
+        analysis = DimRed(methods=["pca"], selection="all")
+        embedding = analysis.compute(moving)["pca"]
+        assert np.isfinite(embedding).all()
+        assert np.isfinite(analysis._explained_variance).all()
