@@ -568,11 +568,78 @@ class TestUnknownOptionsAreRefused:
         for name, opts in sent["options"].items():
             AnalysisOrchestrator._reject_unknown_options(name, opts)
 
-    def test_the_v1_profile_only_sends_real_options(self) -> None:
-        """--analyze-compat v1 writes a whole table of options by hand."""
-        from fastmdxplora.analysis.orchestrator import AnalysisOrchestrator
-        from fastmdxplora.cli.main import _normalize_analysis_options
 
-        sent = _normalize_analysis_options({"compat": "v1"})
-        for name, opts in sent["options"].items():
-            AnalysisOrchestrator._reject_unknown_options(name, opts)
+
+class TestAnalysesDescribeThemselves:
+    """What an analysis accepts is read from the analysis, not restated.
+
+    The constructor names its settings and gives their defaults; the docstring
+    says what each means and which values are allowed. Writing that out a
+    second time somewhere a form could read it would be one more thing to
+    update when an analysis gains an option -- and the copy that gets forgotten
+    is the one nobody is looking at.
+    """
+
+    def test_every_option_an_analysis_accepts_is_described(self) -> None:
+        """A setting nobody explained cannot be offered with a useful label."""
+        import fastmdxplora.analysis  # noqa: F401  (populates the registry)
+        from fastmdxplora.analysis.describe import undocumented_options
+
+        missing = undocumented_options()
+        assert not missing, (
+            "these settings are accepted but not explained in their own "
+            f"docstring, so nothing can label them: {missing}"
+        )
+
+    def test_the_description_matches_what_is_accepted(self) -> None:
+        """Describing an option the constructor rejects would be worse than
+        describing none: a form would offer a control that stops the run."""
+        import fastmdxplora.analysis  # noqa: F401
+        from fastmdxplora.analysis.describe import describe_all
+        from fastmdxplora.analysis.orchestrator import AnalysisOrchestrator
+
+        for name, options in describe_all().items():
+            AnalysisOrchestrator._reject_unknown_options(
+                name, {o.name: o.default for o in options}
+            )
+
+    def test_a_default_is_one_of_its_own_choices(self) -> None:
+        import fastmdxplora.analysis  # noqa: F401
+        from fastmdxplora.analysis.describe import describe_all
+
+        broken = [
+            f"{name}.{o.name}: {o.default!r} not in {o.choices}"
+            for name, options in describe_all().items()
+            for o in options
+            if o.choices and o.default is not None and o.default not in o.choices
+        ]
+        assert not broken, broken
+
+    def test_choices_are_read_from_the_braced_part_only(self) -> None:
+        """The type line carries the default too, and it is quoted as well.
+
+        Reading the whole line offered 'average' twice for cluster linkage.
+        """
+        import fastmdxplora.analysis  # noqa: F401
+        from fastmdxplora.analysis.describe import describe_analysis
+
+        linkage = next(o for o in describe_analysis("cluster") if o.name == "linkage")
+        assert linkage.choices == ("ward", "complete", "average", "single")
+
+    def test_an_entry_naming_several_options_describes_each(self) -> None:
+        """The base class writes 'title, xlabel, ylabel : str' as one entry."""
+        import fastmdxplora.analysis  # noqa: F401
+        from fastmdxplora.analysis.describe import describe_analysis
+
+        described = {o.name: o.help for o in describe_analysis("rmsd")}
+        for shared in ("title", "xlabel", "ylabel"):
+            assert described[shared], f"{shared} was left unexplained"
+
+    def test_shared_settings_are_marked_as_the_base_class_s(self) -> None:
+        """So a form can group them apart from what makes an analysis itself."""
+        import fastmdxplora.analysis  # noqa: F401
+        from fastmdxplora.analysis.describe import describe_analysis
+
+        owners = {o.name: o.owner for o in describe_analysis("cluster")}
+        assert owners["n_clusters"] == "Cluster"
+        assert owners["figsize"] == "Analysis"

@@ -169,9 +169,6 @@ _ANALYSIS_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
         "help": "First frame index to include (default 0)."}),
     ("last", "last", {"type": int,
         "help": "Last frame index (exclusive). Default: full trajectory."}),
-    ("compat", "compat", {"choices": ["v1"],
-        "help": "Reproduce the analysis settings of FastMDXplora version 1 "
-                "(the published BPTI workflow)."}),
     ("dimred-methods", "dimred_methods", {"nargs": "+", "choices": ["pca", "tsne", "umap"],
         "metavar": "METHOD",
         "help": "Dimensionality-reduction methods (e.g. pca)."}),
@@ -182,6 +179,10 @@ _ANALYSIS_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
         "help": "Clustering methods (e.g. hierarchical)."}),
     ("cluster-n-clusters", "cluster_n_clusters", {"type": int, "metavar": "N",
         "help": "Number of clusters for k-means/hierarchical clustering."}),
+    ("cluster-features", "cluster_features", {"choices": ["rmsd", "coordinates"],
+        "help": "What clustering compares frames in: rmsd superposes every "
+                "pair optimally; coordinates superposes each onto the first "
+                "and compares directly."}),
     ("cluster-linkage", "cluster_linkage",
         {"choices": ["ward", "complete", "average", "single"],
          "help": "Hierarchical clustering linkage method."}),
@@ -366,22 +367,6 @@ def _normalize_analysis_options(kwargs: dict[str, Any]) -> dict[str, Any]:
     ``explore`` flags without changing the Python API.
     """
     out = dict(kwargs)
-    compat = out.pop("compat", None)
-    if compat == "v1":
-        # Settings used by the paper's BPTI case study. Explicit CLI values
-        # still win, so this is a reproducible opt-in profile rather than a
-        # change to FastMDXplora's general-purpose defaults.
-        out.setdefault("scope", "protein")
-        # Version 1 uses the complete protein atom set when the BPTI
-        # options file does not provide an atom selection.  Set this at the
-        # compatibility boundary so RMSD/RMSF do not fall back to Xplora's
-        # CA-only defaults.
-        out.setdefault("selection", "protein")
-        out.setdefault("stride", 2)
-        out.setdefault(
-            "include",
-            ["rmsd", "rmsf", "rg", "hbonds", "sasa", "ss", "dimred", "cluster"],
-        )
     nested = {
         "dimred": {
             key: out.pop(key)
@@ -390,37 +375,12 @@ def _normalize_analysis_options(kwargs: dict[str, Any]) -> dict[str, Any]:
         },
         "cluster": {
             key: out.pop(key)
-            for key in ("cluster_methods", "cluster_n_clusters", "cluster_linkage")
+            for key in ("cluster_methods", "cluster_n_clusters",
+                        "cluster_linkage", "cluster_features")
             if key in out
         },
     }
     options = dict(out.get("options") or {})
-    if compat == "v1":
-        paper_defaults = {
-            "rmsd": {"ref": 0, "align": True},
-            "rmsf": {"ref": 0, "per_residue": False},
-            "sasa": {
-                "mode": "total",
-                "probe_radius": 0.14,
-                "n_sphere_points": 960,
-            },
-            # Version 1 reports both donor/acceptor directions and
-            # counts transient Baker-Hubbard bonds, rather than filtering
-            # the per-frame series by the occupancy threshold first.
-            "hbonds": {
-                "method": "baker_hubbard",
-                "freq": 0.1,
-                "candidate_freq": 0.0,
-                "count_multiplier": 2,
-            },
-            "dimred": {"methods": ["pca"], "n_components": 2},
-            "cluster": {"methods": ["hierarchical"], "n_clusters": 6},
-        }
-        for name, values in paper_defaults.items():
-            current = dict(options.get(name) or {})
-            for key, value in values.items():
-                current.setdefault(key, value)
-            options[name] = current
     for name, values in nested.items():
         if values:
             current = dict(options.get(name) or {})

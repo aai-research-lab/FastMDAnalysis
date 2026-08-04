@@ -104,32 +104,30 @@ FastMDXplora CLI, use the explicit compatibility profile. It selects protein
 scope, every second frame, PCA, and six-state hierarchical clustering while
 leaving FastMDXplora's normal defaults unchanged:
 
+State the settings the comparison needs, rather than naming a profile that
+supplies them:
+
 ```bash
 fastmdx analyze \
   --system bpti.pdb \
-  --output ./bpti_fastmdxplora_paper \
+  --output ./bpti_comparison \
   --trajectory bpti.dcd \
   --topology bpti.pdb \
-  --compat v1
+  --scope protein --selection protein --stride 2 \
+  --include rmsd rmsf rg hbonds sasa ss dimred cluster \
+  --cluster-methods hierarchical --cluster-n-clusters 3
 ```
-
-The profile runs RMSD, RMSF, radius of gyration, hydrogen bonds, SASA,
-secondary structure, PCA, and hierarchical clustering with `n_clusters=6`.
-It uses the full `protein` atom selection, aligned RMSD against frame 0, and
-per-atom RMSF to match version 1 when its BPTI options file omits an atom
-selection. Individual method flags such as `--cluster-n-clusters` can override the
-profile when testing a deliberate variant.
 
 The equivalent `explore` spelling uses the phase prefix:
 
 ```bash
 fastmdx explore \
   --system bpti.pdb \
-  --output ./bpti_fastmdxplora_paper \
+  --output ./bpti_comparison \
   --include analysis report \
   --analyze-trajectory bpti.dcd \
   --analyze-topology bpti.pdb \
-  --analyze-compat v1
+  --analyze-scope protein --analyze-selection protein --analyze-stride 2
 ```
 
 Pointing later phases at the same `--output` lets them pick up the

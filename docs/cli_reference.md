@@ -45,30 +45,9 @@ fastmdx explore --system protein.pdb --no-report
 `--include` and `--exclude` are mutually exclusive. The phase names are
 `setup`, `simulation`, `analysis`, and `report`.
 
-The `v1` compatibility profile is opt-in. It is not called
-`compact`:
-
-```bash
-# Direct analyze command
-fastmdx analyze --output ./run --compat v1
-
-# Prefixed form under explore
-fastmdx explore --system protein.pdb --include analysis report \
-  --analyze-compat v1
-```
-
-## Configure each phase
-
-On `explore`, options are prefixed by phase:
-
-```bash
-fastmdx explore --system protein.pdb \
-  --setup-ph 7.4 \
-  --simulate-duration-ns 10 \
-  --simulate-platform CUDA \
-  --analyze-analyses rmsd rmsf rg cluster \
-  --report-title "My protein study"
-```
+To compare against another tool, state the settings and run both. Where the
+numbers agree that is a reproduction; where they do not, the difference is a
+finding about the two methods rather than something to configure away.
 
 When calling a phase directly, remove the prefix:
 

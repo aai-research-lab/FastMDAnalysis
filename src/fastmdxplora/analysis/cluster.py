@@ -48,6 +48,24 @@ from fastmdxplora.analysis.plotting import new_figure, save_figure
 
 VALID_METHODS = ("kmeans", "hierarchical", "dbscan")
 
+#: What the frames are compared in.
+#:
+#: ``rmsd`` measures every pair with its own optimal superposition, so the
+#: distance is invariant to how the molecule happens to be placed. ``ward``
+#: needs a Euclidean space and reaches one through a classical MDS embedding.
+#:
+#: ``coordinates`` superposes every frame onto the first and compares the
+#: coordinates directly, which is the cheaper approximation and the space
+#: ``ward`` and k-means were defined in. The coordinates are scaled by
+#: 1/sqrt(n_atoms), so a distance in this space is an RMSD measured against
+#: that one common alignment rather than a pairwise one: ``eps`` keeps its
+#: meaning in nm, and the two feature spaces stay comparable.
+#:
+#: Which to use is a real choice and not a detail. A common alignment is exact
+#: only where the optimal pairwise superposition is the same one; across a
+#: large conformational change it is not, and the two will disagree.
+VALID_FEATURES = ("rmsd", "coordinates")
+
 
 class Cluster(Analysis):
     """Conformational clustering by pairwise RMSD.
@@ -64,11 +82,18 @@ class Cluster(Analysis):
         DBSCAN distance threshold in nm.
     min_samples : int, default 5
         DBSCAN minimum samples per cluster.
+    features : {"rmsd", "coordinates"}, default "rmsd"
+        What the frames are compared in. ``"rmsd"`` measures every pair with
+        its own optimal superposition, so the distance does not depend on how
+        the molecule happens to be placed. ``"coordinates"`` superposes every
+        frame onto the first and compares coordinates directly, scaled so a
+        distance is still an RMSD in nm -- the cheaper approximation, exact
+        only where one alignment serves every pair. The choice changes the
+        answer more than any parameter here does, so it is worth stating.
     linkage : {"ward", "complete", "average", "single"}, default "average"
-        Hierarchical linkage method. ``"ward"`` requires Euclidean
-        distance metric, which is not available when using a precomputed
-        RMSD matrix — ``"average"`` is the safe default for RMSD-based
-        clustering.
+        Hierarchical linkage method. ``"ward"`` needs the frames as points
+        rather than as distances: in the coordinate space they are, and from
+        an RMSD matrix a classical MDS embedding stands in for them.
     selection : str, optional
         MDTraj atom selection for the RMSD calculation. Defaults to
         ``"name CA"`` (CA-only is fast and capture the global fold well).
@@ -90,6 +115,7 @@ class Cluster(Analysis):
         self,
         *,
         methods: list[str] | None = None,
+        features: str = "rmsd",
         n_clusters: int = 5,
         eps: float = 0.2,
         min_samples: int = 5,
@@ -105,12 +131,20 @@ class Cluster(Analysis):
                 f"Unknown clustering method(s): {unknown}. Valid: {VALID_METHODS}"
             )
         self.methods: list[str] = methods
+        features = str(features).lower()
+        if features not in VALID_FEATURES:
+            raise ValueError(
+                f"Unknown clustering features {features!r}. "
+                f"Valid: {', '.join(VALID_FEATURES)}"
+            )
+        self.features: str = features
         self.n_clusters: int = int(n_clusters)
         self.eps: float = float(eps)
         self.min_samples: int = int(min_samples)
         self.linkage: str = str(linkage)
         self.options.update(
             methods=self.methods,
+            features=self.features,
             n_clusters=self.n_clusters,
             eps=self.eps,
             min_samples=self.min_samples,
@@ -126,9 +160,13 @@ class Cluster(Analysis):
             Maps method name → array of per-frame cluster labels (int).
             DBSCAN's ``-1`` label indicates "noise" (unclustered frames).
         """
-        # Build the pairwise RMSD distance matrix once and share across methods.
         atom_idx = self.select_atoms(traj)
-        distances = _pairwise_rmsd(traj, atom_idx)
+        if self.features == "coordinates":
+            embedding = _superposed_coordinates(traj, atom_idx)
+            distances = _euclidean_matrix(embedding)
+        else:
+            embedding = None
+            distances = _pairwise_rmsd(traj, atom_idx)
         self._distances = distances  # cached for the plot
 
         # k-means and hierarchical clustering need at least as many frames
@@ -147,10 +185,12 @@ class Cluster(Analysis):
         results: dict[str, np.ndarray] = {}
         for method in self.methods:
             if method == "kmeans":
-                results[method] = _cluster_kmeans(distances, self.n_clusters)
+                results[method] = _cluster_kmeans(
+                    distances, self.n_clusters, embedding=embedding)
             elif method == "hierarchical":
                 results[method] = _cluster_hierarchical(
-                    distances, self.n_clusters, self.linkage
+                    distances, self.n_clusters, self.linkage,
+                    embedding=embedding,
                 )
             elif method == "dbscan":
                 results[method] = _cluster_dbscan(
@@ -311,29 +351,67 @@ def _pairwise_rmsd(traj: md.Trajectory, atom_idx: np.ndarray) -> np.ndarray:
     return dist
 
 
-def _cluster_kmeans(distances: np.ndarray, n_clusters: int) -> np.ndarray:
-    """K-means on multidimensional scaling embedding of the RMSD matrix."""
-    # K-means needs a feature vector representation; project the distance
-    # matrix into a Euclidean space via classical MDS (cmdscale).
-    embedding = _classical_mds(distances, n_components=min(10, distances.shape[0] - 1))
+def _superposed_coordinates(
+    traj: md.Trajectory, atom_idx: np.ndarray
+) -> np.ndarray:
+    """Frames as vectors, aligned to the first and scaled to RMSD units.
+
+    Superposing matters. Without it the leading differences between frames are
+    where the molecule drifted and how it turned, not how it changed shape, and
+    two identical conformations in different orientations come out as far apart
+    as anything in the trajectory.
+
+    Dividing by sqrt(n_atoms) makes a Euclidean distance here equal to the RMSD
+    between those frames under this one alignment, so distances stay in nm and
+    mean the same thing they do in the other feature space.
+    """
+    aligned = traj.superpose(traj, frame=0, atom_indices=atom_idx)
+    coords = aligned.xyz[:, atom_idx, :].reshape(traj.n_frames, -1)
+    return coords / np.sqrt(len(atom_idx))
+
+
+def _euclidean_matrix(embedding: np.ndarray) -> np.ndarray:
+    """Pairwise distances in the coordinate space, for the plot and DBSCAN."""
+    diff = embedding[:, None, :] - embedding[None, :, :]
+    return np.sqrt((diff ** 2).sum(axis=-1))
+
+
+def _cluster_kmeans(
+    distances: np.ndarray, n_clusters: int, embedding: np.ndarray | None = None
+) -> np.ndarray:
+    """K-means, which needs frames as points rather than as distances."""
+    if embedding is None:
+        # Project the distance matrix into a Euclidean space via classical MDS.
+        embedding = _classical_mds(
+            distances, n_components=min(10, distances.shape[0] - 1)
+        )
     model = KMeans(n_clusters=n_clusters, n_init=10, random_state=42)
     return model.fit_predict(embedding).astype(int)
 
 
 def _cluster_hierarchical(
-    distances: np.ndarray, n_clusters: int, linkage: str
+    distances: np.ndarray,
+    n_clusters: int,
+    linkage: str,
+    embedding: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Agglomerative hierarchical clustering on the precomputed distance matrix."""
-    # `ward` linkage requires a Euclidean (not precomputed) distance.
-    # When the user requests ward, embed via MDS first.
+    """Agglomerative hierarchical clustering.
+
+    Every linkage but ward works from the distances directly. Ward is defined
+    by variance within a cluster, so it needs the frames as points: in the
+    coordinate feature space they already are, and from a distance matrix a
+    classical MDS embedding stands in for them.
+    """
     if linkage == "ward":
-        embedding = _classical_mds(
-            distances, n_components=min(10, distances.shape[0] - 1)
+        points = (
+            embedding
+            if embedding is not None
+            else _classical_mds(
+                distances, n_components=min(10, distances.shape[0] - 1)
+            )
         )
-        model = AgglomerativeClustering(
-            n_clusters=n_clusters, linkage="ward"
-        )
-        return model.fit_predict(embedding).astype(int)
+        model = AgglomerativeClustering(n_clusters=n_clusters, linkage="ward")
+        return model.fit_predict(points).astype(int)
 
     model = AgglomerativeClustering(
         n_clusters=n_clusters,

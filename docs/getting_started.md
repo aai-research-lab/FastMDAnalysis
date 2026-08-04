@@ -407,22 +407,24 @@ In another terminal, while the run is active or afterward:
 fastmdx gui --output runs/python_dashboard
 ```
 
-## 7. Analyze with the version 1 compatibility profile
+## 7. Compare against another tool
 
-The profile is named `v1`. It reproduces the analysis settings of
-FastMDXplora version 1 so published results stay reproducible.
+There is no profile that fills in another tool's settings for you. Reproducing
+a published analysis means stating the settings it used and finding the same
+numbers; a flag that supplies the numbers removes the thing being checked.
 
-For a direct analysis command, use `--compat v1`:
+State them:
 
 ```bash
 fastmdx analyze \
   --output runs/bpti_reference \
   --trajectory trajectory/production.dcd \
   --topology trajectory/topology.pdb \
-  --compat v1
+  --scope protein --selection protein --stride 2 \
+  --include rmsd rmsf rg hbonds sasa ss dimred cluster
 ```
 
-When using `explore`, the same option is phase-prefixed:
+Under `explore`, the same options carry the phase prefix:
 
 ```bash
 fastmdx explore \
@@ -431,28 +433,13 @@ fastmdx explore \
   --include analysis report \
   --analyze-trajectory trajectory/production.dcd \
   --analyze-topology trajectory/topology.pdb \
-  --analyze-compat v1
+  --analyze-scope protein --analyze-selection protein --analyze-stride 2
 ```
 
-The profile applies the published version 1 defaults: protein
-scope, protein selection, every-second-frame loading, RMSD alignment against
-frame 0, PCA, and hierarchical clustering with six clusters, plus the
-compatibility defaults for the standard analyses.
-
-It is a comparison aid, not proof of numerical reproduction. Compare the
-`.dat`/`.csv` arrays, topology/selection rules, frame spacing, and analysis
-metadata before comparing plots.
-
-Other analysis controls are explicit:
-
-```bash
-fastmdx analyze --output runs/protein_001 \
-  --analyses rmsd rmsf rg cluster \
-  --scope protein \
-  --stride 2 \
-  --cluster-methods hierarchical \
-  --cluster-n-clusters 6
-```
+Where the numbers agree, that is a reproduction. Where they do not, the
+difference is a result: two implementations can measure the same quantity by
+different methods, and clustering is the clearest case -- what is clustered,
+and under which metric, changes the answer more than any parameter does.
 
 ## 8. Protein-ligand and PLUMED runs
 
@@ -516,7 +503,6 @@ the reproducibility record.
 
 - Running `--simulate-duration-ns 100` as a first test. Use `--simulate-preset gentle` first.
 - Assuming `--simulate-platform CUDA` works because the package imports. Test a real CUDA context.
-- Guessing at the profile flag. The valid forms are `--compat v1` and `--analyze-compat v1`.
 - Reusing an output directory and overwriting valid trajectory or PLUMED history. Use a new directory for each attempt.
 - Running a long simulation on an underpowered local workstation instead of a
   suitable production host.

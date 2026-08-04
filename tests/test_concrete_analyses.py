@@ -418,3 +418,209 @@ class TestUserCustomization:
         rmsd = RMSD(output_dir=tmp_path, xunit="furlongs")
         with pytest.raises(ValueError, match="xunit"):
             rmsd.frame_axis(backbone_traj)
+
+
+def _hbond_traj(n_frames: int = 100, transient_frames: int = 5) -> md.Trajectory:
+    """Two donor-acceptor pairs: one bonded always, one only briefly."""
+    top = md.Topology()
+    chain = top.add_chain()
+    r1 = top.add_residue("ALA", chain, resSeq=1)
+    n1 = top.add_atom("N", md.element.nitrogen, r1)
+    h1 = top.add_atom("H", md.element.hydrogen, r1)
+    r2 = top.add_residue("ALA", chain, resSeq=2)
+    top.add_atom("O", md.element.oxygen, r2)
+    r3 = top.add_residue("ALA", chain, resSeq=3)
+    n2 = top.add_atom("N", md.element.nitrogen, r3)
+    h2 = top.add_atom("H", md.element.hydrogen, r3)
+    r4 = top.add_residue("ALA", chain, resSeq=4)
+    top.add_atom("O", md.element.oxygen, r4)
+    top.add_bond(n1, h1)
+    top.add_bond(n2, h2)
+
+    xyz = np.zeros((n_frames, 6, 3), dtype=np.float32)
+    xyz[:, 0] = [0.00, 0.0, 0.0]
+    xyz[:, 1] = [0.10, 0.0, 0.0]
+    xyz[:, 2] = [0.30, 0.0, 0.0]          # bonded in every frame
+    xyz[:, 3] = [0.00, 1.0, 0.0]
+    xyz[:, 4] = [0.10, 1.0, 0.0]
+    xyz[:, 5] = [2.00, 1.0, 0.0]          # far away
+    xyz[:transient_frames, 5] = [0.30, 1.0, 0.0]   # except briefly
+    return md.Trajectory(xyz=xyz, topology=top, time=np.arange(n_frames) * 1.0)
+
+
+class TestHBondsCountsEveryBondItDepicts:
+    """The series is the number of hydrogen bonds per frame, so it must be.
+
+    Baker-Hubbard proposes bonds above an occupancy threshold, and only the
+    proposed ones were evaluated frame by frame. A bond present in five per
+    cent of frames therefore contributed to none of them -- including the
+    frames where it was there. The plot said one bond where there were two.
+    """
+
+    def test_a_transient_bond_is_counted_in_the_frames_it_exists(self) -> None:
+        from fastmdxplora.analysis.hbonds import HBonds
+
+        traj = _hbond_traj(n_frames=100, transient_frames=5)
+        counts = HBonds().compute(traj)["n_hbonds"].to_numpy()
+
+        assert counts[0] == 2, "both bonds are present in the first frames"
+        assert counts[50] == 1, "only the persistent one remains later"
+        assert counts.sum() == 105
+
+    def test_raising_the_threshold_restricts_the_series_again(self) -> None:
+        """The old behaviour is still reachable, deliberately."""
+        from fastmdxplora.analysis.hbonds import HBonds
+
+        traj = _hbond_traj(n_frames=100, transient_frames=5)
+        counts = HBonds(candidate_freq=0.1).compute(traj)["n_hbonds"].to_numpy()
+        assert counts[0] == 1
+        assert counts.sum() == 100
+
+    def test_freq_reports_how_many_bonds_persist(self) -> None:
+        """Once every bond is proposed, freq would otherwise decide nothing."""
+        from fastmdxplora.analysis.hbonds import HBonds
+
+        analysis = HBonds()
+        analysis.compute(_hbond_traj())
+        assert analysis.options["n_candidate_bonds"] == 2
+        assert analysis.options["n_persistent_bonds"] == 1
+
+    @staticmethod
+    def _captured_warnings(build):
+        """Collect what the package logger emits.
+
+        ``caplog`` sees nothing: the package sets ``propagate = False`` on the
+        ``fastmdx`` logger so its own handler owns the formatting, which means
+        records never reach the root logger pytest attaches to. A handler is
+        added to that logger instead.
+        """
+        import logging
+
+        records: list[str] = []
+
+        class _Collect(logging.Handler):
+            def emit(self, record):
+                records.append(record.getMessage())
+
+        logger = logging.getLogger("fastmdx")
+        handler = _Collect(level=logging.WARNING)
+        logger.addHandler(handler)
+        try:
+            build()
+        finally:
+            logger.removeHandler(handler)
+        return " ".join(records)
+
+    def test_the_multiplier_says_what_it_is_doing(self) -> None:
+        """It reproduces an earlier count; it is not a convention.
+
+        MDTraj lists each hydrogen bond once, as one donor-hydrogen-acceptor
+        triplet, and version 1 counted the same way -- one row per triplet, one
+        frame at a time. Doubling models neither.
+        """
+        from fastmdxplora.analysis.hbonds import HBonds
+
+        said = self._captured_warnings(lambda: HBonds(count_multiplier=2))
+        assert "not a convention" in said
+
+    def test_no_multiplier_is_silent(self) -> None:
+        from fastmdxplora.analysis.hbonds import HBonds
+
+        said = self._captured_warnings(HBonds)
+        assert "multiplying" not in said
+
+
+def _hinge_traj(n_frames: int = 40, seed: int = 0) -> md.Trajectory:
+    """Two conformational states, plus rigid-body drift on alternate frames.
+
+    The hinge moves half the chain, which is a change of shape. The drift moves
+    all of it, which is not.
+    """
+    rng = np.random.RandomState(seed)
+    top = md.Topology()
+    chain = top.add_chain()
+    for i in range(12):
+        res = top.add_residue("ALA", chain, resSeq=i + 1)
+        top.add_atom("CA", md.element.carbon, res)
+
+    base = np.zeros((12, 3))
+    base[:, 0] = np.arange(12) * 0.38
+    xyz = np.tile(base[None], (n_frames, 1, 1))
+    xyz += rng.normal(scale=0.005, size=xyz.shape)
+    xyz[n_frames // 2:, 6:, 1] += 0.5      # the hinge
+    xyz[::2] += 5.0                         # the drift
+    return md.Trajectory(xyz=xyz.astype(np.float32), topology=top)
+
+
+def _recovery(labels: np.ndarray) -> float:
+    """How much of the true two-state split the labels reproduce."""
+    half = len(labels) // 2
+    agree = (labels[:half] == labels[0]).sum() + (labels[half:] == labels[half]).sum()
+    return max(agree, len(labels) - agree) / len(labels)
+
+
+class TestClusteringComparesShapeNotPlacement:
+    """What frames are compared in decides the answer.
+
+    Comparing raw coordinates makes the leading difference between frames where
+    the molecule drifted and how it turned. Two identical conformations in
+    different orientations then look as far apart as anything in the run, and
+    clustering reports position rather than shape.
+    """
+
+    def test_pairwise_rmsd_recovers_the_conformational_states(self) -> None:
+        from fastmdxplora.analysis.cluster import Cluster
+
+        labels = Cluster(
+            features="rmsd", methods=["hierarchical"], n_clusters=2,
+            linkage="ward", selection="all",
+        ).compute(_hinge_traj())["hierarchical"]
+        assert _recovery(labels) == 1.0
+
+    def test_superposed_coordinates_recover_them_too(self) -> None:
+        from fastmdxplora.analysis.cluster import Cluster
+
+        labels = Cluster(
+            features="coordinates", methods=["hierarchical"], n_clusters=2,
+            linkage="ward", selection="all",
+        ).compute(_hinge_traj())["hierarchical"]
+        assert _recovery(labels) >= 0.9
+
+    def test_unaligned_coordinates_do_not(self) -> None:
+        """The comparison that motivates superposing at all.
+
+        This is what clustering on ``traj.xyz`` without alignment gives: the
+        rigid-body drift dominates and the split is no better than chance.
+        """
+        from sklearn.cluster import AgglomerativeClustering
+
+        traj = _hinge_traj()
+        raw = traj.xyz.reshape(traj.n_frames, -1)
+        labels = AgglomerativeClustering(n_clusters=2, linkage="ward").fit_predict(raw)
+        assert _recovery(labels) < 0.7
+
+    def test_the_coordinate_space_keeps_distances_in_nm(self) -> None:
+        """So eps means the same thing in both, and the two are comparable."""
+        from fastmdxplora.analysis.cluster import _superposed_coordinates
+
+        traj = _hinge_traj()
+        atom_idx = np.arange(traj.n_atoms)
+        # superpose() aligns in place, so the trajectory now holds the frames
+        # the returned points were built from. Aligning it a second time to
+        # compare against would measure something else.
+        points = _superposed_coordinates(traj, atom_idx)
+        expected = np.sqrt(
+            ((traj.xyz[0, atom_idx] - traj.xyz[1, atom_idx]) ** 2).sum()
+            / len(atom_idx)
+        )
+        assert np.isclose(
+            np.linalg.norm(points[0] - points[1]), expected, rtol=1e-5
+        )
+
+    def test_an_unknown_feature_space_is_refused(self) -> None:
+        import pytest
+
+        from fastmdxplora.analysis.cluster import Cluster
+
+        with pytest.raises(ValueError, match="Unknown clustering features"):
+            Cluster(features="cartesian")

@@ -72,20 +72,12 @@ Key outputs: `<analysis>/*.dat`, `<analysis>/*.png`, matching publication SVG
 files, per-analysis option manifests, and `analysis_manifest.json`.
 
 The built-in analysis names are `rmsd`, `rmsf`, `rg`, `hbonds`, `ss`, `sasa`,
-`qvalue`, `dihedrals`, `cluster`, and `dimred`. The compatibility profile is
-named `v1` and is opt-in:
+`qvalue`, `dihedrals`, `cluster`, and `dimred`. Each accepts its own settings
+under `options`, which `fastmdx analyze --help` lists.
 
-```bash
-# Direct analyze command
-fastmdx analyze --output run --compat v1
-
-# Phase-prefixed option when using explore
-fastmdx explore --system protein.pdb --include analysis report \
-  --analyze-compat v1
-```
-
-The profile preserves the version 1 defaults where that comparison is
-required.
+To compare against another tool, state the settings and run both. Where the
+numbers agree that is a reproduction; where they do not, the difference is a
+finding about the two methods rather than something to configure away.
 
 ## report
 
