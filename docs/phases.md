@@ -64,15 +64,20 @@ figure for each. The standard suite covers RMSD, RMSF, radius of gyration,
 hydrogen bonds, secondary structure, clustering, dimensionality reduction,
 Q-value, and dihedrals. When a ligand is present, protein-ligand analyses run
 automatically: ligand pose RMSD, protein-ligand contacts with a binding-site
-fingerprint, protein-ligand hydrogen bonds, and ligand RMSF. An analysis
-scope (`solute`, `protein`, `ligand`, `all`) controls which atoms each metric
-considers.
+fingerprint, protein-ligand hydrogen bonds, ligand RMSF, and the typed
+interactions that say what holds the ligand rather than how much it touches.
+An analysis scope (`solute`, `protein`, `ligand`, `all`) controls which atoms
+each metric considers -- for the analyses it applies to. A protein-ligand
+measure works out both sides from the ligand's residue name and has nothing to
+apply a general selection to, so it does not offer one.
 
 Key outputs: `<analysis>/*.dat`, `<analysis>/*.png`, matching publication SVG
 files, per-analysis option manifests, and `analysis_manifest.json`.
 
 The built-in analysis names are `rmsd`, `rmsf`, `rg`, `hbonds`, `ss`, `sasa`,
-`qvalue`, `dihedrals`, `cluster`, and `dimred`. Each accepts its own settings
+`qvalue`, `dihedrals`, `cluster`, and `dimred`, plus `ligand_rmsd`,
+`ligand_rmsf`, `pl_contacts`, `pl_hbonds`, and `pl_interactions` for a
+protein-ligand complex. Each accepts its own settings
 under `options`, which `fastmdx analyze --help` lists. A setting an analysis
 does not have stops the run rather than being ignored: a measurement you asked
 for and did not get is worse than a stopped run, because it looks like an
@@ -169,12 +174,37 @@ the choice for clustering.
 
 ## report
 
-Assembles the results into shareable deliverables: a structured Markdown
-report, a static browser dashboard, a slide deck, and a self-contained
-project bundle.
+Assembles the results into shareable deliverables: a written report in
+Markdown and PDF, a static browser dashboard, a slide deck, and a
+self-contained project bundle.
 
-Key outputs: `report.md`, `dashboard.html`, `slides.pptx`,
-`project_bundle.zip`, dashboard assets, and report metadata. The static
+The report opens with a **methods paragraph** rather than a list of settings.
+A methods section for a molecular dynamics study has to state a particular
+list of things -- where the coordinates came from, how protonation was
+decided, the force field and its version, the water model, the box, the ions,
+the ensembles, the integrator and timestep, the thermostat and barostat with
+their coupling, the cutoffs, the constraints, and how long each phase ran --
+and that list is published, in the Journal of Chemical Information and
+Modeling's reporting guidelines and in Communications Biology's
+reproducibility checklist. Every value is already recorded by the run, so the
+paragraph is assembled from them: nothing is invented, and anything the run
+did not record is named as missing rather than filled in with what is usual.
+The complete list of settings follows it, for repeating a run exactly rather
+than describing it.
+
+It then reports **convergence**, which is a statement about how much
+independent information the trajectory holds. A frame is not an observation:
+consecutive frames are nearly the same structure, so the number of independent
+observations is set by how quickly a measure forgets where it was, not by how
+often frames were written. On a five-thousand-frame trajectory of Trp-cage the
+RMSD holds about twenty independent observations, so its uncertainty is
+fourteen times what counting frames would give. Where a run is too short to
+say -- and a short one usually is -- the section says what it cannot support
+rather than printing a number for everything.
+
+Key outputs: `report.md`, `report.pdf`, `dashboard.html`, `slides.pptx`,
+`project_bundle.zip`, dashboard assets, and report metadata. The PDF needs the
+`pdf` extra; where it is absent the run says so and writes the rest. The static
 dashboard can be opened directly, while `fastmdx gui --output
 <run>` provides the live local view for an existing run.
 

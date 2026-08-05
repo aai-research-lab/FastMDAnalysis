@@ -170,6 +170,7 @@ files and output directories on the WSL filesystem for better I/O performance.
 
 ```bash
 pip install "fastmdxplora[ligand]"   # OpenFF small-molecule parameterization
+pip install "fastmdxplora[pdf]"      # the report as a PDF as well as Markdown
 pip install "fastmdxplora[plumed]"   # PLUMED enhanced sampling
 pip install "fastmdxplora[test]"     # pytest, pytest-cov
 pip install "fastmdxplora[docs]"     # sphinx, myst-parser, rtd theme
@@ -252,3 +253,20 @@ builds for them.
 - [CLI reference](cli_reference.md) for the complete flag list
 - [Configuration files](configuration.md) for YAML-driven studies
 - [Live dashboard](gui.md) to watch a run in progress
+
+## The PDF report
+
+`fastmdxplora[pdf]` installs WeasyPrint and a Markdown converter, which turn
+the written report into `report.pdf` alongside `report.md`.
+
+WeasyPrint needs Pango, Cairo and GDK-PixBuf as system libraries. The
+conda-forge package brings its own, so `conda install -c conda-forge
+fastmdxplora` gives the PDF with nothing further to do. On PyPI they have to be
+present already — on Debian and Ubuntu that is:
+
+```bash
+sudo apt install libpango-1.0-0 libpangoft2-1.0-0 libcairo2 libgdk-pixbuf-2.0-0
+```
+
+Where they are missing, the report phase says which library it could not find
+and writes the other formats. A run is not failed for want of a fifth format.

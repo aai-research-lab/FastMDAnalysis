@@ -8,6 +8,67 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Added
+- **The report as a PDF**, alongside the Markdown. A Markdown file renders
+  differently in every viewer and cannot be printed with the figures where the
+  text put them. Needs the `pdf` extra on PyPI, where WeasyPrint's system
+  libraries have to be found separately; the conda-forge package brings its
+  own. Where they are absent the run says so and writes the other formats.
+
+- **A methods section written against the published checklists.** A methods
+  paragraph for a molecular dynamics study has to state a particular list of
+  things, and that list is published -- in the Journal of Chemical Information
+  and Modeling's reporting guidelines and in Communications Biology's
+  reproducibility checklist. Every value was already recorded; what was
+  missing was the assembly. Steps are given as time, a missing random seed is
+  reported as missing, and anything the run did not record is named rather
+  than filled in with what is usual.
+
+- **A convergence assessment**, which says how much independent information a
+  trajectory holds. Consecutive frames are nearly the same structure, so an
+  error bar computed over them is too small by the square root of the
+  correlation time -- measured at four and a half times on real data. Where a
+  run is too short to measure its own correlation, the section says so rather
+  than reporting the independence it merely failed to rule out.
+
+- **A flag for every setting the schema declares.** The command line's option
+  table was maintained by hand: twenty-four settings had no flag, and
+  fifty-three of the sixty that did carried help text that had fallen behind
+  the declaration. Flags, help, types and accepted values are now derived, so
+  a flag cannot offer a value the software refuses.
+
+### Changed
+- **`contacts` is `pl_contacts`**, beside `pl_hbonds` and `pl_interactions`,
+  because it measures protein-ligand contacts. The old name is gone rather
+  than aliased: nothing has been released under it, and the alias made the
+  orchestrator run the analysis twice into the same directory.
+
+- **What an analysis works out is recorded apart from what it was told.** Both
+  reach `options.json`; only the settings reach the report, which had been
+  printing two pages of raw atom-index tuples. The findings appear there as a
+  sentence each.
+
+- **The banner describes the run rather than the software.** No frame, no
+  heading, no list of output formats, no feature badges. What remains is the
+  system, where it is going, and the settings for each phase that will run.
+
+- **Settings that never applied are no longer offered.** Six analyses accepted
+  a general atom selection and ignored it -- a protein-ligand measure works
+  out both sides from the ligand's residue name. A measurement that looks
+  restricted and is not is the same defect as a count that looks complete and
+  is not.
+
+### Fixed
+- The solvated atom count and the pressure the barostat held were computed and
+  discarded, so a methods section had to report as unrecorded two things the
+  run had printed to the terminal.
+- A template failure during solvation reached the user as OpenMM's raw
+  message; the explanation was wired to system creation only, which solvation
+  reaches first.
+- HED, the oxidised dimer of mercaptoethanol, is listed as the crystallisation
+  additive it is, beside BME which it comes from.
+- The analysis manifest is written after `compute` as well as before it, so
+  what an analysis learns about its own run is no longer thrown away.
+
 - **What version 1 measured and this did not.** Every analysis was compared
   against its version 1 counterpart, option by option. Most differences were
   the same setting renamed -- ``atoms`` is ``selection``, ``beta_const`` is

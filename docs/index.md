@@ -33,6 +33,7 @@ installation
 getting_started
 production
 phases
+interactions
 cli_reference
 usage_examples
 configuration
