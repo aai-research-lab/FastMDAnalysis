@@ -73,6 +73,9 @@ from fastmdxplora.analysis import dihedrals as _dihedrals  # noqa: F401, E402
 from fastmdxplora.analysis import qvalue as _qvalue  # noqa: F401, E402
 from fastmdxplora.analysis import cluster as _cluster  # noqa: F401, E402
 from fastmdxplora.analysis import dimred as _dimred  # noqa: F401, E402
+# Needs an explicitly solvated system, so it is not ligand-gated -- a water
+# site around a protein is a finding whether or not anything is bound.
+from fastmdxplora.analysis import water_sites as _water_sites  # noqa: F401, E402
 # Ligand-aware analyses (run automatically only when a ligand is present).
 from fastmdxplora.analysis import ligand_rmsd as _ligand_rmsd  # noqa: F401, E402
 from fastmdxplora.analysis import ligand_rmsf as _ligand_rmsf  # noqa: F401, E402

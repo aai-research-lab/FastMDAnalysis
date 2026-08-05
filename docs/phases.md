@@ -85,6 +85,12 @@ and the settings it used.
 | `hbonds` | hydrogen bonds per frame, and each bond's occupancy |
 | `qvalue` | fraction of native contacts retained |
 
+**Water**
+
+| | |
+|---|---|
+| `water_sites` | positions a water holds through the run, and whether one molecule stays or many pass through |
+
 **The ligand**
 
 | | |
@@ -99,6 +105,15 @@ and the settings it used.
 | `pl_contacts` | how much of the protein the ligand touches, with a per-residue fingerprint |
 | `pl_hbonds` | hydrogen bonds between them |
 | `pl_interactions` | what holds the ligand: eight interaction types, each against a published criterion |
+
+`water_sites` finds the waters that are part of a binding site rather than
+passing through — a water wedged between a ligand and a backbone carbonyl,
+bridging a hydrogen bond neither could make alone. It reports how often a
+position is occupied *and by how many distinct molecules*, because a site held
+by one water throughout and a position a hundred waters pass through can share
+an occupancy and mean entirely different things: the first is a molecule to
+displace, the second is geometry the protein favours. It needs an explicitly
+solvated run.
 
 The protein-ligand four run automatically when a ligand is present. See
 [Protein-ligand interactions](interactions.md) for what `pl_interactions`
