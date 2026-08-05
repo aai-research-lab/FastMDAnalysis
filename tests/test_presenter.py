@@ -395,7 +395,9 @@ def test_banner_is_one_left_aligned_block() -> None:
     assert body
     assert all(line.startswith("  ") for line in body)
 
-    for heading in ("SETUP", "SIMULATION", "REPORT"):
+    # REPORT is gone with the list of formats it introduced: the banner
+    # describes the run, not what this software can write.
+    for heading in ("SETUP", "SIMULATION"):
         assert heading in text
 
 
@@ -605,9 +607,12 @@ class TestTheBannerIsValuesNotDecoration:
         printed = self._banner(system="1L2Y", output="runs/x")
         assert "MD EXPLORATION" not in printed
 
-    def test_the_output_section_is_called_report(self) -> None:
+    def test_the_sections_are_what_the_run_will_do(self) -> None:
+        """REPORT was renamed from REPORTING & OUTPUTS and then removed
+        outright: it introduced a list of formats this software can write,
+        which is not a fact about the run."""
         printed = self._banner(system="1L2Y", output="runs/x")
-        assert "REPORT" in printed
+        assert "SETUP" in printed and "SIMULATION" in printed
         assert "REPORTING & OUTPUTS" not in printed
         assert "ANALYSIS & REPORT" not in printed
 
@@ -619,3 +624,53 @@ class TestTheBannerIsValuesNotDecoration:
         assert "FastMDXplora Run" not in printed
         # ANALYSIS appears only when a browser was actually asked for.
         assert "\n    ANALYSIS\n" not in printed
+
+
+class TestTheBannerDescribesTheRunNotTheSoftware:
+    """It listed the output formats it can write and five feature badges.
+
+    Both said what this software is rather than what this run is doing, to
+    somebody who has already chosen to use it and is waiting for it to start.
+    The formats are visible in the output directory afterwards, where they can
+    be opened rather than admired.
+    """
+
+    @staticmethod
+    def _banner():
+        import contextlib
+        import io
+        import sys
+
+        from fastmdxplora.utils.presenter import SessionPresenter
+
+        original = sys.argv
+        sys.argv = ["fastmdx", "explore", "--system", "1L2Y"]
+        buffer = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buffer):
+                SessionPresenter(stream=buffer).banner(
+                    system="1L2Y", output="runs/x")
+        finally:
+            sys.argv = original
+        return buffer.getvalue()
+
+    def test_the_output_formats_are_not_listed(self) -> None:
+        printed = self._banner()
+        for advertisement in ("Markdown report", "PowerPoint slides",
+                              "ZIP result bundle", "PNG/SVG plots"):
+            assert advertisement not in printed
+
+    def test_the_badges_are_gone(self) -> None:
+        printed = self._banner()
+        for badge in ("Reproducible", "Config-driven", "Energy-aware",
+                      "Publication-ready"):
+            assert badge not in printed
+
+    def test_what_the_run_will_do_remains(self) -> None:
+        """Removing what the banner said about itself should leave everything
+        it said about the run."""
+        printed = self._banner()
+        for value in ("System", "1L2Y", "Output", "runs/x", "Platform",
+                      "SETUP", "pH", "Force Field",
+                      "SIMULATION", "Timestep", "Temperature", "Production"):
+            assert value in printed, f"the banner lost {value}"

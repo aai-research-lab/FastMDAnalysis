@@ -744,37 +744,12 @@ class SessionPresenter:
             )
 
         # Use green here to balance the cyan, orange, and blue sections above.
-        section("REPORT", "green")
-        line(
-            f"{CHECK} Markdown report      {CHECK} HTML summary        {CHECK} PDF figures",
-            "green",
-            "white",
-        )
-        line(
-            f"{CHECK} PowerPoint slides    {CHECK} PNG/SVG plots       {CHECK} ZIP result bundle",
-            "green",
-            "white",
-        )
+        # The list of output formats and the feature badges are gone. Both
+        # said what this software is rather than what this run is doing, and
+        # the banner is read once at the start of a run by somebody who has
+        # already chosen to use it. The formats are visible in the output
+        # directory afterwards, where they can be opened rather than admired.
         bottom("green")
-        self._write("")
-
-        badges = [
-            "Reproducible",
-            "Config-driven",
-            "OpenMM CPU/GPU",
-            "Energy-aware",
-            "Publication-ready",
-        ]
-
-        def badge_line(items: list[str]) -> str:
-            return "  ".join(self._c(CHECK, "green") + f" {item}" for item in items)
-
-        all_badges = badge_line(badges)
-        if _visual_width(all_badges) <= box_width:
-            self._write(box_prefix + all_badges)
-        else:
-            self._write(box_prefix + badge_line(badges[:3]))
-            self._write(box_prefix + badge_line(badges[3:]))
         self._write("")
 
     def phase_start(self, name: str) -> None:
