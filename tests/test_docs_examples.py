@@ -101,3 +101,49 @@ def test_documented_configuration_shape_validates() -> None:
         },
         require_systems=True,
     )
+
+
+def test_the_metadynamics_examples_in_the_docs_actually_plan() -> None:
+    """A documented example the software refuses is worse than none.
+
+    `docs/simulations.md` was written before walls existed and showed a
+    ligand_distance block with no bound -- which the software then began
+    refusing, correctly, leaving the page telling people to run something that
+    stops. The examples are parsed and planned here so that cannot happen
+    quietly again.
+    """
+    import re
+    from pathlib import Path
+
+    import pytest
+
+    pytest.importorskip("yaml")
+    import mdtraj as md
+    import yaml
+
+    from fastmdxplora.simulation.metadynamics import plan_from_config
+
+    page = Path(__file__).resolve().parents[1] / "docs" / "simulations.md"
+    if not page.is_file():  # pragma: no cover - the page is optional
+        return
+
+    top = md.Topology()
+    chain = top.add_chain()
+    for index in range(240):
+        residue = top.add_residue("ALA", chain, resSeq=index + 1)
+        for name in ("N", "CA", "C", "O"):
+            top.add_atom(name, md.element.carbon, residue)
+    ligand_chain = top.add_chain()
+    ligand = top.add_residue("BNZ", ligand_chain, resSeq=900)
+    for index in range(6):
+        top.add_atom(f"C{index}", md.element.carbon, ligand)
+
+    blocks = re.findall(r"```yaml\n(simulation:\n  metadynamics:.*?)```",
+                        page.read_text(encoding="utf-8"), re.S)
+    assert blocks, "the page should show at least one worked example"
+
+    for block in blocks:
+        spec = yaml.safe_load(block)["simulation"]["metadynamics"]
+        spec.setdefault("ligand_resname", "BNZ")
+        # Raises if the example is one the software would refuse.
+        plan_from_config(spec, top)

@@ -153,6 +153,8 @@ simulation:
     collective_variable: ligand_distance
     site_selection: "resid 84 to 121 and name CA"
     sigma: 0.05
+    walls:
+      upper: 2.5          # nm; see "Bounding where the ligand goes" below
 ```
 
 Five are available: `ligand_rmsd`, `ligand_distance`, `distance`, `torsion`
@@ -193,6 +195,60 @@ smears the surface flat or never fills it.
 The collective variable and the bias are written to `COLVAR` every deposition,
 because a run whose convergence cannot be checked has not measured a free
 energy.
+
+### Bounding where the ligand goes
+
+A run biasing a ligand's distance will, given time, push the ligand out into
+bulk solvent. There the landscape is flat and the accessible volume
+effectively infinite, so the bias fills a basin that never fills and the run
+never comes back to the question. Such a run is not wrong so much as
+unfinishable, and FastMDXplora refuses to start one: `ligand_distance` and
+`ligand_rmsd` need a bound, or `unbounded: true` to say you meant it.
+
+**A wall** bounds how far:
+
+```yaml
+    walls:
+      upper: 2.5           # nm
+      kappa: 1000          # kJ/mol/nm^2, how hard it pushes back
+```
+
+**A funnel** bounds where, and that is the difference that matters for a
+binding free energy. A flat wall still lets the ligand explore a whole shell
+of unbound positions at that distance, so the unbound state has no defined
+volume and the absolute free energy has no reference. A funnel gives it one: a
+cone over the binding site mouth, narrowing into a cylinder out in the
+solvent.
+
+```yaml
+    funnel:
+      axis_selection: "resid 210 to 214 and name CA"   # out towards solvent
+      alpha_rad: 0.55              # the cone's half-angle
+      switch_distance_nm: 1.5      # where the cone becomes a cylinder
+      cylinder_radius_nm: 0.1
+```
+
+The axis has to be given. It is the direction the ligand leaves by, and
+nothing here can work that out from the structure — a funnel pointed the wrong
+way blocks the exit instead of following it. Pick atoms on the far side of the
+exit channel from the site.
+
+The funnel is built from `COM`, `DISTANCE`, `CUSTOM` and `UPPER_WALLS`, so it
+needs only a standard PLUMED rather than the optional FUNNEL module. The
+generated input is in `metadynamics.plumed`, and reading it is the way to
+check the geometry is what you meant.
+
+### What PLUMED is still needed for
+
+This covers one-dimensional well-tempered metadynamics on five variables, with
+walls or a funnel. Beyond that, write PLUMED input and pass it as `plumed`:
+
+- **two or more collective variables** — a 2D free energy surface
+- **reweighting** to a variable that was not biased
+- **multiple walkers**, path collective variables, and the rest of PLUMED
+
+The two mechanisms are the same underneath; the block is a shorter way to
+describe the common case.
 
 ## When a run fails
 
