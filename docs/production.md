@@ -1,249 +1,133 @@
-# Production and GPU runs
+# Production runs and GPUs
 
-This page covers the checks that should happen before a long simulation. The
-commands are intentionally explicit, but paths and environment names are
-placeholders until the target machine is verified.
+Everything on the other pages works on a laptop. This one is about the runs
+that do not.
 
-## Where production runs belong
+---
 
-Use a suitable compute host for a long production MD simulation. A local
-workstation is appropriate for installation, analysis/reporting, and bounded
-smoke tests; a dedicated GPU host is usually preferable for long trajectories.
+## Where a production run belongs
 
-Common deployment models include:
+A real trajectory is hours to days of continuous computation. Two things
+follow.
 
-1. **Local GPU:** verify the installed driver and OpenMM CUDA platform, then
-   run locally with an explicit device index.
-2. **Connected HPC or cloud GPU:** inspect the host and launch through the
-   provider's documented SSH, scheduler, container, or session workflow.
-3. **Offline or air-gapped GPU:** manually stage a sanitized package and all
-   dependencies/input files, then execute the commands on the host. Do not
-   assume SSH, a scheduler, remote paths, or internet access.
+**Run it on a GPU.** OpenMM on a modern GPU is one to two orders of magnitude
+faster than on a CPU. `--simulate-platform CUDA` asks for one; the default is
+`auto`, which takes the fastest available and says which it chose.
 
-## Checks on any GPU host
+**Run it somewhere it will not be interrupted.** A closed laptop lid or a
+disconnected SSH session ends the run. Use a scheduler, or `nohup`, or `tmux`.
 
-Run these read-only checks in the same environment that will run FastMDXplora:
+---
+
+## Before committing hours to it
 
 ```bash
-nvidia-smi
-nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
-micromamba env list
-micromamba run -n <verified-env> python -V
-micromamba run -n <verified-env> python -m fastmdxplora.cli.main --version
-micromamba run -n <verified-env> python -m fastmdxplora.cli.main info
+fastmdx info
 ```
 
-Check OpenMM's actual platform list and optional packages:
+Confirms the simulation backends are present.
 
 ```bash
-micromamba run -n <verified-env> python - <<'PY'
-import openmm as mm
-print("OpenMM platforms:", [
-    mm.Platform.getPlatform(i).getName()
-    for i in range(mm.Platform.getNumPlatforms())
-])
-for module_name in ("openff.toolkit", "openmmforcefields", "openmmplumed"):
-    try:
-        __import__(module_name)
-        print(module_name, "OK")
-    except Exception as exc:
-        print(module_name, "FAIL", type(exc).__name__, str(exc).splitlines()[0])
-PY
+fastmdx explore --system your.pdb --output runs/smoke \
+  --simulate-nvt-steps 500 \
+  --simulate-npt-steps 500 \
+  --simulate-production-steps 5000
 ```
 
-A listed CUDA platform is not proof that a production context will initialize.
-The actual host driver must support the CUDA/OpenMM build in the environment.
-A historical failure mode was `CUDA_ERROR_UNSUPPORTED_PTX_VERSION`; do not
-retry a long run unchanged after that error. Re-check the driver, CUDA/OpenMM
-build, and selected environment.
+Ten picoseconds through every phase. It proves the structure prepares, the
+system builds, the platform works and the report writes — which is everything
+except the length. A setup problem found after six hours of production is the
+same problem found in two minutes.
 
-## Connected HPC: safe launch pattern
+Then check `setup/setup_parameters.json` and read what the setup phase decided
+about your structure. That is where a wrong answer is cheapest to catch.
 
-Use the existing alias or site documentation rather than placing credentials,
-private keys, or sensitive host details in a script:
+---
 
-```bash
-ssh <site-approved-alias>
-cd /path/to/FastMDXplora
-micromamba run -n <verified-env> fastmdx explore \
-  --config /path/to/resolved_config.yml \
-  --output /path/to/new_production_run
-```
-
-If a scheduler is required, use the site's documented submission command and
-record the job ID. Do not guess a partition, account, module name, or scratch
-path. For an interactive/background launch, use the site's approved `tmux` or
-session workflow.
-
-Before launch, use a separate fresh output directory and set checkpointing:
+## Launching one
 
 ```bash
-micromamba run -n <verified-env> fastmdx explore \
-  --system /path/to/prepared_or_input.pdb \
-  --output /path/to/production_run_001 \
+nohup fastmdx explore \
+  --config study.yml \
+  --output /scratch/$USER/runs/my_run \
   --simulate-platform CUDA \
-  --simulate-device-index 0 \
-  --simulate-duration-ns 100 \
-  --simulate-checkpoint-interval-steps 10000 \
-  --dashboard
+  > /scratch/$USER/runs/my_run.log 2>&1 &
 ```
 
-`--dashboard` is useful for a manually monitored run, but it does not replace
-scheduler/process monitoring. Keep the dashboard on loopback unless the host's
-secure forwarding/access setup is understood.
+Under a scheduler, the same command goes in the job script. Put the output on
+fast local storage rather than a network filesystem: the trajectory writer
+touches the file constantly, and NFS makes that the bottleneck.
 
-## Offline or air-gapped GPU hosts
+---
 
-An offline host must be operated manually by its administrator or job
-operator. The operator must:
+## Watching it
 
-1. create a sanitized staging directory;
-2. upload the source/package and all input files manually;
-3. run the environment/GPU checks below;
-4. run a bounded smoke test;
-5. launch production only after reviewing the smoke-test output; and
-6. manually transfer results back when needed.
-
-Do not upload `.env` files, credentials, private keys, tokens, or unrelated
-home-directory contents. Because the machine is offline, stage all packages,
-PDB/CIF files, ligand SDF/MOL2 files, topology/state files, config files, and
-PLUMED assets before starting.
-
-### Manual staging template
-
-On a connected staging machine, create an archive from a sanitized directory
-only:
+The log says what is happening. For anything more, point the GUI at the output
+directory:
 
 ```bash
-mkdir -p offline_stage/fastmdxplora_source
-# Copy only the reviewed source/package and required inputs into offline_stage.
-# Do not copy .env files, credentials, private keys, caches, or large unrelated data.
-tar -czf fastmdxplora_offline_bundle.tgz -C offline_stage .
-shasum -a 256 fastmdxplora_offline_bundle.tgz
+fastmdx gui --output /scratch/$USER/runs/my_run
 ```
 
-Transfer `fastmdxplora_offline_bundle.tgz` using the site's approved offline
-transfer method. On the offline GPU host:
+That works while the run is in progress — telemetry, energies, and the
+molecule moving as frames arrive.
+
+From your own machine against a cluster, keep the directory in sync:
 
 ```bash
-mkdir -p ~/fastmdxplora_jobs/job_001
-cd ~/fastmdxplora_jobs/job_001
-tar -xzf /path/to/fastmdxplora_offline_bundle.tgz
-nvidia-smi
-micromamba env list
-micromamba run -n <verified-env> python -m pip install -e ./fastmdxplora_source --no-deps
-micromamba run -n <verified-env> python -m fastmdxplora.cli.main info
+rsync -az --delete user@cluster:/scratch/$USER/runs/my_run/ ~/runs/my_run/
+fastmdx gui --output ~/runs/my_run
 ```
 
-Run one smoke test on one GPU device:
+Re-run the `rsync` as often as you like.
 
-```bash
-micromamba run -n <verified-env> fastmdx explore \
-  --system inputs/protein.pdb \
-  --output smoke_gpu0 \
-  --include setup simulation \
-  --simulate-preset gentle \
-  --simulate-platform CUDA \
-  --simulate-device-index 0 \
-  --simulate-checkpoint-interval-steps 100
+---
+
+## Choosing a length
+
+The honest answer is that it depends on what you are asking, and the report
+will tell you whether you got there. Its convergence section reports how many
+**independent** observations the trajectory holds — which is far fewer than
+the frame count, because consecutive frames are nearly the same structure.
+
+A useful pattern: run something, read the convergence section, and extend if
+it says the measures have not settled or rest on too little. That is more
+reliable than choosing a number in advance.
+
+---
+
+## When it stops early
+
+Every run writes checkpoints. If it dies, the checkpoint is in the simulation
+directory and the manifest records how far it got.
+
+If it became unstable rather than being killed, the message says which atoms
+went wrong and what that points at — a ligand alone means its parameters, the
+whole system at once means the integration, and the remedies differ. Nothing
+is retried automatically: a run that exploded because its ligand is wrong will
+explode again more slowly at half the timestep.
+
+---
+
+## Several runs at once
+
+```yaml
+execution:
+  mode: parallel
+  workers: 2
+  devices: [0, 1]         # one run pinned per GPU
+  continue_on_error: true
 ```
 
-For an independent second smoke test, use a new output directory and device 1
-when the host has another available GPU:
+`workers` should not exceed the number of GPUs — two runs sharing one device
+are slower than the same two in sequence.
 
-```bash
-micromamba run -n <verified-env> fastmdx explore \
-  --system inputs/protein.pdb \
-  --output smoke_gpu1 \
-  --include setup simulation \
-  --simulate-preset gentle \
-  --simulate-platform CUDA \
-  --simulate-device-index 1 \
-  --simulate-checkpoint-interval-steps 100
-```
+`continue_on_error` is what you want overnight: one system failing does not
+end the campaign, and the failures are in the manifest.
 
-Do not run two jobs on the same device. Do not start production until the
-selected environment and the real CUDA/OpenMM smoke test are understood.
+---
 
-## Real PLUMED smoke test
+## See also
 
-PLUMED code wiring and mocked tests are separate from a real backend test. On
-the target GPU machine, use a minimal PLUMED script with atom indices valid for
-the staged topology:
-
-```bash
-cat > inputs/plumed_smoke.dat <<'PLUMED'
-d: DISTANCE ATOMS=1,2
-PRINT ARG=d STRIDE=100 FILE=COLVAR
-PLUMED
-```
-
-If the offline host does not have the required PLUMED environment, create the
-file before transfer rather than trying to install packages online. Run a short
-separate output:
-
-```bash
-micromamba run -n <verified-env> fastmdx explore \
-  --system inputs/protein.pdb \
-  --output smoke_plumed_gpu0 \
-  --include setup simulation \
-  --simulate-preset gentle \
-  --simulate-platform CUDA \
-  --simulate-device-index 0 \
-  --simulate-plumed-script inputs/plumed_smoke.dat \
-  --simulate-checkpoint-interval-steps 100
-```
-
-Confirm all of the following before production:
-
-- OpenMM created a CUDA context and completed the bounded run.
-- Energies and temperatures are finite.
-- `simulation/production.dcd`, `energy.csv`, `simulation.log`, and
-  `checkpoint.chk` exist.
-- `simulation/plumed.dat` and `COLVAR` exist when PLUMED is enabled.
-- The run manifest and telemetry report the expected status.
-
-`HILLS` is written only when the PLUMED script contains a `HILLS` action.
-
-## Monitoring
-
-For an active CLI/dashboard run:
-
-```bash
-tail -f /path/to/run/simulation/simulation.log
-watch -n 30 nvidia-smi
-jq . /path/to/run/simulation/live_status.json
-tail -n 20 /path/to/run/simulation/live_events.log
-```
-
-For a scheduler job, use the site's documented queue/accounting commands. For
-a manually launched session, monitor the process, GPU, log, telemetry
-timestamp, checkpoint modification time, and output-file growth together.
-
-## Completion and recovery
-
-Treat a run as complete only when the process or scheduler reports success,
-the manifest/telemetry reports completion, and the expected files are readable.
-A DCD or checkpoint file alone is not proof of completion.
-
-For a failure or interruption:
-
-1. preserve the original output directory;
-2. record the last known step and checkpoint timestamp;
-3. confirm the checkpoint belongs to the same system, topology, integrator,
-   precision, device-compatible environment, and PLUMED history policy;
-4. resume into a new directory or explicitly documented continuation directory;
-5. avoid overwriting or blindly concatenating `production.dcd`, `COLVAR`,
-   `HILLS`, `energy.csv`, and logs; and
-6. validate each bounded continuation segment before proceeding.
-
-The current runner writes `checkpoint.chk`, but the inspected CLI does not
-provide a complete high-level resume command. Checkpoint recovery therefore
-requires a deliberate continuation procedure rather than a blind restart.
-
-## Related pages
-
-- [Beginner's guide](getting_started.md)
-- [Live dashboard](gui.md)
-- [CLI reference](cli_reference.md)
-- [Configuration](configuration.md)
+- [Worked examples](usage_examples.md) — campaigns and comparisons
+- [Beyond a box of water](simulations.md) — restraints, membranes, metadynamics
