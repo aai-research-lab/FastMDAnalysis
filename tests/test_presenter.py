@@ -616,14 +616,31 @@ class TestTheBannerIsValuesNotDecoration:
         assert "REPORTING & OUTPUTS" not in printed
         assert "ANALYSIS & REPORT" not in printed
 
-    def test_a_section_with_nothing_to_say_is_left_out(self) -> None:
+    def test_a_section_with_nothing_to_say_is_left_out(self, monkeypatch) -> None:
         """The analysis section listed the report's title, which announced the
         name of a document that did not exist yet and said nothing about the
-        run. Without it the section is empty, so it is not printed."""
+        run. Without it the section holds only the browser address, so it is
+        printed when there is one and left out when there is not.
+
+        The environment is cleared rather than assumed: a run started from the
+        GUI sets these, so this test passed locally and failed in CI, which is
+        a test depending on ambient state rather than controlling it.
+        """
+        for variable in ("FASTMDX_DASHBOARD_URL", "FASTMDX_DASHBOARD_ACTIVE"):
+            monkeypatch.delenv(variable, raising=False)
+
         printed = self._banner(system="1L2Y", output="runs/x")
         assert "FastMDXplora Run" not in printed
-        # ANALYSIS appears only when a browser was actually asked for.
         assert "\n    ANALYSIS\n" not in printed
+
+    def test_but_a_browser_address_is_worth_a_section(self, monkeypatch) -> None:
+        """It is the one thing in it a reader cannot work out for themselves."""
+        monkeypatch.setenv("FASTMDX_DASHBOARD_ACTIVE", "1")
+        monkeypatch.setenv("FASTMDX_DASHBOARD_URL", "http://127.0.0.1:8765")
+
+        printed = self._banner(system="1L2Y", output="runs/x")
+        assert "ANALYSIS" in printed
+        assert "http://127.0.0.1:8765" in printed
 
 
 class TestTheBannerDescribesTheRunNotTheSoftware:

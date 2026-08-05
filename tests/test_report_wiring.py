@@ -1384,3 +1384,117 @@ class TestWhatTheRunResolvedIsRecorded:
         sim = {"parameters": {"timestep_fs": 2.0, "integrator": "verlet"}}
         gaps = missing_from_methods({}, sim)
         assert any("pressure" in gap for gap in gaps)
+
+
+class TestConvergenceSaysWhatARunCanSupport:
+    """A hundred frames look like a hundred measurements.
+
+    Consecutive frames of a molecular dynamics run are almost the same
+    structure, so an error bar computed over them is too small by the square
+    root of the correlation time -- a factor of three or four is ordinary.
+    This is the same mistake fixed for interaction occupancies, in the
+    analyses everybody reads first.
+    """
+
+    def test_uncorrelated_data_is_counted_in_full(self) -> None:
+        import numpy as np
+
+        from fastmdxplora.report.convergence import autocorrelation_time
+
+        rng = np.random.RandomState(0)
+        assert autocorrelation_time(rng.normal(size=1000)) < 2.0
+
+    def test_correlated_data_is_not(self) -> None:
+        import numpy as np
+
+        from fastmdxplora.report.convergence import autocorrelation_time
+
+        rng = np.random.RandomState(0)
+        smoothed = np.convolve(rng.normal(size=1200), np.ones(40) / 40,
+                               mode="valid")
+        assert autocorrelation_time(smoothed) > 10.0
+
+    def test_the_error_bar_counts_independent_samples(self) -> None:
+        """Dividing by the frame count would understate it several-fold."""
+        import numpy as np
+
+        from fastmdxplora.report.convergence import assess_series
+
+        rng = np.random.RandomState(0)
+        smoothed = np.convolve(rng.normal(size=1200), np.ones(40) / 40,
+                               mode="valid")[:400]
+        found = assess_series("correlated", smoothed)
+        naive = found.spread / np.sqrt(found.n_frames)
+        assert found.standard_error > naive * 2, (
+            "the honest error bar should be markedly larger than the naive one"
+        )
+
+    def test_a_run_too_short_to_measure_correlation_says_so(self) -> None:
+        """The estimate truncates at half the series, so a short run cannot
+        see a memory longer than that -- and would report the independence it
+        failed to rule out, which is the wrong direction for a convergence
+        report to err in.
+        """
+        import numpy as np
+
+        from fastmdxplora.report.convergence import assess_series
+
+        rng = np.random.RandomState(1)
+        slow = np.convolve(rng.normal(size=400), np.ones(60) / 60,
+                           mode="valid")[:60]
+        found = assess_series("slow", slow)
+        assert not found.correlation_is_measurable
+        assert not found.is_sampled_enough, (
+            "independence that could not be measured must not count as found"
+        )
+
+    def test_a_drifting_observable_is_reported_as_unsettled(self) -> None:
+        import numpy as np
+
+        from fastmdxplora.report.convergence import assess_series
+
+        rng = np.random.RandomState(2)
+        climbing = np.linspace(0, 5, 300) + rng.normal(scale=0.1, size=300)
+        assert not assess_series("climbing", climbing).has_settled
+
+    def test_a_settled_observable_is_not(self) -> None:
+        import numpy as np
+
+        from fastmdxplora.report.convergence import assess_series
+
+        rng = np.random.RandomState(3)
+        assert assess_series("flat", rng.normal(size=300)).has_settled
+
+    def test_a_run_that_cannot_be_interpreted_says_so_plainly(self) -> None:
+        """Returning a number for everything would launder a short run into
+        an apparently validated one, which is worse than no report: a reader
+        would have less reason to doubt than they started with."""
+        import numpy as np
+
+        from fastmdxplora.report.convergence import assess_run
+
+        rng = np.random.RandomState(4)
+        climbing = np.linspace(0, 5, 120) + rng.normal(scale=0.1, size=120)
+        out = assess_run({"rmsd": climbing})
+        assert out["interpretable"] is False
+        assert out["findings"]
+
+    def test_a_thermostat_off_its_target_is_reported(self) -> None:
+        import numpy as np
+
+        from fastmdxplora.report.convergence import assess_run
+
+        rng = np.random.RandomState(5)
+        out = assess_run({"temperature": 340 + rng.normal(scale=2, size=500)},
+                         target_temperature_K=300.0)
+        assert any("thermostat" in finding for finding in out["findings"])
+
+    def test_a_thermostat_holding_its_target_is_not(self) -> None:
+        import numpy as np
+
+        from fastmdxplora.report.convergence import assess_run
+
+        rng = np.random.RandomState(6)
+        out = assess_run({"temperature": 300 + rng.normal(scale=2, size=500)},
+                         target_temperature_K=300.0)
+        assert not any("thermostat" in finding for finding in out["findings"])
