@@ -260,3 +260,46 @@ def test_backends_are_grouped_by_what_they_are_for() -> None:
     assert all(group and group[0].islower() for group in groups), (
         "the groups read as a phrase after the heading"
     )
+
+
+def test_a_backend_that_will_not_load_does_not_crash_info() -> None:
+    """WeasyPrint installed without Pango raises OSError from the dynamic
+    loader, not ImportError.
+
+    A check catching only ImportError let that propagate, so `fastmdx info`
+    crashed with a traceback about libgobject -- the command whose whole
+    purpose is saying what works, failing to work. The same case is handled in
+    the PDF module and was not carried here.
+    """
+    import builtins
+
+    from fastmdxplora.cli.main import _backend_state
+
+    real = builtins.__import__
+
+    def refuse(name, *args, **kwargs):
+        if name == "weasyprint":
+            raise OSError("cannot load library 'libgobject-2.0-0': dlopen(...)")
+        return real(name, *args, **kwargs)
+
+    builtins.__import__ = refuse
+    try:
+        state, remedy = _backend_state("weasyprint", "conda install weasyprint")
+    finally:
+        builtins.__import__ = real
+
+    assert state == "broken"
+    assert "will not load" in remedy
+
+
+def test_a_missing_backend_is_told_from_a_broken_one() -> None:
+    """They need different remedies: reinstalling a package that is already
+    there fixes nothing."""
+    from fastmdxplora.cli.main import _backend_state
+
+    missing, hint = _backend_state("no_such_module_at_all", "conda install it")
+    assert missing == "missing"
+    assert hint == "conda install it"
+
+    present, _ = _backend_state("json", "n/a")
+    assert present == "installed"

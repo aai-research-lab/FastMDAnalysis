@@ -30,7 +30,11 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   about the OpenFF toolkit, which a protein-ligand setup needs and which pip
   cannot install -- so somebody reading it would conclude their install was
   complete and find out otherwise three phases later. Every backend is listed
-  now, grouped by what it is for, with a command that works for each.
+  now, grouped by what it is for, with a command that works for each. A
+  backend that is installed and will not load is told apart from one that is
+  absent, because they need different remedies -- and because importing
+  WeasyPrint without Pango raises from the dynamic loader rather than as an
+  ImportError, which crashed the command outright.
 
 ## [2.3.0] — 2026-08-05
 

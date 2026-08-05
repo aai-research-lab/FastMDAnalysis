@@ -1167,6 +1167,29 @@ _BACKENDS: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
 )
 
 
+def _backend_state(import_name: str, install_hint: str) -> tuple[str, str]:
+    """Whether a backend will work, and what to do where it will not.
+
+    Importing is the only honest test -- a package can be installed and still
+    fail to load -- and importing can fail in more ways than one. WeasyPrint
+    present without Pango raises OSError from the dynamic loader, not
+    ImportError, so a check that caught only ImportError did not report the
+    backend as missing: it crashed the command whose whole purpose is saying
+    what works.
+
+    The two cases need different remedies, so they are told apart. Reinstalling
+    a package that is already there fixes nothing.
+    """
+    try:
+        __import__(import_name)
+        return "installed", ""
+    except ImportError:
+        return "missing", install_hint
+    except Exception as exc:  # noqa: BLE001 - any load failure is a failure
+        detail = str(exc).split(":")[0][:60]
+        return "broken", f"installed but will not load ({detail})"
+
+
 def _cmd_info() -> int:
     print("FastMDXplora")
     print(f"  version: {__version__}")
@@ -1191,11 +1214,8 @@ def _cmd_info() -> int:
     for group, backends in _BACKENDS:
         print(f"  {group}")
         for display_name, import_name, install_hint in backends:
-            try:
-                __import__(import_name)
-                print(f"    {display_name:<22} installed")
-            except ImportError:
-                print(f"    {display_name:<22} missing    {install_hint}")
+            state, remedy = _backend_state(import_name, install_hint)
+            print(f"    {display_name:<22} {state:<10} {remedy}".rstrip())
     print()
     print(f"Citation: {__citation__}")
     return 0
