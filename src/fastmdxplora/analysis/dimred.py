@@ -1,7 +1,11 @@
 """Dimensionality reduction.
 
 Projects the high-dimensional configuration space of an MD trajectory
-down to two or three dimensions for visualization. Three methods:
+down to two or three dimensions for visualization. Four methods -- PCA,
+MDS, t-SNE and UMAP -- which answer different questions: PCA finds the
+directions of largest variance in the coordinates, while MDS finds an
+arrangement preserving the distances between frames, and that distance is
+RMSD.
 
   - **PCA** (default): principal component analysis on the aligned
     Cartesian coordinates. Linear, fast, decomposes the variance into

@@ -291,3 +291,52 @@ def test_every_fastmdx_flag_the_docs_name_exists() -> None:
                 if flag not in known and flag not in OTHERS:
                     missing.setdefault(page.name, set()).add(flag)
     assert not missing, f"these flags are documented and do not exist: {missing}"
+
+
+def test_the_phases_page_lists_every_analysis() -> None:
+    """It is the page everything else links to for what gets measured, and it
+    fell four features behind: omega dihedrals, MDS, the per-residue SASA
+    average and the clustering seed were all added without it changing.
+
+    A reference that is missing what was added is worse than one that is
+    obviously old, because nothing about it looks wrong.
+    """
+    from pathlib import Path
+
+    import fastmdxplora.analysis  # noqa: F401
+    from fastmdxplora.analysis.describe import describe_all
+
+    page = Path(__file__).resolve().parents[1] / "docs" / "phases.md"
+    if not page.is_file():  # pragma: no cover
+        return
+    text = page.read_text(encoding="utf-8")
+
+    missing = sorted(name for name in describe_all() if f"`{name}`" not in text)
+    assert not missing, f"these analyses are not in the phases page: {missing}"
+
+
+def test_an_analysis_describes_what_it_currently_does() -> None:
+    """The summary comes from the module docstring and reaches the GUI, the
+    report and the docs. Three of them still said what the analysis did before
+    it was extended -- dihedrals claimed phi/psi after omega was added, dimred
+    claimed three methods after MDS made four.
+    """
+    import fastmdxplora.analysis  # noqa: F401
+    from fastmdxplora.analysis import dihedrals, dimred, sasa
+    from fastmdxplora.analysis.describe import explain_analysis
+
+    dihedral_text = (explain_analysis("dihedrals").get("detail") or "").lower()
+    assert "omega" in dihedral_text, (
+        "dihedrals computes omega and its description should say so"
+    )
+
+    dimred_text = (explain_analysis("dimred").get("detail") or "").lower()
+    assert "mds" in dimred_text
+
+    sasa_text = (explain_analysis("sasa").get("detail") or "").lower()
+    assert "mean" in sasa_text or "average" in sasa_text
+
+    # And the constants they describe.
+    assert "omega" in dihedrals.VALID_ANGLES
+    assert "mds" in dimred.VALID_METHODS
+    assert "average_residue" in sasa.VALID_MODES

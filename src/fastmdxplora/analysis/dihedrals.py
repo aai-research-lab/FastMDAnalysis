@@ -1,9 +1,13 @@
-"""Backbone dihedrals (phi/psi) and the Ramachandran plot.
+"""Backbone dihedrals and the Ramachandran plot.
 
-Computes the backbone phi (C-N-Cα-C) and psi (N-Cα-C-N) dihedral angles
-for every protein residue across the trajectory, and produces a
-Ramachandran plot — the canonical structural-quality visualization that
-shows the joint distribution of phi/psi pairs colored by frequency.
+Computes the backbone phi (C-N-Cα-C), psi (N-Cα-C-N) and omega
+(Cα-C-N-Cα) dihedral angles for every protein residue across the
+trajectory, and produces a Ramachandran plot — the joint distribution of
+phi/psi pairs coloured by frequency.
+
+Omega is the peptide bond itself, near 180 degrees in almost every
+residue; the exceptions are the finding, a cis bond most often before a
+proline. Which angles are measured is a setting.
 
 Output ``dihedrals.dat`` is a CSV with one row per (frame, residue)
 combination plus columns for phi and psi (degrees). Output figure is

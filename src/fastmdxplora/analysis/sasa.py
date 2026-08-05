@@ -1,7 +1,9 @@
 """Solvent-Accessible Surface Area (SASA).
 
 Per-frame SASA computed with the Shrake-Rupley rolling-sphere algorithm
-(MDTraj's :func:`mdtraj.shrake_rupley`). Outputs the total SASA time
+(MDTraj's :func:`mdtraj.shrake_rupley`), for the whole molecule, for each
+residue per frame, or as each residue's mean over the run -- which is the
+summary that says which residues are buried. Outputs the total SASA time
 series and, optionally, a per-residue heatmap that shows which residues
 become exposed/buried over the simulation.
 
