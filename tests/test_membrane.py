@@ -230,3 +230,156 @@ class TestTheSettingsReachEveryInterface:
 
         source = inspect.getsource(pipeline)
         assert "membrane=params.get" in source
+
+
+class TestOrientingAStructureThatIsInTheWrongFrame:
+    """The alternative offered was to fetch an oriented structure from OPM,
+    which is correct and is a detour. For a transmembrane helix or a bundle of
+    them the orientation is not a hard question: the protein is longest along
+    the normal, because that is the direction it spans.
+    """
+
+    @staticmethod
+    def _sideways():
+        import mdtraj as md
+
+        top = md.Topology()
+        chain = top.add_chain()
+        coordinates = []
+        for index in range(40):
+            residue = top.add_residue("ALA", chain, resSeq=index + 1)
+            for name in ("N", "CA", "C"):
+                top.add_atom(name, md.element.carbon, residue)
+            for offset in (0.0, 0.12, 0.24):
+                coordinates.append([index * 0.35, offset, 0.0])
+        return top.to_openmm(), np.array(coordinates)
+
+    def test_it_turns_a_sideways_structure_upright(self) -> None:
+        pytest.importorskip("openmm", reason="requires the [md] extra")
+
+        from fastmdxplora.setup.membrane import (
+            check_orientation,
+            orient_for_membrane,
+        )
+
+        topology, positions = self._sideways()
+        assert check_orientation(topology, positions) is not None
+        turned = orient_for_membrane(topology, positions)
+        assert check_orientation(topology, turned) is None
+
+    def test_it_rotates_rather_than_reflects(self) -> None:
+        """A reflection would turn the structure into its mirror image, which
+        is a different molecule."""
+        pytest.importorskip("openmm", reason="requires the [md] extra")
+
+        from fastmdxplora.setup.membrane import orient_for_membrane
+
+        topology, positions = self._sideways()
+        turned = np.asarray(orient_for_membrane(topology, positions))
+
+        for a, b in ((0, 1), (0, 5), (3, 20)):
+            before = np.linalg.norm(positions[a] - positions[b])
+            after = np.linalg.norm(turned[a] - turned[b])
+            assert np.isclose(before, after), (
+                "a rotation preserves every distance; a reflection would too, "
+                "but would invert the structure -- the determinant check is "
+                "what tells them apart"
+            )
+
+    def test_it_is_asked_for_rather_than_done_quietly(self) -> None:
+        """It is wrong where a large soluble domain drags the axis away from
+        the normal, so it is a choice."""
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        field = PHASE_SCHEMAS["setup"].get("membrane_orient")
+        assert field is not None
+        assert field.default is False
+        assert "soluble domain" in field.help
+
+    def test_the_refusal_offers_it_first(self) -> None:
+        pytest.importorskip("openmm", reason="requires the [md] extra")
+
+        from fastmdxplora.setup.membrane import check_orientation
+
+        topology, positions = self._sideways()
+        problem = check_orientation(topology, positions)
+        assert "membrane_orient: true" in problem
+        assert "opm.phar.umich.edu" in problem
+
+    def test_the_log_says_what_it_is_about_to_do(self) -> None:
+        """It announced "Solvating" and then refused to solvate, because the
+        message printed before the branch chose."""
+        import inspect
+
+        from fastmdxplora.setup import prepare
+
+        source = inspect.getsource(prepare.prepare_system)
+        assert "Embedding in a" in source
+        # One message that chooses what to say, rather than one announcing
+        # solvation before the branch has decided.
+        assert source.count("Embedding in a") == 1
+        assert "Solvating (box=" in source
+
+
+class TestItHandlesWhatThePipelineActuallyPasses:
+    """The tests above pass plain numpy arrays, which is convenient and is not
+    what the pipeline does.
+
+    OpenMM's Modeller holds positions as a Quantity of Vec3, and the branch
+    handling that was the only branch the software ever took -- and the only
+    one the tests never ran. It took Vec3 from openmm.unit, where it does not
+    live, and failed on the first real structure.
+    """
+
+    @staticmethod
+    def _sideways_with_units():
+        import mdtraj as md
+        from openmm import Vec3
+        from openmm import unit
+
+        top = md.Topology()
+        chain = top.add_chain()
+        points = []
+        for index in range(40):
+            residue = top.add_residue("ALA", chain, resSeq=index + 1)
+            for name in ("N", "CA", "C"):
+                top.add_atom(name, md.element.carbon, residue)
+            for offset in (0.0, 0.12, 0.24):
+                points.append(Vec3(index * 0.35, offset, 0.0))
+        return top.to_openmm(), unit.Quantity(points, unit.nanometer)
+
+    def test_a_quantity_goes_in_and_a_quantity_comes_out(self) -> None:
+        pytest.importorskip("openmm", reason="requires the [md] extra")
+
+        from openmm import unit
+
+        from fastmdxplora.setup.membrane import orient_for_membrane
+
+        topology, positions = self._sideways_with_units()
+        turned = orient_for_membrane(topology, positions)
+        assert unit.is_quantity(turned), (
+            "the pipeline hands on what it gets back, so the units have to "
+            "survive the rotation"
+        )
+
+    def test_and_it_is_oriented_afterwards(self) -> None:
+        pytest.importorskip("openmm", reason="requires the [md] extra")
+
+        from fastmdxplora.setup.membrane import (
+            check_orientation,
+            orient_for_membrane,
+        )
+
+        topology, positions = self._sideways_with_units()
+        assert check_orientation(topology, positions) is not None
+        assert check_orientation(
+            topology, orient_for_membrane(topology, positions)) is None
+
+    def test_the_orientation_check_takes_a_quantity_too(self) -> None:
+        """It is called on Modeller's positions, which always carry units."""
+        pytest.importorskip("openmm", reason="requires the [md] extra")
+
+        from fastmdxplora.setup.membrane import check_orientation
+
+        topology, positions = self._sideways_with_units()
+        assert check_orientation(topology, positions) is not None

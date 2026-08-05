@@ -117,6 +117,7 @@ def prepare_system(
     solvent_padding_nm: float = DEFAULT_PADDING_NM,
     membrane: str | None = None,
     membrane_orientation_checked: bool = False,
+    membrane_orient: bool = False,
     box_shape: str = "cube",
     ion_positive: str = "Na+",
     ion_negative: str = "Cl-",
@@ -284,9 +285,10 @@ def prepare_system(
 
     # ----- 3. Solvate + ionize with Modeller -----
     logger.info(
-        "Solvating (padding=%.2f nm, box=%s, ions=%s/%s @ %.3f M)",
+        "%s (padding=%.2f nm, ions=%s/%s @ %.3f M)",
+        (f"Embedding in a {str(membrane).upper()} bilayer" if membrane
+         else f"Solvating (box={box_shape})"),
         solvent_padding_nm,
-        box_shape,
         ion_positive,
         ion_negative,
         ion_concentration_M,
@@ -317,16 +319,28 @@ def prepare_system(
                 f"Available: {', '.join(sorted(LIPIDS))}."
             )
 
+        if membrane_orient:
+            # Asked for rather than done quietly: rotating by principal axes
+            # is right for a transmembrane helix or a bundle of them, and
+            # wrong for a protein with a large soluble domain that drags the
+            # axis away from the normal.
+            from fastmdxplora.setup.membrane import orient_for_membrane
+
+            modeller.positions = orient_for_membrane(
+                modeller.topology, modeller.positions)
+            logger.info(
+                "Rotated the structure so its longest axis lies along the "
+                "membrane normal. This is right for a transmembrane bundle "
+                "and wrong where a soluble domain dominates the shape; it "
+                "cannot tell which way up the protein ends, so where that "
+                "matters use an oriented structure from OPM."
+            )
+
         problem = None if membrane_orientation_checked else check_orientation(
             modeller.topology, modeller.positions)
         if problem:
             raise ValueError(problem)
 
-        logger.info(
-            "Embedding in a %s bilayer (padding=%.2f nm, ions=%s/%s @ %.3f M)",
-            lipid, solvent_padding_nm, ion_positive, ion_negative,
-            ion_concentration_M,
-        )
         modeller.addMembrane(
             ff,
             lipidType=lipid,

@@ -623,6 +623,7 @@ def run(
             ligand_clash_threshold_nm=float(params["ligand_clash_threshold_nm"]),
             solvent_padding_nm=float(params["solvent_padding_nm"]),
             membrane=params.get("membrane"),
+            membrane_orient=bool(params.get("membrane_orient", False)),
             membrane_orientation_checked=bool(
                 params.get("membrane_orientation_checked", False)),
             box_shape=str(params["box_shape"]),

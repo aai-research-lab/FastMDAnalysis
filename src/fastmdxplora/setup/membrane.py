@@ -167,8 +167,78 @@ def check_orientation(topology: Any, positions: Any) -> str | None:
         "crystallographic axes have no relation to a membrane normal. "
         "Embedding it anyway produces a run that completes and describes a "
         "structure nobody would recognise.\n\n"
-        "The OPM database (https://opm.phar.umich.edu) publishes structures "
-        "already oriented in a membrane; its coordinates can be used "
-        "directly. Pass `membrane_orientation_checked: true` to proceed with "
-        "the structure as it is."
+        "Three ways forward. `membrane_orient: true` rotates the structure "
+        "so its longest axis lies along the normal, which is right for a "
+        "transmembrane helix or a bundle of them. The OPM database "
+        "(https://opm.phar.umich.edu) publishes structures already oriented, "
+        "which is the answer where the shape is more complicated or where "
+        "which way up it sits matters. Or `membrane_orientation_checked: "
+        "true` to proceed with the structure exactly as it is."
     )
+
+
+def orient_for_membrane(topology: Any, positions: Any) -> Any:
+    """Rotate a structure so its longest axis lies along the membrane normal.
+
+    The alternative offered to somebody whose structure is in the wrong frame
+    is to fetch an oriented one from OPM, which is correct and is a detour.
+    For a transmembrane helix or a bundle of them, the orientation is not a
+    hard question: the protein is longest along the normal, because that is
+    the direction it spans.
+
+    So this rotates the principal axes onto the coordinate axes, longest onto
+    z. It is right for the shapes that make up most membrane-protein work and
+    it is wrong for a protein whose extent has nothing to do with its normal
+    -- a large soluble domain on one side will drag the axis with it. It is
+    therefore something to ask for rather than something done quietly, and
+    the rotation applied is recorded so it can be checked.
+
+    Nothing here can tell which way up the protein ends: a rotation putting
+    the extracellular side down is as valid to this calculation as one putting
+    it up. Where that matters, OPM is the answer.
+    """
+    import numpy as np
+
+    import mdtraj as md
+
+    try:
+        from openmm import unit as openmm_unit
+
+        had_units = openmm_unit.is_quantity(positions)
+        raw = (positions.value_in_unit(openmm_unit.nanometer) if had_units
+               else positions)
+    except ImportError:  # pragma: no cover - only without OpenMM
+        had_units, raw = False, positions
+
+    coordinates = np.asarray(
+        [[float(p[0]), float(p[1]), float(p[2])] for p in raw], dtype=float)
+
+    mdtop = md.Topology.from_openmm(topology)
+    protein = mdtop.select("protein")
+    if len(protein) < 20:
+        return positions
+
+    centre = coordinates[protein].mean(axis=0)
+    centred = coordinates[protein] - centre
+    values, vectors = np.linalg.eigh(np.cov(centred.T))
+    # Columns ordered by how extended the structure is along each: the last is
+    # the longest, and it becomes z.
+    rotation = vectors[:, [0, 1, 2]]
+    if np.linalg.det(rotation) < 0:
+        # A reflection is not a rotation: it would turn the structure into its
+        # mirror image, which is a different molecule.
+        rotation[:, 0] *= -1
+
+    rotated = (coordinates - centre) @ rotation
+
+    if had_units:
+        # Vec3 is on openmm, not openmm.unit. The tests passed plain arrays,
+        # so this branch -- the only one the pipeline takes -- was never run
+        # by them, and the mistake reached a real structure.
+        from openmm import Vec3
+        from openmm import unit as openmm_unit
+
+        return openmm_unit.Quantity(
+            [Vec3(*(float(v) for v in row)) for row in rotated],
+            openmm_unit.nanometer)
+    return rotated

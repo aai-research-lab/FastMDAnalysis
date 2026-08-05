@@ -232,6 +232,14 @@ SETUP = PhaseSchema(
               "water is not the protein: the hydrophobic belt that sits in "
               "the bilayer is exposed to solvent and the helices splay.",
               choices=("POPC", "POPE", "DLPC", "DLPE", "DMPC", "DOPC", "DPPC")),
+        Field("membrane_orient", bool, False,
+              "Rotate the structure so its longest axis lies along the "
+              "membrane normal, which is what the bilayer is built around. "
+              "Right for a transmembrane helix or a bundle of them, where "
+              "the protein is longest along the direction it spans; wrong "
+              "where a large soluble domain drags the axis away from the "
+              "normal, and unable to tell which way up the protein ends. "
+              "Where either matters, take an oriented structure from OPM."),
         Field("membrane_orientation_checked", bool, False,
               "Proceed with the structure's orientation as it is. The "
               "bilayer is built in the xy plane and the protein has to be "
