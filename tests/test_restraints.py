@@ -13,6 +13,15 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+# Every test here that touches OpenMM calls ``pytest.importorskip`` as its
+# first statement, before importing anything. A guard placed below the import
+# it protects never fires -- the import raises first -- which is how two of
+# these failed in CI while passing on a machine that had OpenMM.
+#
+# Verifying that needs the module to be genuinely unfindable rather than
+# present-and-raising: pytest re-raises the latter deliberately, because it
+# usually means a broken install rather than an absent package.
+
 #: A short alanine peptide in an extended conformation. The terminal OXT is
 #: there because without it the force field refuses the last residue: the
 #: chain looks like it continues into something that is not present. Written out rather than loaded from a dataset,
@@ -201,6 +210,7 @@ class TestARestraintActuallyHolds:
     def test_restrained_atoms_move_less(self) -> None:
         pytest.importorskip("openmm", reason="requires the [md] extra")
 
+
         free, heavy, _ = self._system(restrained=False)
         held, _heavy, _params = self._system(restrained=True)
 
@@ -213,6 +223,7 @@ class TestARestraintActuallyHolds:
         """Which is what makes staged release possible: the force is a global
         parameter, so it can be changed without rebuilding the context."""
         pytest.importorskip("openmm", reason="requires the [md] extra")
+
 
         simulation, heavy, parameters = self._system(restrained=True)
         assert parameters
@@ -232,6 +243,8 @@ class TestARestraintOnNothingIsRefused:
     restrained and not be."""
 
     def test_a_selection_matching_nothing_raises(self) -> None:
+        pytest.importorskip("openmm", reason="requires the [md] extra")
+
         import mdtraj as md
         import numpy as np
         import openmm as omm
@@ -241,7 +254,6 @@ class TestARestraintOnNothingIsRefused:
             parse_restraints,
         )
 
-        pytest.importorskip("openmm", reason="requires the [md] extra")
 
         top = md.Topology()
         residue = top.add_residue("ALA", top.add_chain(), resSeq=1)
@@ -254,6 +266,8 @@ class TestARestraintOnNothingIsRefused:
                 parse_restraints("resname NOPE"))
 
     def test_a_distance_restraint_needs_exactly_two_atoms(self) -> None:
+        pytest.importorskip("openmm", reason="requires the [md] extra")
+
         import mdtraj as md
         import numpy as np
         import openmm as omm
@@ -263,7 +277,6 @@ class TestARestraintOnNothingIsRefused:
             parse_restraints,
         )
 
-        pytest.importorskip("openmm", reason="requires the [md] extra")
 
         top = md.Topology()
         residue = top.add_residue("ALA", top.add_chain(), resSeq=1)
@@ -368,6 +381,7 @@ class TestTheRunnerReleasesThemInStages:
         """
         pytest.importorskip("openmm", reason="requires the [md] extra")
 
+
         import mdtraj as md
         import openmm as omm
         import openmm.unit as unit
@@ -416,6 +430,7 @@ class TestTheRunnerReleasesThemInStages:
         """Rather than running unrestrained and looking as though it had
         worked."""
         pytest.importorskip("openmm", reason="requires the [md] extra")
+
 
         import openmm as omm
         import openmm.unit as unit
