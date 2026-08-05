@@ -40,7 +40,7 @@ from fastmdxplora.analysis.orchestrator import register_analysis
 from fastmdxplora.analysis.plotting import new_figure, save_figure
 
 
-VALID_METHODS = ("pca", "tsne", "umap")
+VALID_METHODS = ("pca", "mds", "tsne", "umap")
 
 
 class DimRed(Analysis):
@@ -157,6 +157,19 @@ class DimRed(Analysis):
                 embedding = model.fit_transform(coords)
                 # Stash variance ratios for the plot annotation
                 self._explained_variance = getattr(model, "explained_variance_ratio_", None)
+            elif method == "mds":
+                # Metric MDS on the pairwise RMSD between frames, which is
+                # what version 1 offered and what a reader comparing against
+                # it needs. It answers a different question from PCA: PCA
+                # finds the directions of largest variance in the
+                # coordinates, while this finds an arrangement in which the
+                # distances between frames are preserved as closely as
+                # possible -- and the distance between two frames is their
+                # RMSD, which is what a structural biologist means by how
+                # different two conformations are.
+                distances = _pairwise_rmsd(traj)
+                embedding = _classical_mds(distances, self.n_components)
+                self._explained_variance = None
             elif method == "tsne":
                 # t-SNE requires perplexity < n_samples
                 p = min(self.perplexity, max(5.0, traj.n_frames / 4))
@@ -297,3 +310,40 @@ def _plot_dimred_scatter(
 
 
 register_analysis(DimRed.name, DimRed)
+
+
+def _pairwise_rmsd(traj: Any) -> np.ndarray:
+    """RMSD between every pair of frames, each pair superposed optimally.
+
+    The same measure clustering uses, so the two agree about how different
+    two conformations are.
+    """
+    import mdtraj as md
+
+    n = traj.n_frames
+    distances = np.zeros((n, n), dtype=np.float64)
+    for index in range(n):
+        distances[index] = md.rmsd(traj, traj, index)
+    # md.rmsd is not exactly symmetric to floating point, and an asymmetric
+    # matrix would give MDS a slightly complex eigenspectrum.
+    return 0.5 * (distances + distances.T)
+
+
+def _classical_mds(distances: np.ndarray, n_components: int) -> np.ndarray:
+    """Classical multidimensional scaling on a distance matrix.
+
+    B = -0.5 * H * D^2 * H with H = I - 1/n; eigendecompose and take
+    U * sqrt(lambda). Shared in spirit with the clustering module's copy,
+    kept separate because that one embeds for k-means and this one is the
+    result being reported.
+    """
+    squared = np.asarray(distances, dtype=np.float64) ** 2
+    n = squared.shape[0]
+    centring = np.eye(n) - np.ones((n, n)) / n
+    gram = -0.5 * centring @ squared @ centring
+    values, vectors = np.linalg.eigh(gram)
+    order = np.argsort(values)[::-1][:n_components]
+    # Negative eigenvalues mean the distances are not exactly Euclidean,
+    # which pairwise RMSD need not be. Clipping is the standard remedy.
+    kept = np.clip(values[order], 0.0, None)
+    return vectors[:, order] * np.sqrt(kept)

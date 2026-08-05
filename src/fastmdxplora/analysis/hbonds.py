@@ -24,6 +24,8 @@ Wernet, P. et al. *Science* **2004**, 304, 995.
 
 from __future__ import annotations
 
+import inspect
+
 from typing import Any
 
 import matplotlib.pyplot as plt
@@ -59,6 +61,20 @@ class HBonds(Analysis):
         frames is present in those frames, and a threshold applied here would
         drop it from all of them. Raise it only to restrict the series to
         bonds that persist. Has no effect on Wernet-Nilsson.
+    distance_cutoff : float, default 0.25
+        Hydrogen-to-acceptor distance in nm, for ``baker_hubbard``. The
+        published Baker-Hubbard value, and settable because other work uses
+        others: 0.35 nm between the heavy atoms is the more common convention
+        and is a different measurement, not a looser one.
+    angle_cutoff : float, default 120.0
+        Donor-hydrogen-acceptor angle in degrees, for ``baker_hubbard``.
+    sidechain_only : bool, default False
+        Count only bonds involving a side chain. A backbone hydrogen bond
+        holds the fold together; a side-chain one is what a substitution can
+        change, and mixing them answers neither question.
+    exclude_water : bool, default True
+        Leave out bonds to water. A solvated trajectory has far more of those
+        than anything else, and counting them buries the protein's own.
     periodic : bool, default True
         Measure across the periodic boundary when the trajectory carries a
         unit cell. A solvated trajectory is not always imaged, and a molecule
@@ -97,6 +113,10 @@ class HBonds(Analysis):
         candidate_freq: float = 0.0,
         count_multiplier: int = 1,
         periodic: bool = True,
+        distance_cutoff: float = 0.25,
+        angle_cutoff: float = 120.0,
+        sidechain_only: bool = False,
+        exclude_water: bool = True,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -117,6 +137,18 @@ class HBonds(Analysis):
             0.0 if candidate_freq is None else float(candidate_freq)
         )  # None is still accepted: it meant "same as freq" before.
         self.periodic: bool = bool(periodic)
+        self.distance_cutoff: float = float(distance_cutoff)
+        self.angle_cutoff: float = float(angle_cutoff)
+        self.sidechain_only: bool = bool(sidechain_only)
+        # Whether these were chosen or left alone, taken from the signature
+        # rather than compared against numbers written here: a default that
+        # moved would otherwise leave this comparing against the old one.
+        _defaults = inspect.signature(type(self).__init__).parameters
+        self._cutoffs_were_chosen: bool = (
+            self.distance_cutoff != _defaults["distance_cutoff"].default
+            or self.angle_cutoff != _defaults["angle_cutoff"].default
+        )
+        self.exclude_water: bool = bool(exclude_water)
         self.count_multiplier: int = int(count_multiplier)
         if self.count_multiplier < 1:
             raise ValueError("count_multiplier must be at least 1")
@@ -161,7 +193,21 @@ class HBonds(Analysis):
 
         if self.method == "wernet_nilsson":
             # Returns a list (one per frame) of (donor, H, acceptor) triplets.
-            per_frame = md.wernet_nilsson(traj, periodic=self.periodic)
+            # Wernet-Nilsson defines its own criterion, an angle-dependent
+            # distance, so the two cutoffs do not apply to it. Silently
+            # ignoring them would let somebody set a distance and believe it
+            # was used.
+            if self._cutoffs_were_chosen:
+                raise ValueError(
+                    "distance_cutoff and angle_cutoff apply to "
+                    "baker_hubbard only. Wernet-Nilsson uses an "
+                    "angle-dependent distance of its own, so setting them "
+                    "here would have no effect on what is counted."
+                )
+            per_frame = md.wernet_nilsson(
+                traj, periodic=self.periodic,
+                exclude_water=self.exclude_water,
+                sidechain_only=self.sidechain_only)
             counts = np.array([len(bonds) for bonds in per_frame], dtype=int)
         else:
             # Baker-Hubbard returns aggregated bonds present above `freq`
@@ -171,11 +217,16 @@ class HBonds(Analysis):
             bonds = md.baker_hubbard(
                 traj,
                 freq=self.candidate_freq,
-                exclude_water=True,
+                exclude_water=self.exclude_water,
                 periodic=self.periodic,
+                sidechain_only=self.sidechain_only,
+                distance_cutoff=self.distance_cutoff,
+                angle_cutoff=self.angle_cutoff,
             )
             counts, occupancy = _per_frame_baker_hubbard(
-                traj, bonds, periodic=self.periodic)
+                traj, bonds, periodic=self.periodic,
+                distance_cutoff=self.distance_cutoff,
+                angle_cutoff=self.angle_cutoff)
             # Occupancy is already known per bond from the per-frame pass, so
             # reporting how many clear the threshold costs nothing. Without
             # this, freq decided which bonds were proposed and nothing else,
@@ -225,7 +276,10 @@ class HBonds(Analysis):
 
 
 def _per_frame_baker_hubbard(
-    traj: md.Trajectory, bonds: np.ndarray, periodic: bool = True
+    traj: md.Trajectory, bonds: np.ndarray, periodic: bool = True,
+    *,
+    distance_cutoff: float = 0.25,
+    angle_cutoff: float = 120.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Recompute per-frame occupancy for an aggregated Baker-Hubbard set.
 
@@ -248,10 +302,10 @@ def _per_frame_baker_hubbard(
     d_h_a_triples = bonds[:, [0, 1, 2]]
     angles = md.compute_angles(traj, d_h_a_triples, periodic=periodic)
 
-    # Mask: distance < 0.25 nm AND angle > 120° (2.0944 rad)
-    cutoff_dist = 0.25
-    cutoff_angle_rad = np.deg2rad(120.0)
-    present = (distances < cutoff_dist) & (angles > cutoff_angle_rad)
+    # The same cutoffs the bonds were proposed under. They were written here
+    # as well as passed to MDTraj, so changing one would have left the
+    # per-frame count disagreeing with the bonds it was counting.
+    present = (distances < distance_cutoff) & (angles > np.deg2rad(angle_cutoff))
     return present.sum(axis=1).astype(int), present.mean(axis=0)
 
 

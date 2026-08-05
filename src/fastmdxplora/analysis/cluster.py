@@ -93,6 +93,16 @@ class Cluster(Analysis):
         distance is still an RMSD in nm -- the cheaper approximation, exact
         only where one alignment serves every pair. The choice changes the
         answer more than any parameter here does, so it is worth stating.
+    random_state : int, default 42
+        The seed k-means starts from. K-means finds a local optimum, so a
+        different seed can find a different clustering: one that survives a
+        change of seed is a finding, and one that does not is an artefact of
+        where the algorithm happened to start. Fixed by default so a run
+        repeats, and settable so that can be tested -- it was written into the
+        code, which made every run agree and hid the question.
+    n_init : int, default 10
+        How many starts k-means makes, keeping the best. More costs time and
+        buys robustness against a poor start.
     linkage : {"ward", "complete", "average", "single"}, default "average"
         Hierarchical linkage method. ``"ward"`` needs the frames as points
         rather than as distances: in the coordinate space they are, and from
@@ -123,6 +133,8 @@ class Cluster(Analysis):
         eps: float = 0.2,
         min_samples: int = 5,
         linkage: str = "average",
+        random_state: int = 42,
+        n_init: int = 10,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -148,6 +160,8 @@ class Cluster(Analysis):
         self.eps: float = float(eps)
         self.min_samples: int = int(min_samples)
         self.linkage: str = str(linkage)
+        self.random_state: int = int(random_state)
+        self.n_init: int = int(n_init)
         self.options.update(
             methods=self.methods,
             features=self.features,
@@ -192,7 +206,8 @@ class Cluster(Analysis):
         for method in self.methods:
             if method == "kmeans":
                 results[method] = _cluster_kmeans(
-                    distances, self.n_clusters, embedding=embedding)
+                    distances, self.n_clusters, embedding=embedding,
+                    random_state=self.random_state, n_init=self.n_init)
             elif method == "hierarchical":
                 results[method] = _cluster_hierarchical(
                     distances, self.n_clusters, self.linkage,
@@ -383,15 +398,28 @@ def _euclidean_matrix(embedding: np.ndarray) -> np.ndarray:
 
 
 def _cluster_kmeans(
-    distances: np.ndarray, n_clusters: int, embedding: np.ndarray | None = None
+    distances: np.ndarray,
+    n_clusters: int,
+    embedding: np.ndarray | None = None,
+    *,
+    random_state: int = 42,
+    n_init: int = 10,
 ) -> np.ndarray:
-    """K-means, which needs frames as points rather than as distances."""
+    """K-means, which needs frames as points rather than as distances.
+
+    The seed was fixed at 42 inside this function, which made every run agree
+    with every other and hid the thing worth knowing: k-means finds a local
+    optimum, and a different seed can find a different one. A clustering that
+    survives a change of seed is a finding; one that does not is an artefact
+    of where the algorithm happened to start, and no amount of rerunning with
+    the same seed distinguishes them.
+    """
     if embedding is None:
         # Project the distance matrix into a Euclidean space via classical MDS.
         embedding = _classical_mds(
             distances, n_components=min(10, distances.shape[0] - 1)
         )
-    model = KMeans(n_clusters=n_clusters, n_init=10, random_state=42)
+    model = KMeans(n_clusters=n_clusters, n_init=n_init, random_state=random_state)
     return model.fit_predict(embedding).astype(int)
 
 

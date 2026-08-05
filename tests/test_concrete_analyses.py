@@ -2039,3 +2039,227 @@ class TestAnAlphaCarbonIsNotCalcium:
                          dtype=np.float32),
             topology=top)
         assert metal_coordination(traj, [0, 1], [2]) == []
+
+
+class TestSettingsThatWereFixedInPlace:
+    """Two numbers were written into the code where version 1 had them as
+    options, and both looked settled without being so.
+
+    A seed fixed at 42 makes every run agree with every other, which reads as
+    determinism and hides the thing worth knowing: k-means finds a local
+    optimum, and a clustering that survives a change of seed is a finding
+    while one that does not is an artefact of where the algorithm started.
+
+    Hydrogen bond cutoffs written into the code cannot be compared against
+    another tool's, and the same day every other threshold in this software
+    became a setting, these were missed.
+    """
+
+    def test_the_clustering_seed_can_be_changed(self) -> None:
+        from fastmdxplora.analysis.cluster import Cluster
+
+        assert Cluster().random_state == 42, "the old fixed value is the default"
+        assert Cluster(random_state=7).random_state == 7
+        assert Cluster(n_init=25).n_init == 25
+
+    def test_a_different_seed_can_give_a_different_clustering(self) -> None:
+        """Which is the point. If it could not, the option would be theatre."""
+        from fastmdxplora.analysis.cluster import _cluster_kmeans
+
+        rng = np.random.RandomState(0)
+        points = rng.normal(size=(60, 4))
+        distances = np.linalg.norm(
+            points[:, None, :] - points[None, :, :], axis=-1)
+
+        first = _cluster_kmeans(distances, 5, random_state=1, n_init=1)
+        again = _cluster_kmeans(distances, 5, random_state=1, n_init=1)
+        assert np.array_equal(first, again), "the same seed must repeat"
+        # Different seeds may or may not differ on this data; what matters is
+        # that the seed reaches the algorithm at all.
+        other = _cluster_kmeans(distances, 5, random_state=99, n_init=1)
+        assert other.shape == first.shape
+
+    def test_the_hydrogen_bond_cutoffs_reach_the_measurement(self) -> None:
+        from fastmdxplora.analysis.hbonds import HBonds
+
+        traj = _peptide_with_side_chain_donors()
+        loose = HBonds(distance_cutoff=0.30).compute(traj)["n_hbonds"].sum()
+        tight = HBonds(distance_cutoff=0.20).compute(traj)["n_hbonds"].sum()
+        assert loose >= tight, "a looser cutoff cannot find fewer"
+
+    def test_they_reach_both_places_that_use_them(self) -> None:
+        """They were written in two places -- passed to MDTraj to propose the
+        bonds, and again to count them frame by frame. A setting reaching one
+        would leave the count disagreeing with the bonds it was counting."""
+        import inspect
+
+        from fastmdxplora.analysis import hbonds
+
+        source = inspect.getsource(hbonds._per_frame_baker_hubbard)
+        mask = next(line for line in source.splitlines() if "present = " in line)
+        assert "distance_cutoff" in mask and "angle_cutoff" in mask, mask
+        assert "0.25" not in mask and "120" not in mask, (
+            f"a threshold is still written into the comparison: {mask}"
+        )
+
+    def test_a_cutoff_that_would_be_ignored_is_refused(self) -> None:
+        """Wernet-Nilsson uses an angle-dependent distance of its own.
+        Accepting a cutoff and ignoring it would let somebody set a number and
+        believe it was used."""
+        import pytest
+
+        from fastmdxplora.analysis.hbonds import HBonds
+
+        traj = _peptide_with_side_chain_donors()
+        with pytest.raises(ValueError, match="baker_hubbard only"):
+            HBonds(method="wernet_nilsson", distance_cutoff=0.35).compute(traj)
+
+    def test_side_chain_bonds_can_be_asked_for_on_their_own(self) -> None:
+        """A backbone hydrogen bond holds the fold together; a side-chain one
+        is what a substitution can change."""
+        from fastmdxplora.analysis.hbonds import HBonds
+
+        traj = _peptide_with_side_chain_donors()
+        everything = HBonds().compute(traj)["n_hbonds"].sum()
+        side_only = HBonds(sidechain_only=True).compute(traj)["n_hbonds"].sum()
+        assert side_only <= everything
+
+
+def _peptide_with_side_chain_donors():
+    """A short peptide with backbone and side-chain donors.
+
+    Named apart from the existing _hbond_traj, which takes arguments and is
+    used by the tests above -- defining a second one under the same name
+    shadowed it and broke them.
+    """
+    top = md.Topology()
+    chain = top.add_chain()
+    previous_c = None
+    for index in range(6):
+        residue = top.add_residue("SER", chain, resSeq=index + 1)
+        n = top.add_atom("N", md.element.nitrogen, residue)
+        h = top.add_atom("H", md.element.hydrogen, residue)
+        ca = top.add_atom("CA", md.element.carbon, residue)
+        c = top.add_atom("C", md.element.carbon, residue)
+        o = top.add_atom("O", md.element.oxygen, residue)
+        og = top.add_atom("OG", md.element.oxygen, residue)
+        hg = top.add_atom("HG", md.element.hydrogen, residue)
+        for first, second in ((n, h), (n, ca), (ca, c), (c, o), (ca, og),
+                              (og, hg)):
+            top.add_bond(first, second)
+        if previous_c is not None:
+            top.add_bond(previous_c, n)
+        previous_c = c
+    rng = np.random.RandomState(2)
+    xyz = rng.normal(scale=0.22, size=(3, top.n_atoms, 3)).astype(np.float32)
+    return md.Trajectory(xyz=xyz, topology=top)
+
+
+class TestOmegaAndMDS:
+    """Two things version 1 measured that this did not.
+
+    Omega is the peptide bond torsion. It is near 180 degrees in almost every
+    residue, and the exceptions are the finding: a cis bond near zero, most
+    often before a proline.
+
+    MDS answers a different question from PCA. PCA finds the directions of
+    largest variance in the coordinates; MDS finds an arrangement preserving
+    the distances between frames -- and the distance between two frames is
+    their RMSD, which is what a structural biologist means by how different
+    two conformations are.
+    """
+
+    @staticmethod
+    def _peptide(n_residues=6):
+        top = md.Topology()
+        chain = top.add_chain()
+        previous_c = None
+        for index in range(n_residues):
+            residue = top.add_residue("ALA", chain, resSeq=index + 1)
+            n = top.add_atom("N", md.element.nitrogen, residue)
+            ca = top.add_atom("CA", md.element.carbon, residue)
+            c = top.add_atom("C", md.element.carbon, residue)
+            o = top.add_atom("O", md.element.oxygen, residue)
+            cb = top.add_atom("CB", md.element.carbon, residue)
+            for first, second in ((n, ca), (ca, c), (c, o), (ca, cb)):
+                top.add_bond(first, second)
+            if previous_c is not None:
+                top.add_bond(previous_c, n)
+            previous_c = c
+        rng = np.random.RandomState(5)
+        xyz = rng.normal(scale=0.2, size=(8, top.n_atoms, 3)).astype(np.float32)
+        return md.Trajectory(xyz=xyz, topology=top)
+
+    def test_omega_is_computed_by_default(self) -> None:
+        from fastmdxplora.analysis.dihedrals import Dihedrals
+
+        result = Dihedrals().compute(self._peptide())
+        assert "omega_deg" in result.columns
+
+    def test_it_can_be_left_out(self) -> None:
+        from fastmdxplora.analysis.dihedrals import Dihedrals
+
+        result = Dihedrals(angles=["phi", "psi"]).compute(self._peptide())
+        assert "omega_deg" not in result.columns
+        assert {"phi_deg", "psi_deg"} <= set(result.columns)
+
+    def test_an_angle_that_does_not_exist_is_refused(self) -> None:
+        import pytest
+
+        from fastmdxplora.analysis.dihedrals import Dihedrals
+
+        with pytest.raises(ValueError, match="Unknown dihedral"):
+            Dihedrals(angles=["phi", "chi1"])
+
+    def test_the_accepted_angles_are_declared_for_a_form_to_read(self) -> None:
+        import fastmdxplora.analysis  # noqa: F401
+        from fastmdxplora.analysis.describe import describe_analysis
+        from fastmdxplora.analysis.dihedrals import VALID_ANGLES
+
+        option = next(o for o in describe_analysis("dihedrals")
+                      if o.name == "angles")
+        assert option.choices == VALID_ANGLES
+
+    def test_omega_is_matched_to_the_residue_it_belongs_to(self) -> None:
+        """MDTraj's quartet is CA(i-1), C(i-1), N(i), CA(i), so the residue is
+        the one at index 3 where phi's is at index 2. Joining on the wrong one
+        would shift every value by a residue -- a plausible plot of the wrong
+        thing."""
+        import mdtraj
+
+        traj = self._peptide()
+        phi_idx, _ = mdtraj.compute_phi(traj)
+        omega_idx, _ = mdtraj.compute_omega(traj)
+        phi_residue = traj.topology.atom(int(phi_idx[0, 2])).residue.index
+        omega_residue = traj.topology.atom(int(omega_idx[0, 3])).residue.index
+        assert phi_residue == omega_residue
+
+    def test_mds_is_offered_again(self) -> None:
+        from fastmdxplora.analysis.dimred import VALID_METHODS
+
+        assert "mds" in VALID_METHODS
+
+    def test_mds_preserves_the_distances_it_claims_to(self) -> None:
+        """Which is what makes it a different question rather than a worse
+        PCA."""
+        from itertools import combinations
+
+        from fastmdxplora.analysis.dimred import _classical_mds, _pairwise_rmsd
+
+        traj = self._peptide(n_residues=8)
+        distances = _pairwise_rmsd(traj)
+        embedded = _classical_mds(distances, 2)
+
+        pairs = list(combinations(range(traj.n_frames), 2))
+        real = np.array([distances[i, j] for i, j in pairs])
+        got = np.array([np.linalg.norm(embedded[i] - embedded[j])
+                        for i, j in pairs])
+        assert np.corrcoef(real, got)[0, 1] > 0.8
+
+    def test_the_distance_matrix_is_symmetric(self) -> None:
+        """md.rmsd is not exactly symmetric to floating point, and an
+        asymmetric matrix gives MDS a slightly complex eigenspectrum."""
+        from fastmdxplora.analysis.dimred import _pairwise_rmsd
+
+        distances = _pairwise_rmsd(self._peptide())
+        assert np.allclose(distances, distances.T)

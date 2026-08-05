@@ -19,7 +19,7 @@ Ramachandran display range of (-180°, 180°).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence
 
 import matplotlib.pyplot as plt
 import mdtraj as md
@@ -28,6 +28,11 @@ import pandas as pd
 
 from fastmdxplora.analysis.base import Analysis
 from fastmdxplora.analysis.orchestrator import register_analysis
+
+
+#: Which backbone torsions can be measured. Named here so a form can offer
+#: them: the same constant the analysis validates against.
+VALID_ANGLES = ("phi", "psi", "omega")
 
 
 class Dihedrals(Analysis):
@@ -41,6 +46,12 @@ class Dihedrals(Analysis):
         is more readable for long trajectories with many points; scatter
         is better for short trajectories or when you want to see each
         sample.
+    angles : sequence of {"phi", "psi", "omega"}, default all three
+        Which backbone torsions to measure. Phi and psi are the Ramachandran
+        pair. Omega is the peptide bond itself, close to 180 degrees in almost
+        every residue -- and the exceptions are the finding: a cis peptide
+        bond near zero, most often before a proline, and the departures from
+        planarity that a strained fold produces.
     bins : int, default 72
         Number of bins along each axis for the density plot. The
         Ramachandran range is 360°, so the default 72 bins → 5° resolution.
@@ -65,11 +76,19 @@ class Dihedrals(Analysis):
         self,
         *,
         density: bool = True,
+        angles: Sequence[str] = VALID_ANGLES,
         bins: int = 72,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self.density: bool = bool(density)
+        chosen = tuple(str(a).lower() for a in angles)
+        unknown = [a for a in chosen if a not in VALID_ANGLES]
+        if unknown:
+            raise ValueError(
+                f"Unknown dihedral(s) {unknown}. Valid: {VALID_ANGLES}"
+            )
+        self.angles: tuple[str, ...] = chosen
         self.bins: int = int(bins)
         self.options.update(density=self.density, bins=self.bins)
 
@@ -85,6 +104,10 @@ class Dihedrals(Analysis):
         """
         phi_idx, phi_rad = md.compute_phi(traj)
         psi_idx, psi_rad = md.compute_psi(traj)
+        omega_idx, omega_rad = (
+            md.compute_omega(traj) if "omega" in self.angles
+            else (np.zeros((0, 4), dtype=int), np.zeros((traj.n_frames, 0)))
+        )
 
         if phi_rad.size == 0 or psi_rad.size == 0:
             raise ValueError(
@@ -106,6 +129,21 @@ class Dihedrals(Analysis):
         phi_deg = np.rad2deg(phi_rad[:, phi_pos])
         psi_deg = np.rad2deg(psi_rad[:, psi_pos])
 
+        # Omega is the torsion of the peptide bond between residue i-1 and i,
+        # so MDTraj's quartet is CA(i-1), C(i-1), N(i), CA(i): the residue it
+        # belongs to is the one at index 3, where phi's is at index 2. Joining
+        # on the wrong one would shift every value by a residue, which is the
+        # sort of error that produces a plausible plot of the wrong thing.
+        omega_deg = None
+        if omega_idx.size:
+            omega_ca = omega_idx[:, 3]
+            lookup = {int(ca): position for position, ca in enumerate(omega_ca)}
+            positions = [lookup.get(int(ca)) for ca in common_ca]
+            omega_deg = np.full((traj.n_frames, len(common_ca)), np.nan)
+            for column, position in enumerate(positions):
+                if position is not None:
+                    omega_deg[:, column] = np.rad2deg(omega_rad[:, position])
+
         # Build the long-form DataFrame
         n_frames = traj.n_frames
         n_res = len(common_ca)
@@ -121,15 +159,14 @@ class Dihedrals(Analysis):
             residue_labels = np.array([r.index for r in residues_topo])
         residue_col = np.tile(residue_labels, n_frames)
 
-        df = pd.DataFrame(
-            {
-                "frame": frames,
-                "residue": residue_col,
-                "phi_deg": phi_deg.flatten(),
-                "psi_deg": psi_deg.flatten(),
-            }
-        )
-        return df
+        columns = {"frame": frames, "residue": residue_col}
+        if "phi" in self.angles:
+            columns["phi_deg"] = phi_deg.flatten()
+        if "psi" in self.angles:
+            columns["psi_deg"] = psi_deg.flatten()
+        if omega_deg is not None:
+            columns["omega_deg"] = omega_deg.flatten()
+        return pd.DataFrame(columns)
 
     def plot(self, result: pd.DataFrame, ax: plt.Axes) -> None:
         phi = result["phi_deg"].to_numpy()
