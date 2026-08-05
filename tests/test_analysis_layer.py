@@ -607,11 +607,22 @@ class TestAnalysesDescribeThemselves:
         import fastmdxplora.analysis  # noqa: F401
         from fastmdxplora.analysis.describe import describe_all
 
+        def offered(option) -> bool:
+            """Whether a default is among the values the option accepts.
+
+            An option taking several -- clustering's methods, the interaction
+            kinds -- has a default that is a set of them, and every member has
+            to be accepted rather than the tuple itself being a choice.
+            """
+            if isinstance(option.default, (list, tuple)):
+                return all(v in option.choices for v in option.default)
+            return option.default in option.choices
+
         broken = [
             f"{name}.{o.name}: {o.default!r} not in {o.choices}"
             for name, options in describe_all().items()
             for o in options
-            if o.choices and o.default is not None and o.default not in o.choices
+            if o.choices and o.default is not None and not offered(o)
         ]
         assert not broken, broken
 

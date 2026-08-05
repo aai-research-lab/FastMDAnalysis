@@ -3577,3 +3577,315 @@ class TestPathsAreNotAssumedToUseSlashes:
                   / "run-builder.js").read_text(encoding="utf-8")
         block = script[script.index("function findStructureBeside"):][:600]
         assert "\\\\" in block, "only forward slashes are split on"
+
+
+class TestChoosingSeveralOfSomething:
+    """An option taking several of its accepted values needs a control that
+    offers them.
+
+    Clustering runs two methods by default. Offered as a single select, the
+    two are unreachable together; offered as a text box, somebody has to type
+    "kmeans, hierarchical" and get the spelling right. Both are ways of making
+    a form worse than the command line it replaced.
+    """
+
+    @staticmethod
+    def _options():
+        from fastmdxplora.gui.schema_payload import schema_payload
+
+        payload = schema_payload()["analysis_options"]
+        if not payload["available"]:
+            import pytest
+
+            pytest.skip(payload["reason"])
+        return payload
+
+    def test_the_accepted_values_come_from_the_analysis(self) -> None:
+        """They live in a constant the analysis validates against, so a form
+        offering them cannot drift from what will be accepted."""
+        import fastmdxplora.analysis  # noqa: F401
+        from fastmdxplora.analysis import cluster, dimred
+        from fastmdxplora.analysis.describe import describe_analysis
+
+        for module, name in ((cluster, "cluster"), (dimred, "dimred")):
+            option = next(o for o in describe_analysis(name)
+                          if o.name == "methods")
+            assert option.choices == module.VALID_METHODS, name
+
+    def test_an_option_taking_several_says_so(self) -> None:
+        payload = self._options()
+        for analysis, name in (("cluster", "methods"), ("dimred", "methods"),
+                               ("pl_interactions", "kinds")):
+            option = next(o for o in payload["analyses"][analysis]
+                          if o["name"] == name)
+            assert option["control"] == "multiselect", f"{analysis}.{name}"
+            assert option["choices"], f"{analysis}.{name} offers nothing"
+
+    def test_an_option_taking_one_still_says_select(self) -> None:
+        payload = self._options()
+        option = next(o for o in payload["analyses"]["cluster"]
+                      if o["name"] == "features")
+        assert option["control"] == "select"
+
+    def test_the_page_draws_the_difference(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        script = (pathlib.Path(server.__file__).parent / "static"
+                  / "run-builder.js").read_text(encoding="utf-8")
+        assert 'option.control === "multiselect"' in script
+        # Drawn as checkboxes: a native multiple select needs ctrl-click,
+        # which nobody guesses and which makes the control look broken.
+        assert "run-checkbox-group" in script
+        assert "boxes.filter((b) => b.checked)" in script
+
+
+class TestFifteenAnalysesReadAsAFewKinds:
+    """A flat list of fifteen is a list. Grouped, it is a few kinds of
+    question, and somebody looking for what a ligand is doing can find it."""
+
+    @staticmethod
+    def _options():
+        from fastmdxplora.gui.schema_payload import schema_payload
+
+        payload = schema_payload()["analysis_options"]
+        if not payload["available"]:
+            import pytest
+
+            pytest.skip(payload["reason"])
+        return payload
+
+    def test_every_analysis_has_a_group(self) -> None:
+        """A grouping that silently drops one is worse than no grouping."""
+        payload = self._options()
+        missing = [name for name in payload["analyses"]
+                   if name not in payload["categories"]]
+        assert not missing, f"these appear in no group: {missing}"
+
+    def test_every_group_used_is_in_the_order(self) -> None:
+        payload = self._options()
+        used = set(payload["categories"].values())
+        assert used <= set(payload["category_order"]), (
+            f"groups with no place in the order: "
+            f"{sorted(used - set(payload['category_order']))}"
+        )
+
+    def test_the_protein_ligand_analyses_are_together(self) -> None:
+        payload = self._options()
+        together = {name for name, group in payload["categories"].items()
+                    if group == "Protein and ligand together"}
+        assert {"pl_contacts", "pl_hbonds", "pl_interactions"} <= together
+
+    def test_the_page_groups_them(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        script = (pathlib.Path(server.__file__).parent / "static"
+                  / "run-builder.js").read_text(encoding="utf-8")
+        assert "options.category_order" in script
+        assert "run-analysis-group" in script
+
+
+class TestTheOutputButtonOpensTheChosenFolder:
+    """The one thing a person checks first after a run, and the one that would
+    be most quietly wrong."""
+
+    def test_it_follows_a_run_started_from_the_browser(self, tmp_path) -> None:
+        from fastmdxplora.gui.exploration import DashboardRuntime
+
+        runtime = DashboardRuntime(
+            workspace_root=tmp_path / "ws", exploration_root=tmp_path,
+            active_root=None)
+        wanted = tmp_path / "my_chosen_output"
+        try:
+            started = runtime.launch_from_config({
+                "output": str(wanted), "include": ["analysis"],
+                "systems": [{"system": "t.pdb"}],
+                "analysis": {"trajectory": "x.dcd", "topology": "t.pdb",
+                             "include": "rmsd"},
+            })
+            assert started["ok"], started.get("error")
+            assert runtime.data_root() == wanted.resolve()
+        finally:
+            runtime.stop()
+
+    def test_and_still_points_there_once_it_finishes(self, tmp_path) -> None:
+        import time
+
+        from fastmdxplora.gui.exploration import DashboardRuntime
+
+        runtime = DashboardRuntime(
+            workspace_root=tmp_path / "ws", exploration_root=tmp_path,
+            active_root=None)
+        wanted = tmp_path / "finished_run"
+        try:
+            runtime.launch_from_config({
+                "output": str(wanted), "include": ["analysis"],
+                "systems": [{"system": "t.pdb"}],
+                "analysis": {"trajectory": "x.dcd", "topology": "t.pdb",
+                             "include": "rmsd"},
+            })
+            time.sleep(0.5)
+        finally:
+            runtime.stop()
+        assert runtime.data_root() == wanted.resolve()
+
+    def test_the_endpoint_opens_what_that_resolves_to(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        source = pathlib.Path(server.__file__).read_text(encoding="utf-8")
+        start = source.index('if path == "/api/open-output"')
+        # To the next route, rather than a fixed number of characters: the
+        # guard for a remote dashboard sits between the two.
+        block = source[start:source.index('if path == ', start + 40)]
+        assert "_open_local_path(root)" in block
+        assert "app_runtime.data_root()" in source
+
+
+class TestEverySettingGetsTheRightControl:
+    """Written after finding that three options taking several values came
+    through as free text, so somebody had to type "kmeans, hierarchical" and
+    get the spelling right.
+
+    Checking them one at a time found that one; checking the property finds
+    the next.
+    """
+
+    @staticmethod
+    def _options():
+        from fastmdxplora.gui.schema_payload import schema_payload
+
+        payload = schema_payload()["analysis_options"]
+        if not payload["available"]:
+            import pytest
+
+            pytest.skip(payload["reason"])
+        return payload
+
+    def test_no_setting_has_a_control_that_does_not_suit_it(self) -> None:
+        payload = self._options()
+        wrong = []
+        for analysis, options in payload["analyses"].items():
+            for option in options:
+                if option["shared"]:
+                    continue
+                name = f"{analysis}.{option['name']}"
+                control, default = option["control"], option["default"]
+                if isinstance(default, list) and control != "multiselect":
+                    wrong.append(f"{name}: takes several, offers {control}")
+                elif option["choices"] and control not in ("select", "multiselect"):
+                    wrong.append(f"{name}: has choices, offers {control}")
+                elif isinstance(default, bool) and control != "checkbox":
+                    wrong.append(f"{name}: is yes or no, offers {control}")
+                elif (isinstance(default, (int, float))
+                      and not isinstance(default, bool)
+                      and control != "number"):
+                    wrong.append(f"{name}: is a number, offers {control}")
+        assert not wrong, wrong
+
+    def test_every_setting_says_what_it_does(self) -> None:
+        """A control with no label is a box somebody has to guess at."""
+        payload = self._options()
+        silent = [
+            f"{analysis}.{option['name']}"
+            for analysis, options in payload["analyses"].items()
+            for option in options
+            if not option["shared"] and not option["help"]
+        ]
+        assert not silent, silent
+
+    def test_what_the_run_works_out_is_not_asked_for(self) -> None:
+        """Typing a ligand name that does not match the one detected would
+        have the analysis find nothing and report the ligand as absent."""
+        payload = self._options()
+        supplied = {
+            f"{analysis}.{option['name']}"
+            for analysis, options in payload["analyses"].items()
+            for option in options
+            if option["supplied_by_the_run"]
+        }
+        assert "pl_interactions.ligand_resname" in supplied
+        assert len(supplied) >= 5, supplied
+
+    def test_the_page_shows_those_without_offering_them(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        script = (pathlib.Path(server.__file__).parent / "static"
+                  / "run-builder.js").read_text(encoding="utf-8")
+        assert "option.supplied_by_the_run" in script
+        assert "run-supplied-value" in script
+
+    def test_choosing_several_is_checkboxes_not_a_multiple_select(self) -> None:
+        """A native multiple select needs ctrl-click, which nobody guesses and
+        which makes the control look broken to anyone who tries it once."""
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        script = (pathlib.Path(server.__file__).parent / "static"
+                  / "run-builder.js").read_text(encoding="utf-8")
+        assert "run-checkbox-group" in script
+        assert "input.multiple = true" not in script
+
+    def test_a_path_setting_gets_the_picker(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        payload = self._options()
+        chemistry = next(o for o in payload["analyses"]["pl_interactions"]
+                         if o["name"] == "ligand_chemistry")
+        assert chemistry["is_path"]
+        script = (pathlib.Path(server.__file__).parent / "static"
+                  / "run-builder.js").read_text(encoding="utf-8")
+        assert "option.is_path" in script
+        assert "FastMDXPicker.attachAll" in script, (
+            "settings are drawn after load, so the picker has to be told"
+        )
+
+
+class TestARenamedAnalysisKeepsWorking:
+    """`contacts` measures protein-ligand contacts, so it is `pl_contacts`
+    beside `pl_hbonds` and `pl_interactions`.
+
+    The old name stays registered, because a rename that breaks a config
+    somebody has kept costs more than the consistency it buys -- but it is
+    usable rather than offered, or a form would list sixteen entries for
+    fifteen analyses.
+    """
+
+    def test_the_new_name_works(self) -> None:
+        import fastmdxplora.analysis  # noqa: F401
+        from fastmdxplora.analysis.orchestrator import get_analysis_class
+
+        assert get_analysis_class("pl_contacts") is not None
+
+    def test_the_old_name_still_works(self) -> None:
+        import fastmdxplora.analysis  # noqa: F401
+        from fastmdxplora.analysis.orchestrator import get_analysis_class
+
+        assert get_analysis_class("contacts") is get_analysis_class("pl_contacts")
+
+    def test_but_only_one_of_them_is_offered(self) -> None:
+        import fastmdxplora.analysis  # noqa: F401
+        from fastmdxplora.analysis.describe import describe_all
+
+        offered = describe_all()
+        assert "pl_contacts" in offered
+        assert "contacts" not in offered
+
+    def test_it_sits_with_the_other_protein_ligand_analyses(self) -> None:
+        from fastmdxplora.gui.schema_payload import schema_payload
+
+        payload = schema_payload()["analysis_options"]
+        if not payload["available"]:
+            import pytest
+
+            pytest.skip(payload["reason"])
+        assert payload["categories"]["pl_contacts"] == "Protein and ligand together"

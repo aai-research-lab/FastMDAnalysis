@@ -13,8 +13,8 @@ ligand over a trajectory:
 Contacts are defined at the residue level: a residue is "in contact" in a
 frame if any of its atoms is within ``cutoff`` nm of any ligand atom.
 
-Outputs ``contacts.dat`` (per-frame count time series) and, alongside it,
-``contacts_per_residue.csv`` (residue, frequency). The figure shows the
+Outputs ``pl_contacts.dat`` (per-frame count time series) and, alongside it,
+``pl_contacts_per_residue.csv`` (residue, frequency). The figure shows the
 per-residue frequency fingerprint (the more informative of the two).
 """
 
@@ -56,7 +56,7 @@ class Contacts(Analysis):
         Standard base-class options.
     """
 
-    name = "contacts"
+    name = "pl_contacts"
     description = "Protein-ligand contacts (count + per-residue frequency)"
     requires_ligand = True
     default_selection = None
@@ -159,7 +159,10 @@ class Contacts(Analysis):
         path.parent.mkdir(parents=True, exist_ok=True)
         result.to_csv(path, index=False)
         # Write the per-residue fingerprint alongside the main per-frame file.
-        per_res_path = path.parent / "contacts_per_residue.csv"
+        # Named from the analysis rather than written out, so a rename moves
+        # this with it instead of leaving a file called after the old name in
+        # a directory called after the new one.
+        per_res_path = path.parent / f"{self.name}_per_residue.csv"
         self._per_residue.to_csv(per_res_path, index=False)
         return path
 
@@ -186,3 +189,7 @@ class Contacts(Analysis):
 
 
 register_analysis(Contacts.name, Contacts)
+# The old name, because it is in configs and papers already. A rename
+# that breaks a config somebody has kept is a rename that costs more
+# than the consistency it buys.
+register_analysis("contacts", Contacts)

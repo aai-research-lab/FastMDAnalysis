@@ -95,14 +95,39 @@ def _analysis_options() -> dict[str, Any]:
         }
 
     analyses: dict[str, Any] = {}
+    #: What each analysis is about, so fifteen of them can be read as a few
+    #: groups rather than a list. An analysis appearing in none of these is
+    #: shown under "other" rather than hidden: a grouping that silently drops
+    #: things is worse than no grouping.
+    groups = {
+        "Shape and size": ("rmsd", "rg", "sasa", "ss"),
+        "Flexibility": ("rmsf", "dihedrals"),
+        "Conformations": ("cluster", "dimred"),
+        "Folding": ("qvalue", "hbonds"),
+        "The ligand": ("ligand_rmsd", "ligand_rmsf"),
+        "Protein and ligand together": ("pl_contacts", "pl_hbonds",
+                                        "pl_interactions"),
+    }
+    of_group = {name: title for title, names in groups.items() for name in names}
+
     explanations: dict[str, Any] = {}
+    categories: dict[str, str] = {}
     for name, options in describe_all().items():
         explanations[name] = explain_analysis(name)
+        categories[name] = of_group.get(name, "Other")
         analyses[name] = [
             {
                 "name": option.name,
+                # An option whose default is a list takes several of its
+                # accepted values, not one. Offering a single select would
+                # make the two clustering methods that run by default
+                # unreachable together; offering a text box asks somebody to
+                # type "kmeans, hierarchical" and get the spelling right.
                 "control": (
-                    "select" if option.choices
+                    ("multiselect"
+                     if isinstance(option.default, (list, tuple))
+                     else "select")
+                    if option.choices
                     else _CONTROL_FOR_TYPE.get(type(option.default), "text")
                 ),
                 "help": option.help,
@@ -113,6 +138,16 @@ def _analysis_options() -> dict[str, Any]:
                 # are worth grouping apart from the ones that make an analysis
                 # what it is.
                 "shared": option.owner == "Analysis",
+                # Something the run works out for itself. Asking for it
+                # invites somebody to type a ligand name that does not match
+                # the one detected, and the analysis would then find nothing
+                # and say the ligand was absent.
+                "supplied_by_the_run": bool(
+                    option.help and "orchestrator" in option.help.lower()
+                ),
+                # A path, so the page can offer a picker rather than a box to
+                # type one into.
+                "is_path": option.name.endswith(("_file", "_chemistry", "_path")),
             }
             for option in options
         ]
@@ -121,6 +156,8 @@ def _analysis_options() -> dict[str, Any]:
         "reason": None,
         "analyses": analyses,
         "explanations": explanations,
+        "categories": categories,
+        "category_order": list(groups) + ["Other"],
     }
 
 

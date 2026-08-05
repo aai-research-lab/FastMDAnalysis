@@ -2074,3 +2074,56 @@ body.state-ready .loading-screen {
     color: var(--text-muted);
     content: "/ ";
 }
+
+/* A heading over each group of analyses. Fifteen of them read as a list;
+   grouped, they read as a few kinds of question. */
+.run-analysis-group {
+    background: var(--background-secondary);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: .08em;
+    padding: 9px 16px;
+    text-transform: uppercase;
+}
+.run-section .builder-field select[multiple] {
+    min-height: 84px;
+    padding: 6px 8px;
+}
+
+/* The note under a section heading sits with the heading rather than
+   inheriting the row padding underneath it, which indented it past the
+   analyses it describes. */
+.run-section-note {
+    margin: 0;
+    padding: 0 16px 12px;
+}
+
+/* Choosing several of something. A native multiple select needs ctrl-click,
+   which nobody guesses and which makes the control look broken to anyone who
+   tries it once. */
+.run-checkbox-group {
+    display: grid;
+    gap: 6px 14px;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+.run-checkbox {
+    align-items: center;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    font-size: 12px;
+    gap: 7px;
+}
+.run-checkbox input { accent-color: var(--accent-cyan); }
+
+/* A value the run works out for itself: shown, because seeing what it will
+   use is worth something, but not a control. */
+.run-supplied-value {
+    background: var(--background-secondary);
+    border: 1px dashed var(--border-subtle);
+    border-radius: 6px;
+    color: var(--text-muted);
+    font-size: 12px;
+    padding: 7px 10px;
+}

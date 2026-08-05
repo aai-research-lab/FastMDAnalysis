@@ -70,6 +70,33 @@ def _clean(text: str) -> str:
     return joined.replace("``", "")
 
 
+
+def _declared_choices(cls: Any, name: str) -> tuple[str, ...] | None:
+    """Accepted values an analysis declares as a constant.
+
+    An option taking several values out of a fixed set -- clustering's
+    ``methods``, the interaction ``kinds`` -- keeps that set in a constant it
+    validates against. Reading the constant means a form can offer the values
+    rather than asking somebody to type them, and it cannot drift from what
+    the analysis will accept, because it is the same object.
+
+    The convention is ``VALID_<OPTION>`` or ``ALL_<OPTION>`` beside the class.
+    Anything else is left alone: guessing at a constant's meaning from its
+    name is how a form comes to offer a value the software refuses.
+    """
+    import inspect
+
+    module = inspect.getmodule(cls)
+    if module is None:
+        return None
+    for pattern in (f"VALID_{name.upper()}", f"ALL_{name.upper()}"):
+        values = getattr(module, pattern, None)
+        if isinstance(values, (tuple, list)) and values:
+            if all(isinstance(v, str) for v in values):
+                return tuple(values)
+    return None
+
+
 def _choices_from(type_text: str | None) -> tuple[str, ...] | None:
     if not type_text:
         return None
@@ -139,7 +166,8 @@ def describe_analysis(name: str) -> tuple[OptionDoc, ...]:
                         else param.default
                     ),
                     type_text=type_text,
-                    choices=_choices_from(type_text),
+                    choices=(_choices_from(type_text)
+                             or _declared_choices(klass, param.name)),
                     help=_clean(match.group("body")) if match else None,
                     owner=klass.__name__,
                 )
@@ -178,10 +206,26 @@ def explain_analysis(name: str) -> dict[str, str]:
 
 
 def describe_all() -> dict[str, tuple[OptionDoc, ...]]:
-    """Every analysis and every setting it accepts."""
-    from fastmdxplora.analysis.orchestrator import available_analyses
+    """Every analysis and every setting it accepts, once each.
 
-    return {name: describe_analysis(name) for name in available_analyses()}
+    An analysis renamed for consistency keeps its old name registered, because
+    a rename that breaks a config somebody has kept costs more than the
+    consistency it buys. But an alias should be usable rather than offered:
+    listing both would put sixteen entries in a form for fifteen analyses and
+    leave somebody wondering how the two differ.
+
+    A registered name that is not the class's own name is an alias.
+    """
+    from fastmdxplora.analysis.orchestrator import (
+        available_analyses,
+        get_analysis_class,
+    )
+
+    return {
+        name: describe_analysis(name)
+        for name in available_analyses()
+        if getattr(get_analysis_class(name), "name", name) == name
+    }
 
 
 def undocumented_options() -> dict[str, tuple[str, ...]]:

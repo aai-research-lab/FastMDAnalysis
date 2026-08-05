@@ -172,8 +172,8 @@ class TestContacts:
         c = Contacts(ligand_resname="LIG", cutoff=0.4, output_dir=tmp_path)
         result = c.run(complex_in_contact)
         assert result.status == "ok"
-        assert (result.output_dir / "contacts.dat").exists()
-        assert (result.output_dir / "contacts_per_residue.csv").exists()
+        assert (result.output_dir / "pl_contacts.dat").exists()
+        assert (result.output_dir / "pl_contacts_per_residue.csv").exists()
 
     def test_requires_ligand_resname(self, tmp_path):
         from fastmdxplora.analysis.contacts import Contacts

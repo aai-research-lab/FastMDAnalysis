@@ -224,6 +224,12 @@
       host.appendChild(settingsSection(phase));
       if (phase.name === "analysis") host.appendChild(analysisSection());
     });
+
+    // Settings are drawn after the page loads, so the picker has to be told
+    // there are new path fields to attach to.
+    if (window.FastMDXPicker && window.FastMDXPicker.attachAll) {
+      window.FastMDXPicker.attachAll();
+    }
   }
 
   function settingsSection(phase) {
@@ -332,7 +338,7 @@
     section.appendChild(head);
 
     const note = document.createElement("p");
-    note.className = "builder-card-note";
+    note.className = "builder-card-note run-section-note";
     note.textContent =
       "Choose nothing and every analysis that applies is run.";
     section.appendChild(note);
@@ -348,8 +354,24 @@
       return section;
     }
 
+    /* Fifteen analyses read as a list; grouped, they read as a few kinds of
+     * question. The order comes from the payload so the grouping lives with
+     * the analyses rather than here. */
+    const order = options.category_order || [];
+    const categories = options.categories || {};
+    const grouped = {};
     Object.keys(options.analyses).sort().forEach((name) => {
-      body.appendChild(analysisRow(name, options));
+      const title = categories[name] || "Other";
+      (grouped[title] = grouped[title] || []).push(name);
+    });
+    order.forEach((title) => {
+      const members = grouped[title];
+      if (!members || !members.length) return;
+      const heading = document.createElement("div");
+      heading.className = "run-analysis-group";
+      heading.textContent = title;
+      body.appendChild(heading);
+      members.forEach((name) => body.appendChild(analysisRow(name, options)));
     });
     section.appendChild(body);
     return section;
@@ -435,7 +457,73 @@
     label.textContent = option.name.replace(/_/g, " ");
     wrap.appendChild(label);
 
+    /* Something the run works out for itself. Shown, because seeing what it
+     * will use is worth something, but not editable: typing a ligand name
+     * that does not match the one detected would have the analysis find
+     * nothing and report the ligand as absent. */
+    if (option.supplied_by_the_run) {
+      const shown = document.createElement("div");
+      shown.className = "run-supplied-value";
+      shown.textContent = "detected from the structure when the run starts";
+      wrap.appendChild(shown);
+      if (option.help) {
+        const help = document.createElement("span");
+        help.className = "builder-card-note";
+        help.textContent = option.help;
+        wrap.appendChild(help);
+      }
+      return wrap;
+    }
+
     let input;
+    if (option.control === "multiselect" && option.choices) {
+      /* Checkboxes, not a multiple select. A native multiple select needs
+       * ctrl-click to take more than one, which nobody guesses and which
+       * makes the control look broken to anyone who tries it once. With eight
+       * interaction types the boxes also show at a glance what is on. */
+      const chosen = new Set(
+        Array.isArray(option.default) ? option.default : []
+      );
+      const group = document.createElement("div");
+      group.className = "run-checkbox-group";
+      const boxes = [];
+      option.choices.forEach((choice) => {
+        const item = document.createElement("label");
+        item.className = "run-checkbox";
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.value = choice;
+        box.checked = chosen.has(choice);
+        const text = document.createElement("span");
+        text.textContent = choice.replace(/_/g, " ");
+        item.appendChild(box);
+        item.appendChild(text);
+        group.appendChild(item);
+        boxes.push(box);
+      });
+      const report = () => {
+        const picked = boxes.filter((b) => b.checked).map((b) => b.value);
+        state.analysisOptions[analysis] = state.analysisOptions[analysis] || {};
+        // All of them is the default, so recording it changes nothing and
+        // only clutters the config.
+        const isDefault = picked.length === option.choices.length;
+        if (!picked.length || isDefault) {
+          delete state.analysisOptions[analysis][option.name];
+        } else {
+          state.analysisOptions[analysis][option.name] = picked;
+        }
+        updateSummary();
+      };
+      boxes.forEach((b) => b.addEventListener("change", report));
+      wrap.appendChild(group);
+      if (option.help) {
+        const help = document.createElement("span");
+        help.className = "builder-card-note";
+        help.textContent = option.help;
+        wrap.appendChild(help);
+      }
+      return wrap;
+    }
     if (option.choices && option.choices.length) {
       input = document.createElement("select");
       option.choices.forEach((choice) => {
@@ -453,6 +541,12 @@
       input = document.createElement("input");
       input.type = typeof option.default === "number" ? "number" : "text";
       if (input.type === "number") input.step = "any";
+      if (option.is_path) {
+        // The same picker every other path field has: a browser will not
+        // offer a dialog for a path the server has to open.
+        input.id = `option-${analysis}-${option.name}`;
+        input.setAttribute("data-picks", "structure");
+      }
       input.placeholder =
         option.default === null || option.default === undefined
           ? ""
@@ -464,7 +558,14 @@
       else input.value = current;
     }
     input.addEventListener("change", () => {
-      const value = input.type === "checkbox" ? input.checked : input.value;
+      let value;
+      if (input.multiple) {
+        value = Array.from(input.selectedOptions).map((o) => o.value);
+        // Choosing none means "leave it alone", not "run nothing".
+        if (!value.length) value = "";
+      } else {
+        value = input.type === "checkbox" ? input.checked : input.value;
+      }
       state.analysisOptions[analysis] = state.analysisOptions[analysis] || {};
       if (value === "" || value === null) {
         delete state.analysisOptions[analysis][option.name];
