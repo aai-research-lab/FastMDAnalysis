@@ -132,7 +132,6 @@ Everything is at
 **Reading the results**
 
 - [Protein-ligand interactions](https://fastmdxplora.readthedocs.io/en/latest/interactions.html) — what holds a ligand, how confidently it is known, and why some measurements are refused
-- [Region highlights](https://fastmdxplora.readthedocs.io/en/latest/region_highlights.html) — figures focused on the residues you care about
 
 **Driving it**
 

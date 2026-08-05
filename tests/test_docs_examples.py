@@ -342,67 +342,201 @@ def test_an_analysis_describes_what_it_currently_does() -> None:
     assert "average_residue" in sasa.VALID_MODES
 
 
-def test_the_region_highlights_page_describes_what_it_produces() -> None:
-    """The first rewrite of that page dropped a whole capability: it renders
-    the regions on the structure with PyMOL as well as on the RMSF trace, and
-    the page mentioned only the trace.
+def test_region_highlights_are_documented_where_they_are_produced() -> None:
+    """They had a page of their own; they are one figure option, so they live
+    in the report phase's section now.
+
+    The first rewrite of that page dropped a whole capability -- the regions
+    are drawn on the structure with PyMOL as well as on the RMSF trace -- so
+    what the feature produces is checked rather than described from memory.
     """
     from pathlib import Path
 
-    page = Path(__file__).resolve().parents[1] / "docs" / "region_highlights.md"
-    if not page.is_file():  # pragma: no cover
-        return
+    page = Path(__file__).resolve().parents[1] / "docs" / "phases.md"
     text = page.read_text(encoding="utf-8")
 
     for artifact in ("rmsf_region_highlights.png",
                      "structure_region_highlights.png",
-                     "structure_region_highlights.pml"):
-        assert artifact in text, f"the page does not mention {artifact}"
+                     ".pml"):
+        assert artifact in text, f"the report phase does not mention {artifact}"
     assert "pymol-open-source" in text, (
         "the structure rendering needs PyMOL and the page should say how to "
         "get it"
     )
 
 
-def test_the_smoke_campaign_page_names_the_real_statuses() -> None:
-    """The statuses are the point of the script: software that refuses
-    cleanly and software that breaks look the same in a pass/fail count."""
+def test_the_smoke_campaign_is_documented_for_contributors() -> None:
+    """It is a maintainer's script for finding what breaks before a release,
+    not something a user of FastMDXplora runs, so it is in CONTRIBUTING rather
+    than the user documentation.
+
+    The statuses are the point of it: software that refuses cleanly and
+    software that breaks look the same in a pass/fail count.
+    """
     from pathlib import Path
 
-    page = Path(__file__).resolve().parents[1] / "docs" / "pdb_smoke_campaign.md"
-    script = Path(__file__).resolve().parents[1] / "scripts" / "run_pdb_smoke_campaign.py"
-    if not (page.is_file() and script.is_file()):  # pragma: no cover
-        return
+    repo = Path(__file__).resolve().parents[1]
+    guide = (repo / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    script = (repo / "scripts" / "run_pdb_smoke_campaign.py").read_text(
+        encoding="utf-8")
 
-    text = page.read_text(encoding="utf-8")
-    source = script.read_text(encoding="utf-8")
+    assert "Smoke campaigns" in guide
 
     for status in ("ok", "expected_limitation", "validation_failed", "failed",
                    "skipped"):
-        assert f'"{status}"' in source, f"{status} is not a status the script uses"
-        assert status in text, f"the page does not explain the {status} status"
+        assert f'"{status}"' in script, f"{status} is not a status the script uses"
+        assert status in guide, f"CONTRIBUTING does not explain {status}"
 
     for artifact in ("campaign_summary.csv", "campaign_summary.json"):
-        assert artifact in source and artifact in text
+        assert artifact in script and artifact in guide
+
+
+def test_it_is_not_in_the_user_documentation() -> None:
+    """A user landing on a contributor's release workflow learns nothing they
+    can use."""
+    from pathlib import Path
+
+    docs = Path(__file__).resolve().parents[1] / "docs"
+    stray = [p.name for p in docs.glob("*.md")
+             if "run_pdb_smoke_campaign.py" in p.read_text(encoding="utf-8")]
+    assert not stray, f"the campaign is documented for users in: {stray}"
 
 
 def test_the_smoke_campaign_flags_exist() -> None:
-    """The page's flags are the script's, not the CLI's, so the general flag
-    guard does not cover them."""
+    """Its flags are the script's, not the CLI's, so the general flag guard
+    does not cover them."""
     import re
     from pathlib import Path
 
     repo = Path(__file__).resolve().parents[1]
-    page = repo / "docs" / "pdb_smoke_campaign.md"
-    script = repo / "scripts" / "run_pdb_smoke_campaign.py"
-    if not (page.is_file() and script.is_file()):  # pragma: no cover
-        return
+    guide = (repo / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    script = (repo / "scripts" / "run_pdb_smoke_campaign.py").read_text(
+        encoding="utf-8")
 
-    source = script.read_text(encoding="utf-8")
+    section = guide[guide.index("## Smoke campaigns"):]
+    section = section[:section.index("\n## ", 10)] if "\n## " in section[10:] else section
     documented = {
         match.group(1)
         for match in re.finditer(r"(?<![\w-])(--[a-z][a-z0-9-]{3,})(?![\w-])",
-                                 page.read_text(encoding="utf-8"))
+                                 section)
     }
-    missing = sorted(flag for flag in documented if f'"{flag}"' not in source)
+    missing = sorted(flag for flag in documented if f'"{flag}"' not in script)
     assert not missing, f"these campaign flags do not exist: {missing}"
+
+
+def test_every_documentation_link_resolves() -> None:
+    """A link to a page that no longer exists.
+
+    Two pages moved -- the smoke campaign into CONTRIBUTING, region highlights
+    into the report phase -- and the README went on linking one of them. The
+    guards that covered those pages did not notice, because each returned
+    early when its page was absent: they went quiet rather than failing, which
+    is the worst way for a check to react to the thing it checks disappearing.
+    """
+    import re
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[1]
+    docs = repo / "docs"
+    pages = {p.stem for p in docs.glob("*.md")}
+
+    broken = []
+
+    # Relative links between documentation pages.
+    for page in docs.glob("*.md"):
+        for match in re.finditer(r"\]\(([a-z_]+)\.md(?:#[^)]*)?\)",
+                                 page.read_text(encoding="utf-8")):
+            if match.group(1) not in pages:
+                broken.append(f"{page.name} -> {match.group(1)}.md")
+
+    # And the README's links into the published site.
+    readme = (repo / "README.md").read_text(encoding="utf-8")
+    for match in re.finditer(
+            r"readthedocs\.io/en/latest/([a-z_]+)\.html", readme):
+        if match.group(1) not in pages:
+            broken.append(f"README.md -> {match.group(1)}.html")
+
+    assert not broken, f"these links point at pages that do not exist: {broken}"
+
+
+def test_the_yaml_examples_use_keys_the_software_reads() -> None:
+    """Every documented `systems:` block said `label:`, which nothing reads.
+
+    The loader accepts it -- it does not validate the keys inside a system
+    entry -- so the example ran and quietly did nothing. The key is `id`, and
+    it names the run's directory and its label in the comparison report.
+
+    This checks the examples against `normalize_systems`, which is what
+    actually consumes them.
+    """
+    import re
+    from pathlib import Path
+
+    import pytest
+
+    pytest.importorskip("yaml")
+    import yaml
+
+    from fastmdxplora.batch.sweep import normalize_systems
+
+    repo = Path(__file__).resolve().parents[1]
+    pages = [repo / "README.md"] + sorted((repo / "docs").glob("*.md"))
+
+    checked = 0
+    for page in pages:
+        if not page.is_file():
+            continue
+        for block in re.findall(r"```yaml\n(.*?)```",
+                                page.read_text(encoding="utf-8"), re.S):
+            try:
+                parsed = yaml.safe_load(block)
+            except yaml.YAMLError:
+                continue
+            if not isinstance(parsed, dict) or "systems" not in parsed:
+                continue
+            # Raises if an entry is malformed; ids must be unique.
+            normalized = normalize_systems(parsed["systems"])
+            checked += 1
+
+            for original, result in zip(parsed["systems"], normalized):
+                stray = set(original) - {"system", "id"} - {
+                    "setup", "simulation", "analysis", "report"}
+                assert not stray, (
+                    f"{page.name}: a system entry uses {sorted(stray)}, which "
+                    "nothing reads. The key is `id`; phase names are "
+                    "per-system overrides."
+                )
+    assert checked, "no systems example was found to check"
+
+
+def test_the_documentation_names_the_software() -> None:
+    """"We" and "here" leave a reader working out who is speaking and where
+    "here" is -- in a page that may have arrived from a search engine with no
+    surrounding context.
+
+    The implementation note was written as a working document and said "we
+    know" and "not here". It says FastMDXplora, which is unambiguous wherever
+    the page is read.
+    """
+    import re
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[1]
+    pages = [repo / "README.md"] + sorted((repo / "docs").glob("*.md"))
+
+    vague = {}
+    for page in pages:
+        if not page.is_file():
+            continue
+        text = page.read_text(encoding="utf-8")
+        # Outside code blocks, where "we" may appear in a quoted message.
+        prose = re.sub(r"```.*?```", "", text, flags=re.S)
+        found = set()
+        for match in re.finditer(r"(?<![\w-])(we|our|We|Our)(?![\w-])", prose):
+            found.add(match.group(1).lower())
+        if found:
+            vague[page.name] = sorted(found)
+
+    assert not vague, (
+        f"these pages speak as 'we' rather than naming the software: {vague}"
+    )

@@ -65,7 +65,6 @@ production
 :caption: Reading the results
 
 interactions
-region_highlights
 ```
 
 ```{toctree}
@@ -89,5 +88,4 @@ api
 :caption: For maintainers
 
 interactions_design
-pdb_smoke_campaign
 ```

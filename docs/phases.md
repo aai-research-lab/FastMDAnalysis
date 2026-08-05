@@ -163,6 +163,47 @@ say — and a short one usually is — the section says what it cannot support.
 `project_bundle.zip`. The PDF needs the `pdf` extra; where it is absent the
 run says so and writes the rest.
 
+### Highlighting regions you care about
+
+A per-residue figure with two hundred residues on the x-axis says little about
+the eight that matter. Name them and they are shaded on the RMSF trace and
+coloured on a cartoon of the structure:
+
+```yaml
+report:
+  region_highlights:
+    - label: "binding loop"
+      start: 84
+      end: 92
+      color: "#4E79A7"
+    - label: "catalytic helix"
+      start: 118
+      end: 131
+```
+
+`label` and `color` are optional — an unlabelled region becomes "Region 1",
+an uncoloured one takes the next of six palette colours.
+
+This produces `analysis/rmsf/rmsf_region_highlights.png` and, where PyMOL is
+installed (`conda install -c conda-forge pymol-open-source`),
+`report/structure_region_highlights.png` with the `.pml` script beside it so
+the rendering can be adjusted by hand. Without PyMOL the RMSF figure is still
+written and the report records that the structure rendering was skipped and
+why.
+
+Regions attach to **RMSF** and nothing else, because RMSF is indexed by
+residue — RMSD is indexed by frame, so a residue range has no meaning on it.
+RMSF analysis therefore has to have run.
+
+A range outside the residues RMSF measured is refused, with both ranges named:
+the one you asked for and the one that exists. That is usually an off-by-one
+between a paper's numbering and the structure's, and seeing both makes it
+obvious.
+
+The labels are yours. FastMDXplora does not work out that residues 84 to 92
+are a binding loop; it draws what you tell it to and calls it what you call
+it.
+
 ---
 
 ## What a run leaves behind

@@ -17,7 +17,7 @@ output: runs/study                # where everything goes
 
 systems:                          # one or more
   - system: 1UBQ
-    label: wild_type
+    id: wild_type                 # optional; s1, s2... if omitted
 
 include: [setup, simulation, analysis, report]   # which phases
 
@@ -104,9 +104,11 @@ output: runs/campaign
 
 systems:
   - system: 1UBQ
-    label: wild_type
+    id: wild_type
   - system: mutant.pdb
-    label: L50A
+    id: L50A
+    simulation:                   # this system only
+      temperature_K: 320
 
 simulation:
   duration_ns: 100
@@ -118,8 +120,13 @@ execution:
   continue_on_error: true
 ```
 
-Settings at the top apply to every system; a `setup:` or `simulation:` block
-inside a system overrides them for that one.
+Each entry needs a `system`. `id` is optional and names the run — it becomes
+the run's directory and its label in the comparison report; without one the
+systems are `s1`, `s2` and so on, which is harder to read six months later.
+Two systems cannot share an `id`.
+
+A phase block inside an entry overrides the top-level one for that system
+only, which is how you vary a single setting across a campaign.
 
 ---
 

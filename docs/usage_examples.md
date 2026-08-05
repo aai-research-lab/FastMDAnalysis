@@ -201,9 +201,9 @@ analysis:
 output: runs/campaign
 systems:
   - system: 1UBQ
-    label: wild_type
+    id: wild_type
   - system: mutant.pdb
-    label: L50A
+    id: L50A
 simulation:
   duration_ns: 100
 execution:
