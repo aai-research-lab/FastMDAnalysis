@@ -318,7 +318,7 @@ class TestOrientingAStructureThatIsInTheWrongFrame:
         # One message that chooses what to say, rather than one announcing
         # solvation before the branch has decided.
         assert source.count("Embedding in a") == 1
-        assert "Solvating (box=" in source
+        assert "Solvating in a" in source
 
 
 class TestItHandlesWhatThePipelineActuallyPasses:
