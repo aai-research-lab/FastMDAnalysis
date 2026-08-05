@@ -1167,44 +1167,51 @@ _BACKENDS: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
 )
 
 
-def _backend_state(import_name: str, install_hint: str) -> tuple[str, str]:
-    """Whether a backend will work, and what to do where it will not.
+def _probe_backends(import_names: tuple[str, ...]) -> dict[str, tuple[str, str]]:
+    """Whether each backend will load, tested in a process of its own.
 
     Importing is the only honest test -- a package can be installed and still
-    fail to load -- and importing can fail in more ways than one. WeasyPrint
-    present without Pango raises OSError from the dynamic loader, not
-    ImportError, so a check that caught only ImportError did not report the
-    backend as missing: it crashed the command whose whole purpose is saying
-    what works.
+    fail to load -- but the failure is not always quiet or catchable. Importing
+    WeasyPrint without Pango raises from the dynamic loader, and prints five
+    lines about its installation guide on the way. Redirecting Python's stderr
+    did not stop them, and neither did redirecting the file descriptor: the
+    first attempt at this passed its test only because the test faked the
+    message with a print, which is the assumption being checked rather than
+    the behaviour.
 
-    The two cases need different remedies, so they are told apart. Reinstalling
-    a package that is already there fixes nothing.
+    A subprocess ends the argument. Its output is captured whatever writes it
+    and however far down, and a backend that fails hard cannot take this
+    command with it. One process probes them all, so the cost is a single
+    interpreter start rather than one per backend.
     """
-    import contextlib
-    import io
-    import os
+    import json
+    import subprocess
+    import sys
 
-    # A package that fails to load may say so itself on the way out --
-    # WeasyPrint prints five lines about its installation guide -- and that
-    # lands in the middle of this table, ahead of the line reporting the same
-    # thing more usefully. Nothing is lost by quieting it: the reason is
-    # carried in the exception and reported below.
-    noise = io.StringIO()
+    script = (
+        "import json, sys\n"
+        "out = {}\n"
+        "for name in json.loads(sys.argv[1]):\n"
+        "    try:\n"
+        "        __import__(name)\n"
+        "        out[name] = ['installed', '']\n"
+        "    except ImportError:\n"
+        "        out[name] = ['missing', '']\n"
+        "    except BaseException as exc:\n"
+        "        out[name] = ['broken', str(exc).split(':')[0][:60]]\n"
+        "sys.stdout.write(json.dumps(out))\n"
+    )
     try:
-        with contextlib.redirect_stderr(noise), open(os.devnull, "w") as sink:
-            saved = os.dup(2)
-            try:
-                os.dup2(sink.fileno(), 2)
-                __import__(import_name)
-            finally:
-                os.dup2(saved, 2)
-                os.close(saved)
-        return "installed", ""
-    except ImportError:
-        return "missing", install_hint
-    except Exception as exc:  # noqa: BLE001 - any load failure is a failure
-        detail = str(exc).split(":")[0][:60]
-        return "broken", f"installed but will not load ({detail})"
+        finished = subprocess.run(
+            [sys.executable, "-c", script, json.dumps(list(import_names))],
+            capture_output=True, text=True, timeout=120, check=False,
+        )
+        found = json.loads(finished.stdout or "{}")
+    except Exception:  # noqa: BLE001 - a probe that fails tells us nothing
+        return {name: ("unknown", "could not be checked")
+                for name in import_names}
+    return {name: tuple(found.get(name, ("unknown", "could not be checked")))
+            for name in import_names}
 
 
 def _cmd_info() -> int:
@@ -1227,11 +1234,20 @@ def _cmd_info() -> int:
     # This listed two of six, so a PyPI install reported both of them present
     # and said nothing about the toolkit a protein-ligand setup needs -- which
     # is the one question this command exists to answer.
+    probed = _probe_backends(tuple(
+        import_name
+        for _group, backends in _BACKENDS
+        for _display, import_name, _hint in backends
+    ))
     print("Backends:")
     for group, backends in _BACKENDS:
         print(f"  {group}")
         for display_name, import_name, install_hint in backends:
-            state, remedy = _backend_state(import_name, install_hint)
+            state, detail = probed[import_name]
+            remedy = {
+                "missing": install_hint,
+                "broken": f"installed but will not load ({detail})",
+            }.get(state, detail)
             print(f"    {display_name:<22} {state:<10} {remedy}".rstrip())
     print()
     print(f"Citation: {__citation__}")

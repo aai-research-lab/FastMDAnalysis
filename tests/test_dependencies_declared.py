@@ -262,82 +262,74 @@ def test_backends_are_grouped_by_what_they_are_for() -> None:
     )
 
 
-def test_a_backend_that_will_not_load_does_not_crash_info() -> None:
-    """WeasyPrint installed without Pango raises OSError from the dynamic
-    loader, not ImportError.
+def test_a_backend_is_probed_in_a_process_of_its_own() -> None:
+    """Importing is the only honest test of whether a backend will load, and
+    the failure is not always quiet or catchable.
 
-    A check catching only ImportError let that propagate, so `fastmdx info`
-    crashed with a traceback about libgobject -- the command whose whole
-    purpose is saying what works, failing to work. The same case is handled in
-    the PDF module and was not carried here.
+    WeasyPrint without Pango raises from the dynamic loader and prints five
+    lines about its installation guide on the way. Redirecting Python's stderr
+    did not stop them and neither did redirecting the file descriptor -- and
+    the test written for that fix passed only because it faked the message
+    with a print, which checks the assumption rather than the behaviour.
+
+    A subprocess ends the argument: its output is captured whatever writes it,
+    and a backend that fails hard cannot take this command with it.
     """
-    import builtins
+    import inspect
 
-    from fastmdxplora.cli.main import _backend_state
+    # `from fastmdxplora.cli import main` gives the entry-point function,
+    # which the package re-exports; the module is the longer path.
+    from fastmdxplora.cli.main import _probe_backends
 
-    real = builtins.__import__
-
-    def refuse(name, *args, **kwargs):
-        if name == "weasyprint":
-            raise OSError("cannot load library 'libgobject-2.0-0': dlopen(...)")
-        return real(name, *args, **kwargs)
-
-    builtins.__import__ = refuse
-    try:
-        state, remedy = _backend_state("weasyprint", "conda install weasyprint")
-    finally:
-        builtins.__import__ = real
-
-    assert state == "broken"
-    assert "will not load" in remedy
+    source = inspect.getsource(_probe_backends)
+    assert "subprocess.run" in source
+    assert "capture_output=True" in source
 
 
-def test_a_missing_backend_is_told_from_a_broken_one() -> None:
-    """They need different remedies: reinstalling a package that is already
-    there fixes nothing."""
-    from fastmdxplora.cli.main import _backend_state
+def test_it_reports_what_is_there_and_what_is_not() -> None:
+    from fastmdxplora.cli.main import _probe_backends
 
-    missing, hint = _backend_state("no_such_module_at_all", "conda install it")
-    assert missing == "missing"
-    assert hint == "conda install it"
-
-    present, _ = _backend_state("json", "n/a")
-    assert present == "installed"
+    found = _probe_backends(("json", "no_such_module_at_all"))
+    assert found["json"][0] == "installed"
+    assert found["no_such_module_at_all"][0] == "missing"
 
 
-def test_a_noisy_backend_does_not_interrupt_the_table() -> None:
-    """WeasyPrint prints five lines about its installation guide when it
-    cannot load, and they landed in the middle of the backend list -- ahead of
-    the line reporting the same thing more usefully.
-
-    Nothing is lost by quieting the probe: the reason is carried in the
-    exception and reported.
-    """
-    import builtins
-    import io
+def test_a_backend_that_raises_on_import_is_reported_broken(tmp_path) -> None:
+    """The case a real machine hits: installed, and will not load."""
+    import os
     import sys
-    from contextlib import redirect_stderr
 
-    from fastmdxplora.cli.main import _backend_state
+    from fastmdxplora.cli.main import _probe_backends
 
-    real = builtins.__import__
+    (tmp_path / "pretend_backend.py").write_text(
+        "import sys\n"
+        "sys.stderr.write('a library complaining loudly\\n')\n"
+        "raise OSError(\"cannot load library 'libgobject-2.0-0'\")\n",
+        encoding="utf-8")
 
-    def noisy(name, *args, **kwargs):
-        if name == "weasyprint":
-            print("WeasyPrint could not import some external libraries.",
-                  file=sys.stderr)
-            raise OSError("cannot load library 'libgobject-2.0-0'")
-        return real(name, *args, **kwargs)
-
-    captured = io.StringIO()
-    builtins.__import__ = noisy
+    original = os.environ.get("PYTHONPATH", "")
+    os.environ["PYTHONPATH"] = os.pathsep.join(
+        [str(tmp_path)] + ([original] if original else []))
     try:
-        with redirect_stderr(captured):
-            state, remedy = _backend_state("weasyprint", "conda install it")
+        state, detail = _probe_backends(("pretend_backend",))["pretend_backend"]
     finally:
-        builtins.__import__ = real
+        if original:
+            os.environ["PYTHONPATH"] = original
+        else:
+            os.environ.pop("PYTHONPATH", None)
 
     assert state == "broken"
-    assert "libgobject" in remedy
-    assert "installation guide" not in captured.getvalue()
-    assert "could not import" not in captured.getvalue()
+    assert "libgobject" in detail
+
+
+def test_the_probe_cannot_be_interrupted_by_what_it_probes(capfd) -> None:
+    """The point of the subprocess: whatever the backend writes, and however
+    far down it writes it, stays out of this command's output."""
+    import os
+
+    from fastmdxplora.cli.main import _probe_backends
+
+    _probe_backends(("json",))
+    captured = capfd.readouterr()
+    assert "complaining" not in captured.err
+
