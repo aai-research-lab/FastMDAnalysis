@@ -29,6 +29,18 @@ from typing import Any
 
 __all__ = ["methods_paragraphs", "missing_from_methods", "CHECKLIST"]
 
+#: What each integrator is called in the literature. The identifiers are ours
+#: and a reader looking one up needs the published name.
+_INTEGRATOR_NAMES = {
+    "langevin_middle": "Langevin middle-scheme",
+    "langevin": "Langevin",
+    "verlet": "Verlet",
+    "brownian": "Brownian",
+    "nose_hoover": "Nose-Hoover",
+    "variable_langevin": "variable-timestep Langevin",
+    "variable_verlet": "variable-timestep Verlet",
+}
+
 
 #: What a methods section has to state, and where this software keeps it.
 #: Written down so the gaps can be reported rather than discovered by a
@@ -94,6 +106,31 @@ def missing_from_methods(setup: dict[str, Any], sim: dict[str, Any]) -> list[str
     return gaps
 
 
+def _flatten(manifest: dict[str, Any]) -> dict[str, Any]:
+    """One mapping from a manifest that nests.
+
+    ``setup_parameters.json`` holds what was asked for under ``parameters``
+    and what the run worked out beside it: the system under ``input``, the
+    force field it resolved to under ``resolved_forcefield``. Reading only
+    ``parameters`` gave a methods section saying the force field was
+    "amber-openff" -- the name of a choice rather than the thing chosen --
+    and no water model at all, because the resolution is where that lives.
+    """
+    flat = dict(manifest.get("parameters") or {})
+    for key, value in manifest.items():
+        if key == "parameters":
+            continue
+        if isinstance(value, dict):
+            for inner, inner_value in value.items():
+                # An inner name wins only where the outer did not supply one:
+                # `parameters` is what somebody set, and stands.
+                flat.setdefault(inner, inner_value)
+            flat.setdefault(key, value)
+        else:
+            flat.setdefault(key, value)
+    return flat
+
+
 def methods_paragraphs(
     project_root: Path,
     setup: dict[str, Any],
@@ -111,6 +148,8 @@ def methods_paragraphs(
     """
     parts: list[str] = []
     versions = versions or {}
+    setup = _flatten(setup)
+    sim = _flatten(sim)
 
     # ---- system preparation -------------------------------------------
     if setup:
@@ -139,10 +178,19 @@ def methods_paragraphs(
                 "`setup/setup_parameters.json`."
             )
 
-        force_field = _get(setup, "resolved_forcefield", "forcefield", "force_field")
-        water = _get(setup, "water_model")
-        ligand_ff = _get(setup, "ligand_forcefield")
-        ligand_name = _get(setup, "ligand_name")
+        resolved = setup.get("resolved_forcefield")
+        resolved = resolved if isinstance(resolved, dict) else {}
+        # The XML files are what was actually used; the name is our label for
+        # a choice, and a reader cannot look up "amber-openff".
+        xmls = resolved.get("xmls")
+        force_field = (
+            ", ".join(str(x) for x in xmls) if xmls
+            else _get(setup, "forcefield", "force_field")
+        )
+        water = resolved.get("water_model") or _get(setup, "water_model")
+        ligand_ff = (resolved.get("small_molecule_forcefield")
+                     or _get(setup, "ligand_forcefield"))
+        ligand_name = _get(setup, "ligand_name", "ligand")
 
         parameterisation = []
         if force_field:
@@ -165,7 +213,8 @@ def methods_paragraphs(
         concentration = _get(setup, "ion_concentration_M")
         positive = _get(setup, "ion_positive", default="Na+")
         negative = _get(setup, "ion_negative", default="Cl-")
-        atoms = _get(setup, "n_atoms_solvated", "solvated_atoms")
+        atoms = _get(setup, "n_atoms_solvated", "solvated_atoms",
+                     "n_atoms", "atom_count")
 
         solvation = []
         if padding is not None:
@@ -203,6 +252,7 @@ def methods_paragraphs(
     if sim:
         timestep = _get(sim, "timestep_fs")
         integrator = _get(sim, "integrator")
+        integrator = _INTEGRATOR_NAMES.get(str(integrator).lower(), integrator)
         temperature = _get(sim, "temperature_K")
         friction = _get(sim, "friction_per_ps")
         pressure = _get(sim, "pressure_bar", "pressure_atm")
@@ -211,7 +261,13 @@ def methods_paragraphs(
         npt = _get(sim, "npt_steps")
         production = _get(sim, "production_steps")
         interval = _get(sim, "trajectory_interval_steps")
-        platform = _get(sim, "platform_used", "platform")
+        # What ran, not what was asked for: "auto" is a request, and a
+        # methods section saying a run used the auto platform says nothing.
+        platform = _get(sim, "platform_used")
+        if platform in (None, "auto"):
+            platform = _get(sim, "platform")
+            if platform == "auto":
+                platform = None
         precision = _get(sim, "precision")
         seed = _get(sim, "random_seed")
 

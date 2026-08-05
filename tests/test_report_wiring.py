@@ -1087,23 +1087,37 @@ class TestTheReportWritesAMethodsSection:
 
     @staticmethod
     def _run():
+        # The shape a real run writes: `parameters` holds what was asked for,
+        # and what the run resolved sits beside it. A flat fixture would let
+        # this pass while the real thing failed, which is how the first
+        # version shipped saying the force field was "amber-openff".
         setup = {
-            "system": "181L", "ph": 7.4, "heterogens": "auto",
-            "resolved_forcefield": "amber14-all.xml", "water_model": "tip3p",
-            "ligand_forcefield": "openff-2.2.1", "ligand_name": "BNZ",
-            "ligand_net_charge": 0, "solvent_padding_nm": 0.8,
-            "box_shape": "cube", "ion_concentration_M": 0.15,
-            "n_atoms_solvated": 34020, "nonbonded_method": "PME",
-            "nonbonded_cutoff_nm": 1.0, "constraints": "HBonds",
-            "rigid_water": True,
+            "input": {"system": "181L", "form": "pdb_id"},
+            "parameters": {
+                "ph": 7.4, "heterogens": "auto", "forcefield": "amber-openff",
+                "ligand_name": "BNZ", "ligand_net_charge": 0,
+                "solvent_padding_nm": 0.8, "box_shape": "cube",
+                "ion_concentration_M": 0.15, "nonbonded_method": "PME",
+                "nonbonded_cutoff_nm": 1.0, "constraints": "HBonds",
+                "rigid_water": True,
+            },
+            "resolved_forcefield": {
+                "xmls": ["amber14-all.xml", "amber14/tip3p.xml"],
+                "water_model": "tip3p",
+                "small_molecule_forcefield": "openff-2.2.1",
+            },
+            "n_atoms_solvated": 34020,
         }
         sim = {
-            "timestep_fs": 2.0, "integrator": "LangevinMiddle",
-            "temperature_K": 300.0, "friction_per_ps": 1.0,
-            "pressure_bar": 1.0, "barostat_frequency": 25,
-            "nvt_steps": 200, "npt_steps": 200, "production_steps": 2000,
-            "trajectory_interval_steps": 20, "platform_used": "CPU",
-            "precision": "mixed", "minimize": True, "random_seed": 7,
+            "parameters": {
+                "timestep_fs": 2.0, "integrator": "langevin_middle",
+                "temperature_K": 300.0, "friction_per_ps": 1.0,
+                "pressure_bar": 1.0, "barostat_frequency": 25,
+                "nvt_steps": 200, "npt_steps": 200, "production_steps": 2000,
+                "trajectory_interval_steps": 20, "precision": "mixed",
+                "minimize": True, "random_seed": 7,
+            },
+            "platform_used": "CPU",
         }
         return setup, sim
 
@@ -1115,7 +1129,7 @@ class TestTheReportWritesAMethodsSection:
         setup, sim = self._run()
         text = methods_paragraphs(Path("."), setup, sim)
         for required in ("181L", "pH 7.4", "amber14", "tip3p", "openff-2.2.1",
-                         "PME", "HBonds", "LangevinMiddle", "300.0 K",
+                         "PME", "HBonds", "Langevin", "300.0 K",
                          "1.0 bar", "34,020"):
             assert required in text, f"the methods section omits {required}"
 
@@ -1138,7 +1152,7 @@ class TestTheReportWritesAMethodsSection:
         from fastmdxplora.report.methods import methods_paragraphs
 
         setup, sim = self._run()
-        sim["random_seed"] = None
+        sim["parameters"]["random_seed"] = None
         text = methods_paragraphs(Path("."), setup, sim)
         assert "No random seed was fixed" in text
 
@@ -1153,7 +1167,7 @@ class TestTheReportWritesAMethodsSection:
         )
 
         setup, sim = self._run()
-        del setup["water_model"]
+        del setup["resolved_forcefield"]["water_model"]
         assert "water model" in missing_from_methods(setup, sim)
         text = methods_paragraphs(Path("."), setup, sim)
         assert "Not recorded" in text
@@ -1189,4 +1203,114 @@ class TestTheReportWritesAMethodsSection:
         settings = source.index("### System preparation")
         assert prose < settings, (
             "the settings list should follow the paragraph, not replace it"
+        )
+
+
+class TestTheMethodsSectionReadsTheRealManifests:
+    """The first version read only ``parameters`` and produced a methods
+    section saying the coordinates came from "the input structure", the force
+    field was "amber-openff", and the water model was not recorded.
+
+    None of that was true. The manifests nest: the system sits under
+    ``input``, and what the run resolved -- the actual XML files, the water
+    model, the small-molecule force field -- sits beside ``parameters`` rather
+    than inside it. Guessing at key names produced a paragraph that read well
+    and said the wrong thing, which is worse than one that reads badly.
+    """
+
+    @staticmethod
+    def _manifests():
+        """The shape a real run writes, not a convenient flat one."""
+        setup = {
+            "input": {"system": "181L", "form": "pdb_id"},
+            "parameters": {
+                "ph": 7.4, "heterogens": "auto", "forcefield": "amber-openff",
+                "solvent_padding_nm": 0.8, "box_shape": "cube",
+                "ion_concentration_M": 0.15, "nonbonded_method": "PME",
+                "nonbonded_cutoff_nm": 1.0, "constraints": "HBonds",
+                "rigid_water": True, "ligand_name": "BNZ",
+                "ligand_net_charge": 0,
+            },
+            "resolved_forcefield": {
+                "source": "named", "name": "amber-openff",
+                "xmls": ["amber14-all.xml", "amber14/tip3p.xml"],
+                "water_model": "tip3p",
+                "small_molecule_forcefield": "openff-2.2.1",
+            },
+            "n_atoms_solvated": 35012,
+        }
+        sim = {
+            "parameters": {
+                "timestep_fs": 2.0, "integrator": "langevin_middle",
+                "temperature_K": 300.0, "friction_per_ps": 1.0,
+                "pressure_bar": 1.0, "barostat_frequency": 25,
+                "nvt_steps": 200, "npt_steps": 200, "production_steps": 2000,
+                "trajectory_interval_steps": 20, "platform": "auto",
+                "precision": "mixed", "minimize": True, "random_seed": None,
+            },
+            "platform_used": "CPU", "n_production_frames": 100,
+        }
+        return setup, sim
+
+    def _text(self):
+        from pathlib import Path
+
+        from fastmdxplora.report.methods import methods_paragraphs
+
+        setup, sim = self._manifests()
+        return methods_paragraphs(Path("."), setup, sim,
+                                  system_name=setup["input"]["system"])
+
+    def test_the_system_is_named(self) -> None:
+        text = self._text()
+        assert "181L" in text
+        assert "the input structure" not in text
+
+    def test_the_force_field_is_the_one_used_not_our_label(self) -> None:
+        """A reader cannot look up "amber-openff"; they can look up
+        amber14-all.xml."""
+        text = self._text()
+        assert "amber14-all.xml" in text
+        assert "tip3p" in text
+
+    def test_the_ligand_and_its_parameters_are_stated(self) -> None:
+        text = self._text()
+        assert "BNZ" in text
+        assert "openff-2.2.1" in text
+
+    def test_the_system_size_is_stated(self) -> None:
+        text = self._text()
+        assert "35,012" in text
+
+    def test_the_platform_is_what_ran_not_what_was_asked_for(self) -> None:
+        """A methods section saying a run used the "auto" platform says
+        nothing."""
+        text = self._text()
+        assert "CPU platform" in text
+        assert "auto platform" not in text
+
+    def test_the_integrator_is_named_as_the_literature_names_it(self) -> None:
+        text = self._text()
+        assert "Langevin middle-scheme" in text
+        assert "langevin_middle" not in text
+
+    def test_the_barostat_is_stated(self) -> None:
+        text = self._text()
+        assert "1.0 bar" in text and "every 25 steps" in text
+
+    def test_nothing_present_is_reported_as_missing(self) -> None:
+        """The water model was recorded, and saying otherwise sends somebody
+        looking for a number that is already there."""
+        text = self._text()
+        assert "Not recorded" not in text
+
+    def test_the_report_passes_the_whole_manifest(self) -> None:
+        import inspect
+
+        from fastmdxplora.report import document
+
+        source = inspect.getsource(document._methods_section)
+        call = source[source.index("methods_paragraphs("):][:300]
+        assert "project_root, setup, sim" in call, (
+            "passing only `parameters` loses the system and the resolution"
         )

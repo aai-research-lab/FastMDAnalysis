@@ -108,9 +108,13 @@ def _methods_section(project_root: Path, phase_context: PhaseContext) -> str:
     # named rather than filled in with what is usual.
     from fastmdxplora.report.methods import methods_paragraphs
 
+    # The whole manifests, not just their `parameters`: the system is under
+    # `input`, and the force field the run resolved to sits beside them. The
+    # first version passed `parameters` alone and produced a methods section
+    # saying the coordinates came from "the input structure".
     prose = methods_paragraphs(
-        project_root, setup_params, sim_params,
-        system_name=setup.get("system") or setup_params.get("system"),
+        project_root, setup, sim,
+        system_name=(setup.get("input") or {}).get("system"),
         versions=_software_versions(),
     )
     if prose:
