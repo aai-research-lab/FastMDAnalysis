@@ -295,11 +295,19 @@ def prepare_system(
         add_solvent_kwargs["model"] = water_model
 
     try:
-        modeller.addSolvent(ff, **add_solvent_kwargs)
-    except TypeError:
-        # Older OpenMM versions (<7.7) don't support boxShape; fall back.
-        add_solvent_kwargs.pop("boxShape", None)
-        modeller.addSolvent(ff, **add_solvent_kwargs)
+        try:
+            modeller.addSolvent(ff, **add_solvent_kwargs)
+        except TypeError:
+            # Older OpenMM versions (<7.7) don't support boxShape; fall back.
+            add_solvent_kwargs.pop("boxShape", None)
+            modeller.addSolvent(ff, **add_solvent_kwargs)
+    except ValueError as exc:
+        # Solvation builds templates too, and reaches them before
+        # createSystem does. The explanation was wired to createSystem only,
+        # so a component the force field cannot parameterize produced
+        # OpenMM's raw message here -- which names the residue and not what
+        # to do about it.
+        raise _explain_unparameterized(exc, ff, modeller.topology) from exc
 
     n_atoms_solvated = modeller.topology.getNumAtoms()
     logger.info("Solvated system: %d atoms", n_atoms_solvated)

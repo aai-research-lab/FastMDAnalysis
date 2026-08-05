@@ -730,3 +730,93 @@ class TestASettingThatDoesNothingIsNotOffered:
             names = {o["name"] for o in payload["analyses"][analysis]}
             assert "selection" not in names, analysis
         assert "selection" in {o["name"] for o in payload["analyses"]["rmsd"]}
+
+
+class TestTheManifestRecordsWhatTheRunLearned:
+    """Found by reading a real run's options.json: it held only what was set
+    before the analysis started.
+
+    The manifest was written before ``compute`` and never again, so everything
+    an analysis worked out about its own run -- how confidently it knew the
+    ligand's chemistry, which measurements it could not make and why, what
+    binding modes it found -- was thrown away. The interaction analysis exists
+    partly to record that its chemistry was resolved rather than guessed, and
+    that record was reaching nothing.
+    """
+
+    def test_the_manifest_is_written_after_compute(self) -> None:
+        import inspect
+
+        from fastmdxplora.analysis import base
+
+        source = inspect.getsource(base.Analysis.run)
+        wrote = source.index("_write_options_manifest")
+        computed = source.index("self.compute(traj)")
+        assert source.count("_write_options_manifest") >= 2, (
+            "it should be written before compute in case that fails, and "
+            "again afterwards to capture what compute learned"
+        )
+        assert wrote < computed, "the first write should precede compute"
+
+    def test_what_compute_records_survives(self, tmp_path) -> None:
+        import json
+
+        import mdtraj as md
+        import numpy as np
+        import pandas as pd
+
+        from fastmdxplora.analysis.base import Analysis
+        from fastmdxplora.analysis.orchestrator import register_analysis
+
+        class _Learns(Analysis):
+            name = "learns_something"
+            description = "records what it found"
+
+            def compute(self, traj):
+                self.options["found_during_compute"] = "a fact"
+                return pd.DataFrame({"frame": [0], "value": [1.0]})
+
+            def plot(self, result, ax):
+                ax.plot([0], [1])
+
+        top = md.Topology()
+        chain = top.add_chain()
+        residue = top.add_residue("ALA", chain, resSeq=1)
+        top.add_atom("CA", md.element.carbon, residue)
+        traj = md.Trajectory(
+            xyz=np.zeros((1, 1, 3), dtype=np.float32), topology=top)
+
+        _Learns(output_dir=str(tmp_path)).run(traj)
+        written = json.loads(
+            next(tmp_path.rglob("options.json")).read_text(encoding="utf-8"))
+        assert written["options"].get("found_during_compute") == "a fact"
+
+
+class TestTheRenamedAnalysisHasOneName:
+    """`contacts` was kept as an alias for `pl_contacts` so existing configs
+    would still run. Nobody has one: the software has not been released under
+    this name, and the alias meant the orchestrator ran the analysis twice --
+    once under each name, into the same directory.
+    """
+
+    def test_only_the_new_name_is_registered(self) -> None:
+        import fastmdxplora.analysis  # noqa: F401
+        from fastmdxplora.analysis.orchestrator import available_analyses
+
+        names = set(available_analyses())
+        assert "pl_contacts" in names
+        assert "contacts" not in names
+
+    def test_nothing_runs_twice(self) -> None:
+        """Every registered name maps to a distinct analysis, so a run of
+        everything runs each thing once."""
+        import fastmdxplora.analysis  # noqa: F401
+        from fastmdxplora.analysis.orchestrator import (
+            available_analyses,
+            get_analysis_class,
+        )
+
+        classes = [get_analysis_class(n) for n in available_analyses()]
+        assert len(classes) == len(set(classes)), (
+            "two names point at the same analysis, so it would run twice"
+        )

@@ -251,7 +251,7 @@ class TestAllLigandAnalysesAutoRoute:
         )
         ao = AnalysisOrchestrator(str(pdb), output_dir=tmp_path / "o", ligand_resname=None)
         plan = ao._build_plan(None, None)
-        for n in ("ligand_rmsd", "ligand_rmsf", "contacts", "pl_hbonds"):
+        for n in ("ligand_rmsd", "ligand_rmsf", "pl_contacts", "pl_hbonds"):
             assert n not in plan
 
     def test_all_four_run_with_ligand(self, tmp_path):
@@ -263,5 +263,5 @@ class TestAllLigandAnalysesAutoRoute:
         )
         ao = AnalysisOrchestrator(str(pdb), output_dir=tmp_path / "o", ligand_resname="LIG")
         plan = ao._build_plan(None, None)
-        for n in ("ligand_rmsd", "ligand_rmsf", "contacts", "pl_hbonds"):
+        for n in ("ligand_rmsd", "ligand_rmsf", "pl_contacts", "pl_hbonds"):
             assert n in plan

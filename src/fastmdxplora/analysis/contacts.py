@@ -198,7 +198,3 @@ class Contacts(Analysis):
 
 
 register_analysis(Contacts.name, Contacts)
-# The old name, because it is in configs and papers already. A rename
-# that breaks a config somebody has kept is a rename that costs more
-# than the consistency it buys.
-register_analysis("contacts", Contacts)

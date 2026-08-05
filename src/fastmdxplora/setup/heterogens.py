@@ -66,7 +66,11 @@ CRYSTALLIZATION_ADDITIVES = frozenset({
     "SO4", "PO4", "NO3", "ACT", "CIT", "FLC", "TLA", "MLA", "MLI", "FMT",
     "OXL", "SCN", "AZI", "PER", "BCT", "CO3",
     # reductants and detergents
-    "BME", "DTT", "DTU", "TCE", "LDA", "C8E", "OCT", "BOG", "LMT",
+    "BME",
+    # 2-hydroxyethyl disulfide: the oxidised dimer of BME, which is already
+    # here. Present in 181L and many other structures reduced with
+    # mercaptoethanol, where it is what the reducing agent became.
+    "HED", "DTT", "DTU", "TCE", "LDA", "C8E", "OCT", "BOG", "LMT",
     # miscellaneous handling reagents
     "NH4", "EDT",
 })

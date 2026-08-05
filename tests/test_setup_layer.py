@@ -547,3 +547,72 @@ class TestUnparameterizedResiduesAreNamed:
         original = ValueError("No template found for residue 9 (UNK).")
         assert _explain_unparameterized(
             original, self._ForceField([]), None) is original
+
+
+class TestAFailureDuringSolvationExplainsItself:
+    """Found by running a real complex: 181L failed at solvation with OpenMM's
+    raw "No template found for residue 166 (HED)".
+
+    An explanation for that failure existed and was wired to createSystem
+    only. Solvation builds templates too and reaches them first, so the
+    message a person saw named a residue and not what to do about it.
+    """
+
+    def test_solvation_is_wrapped_like_system_creation(self) -> None:
+        import inspect
+
+        from fastmdxplora.setup import prepare
+
+        source = inspect.getsource(prepare)
+        solvate = source[source.index("modeller.addSolvent"):][:900]
+        assert "_explain_unparameterized" in solvate, (
+            "a template failure during solvation still reaches the user raw"
+        )
+
+    def test_the_explanation_says_what_to_do(self) -> None:
+        from fastmdxplora.setup.prepare import _explain_unparameterized
+
+        class _Residue:
+            name = "HED"
+            id = "166"
+
+            class chain:
+                id = "A"
+
+            @staticmethod
+            def atoms():
+                class _Atom:
+                    class element:
+                        symbol = "S"
+                return [_Atom(), _Atom()]
+
+        class _FF:
+            @staticmethod
+            def getUnmatchedResidues(topology):
+                return [_Residue()]
+
+        explained = _explain_unparameterized(
+            ValueError("No template found for residue 166 (HED)."), _FF(), None)
+        message = str(explained)
+        assert "HED" in message
+        assert "--setup-ligand" in message, "it should name a way forward"
+
+
+class TestTheReducingAgentIsAnAdditive:
+    """HED is 2-hydroxyethyl disulfide -- what mercaptoethanol becomes when it
+    oxidises. BME was already listed as a crystallisation additive and HED was
+    not, so a structure reduced with mercaptoethanol carried the leftover into
+    the simulation and failed for want of parameters.
+    """
+
+    def test_it_is_listed_beside_the_reducing_agent(self) -> None:
+        from fastmdxplora.setup.heterogens import CRYSTALLIZATION_ADDITIVES
+
+        assert "BME" in CRYSTALLIZATION_ADDITIVES
+        assert "HED" in CRYSTALLIZATION_ADDITIVES
+
+    def test_the_ligand_is_not_treated_as_one(self) -> None:
+        """Benzene in 181L is the thing being studied."""
+        from fastmdxplora.setup.heterogens import CRYSTALLIZATION_ADDITIVES
+
+        assert "BNZ" not in CRYSTALLIZATION_ADDITIVES

@@ -281,6 +281,13 @@ class Analysis(ABC):
 
         try:
             self.result = self.compute(traj)
+            # Written again, because an analysis can only record some things
+            # once it has looked at the trajectory: how confidently it knew
+            # the ligand's chemistry, which measurements it could not make and
+            # why, what binding modes it found. Writing the manifest before
+            # `compute` and never again meant that everything an analysis
+            # learned about its own run was thrown away.
+            options_path = self._write_options_manifest()
             data_path = self.save_data(self.result, self.output_dir / f"{self.name}.dat")
             figure_path = self._do_plot()
             svg_path = figure_path.with_suffix(".svg")

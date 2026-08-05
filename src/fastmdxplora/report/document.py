@@ -99,6 +99,31 @@ def _methods_section(project_root: Path, phase_context: PhaseContext) -> str:
     sim_params = sim.get("parameters", {})
 
     lines = ["## Methods", ""]
+
+    # The paragraph a journal asks for, before the list of every setting. The
+    # list is what the software knows; this is what a reader needs, and they
+    # are not the same document. Written against the checklists published by
+    # JCIM (Soares et al. 2023) and Communications Biology (2023), from values
+    # already recorded -- nothing here is invented, and anything missing is
+    # named rather than filled in with what is usual.
+    from fastmdxplora.report.methods import methods_paragraphs
+
+    prose = methods_paragraphs(
+        project_root, setup_params, sim_params,
+        system_name=setup.get("system") or setup_params.get("system"),
+        versions=_software_versions(),
+    )
+    if prose:
+        lines.append(prose)
+        lines.append("")
+        lines.append("### Every setting used")
+        lines.append("")
+        lines.append(
+            "The paragraph above states what a methods section must; this is "
+            "the complete record, for anyone repeating the run exactly."
+        )
+        lines.append("")
+
     lines.append("### System preparation")
     if setup_params:
         lines.append("")
@@ -380,3 +405,32 @@ def build_document(
     md_path.write_text(doc, encoding="utf-8")
 
     return ["report.md"]
+
+
+def _software_versions() -> dict[str, str]:
+    """What did the work, and at what version.
+
+    A methods section naming a tool without its version is naming a moving
+    target: the defaults change, and a reader repeating the run gets different
+    numbers with no way to know why.
+    """
+    versions: dict[str, str] = {}
+    try:
+        from fastmdxplora import __version__
+
+        versions["FastMDXplora"] = str(__version__)
+    except Exception:  # noqa: BLE001
+        pass
+    for label, module in (("OpenMM", "openmm"), ("MDTraj", "mdtraj"),
+                          ("OpenFF Toolkit", "openff.toolkit"),
+                          ("PDBFixer", "pdbfixer"), ("RDKit", "rdkit")):
+        try:
+            import importlib
+
+            found = importlib.import_module(module)
+            version = getattr(found, "__version__", None)
+            if version:
+                versions[label] = str(version)
+        except Exception:  # noqa: BLE001 - a tool not installed did no work
+            continue
+    return versions

@@ -2,7 +2,7 @@
 
 ## The gap
 
-`contacts` counts how many residues are near the ligand. `pl_hbonds` counts
+`pl_contacts` counts how many residues are near the ligand. `pl_hbonds` counts
 hydrogen bonds. Neither says what kind of contact, which is what a medicinal
 chemist is actually asking: is this ligand held by a salt bridge that a charge
 change would destroy, or by hydrophobic packing that tolerates one?

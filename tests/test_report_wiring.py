@@ -1070,3 +1070,123 @@ def test_pymol_script_generation_uses_cartoon_and_regions(tmp_path: Path):
     assert "resi 7-9" in script
     assert "ray 1800, 1200" in script
     assert "png " in script
+
+
+class TestTheReportWritesAMethodsSection:
+    """A journal asks for a specific list of things, and the list is published:
+    JCIM's Guidelines for Reporting Molecular Dynamics Simulations (Soares et
+    al. 2023) and Communications Biology's reproducibility checklist (2023).
+
+    Every value was already recorded here. What was missing was the assembly --
+    the report listed each setting as a bullet, which is what the software
+    knows rather than what a reader needs. Nobody types this paragraph
+    correctly from memory, which is why the drMD authors described difficulty
+    reproducing a published protocol not for technical reasons but because of
+    ambiguity in how it was presented.
+    """
+
+    @staticmethod
+    def _run():
+        setup = {
+            "system": "181L", "ph": 7.4, "heterogens": "auto",
+            "resolved_forcefield": "amber14-all.xml", "water_model": "tip3p",
+            "ligand_forcefield": "openff-2.2.1", "ligand_name": "BNZ",
+            "ligand_net_charge": 0, "solvent_padding_nm": 0.8,
+            "box_shape": "cube", "ion_concentration_M": 0.15,
+            "n_atoms_solvated": 34020, "nonbonded_method": "PME",
+            "nonbonded_cutoff_nm": 1.0, "constraints": "HBonds",
+            "rigid_water": True,
+        }
+        sim = {
+            "timestep_fs": 2.0, "integrator": "LangevinMiddle",
+            "temperature_K": 300.0, "friction_per_ps": 1.0,
+            "pressure_bar": 1.0, "barostat_frequency": 25,
+            "nvt_steps": 200, "npt_steps": 200, "production_steps": 2000,
+            "trajectory_interval_steps": 20, "platform_used": "CPU",
+            "precision": "mixed", "minimize": True, "random_seed": 7,
+        }
+        return setup, sim
+
+    def test_it_states_what_the_checklists_require(self) -> None:
+        from pathlib import Path
+
+        from fastmdxplora.report.methods import methods_paragraphs
+
+        setup, sim = self._run()
+        text = methods_paragraphs(Path("."), setup, sim)
+        for required in ("181L", "pH 7.4", "amber14", "tip3p", "openff-2.2.1",
+                         "PME", "HBonds", "LangevinMiddle", "300.0 K",
+                         "1.0 bar", "34,020"):
+            assert required in text, f"the methods section omits {required}"
+
+    def test_steps_are_given_as_time(self) -> None:
+        """Nobody reads "2000 steps". The reader needs to know it was 4 ps."""
+        from pathlib import Path
+
+        from fastmdxplora.report.methods import methods_paragraphs
+
+        setup, sim = self._run()
+        text = methods_paragraphs(Path("."), setup, sim)
+        assert "4 ps" in text
+        assert "2000 steps" not in text
+
+    def test_a_missing_seed_is_reported_as_missing(self) -> None:
+        """Its absence is what makes a run irreproducible, so it is as
+        reportable as its value."""
+        from pathlib import Path
+
+        from fastmdxplora.report.methods import methods_paragraphs
+
+        setup, sim = self._run()
+        sim["random_seed"] = None
+        text = methods_paragraphs(Path("."), setup, sim)
+        assert "No random seed was fixed" in text
+
+    def test_what_was_not_recorded_is_named(self) -> None:
+        """A methods section quietly stating a default nobody chose is worse
+        than one with a visible gap."""
+        from pathlib import Path
+
+        from fastmdxplora.report.methods import (
+            methods_paragraphs,
+            missing_from_methods,
+        )
+
+        setup, sim = self._run()
+        del setup["water_model"]
+        assert "water model" in missing_from_methods(setup, sim)
+        text = methods_paragraphs(Path("."), setup, sim)
+        assert "Not recorded" in text
+        assert "water model" in text
+
+    def test_nothing_is_invented(self) -> None:
+        """An empty run produces no claims about it."""
+        from pathlib import Path
+
+        from fastmdxplora.report.methods import methods_paragraphs
+
+        text = methods_paragraphs(Path("."), {}, {})
+        assert "PME" not in text and "300" not in text
+        assert "Not recorded" in text
+
+    def test_the_software_is_named_with_its_version(self) -> None:
+        """Naming a tool without its version names a moving target: the
+        defaults change and a reader gets different numbers with no way to
+        know why."""
+        from fastmdxplora.report.document import _software_versions
+
+        found = _software_versions()
+        assert found, "nothing reported a version"
+        assert all(version for version in found.values())
+
+    def test_the_report_puts_the_prose_before_the_settings(self) -> None:
+        import inspect
+
+        from fastmdxplora.report import document
+
+        source = inspect.getsource(document._methods_section)
+        prose = source.index("methods_paragraphs")
+        settings = source.index("### System preparation")
+        assert prose < settings, (
+            "the settings list should follow the paragraph, not replace it"
+        )

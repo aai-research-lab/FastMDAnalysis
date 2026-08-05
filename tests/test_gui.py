@@ -3850,14 +3850,14 @@ class TestEverySettingGetsTheRightControl:
         )
 
 
-class TestARenamedAnalysisKeepsWorking:
-    """`contacts` measures protein-ligand contacts, so it is `pl_contacts`
+class TestTheProteinLigandAnalysesShareANaming:
+    """`contacts` measured protein-ligand contacts, so it is `pl_contacts`
     beside `pl_hbonds` and `pl_interactions`.
 
-    The old name stays registered, because a rename that breaks a config
-    somebody has kept costs more than the consistency it buys -- but it is
-    usable rather than offered, or a form would list sixteen entries for
-    fifteen analyses.
+    The old name was kept as an alias at first, so a config somebody had would
+    still run -- but nobody has one, the software has not been released under
+    this name, and the alias made the orchestrator run the analysis twice,
+    once under each name, into the same directory.
     """
 
     def test_the_new_name_works(self) -> None:
@@ -3866,19 +3866,11 @@ class TestARenamedAnalysisKeepsWorking:
 
         assert get_analysis_class("pl_contacts") is not None
 
-    def test_the_old_name_still_works(self) -> None:
+    def test_the_old_name_is_gone(self) -> None:
         import fastmdxplora.analysis  # noqa: F401
-        from fastmdxplora.analysis.orchestrator import get_analysis_class
+        from fastmdxplora.analysis.orchestrator import available_analyses
 
-        assert get_analysis_class("contacts") is get_analysis_class("pl_contacts")
-
-    def test_but_only_one_of_them_is_offered(self) -> None:
-        import fastmdxplora.analysis  # noqa: F401
-        from fastmdxplora.analysis.describe import describe_all
-
-        offered = describe_all()
-        assert "pl_contacts" in offered
-        assert "contacts" not in offered
+        assert "contacts" not in available_analyses()
 
     def test_it_sits_with_the_other_protein_ligand_analyses(self) -> None:
         from fastmdxplora.gui.schema_payload import schema_payload
