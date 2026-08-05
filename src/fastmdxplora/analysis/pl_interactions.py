@@ -167,7 +167,7 @@ class ProteinLigandInteractions(Analysis):
         # Recorded beside the results, because an interaction computed from
         # perceived bond orders is a different claim from one computed from
         # chemistry that was resolved, and a reader deserves to know which.
-        self.options["ligand_chemistry"] = chemistry.as_record()
+        self.findings["ligand_chemistry"] = chemistry.as_record()
 
         found: list[Any] = []
         refused: dict[str, str] = {}
@@ -200,7 +200,7 @@ class ProteinLigandInteractions(Analysis):
             traj, ligand, protein, water))
 
         if refused:
-            self.options["not_measured"] = refused
+            self.findings["not_measured"] = refused
 
         # Residues the charge and ring tables do not know. Reported rather
         # than refused: one modified residue in a large protein is a footnote,
@@ -215,8 +215,8 @@ class ProteinLigandInteractions(Analysis):
             found, traj.n_frames, minimum_occupancy=self.minimum_occupancy)
         transitions = summary.mode_transitions(modes["per_frame"])
 
-        self.options["binding_modes"] = modes["modes"][:10]
-        self.options["mode_transitions"] = {
+        self.findings["binding_modes"] = modes["modes"][:10]
+        self.findings["mode_transitions"] = {
             k: v for k, v in transitions.items() if k != "counts"
         }
         self._occupancies = occupancies

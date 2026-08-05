@@ -270,6 +270,14 @@ def _results_section(project_root: Path) -> str:
                 lines.append(f"- `selection`: `{_code_text(selection)}`")
             for k, v in opts.items():
                 lines.append(f"- `{_code_text(k)}`: `{_code_text(v)}`")
+
+        # What the analysis worked out, said in a sentence rather than
+        # printed. The structures behind these run to pages of atom indices,
+        # and a reader needs to know that the chemistry was resolved, not to
+        # read the tuples.
+        findings = per_analysis.get("findings") or {}
+        for note in _findings_notes(findings):
+            lines.append(f"- {note}")
         else:
             lines.append("_Ran with default options._")
         lines.append("")
@@ -421,6 +429,61 @@ def _convergence_section(project_root: Path) -> str:
         )
         lines.append("")
     return "\n".join(lines)
+
+
+def _findings_notes(findings: dict[str, Any]) -> list[str]:
+    """What an analysis worked out, in sentences.
+
+    The findings themselves are structures -- lists of binding modes, matrices
+    of transitions -- kept in ``options.json`` for anyone who wants them. What
+    belongs in a document is what they amount to.
+    """
+    notes: list[str] = []
+
+    chemistry = findings.get("ligand_chemistry")
+    if isinstance(chemistry, dict):
+        source = chemistry.get("source")
+        where = {
+            "run": "resolved during setup, at the pH simulated",
+            "supplied": "read from the file you supplied",
+            "ccd": "taken from the Chemical Component Dictionary",
+            "perceived": "inferred from the coordinates, which is a guess",
+        }.get(source, source)
+        notes.append(f"Ligand chemistry: {where}.")
+        if chemistry.get("charge_was_ambiguous"):
+            notes.append(
+                "The ligand's charge was ambiguous, so the measures that are "
+                "claims about charge were not made."
+            )
+
+    refused = findings.get("not_measured")
+    if isinstance(refused, dict) and refused:
+        notes.append(
+            "Not measured: " + ", ".join(sorted(refused))
+            + " — see `options.json` for why."
+        )
+
+    modes = findings.get("binding_modes")
+    if isinstance(modes, list) and modes:
+        notes.append(
+            f"{len(modes)} binding mode(s) seen; the most common held "
+            f"{modes[0].get('fraction', 0):.0%} of frames."
+        )
+
+    transitions = findings.get("mode_transitions")
+    if isinstance(transitions, dict):
+        seen = transitions.get("observed_transitions")
+        if transitions.get("supported"):
+            notes.append(
+                f"{seen} changes of binding mode were seen, enough to give "
+                "transition probabilities (in `options.json`)."
+            )
+        elif seen is not None:
+            notes.append(
+                f"{seen} change(s) of binding mode were seen, too few for a "
+                "rate; the counts are in `options.json`."
+            )
+    return notes
 
 
 def _citation_section() -> str:

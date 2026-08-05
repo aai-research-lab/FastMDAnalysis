@@ -169,6 +169,10 @@ class Analysis(ABC):
                 f"measurement look as though it had been restricted when it "
                 f"had not."
             )
+        #: What the analysis worked out while running, as opposed to what it
+        #: was told. Recorded beside the options and kept out of them, because
+        #: a report lists the options.
+        self.findings: dict[str, Any] = {}
         self.selection: str | None = (
             selection if selection is not None else self.default_selection
         )
@@ -409,12 +413,22 @@ class Analysis(ABC):
         return save_figure(fig, self.output_dir / f"{self.name}.png")
 
     def _write_options_manifest(self) -> Path:
-        """Record the parameters used for this analysis to options.json."""
+        """Record what this analysis was asked to do, and what it found out.
+
+        The two are kept apart. ``options`` is what somebody set, and a report
+        listing them is a record of the run. ``findings`` is what the analysis
+        worked out along the way -- how confidently it knew the ligand's
+        chemistry, which binding modes it saw, whether a rate was supportable.
+        Both belong in the manifest and only the first belongs in a document:
+        putting the findings in ``options`` filled two pages of a report with
+        raw tuples of atom indices.
+        """
         manifest = {
             "analysis": self.name,
             "class": type(self).__name__,
             "selection": self.selection,
             "options": self.options,
+            "findings": self.findings,
         }
         path = self.output_dir / "options.json"
         with path.open("w", encoding="utf-8") as fh:

@@ -1740,3 +1740,91 @@ class TestAShortSeriesSaysWhatItCannotJudge:
 
         source = inspect.getsource(document._convergence_section)
         assert "too short to say" in source
+
+
+class TestFindingsAreSummarisedNotDumped:
+    """The report printed two pages of raw tuples of atom indices.
+
+    What an analysis worked out was recorded in ``options``, which is where
+    settings live, and the report lists every setting. A binding-mode list and
+    a transition matrix are structures somebody might want; they are not
+    something anybody reads in a document.
+    """
+
+    def test_settings_and_findings_are_kept_apart(self, tmp_path) -> None:
+        import mdtraj as md
+        import numpy as np
+        import pandas as pd
+
+        from fastmdxplora.analysis.base import Analysis
+
+        class _Learns(Analysis):
+            name = "learns"
+            description = "records what it found"
+
+            def compute(self, traj):
+                self.findings["what_it_worked_out"] = list(range(500))
+                return pd.DataFrame({"frame": [0], "value": [1.0]})
+
+            def plot(self, result, ax):
+                ax.plot([0], [1])
+
+        top = md.Topology()
+        residue = top.add_residue("ALA", top.add_chain(), resSeq=1)
+        top.add_atom("CA", md.element.carbon, residue)
+        traj = md.Trajectory(
+            xyz=np.zeros((1, 1, 3), dtype=np.float32), topology=top)
+
+        analysis = _Learns(output_dir=str(tmp_path))
+        analysis.run(traj)
+
+        import json
+
+        written = json.loads(
+            next(tmp_path.rglob("options.json")).read_text(encoding="utf-8"))
+        assert "what_it_worked_out" in written["findings"]
+        assert "what_it_worked_out" not in written["options"]
+
+    def test_the_interaction_analysis_records_them_as_findings(self) -> None:
+        import inspect
+
+        from fastmdxplora.analysis import pl_interactions
+
+        source = inspect.getsource(pl_interactions)
+        for name in ("ligand_chemistry", "binding_modes", "mode_transitions"):
+            assert f'self.findings["{name}"]' in source, name
+            assert f'self.options["{name}"]' not in source, name
+
+    def test_the_report_says_what_they_amount_to(self) -> None:
+        from fastmdxplora.report.document import _findings_notes
+
+        notes = _findings_notes({
+            "ligand_chemistry": {"source": "run", "charge_was_ambiguous": False},
+            "binding_modes": [{"fraction": 0.42}],
+            "mode_transitions": {"observed_transitions": 96, "supported": True},
+        })
+        joined = " ".join(notes)
+        assert "resolved during setup" in joined
+        assert "42%" in joined
+        assert "96 changes" in joined
+        # And nothing that would run to pages.
+        assert all(len(note) < 200 for note in notes)
+
+    def test_a_guessed_chemistry_is_named_as_a_guess(self) -> None:
+        from fastmdxplora.report.document import _findings_notes
+
+        notes = _findings_notes({"ligand_chemistry": {"source": "perceived"}})
+        assert "guess" in " ".join(notes)
+
+    def test_an_unsupportable_rate_is_reported_as_such(self) -> None:
+        from fastmdxplora.report.document import _findings_notes
+
+        notes = _findings_notes({
+            "mode_transitions": {"observed_transitions": 2, "supported": False}})
+        assert "too few for a rate" in " ".join(notes)
+
+    def test_a_refused_measurement_is_mentioned(self) -> None:
+        from fastmdxplora.report.document import _findings_notes
+
+        notes = _findings_notes({"not_measured": {"salt_bridge": "charge unknown"}})
+        assert "Not measured" in " ".join(notes)
