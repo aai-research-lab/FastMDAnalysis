@@ -1828,3 +1828,59 @@ class TestFindingsAreSummarisedNotDumped:
 
         notes = _findings_notes({"not_measured": {"salt_bridge": "charge unknown"}})
         assert "Not measured" in " ".join(notes)
+
+
+class TestTheMethodsSectionReportsTheRestraints:
+    """A restrained equilibration is part of a protocol. A reader cannot
+    repeat a run that held the protein at a thousand kilojoules and released
+    it in four steps unless the paragraph says so.
+    """
+
+    @staticmethod
+    def _text(**extra):
+        from pathlib import Path
+
+        from fastmdxplora.report.methods import methods_paragraphs
+
+        sim = {"parameters": dict({
+            "timestep_fs": 2.0, "integrator": "langevin_middle",
+            "temperature_K": 300.0, "friction_per_ps": 1.0,
+            "nvt_steps": 25000, "npt_steps": 25000,
+            "production_steps": 500000, "minimize": True,
+        }, **extra), "platform_used": "CUDA", "pressure_bar_used": 1.0}
+        return methods_paragraphs(Path("."), {}, sim)
+
+    def test_what_was_held_and_how_hard(self) -> None:
+        text = self._text(restrain="protein and not element H",
+                          restraint_release=[1000, 500, 100, 0])
+        assert "protein and not element H" in text
+        assert "1000, 500, 100, 0" in text
+        assert "kJ/mol/nm" in text
+
+    def test_that_they_came_off_for_production(self) -> None:
+        text = self._text(restrain="protein", restrain_production=False)
+        assert "released before production" in text
+
+    def test_and_that_they_did_not_where_they_did_not(self) -> None:
+        """A biased trajectory reported as a free one is a claim the
+        simulation does not support."""
+        text = self._text(restrain="protein", restrain_production=True)
+        assert "retained during production" in text
+        assert "biased" in text
+
+    def test_an_unrestrained_run_says_nothing_about_restraints(self) -> None:
+        text = self._text()
+        assert "restrained" not in text
+
+    def test_a_clause_with_no_value_is_left_out(self) -> None:
+        """It read "a friction coefficient of None ps⁻¹" when the number was
+        absent, which is worse than omitting it: a reader cannot tell whether
+        the run had no friction or the software lost it."""
+        from pathlib import Path
+
+        from fastmdxplora.report.methods import methods_paragraphs
+
+        sim = {"parameters": {"timestep_fs": 2.0, "integrator": "verlet",
+                              "temperature_K": 300.0, "production_steps": 1000}}
+        text = methods_paragraphs(Path("."), {}, sim)
+        assert "None" not in text

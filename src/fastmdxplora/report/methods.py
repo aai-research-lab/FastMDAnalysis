@@ -292,6 +292,33 @@ def methods_paragraphs(
         protocol = []
         if _get(sim, "minimize", default=True):
             protocol.append("The system was energy-minimized before dynamics.")
+
+        # What was held while the solvent settled. A restrained equilibration
+        # is part of a protocol, and a reader cannot repeat one that held the
+        # protein at a thousand kilojoules and released it in four steps
+        # unless the paragraph says so.
+        held = _get(sim, "restrain")
+        if held:
+            release = _get(sim, "restraint_release") or [1000.0, 500.0, 100.0, 0.0]
+            steps = ", ".join(f"{float(k):g}" for k in release)
+            protocol.append(
+                f"Atoms matching `{held}` were harmonically restrained to "
+                f"their minimized positions during equilibration, with the "
+                f"force constant stepped through {steps} kJ/mol/nm² as "
+                "equilibration proceeded."
+            )
+            if _get(sim, "restrain_production", default=False):
+                protocol.append(
+                    "**The restraints were retained during production**, so "
+                    "the trajectory is biased: measures of flexibility "
+                    "computed from it describe the restraint as well as the "
+                    "system."
+                )
+            else:
+                protocol.append(
+                    "They were released before production, which ran "
+                    "unrestrained."
+                )
         stages = []
         if nvt:
             stages.append(f"{_steps_to_ns(nvt, timestep)} in the NVT ensemble")
@@ -308,8 +335,13 @@ def methods_paragraphs(
             protocol.append(
                 f"Equations of motion were integrated with the {integrator} "
                 f"integrator and a {timestep} fs timestep"
-                + (f", at {temperature} K with a friction coefficient of "
-                   f"{friction} ps⁻¹" if temperature else "")
+                # Each clause only where the value is there. A methods
+                # section reading "a friction coefficient of None" is worse
+                # than one that omits it: the reader cannot tell whether the
+                # run had no friction or the software lost the number.
+                + (f", at {temperature} K" if temperature is not None else "")
+                + (f" with a friction coefficient of {friction} ps⁻¹"
+                   if friction is not None else "")
                 + "."
             )
         if pressure is not None:
