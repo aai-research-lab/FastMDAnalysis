@@ -77,30 +77,21 @@ blockquote { border-left: 3px solid #ddd; margin-left: 0; padding-left: 1em; }
 def _markdown_to_html(text: str, title: str) -> str:
     """Markdown to HTML, by whichever converter is present.
 
-    ``markdown`` is the usual one and ``markdown-it-py`` arrives with other
-    things; either will do, and requiring a particular one would add a
-    dependency for a preference.
+    One converter, and it is declared. A second path guarded by a try-import
+    and named in no manifest is a dependency nobody knows about until it is
+    missing -- which is what the dependency guard exists to catch, and did.
     """
-    body = None
     try:
         import markdown as markdown_lib
-
-        body = markdown_lib.markdown(
-            text, extensions=["tables", "fenced_code", "toc"])
-    except ImportError:
-        try:
-            from markdown_it import MarkdownIt
-
-            body = MarkdownIt("commonmark").enable("table").render(text)
-        except ImportError:
-            pass
-
-    if body is None:
+    except ImportError as exc:
         raise PdfUnavailable(
             "Rendering the report as a PDF needs a Markdown converter. "
             "Install the report extra (pip install 'fastmdxplora[pdf]') or "
             "conda install -c conda-forge markdown weasyprint."
-        )
+        ) from exc
+
+    body = markdown_lib.markdown(
+        text, extensions=["tables", "fenced_code", "toc"])
 
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"

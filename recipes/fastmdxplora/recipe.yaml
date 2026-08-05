@@ -59,6 +59,12 @@ requirements:
     - openmmforcefields >=0.12
     - rdkit >=2023.3
     - propka >=3.5
+    # The report as a PDF, which is the form somebody sends on. On PyPI these
+    # are the [pdf] extra, because WeasyPrint there needs Pango and Cairo
+    # installed separately; the conda-forge package brings its own, so one
+    # install command gives the format without a system-library hunt.
+    - weasyprint >=60
+    - markdown >=3.4
 
 tests:
   - python:
