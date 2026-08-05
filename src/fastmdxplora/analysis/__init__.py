@@ -78,6 +78,7 @@ from fastmdxplora.analysis import ligand_rmsd as _ligand_rmsd  # noqa: F401, E40
 from fastmdxplora.analysis import ligand_rmsf as _ligand_rmsf  # noqa: F401, E402
 from fastmdxplora.analysis import contacts as _contacts  # noqa: F401, E402
 from fastmdxplora.analysis import pl_hbonds as _pl_hbonds  # noqa: F401, E402
+from fastmdxplora.analysis import pl_interactions as _pl_interactions  # noqa: F401, E402
 
 
 def __getattr__(name: str):

@@ -796,9 +796,16 @@ def metal_coordination(
             if atom.index not in wanted:
                 continue
             symbol = (atom.element.symbol if atom.element is not None else "").upper()
-            name = atom.name.upper()
-            if symbol in _METALS or name in _METALS:
-                metals.append(atom.index)
+            # The element, never the atom name. Every amino acid has an atom
+            # called CA -- its alpha carbon -- and CA is also calcium, so
+            # matching names turns every residue in the protein into a metal
+            # centre. The same trap catches CD, HG, NA and IN.
+            if symbol in _METALS:
+                # And a metal ion sits alone: an ion is its own residue, so a
+                # symbol that matches inside a larger residue is a
+                # misassignment rather than an ion.
+                if atom.residue.n_atoms == 1:
+                    metals.append(atom.index)
             elif symbol in {"N", "O", "S"}:
                 donors.append(atom.index)
         return metals, donors

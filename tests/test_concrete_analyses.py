@@ -1975,3 +1975,67 @@ class TestBindingModesAreCombinations:
                     + [self._contact(3, 2)])
         found = binding_modes(contacts, 100, minimum_occupancy=0.1)
         assert len(found["modes"]) == 1
+
+
+class TestAnAlphaCarbonIsNotCalcium:
+    """Found by running the analysis on a protein with no metals in it.
+
+    Every amino acid has an atom called CA -- its alpha carbon -- and CA is
+    also calcium's symbol. Matching atom names turns every residue into a
+    metal centre. CD, HG, NA and IN are the same trap: cadmium, mercury,
+    sodium and indium are all ordinary atom names in a protein.
+    """
+
+    def test_a_protein_with_no_metals_reports_none(self) -> None:
+        from fastmdxplora.analysis.interactions import metal_coordination
+
+        top = md.Topology()
+        chain = top.add_chain()
+        for index, resname in enumerate(("ALA", "LYS", "TRP")):
+            residue = top.add_residue(resname, chain, resSeq=index + 1)
+            for name in ("N", "CA", "C", "O", "CB", "CD", "HG"):
+                element = {"N": md.element.nitrogen, "O": md.element.oxygen}.get(
+                    name[0], md.element.carbon)
+                top.add_atom(name, element, residue)
+
+        rng = np.random.RandomState(1)
+        traj = md.Trajectory(
+            xyz=rng.normal(scale=0.1, size=(1, top.n_atoms, 3)).astype(np.float32),
+            topology=top)
+        assert metal_coordination(traj, range(7), range(7, top.n_atoms)) == []
+
+    def test_a_real_ion_is_still_found(self) -> None:
+        from fastmdxplora.analysis.interactions import metal_coordination
+
+        top = md.Topology()
+        chain = top.add_chain()
+        residue = top.add_residue("HIS", chain, resSeq=1)
+        top.add_atom("NE2", md.element.nitrogen, residue)
+        ion_chain = top.add_chain()
+        ion = top.add_residue("ZN", ion_chain, resSeq=500)
+        top.add_atom("ZN", md.element.zinc, ion)
+
+        traj = md.Trajectory(
+            xyz=np.array([[[0, 0, 0], [0.21, 0, 0]]], dtype=np.float32),
+            topology=top)
+        assert len(metal_coordination(traj, [1], [0])) == 1
+
+    def test_a_metal_symbol_inside_a_residue_is_a_misassignment(self) -> None:
+        """An ion is its own residue. A calcium found among a residue's other
+        atoms is a mislabelled carbon, not a coordination centre."""
+        from fastmdxplora.analysis.interactions import metal_coordination
+
+        top = md.Topology()
+        chain = top.add_chain()
+        residue = top.add_residue("ALA", chain, resSeq=1)
+        top.add_atom("CA", md.element.calcium, residue)   # mislabelled
+        top.add_atom("CB", md.element.carbon, residue)
+        other = top.add_chain()
+        second = top.add_residue("SER", other, resSeq=2)
+        top.add_atom("OG", md.element.oxygen, second)
+
+        traj = md.Trajectory(
+            xyz=np.array([[[0, 0, 0], [0.15, 0, 0], [0.2, 0, 0]]],
+                         dtype=np.float32),
+            topology=top)
+        assert metal_coordination(traj, [0, 1], [2]) == []

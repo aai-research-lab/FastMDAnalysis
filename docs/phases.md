@@ -105,6 +105,44 @@ more than one way in the literature. What FastMDXplora computes:
 - **Secondary structure** covers the protein only. DSSP returns a column for
   every residue and marks the others `NA`; a ligand has no secondary structure
   and does not appear.
+- **Protein-ligand interactions** are typed rather than counted: hydrophobic
+  contacts, hydrogen bonds, salt bridges, pi-stacking face-to-face and
+  edge-to-face, pi-cation, halogen bonds, metal coordination and water
+  bridges. Each is the published criterion, cited in its own docstring, and
+  each threshold is a setting because the published values disagree.
+
+  Three things about it are worth knowing before reading its output.
+
+  *The chemistry is resolved before the geometry is measured.* Whether a
+  nitrogen donates or a ring is aromatic is chemistry, not coordinates. Where
+  the run's own setup phase settled it, that is used; otherwise a supplied
+  SDF, then the Chemical Component Dictionary, then inference from the
+  coordinates. Which route succeeded is recorded in the analysis options,
+  because an interaction computed from inferred bond orders is a weaker claim
+  than one computed from chemistry that was resolved.
+
+  *Some interactions are refused rather than guessed.* Salt bridges and
+  pi-cation interactions are claims about charge, and a ligand's charge
+  inferred from coordinates is ambiguous more often than not -- guanidinium is
+  +1, and -1 also balances. Where the charge was not determined those two are
+  not reported, and the reason is recorded. The rest of the analysis
+  continues: a ligand whose charge is unknown still has hydrogen bonds.
+
+  *Occupancy is reported with the observation behind it.* A contact present in
+  three frames of five hundred and one present in four hundred and fifty are
+  both "present", and the fraction alone does not say which is which. Two
+  contacts can even share a fraction and differ entirely: one present in 450
+  consecutive frames formed once and stayed; one present in 450 alternating
+  frames formed and broke 450 times. The number of separate appearances is
+  reported alongside the fraction, the standard error counts those rather than
+  frames, and thinly observed contacts are drawn hollow on the figure.
+
+  The same applies to binding modes. Transitions between them are counted
+  always, but the probabilities are given only where enough changes were seen
+  for a rate to mean anything -- fewer than ten carries an uncertainty larger
+  than itself, and would read as a measurement of kinetics the trajectory
+  cannot support.
+
 - **Contacts and hydrogen bonds** measure across the periodic boundary when
   the trajectory carries a unit cell. A solvated trajectory is not always
   imaged, and a molecule split across the boundary looks far from everything

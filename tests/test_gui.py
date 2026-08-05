@@ -2091,7 +2091,11 @@ class TestASettingShowsWhatItWillDo:
             for name, options in describe_all().items()
             for o in options
             if o.default is None and o.owner != "Analysis"
-            and o.name != "ligand_resname"
+            # These depend on the ligand rather than on a choice: its residue
+            # name, its charge, and a file stating its chemistry are facts
+            # about the molecule, not settings with a sensible default.
+            and o.name not in {"ligand_resname", "ligand_net_charge",
+                               "ligand_chemistry"}
         }
         assert not silent, f"these cannot say what they would do: {sorted(silent)}"
 

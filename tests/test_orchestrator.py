@@ -244,26 +244,39 @@ def test_setup_classifies_pdb_id(tmp_path: Path) -> None:
 
 
 def test_analysis_module_taxonomy() -> None:
-    """The registry should be a tuple, populated as concrete analyses land.
+    """Every registered analysis is a usable one.
 
-    Sub-delivery 2 adds: rmsd, rmsf, rg, dihedrals
-    Sub-delivery 3 adds: hbonds, ss, cluster, sasa, dimred, qvalue
-    Until then this only verifies the registry surface exists and is
-    iterable; the concrete set is checked in test_analysis_layer.py.
+    This used to hold a list of the analyses expected to exist, written when
+    they were being delivered one sub-delivery at a time. A list like that
+    fails when a fifteenth analysis is added -- not because anything is wrong,
+    but because nobody updated the list -- and passes when an analysis is
+    registered under a name nothing can reach.
+
+    So it checks the property instead: whatever is registered can be got at,
+    says what it is, and appears in the registry the rest of the software
+    reads.
     """
     from fastmdxplora.analysis import AVAILABLE_ANALYSES
+    from fastmdxplora.analysis.orchestrator import (
+        available_analyses,
+        get_analysis_class,
+    )
 
     assert isinstance(AVAILABLE_ANALYSES, tuple)
-    # Names that are eventually expected — once the relevant sub-delivery
-    # registers them, this test will pass through the subset assertion.
-    expected_after_full_implementation = {
-        "rmsd", "rmsf", "rg", "hbonds", "ss",
-        "cluster", "sasa", "dimred", "qvalue", "dihedrals",
-        # Ligand-aware analyses (protein-ligand complexes)
-        "ligand_rmsd", "ligand_rmsf", "contacts", "pl_hbonds",
-    }
-    # Allow partial registration during incremental delivery
-    assert set(AVAILABLE_ANALYSES).issubset(expected_after_full_implementation)
+    assert AVAILABLE_ANALYSES, "nothing is registered at all"
+    assert set(AVAILABLE_ANALYSES) == set(available_analyses()), (
+        "the tuple and the registry disagree about what exists"
+    )
+
+    for name in AVAILABLE_ANALYSES:
+        cls = get_analysis_class(name)
+        assert cls is not None, f"{name} is registered but cannot be got"
+        assert cls.name == name, (
+            f"{name} is registered under a name it does not answer to: {cls.name}"
+        )
+        assert getattr(cls, "description", ""), (
+            f"{name} does not say what it is, so nothing can offer it usefully"
+        )
 
 
 def test_report_phase_writes_markdown_document(tmp_path: Path) -> None:

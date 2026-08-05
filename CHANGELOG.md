@@ -7,6 +7,32 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+- **Protein-ligand interactions, typed.** Counting contacts says how much of
+  the protein a ligand touches; this says what is holding it -- a salt bridge
+  a charge change would destroy, a hydrophobic packing that tolerates one.
+  Eight interaction types, each implemented against a published criterion
+  named in its own docstring.
+
+  The chemistry is resolved before the geometry is measured, and how it was
+  resolved is recorded: the run's own setup phase, a supplied SDF, the
+  Chemical Component Dictionary, or inference from the coordinates. Salt
+  bridges and pi-cation interactions are refused where the ligand's charge was
+  not determined, because they are claims about charge and a charge inferred
+  from coordinates is ambiguous more often than not.
+
+  Occupancy carries the observation behind it. A contact present in 450
+  consecutive frames and one present in 450 alternating frames are both fifty
+  per cent, and only the second has an error bar worth printing. Transitions
+  between binding modes are counted always and given as probabilities only
+  where enough were seen for a rate to mean anything.
+
+  Where the published criteria disagree, the disagreement is recorded rather
+  than quietly resolved. PLIP allows a hydrogen bond at 4.1 A and 100 degrees
+  where the literature standard is 3.5 and 120, and counts fluorine as a
+  halogen bond donor where the sigma-hole literature says organic C-F does
+  not. Both of PLIP's choices remain reachable as settings.
+
 **Read this before upgrading a study in progress.** Every analysis was checked
 against the method it claims to implement -- a cited paper, a reference
 implementation, or the contract of the library underneath. Eight of the ten
