@@ -597,3 +597,163 @@ class TestAcceptedValuesAreDeclaredOnce:
             f.choices for f in all_schemas()["setup"].fields if f.name == "forcefield"
         )
         assert sorted(declared) == sorted(("auto",) + available_forcefields())
+
+
+class TestTheCommandLineOffersWhatTheSchemaDeclares:
+    """The flag table was maintained by hand beside a schema declaring the
+    same settings, and it drifted: twenty-four settings had no flag of their
+    own, including two added the same day the drift was found.
+
+    A setting reachable from a config file and not from the command line is a
+    setting somebody will conclude does not exist. This is the fourth
+    hand-maintained list found beside a generated one -- after the GUI's
+    fields, the analysis registry and the orchestrator's taxonomy -- and it
+    failed the same way each time.
+    """
+
+    def test_every_setting_can_be_given_on_the_command_line(self) -> None:
+        from fastmdxplora.cli.main import _NO_FLAG_OF_ITS_OWN, _PHASE_SPEC
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        schema_key = {"setup": "setup", "simulate": "simulation",
+                      "analyze": "analysis", "report": "report"}
+        missing: dict[str, list[str]] = {}
+        for phase, (table, _prefix) in _PHASE_SPEC.items():
+            exposed = {dest for _flag, dest, _kw in table}
+            declared = {f.name for f in PHASE_SCHEMAS[schema_key[phase]].fields}
+            unreachable = sorted(
+                declared - exposed - set(_NO_FLAG_OF_ITS_OWN))
+            if unreachable:
+                missing[phase] = unreachable
+        assert not missing, (
+            f"these settings have no flag and no recorded reason: {missing}"
+        )
+
+    def test_every_exclusion_says_why(self) -> None:
+        """So the list does not become a place to hide a setting nobody
+        wired up."""
+        from fastmdxplora.cli.main import _NO_FLAG_OF_ITS_OWN
+
+        assert _NO_FLAG_OF_ITS_OWN
+        for name, reason in _NO_FLAG_OF_ITS_OWN.items():
+            assert reason and len(reason) > 15, name
+
+    def test_a_setting_added_to_the_schema_gets_a_flag(self) -> None:
+        """The two that prompted this were `report.pdf` and
+        `simulation.state_interval_steps`."""
+        from fastmdxplora.cli.main import _PHASE_SPEC
+
+        for phase, name in (("report", "pdf"),
+                            ("simulate", "state_interval_steps"),
+                            ("setup", "nonbonded_cutoff_nm"),
+                            ("simulate", "barostat_frequency")):
+            table, _prefix = _PHASE_SPEC[phase]
+            assert name in {dest for _f, dest, _k in table}, f"{phase}.{name}"
+
+    def test_a_yes_or_no_setting_can_be_turned_both_ways(self) -> None:
+        """One defaulting to true needs a way off and one defaulting to false
+        needs a way on, and which it is can change without the flag having
+        to."""
+        from fastmdxplora.cli.main import _PHASE_SPEC
+
+        table, _prefix = _PHASE_SPEC["report"]
+        flags = {flag for flag, dest, _kw in table if dest == "pdf"}
+        assert "pdf" in flags and "no-pdf" in flags
+
+    def test_the_flags_reach_the_phase_that_uses_them(self) -> None:
+        from fastmdxplora.cli.main import (
+            _PHASE_SPEC,
+            _build_parser,
+            _harvest_phase_options,
+        )
+
+        args = _build_parser().parse_args([
+            "explore", "--system", "x.pdb",
+            "--simulate-state-interval-steps", "20",
+            "--setup-nonbonded-cutoff-nm", "1.2",
+            "--report-no-pdf",
+        ])
+        for phase, name, expected in (("simulate", "state_interval_steps", 20),
+                                      ("setup", "nonbonded_cutoff_nm", 1.2),
+                                      ("report", "pdf", False)):
+            table, prefix = _PHASE_SPEC[phase]
+            harvested = _harvest_phase_options(args, table, dest_prefix=prefix)
+            assert harvested.get(name) == expected, f"{phase}.{name}"
+
+    def test_the_hand_written_wording_is_kept(self) -> None:
+        """Its help text is better than anything generated, and several of its
+        flags are deliberate aliases, so it stays and the generation fills
+        what it does not cover."""
+        from fastmdxplora.cli.main import _SETUP_OPTIONS, _PHASE_SPEC
+
+        table, _prefix = _PHASE_SPEC["setup"]
+        written = {flag for flag, _d, _k in _SETUP_OPTIONS}
+        assert written <= {flag for flag, _d, _k in table}
+
+
+class TestTheCommandLineTakesItsWordsFromTheSchema:
+    """The table listing flags carried its own help text, and fifty-three of
+    its sixty entries had fallen behind the declaration.
+
+    ``--setup-ph`` said "pH for hydrogen placement" where the schema explains
+    that it sets protonation states. Keeping the wording was the argument for
+    the table, and the wording was the thing that had rotted -- which is what
+    a second copy of a sentence does.
+    """
+
+    def test_no_flag_describes_itself_differently(self) -> None:
+        from fastmdxplora.cli.main import _PHASE_SPEC
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        schema_key = {"setup": "setup", "simulate": "simulation",
+                      "analyze": "analysis", "report": "report"}
+        stale = []
+        for phase, (table, _prefix) in _PHASE_SPEC.items():
+            group = PHASE_SCHEMAS[schema_key[phase]]
+            for flag, dest, options in table:
+                field = group.get(dest)
+                if field is None or not field.help:
+                    continue
+                if options.get("action") == "store_false":
+                    # Phrased as the negation, from the same sentence.
+                    assert field.help[1:] in options.get("help", ""), flag
+                    continue
+                if (options.get("help") or "").strip() != field.help.strip():
+                    stale.append(f"{phase}.{dest}")
+        assert not stale, f"these describe themselves twice, differently: {stale}"
+
+    def test_the_accepted_values_come_from_the_schema(self) -> None:
+        """So a flag cannot offer a value the software refuses."""
+        from fastmdxplora.cli.main import _PHASE_SPEC
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        table, _prefix = _PHASE_SPEC["setup"]
+        heterogens = next(o for f, d, o in table if d == "heterogens")
+        declared = PHASE_SCHEMAS["setup"].get("heterogens").choices
+        assert declared
+        assert set(heterogens.get("choices") or declared) == set(declared)
+
+    def test_what_the_table_still_holds_is_only_what_it_must(self) -> None:
+        """A flag deliberately named something other than its setting, and a
+        convenience flag with no setting of its own. Everything else is
+        derived, so a new setting needs no decision here."""
+        from fastmdxplora.cli.main import (
+            _ANALYSIS_OPTIONS,
+            _REPORT_OPTIONS,
+            _SETUP_OPTIONS,
+            _SIMULATION_OPTIONS,
+        )
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        irreducible = 0
+        for phase, table in (("setup", _SETUP_OPTIONS),
+                             ("simulation", _SIMULATION_OPTIONS),
+                             ("analysis", _ANALYSIS_OPTIONS),
+                             ("report", _REPORT_OPTIONS)):
+            group = PHASE_SCHEMAS[phase]
+            for flag, dest, _options in table:
+                if group.get(dest) is None or flag != dest.replace("_", "-"):
+                    irreducible += 1
+        assert irreducible >= 16, (
+            "the aliases and convenience flags should still be declared"
+        )

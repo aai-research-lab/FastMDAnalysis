@@ -206,6 +206,107 @@ _REPORT_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
 ]
 
 
+#: Settings the schema declares that deliberately get no flag of their own.
+#: Each is reachable, by a flag with a different name or through a structured
+#: block a command line cannot express, and the reason is recorded so this
+#: does not become a place to hide a setting nobody wired up.
+_NO_FLAG_OF_ITS_OWN: dict[str, str] = {
+    # Reached by --{phase}-option, which takes any analysis setting by name.
+    "options": "reached by --analyze-option NAME=VALUE",
+    # A list of blocks, which a flag cannot carry.
+    "region_highlights": "a list of blocks; give it in a config file",
+    "comparison": "a list of runs; give it in a config file",
+    # Named differently on the command line, for the reason given.
+    "plumed": "reached by --simulate-plumed-script, which takes a path",
+    "force_field": "reached by --setup-forcefield, which resolves a name",
+    # Already flags on the dashboard command, without a phase prefix, because
+    # that is where somebody sets them.
+    "dashboard_ligand_resname": "reached by --dashboard-ligand-resname",
+    "dashboard_binding_pocket_cutoff_A":
+        "reached by --dashboard-binding-pocket-cutoff-A",
+    "dashboard_max_playback_frames":
+        "reached by --dashboard-max-playback-frames",
+}
+
+
+def _generated_options(phase: str, written: list[tuple]) -> list[tuple]:
+    """A flag for every setting the schema declares.
+
+    The flags were listed by hand beside a schema declaring the same settings,
+    and the list drifted: twenty-four settings had no flag at all, and of the
+    sixty that did, fifty-three carried help text that had fallen behind the
+    schema's. Keeping the wording was the argument for the table, and the
+    wording was the thing that had rotted -- ``--setup-ph`` said "pH for
+    hydrogen placement" where the schema explains that it sets protonation
+    states.
+
+    So everything derivable is derived: the help, the type, the accepted
+    values, whether it takes a list. What remains in the table is what cannot
+    be: a flag deliberately named something other than its setting, and a
+    convenience flag that has no setting of its own.
+    """
+    from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+    group = PHASE_SCHEMAS.get(_SCHEMA_KEY.get(phase, phase))
+    if group is None:
+        return written
+
+    # The wording comes from the schema even where the table supplied some.
+    # Fifty-three of its sixty entries had help that had fallen behind the
+    # declaration, which is what a second copy of a sentence does. What the
+    # table keeps is the flag name and the argparse mechanics -- how the value
+    # is spelled on the command line, not what it means.
+    refreshed: list[tuple] = []
+    for flag, dest, options in written:
+        field = group.get(dest)
+        if field is not None and field.help:
+            options = dict(options)
+            if options.get("action") == "store_false":
+                options["help"] = (
+                    f"Do not: {field.help[0].lower()}{field.help[1:]}")
+            else:
+                options["help"] = field.help
+        refreshed.append((flag, dest, options))
+    written = refreshed
+
+    already = {dest for _flag, dest, _kw in written}
+    generated: list[tuple] = []
+    for field in group.fields:
+        if field.name in already or field.name in _NO_FLAG_OF_ITS_OWN:
+            continue
+        flag = field.name.replace("_", "-")
+        help_text = field.help or f"Set {field.name}."
+
+        if field.type is bool:
+            # Both directions, because a setting defaulting to true needs a
+            # way off and one defaulting to false needs a way on -- and which
+            # it is can change without the flag having to.
+            generated.append((flag, field.name, {
+                "action": "store_true", "default": None, "help": help_text}))
+            generated.append((f"no-{flag}", field.name, {
+                "action": "store_false", "default": None,
+                "help": f"Do not: {help_text[0].lower()}{help_text[1:]}"}))
+            continue
+
+        options: dict[str, Any] = {"help": help_text}
+        if field.choices:
+            options["choices"] = list(field.choices)
+        if field.type is list:
+            options["nargs"] = "+"
+            options["metavar"] = "VALUE"
+        else:
+            options["type"] = (field.type
+                               if field.type in (int, float, str) else str)
+            options["metavar"] = _METAVAR.get(field.type, "VALUE")
+        generated.append((flag, field.name, options))
+    return list(written) + generated
+
+
+#: What to call the value in help, by what it is. Cosmetic, and derived rather
+#: than written per flag so a new setting does not need a decision.
+_METAVAR = {int: "N", float: "X", str: "TEXT"}
+
+
 # Map: phase -> (options-list, explore-prefix)
 _PHASE_SPEC = {
     "setup":      (_SETUP_OPTIONS,      "setup"),
@@ -230,6 +331,15 @@ _SCHEMA_KEY = {
     "setup": "setup", "simulate": "simulation",
     "analyze": "analysis", "report": "report",
 }
+
+
+# Filled in once the schema key is known: the hand-written flags above, plus
+# one for every setting they do not cover. Done here rather than in the
+# literal because the mapping from a CLI verb to a schema block is declared
+# below it.
+for _phase in list(_PHASE_SPEC):
+    _table, _prefix = _PHASE_SPEC[_phase]
+    _PHASE_SPEC[_phase] = (_generated_options(_phase, _table), _prefix)
 
 
 def _schema_defaults(phase: str) -> dict[str, Any]:
