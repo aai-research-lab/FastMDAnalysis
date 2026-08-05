@@ -1,4 +1,8 @@
-# PDB Smoke Campaigns
+# PDB smoke campaigns
+
+*For maintainers. A staged workflow for finding failures across many PDB
+structures, used when hardening a release rather than in ordinary CI.*
+
 
 This is a staged hardening workflow for finding FastMDXplora setup,
 simulation, analysis, and report failures across diverse PDB structures. It is

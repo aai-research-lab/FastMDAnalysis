@@ -271,7 +271,7 @@ print(runs[0].output_dir)
 A config file works here too:
 
 ```python
-runs = fastmdx.FastMDXplora.from_config("study.yml").explore()
+runs = fastmdx.FastMDXplora(config="study.yml").explore()
 ```
 
 See the [API reference](api.md).

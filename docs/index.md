@@ -1,29 +1,46 @@
-# FastMDXplora documentation
+# FastMDXplora
 
 > **F**ully **A**utomated **Sy**s**T**em for **M**olecular **D**ynamics e**Xplora**tion
 
-FastMDXplora explores a protein's behavior end to end from a single command.
-Given a structure (or just a PDB ID) it prepares the system, runs OpenMM
-molecular dynamics, analyzes the trajectory, and writes publication-ready
-reports.
+Give it a structure — or just a PDB identifier — and it prepares the system,
+runs the dynamics, measures the trajectory, and writes the study up. The parts
+that usually need an expert are done for you, and refused where the structure
+does not say enough to do them.
 
-## Start here
-
-New to FastMDXplora? Follow the [Beginner's guide](getting_started.md). It
-walks through installation, backend checks, a short smoke test, a complete
-CLI run, the live dashboard, the Python API, protein-ligand/PLUMED runs, and
-the `v1` compatibility profile.
-
-The shortest safe first run is:
+## The quickest way in
 
 ```bash
-fastmdx explore --system 1L2Y --output runs/first_smoke \
-  --include setup simulation --simulate-preset gentle --simulate-platform CPU
+conda create -n fastmdxplora -c conda-forge fastmdxplora
+conda activate fastmdxplora
+fastmdx gui
 ```
 
-Then use the same output directory with `--dashboard` for live monitoring or
-`fastmdx gui --output ...` to reopen an existing run. For long
-GPU jobs, read [Production and GPU runs](production.md) first.
+A tab opens. Type `1L2Y`, press **Run**, and watch a protein fold. Everything
+FastMDXplora does is on that page: designing a run, starting it, watching the
+molecule move, reading the results.
+
+If you would rather use a terminal:
+
+```bash
+fastmdx explore --system 1L2Y --output runs/trpcage
+```
+
+[Your first run](getting_started.md) takes either route from nothing to a
+finished report in about ten minutes.
+
+## Finding your way around
+
+- **New here?** [Installation](installation.md), then
+  [Your first run](getting_started.md).
+- **Want to see what it can do?** [The FastMDXplora GUI](gui.md) and
+  [The four phases](phases.md).
+- **Running something real?** [Beyond a box of water](simulations.md) for
+  restraints, membranes and metadynamics; [Production and GPUs](production.md)
+  for long runs.
+- **Reading results?** [Protein-ligand interactions](interactions.md).
+- **Looking for a flag or a setting?** [CLI reference](cli_reference.md),
+  [Configuration](configuration.md), or `fastmdx explore --help`, which is
+  generated and therefore never out of date.
 
 ```{toctree}
 :maxdepth: 2
@@ -65,6 +82,12 @@ usage_examples
 :caption: Reference
 
 api
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: For maintainers
+
 interactions_design
 pdb_smoke_campaign
 ```

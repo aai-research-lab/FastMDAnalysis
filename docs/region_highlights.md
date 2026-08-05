@@ -1,12 +1,24 @@
-# Region highlight figures
+# Highlighting regions in a figure
 
-FastMDXplora can add user-defined residue-region highlights to report outputs.
-This is intended for loops, helices, active-site neighborhoods, or other
-regions you already know and want to call out visually.
+A per-residue figure with forty residues on the x-axis says little about the
+three you care about. Region highlights mark them: a loop, a helix, the
+residues around an active site.
 
-Use RMSF for this view. RMSD is a frame/time metric that summarizes global
-deviation across a trajectory. RMSF is residue- or atom-indexed, so it is the
-right metric for highlighting residue intervals.
+```yaml
+report:
+  region_highlights:
+    - label: "binding loop"
+      start: 84
+      end: 92
+      color: "#4E79A7"
+```
+
+They apply to **RMSF**, which is indexed by residue. RMSD is indexed by frame,
+so a residue range means nothing on it.
+
+The labels are yours. FastMDXplora does not work out that a range is a loop or
+a binding site — it draws what you tell it to draw, which is the point: you
+know which residues matter and the software does not.
 
 ## YAML example
 

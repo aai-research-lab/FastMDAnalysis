@@ -1,4 +1,10 @@
-# Protein-ligand interactions: what to build, and why not to install it
+# Design note: protein-ligand interactions
+
+*A record of how the interaction analysis was designed and validated, written
+before it was built and kept because the decisions are still the reasons. For
+what it measures and how to use it, see
+[Protein-ligand interactions](interactions.md).*
+
 
 ## The gap
 

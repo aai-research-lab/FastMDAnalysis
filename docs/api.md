@@ -1,49 +1,85 @@
-# API reference
+# Python API
 
-FastMDXplora's public Python API is centered on two classes, both importable
-from the top-level package.
+Everything the command line does is available from Python, through one class.
 
 ```python
 import fastmdxplora as fastmdx
 
-study = fastmdx.FastMDXplora(config="study.yml")
-results = study.explore()
+runs = fastmdx.FastMDXplora(system="1UBQ", output_dir="runs/ubiquitin").explore()
+print(runs[0].output_dir)
 ```
 
-The Python API runs the same setup, simulation, analysis, and report engine as
-the CLI. It does not need a separate Python dashboard implementation: enable
-simulation telemetry in `options`, then serve the resulting output with
-`fastmdx gui --output <run>` from another terminal. See the
-[Beginner's guide](getting_started.md) for a complete example.
+`explore()` runs all four phases and returns one result per system.
 
-## FastMDXplora
+---
 
-The project-level orchestrator: the entry point for running a complete study
-(any subset of the four phases) from Python.
+## Constructing it
 
-```{eval-rst}
-.. autoclass:: fastmdxplora.FastMDXplora
-   :members:
-   :undoc-members:
-   :show-inheritance:
+```python
+fastmdx.FastMDXplora(
+    system="1UBQ",              # a PDB identifier or a path
+    output_dir="runs/study",
+    options={                   # settings, by phase
+        "setup": {"ph": 7.0, "forcefield": "amber-openff"},
+        "simulation": {"duration_ns": 100},
+        "analysis": {"include": ["rmsd", "rmsf", "ss"]},
+    },
+)
 ```
 
-## AnalysisOrchestrator
+Or from a config file, which is the same file the CLI and the GUI use:
 
-Coordinates the analysis phase: trajectory loading, the analysis plan
-(including auto-detected protein-ligand analyses), and writing results.
-
-```{eval-rst}
-.. autoclass:: fastmdxplora.AnalysisOrchestrator
-   :members:
-   :undoc-members:
-   :show-inheritance:
+```python
+fastmdx.FastMDXplora(config="study.yml")
 ```
 
-## Package metadata
+The settings under `options` are exactly the config file's blocks, so anything
+[Configuration](configuration.md) describes works here.
 
-```{eval-rst}
-.. autodata:: fastmdxplora.__version__
-.. autodata:: fastmdxplora.__citation__
-.. autodata:: fastmdxplora.__doi__
+---
+
+## Running part of it
+
+```python
+study = fastmdx.FastMDXplora(system="1UBQ", output_dir="runs/study")
+
+study.explore(include=["setup", "simulation"])   # stop after the trajectory
+study.explore(exclude=["report"])                # everything but the write-up
 ```
+
+---
+
+## What comes back
+
+`explore()` returns a `RunResult` per system, carrying where the output went,
+which phases ran, and what each produced. The same information is in
+`manifest.json` in the output directory, which is what to read if the process
+has ended.
+
+```python
+for run in runs:
+    print(run.output_dir)
+    for phase in run.phases:
+        print(" ", phase.name, phase.status)
+```
+
+---
+
+## Watching a run from Python
+
+There is no separate Python dashboard. Serve the output directory with the
+GUI from another terminal, while the Python process runs:
+
+```bash
+fastmdx gui --output runs/study
+```
+
+That gives telemetry, the molecule in 3D, and the results as they appear —
+the same as for a run started from the command line.
+
+---
+
+## See also
+
+- [Worked examples](usage_examples.md) — recipes, several with Python
+- [Configuration](configuration.md) — every setting `options` accepts
