@@ -22,6 +22,9 @@ then hands back publication-ready results.
 analysis and a report — with the parts that usually need an expert done for
 you, and refused where the structure does not say enough to do them.
 
+- **A GUI that does everything.** Design a run, start it, watch the molecule
+  move, read the results — with every setting the CLI has, because both are
+  built from the same declaration.
 - **Protein-ligand systems from an identifier.** The ligand is found, its
   chemistry retrieved, its protonation settled in the binding site.
 - **Membrane proteins too.** Embedded in a bilayer, with the orientation
@@ -33,8 +36,8 @@ you, and refused where the structure does not say enough to do them.
   coordinate, with walls and funnels.
 - **A report you can submit.** Methods written against the checklists journals
   apply, and a convergence assessment that says what the run cannot support.
-- **The GUI, the CLI, or a config file.** The same settings in all three, and
-  the same file runs on your laptop or a cluster.
+- **One config, three ways in.** What you build in the GUI runs on a cluster;
+  what runs on a cluster opens in the GUI.
 
 ## The four phases
 
@@ -118,6 +121,7 @@ Everything is at
 
 - [Installation](https://fastmdxplora.readthedocs.io/en/latest/installation.html) — every route, and what each extra needs
 - [Your first run](https://fastmdxplora.readthedocs.io/en/latest/getting_started.html) — start to finish, with a real structure
+- [The FastMDXplora GUI](https://fastmdxplora.readthedocs.io/en/latest/gui.html) — design a run, watch it happen, read the results
 - [The four phases](https://fastmdxplora.readthedocs.io/en/latest/phases.html) — what setup, simulation, analysis and report each do, and what every measure means
 
 **Running simulations**
@@ -134,7 +138,6 @@ Everything is at
 
 - [CLI reference](https://fastmdxplora.readthedocs.io/en/latest/cli_reference.html) — every command and flag
 - [Configuration](https://fastmdxplora.readthedocs.io/en/latest/configuration.html) — the YAML file, option by option
-- [The FastMDXplora GUI](https://fastmdxplora.readthedocs.io/en/latest/gui.html) — design a run, watch it, review it
 - [Worked examples](https://fastmdxplora.readthedocs.io/en/latest/usage_examples.html) — recipes for common studies
 
 ## Citation

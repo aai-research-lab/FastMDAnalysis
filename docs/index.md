@@ -31,6 +31,7 @@ GPU jobs, read [Production and GPU runs](production.md) first.
 
 installation
 getting_started
+gui
 phases
 ```
 
@@ -56,7 +57,6 @@ region_highlights
 
 cli_reference
 configuration
-gui
 usage_examples
 ```
 

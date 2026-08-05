@@ -1,519 +1,172 @@
-# Beginner's guide: run your first simulation
+# Your first run
 
-This page is the shortest complete path from installation to a running
-FastMDXplora study. It shows the same workflow three ways:
+This page gets you from nothing to a finished study of a real protein. It
+takes about ten minutes, most of which is the install.
 
-1. the command-line interface (CLI),
-2. the live dashboard, and
-3. the Python API.
+## Install
 
-FastMDXplora runs four phases in order:
-
-```text
-setup -> simulation -> analysis -> report
+```bash
+conda create -n fastmdxplora -c conda-forge fastmdxplora
+conda activate fastmdxplora
 ```
 
-A run creates one output directory containing the prepared system, simulation
-files, analysis results, and reports. The CLI, dashboard, and Python API all
-use the same engine and write the same artifact layout.
+Check what you got:
 
-## Before you start: choose where to run
-
-- **Local workstation:** use it for installation, analysis/reporting, and a
-  short gentle smoke test. Use a suitable remote or dedicated GPU host for a
-  long production MD run when local resources are insufficient.
-- **Connected HPC or cloud GPU:** verify the GPU driver, CUDA/OpenMM
-  compatibility, and the environment on the actual host before production. Use
-  a short real backend smoke test first; mocked PLUMED tests are not enough.
-- **Offline GPU host:** manually stage a sanitized source/package and all input
-  files, then run the commands using the host's existing environment. Do not
-  assume SSH, a scheduler, internet access, or RCSB downloads.
-  See [Production and GPU runs](production.md).
-
-### If you are using Windows
-
-Choose the path that matches your goal:
-
-| Goal | Recommended environment |
-|---|---|
-| Analysis, reports, Python API, dashboard development, or package development | Native Windows PowerShell or Command Prompt with a Python virtual environment. |
-| Full setup and molecular-dynamics simulation | Ubuntu or another supported Linux distribution inside [WSL2](https://learn.microsoft.com/windows/wsl/install). |
-| GPU simulation from Windows | Run the Linux workflow inside WSL2 when the GPU and Windows driver expose CUDA to WSL2; otherwise use a separate Linux/HPC GPU host. |
-
-Native Windows works well for the pip-installable parts of FastMDXplora and for
-the test suite. The full OpenMM/PDBFixer/OpenFF chemistry stack is most
-reliable on Linux, macOS, and WSL2.
-
-For a full workflow on Windows:
-
-1. Install WSL2 and an Ubuntu distribution using Microsoft's instructions.
-2. Open the Ubuntu terminal; do not run the Linux commands in PowerShell.
-3. Keep the repository and your data inside the WSL filesystem, for example
-   under `~/src`, rather than under `/mnt/c`, when possible.
-4. Run the Linux commands in the next section.
-
-For analysis-only work in native PowerShell:
-
-```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install fastmdxplora
+```bash
 fastmdx info
 ```
 
-If PowerShell blocks activation, either run the commands through
-`.\.venv\Scripts\python.exe` directly or follow the execution-policy
-guidance in [Installation](installation.md).
+That lists every backend, grouped by what it is for, and gives the command for
+anything missing. If the simulation backends are present you can run
+everything on this page.
 
-## 1. Install
+Other routes, Windows and WSL2, and what to do about a partial install are in
+the [installation guide](installation.md).
 
-FastMDXplora splits into two dependency footprints. Analysis and reporting are
-pure pip. Setup and simulation additionally need OpenMM and PDBFixer from
-conda-forge. Use Linux, macOS, or WSL2 for the full workflow.
+---
 
-### Analysis and reporting only
-
-```bash
-python -m venv .venv
-source .venv/bin/activate                 # Windows: .venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install fastmdxplora
-```
-
-That is enough to analyze existing trajectories and build reports.
-
-### Full workflow, all four phases
-
-Create a conda environment with the chemistry stack, then install
-FastMDXplora into it:
+## The quickest route: the GUI
 
 ```bash
-conda create -n fastmdxplora "python>=3.9,<3.14"
-conda activate fastmdxplora
-conda install -c conda-forge openmm pdbfixer openmmforcefields
-pip install fastmdxplora
+fastmdx gui
 ```
 
-`mamba` is a faster drop-in replacement for the conda solver and is worth
-using here. If you have no conda at all, Miniforge is the easiest source:
-download the installer for your platform from
-<https://conda-forge.org/miniforge/>.
+A tab opens. Type `1L2Y` as the structure — that is Trp-cage, a 20-residue
+protein that folds in microseconds and simulates in minutes — leave everything
+else alone, and press **Run**.
 
-### From a clone
+You will watch the setup phase clean up the structure and solvate it, the
+simulation heat and equilibrate it, and then the molecule itself moving in the
+viewer while the energy and temperature plot alongside. When it finishes, the
+figures and the report are on the same page.
 
-If you want to modify FastMDXplora, or want the exact environment the project
-develops against, the repository ships an `environment.yml` with the whole
-stack:
+That is the whole loop, and the [GUI page](gui.md) covers what else it can do
+— including opening a run that happened on a cluster.
+
+---
+
+## The same thing from the command line
 
 ```bash
-git clone https://github.com/aai-research-lab/FastMDXplora.git
-cd FastMDXplora
-mamba env create -f environment.yml || conda env create -f environment.yml
-conda activate fastmdxplora
-pip install -e ".[test]"
+fastmdx explore --system 1L2Y --output runs/trpcage
 ```
 
-Optional tooling for specific workflows, such as OpenFF ligand
-parameterization or an OpenMM-PLUMED build, is documented in
-[Configuration](configuration.md) and the
-[production guide](production.md).
-
-## 2. Verify the environment
-
-Always run these before a simulation:
+One command: it fetches 1L2Y from the PDB, prepares it, simulates it, analyses
+the trajectory, and writes a report. The default is a real simulation, so this
+takes a while — for something that finishes in a minute, ask for less of it:
 
 ```bash
-fastmdx --version
-fastmdx info
+fastmdx explore --system 1L2Y --output runs/smoke \
+  --simulate-nvt-steps 500 \
+  --simulate-npt-steps 500 \
+  --simulate-production-steps 5000 \
+  --simulate-trajectory-interval-steps 50
 ```
 
-If the console script is not on `PATH`, use the module form with the same
-arguments:
+That is 10 ps, which is far too short to mean anything — and the report will
+tell you so, in as many words. It is for checking the machinery works.
+
+---
+
+## What you get
+
+```
+runs/trpcage/
+├── setup/          prepared.pdb, solvated.pdb, system.xml, and what was decided
+├── simulation/     production.dcd, energy.csv, and the settings used
+├── analysis/       one directory per measure: data, figure, and its options
+├── report/         report.md, report.pdf, slides.pptx, dashboard.html
+└── manifest.json   every phase, every artifact, every parameter
+```
+
+Three things are worth opening first.
+
+**`report/report.pdf`** — the study written up, including a methods paragraph
+you can paste into a manuscript and a convergence section saying what the run
+does and does not support.
+
+**`analysis/rmsd/rmsd.png`** — has the structure settled, or is it still
+moving?
+
+**`setup/setup_parameters.json`** — what the setup phase decided about your
+structure, and why. Every non-standard residue, every protonation call.
+
+Or open the lot in the GUI:
 
 ```bash
-python -m fastmdxplora.cli.main --version
-python -m fastmdxplora.cli.main info
+fastmdx gui --output runs/trpcage
 ```
 
-For setup/simulation, `fastmdx info` must show OpenMM and PDBFixer as
-installed. For a GPU run, also check the platforms in the exact environment
-that will run the job:
+---
+
+## A protein with a ligand
+
+Nothing extra to do — hand it a structure that has one:
 
 ```bash
-python - <<'PY'
-import openmm as mm
-print("OpenMM platforms:", [
-    mm.Platform.getPlatform(i).getName()
-    for i in range(mm.Platform.getNumPlatforms())
-])
-PY
+fastmdx explore --system 181L --setup-forcefield amber-openff --output runs/lysozyme
 ```
 
-A CUDA platform appearing in this list is necessary but not sufficient: a
-real CUDA/OpenMM context must initialize successfully on the target host.
+181L is T4 lysozyme with benzene bound. The setup phase finds the benzene,
+looks its chemistry up, settles its protonation in the binding site,
+parameterises it with OpenFF, and discards the crystallisation additives that
+are not part of the question. The analysis phase then adds the protein-ligand
+measures, including what is holding the ligand there rather than just how much
+of the protein it touches.
 
-## 3. Run a short CLI smoke test
+Where a structure is genuinely ambiguous — an unknown residue, a charge that
+cannot be settled — setup stops and says what it could not decide, rather than
+guessing.
 
-Use a local structure when working offline. `1L2Y` is convenient when RCSB
-access is available.
+See [Protein-ligand interactions](interactions.md) for what the measures mean.
+
+---
+
+## Doing it repeatedly
+
+For anything beyond a single run, put it in a file:
 
 ```bash
-fastmdx explore \
-  --system 1L2Y \
-  --output runs/first_smoke \
-  --include setup simulation \
-  --simulate-preset gentle \
-  --simulate-platform CPU
+fastmdx init-config study.yml     # a commented template
+fastmdx explore --config study.yml
 ```
 
-Or with a local file:
+The same file drives the CLI, the Python API and the GUI. Build one in the GUI
+and download it; or write one and open it in the GUI to check before running.
 
-```bash
-fastmdx explore \
-  --system input/protein.pdb \
-  --output runs/first_smoke \
-  --include setup simulation \
-  --simulate-preset gentle \
-  --simulate-platform CPU
-```
-
-The `gentle` preset is a bounded smoke test. It is not a production
-trajectory and should not be used as scientific evidence. Inspect the output
-before moving to a longer run:
-
-```text
-runs/first_smoke/
-├── manifest.json
-├── resolved_config.yml
-├── setup/
-└── simulation/
-    ├── production.dcd
-    ├── topology.pdb
-    ├── energy.csv
-    ├── simulation.log
-    ├── state_final.xml
-    └── checkpoint.chk
-```
-
-## 4. Run the complete CLI workflow
-
-Once the smoke test works, run all four phases. Set an explicit output path so
-you can find the run again:
-
-```bash
-fastmdx explore \
-  --system input/protein.pdb \
-  --output runs/protein_001 \
-  --simulate-platform CUDA \
-  --simulate-device-index 0 \
-  --simulate-duration-ns 100 \
-  --simulate-checkpoint-interval-steps 10000
-```
-
-Important details:
-
-- `--simulate-duration-ns` controls **production** length. NVT and NPT
-  equilibration are separate settings.
-- `--simulate-platform CUDA` requires a working CUDA/OpenMM backend. Do not
-  silently replace it with CPU for a production run.
-- Use one device per independent GPU run. On a two-GPU machine, use device
-  indices `0` and `1` with separate output directories.
-- Checkpoints help recovery but do not prove that a run completed.
-- For long GPU runs, use the procedures in [Production and GPU runs](production.md).
-
-Run only selected phases when continuing an existing workflow:
-
-```bash
-# Prepare and simulate now; analyze later
-fastmdx explore --system input/protein.pdb \
-  --output runs/protein_001 \
-  --include setup simulation
-
-# Analyze and report an existing output directory
-fastmdx analyze --output runs/protein_001
-fastmdx report --output runs/protein_001
-```
-
-## 5. Use the live dashboard with the CLI
-
-The easiest dashboard workflow is to start it together with `explore`:
-
-```bash
-fastmdx explore \
-  --system input/protein.pdb \
-  --output runs/protein_dashboard \
-  --include setup simulation analysis report \
-  --simulate-preset gentle \
-  --dashboard
-```
-
-The command prints a URL such as `http://127.0.0.1:8765`. Open that URL in a
-browser. The dashboard shows setup/simulation status, telemetry, energy and
-temperature, recent events, a molecular viewer, files, analyses, and reports.
-
-The default bind address is loopback (`127.0.0.1`). Keep it that way unless
-you understand the network and access-control implications.
-
-Useful options:
-
-```bash
-fastmdx explore --system input/protein.pdb \
-  --output runs/protein_dashboard \
-  --dashboard \
-  --dashboard-port 8770 \
-  --dashboard-refresh-seconds 3 \
-  --dashboard-open-browser
-```
-
-If a run already exists, serve it without starting a new simulation:
-
-```bash
-fastmdx gui --output runs/protein_dashboard
-```
-
-It opens a browser tab by default; `--no-browser` leaves it to you.
-
-The static report dashboard is different:
-
-```text
-runs/protein_dashboard/report/dashboard.html
-```
-
-Open that file after the report phase for a shareable completed-results view.
-The live server is useful while a run is active; the static HTML dashboard is
-for completed artifacts.
-
-### Dashboard-first mode
-
-Running the CLI with no subcommand opens the local simulation builder:
-
-```bash
-fastmdx
-```
-
-Use **Validate** before **Start Exploration**. The builder launches the same
-canonical `explore` workflow as the CLI; it is not a separate simulation
-engine. It can only launch a workflow when the server is loopback-bound.
-
-Set `FASTMDX_NO_BROWSER=1` when working headlessly:
-
-```bash
-FASTMDX_NO_BROWSER=1 fastmdx
-```
-
-## 6. Run the same workflow from Python
-
-A single study uses `FastMDXplora(system=...)`:
+From Python:
 
 ```python
-from fastmdxplora import FastMDXplora
+import fastmdxplora as fastmdx
 
-study = FastMDXplora(
-    system="input/protein.pdb",
-    output_dir="runs/python_study",
-    options={
-        "simulation": {
-            "preset": "gentle",
-            "platform": "CPU",
-        },
-    },
-)
-
-results = study.explore()
-run = results[0]
-print(run.status, run.output_dir)
-for phase in run.phases:
-    print(phase.name, phase.status, phase.artifacts)
+runs = fastmdx.FastMDXplora(system="1L2Y", output_dir="runs/trpcage").explore()
+print(runs[0].output_dir)
 ```
 
-For a production-sized GPU run, change the simulation options deliberately:
+---
 
-```python
-study = FastMDXplora(
-    system="input/protein.pdb",
-    output_dir="runs/python_gpu",
-    options={
-        "simulation": {
-            "platform": "CUDA",
-            "device_index": "0",
-            "duration_ns": 100.0,
-            "checkpoint_interval_steps": 10000,
-        },
-    },
-)
-results = study.explore()
-```
+## When something goes wrong
 
-The Python API returns a list even for one system. Check `run.status` and each
-phase status before using the artifacts.
+**The run stops during setup.** Read the message — the setup phase refuses
+rather than guesses, and it says what it could not decide and what would
+settle it.
 
-### Python phase-by-phase control
+**The simulation becomes unstable.** The message names which atoms went wrong
+and what that points at: a ligand alone usually means its parameters, lipids
+mean the packing, the whole system at once means the integration. The remedies
+differ, and it gives the ones that apply.
 
-Use the same output directory when you intentionally want separate phase
-calls:
+**A backend is missing.** `fastmdx info` says which and how to get it.
 
-```python
-from fastmdxplora import FastMDXplora
+**The numbers look odd.** Read the convergence section of the report before
+anything else. A short run has almost no independent information in it, and
+the report says how much.
 
-study = FastMDXplora(
-    system="input/protein.pdb",
-    output_dir="runs/python_phases",
-)
+---
 
-setup = study.setup(ph=7.4, forcefield="amber-openff")
-print("setup:", setup.status)
+## Where next
 
-simulation = study.simulate(
-    platform="CPU",
-    preset="gentle",
-)
-print("simulation:", simulation.status)
-
-analysis = study.analyze(include=["rmsd", "rmsf", "rg"])
-print("analysis:", analysis.status)
-
-report = study.report(slides=False)
-print("report:", report.status)
-```
-
-For ordinary work, `study.explore()` is safer because it preserves the phase
-order and writes the complete run manifest automatically.
-
-### Python API plus dashboard monitoring
-
-The Python API does not replace the dashboard server. Enable telemetry in the
-simulation options, run the study, and serve its output from a terminal:
-
-```python
-from fastmdxplora import FastMDXplora
-
-study = FastMDXplora(
-    system="input/protein.pdb",
-    output_dir="runs/python_dashboard",
-    options={"simulation": {
-        "preset": "gentle",
-        "platform": "CPU",
-        "live_telemetry": True,
-    }},
-)
-study.explore()
-```
-
-In another terminal, while the run is active or afterward:
-
-```bash
-fastmdx gui --output runs/python_dashboard
-```
-
-## 7. Compare against another tool
-
-There is no profile that fills in another tool's settings for you. Reproducing
-a published analysis means stating the settings it used and finding the same
-numbers; a flag that supplies the numbers removes the thing being checked.
-
-State them:
-
-```bash
-fastmdx analyze \
-  --output runs/bpti_reference \
-  --trajectory trajectory/production.dcd \
-  --topology trajectory/topology.pdb \
-  --scope protein --selection protein --stride 2 \
-  --include rmsd rmsf rg hbonds sasa ss dimred cluster
-```
-
-Under `explore`, the same options carry the phase prefix:
-
-```bash
-fastmdx explore \
-  --system input/bpti.pdb \
-  --output runs/bpti_reference \
-  --include analysis report \
-  --analyze-trajectory trajectory/production.dcd \
-  --analyze-topology trajectory/topology.pdb \
-  --analyze-scope protein --analyze-selection protein --analyze-stride 2
-```
-
-Where the numbers agree, that is a reproduction. Where they do not, the
-difference is a result: two implementations can measure the same quantity by
-different methods, and clustering is the clearest case -- what is clustered,
-and under which metric, changes the answer more than any parameter does.
-
-## 8. Protein-ligand and PLUMED runs
-
-For a ligand, use the ligand-capable force field and provide an SDF or MOL2:
-
-```bash
-fastmdx explore \
-  --system input/protein_ligand.pdb \
-  --output runs/ligand_001 \
-  --setup-forcefield amber-openff \
-  --setup-ligand input/ligand.sdf \
-  --setup-ligand-name LIG \
-  --simulate-platform CUDA \
-  --simulate-duration-ns 10
-```
-
-For PLUMED, provide a script with valid atom indices and a fresh output
-folder:
-
-```bash
-fastmdx explore \
-  --system input/protein.pdb \
-  --output runs/plumed_smoke \
-  --include setup simulation \
-  --simulate-platform CUDA \
-  --simulate-preset gentle \
-  --simulate-plumed-script input/plumed.dat
-```
-
-PLUMED is applied to production, not equilibration. Verify that `plumed.dat`,
-`COLVAR`, and any `HILLS` file are written. A source-level or mocked PLUMED
-test is not a real CUDA/OpenMM/`PlumedForce` smoke test.
-
-## 9. What to inspect after a run
-
-At minimum, check:
-
-```bash
-python - <<'PY'
-import json
-from pathlib import Path
-
-root = Path("runs/first_smoke")
-print("manifest:", json.loads((root / "manifest.json").read_text()).get("status"))
-for path in [
-    root / "resolved_config.yml",
-    root / "simulation" / "production.dcd",
-    root / "simulation" / "energy.csv",
-    root / "simulation" / "simulation.log",
-    root / "simulation" / "checkpoint.chk",
-]:
-    print(path, "OK" if path.exists() else "MISSING")
-PY
-```
-
-A successful command is not enough: inspect the manifest, logs, telemetry,
-trajectory, and analysis/report artifacts. Preserve the output directory as
-the reproducibility record.
-
-## 10. Common mistakes
-
-- Running `--simulate-duration-ns 100` as a first test. Use `--simulate-preset gentle` first.
-- Assuming `--simulate-platform CUDA` works because the package imports. Test a real CUDA context.
-- Reusing an output directory and overwriting valid trajectory or PLUMED history. Use a new directory for each attempt.
-- Running a long simulation on an underpowered local workstation instead of a
-  suitable production host.
-- Using an offline GPU host without manually staging all dependencies and input files.
-- Treating the static `report/dashboard.html` as a live monitor. Use `fastmdx gui` for live telemetry.
-
-## Next pages
-
-- [Installation and troubleshooting](installation.md)
-- [CLI reference](cli_reference.md)
-- [Live dashboard](gui.md)
-- [Production and GPU runs](production.md)
-- [Configuration files and campaigns](configuration.md)
-- [The four phases](phases.md)
-- [Python API reference](api.md)
+- [The FastMDXplora GUI](gui.md) — everything it can do
+- [The four phases](phases.md) — what each phase does and what every measure computes
+- [Beyond a box of water](simulations.md) — restraints, membranes, metadynamics
+- [Worked examples](usage_examples.md) — recipes for common studies
