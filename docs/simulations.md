@@ -1,0 +1,223 @@
+# Simulations beyond a box of water
+
+Version 2.3 could minimise, heat, equilibrate and run production in water.
+That covers a soluble protein and not much else. This page covers what 2.4
+added: holding parts of a system still while the rest settles, putting a
+protein in a lipid bilayer, biasing a run along a coordinate you name, and
+being told what went wrong when one fails.
+
+Each is a setting on the simulation or setup phase, so each is available from
+the command line, a config file, and the browser without anything further.
+
+## Restraints
+
+A structure that has just been minimised is not at equilibrium. Heating it
+lets the solvent find its arrangement, and it also lets the solute move: side
+chains relax into the space crystal packing left, a ligand drifts out of the
+pose that was measured, lipids thin around a protein that has not yet found
+its depth.
+
+The conventional remedy is to hold the solute while the solvent equilibrates
+around it, and then let go in stages.
+
+```bash
+fastmdx explore --system 181L \
+  --simulate-restrain "protein and not element H" \
+  --output runs/lysozyme
+```
+
+That is the short form and it is what most equilibrations want: position
+restraints on the given selection at 1000 kJ/mol/nm², released through 500 and
+100 to zero as equilibration proceeds. On a solvated peptide, heavy atoms move
+about a sixth as far under restraint as free.
+
+The long form takes a list, and four kinds are available:
+
+```yaml
+simulation:
+  restrain:
+    - kind: position
+      selection: "protein and not element H"
+      force_constant: 1000.0        # kJ/mol/nm^2
+    - kind: distance
+      selection: "index 412 1055"
+      force_constant: 500.0
+      target: 0.35                  # nm
+    - kind: torsion
+      selection: "index 12 13 14 15"
+      force_constant: 50.0          # kJ/mol/rad^2
+  restraint_release: [1000, 500, 100, 0]
+```
+
+Position and distance restraints are in kJ/mol/nm²; angle and torsion are in
+kJ/mol/rad². The units differ because the coordinate does, and one number for
+both is how an angle restraint ends up a thousand times too weak.
+
+### What a restraint is, and is not
+
+Each is a harmonic penalty: the force grows with the square of the departure,
+so a restraint is a spring rather than a wall. A constrained atom cannot move;
+a restrained one can, and the restraint says what it cost.
+
+**They are released before production.** A biased production run measures the
+bias, and measures of flexibility computed from one -- RMSF, clustering,
+dimensionality reduction -- describe the restraint as much as the system.
+Keeping them is possible with `restrain_production: true`, which logs what it
+costs and records it with the results, so a reader comparing that trajectory
+against a free one can tell which they have.
+
+### Two refusals
+
+A selection matching **no atoms** stops the run. A restraint on nothing holds
+nothing, and a run that applied it silently would look restrained and not be.
+
+A distance, angle or torsion restraint with **no force constant** stops the
+run. There is a conventional value for holding heavy atoms in place and there
+is none for a distance, and inventing one would be inventing the strength of a
+bias.
+
+## Membrane systems
+
+A membrane protein simulated in water is not the protein: the hydrophobic belt
+that sits in the bilayer is exposed to solvent and the helices splay. So it
+has to be built as a membrane system.
+
+```bash
+fastmdx explore --system 1AFO \
+  --setup-forcefield amber14 \
+  --setup-membrane POPC --setup-membrane-orient \
+  --simulate-restrain "protein and not element H" \
+  --output runs/glycophorin
+```
+
+That is a membrane protein from a PDB identifier to a finished report in one
+command. Seven lipids are available -- POPC, POPE, DLPC, DLPE, DMPC, DOPC and
+DPPC -- and OpenMM packs the bilayer, so no external packing tool is needed.
+
+### Orientation
+
+`addMembrane` places the bilayer in the xy plane and assumes the protein is
+already lying along z. A structure taken from the PDB usually is not:
+crystallographic axes have no relation to a membrane normal, and 1AFO's NMR
+frame has its helices lying in the plane the membrane is about to occupy.
+Embedding it anyway packs lipids around a protein lying flat in them, the run
+completes, and every number describes a structure nobody would recognise.
+
+So the setup phase checks, and `--setup-membrane-orient` rotates the structure
+so its longest axis lies along the normal. That is the right answer for a
+transmembrane helix or a bundle of them, where the protein is longest along
+the direction it spans.
+
+**It is checked rather than trusted.** Two refusals guard it:
+
+- **Before rotating**, whether there is a longest axis worth rotating onto. A
+  protein roughly as long in two directions has its "longest" chosen by noise,
+  and the same structure from a different starting frame would come out
+  differently.
+- **After rotating**, whether the result looks like a membrane protein. A
+  bilayer-spanning fold has hydrophobic side chains banded around its middle
+  and charged ones at the two interfaces. Where the hydrophobic residues are
+  not gathered near the centre, either the structure is soluble or the
+  rotation put it in the wrong frame.
+
+Neither can tell which way up the protein ends: a rotation putting the
+extracellular side down is as valid to the calculation as one putting it up.
+Where that matters, the [OPM database](https://opm.phar.umich.edu) publishes
+structures oriented against a real transfer energy, and their coordinates can
+be used directly. `membrane_orientation_checked: true` proceeds with a
+structure as it is, for somebody who knows theirs.
+
+### The barostat
+
+A membrane gets a different one, and this is the part that goes wrong
+quietly. An ordinary barostat scales x, y and z together, which squeezes a
+bilayer that should be free to change thickness independently of its area --
+and area per lipid is what membrane simulations are validated against. The run
+completes and is wrong.
+
+FastMDXplora uses `MonteCarloMembraneBarostat` with the plane coupled, the
+normal free, and no imposed surface tension. It is chosen from the topology
+rather than from a setting, because it has to be right whether or not anybody
+remembered to say so.
+
+## Metadynamics
+
+PLUMED can express almost any enhanced-sampling scheme, and the cost of that
+is a language to learn before running the commonest one. Most metadynamics on
+a protein-ligand system biases one of a handful of things, and those do not
+need a language:
+
+```yaml
+simulation:
+  metadynamics:
+    collective_variable: ligand_distance
+    site_selection: "resid 84 to 121 and name CA"
+    sigma: 0.05
+```
+
+Five are available: `ligand_rmsd`, `ligand_distance`, `distance`, `torsion`
+and `radius_of_gyration`. The block becomes PLUMED input, written to
+`metadynamics.plumed` beside the results, and the existing PLUMED integration
+runs it. Anything more elaborate is still written by hand and passed as
+`plumed`, as before -- this is a shorter path to the common case, not a
+replacement for the general one.
+
+### Choosing what to bias
+
+This is the decision the method turns on. Metadynamics fills the free energy
+landscape along whatever you bias and reports a free energy as a function of
+it. If the variable does not distinguish the states that matter -- if two
+genuinely different arrangements share a value -- the surface converges and
+describes something that is not the system. It does not announce itself, and
+running longer does not fix it.
+
+So each variable states what it does **not** separate:
+
+| variable | separates | does not separate |
+|---|---|---|
+| `ligand_rmsd` | bound from unbound, one pose from another | two unbound arrangements at the same distance |
+| `ligand_distance` | depth of binding along one direction | leaving by one route from leaving by another |
+| `torsion` | rotameric states of one bond | anything coupled to that bond |
+| `radius_of_gyration` | folded from extended | a correct fold from a compact wrong one |
+| `distance` | separation of two groups | arrangements putting the centres equally far apart |
+
+Runs are **well-tempered** by default. Plain metadynamics deposits at full
+height forever, so the bias never settles and no free energy is recoverable.
+
+`sigma` -- the hill width -- has no default and is refused if missing. It
+should be about the size of the fluctuations within a single state, around
+0.05 nm for a distance or an RMSD and around 0.35 rad for a torsion. There is
+no value that is right for an arbitrary coordinate, and a wrong one either
+smears the surface flat or never fills it.
+
+The collective variable and the bias are written to `COLVAR` every deposition,
+because a run whose convergence cannot be checked has not measured a free
+energy.
+
+## When a run fails
+
+A simulation that ends with "the coordinates are not finite" has said almost
+nothing, and the advice that usually follows -- lower the timestep, lower the
+temperature, raise the friction -- is a list of things that sometimes help,
+offered without knowing which applies.
+
+The state at failure says more. Which atoms went non-finite, and what they
+belong to, distinguishes:
+
+- **a ligand alone**: its parameters, or a pose that was already clashing. No
+  timestep is small enough to fix a wrong parameter, so that advice is not
+  given here.
+- **lipids, or protein next to them**: the bilayer packing, which is what
+  restrained equilibration exists to survive.
+- **most of the system at once**: an integration failure, which is the case
+  the usual advice is actually for.
+- **one residue type**: something local -- a strained ring, or an atom that
+  preparation added in a poor position.
+
+Where the evidence points nowhere, the message says so. That is more useful
+than a confident list that happens not to apply.
+
+Nothing is retried. A run that exploded because its ligand is wrong will
+explode again more slowly at half the timestep, and a rescue that produces a
+trajectory from a broken system is worse than a failure -- the failure is
+visible.

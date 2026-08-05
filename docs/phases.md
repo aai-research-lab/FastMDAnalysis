@@ -46,6 +46,13 @@ and net charge are yours to state.
 
 ## simulation
 
+Beyond minimisation and the two equilibration ensembles, the simulation phase
+can hold parts of a system still while the rest settles, embed a protein in a
+lipid bilayer, and bias a run along a named coordinate. Those are covered in
+[Simulations beyond a box of water](simulations.md), which also describes what
+the phase says when a run fails and why it does not try to rescue one.
+
+
 Runs molecular dynamics with OpenMM: energy minimization, NVT and NPT
 equilibration, then production. Integrator, thermostat/barostat, step counts,
 and reporter intervals are all configurable. Optional PLUMED enhanced sampling

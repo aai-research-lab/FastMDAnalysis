@@ -24,6 +24,9 @@ then hands back publication-ready results.
 
 - Explore a protein's full dynamics with a single command, covering setup, simulation, analysis, and reporting
 - Build a protein-ligand system from a PDB identifier alone: the ligand is identified, its chemistry retrieved, and its protonation settled in the binding site, with a refusal rather than a guess where the structure is ambiguous
+- Put a membrane protein in a lipid bilayer from a PDB identifier in one command, with the orientation checked rather than assumed and the barostat chosen from the topology
+- Hold parts of a system still while the solvent settles around them, released in stages and reported in the methods
+- Bias a run along a coordinate you name rather than PLUMED input you write
 - Find out what holds a ligand in place, not just how much of the protein it touches: hydrogen bonds, hydrophobic contacts, salt bridges, pi-stacking, pi-cation, halogen bonds, metal coordination and water bridges, each against a published criterion
 - Read an occupancy that says how much watching it rests on: a contact present in 450 consecutive frames and one present in 450 alternating frames are both fifty per cent, and only the second has an error bar
 - Reach beyond plain MD with built-in PLUMED enhanced sampling (metadynamics, umbrella sampling, steered MD)
@@ -137,6 +140,7 @@ Full documentation is at
 
 - [Beginner's guide](https://fastmdxplora.readthedocs.io/en/latest/getting_started.html): first run, start to finish
 - [Protein-ligand interactions](https://fastmdxplora.readthedocs.io/en/latest/interactions.html): what holds a ligand, and how confidently it is known
+- [Simulations beyond a box of water](https://fastmdxplora.readthedocs.io/en/latest/simulations.html): restraints, membranes, metadynamics, and what to do when a run fails
 - [Installation](https://fastmdxplora.readthedocs.io/en/latest/installation.html): every route, platform notes, troubleshooting
 - [GUI](https://fastmdxplora.readthedocs.io/en/latest/gui.html): the browser interface, and watching a cluster run
 - [Configuration](https://fastmdxplora.readthedocs.io/en/latest/configuration.html): the YAML file, option by option

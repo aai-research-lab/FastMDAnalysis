@@ -7,6 +7,44 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+- **Restraints, released in stages.** A structure that has just been minimised
+  is not at equilibrium, and heating it lets the solute move as well as the
+  solvent. Position, distance, angle and torsion restraints hold it while the
+  solvent settles, stepped down through equilibration and off before
+  production -- a biased production run measures the bias. On a solvated
+  peptide, heavy atoms move about a sixth as far restrained as free. The
+  methods section reports what was held and how it was let go.
+
+- **Membrane systems.** A protein embedded in a POPC, POPE, DLPC, DLPE, DMPC,
+  DOPC or DPPC bilayer, packed by OpenMM so no external tool is needed. The
+  orientation is checked rather than assumed: `addMembrane` puts the bilayer
+  in the xy plane and a PDB entry is usually in a different frame, so a
+  structure can be rotated onto its longest axis, and two refusals guard that
+  -- whether there is a longest axis worth rotating onto, and whether the
+  result has the hydrophobic belt a bilayer-spanning protein has.
+
+  The barostat is chosen from the topology. An ordinary one scales x, y and z
+  together, squeezing a bilayer that should change thickness independently of
+  its area, and area per lipid is what membrane simulations are validated
+  against: the run completes and is wrong.
+
+- **Metadynamics from a named collective variable**, rather than PLUMED input
+  written by hand. Five variables, each stating what it does *not* separate --
+  the failure mode of the method is biasing something that does not
+  distinguish the states that matter, after which the surface converges and
+  describes a different system. Well-tempered by default, and the hill width
+  is refused rather than guessed.
+
+- **A diagnosis when a run fails**, read from the state it failed in. Which
+  atoms went non-finite tells a wrong ligand parameter from a bilayer packing
+  problem from an integration failure, and those need different remedies --
+  the message used to advise a smaller timestep for all of them, which cannot
+  fix a wrong parameter. Nothing is retried: a rescue that produces a
+  trajectory from a broken system is worse than a failure, because the failure
+  is visible.
+
+
 ## [Unreleased]
 
 ### Fixed
