@@ -340,3 +340,69 @@ def test_an_analysis_describes_what_it_currently_does() -> None:
     assert "omega" in dihedrals.VALID_ANGLES
     assert "mds" in dimred.VALID_METHODS
     assert "average_residue" in sasa.VALID_MODES
+
+
+def test_the_region_highlights_page_describes_what_it_produces() -> None:
+    """The first rewrite of that page dropped a whole capability: it renders
+    the regions on the structure with PyMOL as well as on the RMSF trace, and
+    the page mentioned only the trace.
+    """
+    from pathlib import Path
+
+    page = Path(__file__).resolve().parents[1] / "docs" / "region_highlights.md"
+    if not page.is_file():  # pragma: no cover
+        return
+    text = page.read_text(encoding="utf-8")
+
+    for artifact in ("rmsf_region_highlights.png",
+                     "structure_region_highlights.png",
+                     "structure_region_highlights.pml"):
+        assert artifact in text, f"the page does not mention {artifact}"
+    assert "pymol-open-source" in text, (
+        "the structure rendering needs PyMOL and the page should say how to "
+        "get it"
+    )
+
+
+def test_the_smoke_campaign_page_names_the_real_statuses() -> None:
+    """The statuses are the point of the script: software that refuses
+    cleanly and software that breaks look the same in a pass/fail count."""
+    from pathlib import Path
+
+    page = Path(__file__).resolve().parents[1] / "docs" / "pdb_smoke_campaign.md"
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_pdb_smoke_campaign.py"
+    if not (page.is_file() and script.is_file()):  # pragma: no cover
+        return
+
+    text = page.read_text(encoding="utf-8")
+    source = script.read_text(encoding="utf-8")
+
+    for status in ("ok", "expected_limitation", "validation_failed", "failed",
+                   "skipped"):
+        assert f'"{status}"' in source, f"{status} is not a status the script uses"
+        assert status in text, f"the page does not explain the {status} status"
+
+    for artifact in ("campaign_summary.csv", "campaign_summary.json"):
+        assert artifact in source and artifact in text
+
+
+def test_the_smoke_campaign_flags_exist() -> None:
+    """The page's flags are the script's, not the CLI's, so the general flag
+    guard does not cover them."""
+    import re
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[1]
+    page = repo / "docs" / "pdb_smoke_campaign.md"
+    script = repo / "scripts" / "run_pdb_smoke_campaign.py"
+    if not (page.is_file() and script.is_file()):  # pragma: no cover
+        return
+
+    source = script.read_text(encoding="utf-8")
+    documented = {
+        match.group(1)
+        for match in re.finditer(r"(?<![\w-])(--[a-z][a-z0-9-]{3,})(?![\w-])",
+                                 page.read_text(encoding="utf-8"))
+    }
+    missing = sorted(flag for flag in documented if f'"{flag}"' not in source)
+    assert not missing, f"these campaign flags do not exist: {missing}"

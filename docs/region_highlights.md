@@ -1,95 +1,81 @@
-# Highlighting regions in a figure
+# Highlighting regions
 
-A per-residue figure with forty residues on the x-axis says little about the
-three you care about. Region highlights mark them: a loop, a helix, the
-residues around an active site.
-
-```yaml
-report:
-  region_highlights:
-    - label: "binding loop"
-      start: 84
-      end: 92
-      color: "#4E79A7"
-```
-
-They apply to **RMSF**, which is indexed by residue. RMSD is indexed by frame,
-so a residue range means nothing on it.
-
-The labels are yours. FastMDXplora does not work out that a range is a loop or
-a binding site — it draws what you tell it to draw, which is the point: you
-know which residues matter and the software does not.
-
-## YAML example
+A per-residue figure with two hundred residues on the x-axis says little about
+the eight you care about. Region highlights mark them — on the RMSF plot, and
+on the structure itself.
 
 ```yaml
 include: [analysis, report]
 
 analysis:
   include: [rmsf]
-  trajectory: simulation/production.dcd
-  topology: simulation/topology.pdb
 
 report:
-  title: "Trp-cage RMSF region highlights"
   region_highlights:
-    - label: "example region 1"
-      start: 3
-      end: 7
+    - label: "binding loop"
+      start: 84
+      end: 92
       color: "#4E79A7"
-    - label: "example region 2"
-      start: 12
-      end: 16
-      color: "#F28E2B"
+    - label: "catalytic helix"
+      start: 118
+      end: 131
 ```
 
-The labels are user-provided annotations. FastMDXplora does not infer that a
-range is biologically a loop, helix, catalytic motif, or binding site.
+`label` and `color` are optional: an unlabelled region becomes "Region 1", and
+an uncoloured one takes the next colour from a palette chosen so adjacent
+regions stay distinguishable.
 
-## Outputs
+---
 
-When `report.region_highlights` is configured and RMSF analysis output exists,
-the report phase writes:
+## What it produces
 
-- `analysis/rmsf/rmsf_region_highlights.png`
-- `report/structure_region_highlights.png` when PyMOL rendering succeeds
-- `report/structure_region_highlights.pml` when PyMOL rendering succeeds
-- `report/region_highlight_summary.png`
-- `report/region_highlight_manifest.json`
+**`analysis/rmsf/rmsf_region_highlights.png`** — the RMSF trace with each
+region shaded and labelled.
 
-If PyMOL and a topology/PDB file are available, the summary includes a
-PyMOL-rendered cartoon/ribbon structure panel with the same regions
-highlighted. If PyMOL is unavailable, FastMDXplora still writes the RMSF
-highlight plot and records the skipped structure-rendering reason in
-`report/region_highlight_manifest.json`.
-
-Install PyMOL into the environment that runs FastMDXplora when you want the
-cartoon structure panel:
+**`report/structure_region_highlights.png`** — the regions drawn on the
+structure as a cartoon, each in its colour. This one needs PyMOL:
 
 ```bash
 conda install -c conda-forge pymol-open-source
 ```
 
-With micromamba:
+Without it, the RMSF figure is still produced and the report records that the
+structure rendering was skipped and why, rather than failing the phase. The
+PyMOL script is written alongside as
+**`report/structure_region_highlights.pml`**, so the rendering can be
+reproduced or adjusted by hand.
 
-```bash
-micromamba install -c conda-forge pymol-open-source
-```
+---
 
-## Run examples
+## Why RMSF
 
-Bash:
+Region highlights attach to **RMSF** and nothing else, because RMSF is indexed
+by residue. RMSD is indexed by frame — it says how far the whole structure has
+moved at each point in time — so a residue range has no meaning on it.
 
-```bash
-fastmdx explore --config region_highlights.yml
-```
+RMSF analysis therefore has to have run. Without `analysis/rmsf/rmsf.dat` the
+report phase says so and names what would produce it, rather than drawing an
+empty figure.
 
-Windows PowerShell fallback when `fastmdx` is not on PATH:
+---
 
-```powershell
-python -m fastmdxplora.cli.main explore --config region_highlights.yml
-```
+## What is checked
 
-For an analysis-only/report-only workflow, provide existing trajectory and
-topology paths in the `analysis:` block and set `include: [analysis, report]`.
-Setup and simulation will not be run.
+Regions are validated against the residues RMSF actually measured, so a
+mistake is caught before anything is drawn:
+
+- `start` must be at least 1
+- `end` must be at least `start`
+- the range must lie inside the residues present in the RMSF output
+
+A range outside the structure is refused with both numbers named — the range
+you asked for and the range that exists. That is usually an off-by-one between
+a paper's numbering and the structure's, and seeing both makes it obvious.
+
+---
+
+## The labels are yours
+
+FastMDXplora does not work out that residues 84 to 92 are a binding loop. It
+draws what you tell it to draw and labels it what you call it, which is the
+point: you know which residues matter, and the software does not.

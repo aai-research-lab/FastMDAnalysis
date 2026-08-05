@@ -1,208 +1,113 @@
 # PDB smoke campaigns
 
-*For maintainers. A staged workflow for finding failures across many PDB
-structures, used when hardening a release rather than in ordinary CI.*
+*For maintainers.*
 
+A smoke campaign runs FastMDXplora over many PDB structures at once, short, to
+find what breaks. Real structures are more varied than any test suite: unusual
+residues, missing density, exotic cofactors, chain breaks in awkward places.
+Running fifty of them for ten picoseconds each finds failures that fifty
+unit tests will not.
 
-This is a staged hardening workflow for finding FastMDXplora setup,
-simulation, analysis, and report failures across diverse PDB structures. It is
-not intended to test every PDB entry in normal CI.
-
-## Staged Strategy
-
-1. Run unit tests and campaign-runner dry tests.
-2. Run a fake/missing-file campaign to verify summaries and error handling.
-3. Run one or two real tiny proteins, such as `1L2Y` and `1CRN`.
-4. Run the starter list in `examples/pdb_list.txt` and classify failures.
-5. Expand to 10-20 hand-picked PDBs per category after the starter set is clean.
-6. Move to HPC batches only after the small campaign has clear failure buckets.
-7. Ask before scaling to hundreds or thousands of structures.
-
-## Curated Starter Set
-
-| PDB | Why included | Expected difficulty | Expected behavior | Failure counts as |
-| --- | --- | --- | --- | --- |
-| `1L2Y` | Tiny Trp-cage protein | Low | Setup and gentle simulation should pass with OpenMM/PDBFixer | Likely code bug if it fails with an internal Python error |
-| `1CRN` | Small stable crambin | Low | Basic protein smoke test | Likely code bug if standard artifacts are missing |
-| `1UBQ` | Compact mixed alpha/beta protein | Low | Normal protein baseline | Likely code bug if setup/simulation crashes internally |
-| `2MHR` | Alpha-helical protein | Low/medium | Helical protein baseline | Likely code bug unless input repair fails clearly |
-| `1TEN` | Beta-rich fibronectin domain | Low/medium | Beta-sheet topology baseline | Likely code bug unless preparation reports a clear input issue |
-| `1AKE` | Larger mixed alpha/beta enzyme | Medium | Should run, but slower than tiny proteins | Expected limitation if too large for smoke settings |
-| `1A8O` | Selenomethionine/nonstandard residue | Medium | May require residue replacement or template support | Expected limitation if template error is clear |
-| `1HHP` | Protein with ligand/heterogens | Medium/high | May need explicit ligand parameterization | Expected limitation if ligand chemistry is unsupported |
-| `4HHB` | Multi-chain hemoglobin with heme/iron | High | Cofactor/metal support may fail | Expected limitation if heme/metal templates are unsupported |
-| `1BNA` | DNA duplex | High | Nucleic acid support may be outside current workflow | Expected limitation unless nucleic-acid support is claimed |
-| `1FAT` | Multi-chain lectin with heterogens/waters | Medium | Tests chain and heterogen handling | Needs review; code bug if artifacts contradict success |
-| `1A3N` | Alternate locations/multi-chain hemoglobin family | Medium/high | Tests altloc behavior | Expected limitation if altloc/template issue is clear |
-| `2PTC` | Protein-protein complex | Medium | Multi-chain setup and simulation smoke | Likely code bug if normal protein complex fails internally |
-| `1CAG` | Large repeat-rich fragment | High | Should be handled carefully or skipped | Expected limitation if too large for smoke settings |
-| `6VXX` | Large membrane/spike glycoprotein | Very high | Not appropriate for tiny smoke settings | Expected limitation/skip candidate |
-
-## Local Commands
-
-Use a small dry run first:
+This is for hardening a release, not for ordinary CI.
 
 ```bash
 python scripts/run_pdb_smoke_campaign.py \
-  --output-root runs/pdb_smoke_missing \
-  missing_file.pdb \
-  --continue-on-error
+  --output-root runs/campaign \
+  1UBQ 1L2Y 4LYT 181L 1AFO
 ```
 
-Run two real smoke cases:
+---
+
+## Choosing what to run
+
+Positional arguments are PDB identifiers or paths to local `.pdb` / `.cif`
+files. For anything more than a handful, keep them in a file:
 
 ```bash
 python scripts/run_pdb_smoke_campaign.py \
-  --output-root runs/pdb_smoke_tiny \
-  --preset gentle \
-  1L2Y 1CRN \
-  --continue-on-error
+  --output-root runs/campaign \
+  --input-list examples/pdb_list.txt
 ```
 
-Run the curated starter list:
+One entry per line; `#` starts a comment.
+
+A good list mixes the easy and the awkward: a small soluble protein, one with
+a ligand, one with a metal, one with a nucleic acid, one with missing loops,
+one that is large. The point is coverage of what breaks, not of what works.
+
+---
+
+## Keeping it short and bounded
+
+The defaults are already short. The flags that matter are the ones that stop a
+single structure eating the campaign:
+
+| | |
+|---|---|
+| `--preset gentle` | conservative simulation settings |
+| `--nvt-steps`, `--npt-steps`, `--production-steps` | shorter still |
+| `--max-input-mb` | skip a structure whose file is larger |
+| `--max-setup-atoms` | skip one that solvates to more atoms than this |
+| `--platform` | force CPU or CUDA |
+| `--no-report` | skip the reporting phase |
+
+The two limits are what keep a campaign finishing overnight. A ribosome will
+otherwise consume the time budget for everything after it.
+
+---
+
+## Letting it finish
 
 ```bash
 python scripts/run_pdb_smoke_campaign.py \
+  --output-root runs/campaign \
   --input-list examples/pdb_list.txt \
-  --output-root runs/pdb_smoke_starter \
-  --preset gentle \
   --continue-on-error
 ```
 
-If DNS is broken, download PDB files elsewhere and use local paths:
+`--continue-on-error` is the point of a campaign: one structure failing is a
+result, not a reason to stop. `--stop-on-error` does the opposite when you are
+chasing one specific failure.
 
-```bash
-mkdir -p local_pdbs
-curl -L -o local_pdbs/1L2Y.pdb https://files.rcsb.org/download/1L2Y.pdb
-curl -L -o local_pdbs/1CRN.pdb https://files.rcsb.org/download/1CRN.pdb
-printf '%s\n' local_pdbs/1L2Y.pdb local_pdbs/1CRN.pdb > local_pdb_files.txt
-```
+---
 
-```bash
-python scripts/run_pdb_smoke_campaign.py \
-  --input-list local_pdb_files.txt \
-  --output-root runs/pdb_smoke_local \
-  --preset gentle \
-  --continue-on-error
-```
+## Reading the results
 
-The campaign writes `campaign_summary.csv` / `campaign_summary.json` under
-the output root, plus compatibility copies named `summary.csv` /
-`summary.json`. Each protein gets its own output directory.
+Two summaries are written to the output root:
 
-## Windows PowerShell Commands
+- **`campaign_summary.csv`** — one row per structure, for sorting and
+  filtering
+- **`campaign_summary.json`** — the same with the detail
 
-If the installed `fastmdx` command is not on PATH, use
-`python -m fastmdxplora.cli.main info` to verify the package and run the
-campaign script with `python`.
+Each structure gets one of these:
 
-Download two local PDB inputs:
+| | |
+|---|---|
+| `ok` | ran through |
+| `expected_limitation` | refused something it should refuse — a structure the software correctly declines |
+| `validation_failed` | produced output that did not pass its own checks |
+| `failed` | a phase raised |
+| `skipped` | over a size limit |
+| `error` | the campaign itself had a problem |
 
-```powershell
-mkdir local_pdbs -Force
-curl.exe -L -o local_pdbs\1L2Y.pdb https://files.rcsb.org/download/1L2Y.pdb
-curl.exe -L -o local_pdbs\1CRN.pdb https://files.rcsb.org/download/1CRN.pdb
-python -m fastmdxplora.cli.main info
-```
+Each run's own directory is beside the summaries, so a failure can be opened
+and read like any other run.
 
-Run a small professor/demo output campaign with the gentle preset:
+---
 
-```powershell
-python scripts\run_pdb_smoke_campaign.py `
-  --output-root local_runs\professor_outputs `
-  --preset gentle `
-  --continue-on-error `
-  local_pdbs\1L2Y.pdb local_pdbs\1CRN.pdb
-```
+## What counts as a bug
 
-Verify the expected outputs:
+**`expected_limitation` is not a bug.** A structure with an unparameterisable
+cofactor, a charge that cannot be settled, or geometry the force field has no
+templates for *should* be refused. A campaign with several of these is
+working.
 
-```powershell
-Get-ChildItem local_runs\professor_outputs -Recurse |
-  Where-Object { $_.Name -match 'report\.md|slides\.pptx|project_bundle\.zip|production\.dcd|state_minimized\.xml|summary\.csv|summary\.json|manifest\.json|\.png|\.dat' } |
-  Select-Object FullName
-Get-Content local_runs\professor_outputs\summary.csv
-```
+**`validation_failed` usually is.** It means a phase produced output and the
+output was wrong, which is worse than refusing.
 
-Package outputs for review:
+**`failed` needs reading.** A phase raising with a clear message naming what it
+could not do is close to `expected_limitation`. A phase raising with a
+traceback from inside a library is a bug, and the message is where to start.
 
-```powershell
-New-Item -ItemType Directory -Force private_reports
-Compress-Archive -Path local_runs\professor_outputs, README.md, docs\pdb_smoke_campaign.md, examples\pdb_list.txt -DestinationPath private_reports\FastMDXplora_professor_outputs.zip -Force
-```
-
-`local_runs/`, `local_pdbs/`, and `private_reports/` are intended for local
-artifacts and are ignored by git.
-
-## GPU and offline commands
-
-Run the campaign on a verified GPU environment only after a short real
-OpenMM smoke test. Do not assume a site module name, scheduler, checkout path,
-or internet access. See [Production and GPU runs](production.md) for generic
-remote-GPU and offline-host procedures.
-
-For DNS-restricted or offline machines, stage local files and point the list
-at paths:
-
-```text
-/scratch/$USER/pdbs/1L2Y.pdb
-/scratch/$USER/pdbs/1CRN.pdb
-/scratch/$USER/pdbs/1UBQ.pdb
-```
-
-Then run from the verified environment:
-
-```bash
-micromamba run -n <verified-env> python scripts/run_pdb_smoke_campaign.py \
-  --input-list local_pdb_files.txt \
-  --output-root ~/runs/pdb_smoke_campaign_local \
-  --preset gentle \
-  --continue-on-error
-```
-
-## Failure Classification
-
-The campaign summarizes failures as:
-
-- `DNS/download failure`
-- `unsupported residue/template failure`
-- `ligand unsupported`
-- `metal unsupported`
-- `missing atoms/residues issue`
-- `bad geometry/clash`
-- `solvation/box issue`
-- `OpenMM NaN`
-- `analysis failure`
-- `report generation failure`
-- `code exception/bug`
-- `missing dependency`
-- `missing input file`
-- `unknown`
-
-## What Counts As A Bug
-
-Mark a failure as a likely code bug when:
-
-- A normal protein with no unusual chemistry crashes with an internal Python error.
-- A phase reports success but expected artifacts are missing.
-- `manifest.json` says success but files are absent.
-- Particle counts mismatch between setup artifacts.
-- Validation catches NaN/Inf after a phase reported success.
-- Analysis or report generation crashes on valid simulation outputs.
-
-Mark it as an expected limitation or input issue when:
-
-- An unsupported ligand, metal, or nonstandard residue causes a clear template error.
-- DNS prevents downloading.
-- Missing experimental data cannot be repaired.
-- The protein is too large for smoke-test settings.
-- Ligand chemistry is not parameterized.
-
-## Optional Integration Test
-
-Normal tests do not run real MD. To opt into tiny real OpenMM/PDBFixer smoke
-tests:
-
-```bash
-FASTMDX_RUN_OPENMM_TESTS=1 pytest tests/test_pdb_smoke_campaign.py
-```
+The distinction is the whole reason the statuses are separate: software that
+refuses cleanly and software that breaks look the same in a pass/fail count.
