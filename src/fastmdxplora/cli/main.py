@@ -211,8 +211,10 @@ _REPORT_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
 #: block a command line cannot express, and the reason is recorded so this
 #: does not become a place to hide a setting nobody wired up.
 _NO_FLAG_OF_ITS_OWN: dict[str, str] = {
-    # Reached by --{phase}-option, which takes any analysis setting by name.
-    "options": "reached by --analyze-option NAME=VALUE",
+    # A mapping of per-analysis settings, which a flag cannot carry: give it
+    # in a config file, or use the convenience flags for the common ones
+    # (--analyze-cluster-n-clusters and the rest).
+    "options": "a mapping; give it in a config file",
     # A list of blocks, which a flag cannot carry.
     "region_highlights": "a list of blocks; give it in a config file",
     "comparison": "a list of runs; give it in a config file",
