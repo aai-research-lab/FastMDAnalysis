@@ -225,6 +225,20 @@ SETUP = PhaseSchema(
         Field("ligand_clash_threshold_nm", float, 0.15,
               "Minimum allowed ligand-protein contact distance in nm; pairs "
               "closer than this count as a clash."),
+        Field("membrane", str, None,
+              "Embed the protein in a lipid bilayer instead of a box of "
+              "water. One of POPC, POPE, DLPC, DLPE, DMPC, DOPC or DPPC -- "
+              "the lipids OpenMM can pack. A membrane protein simulated in "
+              "water is not the protein: the hydrophobic belt that sits in "
+              "the bilayer is exposed to solvent and the helices splay.",
+              choices=("POPC", "POPE", "DLPC", "DLPE", "DMPC", "DOPC", "DPPC")),
+        Field("membrane_orientation_checked", bool, False,
+              "Proceed with the structure's orientation as it is. The "
+              "bilayer is built in the xy plane and the protein has to be "
+              "lying along z already, which a PDB entry usually is not; the "
+              "setup phase checks and refuses rather than embedding a "
+              "protein sideways. Set this where you have oriented it "
+              "yourself, or taken it from OPM."),
         Field("solvent_padding_nm", float, 1.0,
               "Minimum distance (nm) between solute and the box wall."),
         Field("box_shape", str, "cube",

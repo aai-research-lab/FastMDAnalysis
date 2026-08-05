@@ -296,15 +296,64 @@ def _make_integrator(
     return integ
 
 
+#: Residue names OpenMM gives the lipids it builds a bilayer from. A system
+#: containing them is a membrane system and needs a barostat that knows it.
+_LIPID_RESIDUES = frozenset({
+    "POP", "POPC", "POPE", "DLPC", "DLPE", "DMPC", "DOPC", "DPPC",
+})
+
+
+def is_membrane_system(topology: Any) -> bool:
+    """Whether this system contains a lipid bilayer.
+
+    Detected from the topology rather than taken as a setting, because the
+    barostat has to be right whether or not anybody remembered to say so.
+    A membrane run given an isotropic barostat completes and is wrong, which
+    is not a failure mode worth leaving to somebody's memory.
+    """
+    return any(residue.name.upper() in _LIPID_RESIDUES
+               for residue in topology.residues())
+
+
 def _add_barostat(omm: dict, system: Any, *, temperature_K: float,
-                  pressure_bar: float, frequency: int) -> int:
-    """Add a Monte Carlo barostat. Returns the force index for later removal."""
+                  pressure_bar: float, frequency: int,
+                  membrane: bool = False) -> int:
+    """Add a Monte Carlo barostat. Returns the force index for later removal.
+
+    A membrane gets a different one. An ordinary barostat scales x, y and z
+    together, which squeezes a bilayer that should be free to change thickness
+    independently of its area -- and area per lipid is the number membrane
+    simulations are validated against, so getting it wrong invalidates the run
+    without stopping it. ``MonteCarloMembraneBarostat`` couples x and y (the
+    membrane plane) and lets z move separately.
+
+    The surface tension is zero, which is the usual choice: a bilayer at
+    equilibrium has none, and imposing one is a modelling decision that should
+    be made deliberately rather than inherited from a default.
+    """
     unit = omm["unit"]
-    barostat = omm["openmm"].MonteCarloBarostat(
-        pressure_bar * unit.bar,
-        temperature_K * unit.kelvin,
-        int(frequency),
-    )
+    openmm = omm["openmm"]
+
+    if membrane:
+        barostat = openmm.MonteCarloMembraneBarostat(
+            pressure_bar * unit.bar,
+            0.0 * unit.bar * unit.nanometer,  # surface tension
+            temperature_K * unit.kelvin,
+            openmm.MonteCarloMembraneBarostat.XYIsotropic,
+            openmm.MonteCarloMembraneBarostat.ZFree,
+            int(frequency),
+        )
+        logger.info(
+            "Membrane barostat: x and y coupled, z free, surface tension 0. "
+            "An isotropic barostat would squeeze the bilayer and give the "
+            "wrong area per lipid."
+        )
+    else:
+        barostat = openmm.MonteCarloBarostat(
+            pressure_bar * unit.bar,
+            temperature_K * unit.kelvin,
+            int(frequency),
+        )
     return system.addForce(barostat)
 
 
@@ -977,6 +1026,7 @@ def run_simulation(
                 omm, system,
                 temperature_K=temperature_K,
                 pressure_bar=resolved_pressure_bar,
+            membrane=is_membrane_system(topology),
                 frequency=barostat_frequency,
             )
             simulation.context.reinitialize(preserveState=True)

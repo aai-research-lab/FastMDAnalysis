@@ -115,6 +115,8 @@ def prepare_system(
     check_ligand_clashes: bool = True,
     ligand_clash_threshold_nm: float = 0.15,
     solvent_padding_nm: float = DEFAULT_PADDING_NM,
+    membrane: str | None = None,
+    membrane_orientation_checked: bool = False,
     box_shape: str = "cube",
     ion_positive: str = "Na+",
     ion_negative: str = "Cl-",
@@ -270,6 +272,13 @@ def prepare_system(
                     ligand_name=name,
                 )
     else:
+        if membrane:
+            # Lipid parameters, or the run fails at system creation with a
+            # message about a residue template for POPC -- which names the
+            # symptom rather than the missing file.
+            from fastmdxplora.setup.membrane import membrane_forcefield_files
+
+            force_field = membrane_forcefield_files(list(force_field))
         logger.info("Building ForceField: %s", force_field)
         ff = omm["ForceField"](*force_field)
 
@@ -294,23 +303,59 @@ def prepare_system(
     if water_model is not None:
         add_solvent_kwargs["model"] = water_model
 
-    try:
-        try:
-            modeller.addSolvent(ff, **add_solvent_kwargs)
-        except TypeError:
-            # Older OpenMM versions (<7.7) don't support boxShape; fall back.
-            add_solvent_kwargs.pop("boxShape", None)
-            modeller.addSolvent(ff, **add_solvent_kwargs)
-    except ValueError as exc:
-        # Solvation builds templates too, and reaches them before
-        # createSystem does. The explanation was wired to createSystem only,
-        # so a component the force field cannot parameterize produced
-        # OpenMM's raw message here -- which names the residue and not what
-        # to do about it.
-        raise _explain_unparameterized(exc, ff, modeller.topology) from exc
+    if membrane:
+        # A bilayer instead of a box of water. OpenMM packs the lipids and
+        # solvates around them, so no external packing tool is needed -- but
+        # it assumes the protein is already oriented with the membrane normal
+        # along z, and does not check.
+        from fastmdxplora.setup.membrane import LIPIDS, check_orientation
 
-    n_atoms_solvated = modeller.topology.getNumAtoms()
-    logger.info("Solvated system: %d atoms", n_atoms_solvated)
+        lipid = str(membrane).upper()
+        if lipid not in LIPIDS:
+            raise ValueError(
+                f"{lipid} is not a lipid OpenMM can build a bilayer from. "
+                f"Available: {', '.join(sorted(LIPIDS))}."
+            )
+
+        problem = None if membrane_orientation_checked else check_orientation(
+            modeller.topology, modeller.positions)
+        if problem:
+            raise ValueError(problem)
+
+        logger.info(
+            "Embedding in a %s bilayer (padding=%.2f nm, ions=%s/%s @ %.3f M)",
+            lipid, solvent_padding_nm, ion_positive, ion_negative,
+            ion_concentration_M,
+        )
+        modeller.addMembrane(
+            ff,
+            lipidType=lipid,
+            minimumPadding=solvent_padding_nm * unit.nanometer,
+            positiveIon=ion_positive,
+            negativeIon=ion_negative,
+            ionicStrength=ion_concentration_M * unit.molar,
+            neutralize=neutralize,
+        )
+        n_atoms_solvated = modeller.topology.getNumAtoms()
+        logger.info("Membrane system: %d atoms", n_atoms_solvated)
+    else:
+        try:
+            try:
+                modeller.addSolvent(ff, **add_solvent_kwargs)
+            except TypeError:
+                # Older OpenMM versions (<7.7) don't support boxShape.
+                add_solvent_kwargs.pop("boxShape", None)
+                modeller.addSolvent(ff, **add_solvent_kwargs)
+        except ValueError as exc:
+            # Solvation builds templates too, and reaches them before
+            # createSystem does. The explanation was wired to createSystem
+            # only, so a component the force field cannot parameterize
+            # produced OpenMM's raw message here -- which names the residue
+            # and not what to do about it.
+            raise _explain_unparameterized(exc, ff, modeller.topology) from exc
+
+        n_atoms_solvated = modeller.topology.getNumAtoms()
+        logger.info("Solvated system: %d atoms", n_atoms_solvated)
 
     # ----- 4. Parameterize: build the OpenMM System -----
     method_map = {
