@@ -333,3 +333,46 @@ def test_the_probe_cannot_be_interrupted_by_what_it_probes(capfd) -> None:
     captured = capfd.readouterr()
     assert "complaining" not in captured.err
 
+
+
+def test_a_probe_that_cannot_run_still_answers(capsys) -> None:
+    """A table of "unknown" is worse than a noisy answer.
+
+    The subprocess probe failed on a real machine and reported nothing about
+    every backend, because the fallback swallowed the reason -- which is the
+    defect this software exists to avoid, in the code written to avoid it. It
+    now says why the subprocess could not answer and checks in this process
+    instead.
+    """
+    import importlib
+    import sys
+
+    module = importlib.import_module("fastmdxplora.cli.main")
+    real = sys.executable
+    sys.executable = "/nonexistent/python"
+    try:
+        found = module._probe_backends(("json", "no_such_module_at_all"))
+    finally:
+        sys.executable = real
+
+    assert found["json"][0] == "installed"
+    assert found["no_such_module_at_all"][0] == "missing"
+    assert "checked in this process" in capsys.readouterr().out
+
+
+def test_the_reason_the_subprocess_failed_is_named(capsys) -> None:
+    """Reporting that something could not be checked, without saying why,
+    leaves nothing to act on."""
+    import importlib
+    import sys
+
+    module = importlib.import_module("fastmdxplora.cli.main")
+    real = sys.executable
+    sys.executable = "/nonexistent/python"
+    try:
+        module._probe_backends(("json",))
+    finally:
+        sys.executable = real
+
+    printed = capsys.readouterr().out
+    assert "FileNotFoundError" in printed or "No such file" in printed

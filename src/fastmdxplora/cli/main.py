@@ -1207,11 +1207,29 @@ def _probe_backends(import_names: tuple[str, ...]) -> dict[str, tuple[str, str]]
             capture_output=True, text=True, timeout=120, check=False,
         )
         found = json.loads(finished.stdout or "{}")
-    except Exception:  # noqa: BLE001 - a probe that fails tells us nothing
-        return {name: ("unknown", "could not be checked")
-                for name in import_names}
-    return {name: tuple(found.get(name, ("unknown", "could not be checked")))
-            for name in import_names}
+        if found:
+            return {name: tuple(found[name]) for name in import_names
+                    if name in found}
+        reason = (finished.stderr or "").strip().splitlines()
+        detail = reason[-1][:80] if reason else f"exit code {finished.returncode}"
+    except Exception as exc:  # noqa: BLE001
+        detail = f"{type(exc).__name__}: {exc}"[:80]
+
+    # The subprocess could not answer. Importing here can, and the only cost
+    # is that a backend which complains on its way out is heard -- which is
+    # better than a table of "unknown", and better than hiding why the
+    # subprocess failed. Both are said.
+    print(f"  (checked in this process: {detail})")
+    checked: dict[str, tuple[str, str]] = {}
+    for name in import_names:
+        try:
+            __import__(name)
+            checked[name] = ("installed", "")
+        except ImportError:
+            checked[name] = ("missing", "")
+        except BaseException as exc:  # noqa: BLE001 - any load failure counts
+            checked[name] = ("broken", str(exc).split(":")[0][:60])
+    return checked
 
 
 def _cmd_info() -> int:
