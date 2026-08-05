@@ -660,9 +660,12 @@ def run(
             elif resolved:
                 ff_label = str(resolved)
             elif str(params["forcefield"]) == "auto":
+                # Bare, because the step wraps it in parentheses. The banner
+                # above already says it was chosen automatically, and
+                # "(amber-openff (auto))" was the same nesting this replaced.
                 from fastmdxplora.setup.forcefields import AUTO_FORCEFIELD
 
-                ff_label = f"{AUTO_FORCEFIELD} (auto)"
+                ff_label = str(AUTO_FORCEFIELD)
             else:
                 ff_label = str(params["forcefield"])
             presenter.step(f"Solvated and parameterized ({ff_label})",

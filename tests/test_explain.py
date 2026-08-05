@@ -177,3 +177,29 @@ class TestWhatTheStepsThemselvesSay:
         assert "AUTO_FORCEFIELD" in source, (
             "the step should name the force field auto resolved to"
         )
+
+    def test_no_step_message_nests_parentheses(self) -> None:
+        """This mistake has been made twice: once when the solvation message
+        learned to choose between solvating and embedding, and again in the
+        fix for it, when a label already carrying "(auto)" was passed to a
+        step that wraps its label in parentheses.
+
+        Checking the shape rather than the instance, because the instance is
+        not what recurs.
+        """
+        import re
+        from pathlib import Path
+
+        package = Path(__file__).resolve().parents[1] / "src" / "fastmdxplora"
+        offenders = []
+        for path in package.rglob("*.py"):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if ".step(" not in line and "presenter.info(" not in line:
+                    continue
+                # A message that both wraps a value in parentheses and builds
+                # that value with parentheses of its own.
+                if re.search(r'\(\{[a-z_]+\}\)', line) and "(" in line:
+                    text = re.search(r'f?"([^"]+)"', line)
+                    if text and text.group(1).count("(") > 1:
+                        offenders.append(f"{path.name}: {text.group(1)[:60]}")
+        assert not offenders, f"these step messages nest parentheses: {offenders}"
