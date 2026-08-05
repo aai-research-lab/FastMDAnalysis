@@ -8,6 +8,36 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Added
+- **What version 1 measured and this did not.** Every analysis was compared
+  against its version 1 counterpart, option by option. Most differences were
+  the same setting renamed -- ``atoms`` is ``selection``, ``beta_const`` is
+  ``beta``, ``linkage_method`` is ``linkage`` -- but six were real.
+
+  Omega dihedrals are measured again, with an ``angles`` option choosing which
+  torsions to compute. Omega is the peptide bond itself, near 180 degrees in
+  almost every residue, and the exceptions are the finding: a cis bond, most
+  often before a proline.
+
+  MDS is offered again beside PCA, t-SNE and UMAP. It answers a different
+  question -- PCA finds the directions of largest variance in the coordinates,
+  MDS an arrangement preserving the distances between frames, and that
+  distance is RMSD.
+
+  Hydrogen bonds take ``distance_cutoff``, ``angle_cutoff``, ``sidechain_only``
+  and ``exclude_water``. The two cutoffs were not settable at all, and were
+  written in two places, so a setting reaching only one would have left the
+  per-frame count disagreeing with the bonds it counted.
+
+  Clustering takes ``random_state`` and ``n_init``. The seed was fixed at 42
+  inside a function, which made every run agree with every other and hid the
+  question: k-means finds a local optimum, so a clustering that survives a
+  change of seed is a finding and one that does not is an artefact of where
+  the algorithm started.
+
+  Not adopted: version 1 could shell out to an external ``mkdssp`` binary for
+  secondary structure. MDTraj's implementation is used instead, because a
+  system package is a poor dependency for an analysis that already works.
+
 - **Protein-ligand interactions, typed.** Counting contacts says how much of
   the protein a ligand touches; this says what is holding it -- a salt bridge
   a charge change would destroy, a hydrophobic packing that tolerates one.

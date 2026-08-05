@@ -143,6 +143,13 @@ more than one way in the literature. What FastMDXplora computes:
   than itself, and would read as a measurement of kinetics the trajectory
   cannot support.
 
+- **Secondary structure** uses MDTraj's DSSP implementation only. Version 1
+  could also shell out to an external ``mkdssp`` binary; that route is not
+  offered here, because it would make a system package a dependency of an
+  analysis that already works without one. Where the two disagree, the
+  disagreement is a finding about DSSP implementations and worth reporting
+  rather than configuring around.
+
 - **Contacts and hydrogen bonds** measure across the periodic boundary when
   the trajectory carries a unit cell. A solvated trajectory is not always
   imaged, and a molecule split across the boundary looks far from everything
