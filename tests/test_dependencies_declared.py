@@ -303,3 +303,41 @@ def test_a_missing_backend_is_told_from_a_broken_one() -> None:
 
     present, _ = _backend_state("json", "n/a")
     assert present == "installed"
+
+
+def test_a_noisy_backend_does_not_interrupt_the_table() -> None:
+    """WeasyPrint prints five lines about its installation guide when it
+    cannot load, and they landed in the middle of the backend list -- ahead of
+    the line reporting the same thing more usefully.
+
+    Nothing is lost by quieting the probe: the reason is carried in the
+    exception and reported.
+    """
+    import builtins
+    import io
+    import sys
+    from contextlib import redirect_stderr
+
+    from fastmdxplora.cli.main import _backend_state
+
+    real = builtins.__import__
+
+    def noisy(name, *args, **kwargs):
+        if name == "weasyprint":
+            print("WeasyPrint could not import some external libraries.",
+                  file=sys.stderr)
+            raise OSError("cannot load library 'libgobject-2.0-0'")
+        return real(name, *args, **kwargs)
+
+    captured = io.StringIO()
+    builtins.__import__ = noisy
+    try:
+        with redirect_stderr(captured):
+            state, remedy = _backend_state("weasyprint", "conda install it")
+    finally:
+        builtins.__import__ = real
+
+    assert state == "broken"
+    assert "libgobject" in remedy
+    assert "installation guide" not in captured.getvalue()
+    assert "could not import" not in captured.getvalue()

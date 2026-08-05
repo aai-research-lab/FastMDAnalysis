@@ -1180,8 +1180,25 @@ def _backend_state(import_name: str, install_hint: str) -> tuple[str, str]:
     The two cases need different remedies, so they are told apart. Reinstalling
     a package that is already there fixes nothing.
     """
+    import contextlib
+    import io
+    import os
+
+    # A package that fails to load may say so itself on the way out --
+    # WeasyPrint prints five lines about its installation guide -- and that
+    # lands in the middle of this table, ahead of the line reporting the same
+    # thing more usefully. Nothing is lost by quieting it: the reason is
+    # carried in the exception and reported below.
+    noise = io.StringIO()
     try:
-        __import__(import_name)
+        with contextlib.redirect_stderr(noise), open(os.devnull, "w") as sink:
+            saved = os.dup(2)
+            try:
+                os.dup2(sink.fileno(), 2)
+                __import__(import_name)
+            finally:
+                os.dup2(saved, 2)
+                os.close(saved)
         return "installed", ""
     except ImportError:
         return "missing", install_hint
