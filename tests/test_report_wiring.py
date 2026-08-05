@@ -1498,3 +1498,86 @@ class TestConvergenceSaysWhatARunCanSupport:
         out = assess_run({"temperature": 300 + rng.normal(scale=2, size=500)},
                          target_temperature_K=300.0)
         assert not any("thermostat" in finding for finding in out["findings"])
+
+
+class TestTheReportSaysHowMuchTheRunSupports:
+    """The convergence assessment reaches the report, after the results,
+    because it is about them: every mean and error bar above rests on how many
+    independent observations the run holds, and that is usually far fewer than
+    the frame count suggests.
+    """
+
+    @staticmethod
+    def _a_run(tmp_path, n_frames=400):
+        """Analyses written where a real run writes them."""
+        import mdtraj as md
+        import numpy as np
+
+        import fastmdxplora.analysis  # noqa: F401
+        from fastmdxplora.analysis.orchestrator import get_analysis_class
+
+        top = md.Topology()
+        chain = top.add_chain()
+        previous_c = None
+        for index in range(6):
+            residue = top.add_residue("ALA", chain, resSeq=index + 1)
+            n = top.add_atom("N", md.element.nitrogen, residue)
+            ca = top.add_atom("CA", md.element.carbon, residue)
+            c = top.add_atom("C", md.element.carbon, residue)
+            o = top.add_atom("O", md.element.oxygen, residue)
+            for first, second in ((n, ca), (ca, c), (c, o)):
+                top.add_bond(first, second)
+            if previous_c is not None:
+                top.add_bond(previous_c, n)
+            previous_c = c
+
+        rng = np.random.RandomState(1)
+        xyz = rng.normal(scale=0.2, size=(n_frames, top.n_atoms, 3))
+        traj = md.Trajectory(xyz=xyz.astype(np.float32), topology=top)
+        for name in ("rmsd", "rg"):
+            get_analysis_class(name)(
+                output_dir=str(tmp_path / "analysis")).run(traj)
+        return tmp_path
+
+    def test_the_section_appears(self, tmp_path) -> None:
+        from fastmdxplora.report.document import _convergence_section
+
+        text = _convergence_section(self._a_run(tmp_path))
+        assert "## Convergence" in text
+        assert "rmsd" in text and "rg" in text
+
+    def test_it_reports_independent_samples_not_frames(self, tmp_path) -> None:
+        from fastmdxplora.report.document import _convergence_section
+
+        text = _convergence_section(self._a_run(tmp_path))
+        assert "independent" in text
+        assert "A frame is not an observation" in text
+
+    def test_it_reads_a_bare_array_as_well_as_a_table(self, tmp_path) -> None:
+        """An analysis returning an array writes plain numbers; one returning
+        a frame writes a header. Both shapes are read rather than one
+        assumed."""
+        from fastmdxplora.report.document import _last_numeric_column
+
+        plain = tmp_path / "plain.dat"
+        plain.write_text("1.0\n2.0\n3.0\n", encoding="utf-8")
+        assert _last_numeric_column(plain) == [1.0, 2.0, 3.0]
+
+        table = tmp_path / "table.dat"
+        table.write_text("frame,value\n0,1.0\n1,2.0\n", encoding="utf-8")
+        assert _last_numeric_column(table) == [1.0, 2.0]
+
+    def test_a_run_with_no_data_produces_no_section(self, tmp_path) -> None:
+        """Rather than a heading over an empty table."""
+        from fastmdxplora.report.document import _convergence_section
+
+        assert _convergence_section(tmp_path) == ""
+
+    def test_it_sits_after_the_results(self) -> None:
+        import inspect
+
+        from fastmdxplora.report import document
+
+        source = inspect.getsource(document)
+        assert (source.index("_results_section(project_root))")
+                < source.index("_convergence_section(project_root)"))

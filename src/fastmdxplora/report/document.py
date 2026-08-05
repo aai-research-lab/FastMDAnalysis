@@ -294,6 +294,132 @@ def _results_section(project_root: Path) -> str:
     return "\n".join(lines)
 
 
+
+def _last_numeric_column(path: Path) -> list[float]:
+    """The numbers in a data file, whatever shape the analysis wrote.
+
+    An analysis returning an array writes bare numbers; one returning a table
+    writes a header and several columns, of which the measurement is the last
+    -- the earlier ones being the frame or residue it belongs to.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+
+    values: list[float] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        fields = line.replace(",", " ").split()
+        try:
+            values.append(float(fields[-1]))
+        except (ValueError, IndexError):
+            # A header line, which tells us the file has one and that the
+            # numbers start below it.
+            continue
+    return values
+
+
+def _convergence_section(project_root: Path) -> str:
+    """How much independent information the trajectory holds.
+
+    Placed after the results because it is about them: every mean and error
+    bar above rests on how many independent observations the run contains,
+    and that is usually far fewer than the frame count suggests.
+    """
+    import csv
+
+    from fastmdxplora.report.convergence import assess_run
+
+    series: dict[str, Any] = {}
+
+    energy_csv = project_root / "simulation" / "energy.csv"
+    if energy_csv.is_file():
+        wanted = {
+            "Potential Energy (kJ/mole)": "potential_energy",
+            "Temperature (K)": "temperature",
+            "Density (g/mL)": "density",
+        }
+        collected: dict[str, list[float]] = {name: [] for name in wanted.values()}
+        try:
+            with energy_csv.open(encoding="utf-8", newline="") as handle:
+                for row in csv.DictReader(handle):
+                    for column, name in wanted.items():
+                        value = row.get(column) or row.get(f"#\"{column}\"")
+                        if value:
+                            try:
+                                collected[name].append(float(value))
+                            except ValueError:
+                                pass
+        except OSError:
+            collected = {}
+        series.update({k: v for k, v in collected.items() if v})
+
+    # The structural measures, from the analyses that computed them. An
+    # analysis returning an array writes plain numbers and one returning a
+    # frame writes a header, so both shapes are read rather than one assumed.
+    for name in ("rmsd", "rg", "sasa"):
+        data = project_root / "analysis" / name / f"{name}.dat"
+        if not data.is_file():
+            continue
+        values = _last_numeric_column(data)
+        if values:
+            series[name] = values
+
+    if not series:
+        return ""
+
+    setup = _load_json_safely(project_root / "setup" / "setup_parameters.json") or {}
+    sim = _load_json_safely(
+        project_root / "simulation" / "simulation_parameters.json") or {}
+    assessed = assess_run(
+        series,
+        duration_ns=sim.get("duration_ns_actual"),
+        n_atoms=setup.get("n_atoms_solvated"),
+        target_temperature_K=(sim.get("parameters") or {}).get("temperature_K"),
+    )
+
+    lines = ["## Convergence", ""]
+    lines.append(
+        "A frame is not an observation. Consecutive frames of a trajectory "
+        "are nearly the same structure, so the number of independent "
+        "observations is set by how quickly each measure forgets where it "
+        "was, not by how often frames were written. The uncertainties below "
+        "count the former."
+    )
+    lines.append("")
+    lines.append(
+        "| measure | frames | independent | mean | uncertainty | settled |"
+    )
+    lines.append("|---|---|---|---|---|---|")
+    for record in assessed["observables"].values():
+        error = record["standard_error"]
+        lines.append(
+            f"| {record['observable']} | {record['frames']:,} | "
+            f"{record['effective_samples']:.1f} | {record['mean']:.4g} | "
+            + (f"{error:.3g}" if error is not None else "not enough to say")
+            + f" | {'yes' if record['settled'] else 'no'} |"
+        )
+    lines.append("")
+
+    if assessed["findings"]:
+        lines.append("### What this run cannot support")
+        lines.append("")
+        for finding in assessed["findings"]:
+            lines.append(f"- {finding}")
+        lines.append("")
+    else:
+        lines.append(
+            "Every measure settled and carries enough independent observation "
+            "to average. That is a statement about sampling, not about whether "
+            "the force field describes the system."
+        )
+        lines.append("")
+    return "\n".join(lines)
+
+
 def _citation_section() -> str:
     from fastmdxplora import __citation__
 
@@ -392,6 +518,9 @@ def build_document(
         sections.append(_methods_section(project_root, phase_context))
 
     sections.append(_results_section(project_root))
+    convergence = _convergence_section(project_root)
+    if convergence:
+        sections.append(convergence)
 
     sections.append(
         "## Discussion\n\n_This section is intended for the user to complete. "
