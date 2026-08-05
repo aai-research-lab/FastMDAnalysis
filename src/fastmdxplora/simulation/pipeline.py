@@ -206,6 +206,7 @@ def run(
             telemetry_interval=int(params["telemetry_interval"]),
             on_progress=_progress,
             plumed=params.get("plumed"),
+            metadynamics=params.get("metadynamics"),
             restrain=params.get("restrain"),
             restraint_release=params.get("restraint_release"),
             restrain_production=bool(params.get("restrain_production", False)),

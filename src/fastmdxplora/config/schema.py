@@ -418,6 +418,17 @@ SIMULATION = PhaseSchema(
               "biased production run measures the bias: RMSF, clustering and "
               "dimensionality reduction would describe the restraint as much "
               "as the system. Turning it on is recorded with the results."),
+        Field("metadynamics", dict, None,
+              "Metadynamics from a named collective variable, without "
+              "writing PLUMED input. A block with `collective_variable` "
+              "(ligand_rmsd, ligand_distance, distance, torsion or "
+              "radius_of_gyration), the selections it needs, and `sigma` -- "
+              "the hill width, roughly the size of the fluctuations within a "
+              "single state. Well-tempered by default, because plain "
+              "metadynamics never lets the bias settle. Choosing the "
+              "variable is the decision the method turns on: if it does not "
+              "distinguish the states that matter, the surface converges and "
+              "describes something that is not the system."),
         Field("plumed", dict, None,
               "Optional PLUMED enhanced-sampling config: a dict with "
               "`enabled` (bool) and `script` (inline PLUMED text or a path "

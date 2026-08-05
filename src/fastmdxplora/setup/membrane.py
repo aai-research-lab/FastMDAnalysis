@@ -242,3 +242,157 @@ def orient_for_membrane(topology: Any, positions: Any) -> Any:
             [Vec3(*(float(v) for v in row)) for row in rotated],
             openmm_unit.nanometer)
     return rotated
+
+
+#: Residues whose side chains sit in the lipid. A membrane-spanning protein
+#: carries a band of these around its middle -- the hydrophobic belt -- and
+#: charged residues at the two interfaces. That contrast is what OPM minimises
+#: transfer energy against, and a coarse version of it is checkable here.
+_HYDROPHOBIC = frozenset({"ALA", "VAL", "LEU", "ILE", "PHE", "MET", "TRP",
+                          "CYS", "PRO"})
+_CHARGED = frozenset({"ASP", "GLU", "LYS", "ARG", "HIS"})
+
+#: How much nearer the middle the hydrophobic residues have to be. Measured
+#: on constructed cases: a bilayer-spanning arrangement gives about 0.4 and
+#: an evenly mixed one gives 1.0. The threshold sits between them with room
+#: on both sides, because a real protein is messier than either.
+_BELT_RATIO = 0.75
+
+
+def check_hydrophobic_belt(topology: Any, positions: Any) -> str | None:
+    """Whether an oriented structure looks like it belongs in a bilayer.
+
+    Rotating by principal axes puts the longest axis along z. That is the
+    right answer for a transmembrane bundle and the wrong one for a protein
+    whose extent has nothing to do with a membrane -- and until now nothing
+    told the two apart, so a wrong rotation proceeded silently.
+
+    A membrane-spanning protein has hydrophobic side chains in a band around
+    its middle and charged ones at the two interfaces. So after orientation,
+    hydrophobic residues should sit nearer the centre in z than charged ones
+    do. Where they do not, either the structure is not a membrane protein or
+    the rotation put it in the wrong frame, and neither is something to
+    continue from.
+
+    This is a coarse test and is meant to be. It is the difference between
+    catching the common failure and catching none of them; it is not a
+    substitute for OPM, which minimises a real transfer energy.
+    """
+    import numpy as np
+
+    import mdtraj as md
+
+    try:
+        from openmm import unit as openmm_unit
+
+        if openmm_unit.is_quantity(positions):
+            positions = positions.value_in_unit(openmm_unit.nanometer)
+    except ImportError:  # pragma: no cover - only without OpenMM
+        pass
+
+    mdtop = md.Topology.from_openmm(topology)
+    coordinates = np.asarray(
+        [[float(p[0]), float(p[1]), float(p[2])] for p in positions],
+        dtype=float)
+
+    def band(residue_names: frozenset) -> np.ndarray | None:
+        atoms = [a.index for a in mdtop.atoms
+                 if a.residue.name.upper() in residue_names
+                 and a.element is not None and a.element.symbol != "H"]
+        if len(atoms) < 10:
+            return None
+        return coordinates[atoms][:, 2]
+
+    hydrophobic = band(_HYDROPHOBIC)
+    charged = band(_CHARGED)
+    if hydrophobic is None or charged is None:
+        # Too few of one kind to compare. Saying nothing is right: a claim
+        # from ten atoms would be a claim from nothing.
+        return None
+
+    centre = float(np.median(np.concatenate([hydrophobic, charged])))
+    hydrophobic_spread = float(np.mean(np.abs(hydrophobic - centre)))
+    charged_spread = float(np.mean(np.abs(charged - centre)))
+
+    if charged_spread <= 0:
+        return None
+    ratio = hydrophobic_spread / charged_spread
+
+    # A margin, not a bare comparison. Measured on constructed cases, a
+    # bilayer-spanning arrangement gives about 0.4 and one with charged and
+    # hydrophobic residues mixed evenly gives 1.0, so the two are far apart --
+    # but `hydrophobic < charged` alone sits on the noise between them and
+    # decides a real question by a rounding difference.
+    if ratio <= _BELT_RATIO:
+        return None
+
+    return (
+        "After orienting, the hydrophobic residues are not gathered near the "
+        f"middle the way a bilayer-spanning protein's are: they sit "
+        f"{hydrophobic_spread:.2f} nm from the centre along z against "
+        f"{charged_spread:.2f} nm for the charged ones, a ratio of "
+        f"{ratio:.2f} where a membrane protein gives well under "
+        f"{_BELT_RATIO}. A protein that "
+        "spans a bilayer has a band of hydrophobic side chains around its "
+        "middle and charged ones at the two interfaces, so this structure "
+        "either is not a membrane protein or has not been put in the frame a "
+        "membrane needs.\n\n"
+        "Rotating by principal axes is right for a transmembrane bundle and "
+        "wrong where a soluble domain dominates the shape, which is the case "
+        "this looks like. The OPM database "
+        "(https://opm.phar.umich.edu) publishes structures oriented against "
+        "a real transfer energy; use one of those, or "
+        "`membrane_orientation_checked: true` to proceed anyway and say so "
+        "in the methods."
+    )
+
+
+def check_axis_is_well_defined(topology: Any, positions: Any) -> str | None:
+    """Whether the structure has a longest axis worth rotating onto.
+
+    A protein that is roughly as long in two directions has no well-defined
+    long axis, and the one the eigenvectors return is chosen by noise. Rotating
+    onto it gives a different answer for the same protein from a different
+    starting frame, which is the kind of irreproducibility that is very hard
+    to notice afterwards.
+    """
+    import numpy as np
+
+    import mdtraj as md
+
+    try:
+        from openmm import unit as openmm_unit
+
+        if openmm_unit.is_quantity(positions):
+            positions = positions.value_in_unit(openmm_unit.nanometer)
+    except ImportError:  # pragma: no cover
+        pass
+
+    mdtop = md.Topology.from_openmm(topology)
+    protein = mdtop.select("protein")
+    if len(protein) < 20:
+        return None
+
+    coordinates = np.asarray(
+        [[float(positions[int(i)][axis]) for axis in range(3)]
+         for i in protein], dtype=float)
+    values = np.linalg.eigvalsh(np.cov((coordinates - coordinates.mean(0)).T))
+    longest, second = float(values[-1]), float(values[-2])
+    if second <= 0:
+        return None
+
+    separation = longest / second
+    if separation >= 1.5:
+        return None
+
+    return (
+        f"The longest axis is only {separation:.2f} times the next one, so "
+        "the structure has no clearly longest direction and the one the "
+        "calculation returns is chosen by noise: the same protein in a "
+        "different starting frame would give a different answer, which is "
+        "hard to notice afterwards.\n\n"
+        "Use an oriented structure from OPM "
+        "(https://opm.phar.umich.edu), or "
+        "`membrane_orientation_checked: true` to proceed with the frame as "
+        "it is."
+    )

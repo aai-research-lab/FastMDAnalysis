@@ -319,6 +319,18 @@ def prepare_system(
                 f"Available: {', '.join(sorted(LIPIDS))}."
             )
 
+        if membrane_orient and not membrane_orientation_checked:
+            # Whether the rotation can be trusted, before doing it. A protein
+            # with no clearly longest axis gets one chosen by noise, and the
+            # same structure in a different starting frame would come out
+            # differently.
+            from fastmdxplora.setup.membrane import check_axis_is_well_defined
+
+            problem = check_axis_is_well_defined(
+                modeller.topology, modeller.positions)
+            if problem:
+                raise ValueError(problem)
+
         if membrane_orient:
             # Asked for rather than done quietly: rotating by principal axes
             # is right for a transmembrane helix or a bundle of them, and
@@ -336,10 +348,26 @@ def prepare_system(
                 "matters use an oriented structure from OPM."
             )
 
-        problem = None if membrane_orientation_checked else check_orientation(
-            modeller.topology, modeller.positions)
-        if problem:
-            raise ValueError(problem)
+        if not membrane_orientation_checked:
+            problem = check_orientation(modeller.topology, modeller.positions)
+            if problem:
+                raise ValueError(problem)
+
+            # And whether what came out looks like a membrane protein at all.
+            # Rotating by principal axes is right for a transmembrane bundle
+            # and wrong where a soluble domain dominates the shape; until this
+            # check existed, the wrong case proceeded silently.
+            from fastmdxplora.setup.membrane import check_hydrophobic_belt
+
+            problem = check_hydrophobic_belt(
+                modeller.topology, modeller.positions)
+            if problem:
+                raise ValueError(problem)
+            logger.info(
+                "Hydrophobic belt check passed: the hydrophobic residues sit "
+                "nearer the middle than the charged ones, as a bilayer-"
+                "spanning protein's do."
+            )
 
         modeller.addMembrane(
             ff,

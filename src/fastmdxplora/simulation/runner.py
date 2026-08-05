@@ -725,6 +725,7 @@ def run_simulation(
     restrain: Any = None,
     restraint_release: Any = None,
     restrain_production: bool = False,
+    metadynamics: dict[str, Any] | None = None,
 ) -> SimulationResult:
     """Run minimize → NVT → NPT → production and return paths to outputs.
 
@@ -837,6 +838,33 @@ def run_simulation(
         for parameter in restraint_parameters:
             simulation.context.setParameter(parameter, strength)
         return strength
+
+    if metadynamics:
+        # A named collective variable becomes PLUMED input, which the existing
+        # integration then runs. Written to the output directory rather than
+        # kept in memory: it decides what the run measures, and somebody
+        # checking a result should be able to read it.
+        from fastmdxplora.simulation.metadynamics import (
+            build_plumed_script,
+            plan_from_config,
+        )
+
+        plan = plan_from_config(
+            metadynamics, topology, temperature_K=temperature_K)
+        script = build_plumed_script(
+            plan, reference_pdb=str(topology_path)
+            if plan.collective_variable == "ligand_rmsd" else None)
+        script_path = Path(output_dir) / "metadynamics.plumed"
+        script_path.parent.mkdir(parents=True, exist_ok=True)
+        script_path.write_text(script, encoding="utf-8")
+        logger.info(
+            "Metadynamics biasing %s. %s",
+            plan.collective_variable,
+            "Well-tempered." if plan.bias_factor > 1 else
+            "Not well-tempered: the bias will not settle and the surface "
+            "will not converge.",
+        )
+        plumed = {"enabled": True, "script": str(script_path)}
 
     # PLUMED biasing (if enabled) is added just before the production stage,
     # not here — equilibration runs unbiased, matching standard enhanced-

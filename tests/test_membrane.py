@@ -383,3 +383,119 @@ class TestItHandlesWhatThePipelineActuallyPasses:
 
         topology, positions = self._sideways_with_units()
         assert check_orientation(topology, positions) is not None
+
+
+class TestWhetherTheRotationCanBeTrusted:
+    """`membrane_orient` rotated and proceeded regardless: the warning about
+    soluble domains was a log line, not a check.
+
+    So a protein whose shape has nothing to do with a membrane got rotated
+    onto an arbitrary axis and the run continued, which is the failure this
+    software exists to remove.
+    """
+
+    @staticmethod
+    def _helix(pattern, spherical=False):
+        import mdtraj as md
+        import numpy as np
+
+        top = md.Topology()
+        chain = top.add_chain()
+        points = []
+        rng = np.random.RandomState(0)
+        for index, name in enumerate(pattern):
+            residue = top.add_residue(name, chain, resSeq=index + 1)
+            for atom in ("N", "CA", "C", "CB"):
+                top.add_atom(atom, md.element.carbon, residue)
+                base = (rng.normal(scale=0.4, size=3) if spherical
+                        else np.array([0.0, 0.0,
+                                       (index - len(pattern) / 2) * 0.15]))
+                points.append(base + rng.normal(scale=0.05, size=3))
+        return top.to_openmm(), np.array(points)
+
+    #: Charged at the ends, hydrophobic through the middle: a bilayer-spanning
+    #: arrangement.
+    MEMBRANE_LIKE = (["LYS", "ASP"] * 3 + ["LEU", "ILE", "VAL", "PHE"] * 6
+                     + ["ARG", "GLU"] * 3)
+    #: Charged and hydrophobic mixed evenly: a soluble one.
+    SOLUBLE_LIKE = ["LYS", "LEU", "ASP", "ILE", "ARG", "VAL"] * 5
+
+    def test_a_bilayer_spanning_arrangement_passes(self) -> None:
+        pytest.importorskip("openmm", reason="requires the [md] extra")
+
+        from fastmdxplora.setup.membrane import check_hydrophobic_belt
+
+        topology, positions = self._helix(self.MEMBRANE_LIKE)
+        assert check_hydrophobic_belt(topology, positions) is None
+
+    def test_a_soluble_arrangement_is_refused(self) -> None:
+        """It has no hydrophobic belt, so it does not belong in a bilayer
+        however it is rotated."""
+        pytest.importorskip("openmm", reason="requires the [md] extra")
+
+        from fastmdxplora.setup.membrane import check_hydrophobic_belt
+
+        topology, positions = self._helix(self.SOLUBLE_LIKE)
+        problem = check_hydrophobic_belt(topology, positions)
+        assert problem is not None
+        assert "hydrophobic" in problem
+        assert "opm.phar.umich.edu" in problem
+
+    def test_the_threshold_has_room_on_both_sides(self) -> None:
+        """A bare comparison sat on the noise between the two cases and would
+        have decided a real question by a rounding difference. Measured, the
+        arrangements give about 0.4 and 1.0."""
+        from fastmdxplora.setup.membrane import _BELT_RATIO
+
+        assert 0.5 < _BELT_RATIO < 0.95
+
+    def test_a_shape_with_no_longest_axis_is_refused(self) -> None:
+        """The axis the calculation returns is then chosen by noise, and the
+        same protein in a different starting frame would give a different
+        answer."""
+        pytest.importorskip("openmm", reason="requires the [md] extra")
+
+        from fastmdxplora.setup.membrane import check_axis_is_well_defined
+
+        topology, positions = self._helix(self.MEMBRANE_LIKE, spherical=True)
+        problem = check_axis_is_well_defined(topology, positions)
+        assert problem is not None
+        assert "chosen by noise" in problem
+
+    def test_an_elongated_shape_is_not(self) -> None:
+        pytest.importorskip("openmm", reason="requires the [md] extra")
+
+        from fastmdxplora.setup.membrane import check_axis_is_well_defined
+
+        topology, positions = self._helix(self.MEMBRANE_LIKE)
+        assert check_axis_is_well_defined(topology, positions) is None
+
+    def test_too_few_residues_to_judge_says_nothing(self) -> None:
+        """A claim from ten atoms would be a claim from nothing."""
+        pytest.importorskip("openmm", reason="requires the [md] extra")
+
+        import numpy as np
+
+        from fastmdxplora.setup.membrane import check_hydrophobic_belt
+
+        topology, positions = self._helix(["LEU", "LYS"])
+        assert check_hydrophobic_belt(topology, positions) is None
+
+    def test_both_checks_run_in_the_setup_phase(self) -> None:
+        import inspect
+
+        from fastmdxplora.setup import prepare
+
+        source = inspect.getsource(prepare.prepare_system)
+        assert "check_axis_is_well_defined" in source
+        assert "check_hydrophobic_belt" in source
+
+    def test_and_can_be_overridden_deliberately(self) -> None:
+        """Somebody who knows their structure should not be blocked by a
+        coarse test -- but has to say so."""
+        import inspect
+
+        from fastmdxplora.setup import prepare
+
+        source = inspect.getsource(prepare.prepare_system)
+        assert "if membrane_orient and not membrane_orientation_checked" in source
