@@ -31,7 +31,24 @@ __all__ = [
     "hydrophobic_atoms",
     "protein_charged_groups",
     "ligand_charged_groups",
+    "pi_stacking",
+    "pi_cation",
+    "protein_aromatic_rings",
+    "ligand_aromatic_rings",
 ]
+
+
+#: Aromatic side chains, by the atoms of each ring. Known, like the charges:
+#: a phenylalanine's ring is a phenylalanine's ring. Tryptophan has two, fused,
+#: and they are kept apart because a stacking partner sits over one or the
+#: other and the centre of the pair is over neither.
+_AROMATIC_RINGS = {
+    "PHE": (("CG", "CD1", "CD2", "CE1", "CE2", "CZ"),),
+    "TYR": (("CG", "CD1", "CD2", "CE1", "CE2", "CZ"),),
+    "HIS": (("CG", "ND1", "CD2", "CE1", "NE2"),),
+    "TRP": (("CG", "CD1", "CD2", "NE1", "CE2"),
+            ("CD2", "CE2", "CE3", "CZ2", "CZ3", "CH2")),
+}
 
 
 #: Charged side chains, by the atoms that carry the charge. Known rather than
@@ -445,5 +462,207 @@ def salt_bridges(
                 ligand_atom=int(ligand_groups[first][0]),
                 protein_atom=int(protein_groups[second][0]),
                 distance_nm=float(separations[frame, first, second]),
+            ))
+    return found
+
+
+def protein_aromatic_rings(
+    topology: Any, atom_indices: Any
+) -> list[list[int]]:
+    """Aromatic rings in the protein, from the residues that have them."""
+    wanted = set(int(i) for i in atom_indices)
+    rings: list[list[int]] = []
+    for residue in topology.residues:
+        for names in _AROMATIC_RINGS.get(residue.name, ()):
+            found = {a.name: a.index for a in residue.atoms if a.index in wanted}
+            ring = [found[n] for n in names if n in found]
+            # A ring missing an atom has no well-defined plane, and fitting one
+            # to what is left would put the normal somewhere the ring is not.
+            if len(ring) == len(names):
+                rings.append(ring)
+    return rings
+
+
+def ligand_aromatic_rings(chemistry: Any, atom_indices: Any) -> list[list[int]]:
+    """Aromatic rings in the ligand, from its resolved chemistry.
+
+    Aromaticity is a chemical fact rather than a geometric one -- a flat ring
+    of carbons is not necessarily aromatic -- so it comes from the chemistry,
+    which is why that has to be resolved first.
+    """
+    order = list(int(i) for i in atom_indices)
+    mol = chemistry.mol
+    rings: list[list[int]] = []
+    for ring in mol.GetRingInfo().AtomRings():
+        if all(mol.GetAtomWithIdx(i).GetIsAromatic() for i in ring):
+            mapped = [order[i] for i in ring if i < len(order)]
+            if len(mapped) == len(ring):
+                rings.append(mapped)
+    return rings
+
+
+def _ring_geometry(traj: Any, rings: Any) -> tuple[np.ndarray, np.ndarray]:
+    """Each ring's centre and the unit normal to its plane, per frame."""
+    if not rings:
+        empty = np.zeros((traj.n_frames, 0, 3))
+        return empty, empty
+    centres, normals = [], []
+    for ring in rings:
+        points = traj.xyz[:, np.array(ring), :]
+        centre = points.mean(axis=1)
+        # The plane is fitted rather than taken from three atoms: a ring puckers,
+        # and three atoms of a puckered ring give a normal that swings with
+        # whichever three were chosen.
+        centred = points - centre[:, None, :]
+        _u, _s, vh = np.linalg.svd(centred, full_matrices=False)
+        normal = vh[:, 2, :]
+        normals.append(normal / np.linalg.norm(normal, axis=-1, keepdims=True))
+        centres.append(centre)
+    return np.stack(centres, axis=1), np.stack(normals, axis=1)
+
+
+def _plane_angle(first: np.ndarray, second: np.ndarray) -> np.ndarray:
+    """Angle between two planes, in degrees, folded into 0-90.
+
+    A normal has no preferred direction, so 170 degrees between normals is the
+    same arrangement as 10. Folding keeps parallel at 0 and perpendicular at 90
+    whichever way the normals happen to point.
+    """
+    cosine = np.abs(np.einsum("...i,...i->...", first, second)).clip(0.0, 1.0)
+    return np.rad2deg(np.arccos(cosine))
+
+
+def _offsets(
+    centres_a: np.ndarray, centres_b: np.ndarray, normals_a: np.ndarray
+) -> np.ndarray:
+    """How far one ring centre sits from the other's axis.
+
+    Two rings can be the right distance apart and side by side rather than
+    stacked. The offset is what tells those apart: it is the distance from one
+    centre to the line through the other along its normal.
+    """
+    between = centres_b[:, None, :, :] - centres_a[:, :, None, :]
+    along = np.einsum("...i,...i->...", between, normals_a[:, :, None, :])
+    perpendicular = between - along[..., None] * normals_a[:, :, None, :]
+    return np.linalg.norm(perpendicular, axis=-1)
+
+
+def pi_stacking(
+    traj: Any,
+    chemistry: Any,
+    ligand_indices: Any,
+    protein_indices: Any,
+    *,
+    distance_nm: float = 0.55,
+    angle_tolerance_deg: float = 30.0,
+    offset_nm: float = 0.20,
+) -> list[Contact]:
+    """Aromatic rings stacked on each other, in every frame.
+
+    PLIP's criterion: ring centres within 5.5 A, the angle between the planes
+    within 30 degrees of parallel or of perpendicular, and the offset between
+    the centres below 2.0 A -- about the radius of benzene plus a little.
+
+    Both arrangements are reported and named. Parallel stacking and the
+    T-shaped, edge-to-face arrangement are different interactions with
+    different geometries, and a ligand that stacks one way and not the other is
+    telling you something about the pocket.
+    """
+    ligand_rings = ligand_aromatic_rings(chemistry, ligand_indices)
+    protein_rings = protein_aromatic_rings(traj.topology, protein_indices)
+    if not ligand_rings or not protein_rings:
+        return []
+
+    lig_centres, lig_normals = _ring_geometry(traj, ligand_rings)
+    pro_centres, pro_normals = _ring_geometry(traj, protein_rings)
+
+    separations = np.linalg.norm(
+        lig_centres[:, :, None, :] - pro_centres[:, None, :, :], axis=-1)
+    angles = _plane_angle(lig_normals[:, :, None, :], pro_normals[:, None, :, :])
+    # Measured from both rings: side by side looks stacked from one of them
+    # only when the other is ignored.
+    offset = np.minimum(_offsets(lig_centres, pro_centres, lig_normals),
+                        _offsets(pro_centres, lig_centres, pro_normals)
+                        .transpose(0, 2, 1))
+
+    parallel = angles < angle_tolerance_deg
+    perpendicular = angles > (90.0 - angle_tolerance_deg)
+    close = (separations < distance_nm) & (offset < offset_nm)
+
+    found: list[Contact] = []
+    for arrangement, mask in (("face_to_face", parallel), ("edge_to_face", perpendicular)):
+        for frame, first, second in zip(*np.where(close & mask)):
+            found.append(Contact(
+                kind=f"pi_stacking_{arrangement}",
+                frame=int(frame),
+                ligand_atom=int(ligand_rings[first][0]),
+                protein_atom=int(protein_rings[second][0]),
+                distance_nm=float(separations[frame, first, second]),
+                angle_deg=float(angles[frame, first, second]),
+            ))
+    return found
+
+
+def pi_cation(
+    traj: Any,
+    chemistry: Any,
+    ligand_indices: Any,
+    protein_indices: Any,
+    *,
+    distance_nm: float = 0.60,
+    offset_nm: float = 0.20,
+    allow_ambiguous_charge: bool = False,
+) -> list[Contact]:
+    """A positive charge sitting over an aromatic ring, in every frame.
+
+    PLIP's criterion: the charge within 6.0 A of the ring centre, and the
+    offset from the ring's axis below 2.0 A. The offset matters more here than
+    the distance: a cation beside a ring at 5 A is not interacting with its
+    face, and distance alone cannot tell the two apart.
+
+    Refuses on an undetermined ligand charge for the same reason a salt bridge
+    does -- it is a claim about charge.
+    """
+    if getattr(chemistry, "charge_was_ambiguous", False) and not allow_ambiguous_charge:
+        raise ValueError(
+            f"The net charge of {chemistry.resname!r} was not determined -- "
+            f"{chemistry.detail}. A pi-cation interaction is a claim about "
+            "charge. State the ligand's net charge, or supply its chemistry "
+            "as an SDF."
+        )
+
+    ligand_positive, _ligand_negative = ligand_charged_groups(
+        chemistry, ligand_indices)
+    protein_positive, _protein_negative = protein_charged_groups(
+        traj.topology, protein_indices)
+    ligand_rings = ligand_aromatic_rings(chemistry, ligand_indices)
+    protein_rings = protein_aromatic_rings(traj.topology, protein_indices)
+
+    found: list[Contact] = []
+    for cations, rings, cation_is_ligand in (
+        (ligand_positive, protein_rings, True),
+        (protein_positive, ligand_rings, False),
+    ):
+        if not cations or not rings:
+            continue
+        charge_centres = _group_centres(traj, cations)
+        ring_centres, ring_normals = _ring_geometry(traj, rings)
+        separations = np.linalg.norm(
+            charge_centres[:, :, None, :] - ring_centres[:, None, :, :], axis=-1)
+        offset = _offsets(ring_centres, charge_centres, ring_normals).transpose(0, 2, 1)
+
+        for frame, cation, ring in zip(
+            *np.where((separations < distance_nm) & (offset < offset_nm))
+        ):
+            ligand_atom = (cations[cation][0] if cation_is_ligand
+                           else rings[ring][0])
+            protein_atom = (rings[ring][0] if cation_is_ligand
+                            else cations[cation][0])
+            found.append(Contact(
+                kind="pi_cation",
+                frame=int(frame),
+                ligand_atom=int(ligand_atom),
+                protein_atom=int(protein_atom),
+                distance_nm=float(separations[frame, cation, ring]),
             ))
     return found

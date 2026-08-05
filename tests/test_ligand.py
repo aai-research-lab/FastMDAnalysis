@@ -321,6 +321,17 @@ class TestHowTheLigandsChemistryWasKnown:
     moves a hydrogen and invents or destroys a hydrogen bond.
     """
 
+    @pytest.fixture(autouse=True)
+    def _needs_rdkit(self):
+        """A ligand's chemistry needs RDKit, which is the [ligand] extra.
+
+        What is being tested is chemistry -- bond orders, aromaticity, formal
+        charge -- so there is nothing useful to assert without it. A mock
+        would only check that the mock was called.
+        """
+        pytest.importorskip("rdkit", reason="requires the [ligand] extra")
+
+
     @staticmethod
     def _ligand(smiles):
         import numpy as np

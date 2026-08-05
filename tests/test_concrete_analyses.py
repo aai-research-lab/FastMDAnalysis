@@ -1427,6 +1427,17 @@ class TestSaltBridgesAreAClaimAboutCharge:
     and invent the bridge it was meant to detect.
     """
 
+    @pytest.fixture(autouse=True)
+    def _needs_rdkit(self):
+        """A ligand's chemistry needs RDKit, which is the [ligand] extra.
+
+        What is being tested is chemistry -- bond orders, aromaticity, formal
+        charge -- so there is nothing useful to assert without it. A mock
+        would only check that the mock was called.
+        """
+        pytest.importorskip("rdkit", reason="requires the [ligand] extra")
+
+
     @staticmethod
     def _ligand(smiles, charge):
         from rdkit import Chem
@@ -1550,3 +1561,138 @@ class TestSaltBridgesAreAClaimAboutCharge:
             top.add_atom(name, element, his)
         positive, _negative = protein_charged_groups(top, range(top.n_atoms))
         assert positive == []
+
+
+class TestRingsStackedOnRings:
+    """Two rings can be the right distance apart and side by side rather than
+    stacked. Distance alone cannot tell those apart, which is why the offset
+    from the ring's axis is part of the criterion and not a refinement of it.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _needs_rdkit(self):
+        """A ligand's chemistry needs RDKit, which is the [ligand] extra.
+
+        What is being tested is chemistry -- bond orders, aromaticity, formal
+        charge -- so there is nothing useful to assert without it. A mock
+        would only check that the mock was called.
+        """
+        pytest.importorskip("rdkit", reason="requires the [ligand] extra")
+
+
+    @staticmethod
+    def _rings(separation_nm, tilt_deg, sideways_nm=0.0):
+        """A benzene placed exactly over a phenylalanine ring."""
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        from fastmdxplora.analysis.ligand_chemistry import resolve_ligand_chemistry
+
+        top = md.Topology()
+        chain = top.add_chain()
+        phe = top.add_residue("PHE", chain, resSeq=1)
+        for name in ("CG", "CD1", "CD2", "CE1", "CE2", "CZ"):
+            top.add_atom(name, md.element.carbon, phe)
+
+        ligand_chain = top.add_chain()
+        ligand = top.add_residue("LIG", ligand_chain, resSeq=900)
+        benzene = Chem.AddHs(Chem.MolFromSmiles("c1ccccc1"))
+        AllChem.EmbedMolecule(benzene, randomSeed=1)
+        elements = {"C": md.element.carbon, "H": md.element.hydrogen}
+        for index, atom in enumerate(benzene.GetAtoms()):
+            top.add_atom(f"{atom.GetSymbol()}{index}",
+                         elements[atom.GetSymbol()], ligand)
+
+        angles = np.linspace(0, 2 * np.pi, 6, endpoint=False)
+        protein_xyz = np.column_stack(
+            [0.14 * np.cos(angles), 0.14 * np.sin(angles), np.zeros(6)])
+        conf = benzene.GetConformer()
+        ligand_xyz = np.array(
+            [list(conf.GetAtomPosition(i)) for i in range(benzene.GetNumAtoms())]
+        ) / 10.0
+        ligand_xyz -= ligand_xyz.mean(axis=0)
+        tilt = np.deg2rad(tilt_deg)
+        rotation = np.array([[1, 0, 0],
+                             [0, np.cos(tilt), -np.sin(tilt)],
+                             [0, np.sin(tilt), np.cos(tilt)]])
+        ligand_xyz = ligand_xyz @ rotation.T + np.array(
+            [sideways_nm, 0, separation_nm])
+
+        traj = md.Trajectory(
+            xyz=np.vstack([protein_xyz, ligand_xyz])[None].astype(np.float32),
+            topology=top)
+        ligand_idx = list(range(6, top.n_atoms))
+        chemistry = resolve_ligand_chemistry(
+            traj, "LIG", ligand_idx, net_charge=0, allow_fetch=False)
+        return traj, chemistry, ligand_idx, list(range(6))
+
+    def test_stacked_rings_are_face_to_face(self) -> None:
+        from fastmdxplora.analysis.interactions import pi_stacking
+
+        traj, chemistry, ligand, protein = self._rings(0.38, 0)
+        found = pi_stacking(traj, chemistry, ligand, protein)
+        assert [c.kind for c in found] == ["pi_stacking_face_to_face"]
+
+    def test_a_perpendicular_ring_is_edge_to_face(self) -> None:
+        """A different interaction with a different geometry, and a ligand
+        that stacks one way and not the other says something about the
+        pocket."""
+        from fastmdxplora.analysis.interactions import pi_stacking
+
+        traj, chemistry, ligand, protein = self._rings(0.50, 90)
+        found = pi_stacking(traj, chemistry, ligand, protein)
+        assert [c.kind for c in found] == ["pi_stacking_edge_to_face"]
+
+    def test_rings_side_by_side_are_not_stacked(self) -> None:
+        """At stacking distance but off the axis. This is what the offset test
+        is for, and distance alone would call it a stack."""
+        from fastmdxplora.analysis.interactions import pi_stacking
+
+        traj, chemistry, ligand, protein = self._rings(0.38, 0, sideways_nm=0.40)
+        assert pi_stacking(traj, chemistry, ligand, protein) == []
+
+    def test_rings_too_far_apart_are_not_stacked(self) -> None:
+        from fastmdxplora.analysis.interactions import pi_stacking
+
+        traj, chemistry, ligand, protein = self._rings(0.70, 0)
+        assert pi_stacking(traj, chemistry, ligand, protein) == []
+
+    def test_a_tryptophan_offers_both_of_its_rings(self) -> None:
+        """Fused, but a partner sits over one or the other and the centre of
+        the pair is over neither."""
+        from fastmdxplora.analysis.interactions import protein_aromatic_rings
+
+        top = md.Topology()
+        chain = top.add_chain()
+        trp = top.add_residue("TRP", chain, resSeq=1)
+        for name in ("CG", "CD1", "CD2", "NE1", "CE2", "CE3", "CZ2", "CZ3", "CH2"):
+            element = md.element.nitrogen if name.startswith("N") else md.element.carbon
+            top.add_atom(name, element, trp)
+        rings = protein_aromatic_rings(top, range(top.n_atoms))
+        assert len(rings) == 2
+        assert sorted(len(r) for r in rings) == [5, 6]
+
+    def test_a_ring_missing_an_atom_is_left_out(self) -> None:
+        """It has no well-defined plane, and fitting one to what is left puts
+        the normal somewhere the ring is not."""
+        from fastmdxplora.analysis.interactions import protein_aromatic_rings
+
+        top = md.Topology()
+        chain = top.add_chain()
+        phe = top.add_residue("PHE", chain, resSeq=1)
+        for name in ("CG", "CD1", "CD2", "CE1"):        # two atoms short
+            top.add_atom(name, md.element.carbon, phe)
+        assert protein_aromatic_rings(top, range(top.n_atoms)) == []
+
+    def test_a_pi_cation_needs_a_charge_that_was_determined(self) -> None:
+        import pytest
+
+        from fastmdxplora.analysis.interactions import pi_cation
+        from fastmdxplora.analysis.ligand_chemistry import resolve_ligand_chemistry
+
+        traj, _chemistry, ligand, protein = self._rings(0.38, 0)
+        guessed = resolve_ligand_chemistry(traj, "LIG", ligand, allow_fetch=False)
+        if not guessed.charge_was_ambiguous:
+            pytest.skip("benzene's charge is unambiguous, as it should be")
+        with pytest.raises(ValueError, match="claim about charge"):
+            pi_cation(traj, guessed, ligand, protein)
