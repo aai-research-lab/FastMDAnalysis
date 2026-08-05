@@ -169,7 +169,7 @@ files and output directories on the WSL filesystem for better I/O performance.
 ## Optional extras
 
 ```bash
-pip install "fastmdxplora[ligand]"   # OpenFF small-molecule parameterization
+pip install "fastmdxplora[ligand]"   # part of small-molecule parameterization
 pip install "fastmdxplora[pdf]"      # the report as a PDF as well as Markdown
 pip install "fastmdxplora[plumed]"   # PLUMED enhanced sampling
 pip install "fastmdxplora[test]"     # pytest, pytest-cov
@@ -253,6 +253,21 @@ builds for them.
 - [CLI reference](cli_reference.md) for the complete flag list
 - [Configuration files](configuration.md) for YAML-driven studies
 - [Live dashboard](gui.md) to watch a run in progress
+
+## The ligand path from PyPI
+
+`fastmdxplora[ligand]` installs what pip can reach: `openmmforcefields`,
+`rdkit` and `propka`. It cannot install the OpenFF toolkit, which has no PyPI
+distribution — it is published through conda-forge only. Naming it in the
+extra did not make it reachable; it made `pip install "fastmdxplora[ligand]"`
+fail outright, so it is not named there.
+
+```bash
+conda install -c conda-forge openff-toolkit openmmforcefields
+```
+
+Or install FastMDXplora itself from conda-forge, which brings the whole ligand
+path with it — one install command is what that distribution is for.
 
 ## The PDF report
 

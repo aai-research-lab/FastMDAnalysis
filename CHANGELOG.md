@@ -7,6 +7,23 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [Unreleased]
+
+### Fixed
+- **`pip install "fastmdxplora[ligand]"` could not succeed.** The extra named
+  `openff-toolkit`, which has no PyPI distribution at all, so pip failed to
+  resolve the whole command rather than installing what it could reach. The
+  toolkit is out of the extra and named where it can be had: the conda recipe,
+  and the error raised at the point of use. A command that cannot work is
+  worse than one that installs part of the answer and says what is left.
+
+- **The `fastmdx` alias carried the previous version.** Its version is written
+  in a file where the main package takes its own from the git tag, and a
+  hand-written version beside a derived one drifts. The release workflow
+  refused the tag, which is a check that fires too late to be comfortable, so
+  the ordinary test run now checks it against the changelog -- the thing a
+  release is cut from.
+
 ## [2.3.0] — 2026-08-05
 
 This release is about knowing how far to trust a number.

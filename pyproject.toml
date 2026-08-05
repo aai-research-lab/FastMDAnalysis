@@ -71,7 +71,15 @@ md = [
     "openmm>=8.0",
 ]
 ligand = [
-    "openff-toolkit>=0.16",
+    # openff-toolkit is deliberately absent, and this extra is smaller than
+    # the ligand path needs because of it: the toolkit has no PyPI
+    # distribution at all, so naming it here made `pip install
+    # "fastmdxplora[ligand]"` fail outright rather than install what pip can.
+    # A command that cannot succeed is worse than one that installs part of
+    # the answer and says what is left.
+    #
+    # The conda-forge package carries the whole path, which is what that
+    # distribution is for. See the installation guide.
     "openmmforcefields>=0.12",
     # Used directly to read chemical definitions and detect ionizable groups.
     # It arrives with openff-toolkit in practice, but the dependency is real

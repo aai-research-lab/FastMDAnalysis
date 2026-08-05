@@ -60,13 +60,25 @@ pipeline:
 ```bash
 pip install fastmdxplora            # analysis and reporting
 pip install "fastmdxplora[md]"      # adds setup and simulation
-pip install "fastmdxplora[ligand]"  # adds protein-ligand preparation
+pip install "fastmdxplora[ligand]"  # adds most of protein-ligand preparation
 pip install "fastmdxplora[pdf]"     # adds the PDF report
 ```
 
-The `pdf` extra needs Pango and Cairo present as system libraries, which the
-conda-forge package brings with it and PyPI does not. Where they are missing
-the run says so and writes the other formats rather than failing.
+Two of those are partial from PyPI, which is why conda-forge is the
+recommendation rather than a preference.
+
+The **ligand** path also needs the OpenFF toolkit, which has no PyPI
+distribution at all — it is a conda-forge package, so no pip command reaches
+it:
+
+```bash
+conda install -c conda-forge openff-toolkit openmmforcefields
+```
+
+The **pdf** extra needs Pango and Cairo present as system libraries. The
+conda-forge package brings its own; from PyPI they have to be installed
+separately. Where they are missing the run says so and writes the other
+formats rather than failing.
 
 Run `fastmdx info` afterwards to see which backends were found.
 

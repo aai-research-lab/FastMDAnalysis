@@ -68,9 +68,13 @@ def _import_openff() -> Any:
     except ImportError as exc:  # pragma: no cover - exercised on hosts w/o openff
         raise LigandError(
             "Ligand parameterization needs the OpenFF toolkit, which is not "
-            "installed. Install the ligand extra (pip install "
-            "'fastmdxplora[ligand]') or via conda-forge "
-            "(conda install -c conda-forge openff-toolkit openmmforcefields)."
+            "installed and is not on PyPI: it is distributed through "
+            "conda-forge only, so pip cannot fetch it whatever extra is "
+            "named.\n\n"
+            "    conda install -c conda-forge openff-toolkit "
+            "openmmforcefields\n\n"
+            "Or install FastMDXplora itself from conda-forge, which brings "
+            "the whole ligand path with it."
         ) from exc
     return Molecule
 
