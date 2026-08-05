@@ -82,6 +82,13 @@ def _strip_ansi(s: str) -> str:
     return "".join(out)
 
 
+#: Whether the banner draws a frame. Kept as a name rather than deleted
+#: outright so the intent is visible: the values are the point, the border was
+#: decoration, and decoration on the loudest element of the output competes
+#: with the run it is describing.
+_BOXED = False
+
+
 def _visual_width(s: str) -> int:
     """Approximate displayed width (strip ANSI; count chars 1-wide).
 
@@ -609,15 +616,14 @@ class SessionPresenter:
                 return text[:available]
             return text[: max(0, available - 3)] + "..."
 
+        # No border. A box around the settings made the banner the loudest
+        # thing on the screen, and it is the least important: what a reader
+        # wants from it is the handful of values, not a frame around them.
         def top(color: str) -> None:
-            self._write(
-                box_prefix + self._c(TL + H * (box_width - 2) + TR, color)
-            )
+            return
 
         def bottom(color: str) -> None:
-            self._write(
-                box_prefix + self._c(BL + H * (box_width - 2) + BR, color)
-            )
+            return
 
         def line(
             text: str = "",
@@ -627,6 +633,9 @@ class SessionPresenter:
             raw = fit(text)
             pad = " " * max(0, content_w - _visual_width(raw))
             body = self._c(raw, text_color) if text_color else raw
+            if not _BOXED:
+                self._write((box_prefix + "  " + body).rstrip())
+                return
             self._write(
                 box_prefix
                 + self._c(V, border)
@@ -655,6 +664,15 @@ class SessionPresenter:
             value_raw = fit(value, value_limit)
             visible = _visual_width(label_raw) + 1 + _visual_width(value_raw)
             pad = " " * max(0, content_w - visible)
+            if not _BOXED:
+                self._write(
+                    box_prefix
+                    + "  "
+                    + self._c(label_raw, label_color or border)
+                    + " "
+                    + self._c(value_raw, value_color)
+                )
+                return
             self._write(
                 box_prefix
                 + self._c(V, border)
@@ -678,7 +696,6 @@ class SessionPresenter:
         )
 
         top("green")
-        title("MD EXPLORATION", "green")
         kv("System", system, "green")
         kv("Output", output, "green")
         kv("Version", version, "green")
@@ -711,29 +728,23 @@ class SessionPresenter:
             kv("Friction", f"{friction} / ps", "orange")
             kv("DCD Frames", trajectory_display, "orange")
 
-        # Analysis and report information uses a blue frame, cyan labels,
-        # and white values. The box itself shares the same centered layout as
-        # every other run-information section; its contents remain left-aligned.
-        section("ANALYSIS & REPORT", "blue")
-        # Only list the GUI when one was actually requested for this run.
-        # Printing the address unconditionally sent users to a refused
-        # connection, since `explore` does not start a server on its own.
+        # The report's title was listed here, which announced the name of a
+        # document that did not exist yet and said nothing about the run. A
+        # section with nothing to say is left out rather than printed empty.
         if dashboard_enabled and dashboard_link:
+            section("ANALYSIS", "blue")
+            # Only when a browser was actually asked for: printing the address
+            # unconditionally sent people to a refused connection, since
+            # `explore` does not start a server on its own.
             kv(
                 "GUI",
                 dashboard_link,
                 "blue",
                 label_color="cyan",
             )
-        kv(
-            "Report",
-            report_title,
-            "blue",
-            label_color="cyan",
-        )
 
         # Use green here to balance the cyan, orange, and blue sections above.
-        section("REPORTING & OUTPUTS", "green")
+        section("REPORT", "green")
         line(
             f"{CHECK} Markdown report      {CHECK} HTML summary        {CHECK} PDF figures",
             "green",

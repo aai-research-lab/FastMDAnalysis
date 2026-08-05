@@ -640,8 +640,12 @@ def run(
             temperature_K=float(params["temperature_K"]),
         )
 
+        # Only the files. What preparation returns now includes the system
+        # size, which the manifest wants and this loop does not: it lists
+        # artifacts, and a number is not one.
         for _key, path in produced.items():
-            artifacts.append(path.relative_to(setup_dir).as_posix())
+            if isinstance(path, (str, Path)):
+                artifacts.append(Path(path).relative_to(setup_dir).as_posix())
         if presenter:
             if params["force_field"]:
                 ff_label = ", ".join(params["force_field"])
@@ -666,7 +670,8 @@ def run(
         return artifacts
 
     # ---- Stage 4: Manifest --------------------------------------------
-    _write_manifest(setup_dir, orchestrator, input_form, params, artifacts, notes)
+    _write_manifest(setup_dir, orchestrator, input_form, params, artifacts, notes,
+                    n_atoms_solvated=(produced or {}).get("n_atoms_solvated"))
     artifacts.append("setup_parameters.json")
 
     if presenter:
@@ -683,6 +688,7 @@ def _write_manifest(
     params: dict[str, Any],
     artifacts: list[str],
     notes: list[str],
+    n_atoms_solvated: int | None = None,
 ) -> None:
     """Write ``setup_parameters.json`` with the full provenance record."""
     # Record what the force-field selection actually resolved to, so the
@@ -741,6 +747,10 @@ def _write_manifest(
             "form": input_form,
         },
         "parameters": params,
+        # How big the system ended up. A methods section has to state it, and
+        # it was only ever logged -- so the report had to say it was not
+        # recorded, of a number the run had printed to the terminal.
+        "n_atoms_solvated": n_atoms_solvated,
         "resolved_forcefield": resolved_ff,
         "artifacts_planned": canonical,
         "artifacts_written": list(artifacts),

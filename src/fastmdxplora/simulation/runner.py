@@ -86,6 +86,11 @@ class SimulationResult:
     platform_used: str
     n_production_frames: int
     duration_ns_actual: float
+    #: The pressure the constant-pressure stages actually ran at. Settable as
+    #: bar or as atmospheres, and unset means one bar -- so the number the
+    #: barostat used was known only inside the runner, and a methods section
+    #: had to report the pressure of an NPT run as unrecorded.
+    pressure_bar_used: float | None = None
     minimized_state: Path | None = None
 
 
@@ -1096,6 +1101,7 @@ def run_simulation(
         energy_csv=energy_csv,
         log_file=log_path,
         platform_used=platform_name,
+        pressure_bar_used=resolved_pressure_bar,
         n_production_frames=int(n_frames),
         duration_ns_actual=float(duration_ns_actual),
         minimized_state=minimized_state_path if minimize else None,

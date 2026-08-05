@@ -93,16 +93,32 @@ def missing_from_methods(setup: dict[str, Any], sim: dict[str, Any]) -> list[str
 
     Reported rather than glossed. A reviewer will ask; better that the report
     asks first.
+
+    Reads the same flattened view the prose does. Checking the raw manifests
+    while the prose read the resolved ones had the report say "with the tip3p
+    water model" and "does not supply water model" in adjacent paragraphs,
+    which is worse than either alone: a reader cannot tell which to believe.
     """
+    setup = _flatten(setup)
+    sim = _flatten(sim)
+
     gaps = []
     if not setup:
         gaps.append("system preparation (setup did not run, or recorded nothing)")
     if not sim:
         gaps.append("simulation protocol (simulation did not run, or recorded nothing)")
-    if setup and _get(setup, "water_model") is None:
+
+    resolved = setup.get("resolved_forcefield")
+    resolved = resolved if isinstance(resolved, dict) else {}
+    if setup and not (resolved.get("water_model") or _get(setup, "water_model")):
         gaps.append("water model")
+    if setup and _get(setup, "n_atoms_solvated", "solvated_atoms",
+                      "n_atoms", "atom_count") is None:
+        gaps.append("system size after solvation")
     if sim and _get(sim, "integrator") is None:
         gaps.append("integrator")
+    if sim and _get(sim, "pressure_bar_used", "pressure_bar") is None:
+        gaps.append("pressure, for the constant-pressure stages")
     return gaps
 
 
@@ -255,7 +271,9 @@ def methods_paragraphs(
         integrator = _INTEGRATOR_NAMES.get(str(integrator).lower(), integrator)
         temperature = _get(sim, "temperature_K")
         friction = _get(sim, "friction_per_ps")
-        pressure = _get(sim, "pressure_bar", "pressure_atm")
+        # What ran, then what was asked for. Unset means one bar, and the
+        # runner is the only place that knew.
+        pressure = _get(sim, "pressure_bar_used", "pressure_bar")
         barostat_every = _get(sim, "barostat_frequency")
         nvt = _get(sim, "nvt_steps")
         npt = _get(sim, "npt_steps")

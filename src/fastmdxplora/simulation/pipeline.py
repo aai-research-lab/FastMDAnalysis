@@ -235,6 +235,7 @@ def run(
         _write_manifest(
             output_dir, params, artifacts, notes,
             platform_used=result.platform_used,
+            pressure_bar_used=result.pressure_bar_used,
             n_frames=result.n_production_frames,
             duration_ns_actual=result.duration_ns_actual,
         )
@@ -277,6 +278,7 @@ def _write_manifest(
     platform_used: str | None,
     n_frames: int | None = None,
     duration_ns_actual: float | None = None,
+    pressure_bar_used: float | None = None,
 ) -> None:
     """Write ``simulation_parameters.json`` with full provenance."""
     canonical = {
@@ -292,6 +294,10 @@ def _write_manifest(
         "phase": "simulation",
         "parameters": params,
         "platform_used": platform_used,
+        # What the barostat ran at, rather than what was asked for: pressure
+        # can be given in bar or atmospheres and unset means one bar, so the
+        # number used was known only inside the runner.
+        "pressure_bar_used": pressure_bar_used,
         "n_production_frames": n_frames,
         "duration_ns_actual": duration_ns_actual,
         "artifacts_planned": canonical,

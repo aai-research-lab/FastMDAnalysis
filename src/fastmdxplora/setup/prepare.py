@@ -430,6 +430,10 @@ def prepare_system(
         "topology_pdb": topology_pdb,
         "system_xml": system_xml,
         "state_xml": state_xml,
+        # How big the system ended up. A methods section has to state it, and
+        # this was the only place that knew -- it was logged to the terminal
+        # and then discarded, so the report had to call it unrecorded.
+        "n_atoms_solvated": n_atoms_solvated,
     }
 
 

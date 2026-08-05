@@ -54,15 +54,15 @@ class TestHelpers:
 # Banner
 # ===========================================================================
 class TestBanner:
-    def test_emits_box_drawing_characters(self):
+    def test_draws_no_frame(self):
+        """It used to. The values are the point, and a box around them made
+        the least important thing on the screen the loudest."""
         p, buf = _presenter()
         p.banner(System="x.pdb", Output="/tmp/out", Version="0.1.0")
         out = buf.getvalue()
-        assert "╭" in out
-        assert "╮" in out
-        assert "╰" in out
-        assert "╯" in out
-        assert "│" in out
+        for drawing in ("╭", "╮", "╰", "╯", "│"):
+            assert drawing not in out
+        assert "x.pdb" in out and "/tmp/out" in out
 
     def test_includes_all_supplied_fields(self):
         p, buf = _presenter()
@@ -80,11 +80,11 @@ class TestBanner:
         # Empty value not rendered
         assert "Output:" not in _strip_ansi(out)
 
-    def test_title_is_FastMDXplora(self):
+    def test_the_wordmark_names_the_software(self):
         p, buf = _presenter()
         p.banner(System="x.pdb")
         out = _strip_ansi(buf.getvalue())
-        assert "FastMDXplora" in out
+        assert "Molecular   Dynamics" in out
 
 
 # ===========================================================================
@@ -218,7 +218,7 @@ class TestQuietMode:
         buf = io.StringIO()
         p = SessionPresenter(stream=buf, quiet=False, width=80)
         p.banner(System="x.pdb")
-        assert "FastMDXplora" in _strip_ansi(buf.getvalue())
+        assert "Fully" in _strip_ansi(buf.getvalue())
 
 
 # ===========================================================================
@@ -357,11 +357,12 @@ def test_run_summary_lists_the_gui_only_when_one_was_requested(monkeypatch) -> N
     assert "127.0.0.1" in with_gui
 
 
-def test_banner_is_one_left_aligned_box() -> None:
-    """All sections share a single box, aligned with the wordmark.
+def test_banner_is_one_left_aligned_block() -> None:
+    """All sections share one left-aligned block.
 
     Five separate centred boxes drifted to the middle of a wide terminal and
-    read as five unrelated blocks.
+    read as five unrelated blocks; one box fixed that, and then the box itself
+    became the loudest thing on the screen. The alignment is what mattered.
     """
     import io
     import sys
@@ -382,16 +383,19 @@ def test_banner_is_one_left_aligned_box() -> None:
         sys.argv = argv
     text = buffer.getvalue()
 
-    # Exactly one box: one top-left corner and one bottom-left corner.
-    assert text.count(chr(0x256D)) == 1
-    assert text.count(chr(0x2570)) == 1
+    # The banner no longer draws a frame: the values are the point, and a box
+    # around them made the least important thing on the screen the loudest.
+    for drawing in (0x256D, 0x256E, 0x2570, 0x256F, 0x2502):
+        assert chr(drawing) not in text
 
-    # Every box line starts at the same two-space indent as the wordmark.
-    box_lines = [ln for ln in text.splitlines() if chr(0x2502) in ln or chr(0x256D) in ln]
-    assert box_lines
-    assert all(ln.startswith("  ") and not ln.startswith("   ") for ln in box_lines)
+    # But the alignment the box was there to give is kept: every line of the
+    # summary sits at the same indent as the wordmark above it.
+    body = [line for line in text.splitlines()
+            if line.strip() and "\u2588" not in line]
+    assert body
+    assert all(line.startswith("  ") for line in body)
 
-    for heading in ("MD EXPLORATION", "SETUP", "SIMULATION", "REPORTING & OUTPUTS"):
+    for heading in ("SETUP", "SIMULATION", "REPORT"):
         assert heading in text
 
 
@@ -505,7 +509,9 @@ class TestTheBannerDescribesThisRun:
                                system="t.pdb", output="o")
         assert "SIMULATION" not in printed
         assert "SETUP" not in printed
-        assert "ANALYSIS" in printed
+        # And the banner still printed: it announced nothing about phases
+        # that will not run, rather than printing nothing at all.
+        assert "Output" in printed
 
     def test_a_full_run_announces_everything(self, tmp_path) -> None:
         config = self._config(tmp_path, (
@@ -548,7 +554,7 @@ class TestTheBannerDescribesThisRun:
         config = self._config(tmp_path, "include: [analysis\n  broken: [")
         printed = self._banner(["explore", "--config", config],
                                system="t.pdb", output="o")
-        assert "MD EXPLORATION" in printed
+        assert "Output" in printed  # the banner printed at all
 
     def test_a_config_named_with_an_equals_sign_is_found(self, tmp_path) -> None:
         config = self._config(tmp_path, (
@@ -556,3 +562,60 @@ class TestTheBannerDescribesThisRun:
         printed = self._banner([f"--config={config}", "explore"],
                                system="t.pdb", output="o")
         assert "SIMULATION" not in printed
+
+
+class TestTheBannerIsValuesNotDecoration:
+    """A box around the settings made the banner the loudest thing on the
+    screen, and it is the least important: what a reader wants from it is the
+    handful of values, not a frame around them.
+    """
+
+    @staticmethod
+    def _banner(argv=None, **fields):
+        import contextlib
+        import io
+        import sys
+
+        from fastmdxplora.utils.presenter import SessionPresenter
+
+        original = sys.argv
+        sys.argv = ["fastmdx"] + (argv or ["explore", "--system", "1L2Y"])
+        buffer = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buffer):
+                SessionPresenter(stream=buffer).banner(**fields)
+        finally:
+            sys.argv = original
+        return buffer.getvalue()
+
+    def test_there_is_no_frame(self) -> None:
+        printed = self._banner(system="1L2Y", output="runs/x")
+        for drawing in ("╭", "╮", "╰", "╯", "│"):
+            assert drawing not in printed, f"the banner still draws {drawing}"
+
+    def test_the_values_are_still_there(self) -> None:
+        """Removing the frame should remove the frame and nothing else."""
+        printed = self._banner(system="1L2Y", output="runs/x")
+        for value in ("System", "1L2Y", "Output", "runs/x", "SETUP",
+                      "SIMULATION", "Timestep", "Temperature"):
+            assert value in printed, f"the banner lost {value}"
+
+    def test_it_does_not_announce_itself(self) -> None:
+        """The wordmark above it already says what this is."""
+        printed = self._banner(system="1L2Y", output="runs/x")
+        assert "MD EXPLORATION" not in printed
+
+    def test_the_output_section_is_called_report(self) -> None:
+        printed = self._banner(system="1L2Y", output="runs/x")
+        assert "REPORT" in printed
+        assert "REPORTING & OUTPUTS" not in printed
+        assert "ANALYSIS & REPORT" not in printed
+
+    def test_a_section_with_nothing_to_say_is_left_out(self) -> None:
+        """The analysis section listed the report's title, which announced the
+        name of a document that did not exist yet and said nothing about the
+        run. Without it the section is empty, so it is not printed."""
+        printed = self._banner(system="1L2Y", output="runs/x")
+        assert "FastMDXplora Run" not in printed
+        # ANALYSIS appears only when a browser was actually asked for.
+        assert "\n    ANALYSIS\n" not in printed

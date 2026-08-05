@@ -1314,3 +1314,73 @@ class TestTheMethodsSectionReadsTheRealManifests:
         assert "project_root, setup, sim" in call, (
             "passing only `parameters` loses the system and the resolution"
         )
+
+
+class TestWhatTheRunResolvedIsRecorded:
+    """Twice the methods section had to report something as unrecorded that
+    the run plainly knew.
+
+    The solvated atom count was printed to the terminal and discarded. The
+    pressure the barostat ran at was resolved inside the runner -- it can be
+    given in bar or atmospheres, and unset means one bar -- and never left it.
+    Both are on the checklist a journal applies, so a run of an NPT simulation
+    could not say what pressure it held.
+    """
+
+    def test_preparation_reports_the_system_size(self) -> None:
+        import inspect
+
+        from fastmdxplora.setup import prepare
+
+        returned = inspect.getsource(prepare.prepare_system).rsplit("return", 1)[-1]
+        assert "n_atoms_solvated" in returned
+
+    def test_the_setup_manifest_records_it(self) -> None:
+        import inspect
+
+        from fastmdxplora.setup import pipeline
+
+        source = inspect.getsource(pipeline._write_manifest)
+        assert '"n_atoms_solvated"' in source
+
+    def test_the_runner_reports_the_pressure_it_used(self) -> None:
+        import inspect
+
+        from fastmdxplora.simulation import runner
+
+        source = inspect.getsource(runner)
+        assert "pressure_bar_used" in source
+        assert "pressure_bar_used=resolved_pressure_bar" in source, (
+            "it should report what it resolved, not what it was passed"
+        )
+
+    def test_the_simulation_manifest_records_it(self) -> None:
+        import inspect
+
+        from fastmdxplora.simulation import pipeline
+
+        assert '"pressure_bar_used"' in inspect.getsource(pipeline._write_manifest)
+
+    def test_the_methods_section_prefers_what_ran(self) -> None:
+        """A run asked for nothing and held one bar. Reporting the request
+        would say nothing; reporting the resolution says what happened."""
+        from pathlib import Path
+
+        from fastmdxplora.report.methods import methods_paragraphs
+
+        sim = {
+            "parameters": {"pressure_bar": None, "timestep_fs": 2.0,
+                           "npt_steps": 200, "integrator": "langevin_middle"},
+            "pressure_bar_used": 1.0,
+        }
+        text = methods_paragraphs(Path("."), {}, sim)
+        assert "1.0 bar" in text
+
+    def test_and_says_so_when_neither_is_known(self) -> None:
+        from pathlib import Path
+
+        from fastmdxplora.report.methods import missing_from_methods
+
+        sim = {"parameters": {"timestep_fs": 2.0, "integrator": "verlet"}}
+        gaps = missing_from_methods({}, sim)
+        assert any("pressure" in gap for gap in gaps)
