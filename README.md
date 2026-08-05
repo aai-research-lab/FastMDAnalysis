@@ -29,10 +29,10 @@
 fastmdx explore --system 181L
 ```
 
-That prepares T4 lysozyme with its ligand, parameterises the benzene, runs the
-dynamics, measures fifteen things about the trajectory, works out what holds
-the ligand in the pocket, and writes the study up as a PDF — from four
-characters of input.
+Four characters of input. FastMDXplora fetches T4 lysozyme, parameterises the
+benzene bound in its cavity, runs the dynamics, measures the trajectory
+fifteen ways, works out which residues hold the ligand in place, and writes
+the whole thing up as a PDF you could put in front of a supervisor.
 
 Or open the GUI and watch it happen:
 
@@ -50,35 +50,35 @@ Everything included: OpenMM, ligand parameterisation, enhanced sampling, PDF
 reports. `pip install fastmdxplora` works too, but two dependencies are
 conda-only — `fastmdx info` tells you which and how to get them.
 
-## Why this one
+## Why FastMDXplora
 
-**It refuses.** An ambiguous ligand charge, a protein pointed the wrong way
-for a membrane, a metadynamics run that would never converge — FastMDXplora
-stops and says what it could not decide, instead of returning a number that
-looks fine.
+**Stops instead of guessing.** An ambiguous ligand charge, a protein pointed
+the wrong way for a membrane, a metadynamics run that could never converge —
+FastMDXplora halts and names what it could not decide. You never publish a
+number it invented.
 
-**It says how much to trust the answer.** Every report carries a convergence
-section stating how many *independent* observations the trajectory holds — far
-fewer than the frame count, and usually few enough to matter. Interaction
-occupancies carry the same: 450 consecutive frames and 450 alternating frames
-are both "50%", and only one has an error bar.
+**Tells you how much the run supports.** Every report states how many
+*independent* observations the trajectory holds, which is far fewer than the
+frame count. Interaction occupancies do the same: 450 consecutive frames and
+450 alternating frames are both "50%", and FastMDXplora shows you which one
+you have.
 
-**It writes the methods paragraph.** Against the reporting checklists journals
-actually apply, from what the run recorded. Nothing invented; anything missing
-named as missing.
+**Writes the methods paragraph for you.** Assembled from what the run actually
+recorded, against the reporting checklists journals apply. Nothing invented,
+and anything the run did not record is named as missing.
 
-**The GUI is the whole tool.** Design a run, start it, watch the molecule move,
-read the results — every setting the command line has, because both are built
-from one declaration.
+**A GUI that leaves nothing out.** Design a run, start it, watch the molecule
+move, read the results — with every setting the command line has, because both
+are generated from one declaration.
 
 ## What it does
 
 | | |
 |---|---|
-| **Setup** | PDB code or file → repaired, protonated, solvated, parameterised. Ligands identified and their chemistry resolved. Membranes built and the orientation checked. |
-| **Simulation** | OpenMM. Restraints released in stages, membrane-aware barostat, metadynamics from a named coordinate rather than PLUMED syntax. |
-| **Analysis** | Fifteen measures, including eight types of protein-ligand interaction against published criteria. |
-| **Report** | Markdown, PDF, slides, a browser dashboard, and a shareable bundle. |
+| **Setup** | A PDB code or a file becomes a simulation-ready system: repaired, protonated, solvated, parameterised. Ligands are identified and their chemistry resolved; membranes are built and the protein's orientation checked. |
+| **Simulation** | OpenMM, with restraints released in stages, a barostat that knows a bilayer when it sees one, and metadynamics you set up by naming a coordinate. |
+| **Analysis** | Fifteen measures, including eight types of protein-ligand interaction, each against a published criterion. |
+| **Report** | Markdown, PDF, slides, a browser dashboard, and a bundle you can send to a collaborator. |
 
 ## Documentation
 
