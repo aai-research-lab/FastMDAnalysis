@@ -146,10 +146,13 @@ class WaterSites(Analysis):
         site_atoms, site_expression = self._resolve_site(traj)
         self.findings["site"] = {
             "selection": site_expression,
+            # "auto" is a value, not an absence, so it has to be excluded
+            # explicitly -- a truthiness check called it "given" and the
+            # record said the user had chosen what the software had.
             "chosen_because": (
-                "given" if self.site_selection else
-                "the ligand" if self.ligand_resname else
-                "no ligand, so the whole protein"
+                "given" if self.site_selection not in (None, "", "auto") else
+                "auto: the ligand" if self.ligand_resname else
+                "auto: no ligand, so the whole protein"
             ),
             "n_atoms": int(len(site_atoms)),
         }

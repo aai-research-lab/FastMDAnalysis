@@ -219,3 +219,22 @@ def test_both_empty_paths_produce_the_same_shape(tmp_path) -> None:
     assert source.count("pd.DataFrame(columns=list(self.COLUMNS))") == 2, (
         "both empty paths should name the same column list"
     )
+
+
+def test_it_says_when_it_chose_the_site_itself(tmp_path) -> None:
+    """"auto" is a value, not an absence. A truthiness check called it
+    "given", so the record claimed the user had chosen what the software had
+    -- which is the kind of provenance error that is invisible afterwards.
+    """
+    from fastmdxplora.analysis.water_sites import WaterSites
+
+    traj = _trajectory(_system(), lambda frame: 0, n_frames=10)
+
+    automatic = WaterSites(output_dir=str(tmp_path / "a"), cutoff_nm=0.6)
+    automatic.compute(traj)
+    assert automatic.findings["site"]["chosen_because"].startswith("auto")
+
+    given = WaterSites(output_dir=str(tmp_path / "b"),
+                       site_selection="name CA", cutoff_nm=0.6)
+    given.compute(traj)
+    assert given.findings["site"]["chosen_because"] == "given"
