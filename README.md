@@ -30,9 +30,9 @@ fastmdx explore --system 181L
 ```
 
 Four characters of input. FastMDXplora fetches T4 lysozyme, parameterises the
-benzene bound in its cavity, runs the dynamics, measures the trajectory
+benzene bound in its cavity, runs the dynamics, analyses the trajectory
 fifteen ways, works out which residues hold the ligand in place, and writes
-the whole thing up as a PDF you could put in front of a supervisor.
+the whole study up as a PDF.
 
 Or open the GUI and watch it happen:
 
@@ -44,41 +44,60 @@ fastmdx gui
 
 ```bash
 conda install -c conda-forge fastmdxplora
+fastmdx info
 ```
 
-Everything included: OpenMM, ligand parameterisation, enhanced sampling, PDF
-reports. `pip install fastmdxplora` works too, but two dependencies are
-conda-only — `fastmdx info` tells you which and how to get them.
+`fastmdx info` lists every backend and how to get anything missing.
 
-## Why FastMDXplora
+## What you can study
+
+**A protein on its own.** Fold, flexibility, secondary structure, native
+contacts, conformational clustering — from a PDB code.
+
+**A protein with a ligand.** The ligand is found, its chemistry resolved and
+its protonation settled in the binding site. Then eight types of interaction
+are measured against published criteria, so you learn what holds the ligand
+rather than how much of the protein it touches.
+
+**A membrane protein.** Embedded in a POPC, POPE, DOPC or four other bilayers,
+with the orientation checked rather than assumed and the pressure coupling
+right for a lipid system.
+
+**Free energy along a coordinate you choose.** Metadynamics on a ligand's
+distance, an RMSD, a torsion or a radius of gyration — with walls and funnels,
+which is what makes an absolute binding free energy recoverable.
+
+**A trajectory from another engine.** Skip the simulation and analyse what you
+already have, from anything MDTraj reads.
+
+**Many systems at once.** Mutants against wild type, a sweep across a setting,
+runs pinned one per GPU, with a comparison report across all of them.
+
+## And it tells you when not to believe it
 
 **Stops instead of guessing.** An ambiguous ligand charge, a protein pointed
 the wrong way for a membrane, a metadynamics run that could never converge —
 FastMDXplora halts and names what it could not decide. You never publish a
 number it invented.
 
-**Tells you how much the run supports.** Every report states how many
-*independent* observations the trajectory holds, which is far fewer than the
-frame count. Interaction occupancies do the same: 450 consecutive frames and
-450 alternating frames are both "50%", and FastMDXplora shows you which one
-you have.
+**Says how much the run supports.** Every report states how many *independent*
+observations the trajectory holds, which is far fewer than the frame count.
+Interaction occupancies do the same: 450 consecutive frames and 450
+alternating frames are both "50%", and FastMDXplora shows you which you have.
 
-**Writes the methods paragraph for you.** Assembled from what the run actually
+**Writes the methods paragraph for you.** Assembled from what the run
 recorded, against the reporting checklists journals apply. Nothing invented,
-and anything the run did not record is named as missing.
+and anything missing named as missing.
 
-**A GUI that leaves nothing out.** Design a run, start it, watch the molecule
-move, read the results — with every setting the command line has, because both
-are generated from one declaration.
+## How a run works
 
-## What it does
+```
+  setup  →  simulation  →  analysis  →  report
+```
 
-| | |
-|---|---|
-| **Setup** | A PDB code or a file becomes a simulation-ready system: repaired, protonated, solvated, parameterised. Ligands are identified and their chemistry resolved; membranes are built and the protein's orientation checked. |
-| **Simulation** | OpenMM, with restraints released in stages, a barostat that knows a bilayer when it sees one, and metadynamics you set up by naming a coordinate. |
-| **Analysis** | Fifteen measures, including eight types of protein-ligand interaction, each against a published criterion. |
-| **Report** | Markdown, PDF, slides, a browser dashboard, and a bundle you can send to a collaborator. |
+Four phases. Run all of them, or any one on its own — `fastmdx setup`,
+`simulate`, `analyze`, `report`. Each records what it did, so a run can be
+picked up, repeated or explained afterwards.
 
 ## Documentation
 
