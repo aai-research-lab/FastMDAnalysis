@@ -60,13 +60,9 @@ fastmdx info
 | **A trajectory from another engine** | Skip the simulation and analyse what you already have, from anything MDTraj reads. |
 | **Many systems at once** | Mutants against wild type, a sweep across a setting, runs pinned one per GPU, and a comparison report across all of them. |
 
-## How far to trust a run
-
-| | |
-|---|---|
-| **It stops instead of guessing** | An ambiguous ligand charge, a protein pointed the wrong way for a membrane, a metadynamics run that could never converge — FastMDXplora halts and names what it could not decide. You never publish a number it invented. |
-| **It says what the run supports** | Every report states how many *independent* observations the trajectory holds, which is far fewer than the frame count. Occupancies too: 450 consecutive frames and 450 alternating frames are both "50%", and FastMDXplora shows you which you have. |
-| **It writes the methods paragraph** | Assembled from what the run recorded, against the reporting checklists journals apply. Nothing invented, and anything missing named as missing. |
+And where a structure does not say enough — an ambiguous ligand charge, a
+protein pointed the wrong way for a membrane — FastMDXplora stops and names
+what it could not decide, rather than returning a number that looks fine.
 
 ## How a run works
 
