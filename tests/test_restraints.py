@@ -1,0 +1,278 @@
+"""Holding parts of a system still while the rest settles.
+
+A structure that has just been minimised is not at equilibrium, and heating it
+lets the solute move as well as the solvent: side chains relax into the vacuum
+the crystal packing left, a ligand drifts out of the pose that was measured.
+The remedy is to hold the solute while the solvent equilibrates around it and
+then let go in stages, and this software went from minimisation to
+unrestrained dynamics in one step until now.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+#: A short alanine peptide in an extended conformation. The terminal OXT is
+#: there because without it the force field refuses the last residue: the
+#: chain looks like it continues into something that is not present. Written out rather than loaded from a dataset,
+#: because a test that needs another package to run is a test that will not
+#: run where somebody checks out this one.
+_ALANINE_PEPTIDE = """\
+ATOM      1  N   ALA A   1      -1.204   1.045   0.000  1.00  0.00           N
+ATOM      2  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C
+ATOM      3  CB  ALA A   1       0.000  -0.771  -1.303  1.00  0.00           C
+ATOM      4  C   ALA A   1       1.278   0.828   0.000  1.00  0.00           C
+ATOM      5  O   ALA A   1       1.256   2.056   0.000  1.00  0.00           O
+ATOM      6  N   ALA A   2       2.416   0.146   0.000  1.00  0.00           N
+ATOM      7  CA  ALA A   2       3.720   0.799   0.000  1.00  0.00           C
+ATOM      8  CB  ALA A   2       3.720   1.570  -1.303  1.00  0.00           C
+ATOM      9  C   ALA A   2       4.858  -0.221   0.000  1.00  0.00           C
+ATOM     10  O   ALA A   2       4.836  -1.449   0.000  1.00  0.00           O
+ATOM     11  N   ALA A   3       5.996   0.461   0.000  1.00  0.00           N
+ATOM     12  CA  ALA A   3       7.300  -0.192   0.000  1.00  0.00           C
+ATOM     13  CB  ALA A   3       7.300  -0.963  -1.303  1.00  0.00           C
+ATOM     14  C   ALA A   3       8.438   0.828   0.000  1.00  0.00           C
+ATOM     15  O   ALA A   3       8.416   2.056   0.000  1.00  0.00           O
+ATOM     16  N   ALA A   4       9.576   0.146   0.000  1.00  0.00           N
+ATOM     17  CA  ALA A   4      10.880   0.799   0.000  1.00  0.00           C
+ATOM     18  CB  ALA A   4      10.880   1.570  -1.303  1.00  0.00           C
+ATOM     19  C   ALA A   4      12.018  -0.221   0.000  1.00  0.00           C
+ATOM     20  O   ALA A   4      11.996  -1.449   0.000  1.00  0.00           O
+ATOM     21  OXT ALA A   4      13.156   0.196   0.000  1.00  0.00           O
+TER
+END
+"""
+
+
+class TestReadingWhatToHold:
+    """The short form is a selection; the long form is a list of blocks. An
+    equilibration usually wants the short one and should not need a paragraph
+    to say so."""
+
+    def test_a_selection_alone_means_position_restraints(self) -> None:
+        from fastmdxplora.simulation.restraints import (
+            DEFAULT_POSITION_FORCE,
+            parse_restraints,
+        )
+
+        found = parse_restraints("protein and not element H")
+        assert len(found) == 1
+        assert found[0].kind == "position"
+        assert found[0].force_constant == DEFAULT_POSITION_FORCE
+
+    def test_nothing_means_nothing(self) -> None:
+        from fastmdxplora.simulation.restraints import parse_restraints
+
+        assert parse_restraints(None) == []
+        assert parse_restraints("") == []
+
+    def test_blocks_carry_their_own_kind_and_force(self) -> None:
+        from fastmdxplora.simulation.restraints import parse_restraints
+
+        found = parse_restraints([
+            {"kind": "position", "selection": "protein"},
+            {"kind": "distance", "selection": "index 0 1",
+             "force_constant": 500.0, "target": 0.3},
+        ])
+        assert [r.kind for r in found] == ["position", "distance"]
+        assert found[1].target == 0.3
+
+    def test_a_restraint_with_no_conventional_default_must_say_its_force(self) -> None:
+        """There is a standard force for holding heavy atoms in place. There
+        is none for a distance restraint, and inventing one would be inventing
+        the strength of a bias."""
+        from fastmdxplora.simulation.restraints import parse_restraints
+
+        with pytest.raises(ValueError, match="force_constant"):
+            parse_restraints([{"kind": "distance", "selection": "index 0 1"}])
+
+    def test_an_unknown_kind_is_refused(self) -> None:
+        from fastmdxplora.simulation.restraints import parse_restraints
+
+        with pytest.raises(ValueError, match="Unknown restraint kind"):
+            parse_restraints([{"kind": "gravity", "selection": "protein"}])
+
+    def test_the_units_follow_the_coordinate(self) -> None:
+        """A spring on a length and a spring on an angle are not measured in
+        the same thing, and one number for both is how an angle restraint ends
+        up a thousand times too weak."""
+        from fastmdxplora.simulation.restraints import parse_restraints
+
+        position = parse_restraints([{"kind": "position", "selection": "protein"}])[0]
+        torsion = parse_restraints([
+            {"kind": "torsion", "selection": "index 0 1 2 3",
+             "force_constant": 50.0}])[0]
+        assert position.units == "kJ/mol/nm^2"
+        assert torsion.units == "kJ/mol/rad^2"
+
+
+class TestTheReleaseSchedule:
+    """Letting go all at once undoes the point of restraining: the solute is
+    released into a solvent arrangement that formed around a rigid structure,
+    and the sudden freedom shows as a jump in energy and a lurch in shape."""
+
+    def test_it_steps_down_and_reaches_zero(self) -> None:
+        from fastmdxplora.simulation.restraints import ReleaseSchedule
+
+        schedule = ReleaseSchedule()
+        forces = [schedule.force_at(f) for f in (0.0, 0.3, 0.6, 0.9, 1.0)]
+        assert forces == sorted(forces, reverse=True), "it should only weaken"
+        assert forces[0] > 0
+        assert forces[-1] == 0.0, "equilibration ends unrestrained"
+
+    def test_a_schedule_can_be_given(self) -> None:
+        from fastmdxplora.simulation.restraints import ReleaseSchedule
+
+        schedule = ReleaseSchedule(steps=(200.0, 0.0))
+        assert schedule.force_at(0.0) == 200.0
+        assert schedule.force_at(1.0) == 0.0
+
+
+class TestARestraintActuallyHolds:
+    """The measurement that matters: does a restrained structure move less
+    than an unrestrained one?"""
+
+    @staticmethod
+    def _system(restrained):
+        import mdtraj as md
+        import openmm as omm
+        import openmm.unit as unit
+        from openmm.app import HBonds, PME, ForceField, Modeller, PDBFile, Simulation
+
+        from fastmdxplora.simulation.restraints import (
+            build_restraint_forces,
+            parse_restraints,
+        )
+
+        import tempfile
+        from pathlib import Path
+
+        # Written here rather than loaded, so the test needs no data file and
+        # no package beyond what this one declares. A short alanine helix is
+        # enough: the question is whether restrained atoms move less than free
+        # ones, and any real peptide answers it.
+        work = Path(tempfile.mkdtemp())
+        (work / "start.pdb").write_text(_ALANINE_PEPTIDE, encoding="utf-8")
+        pdb = PDBFile(str(work / "start.pdb"))
+        field = ForceField("amber14-all.xml", "amber14/tip3p.xml")
+        modeller = Modeller(pdb.topology, pdb.positions)
+        modeller.addHydrogens(field)
+        modeller.addSolvent(field, padding=0.6 * unit.nanometer)
+
+        system = field.createSystem(
+            modeller.topology, nonbondedMethod=PME,
+            nonbondedCutoff=1.0 * unit.nanometer, constraints=HBonds)
+        parameters = []
+        if restrained:
+            for force, parameter in build_restraint_forces(
+                    omm, modeller.topology, modeller.positions,
+                    parse_restraints("protein and not element H")):
+                system.addForce(force)
+                parameters.append(parameter)
+
+        integrator = omm.LangevinMiddleIntegrator(
+            300 * unit.kelvin, 1 / unit.picosecond, 0.002 * unit.picoseconds)
+        integrator.setRandomNumberSeed(7)
+        simulation = Simulation(modeller.topology, system, integrator,
+                                omm.Platform.getPlatformByName("CPU"))
+        simulation.context.setPositions(modeller.positions)
+        simulation.minimizeEnergy(maxIterations=150)
+        simulation.context.setVelocitiesToTemperature(300 * unit.kelvin, 7)
+        heavy = md.Topology.from_openmm(modeller.topology).select(
+            "protein and not element H")
+        return simulation, heavy, parameters
+
+    @staticmethod
+    def _drift(simulation, heavy, steps=1500):
+        import numpy as np
+        import openmm.unit as unit
+
+        start = simulation.context.getState(
+            getPositions=True).getPositions(asNumpy=True)
+        simulation.step(steps)
+        end = simulation.context.getState(
+            getPositions=True).getPositions(asNumpy=True)
+        moved = np.linalg.norm(
+            (end[heavy] - start[heavy]).value_in_unit(unit.nanometer), axis=1)
+        return float(np.sqrt((moved ** 2).mean()))
+
+    @pytest.mark.slow
+    def test_restrained_atoms_move_less(self) -> None:
+        pytest.importorskip("openmm", reason="requires the [md] extra")
+
+        free, heavy, _ = self._system(restrained=False)
+        held, _heavy, _params = self._system(restrained=True)
+
+        assert self._drift(held, heavy) < self._drift(free, heavy) / 2, (
+            "a restrained structure should move markedly less than a free one"
+        )
+
+    @pytest.mark.slow
+    def test_releasing_the_restraint_lets_the_structure_loosen(self) -> None:
+        """Which is what makes staged release possible: the force is a global
+        parameter, so it can be changed without rebuilding the context."""
+        pytest.importorskip("openmm", reason="requires the [md] extra")
+
+        simulation, heavy, parameters = self._system(restrained=True)
+        assert parameters
+
+        held = self._drift(simulation, heavy, steps=600)
+        for parameter in parameters:
+            simulation.context.setParameter(parameter, 0.0)
+        freed = self._drift(simulation, heavy, steps=600)
+
+        assert freed > held, (
+            "releasing the restraint should let the structure move more"
+        )
+
+
+class TestARestraintOnNothingIsRefused:
+    """A run that silently applied a restraint matching no atoms would look
+    restrained and not be."""
+
+    def test_a_selection_matching_nothing_raises(self) -> None:
+        import mdtraj as md
+        import numpy as np
+        import openmm as omm
+
+        from fastmdxplora.simulation.restraints import (
+            build_restraint_forces,
+            parse_restraints,
+        )
+
+        pytest.importorskip("openmm", reason="requires the [md] extra")
+
+        top = md.Topology()
+        residue = top.add_residue("ALA", top.add_chain(), resSeq=1)
+        top.add_atom("CA", md.element.carbon, residue)
+        positions = np.zeros((1, 3))
+
+        with pytest.raises(ValueError, match="matched no atoms"):
+            build_restraint_forces(
+                omm, top.to_openmm(), positions,
+                parse_restraints("resname NOPE"))
+
+    def test_a_distance_restraint_needs_exactly_two_atoms(self) -> None:
+        import mdtraj as md
+        import numpy as np
+        import openmm as omm
+
+        from fastmdxplora.simulation.restraints import (
+            build_restraint_forces,
+            parse_restraints,
+        )
+
+        pytest.importorskip("openmm", reason="requires the [md] extra")
+
+        top = md.Topology()
+        residue = top.add_residue("ALA", top.add_chain(), resSeq=1)
+        for name in ("N", "CA", "C"):
+            top.add_atom(name, md.element.carbon, residue)
+        positions = np.zeros((3, 3))
+
+        with pytest.raises(ValueError, match="two atoms"):
+            build_restraint_forces(
+                omm, top.to_openmm(), positions,
+                parse_restraints([{"kind": "distance", "selection": "all",
+                                   "force_constant": 100.0}]))
