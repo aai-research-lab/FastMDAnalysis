@@ -51,43 +51,22 @@ fastmdx info
 
 ## What you can study
 
-**A protein on its own.** Fold, flexibility, secondary structure, native
-contacts, conformational clustering — from a PDB code.
+| | |
+|---|---|
+| **A protein on its own** | Fold, flexibility, secondary structure, native contacts, conformational clustering — from a PDB code. |
+| **A protein with a ligand** | The ligand is found, its chemistry resolved, its protonation settled in the binding site. Eight interaction types against published criteria tell you what *holds* it, not just what it touches. |
+| **A membrane protein** | Embedded in one of seven bilayers, with the orientation checked rather than assumed and pressure coupling that suits a lipid system. |
+| **Free energy along a coordinate** | Metadynamics on a ligand distance, an RMSD, a torsion or a radius of gyration — with walls and funnels, which is what makes an absolute binding free energy recoverable. |
+| **A trajectory from another engine** | Skip the simulation and analyse what you already have, from anything MDTraj reads. |
+| **Many systems at once** | Mutants against wild type, a sweep across a setting, runs pinned one per GPU, and a comparison report across all of them. |
 
-**A protein with a ligand.** The ligand is found, its chemistry resolved and
-its protonation settled in the binding site. Then eight types of interaction
-are measured against published criteria, so you learn what holds the ligand
-rather than how much of the protein it touches.
+## How far to trust a run
 
-**A membrane protein.** Embedded in a POPC, POPE, DOPC or four other bilayers,
-with the orientation checked rather than assumed and the pressure coupling
-right for a lipid system.
-
-**Free energy along a coordinate you choose.** Metadynamics on a ligand's
-distance, an RMSD, a torsion or a radius of gyration — with walls and funnels,
-which is what makes an absolute binding free energy recoverable.
-
-**A trajectory from another engine.** Skip the simulation and analyse what you
-already have, from anything MDTraj reads.
-
-**Many systems at once.** Mutants against wild type, a sweep across a setting,
-runs pinned one per GPU, with a comparison report across all of them.
-
-## And it tells you when not to believe it
-
-**Stops instead of guessing.** An ambiguous ligand charge, a protein pointed
-the wrong way for a membrane, a metadynamics run that could never converge —
-FastMDXplora halts and names what it could not decide. You never publish a
-number it invented.
-
-**Says how much the run supports.** Every report states how many *independent*
-observations the trajectory holds, which is far fewer than the frame count.
-Interaction occupancies do the same: 450 consecutive frames and 450
-alternating frames are both "50%", and FastMDXplora shows you which you have.
-
-**Writes the methods paragraph for you.** Assembled from what the run
-recorded, against the reporting checklists journals apply. Nothing invented,
-and anything missing named as missing.
+| | |
+|---|---|
+| **It stops instead of guessing** | An ambiguous ligand charge, a protein pointed the wrong way for a membrane, a metadynamics run that could never converge — FastMDXplora halts and names what it could not decide. You never publish a number it invented. |
+| **It says what the run supports** | Every report states how many *independent* observations the trajectory holds, which is far fewer than the frame count. Occupancies too: 450 consecutive frames and 450 alternating frames are both "50%", and FastMDXplora shows you which you have. |
+| **It writes the methods paragraph** | Assembled from what the run recorded, against the reporting checklists journals apply. Nothing invented, and anything missing named as missing. |
 
 ## How a run works
 
