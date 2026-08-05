@@ -37,6 +37,7 @@ __all__ = [
     "ligand_aromatic_rings",
     "halogen_bonds",
     "metal_coordination",
+    "water_bridges",
 ]
 
 
@@ -823,4 +824,111 @@ def metal_coordination(
                 protein_atom=int(partner if metal_is_ligand else metal),
                 distance_nm=float(separations[frame, column]),
             ))
+    return found
+
+
+def water_bridges(
+    traj: Any,
+    ligand_indices: Any,
+    protein_indices: Any,
+    water_indices: Any,
+    *,
+    min_distance_nm: float = 0.25,
+    max_distance_nm: float = 0.41,
+    omega_deg: tuple[float, float] = (71.0, 140.0),
+) -> list[Contact]:
+    """A water molecule hydrogen-bonded to both the ligand and the protein.
+
+    PLIP's criterion: the water oxygen between 2.5 and 4.1 A of a polar atom on
+    each side, and the angle at the water -- between the two partners, measured
+    at its oxygen -- between 71 and 140 degrees. The lower bound matters as much
+    as the upper: a water in line with both is not bridging them, it is simply
+    between them.
+
+    Only single-water bridges are found. Two waters can bridge a gap, and
+    three, and at some chain length the claim stops meaning anything about
+    binding; PLIP draws the line at one and the same line is drawn here. Where
+    a longer chain matters, it is a different question that deserves asking
+    directly rather than falling out of this.
+
+    Waters have to be given. Which oxygens count as solvent is a selection, and
+    a run that stripped its waters has none to offer -- an empty result there
+    means the trajectory holds no water, not that no bridges formed.
+    """
+    waters = [int(i) for i in water_indices]
+    if not waters:
+        return []
+
+    topology = traj.topology
+    oxygens = [
+        index for index in waters
+        if (topology.atom(index).element is not None
+            and topology.atom(index).element.symbol == "O")
+    ]
+    if not oxygens:
+        return []
+
+    _ligand_donors, ligand_polar = donors_and_acceptors(topology, ligand_indices)
+    _protein_donors, protein_polar = donors_and_acceptors(topology, protein_indices)
+    if not ligand_polar or not protein_polar:
+        return []
+
+    # Distances first, because most waters are near neither side and working
+    # out an angle for every triple would be the expensive way to discover it.
+    ligand_pairs = [(o, p) for o in oxygens for p in ligand_polar]
+    protein_pairs = [(o, p) for o in oxygens for p in protein_polar]
+    to_ligand = _distances(traj, np.array(ligand_pairs), False)
+    to_protein = _distances(traj, np.array(protein_pairs), False)
+
+    def in_range(separations):
+        return (separations > min_distance_nm) & (separations < max_distance_nm)
+
+    ligand_ok = in_range(to_ligand)
+    protein_ok = in_range(to_protein)
+
+    low, high = omega_deg
+    n_ligand, n_protein = len(ligand_polar), len(protein_polar)
+
+    triples: list[tuple[int, int, int]] = []
+    described: list[tuple[int, int, int, int, int]] = []
+    for frame in range(traj.n_frames):
+        for oxygen_at, oxygen in enumerate(oxygens):
+            near_ligand = [
+                i for i in range(n_ligand)
+                if ligand_ok[frame, oxygen_at * n_ligand + i]
+            ]
+            if not near_ligand:
+                continue
+            near_protein = [
+                i for i in range(n_protein)
+                if protein_ok[frame, oxygen_at * n_protein + i]
+            ]
+            for first in near_ligand:
+                for second in near_protein:
+                    triples.append((ligand_polar[first], oxygen,
+                                    protein_polar[second]))
+                    described.append((frame, oxygen, ligand_polar[first],
+                                      protein_polar[second], len(triples) - 1))
+    if not triples:
+        return []
+
+    # One frame's worth of geometry at a time: the triples were gathered per
+    # frame, so the angle wanted is the one in that frame.
+    angles = _angles(traj, np.array(triples), False)
+
+    found: list[Contact] = []
+    for frame, oxygen, ligand_atom, protein_atom, column in described:
+        opening = float(angles[frame, column])
+        if not (low < opening < high):
+            continue
+        separation = float(np.linalg.norm(
+            traj.xyz[frame, ligand_atom] - traj.xyz[frame, protein_atom]))
+        found.append(Contact(
+            kind="water_bridge",
+            frame=frame,
+            ligand_atom=int(ligand_atom),
+            protein_atom=int(protein_atom),
+            distance_nm=separation,
+            angle_deg=opening,
+        ))
     return found

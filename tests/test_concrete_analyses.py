@@ -1829,3 +1829,149 @@ class TestHalogenBondsAndMetals:
             xyz=np.array([[[0, 0, 0], [0.45, 0, 0]]], dtype=np.float32),
             topology=top)
         assert metal_coordination(traj, [1], [0]) == []
+
+
+class TestOccupancyCarriesItsObservation:
+    """A contact seen in 3 frames of 500 and one seen in 450 are both
+    "present". Only one means anything.
+
+    Reporting both as an occupancy hides that the first rests on three
+    observations. The same mistake in a different guise ran through the
+    hydrogen bond count for a long time: bonds present in few frames were
+    dropped from every frame, and the plot said one thing while the trajectory
+    said another.
+    """
+
+    @staticmethod
+    def _contact(frame, tag=1):
+        from fastmdxplora.analysis.interactions import Contact
+
+        return Contact("hydrogen_bond", frame, 100, 200 + tag, 0.3, 170.0)
+
+    def test_the_same_fraction_can_rest_on_very_different_watching(self) -> None:
+        from fastmdxplora.analysis.interaction_summary import occupancies
+
+        steady = [self._contact(f) for f in range(450)]
+        flickering = [self._contact(f, tag=2) for f in range(0, 900, 2)]
+
+        settled = occupancies(steady, 900)[0]
+        moving = occupancies(flickering, 900)[0]
+
+        assert settled.fraction == moving.fraction == 0.5
+        assert settled.episodes == 1, "it formed once and stayed"
+        assert moving.episodes == 450
+
+    def test_the_error_counts_episodes_not_frames(self) -> None:
+        """Consecutive frames are correlated. A contact present in 450
+        consecutive frames has not been measured 450 times, and using the
+        frame count would give an error several times too small."""
+        import numpy as np
+
+        from fastmdxplora.analysis.interaction_summary import occupancies
+
+        flickering = [self._contact(f) for f in range(0, 900, 2)]
+        moving = occupancies(flickering, 900)[0]
+        by_episodes = moving.uncertainty
+        by_frames = np.sqrt(0.5 * 0.5 / 450)
+        assert np.isclose(by_episodes, by_frames, rtol=0.05), (
+            "here they agree because every frame is its own episode"
+        )
+
+        steady = [self._contact(f) for f in range(450)]
+        settled = occupancies(steady, 900)[0]
+        assert np.isnan(settled.uncertainty), (
+            "one observation supports no error bar at all"
+        )
+
+    def test_a_rare_contact_is_marked_as_thinly_observed(self) -> None:
+        from fastmdxplora.analysis.interaction_summary import occupancies
+
+        rare = [self._contact(f) for f in (10, 11, 12)]
+        found = occupancies(rare, 500)[0]
+        assert found.fraction < 0.01
+        assert not found.is_well_sampled
+        assert found.as_record()["well_sampled"] is False
+
+    def test_the_record_carries_both_numbers(self) -> None:
+        """So a reader sees the observation beside the fraction rather than
+        having to ask for it."""
+        from fastmdxplora.analysis.interaction_summary import occupancies
+
+        record = occupancies([self._contact(f) for f in range(10)], 100)[0].as_record()
+        assert record["fraction"] == 0.1
+        assert record["frames_present"] == 10
+        assert record["episodes"] == 1
+
+
+class TestATransitionRateNeedsTransitions:
+    """A matrix from three observed switches is arithmetic, not kinetics.
+
+    Computing it is easy; knowing whether the trajectory supports it is the
+    part that decides whether the answer means anything, and it is the check
+    the other tools do not make.
+    """
+
+    def test_a_trajectory_that_barely_switches_gets_no_rate(self) -> None:
+        from fastmdxplora.analysis.interaction_summary import mode_transitions
+
+        barely = [["a"]] * 200 + [["b"]] * 200 + [["a"]] * 200
+        out = mode_transitions(barely)
+        assert out["observed_transitions"] == 2
+        assert not out["supported"]
+        assert out["probabilities"] is None
+
+    def test_but_the_counts_are_still_given(self) -> None:
+        """Withholding the number would be as unhelpful as presenting it as a
+        rate. What is withheld is the claim, not the observation."""
+        from fastmdxplora.analysis.interaction_summary import mode_transitions
+
+        barely = [["a"]] * 200 + [["b"]] * 200 + [["a"]] * 200
+        out = mode_transitions(barely)
+        assert out["counts"], "the observations should still be reported"
+        assert "uncertainty larger than itself" in out["reason"]
+
+    def test_a_trajectory_that_switches_often_gets_one(self) -> None:
+        from fastmdxplora.analysis.interaction_summary import mode_transitions
+
+        often = [["a"] if (f // 7) % 2 == 0 else ["b"] for f in range(600)]
+        out = mode_transitions(often)
+        assert out["supported"]
+        assert out["probabilities"]
+        rows = list(out["probabilities"].values())
+        assert all(abs(sum(row.values()) - 1.0) < 1e-6 for row in rows)
+
+    def test_one_frame_cannot_show_a_transition(self) -> None:
+        from fastmdxplora.analysis.interaction_summary import mode_transitions
+
+        out = mode_transitions([["a"]])
+        assert not out["supported"]
+        assert "at least two frames" in out["reason"]
+
+
+class TestBindingModesAreCombinations:
+    """A mode is the set of interactions present in a frame, and the modes are
+    what a ligand moves between."""
+
+    @staticmethod
+    def _contact(frame, tag):
+        from fastmdxplora.analysis.interactions import Contact
+
+        return Contact("hydrogen_bond", frame, 100, 200 + tag, 0.3, 170.0)
+
+    def test_frames_sharing_a_set_are_one_mode(self) -> None:
+        from fastmdxplora.analysis.interaction_summary import binding_modes
+
+        contacts = ([self._contact(f, 1) for f in range(100)]
+                    + [self._contact(f, 2) for f in range(50)])
+        found = binding_modes(contacts, 100)
+        assert len(found["modes"]) == 2
+        assert found["modes"][0]["frames"] == 50
+
+    def test_a_fleeting_contact_does_not_split_a_mode(self) -> None:
+        """Otherwise a single flicker turns one arrangement into two."""
+        from fastmdxplora.analysis.interaction_summary import binding_modes
+
+        contacts = ([self._contact(f, 1) for f in range(100)]
+                    + [self._contact(3, 2)])
+        found = binding_modes(contacts, 100, minimum_occupancy=0.1)
+        assert len(found["modes"]) == 1
