@@ -67,6 +67,11 @@ class Assessment:
     #: independence it failed to rule out, which is the wrong direction for a
     #: convergence report to err in.
     correlation_is_measurable: bool = True
+    #: Whether the series is long enough to say anything about drift at all.
+    #: Two points cannot show a trend, and reporting one as settled is a claim
+    #: from no evidence -- the same defect as reporting independence that was
+    #: never measured.
+    drift_is_measurable: bool = True
 
     @property
     def standard_error(self) -> float:
@@ -91,8 +96,15 @@ class Assessment:
                 and self.effective_samples >= _ENOUGH_SAMPLES)
 
     @property
-    def has_settled(self) -> bool:
-        """Whether the observable has stopped moving in one direction."""
+    def has_settled(self) -> bool | None:
+        """Whether the observable has stopped moving in one direction.
+
+        ``None`` where the series is too short to tell. A two-point series
+        reported as settled is a claim from no evidence, and it appeared
+        beside "too few independent samples" about the same numbers.
+        """
+        if not self.drift_is_measurable:
+            return None
         return abs(self.drift_in_noise) < 2.0
 
     def as_record(self) -> dict[str, Any]:
@@ -108,6 +120,7 @@ class Assessment:
             "sampled_enough": self.is_sampled_enough,
             "correlation_measurable": self.correlation_is_measurable,
             "settled": self.has_settled,
+            "drift_measurable": self.drift_is_measurable,
             "drift_in_noise": round(self.drift_in_noise, 2),
         }
 
@@ -177,6 +190,10 @@ def assess_series(name: str, values: Any) -> Assessment:
     # independence the estimate failed to rule out. A tenth is the usual
     # working limit.
     measurable = correlation <= max(2.0, n / 10.0)
+    # Drift is compared between the first and last thirds, so a series that
+    # cannot be divided into thirds with anything in them says nothing about
+    # trend. Six is the least that gives two points per third.
+    drift_measurable = n >= 6
     return Assessment(
         name=name,
         n_frames=int(n),
@@ -186,6 +203,7 @@ def assess_series(name: str, values: Any) -> Assessment:
         effective_samples=float(n / correlation),
         drift_in_noise=_drift_in_noise(series),
         correlation_is_measurable=bool(measurable),
+        drift_is_measurable=bool(drift_measurable),
     )
 
 
@@ -207,7 +225,11 @@ def assess_run(
 
     findings: list[str] = []
     energy = assessments.get("potential_energy")
-    if energy is not None and duration_ns and n_atoms and duration_ns > 0:
+    # The range of a two-point series is the difference between two numbers,
+    # which says nothing about drift: it was reported as 94 kJ/mol per ns per
+    # atom from two samples of a run that had just been minimized.
+    if (energy is not None and energy.n_frames >= 6
+            and duration_ns and n_atoms and duration_ns > 0):
         # Drift per nanosecond per atom, which is how the conventional limit
         # is quoted and the only form comparable between systems.
         span = float(np.ptp(np.asarray(list(series["potential_energy"]),
@@ -233,12 +255,23 @@ def assess_run(
                 "the settings describe."
             )
 
-    unsettled = [a.name for a in assessments.values() if not a.has_settled]
+    unsettled = [a.name for a in assessments.values()
+                 if a.has_settled is False]
+    undrifted = [a.name for a in assessments.values() if a.has_settled is None]
     if unsettled:
         findings.append(
             "Still moving in one direction: " + ", ".join(sorted(unsettled))
             + ". The run has not finished equilibrating, so averages over it "
             "describe the approach rather than the state."
+        )
+
+    if undrifted:
+        findings.append(
+            "Too short to say whether it has settled: "
+            + ", ".join(sorted(undrifted))
+            + ". Drift is judged by comparing the start of the run against "
+            "the end, and a series this short has no start and end to "
+            "compare."
         )
 
     unmeasurable = [a.name for a in assessments.values()
@@ -270,5 +303,5 @@ def assess_run(
         "findings": findings,
         # The single question somebody wants answered, and the honest answer
         # for most short runs is no.
-        "interpretable": not thin and not unsettled and not unmeasurable,
+        "interpretable": not (thin or unsettled or unmeasurable or undrifted),
     }

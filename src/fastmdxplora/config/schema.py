@@ -452,6 +452,12 @@ REPORT = PhaseSchema(
               "Generate the Markdown study report."),
         Field("slides", bool, True,
               "Generate the PPTX slide deck."),
+        Field("pdf", bool, True,
+              "Render the report as a PDF as well as Markdown. Needs "
+              "WeasyPrint and a Markdown converter; where they are absent "
+              "the run says so and continues, because four other formats "
+              "were produced. Install with the [pdf] extra, or from "
+              "conda-forge where the system libraries come with it."),
         Field("bundle", bool, True,
               "Generate the self-contained project_bundle.zip."),
         Field("include_methods", bool, True,

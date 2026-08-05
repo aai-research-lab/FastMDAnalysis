@@ -400,7 +400,10 @@ def _convergence_section(project_root: Path) -> str:
             f"| {record['observable']} | {record['frames']:,} | "
             f"{record['effective_samples']:.1f} | {record['mean']:.4g} | "
             + (f"{error:.3g}" if error is not None else "not enough to say")
-            + f" | {'yes' if record['settled'] else 'no'} |"
+            + " | "
+            + {True: "yes", False: "no", None: "too short to say"}[
+                record["settled"]]
+            + " |"
         )
     lines.append("")
 

@@ -736,7 +736,12 @@ def test_report_phase_manifest_artifacts_exist(tmp_path: Path):
     assert report_phase is not None
     manifest = json.loads((fmdx.output_dir / "manifest.json").read_text(encoding="utf-8"))
     report_record = next(p for p in manifest["phases"] if p["name"] == "report")
-    assert report_record["artifacts"] == ["report.md", "dashboard.html"]
+    # A PDF is written where WeasyPrint is available and left out where it is
+    # not, so the list is checked for what must be there rather than for an
+    # exact sequence that depends on what somebody installed.
+    written = report_record["artifacts"]
+    assert "report.md" in written and "dashboard.html" in written
+    assert set(written) <= {"report.md", "report.pdf", "dashboard.html"}
     for artifact in report_record["artifacts"]:
         assert (Path(report_record["output_dir"]) / artifact).is_file()
 
@@ -1581,3 +1586,157 @@ class TestTheReportSaysHowMuchTheRunSupports:
         source = inspect.getsource(document)
         assert (source.index("_results_section(project_root))")
                 < source.index("_convergence_section(project_root)"))
+
+
+class TestTheReportIsAlsoAPDF:
+    """A Markdown file is not a document somebody sends on.
+
+    It renders differently in every viewer, it cannot be printed with the
+    figures where the text put them, and attaching one invites the question of
+    what to open it with. The package docstring had claimed a PDF for some
+    time; nothing produced one.
+    """
+
+    @staticmethod
+    def _report(tmp_path):
+        path = tmp_path / "report.md"
+        path.write_text(
+            "# A report\n\n## Methods\n\nThe protein was described by the "
+            "amber14-all.xml force field.\n\n## Convergence\n\n"
+            "| measure | frames | independent |\n|---|---|---|\n"
+            "| rmsd | 4,999 | 20.3 |\n",
+            encoding="utf-8")
+        return path
+
+    def test_it_renders(self, tmp_path) -> None:
+        import pytest
+
+        pytest.importorskip("weasyprint", reason="requires the [pdf] extra")
+        pytest.importorskip("markdown", reason="requires the [pdf] extra")
+
+        from fastmdxplora.report.pdf import render_pdf
+
+        written = render_pdf(self._report(tmp_path))
+        assert written.suffix == ".pdf"
+        assert written.read_bytes().startswith(b"%PDF")
+
+    def test_it_is_written_beside_the_markdown(self, tmp_path) -> None:
+        import pytest
+
+        pytest.importorskip("weasyprint", reason="requires the [pdf] extra")
+        pytest.importorskip("markdown", reason="requires the [pdf] extra")
+
+        from fastmdxplora.report.pdf import render_pdf
+
+        source = self._report(tmp_path)
+        assert render_pdf(source).parent == source.parent
+
+    def test_a_missing_report_says_so(self, tmp_path) -> None:
+        import pytest
+
+        from fastmdxplora.report.pdf import PdfUnavailable, render_pdf
+
+        with pytest.raises(PdfUnavailable, match="No report to convert"):
+            render_pdf(tmp_path / "nothing.md")
+
+    def test_it_does_not_fail_the_run_when_it_cannot(self, tmp_path) -> None:
+        """A phase that produced a document, a dashboard, slides and a bundle
+        should not be marked failed because a fifth format needed a library
+        nobody installed."""
+        from fastmdxplora.report.pdf import try_render_pdf
+
+        written, reason = try_render_pdf(tmp_path / "nothing.md")
+        assert written is None
+        assert reason and "No report to convert" in reason
+
+    def test_the_reason_names_what_to_install(self) -> None:
+        """Somebody told a shared library is missing has been told the
+        symptom, not the remedy."""
+        import inspect
+
+        from fastmdxplora.report import pdf
+
+        source = inspect.getsource(pdf)
+        assert "fastmdxplora[pdf]" in source
+        assert "conda-forge" in source
+        assert "Pango" in source and "Cairo" in source
+
+    def test_it_converts_the_document_not_the_dashboard(self) -> None:
+        """A PDF of the browser dashboard would be a picture of an interface.
+        The report is a document, and a document is what a PDF should be."""
+        import inspect
+
+        from fastmdxplora.report import pdf
+
+        source = inspect.getsource(pdf)
+        assert "report.md" in source
+        assert "dashboard.html" not in source
+
+    def test_the_setting_is_declared_like_the_others(self) -> None:
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        field = PHASE_SCHEMAS["report"].get("pdf")
+        assert field is not None and field.default is True
+        assert field.help and "WeasyPrint" in field.help
+
+    def test_the_phase_asks_for_it(self) -> None:
+        import inspect
+
+        from fastmdxplora.report import run
+
+        source = inspect.getsource(run)
+        assert "try_render_pdf" in source
+        assert 'params.get("pdf"' in source
+
+
+class TestAShortSeriesSaysWhatItCannotJudge:
+    """A real run reported "settled: yes" for a two-point series, beside "too
+    few independent samples" about the same numbers.
+
+    Two points cannot show a trend. Reporting one as settled is a claim from
+    no evidence, and it is the same defect as reporting independence that was
+    never measured -- which this module was written to avoid.
+    """
+
+    def test_two_points_cannot_say_whether_it_settled(self) -> None:
+        from fastmdxplora.report.convergence import assess_series
+
+        found = assess_series("potential_energy", [-490000.0, -476830.0])
+        assert found.has_settled is None
+        assert not found.drift_is_measurable
+
+    def test_a_long_series_still_can(self) -> None:
+        import numpy as np
+
+        from fastmdxplora.report.convergence import assess_series
+
+        rng = np.random.RandomState(0)
+        assert assess_series("t", 300 + rng.normal(scale=2, size=400)).has_settled
+
+    def test_energy_drift_needs_more_than_two_samples(self) -> None:
+        """It reported ninety-four kJ/mol per ns per atom from two samples of
+        a run that had just been minimized. The range of two numbers is not a
+        drift rate."""
+        from fastmdxplora.report.convergence import assess_run
+
+        out = assess_run({"potential_energy": [-490000.0, -476830.0]},
+                         duration_ns=0.004, n_atoms=34979)
+        assert not any("kJ/mol per ns per atom" in f for f in out["findings"])
+
+    def test_but_a_real_drift_is_still_caught(self) -> None:
+        import numpy as np
+
+        from fastmdxplora.report.convergence import assess_run
+
+        climbing = np.linspace(-490000, -400000, 50)
+        out = assess_run({"potential_energy": climbing},
+                         duration_ns=0.004, n_atoms=100)
+        assert any("integration" in f for f in out["findings"])
+
+    def test_the_report_says_too_short_rather_than_yes(self) -> None:
+        import inspect
+
+        from fastmdxplora.report import document
+
+        source = inspect.getsource(document._convergence_section)
+        assert "too short to say" in source

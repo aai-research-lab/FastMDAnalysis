@@ -90,6 +90,22 @@ def run(
         if presenter:
             presenter.step("Wrote report.md")
 
+        # The document as a PDF, which is the form somebody sends on. Its
+        # absence does not fail the phase: a report that produced a document,
+        # a dashboard, slides and a bundle should not be marked failed because
+        # a fifth format needed a library nobody installed.
+        if params.get("pdf", True):
+            from fastmdxplora.report.pdf import try_render_pdf
+
+            pdf_path, reason = try_render_pdf(
+                output_dir / "report.md", title=title)
+            if pdf_path is not None:
+                artifacts.append("report.pdf")
+                if presenter:
+                    presenter.step("Wrote report.pdf")
+            elif presenter:
+                presenter.step(f"No PDF: {reason}", status="warn")
+
     if params["slides"]:
         slide_artifacts = build_slides(
             orchestrator=orchestrator,

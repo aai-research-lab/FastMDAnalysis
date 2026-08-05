@@ -59,6 +59,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Rendering the report as a PDF. WeasyPrint needs Pango and Cairo as system
+# libraries on PyPI; the conda-forge package brings its own, which is why the
+# conda distribution is the easier route.
+pdf = [
+    "weasyprint>=60",
+    "markdown>=3.4",
+]
 md = [
     "pdbfixer",
     "openmm>=8.0",
