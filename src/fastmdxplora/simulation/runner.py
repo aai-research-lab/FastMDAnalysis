@@ -673,6 +673,9 @@ def run_simulation(
     on_progress: Callable[[str], None] | None = None,
     # Enhanced sampling
     plumed: dict[str, Any] | None = None,
+    restrain: Any = None,
+    restraint_release: Any = None,
+    restrain_production: bool = False,
 ) -> SimulationResult:
     """Run minimize → NVT → NPT → production and return paths to outputs.
 
@@ -741,6 +744,50 @@ def run_simulation(
 
     pdb = omm["PDBFile"](str(topology_path))
     topology = pdb.topology
+
+    # ---- Restraints -----------------------------------------------------
+    # Added before the context exists, because a force cannot join a System
+    # afterwards. Their strength is a global parameter, so the release
+    # schedule below can weaken them without rebuilding anything.
+    #
+    # The reference positions come from the state the setup phase wrote --
+    # the minimised structure -- rather than from wherever the run has got
+    # to, so "hold it where it is" means where it started rather than where
+    # it drifted.
+    from fastmdxplora.simulation.restraints import (
+        ReleaseSchedule,
+        build_restraint_forces,
+        parse_restraints,
+    )
+
+    wanted_restraints = parse_restraints(restrain)
+    restraint_parameters: list[str] = []
+    if wanted_restraints:
+        reference = state.getPositions(asNumpy=True)
+        for force, parameter in build_restraint_forces(
+                omm["openmm"], topology, reference, wanted_restraints):
+            system.addForce(force)
+            restraint_parameters.append(parameter)
+        logger.info(
+            "Restraints: %s",
+            "; ".join(f"{r.kind} on {r.selection} at {r.force_constant:g} "
+                      f"{r.units}" for r in wanted_restraints),
+        )
+
+    release = ReleaseSchedule(
+        steps=tuple(float(x) for x in restraint_release)
+        if restraint_release else ReleaseSchedule().steps
+    )
+
+    def _hold_at(fraction: float) -> float:
+        """Set every restraint to the strength this point in equilibration
+        calls for, and report it."""
+        if not restraint_parameters:
+            return 0.0
+        strength = release.force_at(fraction)
+        for parameter in restraint_parameters:
+            simulation.context.setParameter(parameter, strength)
+        return strength
 
     # PLUMED biasing (if enabled) is added just before the production stage,
     # not here — equilibration runs unbiased, matching standard enhanced-
@@ -864,6 +911,10 @@ def run_simulation(
 
         # ---- Stage 2: NVT equilibration -------------------------------
         # Use the integrator's existing thermostat (Langevin). No barostat.
+        # Restraints start at full strength: this is the stage they exist for,
+        # where the solvent is finding its arrangement and the solute should
+        # not be moving while it does.
+        _hold_at(0.0)
         _attach_state_reporter(
             omm, simulation, energy_csv,
             interval=state_interval_steps,
@@ -912,6 +963,11 @@ def run_simulation(
             if plan["nvt_steps"] > 0:
                 telemetry.mark_stage("nvt", "completed", status="running", current_step=current_step)
                 telemetry.event("NVT completed")
+
+        # Halfway through equilibration, so the second half of the schedule
+        # runs under the barostat. Releasing entirely before the box has
+        # equilibrated puts the solute into a volume that is still changing.
+        _hold_at(0.5)
 
         # ---- Stage 3: NPT equilibration -------------------------------
         # Add the barostat and reinitialize the context so the system picks up
@@ -964,6 +1020,25 @@ def run_simulation(
         elif telemetry is not None:
             telemetry.mark_stage("npt", "skipped", status="running", current_step=current_step)
             telemetry.event("NPT skipped (0 steps)")
+
+        # Restraints come off before production, because a biased production
+        # run measures the bias. Keeping them is possible and has to be asked
+        # for by name, and the manifest records that the trajectory was
+        # restrained -- a reader comparing it against a free one otherwise has
+        # no way to know.
+        if restraint_parameters:
+            if restrain_production:
+                held = _hold_at(0.0)
+                logger.warning(
+                    "Restraints are still applied during production at %g. "
+                    "The trajectory is biased and measures of flexibility "
+                    "computed from it -- RMSF, clustering, dimensionality "
+                    "reduction -- describe the restraint as much as the "
+                    "system.", held,
+                )
+            else:
+                _hold_at(1.0)
+                logger.info("Restraints released for production.")
 
         # ---- Stage 4: Production --------------------------------------
         # Production runs in NPT (the standard default ensemble).

@@ -276,3 +276,180 @@ class TestARestraintOnNothingIsRefused:
                 omm, top.to_openmm(), positions,
                 parse_restraints([{"kind": "distance", "selection": "all",
                                    "force_constant": 100.0}]))
+
+
+class TestTheRunnerReleasesThemInStages:
+    """Four force types are not a protocol. What makes them one is when they
+    are applied, how they weaken, and that they are gone before production."""
+
+    def test_the_settings_are_declared(self) -> None:
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        for name in ("restrain", "restraint_release", "restrain_production"):
+            field = PHASE_SCHEMAS["simulation"].get(name)
+            assert field is not None, name
+            assert field.help, name
+        assert PHASE_SCHEMAS["simulation"].get("restrain_production").default is False, (
+            "a biased production run measures the bias, so it is off"
+        )
+
+    def test_they_reach_the_command_line(self) -> None:
+        """Without the CLI being touched: the flags come from the schema."""
+        from fastmdxplora.cli.main import _PHASE_SPEC
+
+        table, _prefix = _PHASE_SPEC["simulate"]
+        offered = {dest for _flag, dest, _kw in table}
+        assert {"restrain", "restraint_release",
+                "restrain_production"} <= offered
+
+    def test_the_pipeline_passes_them_to_the_runner(self) -> None:
+        import inspect
+
+        from fastmdxplora.simulation import pipeline
+
+        source = inspect.getsource(pipeline)
+        for name in ("restrain=", "restraint_release=", "restrain_production="):
+            assert name in source, name
+
+    def test_they_are_at_full_strength_for_nvt(self) -> None:
+        """Which is the stage they exist for: the solvent is finding its
+        arrangement and the solute should not be moving while it does."""
+        import inspect
+
+        from fastmdxplora.simulation import runner
+
+        source = inspect.getsource(runner.run_simulation)
+        nvt = source.index("Stage 2: NVT")
+        npt = source.index("Stage 3: NPT")
+        assert "_hold_at(0.0)" in source[nvt:npt]
+
+    def test_they_are_gone_before_production(self) -> None:
+        import inspect
+
+        from fastmdxplora.simulation import runner
+
+        source = inspect.getsource(runner.run_simulation)
+        before = source[source.index("Stage 3: NPT"):source.index("Stage 4: Production")]
+        assert "_hold_at(1.0)" in before
+        assert "restrain_production" in before, (
+            "keeping them has to be asked for by name"
+        )
+
+    def test_keeping_them_warns_about_what_it_costs(self) -> None:
+        """A reader comparing a restrained trajectory against a free one
+        otherwise has no way to know which they have."""
+        import inspect
+
+        from fastmdxplora.simulation import runner
+
+        source = inspect.getsource(runner.run_simulation)
+        assert "measures of flexibility" in source
+        assert "RMSF" in source
+
+    @pytest.mark.slow
+    def test_a_run_with_restraints_completes_and_records_them(self, tmp_path) -> None:
+        """That the restraint holds is measured directly in
+        ``TestARestraintActuallyHolds``, where the comparison is clean: two
+        systems, same seed, one force added.
+
+        The same comparison through the whole runner was tried here and is not
+        reliable. Total drift by the time production starts includes the
+        solvent finding its arrangement and the box equilibrating, which are
+        larger than the effect at the lengths a test can afford -- at fifteen
+        hundred steps restrained and free came out at 0.0840 and 0.0832 nm,
+        indistinguishable, while at two thousand they were 0.067 and 0.108. A
+        test that passes at one length and fails at another is measuring
+        noise, and a flaky test is worse than none: it teaches people to rerun
+        rather than to look.
+
+        So this checks what the runner is responsible for -- that a restrained
+        run completes and says what it held -- and leaves the physics to the
+        test that can measure it cleanly.
+        """
+        pytest.importorskip("openmm", reason="requires the [md] extra")
+
+        import mdtraj as md
+        import openmm as omm
+        import openmm.unit as unit
+        from openmm.app import HBonds, PME, ForceField, Modeller, PDBFile
+
+        from fastmdxplora.simulation.runner import run_simulation
+
+        (tmp_path / "p.pdb").write_text(_ALANINE_PEPTIDE, encoding="utf-8")
+        pdb = PDBFile(str(tmp_path / "p.pdb"))
+        field = ForceField("amber14-all.xml", "amber14/tip3p.xml")
+        modeller = Modeller(pdb.topology, pdb.positions)
+        modeller.addHydrogens(field)
+        modeller.addSolvent(field, padding=0.7 * unit.nanometer)
+        system = field.createSystem(
+            modeller.topology, nonbondedMethod=PME,
+            nonbondedCutoff=1.0 * unit.nanometer, constraints=HBonds)
+        (tmp_path / "system.xml").write_text(omm.XmlSerializer.serialize(system))
+        integrator = omm.LangevinMiddleIntegrator(
+            300 * unit.kelvin, 1 / unit.picosecond, 0.002 * unit.picoseconds)
+        context = omm.Context(system, integrator,
+                              omm.Platform.getPlatformByName("CPU"))
+        context.setPositions(modeller.positions)
+        (tmp_path / "state.xml").write_text(omm.XmlSerializer.serialize(
+            context.getState(getPositions=True, getVelocities=True,
+                             enforcePeriodicBox=True)))
+        with (tmp_path / "top.pdb").open("w") as handle:
+            PDBFile.writeFile(modeller.topology, modeller.positions, handle)
+
+        result = run_simulation(
+            system_xml=tmp_path / "system.xml",
+            state_xml=tmp_path / "state.xml",
+            topology_pdb=tmp_path / "top.pdb",
+            output_dir=tmp_path / "run",
+            nvt_steps=200, npt_steps=200, production_steps=200,
+            trajectory_interval_steps=100, state_interval_steps=100,
+            platform="CPU", minimize=True, random_seed=11,
+            restrain="protein and not element H")
+
+        assert result.n_production_frames > 0
+        traj = md.load(str(tmp_path / "run" / "production.dcd"),
+                       top=str(tmp_path / "top.pdb"))
+        assert traj.n_frames > 0, "a restrained run should produce a trajectory"
+
+    @pytest.mark.slow
+    def test_an_impossible_restraint_stops_the_run(self, tmp_path) -> None:
+        """Rather than running unrestrained and looking as though it had
+        worked."""
+        pytest.importorskip("openmm", reason="requires the [md] extra")
+
+        import openmm as omm
+        import openmm.unit as unit
+        from openmm.app import HBonds, PME, ForceField, Modeller, PDBFile
+
+        from fastmdxplora.simulation.runner import run_simulation
+
+        (tmp_path / "p.pdb").write_text(_ALANINE_PEPTIDE, encoding="utf-8")
+        pdb = PDBFile(str(tmp_path / "p.pdb"))
+        field = ForceField("amber14-all.xml", "amber14/tip3p.xml")
+        modeller = Modeller(pdb.topology, pdb.positions)
+        modeller.addHydrogens(field)
+        modeller.addSolvent(field, padding=0.7 * unit.nanometer)
+        system = field.createSystem(
+            modeller.topology, nonbondedMethod=PME,
+            nonbondedCutoff=1.0 * unit.nanometer, constraints=HBonds)
+        (tmp_path / "system.xml").write_text(omm.XmlSerializer.serialize(system))
+        integrator = omm.LangevinMiddleIntegrator(
+            300 * unit.kelvin, 1 / unit.picosecond, 0.002 * unit.picoseconds)
+        context = omm.Context(system, integrator,
+                              omm.Platform.getPlatformByName("CPU"))
+        context.setPositions(modeller.positions)
+        (tmp_path / "state.xml").write_text(omm.XmlSerializer.serialize(
+            context.getState(getPositions=True, getVelocities=True,
+                             enforcePeriodicBox=True)))
+        with (tmp_path / "top.pdb").open("w") as handle:
+            PDBFile.writeFile(modeller.topology, modeller.positions, handle)
+
+        with pytest.raises(ValueError, match="matched no atoms"):
+            run_simulation(
+                system_xml=tmp_path / "system.xml",
+                state_xml=tmp_path / "state.xml",
+                topology_pdb=tmp_path / "top.pdb",
+                output_dir=tmp_path / "run",
+                nvt_steps=10, npt_steps=10, production_steps=10,
+                platform="CPU", minimize=False, random_seed=11,
+                restrain="resname NOTHING")

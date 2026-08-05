@@ -377,6 +377,25 @@ SIMULATION = PhaseSchema(
               "Maximum frames the trajectory-playback panel will load. "
               "Frames are downsampled evenly from the full DCD.",
               example=200),
+        Field("restrain", str, None,
+              "What to hold still during equilibration, as an atom selection "
+              "-- 'protein and not element H' is the usual choice. A "
+              "structure that has just been minimised is not at equilibrium, "
+              "and heating it lets the solute move as well as the solvent: "
+              "side chains relax into the space crystal packing left, and a "
+              "ligand drifts out of the pose that was measured. Restraints "
+              "are released in stages and are off for production."),
+        Field("restraint_release", list, None,
+              "Force constants in kJ/mol/nm^2 stepped through during "
+              "equilibration, ending at zero. Defaults to 1000, 500, 100, 0, "
+              "which is the shape standard protocols use. Letting go all at "
+              "once releases the solute into a solvent arrangement that "
+              "formed around a rigid structure."),
+        Field("restrain_production", bool, False,
+              "Keep the restraints on during production. Off, because a "
+              "biased production run measures the bias: RMSF, clustering and "
+              "dimensionality reduction would describe the restraint as much "
+              "as the system. Turning it on is recorded with the results."),
         Field("plumed", dict, None,
               "Optional PLUMED enhanced-sampling config: a dict with "
               "`enabled` (bool) and `script` (inline PLUMED text or a path "
