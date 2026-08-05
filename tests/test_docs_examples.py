@@ -147,3 +147,70 @@ def test_the_metadynamics_examples_in_the_docs_actually_plan() -> None:
         spec.setdefault("ligand_resname", "BNZ")
         # Raises if the example is one the software would refuse.
         plan_from_config(spec, top)
+
+
+def test_every_page_is_in_the_documentation_navigation() -> None:
+    """A page nobody can reach from the contents is a page nobody reads.
+
+    The navigation was one flat list of thirteen entries under a single
+    caption, with the production guide ahead of the phases it describes and a
+    design note missing from it entirely. It is grouped now, in the order a
+    new user meets things.
+    """
+    from pathlib import Path
+
+    docs = Path(__file__).resolve().parents[1] / "docs"
+    if not docs.is_dir():  # pragma: no cover - docs are optional
+        return
+
+    index = (docs / "index.md").read_text(encoding="utf-8")
+    pages = {p.stem for p in docs.glob("*.md")} - {"index"}
+    missing = sorted(page for page in pages if page not in index)
+    assert not missing, f"these pages are in no toctree: {missing}"
+
+
+def test_the_navigation_is_grouped() -> None:
+    """Thirteen entries under one caption is a list, not an order."""
+    from pathlib import Path
+
+    index = (Path(__file__).resolve().parents[1] / "docs" / "index.md")
+    if not index.is_file():  # pragma: no cover
+        return
+    captions = [line for line in index.read_text(encoding="utf-8").splitlines()
+                if line.startswith(":caption:")]
+    assert len(captions) >= 4, (
+        f"the documentation should be grouped; found {len(captions)} section(s)"
+    )
+
+
+def test_the_readme_points_at_every_important_page() -> None:
+    """The README's documentation section is the map. A capability documented
+    on a page nothing links to is one nobody finds."""
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[1]
+    readme = (repo / "README.md").read_text(encoding="utf-8")
+    for page in ("installation", "getting_started", "phases", "simulations",
+                 "interactions", "cli_reference", "configuration", "gui"):
+        assert f"{page}.html" in readme, f"the README does not link {page}"
+
+
+def test_the_gui_is_called_the_gui() -> None:
+    """It is the FastMDXplora GUI, not "a browser". A browser is what you open
+    it in, and the two are worth telling apart in a document somebody reads to
+    learn what the software is called."""
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[1]
+    pages = [repo / "README.md"] + sorted((repo / "docs").glob("*.md"))
+
+    wrong = []
+    for page in pages:
+        if not page.is_file():
+            continue
+        text = page.read_text(encoding="utf-8")
+        for phrase in ("browser interface", "the browser dashboard",
+                       "watch one in a browser"):
+            if phrase in text:
+                wrong.append(f"{page.name}: {phrase!r}")
+    assert not wrong, f"these call the GUI something else: {wrong}"

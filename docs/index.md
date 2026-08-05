@@ -27,20 +27,37 @@ GPU jobs, read [Production and GPU runs](production.md) first.
 
 ```{toctree}
 :maxdepth: 2
-:caption: Getting started
+:caption: Start here
 
 installation
 getting_started
-production
 phases
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: Running simulations
+
 simulations
+production
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: Reading the results
+
 interactions
-cli_reference
-usage_examples
-configuration
 region_highlights
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: Driving it
+
+cli_reference
+configuration
 gui
-pdb_smoke_campaign
+usage_examples
 ```
 
 ```{toctree}
@@ -48,26 +65,6 @@ pdb_smoke_campaign
 :caption: Reference
 
 api
+interactions_design
+pdb_smoke_campaign
 ```
-
-```{toctree}
-:caption: Project
-:hidden:
-
-GitHub repository <https://github.com/aai-research-lab/FastMDXplora>
-PyPI <https://pypi.org/project/fastmdxplora/>
-Paper (JCC 2026) <https://doi.org/10.1002/jcc.70350>
-```
-
-## Quick links
-
-- [GitHub repository](https://github.com/aai-research-lab/FastMDXplora)
-- [PyPI: fastmdxplora](https://pypi.org/project/fastmdxplora/)
-- [PyPI: fastmdx (alias)](https://pypi.org/project/fastmdx/)
-- [Foundational paper (JCC 2026)](https://doi.org/10.1002/jcc.70350)
-
-## Citation
-
-If you use FastMDXplora in your work, please cite:
-
-> Aina, A.; Kwan, D. *FastMDAnalysis: Software for Automated Analysis of Molecular Dynamics Trajectories.* J. Comput. Chem. **2026**, 47, e70350. DOI: [10.1002/jcc.70350](https://doi.org/10.1002/jcc.70350)

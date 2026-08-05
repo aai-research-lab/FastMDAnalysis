@@ -182,7 +182,8 @@ the choice for clustering.
 ## report
 
 Assembles the results into shareable deliverables: a written report in
-Markdown and PDF, a static browser dashboard, a slide deck, and a
+Markdown and PDF, a static dashboard you can open in a browser, a slide
+deck, and a
 self-contained project bundle.
 
 The report opens with a **methods paragraph** rather than a list of settings.

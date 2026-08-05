@@ -211,7 +211,7 @@ runs.
 
 ## Watching a run on a cluster
 
-The GUI binds to `127.0.0.1` and serves a browser interface, so it cannot be
+The GUI binds to `127.0.0.1`, so it cannot be
 used directly on a compute node reached through a batch scheduler. There is no
 browser there, the node is usually not addressable, and the exploration layer is
 meaningless when the scheduler owns job submission.
