@@ -480,7 +480,26 @@ def _value_in_unit(quantity: Any, unit_value: Any) -> Any:
     return quantity
 
 
-def _validation_error(stage: str, detail: str) -> RuntimeError:
+def _validation_error(stage: str, detail: str, *, topology: Any = None,
+                      positions: Any = None) -> RuntimeError:
+    """Say what failed, reading the state where one is available.
+
+    The remedies this used to list -- lower the timestep, lower the
+    temperature, raise the friction -- are things that sometimes help, offered
+    without knowing which applies. Sometimes none of them do, because the
+    problem is a ligand whose parameters are wrong, and no timestep is small
+    enough for that.
+    """
+    if topology is not None and positions is not None:
+        try:
+            from fastmdxplora.simulation.diagnose import diagnose_failure
+
+            return RuntimeError(
+                diagnose_failure(topology, positions, stage=stage).as_text())
+        except Exception:  # noqa: BLE001 - a diagnosis that fails is not the
+            # failure worth reporting; fall through to the general message.
+            pass
+
     return RuntimeError(
         f"Invalid simulation state after {stage}: {detail}. "
         "Try safer settings: lower --simulate-timestep-fs, lower "
@@ -522,7 +541,12 @@ def _validate_state_finite(omm: dict, simulation: Any, *, stage: str) -> None:
     if not position_numbers:
         raise _validation_error(stage, "no positions found")
     if not all(math.isfinite(x) for x in position_numbers):
-        raise _validation_error(stage, "positions contain NaN or Inf")
+        # The state is the evidence: which atoms went non-finite, and what
+        # they belong to, distinguishes a wrong ligand parameter from a
+        # packing problem from an integration failure. The remedies differ.
+        raise _validation_error(
+            stage, "positions contain NaN or Inf",
+            topology=simulation.topology, positions=positions)
 
     try:
         energy = state.getPotentialEnergy()
@@ -536,7 +560,9 @@ def _validate_state_finite(omm: dict, simulation: Any, *, stage: str) -> None:
     if not energy_numbers:
         raise _validation_error(stage, "potential energy missing")
     if not all(math.isfinite(x) for x in energy_numbers):
-        raise _validation_error(stage, "potential energy is NaN or Inf")
+        raise _validation_error(
+            stage, "potential energy is NaN or Inf",
+            topology=simulation.topology, positions=positions)
 
 
 def _run_md_stage(
