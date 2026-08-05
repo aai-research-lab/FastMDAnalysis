@@ -71,6 +71,10 @@ requirements:
     # install command gives the format without a system-library hunt.
     - weasyprint >=60
     - markdown >=3.4
+    # Enhanced sampling: metadynamics, umbrella sampling, steered MD. Not on
+    # PyPI at all, so this is the only distribution that can carry it, and a
+    # metadynamics run without it fails at the point of use.
+    - openmm-plumed >=1.0
 
 tests:
   - python:

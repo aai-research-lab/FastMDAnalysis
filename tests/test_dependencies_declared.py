@@ -47,7 +47,6 @@ DISTRIBUTION = {
 #: only when the user asks for the feature. These need not be installed.
 OPTIONAL = {
     "umap-learn",      # one of three dimensionality-reduction methods
-    "openmm-plumed",   # enhanced sampling, off unless asked for
 }
 
 #: Imported, and deliberately absent from pyproject.toml because pip cannot
@@ -57,6 +56,7 @@ OPTIONAL = {
 #: is where they can be had, and the import raises with that instruction.
 CONDA_ONLY = {
     "openff-toolkit": "no PyPI distribution; conda-forge only",
+    "openmm-plumed": "no PyPI distribution; conda-forge only",
 }
 
 

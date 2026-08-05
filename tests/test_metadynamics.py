@@ -89,10 +89,12 @@ class TestTheScriptItWrites:
         coordinate."""
         from fastmdxplora.simulation.metadynamics import build_plumed_script
 
+        # Bounded, because an unbounded ligand run is refused: it would push
+        # the ligand into bulk solvent and never come back.
         plan = self._plan(collective_variable="ligand_distance",
                           ligand_resname="BNZ",
                           site_selection="resid 1 to 3 and name CA",
-                          sigma=0.05)
+                          sigma=0.05, walls={"upper": 2.5})
         script = build_plumed_script(plan)
         # The ligand is atoms 24-29 counting from zero.
         assert "ATOMS=25,26,27,28,29,30" in script
@@ -155,7 +157,8 @@ class TestTheScriptItWrites:
         from fastmdxplora.simulation.metadynamics import build_plumed_script
 
         plan = self._plan(collective_variable="ligand_rmsd",
-                          ligand_resname="BNZ", sigma=0.05)
+                          ligand_resname="BNZ", sigma=0.05,
+                          walls={"upper": 1.0})
         with pytest.raises(ValueError, match="reference"):
             build_plumed_script(plan)
 
@@ -217,3 +220,126 @@ class TestItReachesTheRunner:
         source = inspect.getsource(runner.run_simulation)
         block = source[source.index("if metadynamics:"):]
         assert 'plumed = {"enabled": True' in block[:2000]
+
+
+class TestBoundingWhereTheLigandGoes:
+    """A metadynamics run on a ligand's distance will, given time, push the
+    ligand into bulk solvent -- where the landscape is flat and unbounded, so
+    the bias fills a basin that is effectively infinite and the run never
+    comes back to the question.
+
+    Without a bound, a ligand-distance run is not wrong so much as
+    unfinishable.
+    """
+
+    @staticmethod
+    def _spec(**extra):
+        return dict({
+            "collective_variable": "ligand_distance",
+            "ligand_resname": "BNZ",
+            "site_selection": "resid 1 to 3 and name CA",
+            "sigma": 0.05,
+        }, **extra)
+
+    def test_an_unbounded_ligand_run_is_refused(self) -> None:
+        from fastmdxplora.simulation.metadynamics import plan_from_config
+
+        with pytest.raises(ValueError, match="bulk solvent"):
+            plan_from_config(self._spec(), _topology())
+
+    def test_but_can_be_asked_for_deliberately(self) -> None:
+        from fastmdxplora.simulation.metadynamics import plan_from_config
+
+        plan = plan_from_config(self._spec(unbounded=True), _topology())
+        assert plan.walls is None and plan.funnel is None
+
+    def test_a_wall_bounds_how_far(self) -> None:
+        from fastmdxplora.simulation.metadynamics import (
+            build_plumed_script,
+            plan_from_config,
+        )
+
+        plan = plan_from_config(
+            self._spec(walls={"upper": 2.5}), _topology())
+        script = build_plumed_script(plan)
+        assert "UPPER_WALLS ARG=cv AT=2.5" in script
+
+    def test_a_wall_with_neither_end_is_refused(self) -> None:
+        from fastmdxplora.simulation.metadynamics import plan_from_config
+
+        with pytest.raises(ValueError, match="wall nowhere"):
+            plan_from_config(self._spec(walls={"kappa": 100}), _topology())
+
+    def test_a_funnel_bounds_where(self) -> None:
+        """A flat wall bounds how far a ligand goes and not where, so the run
+        still explores a whole shell of unbound positions at that distance."""
+        from fastmdxplora.simulation.metadynamics import (
+            build_plumed_script,
+            plan_from_config,
+        )
+
+        plan = plan_from_config(
+            self._spec(funnel={"axis_selection": "resid 4 5 and name CA"}),
+            _topology())
+        script = build_plumed_script(plan)
+        assert "UPPER_WALLS ARG=outside AT=0" in script
+        assert "proj: CUSTOM" in script and "rad: CUSTOM" in script
+
+    def test_the_funnel_uses_only_standard_plumed(self) -> None:
+        """Rather than the FUNNEL module, which is not in every build."""
+        from fastmdxplora.simulation.metadynamics import (
+            build_plumed_script,
+            plan_from_config,
+        )
+
+        plan = plan_from_config(
+            self._spec(funnel={"axis_selection": "resid 4 5 and name CA"}),
+            _topology())
+        script = build_plumed_script(plan)
+        assert "FUNNEL " not in script.replace("# Funnel", "")
+        for action in ("COM", "DISTANCE", "CUSTOM", "UPPER_WALLS"):
+            assert action in script
+
+    def test_it_is_wide_at_the_site_and_narrow_in_bulk(self) -> None:
+        """Limongelli's shape: a cone over the site mouth opening into a
+        cylinder, so the unbound state has a defined volume -- which is what
+        makes an absolute binding free energy recoverable."""
+        from fastmdxplora.simulation.metadynamics import (
+            build_plumed_script,
+            plan_from_config,
+        )
+
+        plan = plan_from_config(
+            self._spec(funnel={"axis_selection": "resid 4 5 and name CA",
+                               "cylinder_radius_nm": 0.1,
+                               "switch_distance_nm": 1.5,
+                               "alpha_rad": 0.55}),
+            _topology())
+        line = next(l for l in build_plumed_script(plan).splitlines()
+                    if l.startswith("limit:"))
+        assert "max(0.1," in line, "it never narrows below the cylinder"
+        assert "(1.5-p)" in line, "and widens back towards the site"
+
+    def test_a_funnel_needs_the_direction_the_ligand_leaves_by(self) -> None:
+        """Nothing here can work that out, and one pointed the wrong way
+        blocks the exit instead of following it."""
+        from fastmdxplora.simulation.metadynamics import plan_from_config
+
+        with pytest.raises(ValueError, match="axis_selection"):
+            plan_from_config(self._spec(funnel={}), _topology())
+
+    def test_a_funnel_only_applies_to_a_ligand_leaving(self) -> None:
+        from fastmdxplora.simulation.metadynamics import plan_from_config
+
+        with pytest.raises(ValueError, match="applies to ligand_distance"):
+            plan_from_config(
+                {"collective_variable": "radius_of_gyration",
+                 "selection": "protein and name CA", "sigma": 0.05,
+                 "funnel": {"axis_selection": "resid 4 and name CA"}},
+                _topology())
+
+    def test_a_bounded_run_records_its_bounds(self) -> None:
+        from fastmdxplora.simulation.metadynamics import plan_from_config
+
+        plan = plan_from_config(self._spec(walls={"upper": 2.5}), _topology())
+        assert plan.as_record()["walls"]["upper"] == 2.5

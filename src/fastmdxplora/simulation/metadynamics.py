@@ -35,6 +35,8 @@ from typing import Any
 __all__ = [
     "COLLECTIVE_VARIABLES",
     "MetadynamicsPlan",
+    "Walls",
+    "Funnel",
     "build_plumed_script",
     "plan_from_config",
 ]
@@ -92,6 +94,65 @@ DEFAULT_HEIGHT_KJMOL = 1.2
 
 
 @dataclass(frozen=True)
+class Walls:
+    """Limits beyond which the run is pushed back.
+
+    A metadynamics run on a ligand's distance from its site will, given time,
+    push the ligand out into bulk solvent -- where the landscape is flat and
+    unbounded, so the bias fills a basin that is effectively infinite and the
+    run never returns to the question. An upper wall stops that: past it the
+    ligand is pushed back, the unbound basin has a finite volume, and the
+    binding free energy computed from the surface means something.
+
+    Without a wall, a ligand-distance run is not wrong so much as unfinishable.
+    """
+
+    upper: float | None = None
+    lower: float | None = None
+    #: How hard the wall pushes, in kJ/mol per unit of the variable squared.
+    kappa: float = 1000.0
+
+    def as_record(self) -> dict[str, Any]:
+        return {"upper": self.upper, "lower": self.lower, "kappa": self.kappa}
+
+
+@dataclass(frozen=True)
+class Funnel:
+    """A cone over the binding site widening into a cylinder in the solvent.
+
+    A flat upper wall bounds how far a ligand goes and not where it goes, so
+    the run still explores a whole shell of unbound positions at that
+    distance. A funnel bounds both: near the site it is narrow, following the
+    exit path, and further out it opens into a cylinder of fixed radius. The
+    unbound state is then a well-defined volume, which is what makes the
+    absolute binding free energy recoverable -- and it is what funnel
+    metadynamics is for.
+
+    The axis has to be given: it is the direction the ligand leaves by, from
+    the site out into solvent, and nothing here can work that out. A funnel
+    pointed the wrong way blocks the exit instead of following it.
+
+    Parameters follow the usual convention -- the cone half-angle, the
+    distance at which the cone becomes a cylinder, and the cylinder's radius.
+    """
+
+    axis_selection: str
+    alpha_rad: float = 0.55
+    switch_distance_nm: float = 1.5
+    cylinder_radius_nm: float = 0.1
+    kappa: float = 15000.0
+
+    def as_record(self) -> dict[str, Any]:
+        return {
+            "axis_selection": self.axis_selection,
+            "alpha_rad": self.alpha_rad,
+            "switch_distance_nm": self.switch_distance_nm,
+            "cylinder_radius_nm": self.cylinder_radius_nm,
+            "kappa": self.kappa,
+        }
+
+
+@dataclass(frozen=True)
 class MetadynamicsPlan:
     """A metadynamics run, described in terms of what it biases."""
 
@@ -103,6 +164,8 @@ class MetadynamicsPlan:
     pace_steps: int = DEFAULT_PACE_STEPS
     bias_factor: float = DEFAULT_BIAS_FACTOR
     temperature_K: float = 300.0
+    walls: Walls | None = None
+    funnel: Funnel | None = None
 
     def as_record(self) -> dict[str, Any]:
         return {
@@ -115,6 +178,8 @@ class MetadynamicsPlan:
             "bias_factor": self.bias_factor,
             "well_tempered": self.bias_factor > 1.0,
             "n_atoms_biased": {k: len(v) for k, v in self.atoms.items()},
+            "walls": self.walls.as_record() if self.walls else None,
+            "funnel": self.funnel.as_record() if self.funnel else None,
         }
 
 
@@ -211,8 +276,73 @@ def plan_from_config(
             "takes forever to fill."
         )
 
+    walls = None
+    wall_spec = spec.get("walls")
+    if wall_spec:
+        walls = Walls(
+            upper=(None if wall_spec.get("upper") is None
+                   else float(wall_spec["upper"])),
+            lower=(None if wall_spec.get("lower") is None
+                   else float(wall_spec["lower"])),
+            kappa=float(wall_spec.get("kappa", 1000.0)),
+        )
+        if walls.upper is None and walls.lower is None:
+            raise ValueError(
+                "A `walls` block needs an `upper`, a `lower`, or both. One "
+                "with neither is a wall nowhere."
+            )
+
+    funnel = None
+    funnel_spec = spec.get("funnel")
+    # `is not None`, because an empty block is falsy and would fall straight
+    # through to the unbounded check -- answering "you gave no funnel" to
+    # somebody who gave one without an axis.
+    if funnel_spec is not None:
+        if variable != "ligand_distance":
+            raise ValueError(
+                "A funnel bounds where a ligand goes as it leaves, so it "
+                f"applies to ligand_distance and not to {variable}."
+            )
+        axis = funnel_spec.get("axis_selection")
+        if not axis:
+            raise ValueError(
+                "A funnel needs `axis_selection`: the direction the ligand "
+                "leaves by, given as atoms out towards solvent from the site. "
+                "Nothing here can work that out, and a funnel pointed the "
+                "wrong way blocks the exit instead of following it."
+            )
+        atoms["funnel_axis"] = select(str(axis), "funnel axis")
+        funnel = Funnel(
+            axis_selection=str(axis),
+            alpha_rad=float(funnel_spec.get("alpha_rad", 0.55)),
+            switch_distance_nm=float(
+                funnel_spec.get("switch_distance_nm", 1.5)),
+            cylinder_radius_nm=float(
+                funnel_spec.get("cylinder_radius_nm", 0.1)),
+            kappa=float(funnel_spec.get("kappa", 15000.0)),
+        )
+
+    # A statement, not a conditional expression: `raise X if cond else None`
+    # raises None when the condition is false, which is a TypeError rather
+    # than the run proceeding.
+    if (variable in ("ligand_distance", "ligand_rmsd")
+            and not (walls or funnel)
+            and not spec.get("unbounded")):
+        raise ValueError(
+            f"{variable} without a wall or a funnel will push the ligand out "
+            "into bulk solvent, where the landscape is flat and unbounded: "
+            "the bias fills a basin that is effectively infinite and the run "
+            "never comes back to the question. Give `walls: {upper: <nm>}` to "
+            "bound how far it goes, or a `funnel` to bound where it goes as "
+            "well -- the second is what makes an absolute binding free energy "
+            "recoverable. To proceed without one anyway, say "
+            "`unbounded: true`."
+        )
+
     return MetadynamicsPlan(
         collective_variable=variable,
+        walls=walls,
+        funnel=funnel,
         atoms=atoms,
         sigma=float(sigma),
         height_kjmol=float(spec.get("height_kjmol", DEFAULT_HEIGHT_KJMOL)),
@@ -267,6 +397,46 @@ def build_plumed_script(plan: MetadynamicsPlan, reference_pdb: str | None = None
         f"TEMP={plan.temperature_K:g} "
         "FILE=HILLS"
     )
+    if plan.walls:
+        lines.append("")
+        if plan.walls.upper is not None:
+            lines.append(
+                f"uwall: UPPER_WALLS ARG=cv AT={plan.walls.upper:g} "
+                f"KAPPA={plan.walls.kappa:g}")
+        if plan.walls.lower is not None:
+            lines.append(
+                f"lwall: LOWER_WALLS ARG=cv AT={plan.walls.lower:g} "
+                f"KAPPA={plan.walls.kappa:g}")
+
+    if plan.funnel:
+        lines.append("")
+        lines.append("# Funnel: a cone over the site opening into a cylinder.")
+        lines.append("# The ligand's position is split into how far it has")
+        lines.append("# gone along the exit axis and how far it is from that")
+        lines.append("# axis; the second is bounded by a radius that depends")
+        lines.append("# on the first, which is the funnel shape.")
+        lines.append(
+            f"axpt: COM ATOMS={_plumed_list(plan.atoms['funnel_axis'])}")
+        lines.append("axis: DISTANCE ATOMS=site,axpt COMPONENTS")
+        lines.append("rel: DISTANCE ATOMS=site,lig COMPONENTS")
+        lines.append(
+            "proj: CUSTOM ARG=rel.x,rel.y,rel.z,axis.x,axis.y,axis.z "
+            "FUNC=(x*a+y*b+z*c)/sqrt(a*a+b*b+c*c) "
+            "VAR=x,y,z,a,b,c PERIODIC=NO")
+        lines.append(
+            "rad: CUSTOM ARG=rel.x,rel.y,rel.z,proj "
+            "FUNC=sqrt(max(0,x*x+y*y+z*z-p*p)) VAR=x,y,z,p PERIODIC=NO")
+        lines.append(
+            f"limit: CUSTOM ARG=proj FUNC=max("
+            f"{plan.funnel.cylinder_radius_nm:g},"
+            f"{plan.funnel.cylinder_radius_nm:g}+"
+            f"({plan.funnel.switch_distance_nm:g}-p)*"
+            f"tan({plan.funnel.alpha_rad:g})) VAR=p PERIODIC=NO")
+        lines.append("outside: CUSTOM ARG=rad,limit FUNC=r-l VAR=r,l PERIODIC=NO")
+        lines.append(
+            f"funnel: UPPER_WALLS ARG=outside AT=0 "
+            f"KAPPA={plan.funnel.kappa:g}")
+
     lines.append("")
     # The variable and the bias, every deposition. Without these there is no
     # way to tell afterwards whether the run converged, and a metadynamics run
