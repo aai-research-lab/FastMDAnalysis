@@ -376,3 +376,53 @@ def test_the_reason_the_subprocess_failed_is_named(capsys) -> None:
 
     printed = capsys.readouterr().out
     assert "FileNotFoundError" in printed or "No such file" in printed
+
+
+def test_a_backend_writing_to_stdout_cannot_corrupt_the_answer(tmp_path) -> None:
+    """WeasyPrint writes its five-line complaint to stdout, not stderr.
+
+    That took four attempts to notice. Redirecting Python's stderr did not
+    quiet it, redirecting the file descriptor did not either, and moving the
+    probe to a subprocess then failed to parse its own output -- because the
+    answer was coming back on the channel the message was using. It travels by
+    file now, so nothing a backend prints, on any stream, can reach it.
+    """
+    import importlib
+    import os
+
+    module = importlib.import_module("fastmdxplora.cli.main")
+
+    (tmp_path / "loud_backend.py").write_text(
+        "import sys\n"
+        "sys.stdout.write('\\n-----\\nsomething loud on stdout\\n-----\\n')\n"
+        "sys.stdout.flush()\n"
+        "raise OSError(\"cannot load library 'libgobject-2.0-0'\")\n",
+        encoding="utf-8")
+
+    original = os.environ.get("PYTHONPATH", "")
+    os.environ["PYTHONPATH"] = os.pathsep.join(
+        [str(tmp_path)] + ([original] if original else []))
+    try:
+        found = module._probe_backends(("loud_backend", "json"))
+    finally:
+        if original:
+            os.environ["PYTHONPATH"] = original
+        else:
+            os.environ.pop("PYTHONPATH", None)
+
+    assert found["loud_backend"][0] == "broken"
+    assert "libgobject" in found["loud_backend"][1]
+    assert found["json"][0] == "installed", (
+        "the noise must not take the other answers with it"
+    )
+
+
+def test_the_answer_does_not_come_back_on_stdout() -> None:
+    """Which is the channel a failing backend is most likely to use."""
+    import importlib
+    import inspect
+
+    module = importlib.import_module("fastmdxplora.cli.main")
+    source = inspect.getsource(module._probe_backends)
+    assert "sys.stdout.write(json.dumps" not in source
+    assert "open(sys.argv[2]" in source

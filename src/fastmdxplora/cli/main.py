@@ -1199,14 +1199,25 @@ def _probe_backends(import_names: tuple[str, ...]) -> dict[str, tuple[str, str]]
         "        out[name] = ['missing', '']\n"
         "    except BaseException as exc:\n"
         "        out[name] = ['broken', str(exc).split(':')[0][:60]]\n"
-        "sys.stdout.write(json.dumps(out))\n"
+        # Written to a file, not to stdout. A backend that fails may print
+        # on the way out -- WeasyPrint writes five lines about its
+        # installation guide, and to stdout rather than stderr, which is why
+        # redirecting stderr never quieted it and why the answer could not be
+        # parsed from stdout either.
+        "open(sys.argv[2], 'w').write(json.dumps(out))\n"
     )
+    import tempfile
+
     try:
-        finished = subprocess.run(
-            [sys.executable, "-c", script, json.dumps(list(import_names))],
-            capture_output=True, text=True, timeout=120, check=False,
-        )
-        found = json.loads(finished.stdout or "{}")
+        with tempfile.TemporaryDirectory() as work:
+            answer = Path(work) / "backends.json"
+            finished = subprocess.run(
+                [sys.executable, "-c", script,
+                 json.dumps(list(import_names)), str(answer)],
+                capture_output=True, text=True, timeout=120, check=False,
+            )
+            found = (json.loads(answer.read_text(encoding="utf-8"))
+                     if answer.is_file() else {})
         if found:
             return {name: tuple(found[name]) for name in import_names
                     if name in found}
