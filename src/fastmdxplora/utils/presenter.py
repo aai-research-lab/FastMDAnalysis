@@ -152,6 +152,7 @@ class SessionPresenter:
         stream: IO | None = None,
         *,
         quiet: bool | None = None,
+        explain: bool = True,
         width: int | None = None,
     ) -> None:
         self.stream: IO = stream if stream is not None else sys.stdout
@@ -160,6 +161,10 @@ class SessionPresenter:
         if quiet is None:
             quiet = os.getenv("FASTMDX_LOG_STYLE", "").strip().lower() == "plain"
         self.quiet: bool = bool(quiet)
+        #: Whether to say why each step happens. On, because a pipeline that
+        #: runs silently teaches nothing and somebody's first trajectory
+        #: should be one they can defend.
+        self.explain: bool = bool(explain)
 
         # Terminal width: explicit > shutil > 80 fallback
         if width is None:
@@ -792,17 +797,32 @@ class SessionPresenter:
         self._phase_start = None
         self._current_phase = None
 
-    def step(self, message: str, *, status: str = "ok") -> None:
+    def step(self, message: str, *, status: str = "ok",
+             explain: str | None = None) -> None:
         """Print a single indented step inside the current phase.
 
         Used for fine-grained progress messages within a phase, such as
         ``"Loaded input: protein.pdb"`` during setup or ``"Wrote slides.pptx"``
         during report.
+
+        ``explain`` names an entry in :mod:`fastmdxplora.explain`, printed
+        beneath the step when explanations are on. It is a key rather than the
+        text itself, so an explanation cannot drift onto the wrong step and a
+        step cannot quietly lose its explanation.
         """
         if self.quiet:
             return
         icon, color = self._STATUS_ICON.get(status, ("·", "muted"))
         self._write(f"  {self._c(icon, color)} {message}")
+
+        if explain and self.explain:
+            from fastmdxplora.explain import explain as _lookup
+
+            entry = _lookup(explain)
+            if entry is not None:
+                self._write("")
+                self._write(self._c(entry.as_text(), "muted"))
+                self._write("")
 
     def info(self, message: str) -> None:
         """Print a plain indented message (no status icon).
@@ -939,6 +959,16 @@ def get_presenter() -> SessionPresenter:
     if _PRESENTER is None:
         _PRESENTER = SessionPresenter()
     return _PRESENTER
+
+
+def set_explain(enabled: bool) -> None:
+    """Turn the step explanations on or off for the current session.
+
+    The presenter is a singleton created before the command line has been
+    read, so the setting arrives afterwards rather than through its
+    constructor.
+    """
+    get_presenter().explain = bool(enabled)
 
 
 def reset_presenter() -> None:

@@ -130,6 +130,12 @@ TOP_LEVEL = PhaseSchema(
               "Output directory for all artifacts. "
               "Default: ./fastmdxplora_output_<UTC-timestamp>.",
               example="./my_study"),
+        Field("explain", bool, True,
+              "Say why each step happens as it happens, with a reference "
+              "where there is one worth reading. On, because a pipeline that "
+              "runs silently teaches nothing and somebody's first trajectory "
+              "should be one they can defend. Turn it off once the steps are "
+              "familiar."),
         Field("verbose", bool, False,
               "Stream debug logging to the terminal in addition to the log file."),
         Field("include", list, None,

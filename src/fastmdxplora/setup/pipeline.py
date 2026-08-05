@@ -581,7 +581,8 @@ def run(
             )
             artifacts.append("prepared.pdb")
             if presenter:
-                presenter.step(f"Fixed PDB with PDBFixer (pH={params['ph']})")
+                presenter.step(f"Fixed PDB with PDBFixer (pH={params['ph']})",
+                                  explain="protonation")
         except ImportError as exc:
             missing = missing_dependencies()
             notes.append(
@@ -655,7 +656,8 @@ def run(
                 ff_label = ", ".join(params["force_field"])
             else:
                 ff_label = str(params["forcefield"])
-            presenter.step(f"Solvated and parameterized ({ff_label})")
+            presenter.step(f"Solvated and parameterized ({ff_label})",
+                                  explain="membrane" if params.get("membrane") else "solvation")
             presenter.step("Wrote system.xml, state.xml, topology.pdb")
     except ImportError as exc:
         missing = missing_dependencies()

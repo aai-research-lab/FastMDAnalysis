@@ -559,6 +559,19 @@ def _common_input_args(p: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Also stream debug logging to the terminal.",
     )
+    # Top-level rather than per-phase, so it is written here rather than
+    # generated from the schema alongside the phase settings.
+    src.add_argument(
+        "--no-explain",
+        dest="explain",
+        action="store_false",
+        default=True,
+        help=(
+            "Do not say why each step happens. Explanations are on, because "
+            "a pipeline that runs silently teaches nothing; turn them off "
+            "once the steps are familiar."
+        ),
+    )
     dash = p.add_argument_group("dashboard")
     dash.add_argument(
         "--dashboard",
@@ -917,6 +930,16 @@ def _build_explore_config(args: argparse.Namespace) -> dict[str, Any]:
         config["output"] = args.output_dir
     if getattr(args, "verbose", False):
         config["verbose"] = True
+
+    # The presenter exists before the arguments are read, so it is told
+    # afterwards. A config file's `explain` is honoured where the flag was
+    # not given.
+    from fastmdxplora.utils.presenter import set_explain
+
+    wanted = getattr(args, "explain", True)
+    if wanted and config.get("explain") is False:
+        wanted = False
+    set_explain(wanted)
     if args.include:
         config["include"] = args.include
     if args.exclude:
