@@ -213,3 +213,50 @@ def test_the_alias_package_carries_the_released_version() -> None:
         f"release is {released.group(1)}. Bump shim-package/pyproject.toml "
         "before tagging, or the release workflow will refuse the tag."
     )
+
+
+def test_info_reports_every_backend_the_software_reaches_for() -> None:
+    """`fastmdx info` exists to say what will work on this machine.
+
+    It listed two backends where the software reaches for eight, so a PyPI
+    install reported both present and said nothing about the OpenFF toolkit --
+    which a protein-ligand setup needs and which pip cannot install. Somebody
+    reading it would conclude their install was complete and find out
+    otherwise three phases later.
+    """
+    from fastmdxplora.cli.main import _BACKENDS
+
+    reported = {
+        import_name
+        for _group, backends in _BACKENDS
+        for _display, import_name, _hint in backends
+    }
+    for needed in ("openmm", "pdbfixer", "openff.toolkit", "openmmforcefields",
+                   "rdkit", "propka", "weasyprint", "markdown"):
+        assert needed in reported, f"info does not mention {needed}"
+
+
+def test_each_backend_says_where_to_get_it() -> None:
+    """And says something that works: naming a pip extra for the OpenFF
+    toolkit sent people to a command that could not succeed."""
+    from fastmdxplora.cli.main import _BACKENDS
+
+    for _group, backends in _BACKENDS:
+        for display, import_name, hint in backends:
+            assert hint, display
+            if import_name == "openff.toolkit":
+                assert "conda" in hint and "pip" not in hint, (
+                    "the toolkit is not on PyPI, so a pip hint cannot work"
+                )
+
+
+def test_backends_are_grouped_by_what_they_are_for() -> None:
+    """A trajectory analysis does not care that OpenMM is absent, and saying
+    so unqualified reads as a broken install."""
+    from fastmdxplora.cli.main import _BACKENDS
+
+    groups = {group for group, _backends in _BACKENDS}
+    assert len(groups) >= 3
+    assert all(group and group[0].islower() for group in groups), (
+        "the groups read as a phrase after the heading"
+    )

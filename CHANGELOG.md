@@ -24,6 +24,14 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   the ordinary test run now checks it against the changelog -- the thing a
   release is cut from.
 
+### Fixed
+- **`fastmdx info` reported two backends where the software reaches for
+  eight.** A PyPI install showed OpenMM and PDBFixer present and said nothing
+  about the OpenFF toolkit, which a protein-ligand setup needs and which pip
+  cannot install -- so somebody reading it would conclude their install was
+  complete and find out otherwise three phases later. Every backend is listed
+  now, grouped by what it is for, with a command that works for each.
+
 ## [2.3.0] — 2026-08-05
 
 This release is about knowing how far to trust a number.

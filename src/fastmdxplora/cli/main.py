@@ -1136,6 +1136,37 @@ def _cmd_phase(phase: str, args: argparse.Namespace) -> int:
     return rc
 
 
+#: What each phase reaches for, and where to get it. Grouped because a
+#: missing backend matters only for what it is needed for: a trajectory
+#: analysis does not care that OpenMM is absent, and saying so unqualified
+#: reads as a broken install.
+_BACKENDS: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
+    ("to run a simulation", (
+        ("OpenMM", "openmm", "conda install -c conda-forge openmm"),
+        ("PDBFixer", "pdbfixer", "conda install -c conda-forge pdbfixer"),
+    )),
+    ("to prepare a ligand", (
+        # openff-toolkit has no PyPI distribution, so no pip command reaches
+        # it whatever extra is named. Saying "pip install the ligand extra"
+        # here sent people to something that could not work.
+        ("OpenFF toolkit", "openff.toolkit",
+         "conda install -c conda-forge openff-toolkit"),
+        ("OpenMM force fields", "openmmforcefields",
+         "conda install -c conda-forge openmmforcefields"),
+        ("RDKit", "rdkit", "conda install -c conda-forge rdkit"),
+        ("PROPKA", "propka", "conda install -c conda-forge propka"),
+    )),
+    ("to write the report as a PDF", (
+        ("WeasyPrint", "weasyprint", "conda install -c conda-forge weasyprint"),
+        ("Markdown", "markdown", "conda install -c conda-forge markdown"),
+    )),
+    ("for optional extras", (
+        ("UMAP", "umap", "conda install -c conda-forge umap-learn"),
+        ("PLUMED", "openmmplumed", "conda install -c conda-forge openmm-plumed"),
+    )),
+)
+
+
 def _cmd_info() -> int:
     print("FastMDXplora")
     print(f"  version: {__version__}")
@@ -1152,18 +1183,19 @@ def _cmd_info() -> int:
             status = f"import error: {exc}"
         print(f"  {name:<11} {status}")
     print()
-    print("Optional backends:")
-    for display_name, import_name, install_hint in (
-        ("PDBFixer", "pdbfixer",
-            "conda install -c conda-forge pdbfixer"),
-        ("OpenMM",   "openmm",
-            "conda install -c conda-forge openmm"),
-    ):
-        try:
-            __import__(import_name)
-            print(f"  {display_name:<10} installed")
-        except ImportError:
-            print(f"  {display_name:<10} not installed  ({install_hint})")
+    # Everything a phase reaches for at runtime, grouped by what it is for.
+    # This listed two of six, so a PyPI install reported both of them present
+    # and said nothing about the toolkit a protein-ligand setup needs -- which
+    # is the one question this command exists to answer.
+    print("Backends:")
+    for group, backends in _BACKENDS:
+        print(f"  {group}")
+        for display_name, import_name, install_hint in backends:
+            try:
+                __import__(import_name)
+                print(f"    {display_name:<22} installed")
+            except ImportError:
+                print(f"    {display_name:<22} missing    {install_hint}")
     print()
     print(f"Citation: {__citation__}")
     return 0
