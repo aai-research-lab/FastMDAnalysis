@@ -214,3 +214,80 @@ def test_the_gui_is_called_the_gui() -> None:
             if phrase in text:
                 wrong.append(f"{page.name}: {phrase!r}")
     assert not wrong, f"these call the GUI something else: {wrong}"
+
+
+def test_every_command_the_docs_name_exists() -> None:
+    """`fastmdx health --no-fix` was documented in three pages and had never
+    existed. A documented command that is not there sends somebody to a usage
+    error on their first attempt at diagnosing something.
+    """
+    import re
+    from pathlib import Path
+
+    from fastmdxplora.cli.main import _build_parser
+
+    parser = _build_parser()
+    commands = set(parser._subparsers._group_actions[0].choices)
+
+    repo = Path(__file__).resolve().parents[1]
+    pages = [repo / "README.md"] + sorted((repo / "docs").glob("*.md"))
+
+    missing = {}
+    for page in pages:
+        if not page.is_file():
+            continue
+        for match in re.finditer(r"^\s*(?:\$ )?fastmdx\s+([a-z][a-z-]+)",
+                                 page.read_text(encoding="utf-8"), re.M):
+            name = match.group(1)
+            if name not in commands and not name.startswith("-"):
+                missing.setdefault(page.name, set()).add(name)
+    assert not missing, f"these commands are documented and do not exist: {missing}"
+
+
+def test_every_fastmdx_flag_the_docs_name_exists() -> None:
+    """`fastmdx gui --open-browser` was documented; the flag is
+    `--no-browser`, and the default is the opposite of what the page implied.
+    """
+    import re
+    from pathlib import Path
+
+    from fastmdxplora.cli.main import _build_parser
+
+    known = set()
+
+    def collect(parser):
+        for action in parser._actions:
+            known.update(action.option_strings)
+            if hasattr(action, "choices") and isinstance(action.choices, dict):
+                for child in action.choices.values():
+                    collect(child)
+
+    collect(_build_parser())
+
+    repo = Path(__file__).resolve().parents[1]
+    pages = [repo / "README.md"] + sorted((repo / "docs").glob("*.md"))
+
+    #: Flags belonging to other tools, which the docs legitimately mention.
+    OTHERS = {
+        "--upgrade", "--no-deps", "--format", "--query-gpu", "--delete",
+        "--input-list", "--output-root", "--continue-on-error", "--no-cache-dir",
+        "--force-reinstall", "--dry-run", "--editable", "--user", "--prefix",
+        "--version", "--help", "--extra-index-url", "--index-url",
+    }
+
+    missing = {}
+    for page in pages:
+        if not page.is_file():
+            continue
+        text = page.read_text(encoding="utf-8")
+        # Only flags on a line that mentions fastmdx, so pip's and rsync's
+        # are not counted as ours.
+        for line in text.splitlines():
+            if "fastmdx" not in line and not line.strip().startswith("--"):
+                continue
+            for match in re.finditer(r"(?<![\w-])(--[a-z][a-z0-9-]{3,})(?![\w-])",
+                                     line):
+                flag = match.group(1)
+                if flag not in known and flag not in OTHERS:
+                    missing.setdefault(page.name, set()).add(flag)
+    assert not missing, f"these flags are documented and do not exist: {missing}"

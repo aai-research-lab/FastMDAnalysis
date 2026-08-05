@@ -236,7 +236,6 @@ that ran — so you can reproduce it later with
 
 ```bash
 fastmdx info        # versions, detected backends (OpenMM/PDBFixer), citation
-fastmdx health --no-fix  # diagnose the current environment without changing it
 fastmdx                  # open the dashboard home/simulation builder
 fastmdx --cite      # just the citation
 fastmdx --version

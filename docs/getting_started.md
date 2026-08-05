@@ -126,7 +126,6 @@ Always run these before a simulation:
 ```bash
 fastmdx --version
 fastmdx info
-fastmdx health --no-fix
 ```
 
 If the console script is not on `PATH`, use the module form with the same
@@ -270,10 +269,10 @@ fastmdx explore --system input/protein.pdb \
 If a run already exists, serve it without starting a new simulation:
 
 ```bash
-fastmdx gui \
-  --output runs/protein_dashboard \
-  --open-browser
+fastmdx gui --output runs/protein_dashboard
 ```
+
+It opens a browser tab by default; `--no-browser` leaves it to you.
 
 The static report dashboard is different:
 

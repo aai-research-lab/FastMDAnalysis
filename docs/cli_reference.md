@@ -131,8 +131,7 @@ shape.
 
 ```bash
 fastmdx --version
-fastmdx info
-fastmdx health --no-fix
+fastmdx info      # every backend, and how to get any that are missing
 ```
 
 If chemistry dependencies are missing, use the command printed by the CLI or
