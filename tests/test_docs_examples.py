@@ -540,3 +540,27 @@ def test_the_documentation_names_the_software() -> None:
     assert not vague, (
         f"these pages speak as 'we' rather than naming the software: {vague}"
     )
+
+
+def test_the_readme_headline_example_needs_no_flags() -> None:
+    """The README opens with `fastmdx explore --system 181L`, which is a
+    protein-ligand structure.
+
+    That works only because the default force field resolves to a
+    ligand-capable one. If the default ever became a protein-only field, the
+    first command anybody runs from the README would fail on the ligand.
+    """
+    from pathlib import Path
+
+    from fastmdxplora.config.schema import PHASE_SCHEMAS
+    from fastmdxplora.setup.forcefields import AUTO_FORCEFIELD
+
+    assert PHASE_SCHEMAS["setup"].get("forcefield").default == "auto"
+    assert "openff" in AUTO_FORCEFIELD, (
+        "auto must resolve to a ligand-capable force field, or the README's "
+        "first example fails on 181L's benzene"
+    )
+
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
+        encoding="utf-8")
+    assert "fastmdx explore --system 181L" in readme
