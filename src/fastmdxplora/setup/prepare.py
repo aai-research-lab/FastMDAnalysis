@@ -285,9 +285,9 @@ def prepare_system(
 
     # ----- 3. Solvate + ionize with Modeller -----
     logger.info(
-        "%s (padding=%.2f nm, ions=%s/%s @ %.3f M)",
+        "%s, padding=%.2f nm, ions=%s/%s @ %.3f M",
         (f"Embedding in a {str(membrane).upper()} bilayer" if membrane
-         else f"Solvating (box={box_shape})"),
+         else f"Solvating in a {box_shape} box"),
         solvent_padding_nm,
         ion_positive,
         ion_negative,

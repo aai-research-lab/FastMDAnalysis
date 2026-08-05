@@ -148,3 +148,32 @@ class TestItReachesTheInterfaces:
 
         args = _build_parser().parse_args(["explore", "--system", "1UBQ"])
         assert args.explain is True
+
+
+class TestWhatTheStepsThemselvesSay:
+    """A step's message is read far more often than any explanation under it,
+    and two of them were wrong."""
+
+    def test_the_solvation_message_has_no_nested_parentheses(self) -> None:
+        """It read "Solvating (box=cube) (padding=1.00 nm, ...)" -- a
+        parenthesis inside a parenthesis, introduced when the message learned
+        to choose between solvating and embedding."""
+        import inspect
+
+        from fastmdxplora.setup import prepare
+
+        source = inspect.getsource(prepare.prepare_system)
+        assert "Solvating (box=" not in source
+        assert "padding=%.2f nm, ions" in source
+
+    def test_the_force_field_step_says_what_it_resolved_to(self) -> None:
+        """It said "(auto)", which tells a reader nothing -- while the banner
+        two inches above said amber-openff (auto)."""
+        import inspect
+
+        from fastmdxplora.setup import pipeline
+
+        source = inspect.getsource(pipeline)
+        assert "AUTO_FORCEFIELD" in source, (
+            "the step should name the force field auto resolved to"
+        )

@@ -652,12 +652,22 @@ def run(
             if isinstance(path, (str, Path)):
                 artifacts.append(Path(path).relative_to(setup_dir).as_posix())
         if presenter:
+            # What it resolved to, not what was asked for: "auto" tells a
+            # reader nothing, and the run recorded the answer.
+            resolved = (produced.get("resolved_forcefield") or {}).get("name")
             if params["force_field"]:
                 ff_label = ", ".join(params["force_field"])
+            elif resolved:
+                ff_label = str(resolved)
+            elif str(params["forcefield"]) == "auto":
+                from fastmdxplora.setup.forcefields import AUTO_FORCEFIELD
+
+                ff_label = f"{AUTO_FORCEFIELD} (auto)"
             else:
                 ff_label = str(params["forcefield"])
             presenter.step(f"Solvated and parameterized ({ff_label})",
-                                  explain="membrane" if params.get("membrane") else "solvation")
+                           explain=("membrane" if params.get("membrane")
+                                    else "solvation"))
             presenter.step("Wrote system.xml, state.xml, topology.pdb")
     except ImportError as exc:
         missing = missing_dependencies()
