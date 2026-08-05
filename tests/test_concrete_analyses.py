@@ -584,7 +584,7 @@ class TestClusteringComparesShapeNotPlacement:
 
         labels = Cluster(
             features="rmsd", methods=["hierarchical"], n_clusters=2,
-            linkage="ward", selection="all",
+            linkage="ward",
         ).compute(_hinge_traj())["hierarchical"]
         assert _recovery(labels) == 1.0
 
@@ -593,7 +593,7 @@ class TestClusteringComparesShapeNotPlacement:
 
         labels = Cluster(
             features="coordinates", methods=["hierarchical"], n_clusters=2,
-            linkage="ward", selection="all",
+            linkage="ward",
         ).compute(_hinge_traj())["hierarchical"]
         assert _recovery(labels) >= 0.9
 
@@ -1080,16 +1080,14 @@ class TestDistancesHonourThePeriodicBox:
         from fastmdxplora.analysis.contacts import Contacts
 
         traj = self._split_across_boundary()
-        found = Contacts(ligand_resname="LIG", protein_selection="not resname LIG",
-                         selection="all").compute(traj)["n_contacts"][0]
+        found = Contacts(ligand_resname="LIG", protein_selection="not resname LIG").compute(traj)["n_contacts"][0]
         assert found > 0, "the ligand is bound; it is the box that is in the way"
 
     def test_the_old_behaviour_is_still_reachable(self) -> None:
         from fastmdxplora.analysis.contacts import Contacts
 
         traj = self._split_across_boundary()
-        found = Contacts(ligand_resname="LIG", protein_selection="not resname LIG",
-                         selection="all", periodic=False).compute(traj)["n_contacts"][0]
+        found = Contacts(ligand_resname="LIG", protein_selection="not resname LIG", periodic=False).compute(traj)["n_contacts"][0]
         assert found == 0
 
     def test_a_trajectory_without_a_box_is_unaffected(self) -> None:
@@ -1098,10 +1096,8 @@ class TestDistancesHonourThePeriodicBox:
 
         traj = self._split_across_boundary()
         traj.unitcell_vectors = None
-        with_box = Contacts(ligand_resname="LIG", protein_selection="not resname LIG",
-                            selection="all").compute(traj)["n_contacts"][0]
-        without = Contacts(ligand_resname="LIG", protein_selection="not resname LIG",
-                           selection="all", periodic=False).compute(traj)["n_contacts"][0]
+        with_box = Contacts(ligand_resname="LIG", protein_selection="not resname LIG").compute(traj)["n_contacts"][0]
+        without = Contacts(ligand_resname="LIG", protein_selection="not resname LIG", periodic=False).compute(traj)["n_contacts"][0]
         assert with_box == without
 
     def test_hydrogen_bonds_take_the_same_setting(self) -> None:
@@ -1152,7 +1148,6 @@ class TestProteinLigandHBondsNeedsTheLigandsBonds:
 
         counts = ProteinLigandHBonds(
             ligand_resname="LIG", protein_selection="not resname LIG",
-            selection="all",
         ).compute(self._complex(True))["n_hbonds"]
         assert (counts == 1).all()
 
@@ -1164,7 +1159,6 @@ class TestProteinLigandHBondsNeedsTheLigandsBonds:
         with pytest.raises(ValueError, match="cannot be seen to donate"):
             ProteinLigandHBonds(
                 ligand_resname="LIG", protein_selection="not resname LIG",
-                selection="all",
             ).compute(self._complex(False))
 
     def test_a_ligand_with_no_hydrogens_is_not_blocked(self) -> None:
@@ -1178,7 +1172,6 @@ class TestProteinLigandHBondsNeedsTheLigandsBonds:
         )
         counts = ProteinLigandHBonds(
             ligand_resname="LIG", protein_selection="not resname LIG",
-            selection="all",
         ).compute(heavy_only)["n_hbonds"]
         assert len(counts) == traj.n_frames
 
@@ -2263,3 +2256,174 @@ class TestOmegaAndMDS:
 
         distances = _pairwise_rmsd(self._peptide())
         assert np.allclose(distances, distances.T)
+
+
+class TestSASAReportsWhatVersionOneReported:
+    """Version 1 wrote three things from one run: the total per frame, every
+    residue per frame, and each residue's mean over the whole run.
+
+    The third is the one somebody reads -- which residues are buried and which
+    are on the surface. The per-frame matrix contains it, but reading it off a
+    heatmap by eye is not the same as having it.
+    """
+
+    @staticmethod
+    def _traj():
+        top = md.Topology()
+        chain = top.add_chain()
+        previous_c = None
+        for index in range(5):
+            residue = top.add_residue("ALA", chain, resSeq=index + 1)
+            n = top.add_atom("N", md.element.nitrogen, residue)
+            ca = top.add_atom("CA", md.element.carbon, residue)
+            c = top.add_atom("C", md.element.carbon, residue)
+            o = top.add_atom("O", md.element.oxygen, residue)
+            cb = top.add_atom("CB", md.element.carbon, residue)
+            for first, second in ((n, ca), (ca, c), (c, o), (ca, cb)):
+                top.add_bond(first, second)
+            if previous_c is not None:
+                top.add_bond(previous_c, n)
+            previous_c = c
+        rng = np.random.RandomState(3)
+        xyz = rng.normal(scale=0.3, size=(6, top.n_atoms, 3)).astype(np.float32)
+        return md.Trajectory(xyz=xyz, topology=top)
+
+    def test_the_average_per_residue_is_a_mode_of_its_own(self) -> None:
+        from fastmdxplora.analysis.sasa import SASA
+
+        result = SASA(mode="average_residue").compute(self._traj())
+        assert list(result.columns) == ["residue", "mean_sasa_nm2",
+                                        "std_sasa_nm2"]
+        assert len(result) == 5, "one row per residue, not per frame"
+
+    def test_it_carries_the_spread_as_well_as_the_mean(self) -> None:
+        """A residue at 1.0 every frame and one alternating between 0 and 2
+        have the same mean and are not the same thing."""
+        from fastmdxplora.analysis.sasa import SASA
+
+        result = SASA(mode="average_residue").compute(self._traj())
+        assert (result["std_sasa_nm2"] >= 0).all()
+        assert result["std_sasa_nm2"].notna().all()
+
+    def test_a_per_residue_run_writes_the_average_beside_it(self, tmp_path) -> None:
+        """That run already has every number the average needs, so computing
+        the surface again for it would cost minutes for arithmetic."""
+        from fastmdxplora.analysis.sasa import SASA
+
+        SASA(mode="residue", output_dir=str(tmp_path)).run(self._traj())
+        written = {f.name for f in tmp_path.rglob("*") if f.is_file()}
+        assert "sasa_average_per_residue.csv" in written
+
+    def test_the_two_routes_to_the_average_agree(self) -> None:
+        """One computes it directly, the other groups a per-frame table. They
+        are the same number or one of them is wrong."""
+        import pandas as pd
+
+        from fastmdxplora.analysis.sasa import SASA
+
+        traj = self._traj()
+        direct = SASA(mode="average_residue").compute(traj)
+        per_frame = SASA(mode="residue").compute(traj)
+        grouped = per_frame.groupby("residue")["sasa_nm2"].mean()
+        assert np.allclose(
+            direct.set_index("residue")["mean_sasa_nm2"].to_numpy(),
+            grouped.loc[direct["residue"]].to_numpy(),
+            atol=1e-6,
+        )
+
+    def test_the_modes_are_declared_for_a_form_to_read(self) -> None:
+        import fastmdxplora.analysis  # noqa: F401
+        from fastmdxplora.analysis.describe import describe_analysis
+        from fastmdxplora.analysis.sasa import VALID_MODES
+
+        assert VALID_MODES == ("total", "residue", "average_residue")
+        option = next(o for o in describe_analysis("sasa") if o.name == "mode")
+        assert option.choices == VALID_MODES
+
+    def test_an_unknown_mode_is_refused(self) -> None:
+        import pytest
+
+        from fastmdxplora.analysis.sasa import SASA
+
+        with pytest.raises(ValueError, match="SASA mode"):
+            SASA(mode="per_atom")
+
+
+class TestASelectionThatIsNotProtein:
+    """The charge and ring tables are the twenty standard amino acids, which
+    is why they need no perception. The cost is that anything else falls
+    through them silently.
+
+    Point the protein side at a nucleic acid and the hydrogen bonds still come
+    out right, being found from elements and bonds, while the salt bridges and
+    the stacking come out as zero -- though a phosphate is charged and a
+    nucleobase is aromatic. Zero is an answer; "these residues were not
+    examined" is a different one, and the true one.
+    """
+
+    @staticmethod
+    def _nucleotide():
+        top = md.Topology()
+        chain = top.add_chain()
+        residue = top.add_residue("DG", chain, resSeq=1)
+        for name, element in (("P", md.element.phosphorus),
+                              ("OP1", md.element.oxygen),
+                              ("OP2", md.element.oxygen),
+                              ("N9", md.element.nitrogen),
+                              ("C8", md.element.carbon)):
+            top.add_atom(name, element, residue)
+        return top
+
+    def test_a_nucleotide_finds_no_charge_or_ring(self) -> None:
+        """Which is the behaviour being reported, not a behaviour being
+        fixed: the tables are amino acids by design."""
+        from fastmdxplora.analysis.interactions import (
+            protein_aromatic_rings, protein_charged_groups)
+
+        top = self._nucleotide()
+        positive, negative = protein_charged_groups(top, range(top.n_atoms))
+        assert positive == [] and negative == []
+        assert protein_aromatic_rings(top, range(top.n_atoms)) == []
+
+    def test_and_it_is_reported_rather_than_passed_over(self) -> None:
+        from fastmdxplora.analysis.interactions import residues_not_covered
+
+        top = self._nucleotide()
+        assert residues_not_covered(top, range(top.n_atoms)) == {"DG": 1}
+
+    def test_ordinary_amino_acids_are_not_reported(self) -> None:
+        """Including the ones with neither a charge nor a ring, which are left
+        out of the tables because they have nothing to contribute rather than
+        because they are unknown."""
+        from fastmdxplora.analysis.interactions import residues_not_covered
+
+        top = md.Topology()
+        chain = top.add_chain()
+        for index, name in enumerate(("ALA", "GLY", "ARG", "ASP", "TRP",
+                                      "PRO", "CYS", "MET")):
+            residue = top.add_residue(name, chain, resSeq=index + 1)
+            top.add_atom("CA", md.element.carbon, residue)
+        assert residues_not_covered(top, range(top.n_atoms)) == {}
+
+    def test_a_modified_residue_is_named_so_it_can_be_judged(self) -> None:
+        """One in a large protein is a footnote; a selection made entirely of
+        them is not, and only the person who made the selection can tell
+        which."""
+        from fastmdxplora.analysis.interactions import residues_not_covered
+
+        top = md.Topology()
+        chain = top.add_chain()
+        for index, name in enumerate(("ALA", "SEP", "ALA")):   # phosphoserine
+            residue = top.add_residue(name, chain, resSeq=index + 1)
+            top.add_atom("CA", md.element.carbon, residue)
+        assert residues_not_covered(top, range(top.n_atoms)) == {"SEP": 1}
+
+    def test_the_analysis_records_it(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        source = (pathlib.Path(server.__file__).parents[1] / "analysis"
+                  / "pl_interactions.py").read_text(encoding="utf-8")
+        assert "residues_not_examined_for_charge_or_rings" in source
+        assert "residues_not_covered" in source

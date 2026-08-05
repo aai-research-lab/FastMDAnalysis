@@ -71,6 +71,9 @@ class Dihedrals(Analysis):
     # No default_selection — MDTraj's phi/psi functions identify backbone
     # atoms by name regardless of the user's atom subset.
     default_selection = None
+    #: This works out its own atoms, so a general selection has nothing to
+    #: apply to.
+    honours_selection = False
 
     def __init__(
         self,

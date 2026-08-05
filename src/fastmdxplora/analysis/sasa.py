@@ -28,12 +28,19 @@ from fastmdxplora.analysis.base import Analysis
 from fastmdxplora.analysis.orchestrator import register_analysis
 
 
+#: What a SASA run reports. ``total`` is the whole molecule per frame,
+#: ``residue`` every residue per frame, and ``average_residue`` each residue's
+#: mean over the run -- which is the summary somebody reads to find out what
+#: is buried.
+VALID_MODES = ("total", "residue", "average_residue")
+
+
 class SASA(Analysis):
     """Solvent-accessible surface area.
 
     Parameters
     ----------
-    mode : {"total", "residue"}, default "total"
+    mode : {"total", "residue", "average_residue"}, default "total"
         ``"total"`` returns one value per frame (sum over all atoms).
         ``"residue"`` returns a per-residue SASA matrix (n_frames × n_residues).
     probe_radius : float, default 0.14
@@ -67,9 +74,9 @@ class SASA(Analysis):
     ) -> None:
         super().__init__(**kwargs)
         mode = str(mode).lower()
-        if mode not in ("total", "residue"):
+        if mode not in VALID_MODES:
             raise ValueError(
-                f"SASA mode must be 'total' or 'residue'; got {mode!r}"
+                f"SASA mode must be one of {VALID_MODES}; got {mode!r}"
             )
         self.mode: str = mode
         self.probe_radius: float = float(probe_radius)
@@ -110,6 +117,26 @@ class SASA(Analysis):
                 {"frame": np.arange(traj.n_frames), "sasa_nm2": total}
             )
 
+        if self.mode == "average_residue":
+            # The mean exposure of each residue over the whole run, which is
+            # the summary somebody actually reads: which residues are buried
+            # and which are on the surface. The per-frame matrix contains it,
+            # but reading it off a heatmap by eye is not the same as having
+            # it. Version 1 wrote all three from one run.
+            residues = list(traj.topology.residues)
+            try:
+                labels = np.array([int(r.resSeq) for r in residues])
+            except (AttributeError, TypeError):
+                labels = np.array([r.index for r in residues])
+            return pd.DataFrame({
+                "residue": labels,
+                "mean_sasa_nm2": sasa.mean(axis=0),
+                # The spread matters: a residue at 1.0 every frame and one
+                # alternating between 0 and 2 have the same mean and are not
+                # the same thing.
+                "std_sasa_nm2": sasa.std(axis=0),
+            })
+
         # Per-residue: build a long-form table. Residue labels = resSeq
         # (PDB numbering) when available.
         residues = list(traj.topology.residues)
@@ -134,6 +161,18 @@ class SASA(Analysis):
             x, _ = self.frame_axis_for_plot(self._traj_for_plot, len(result))
             ax.plot(x, result["sasa_nm2"].to_numpy(), linewidth=1.4)
             ax.fill_between(x, 0, result["sasa_nm2"].to_numpy(), alpha=0.15)
+        elif self.mode == "average_residue":
+            # A bar per residue, with the spread over the run drawn on it. A
+            # residue at 1.0 every frame and one alternating between 0 and 2
+            # have the same mean, and a bar chart without the spread says they
+            # are the same.
+            residues = result["residue"].to_numpy()
+            means = result["mean_sasa_nm2"].to_numpy()
+            ax.bar(residues, means,
+                   yerr=result["std_sasa_nm2"].to_numpy(),
+                   color="#3a7ca5", error_kw={"ecolor": "#1f4257",
+                                              "elinewidth": 0.8, "capsize": 2})
+            ax.set_ylim(bottom=0)
         else:
             # Per-residue heatmap: pivot long-form -> (residue × frame)
             grid = result.pivot(
@@ -149,11 +188,29 @@ class SASA(Analysis):
             ax.figure.colorbar(im, ax=ax, label="SASA (nm²)", shrink=0.85)
 
     def save_data(self, result: pd.DataFrame, path) -> Any:
+        """Write the table, and for a per-residue run the average beside it.
+
+        That run already contains every number the average needs, so computing
+        the surface a second time to get it would cost minutes for arithmetic.
+        Version 1 wrote all three outputs from one run; this writes two, and
+        the third mode exists for anyone who wants only the summary.
+        """
         from pathlib import Path
 
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         result.to_csv(path, index=False)
+
+        if self.mode == "residue":
+            summary = (
+                result.groupby("residue")["sasa_nm2"]
+                .agg(mean_sasa_nm2="mean", std_sasa_nm2="std")
+                .reset_index()
+            )
+            summary.to_csv(
+                path.parent / f"{self.name}_average_per_residue.csv",
+                index=False,
+            )
         return path
 
     _traj_for_plot: md.Trajectory | None = None
@@ -170,6 +227,8 @@ class SASA(Analysis):
         return self.frame_axis(traj)
 
     def default_xlabel(self) -> str | None:
+        if self.mode == "average_residue":
+            return "Residue"
         if self.mode == "residue":
             return "Frame"
         if self._traj_for_plot is None:
@@ -178,6 +237,8 @@ class SASA(Analysis):
         return label
 
     def default_ylabel(self) -> str | None:
+        if self.mode == "average_residue":
+            return "Mean SASA (nm²)"
         if self.mode == "residue":
             return "Residue (index in topology)"
         return "SASA (nm²)"

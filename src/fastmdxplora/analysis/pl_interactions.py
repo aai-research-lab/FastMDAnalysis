@@ -47,7 +47,13 @@ class ProteinLigandInteractions(Analysis):
     ligand_resname : str
         Ligand residue name. Supplied by the orchestrator.
     protein_selection : str, default "protein"
-        Selection for the protein side.
+        The other side of the interaction. Usually the whole protein, and
+        worth changing in three cases: a complex where only one chain matters
+        (``"protein and chainid 0"``), a domain rather than the whole fold
+        (``"protein and resid 40 to 180"``), or a receptor that is not a
+        protein at all -- ``"nucleic"`` for a ligand bound to DNA or RNA,
+        which is a real and common case that the default name does not
+        suggest.
     ligand_chemistry : path, optional
         An SDF stating the ligand's chemistry. Where a trajectory came from
         elsewhere and its residue name is not one the Chemical Component
@@ -88,6 +94,9 @@ class ProteinLigandInteractions(Analysis):
     description = "Protein-ligand interactions by type"
     requires_ligand = True
     default_selection = None
+    #: This works out its own atoms, so a general selection has nothing to
+    #: apply to.
+    honours_selection = False
 
     ALL_KINDS = ALL_KINDS
 
@@ -192,6 +201,14 @@ class ProteinLigandInteractions(Analysis):
 
         if refused:
             self.options["not_measured"] = refused
+
+        # Residues the charge and ring tables do not know. Reported rather
+        # than refused: one modified residue in a large protein is a footnote,
+        # and a selection made entirely of nucleotides is not, and only the
+        # person who made the selection can tell which this is.
+        unknown = rules.residues_not_covered(traj.topology, protein)
+        if unknown:
+            self.options["residues_not_examined_for_charge_or_rings"] = unknown
 
         occupancies = summary.occupancies(found, traj.n_frames)
         modes = summary.binding_modes(

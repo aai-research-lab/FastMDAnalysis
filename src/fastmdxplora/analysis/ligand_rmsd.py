@@ -58,6 +58,9 @@ class LigandRMSD(Analysis):
     # Measurement atoms are the ligand, resolved from ligand_resname; this
     # analysis is ligand-only by nature, so it does not use scope.
     default_selection = None
+    #: This works out its own atoms, so a general selection has nothing to
+    #: apply to.
+    honours_selection = False
 
     def __init__(
         self,

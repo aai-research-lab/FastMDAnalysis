@@ -41,6 +41,9 @@ class LigandRMSF(Analysis):
     description = "Ligand RMSF (per-atom flexibility, after protein alignment)"
     requires_ligand = True
     default_selection = None
+    #: This works out its own atoms, so a general selection has nothing to
+    #: apply to.
+    honours_selection = False
 
     def __init__(
         self,

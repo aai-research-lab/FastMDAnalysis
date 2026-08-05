@@ -38,6 +38,7 @@ __all__ = [
     "halogen_bonds",
     "metal_coordination",
     "water_bridges",
+    "residues_not_covered",
 ]
 
 
@@ -939,3 +940,40 @@ def water_bridges(
             angle_deg=opening,
         ))
     return found
+
+
+def residues_not_covered(topology: Any, atom_indices: Any) -> dict[str, int]:
+    """Residues in a selection that the charge and ring tables do not know.
+
+    Those tables are the twenty standard amino acids, which is why they need
+    no perception. The cost is that anything else falls through them silently:
+    point this at DNA and the hydrogen bonds come out right, because they are
+    found from elements and bonds, while the salt bridges and the stacking
+    come out as zero -- though a phosphate is charged and a nucleobase is
+    aromatic.
+
+    Zero is an answer. "These residues were not examined for charge or
+    aromaticity" is a different one, and the true one.
+
+    Returned as a count per residue name so the caller can report it rather
+    than deciding on its own whether it matters: a single modified residue in
+    a large protein is a footnote, and a selection made entirely of nucleotides
+    is not.
+    """
+    known = set(_POSITIVE_GROUPS) | set(_NEGATIVE_GROUPS) | set(_AROMATIC_RINGS)
+    #: Residues with neither a charge nor a ring, which the tables leave out
+    #: because they have nothing to contribute rather than because they are
+    #: unknown.
+    known |= {
+        "ALA", "GLY", "VAL", "LEU", "ILE", "PRO", "MET", "SER", "THR", "CYS",
+        "ASN", "GLN", "HIE", "HID", "HIP", "CYX", "ASH", "GLH", "LYN",
+    }
+    wanted = set(int(i) for i in atom_indices)
+    unknown: dict[str, int] = {}
+    for residue in topology.residues:
+        if not any(atom.index in wanted for atom in residue.atoms):
+            continue
+        if residue.name.upper() in known:
+            continue
+        unknown[residue.name] = unknown.get(residue.name, 0) + 1
+    return unknown

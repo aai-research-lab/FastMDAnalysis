@@ -654,3 +654,79 @@ class TestAnalysesDescribeThemselves:
         owners = {o.name: o.owner for o in describe_analysis("cluster")}
         assert owners["n_clusters"] == "Cluster"
         assert owners["figsize"] == "Analysis"
+
+
+class TestASettingThatDoesNothingIsNotOffered:
+    """Six analyses accepted a general atom selection and ignored it.
+
+    A protein-ligand measure works out both sides from the ligand's residue
+    name; dihedrals works from the backbone. Neither has anything to apply a
+    selection to, and the setting sat in the form looking like a control. A
+    measurement that looks restricted and is not is the same defect as a count
+    that looks complete and is not.
+    """
+
+    def test_an_analysis_says_whether_a_selection_applies(self) -> None:
+        import fastmdxplora.analysis  # noqa: F401
+        from fastmdxplora.analysis.orchestrator import get_analysis_class
+
+        assert get_analysis_class("rmsd").honours_selection
+        assert not get_analysis_class("pl_interactions").honours_selection
+        assert not get_analysis_class("dihedrals").honours_selection
+
+    def test_passing_one_where_it_does_nothing_is_refused(self) -> None:
+        import pytest
+
+        import fastmdxplora.analysis  # noqa: F401
+        from fastmdxplora.analysis.orchestrator import get_analysis_class
+
+        with pytest.raises(ValueError, match="would have no effect"):
+            get_analysis_class("pl_interactions")(
+                ligand_resname="LIG", selection="protein")
+
+    def test_the_orchestrator_stops_passing_it(self) -> None:
+        """It sent the scope selection to every analysis, which was harmless
+        only because they ignored it -- which is why nobody noticed."""
+        import inspect
+
+        from fastmdxplora.analysis import orchestrator
+
+        source = inspect.getsource(orchestrator)
+        assert 'getattr(cls, "honours_selection", True)' in source
+
+    def test_every_analysis_that_ignores_it_declares_so(self) -> None:
+        """Written as a property, because six were found by checking and the
+        seventh would be found the same way or not at all."""
+        import inspect
+
+        import fastmdxplora.analysis  # noqa: F401
+        from fastmdxplora.analysis.orchestrator import (
+            available_analyses,
+            get_analysis_class,
+        )
+
+        undeclared = []
+        for name in available_analyses():
+            cls = get_analysis_class(name)
+            if cls.name != name:
+                continue
+            source = inspect.getsource(cls)
+            uses_it = "select_atoms" in source or "self.selection" in source
+            if not uses_it and cls.honours_selection:
+                undeclared.append(name)
+        assert not undeclared, (
+            f"these accept a selection and never use it: {undeclared}"
+        )
+
+    def test_and_the_form_does_not_offer_it(self) -> None:
+        from fastmdxplora.gui.schema_payload import schema_payload
+
+        payload = schema_payload()["analysis_options"]
+        if not payload["available"]:
+            import pytest
+
+            pytest.skip(payload["reason"])
+        for analysis in ("pl_interactions", "dihedrals", "pl_hbonds"):
+            names = {o["name"] for o in payload["analyses"][analysis]}
+            assert "selection" not in names, analysis
+        assert "selection" in {o["name"] for o in payload["analyses"]["rmsd"]}

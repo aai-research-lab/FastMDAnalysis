@@ -33,7 +33,13 @@ class ProteinLigandHBonds(Analysis):
     ligand_resname : str
         Ligand residue name (e.g. ``"LIG"``). Supplied by the orchestrator.
     protein_selection : str, default "protein"
-        Selection for the protein side.
+        The other side of the interaction. Usually the whole protein, and
+        worth changing in three cases: a complex where only one chain matters
+        (``"protein and chainid 0"``), a domain rather than the whole fold
+        (``"protein and resid 40 to 180"``), or a receptor that is not a
+        protein at all -- ``"nucleic"`` for a ligand bound to DNA or RNA,
+        which is a real and common case that the default name does not
+        suggest.
     **kwargs
         Standard base-class options.
     """
@@ -42,6 +48,9 @@ class ProteinLigandHBonds(Analysis):
     description = "Protein-ligand hydrogen bonds"
     requires_ligand = True
     default_selection = None
+    #: This works out its own atoms, so a general selection has nothing to
+    #: apply to.
+    honours_selection = False
 
     def __init__(
         self,

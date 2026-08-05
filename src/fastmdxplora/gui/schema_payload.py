@@ -110,9 +110,16 @@ def _analysis_options() -> dict[str, Any]:
     }
     of_group = {name: title for title, names in groups.items() for name in names}
 
+    from fastmdxplora.analysis.orchestrator import get_analysis_class
+
     explanations: dict[str, Any] = {}
     categories: dict[str, str] = {}
     for name, options in describe_all().items():
+        # An analysis that works out its own atoms has nothing to apply a
+        # general selection to, and offering a box that does nothing is worse
+        # than offering none: it looks as though it worked.
+        if not getattr(get_analysis_class(name), "honours_selection", True):
+            options = tuple(o for o in options if o.name != "selection")
         explanations[name] = explain_analysis(name)
         categories[name] = of_group.get(name, "Other")
         analyses[name] = [

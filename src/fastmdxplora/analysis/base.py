@@ -106,6 +106,13 @@ class Analysis(ABC):
     #: Short identifier used in output paths and the manifest.
     name: str = "analysis"
 
+    #: Whether ``selection`` means anything for this analysis. An analysis
+    #: that decides its own atoms -- a protein-ligand measure works out both
+    #: sides from the ligand's residue name, dihedrals from the backbone --
+    #: has nothing to apply it to, and offering a control that does nothing is
+    #: worse than not offering one: it looks like it worked.
+    honours_selection: bool = True
+
     #: Default atom selection (MDTraj selection language). ``None`` means
     #: "use the whole trajectory". Subclasses override when an analysis
     #: only makes sense on a subset of atoms (e.g. RMSF on CA atoms).
@@ -155,6 +162,13 @@ class Analysis(ABC):
             Analysis-specific keyword arguments. Subclasses access these
             via ``self.options``.
         """
+        if selection is not None and not self.honours_selection:
+            raise ValueError(
+                f"{type(self).__name__} works out its own atoms, so "
+                f"`selection` would have no effect. Accepting it would let a "
+                f"measurement look as though it had been restricted when it "
+                f"had not."
+            )
         self.selection: str | None = (
             selection if selection is not None else self.default_selection
         )

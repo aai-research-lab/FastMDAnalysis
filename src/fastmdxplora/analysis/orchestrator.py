@@ -276,7 +276,13 @@ class AnalysisOrchestrator:
             # is None — the solvent-blind analyses), fall back to the scope
             # selection so it never runs on the full solvated system. Analyses
             # that define their own default (e.g. "name CA") keep it.
-            if "selection" not in opts:
+            # An analysis that works out its own atoms -- a protein-ligand
+            # measure derives both sides from the ligand's residue name, and
+            # dihedrals from the backbone -- has nothing to apply a general
+            # selection to. Passing one anyway was harmless only because they
+            # ignored it, which is the reason it went unnoticed that the
+            # setting did nothing.
+            if "selection" not in opts and getattr(cls, "honours_selection", True):
                 if self.default_selection is not None:
                     opts["selection"] = self.default_selection
                 elif getattr(cls, "default_selection", None) is None:
