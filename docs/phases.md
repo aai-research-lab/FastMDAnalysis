@@ -115,6 +115,14 @@ an occupancy and mean entirely different things: the first is a molecule to
 displace, the second is geometry the protein favours. It needs an explicitly
 solvated run.
 
+**Point it at a site, not at a whole protein.** Clustering links neighbours
+through neighbours, so a whole-protein scope chains the entire first hydration
+shell into one object — on ubiquitin that is tens of thousands of positions
+and hundreds of distinct waters, which is a surface rather than a site.
+FastMDXplora rejects such a cluster and says so, but the fix is a narrower
+`site_selection`: a ligand, a pocket, or a handful of residues. That is a
+limit of the method rather than a threshold to tune.
+
 The protein-ligand four run automatically when a ligand is present. See
 [Protein-ligand interactions](interactions.md) for what `pl_interactions`
 measures and why some of it is refused.

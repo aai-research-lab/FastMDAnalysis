@@ -238,3 +238,103 @@ def test_it_says_when_it_chose_the_site_itself(tmp_path) -> None:
                        site_selection="name CA", cutoff_nm=0.6)
     given.compute(traj)
     assert given.findings["site"]["chosen_because"] == "given"
+
+
+def _shell(top, n_frames=80, seed=3, with_pinned=False):
+    """A hydration shell around the protein -- the case a real run produced
+    and a constructed one did not."""
+    import mdtraj as md
+
+    rng = np.random.RandomState(seed)
+    n_waters = (top.n_atoms - 4) // 3
+    xyz = np.zeros((n_frames, top.n_atoms, 3), dtype=np.float32)
+    for frame in range(n_frames):
+        xyz[frame, :4] = [[0, 0, 0], [0.15, 0, 0], [0.3, 0, 0], [0.3, 0.12, 0]]
+        for index in range(n_waters):
+            base = 4 + index * 3
+            if with_pinned and index == 0:
+                # Clear of the shell, so it is a site rather than part of one.
+                point = np.array([0.15, 0.18, 0.0]) + rng.normal(scale=0.015, size=3)
+            else:
+                direction = rng.normal(size=3)
+                direction /= np.linalg.norm(direction)
+                point = np.array([0.15, 0, 0]) + direction * rng.uniform(0.30, 0.45)
+            xyz[frame, base] = point
+            xyz[frame, base + 1] = point + [0.01, 0, 0]
+            xyz[frame, base + 2] = point + [0, 0.01, 0]
+    traj = md.Trajectory(xyz=xyz, topology=top)
+    traj.unitcell_lengths = np.tile([8.0, 8.0, 8.0], (n_frames, 1))
+    traj.unitcell_angles = np.tile([90.0, 90.0, 90.0], (n_frames, 1))
+    return traj
+
+
+class TestAHydrationShellIsNotASite:
+    """On ubiquitin the first shell chained into a single cluster: forty-eight
+    thousand positions and eight hundred and fifty-four distinct waters,
+    reported as one site occupied in every frame and described as "mostly one
+    molecule".
+
+    Clustering links neighbours through neighbours, so a surface becomes one
+    object. A site is a position; it has to be compact.
+    """
+
+    def test_a_shell_produces_no_site(self, tmp_path) -> None:
+        from fastmdxplora.analysis.water_sites import WaterSites
+
+        analysis = WaterSites(output_dir=str(tmp_path), site_selection="name CA",
+                              cutoff_nm=0.5)
+        found = analysis.compute(_shell(_system(n_waters=60)))
+        assert found.empty
+
+    def test_and_says_it_rejected_a_surface_rather_than_finding_nothing(
+            self, tmp_path) -> None:
+        """Those are different answers: the second says the settings may be
+        wrong for this system, not that the system has no sites."""
+        from fastmdxplora.analysis.water_sites import WaterSites
+
+        analysis = WaterSites(output_dir=str(tmp_path), site_selection="name CA",
+                              cutoff_nm=0.5)
+        analysis.compute(_shell(_system(n_waters=60)))
+
+        assert analysis.findings["rejected_as_too_spread_out"] >= 1
+        assert "surface hydration" in analysis.findings["not_found"]
+        assert "site_selection" in analysis.findings["not_found"], (
+            "and what to do about it"
+        )
+
+
+    def test_the_method_cannot_separate_a_site_inside_a_shell(self, tmp_path) -> None:
+        """Which is a limit worth stating rather than working around.
+
+        Clustering links neighbours through neighbours, so a water held
+        against the protein is chained to the shell around it whenever the two
+        are within an eps of each other. No threshold separates them: the
+        answer is a narrower scope, not a cleverer cutoff.
+        """
+        from fastmdxplora.analysis.water_sites import WaterSites
+
+        analysis = WaterSites(output_dir=str(tmp_path), site_selection="name CA",
+                              cutoff_nm=0.5)
+        found = analysis.compute(
+            _shell(_system(n_waters=60), with_pinned=True))
+
+        # The pinned water is real and is not separable at this scope.
+        assert found.empty
+        assert analysis.findings["rejected_as_too_spread_out"] >= 1
+
+
+def test_one_long_stay_does_not_make_a_cluster_one_molecule() -> None:
+    """Eight hundred and fifty-four waters were described as "mostly one
+    molecule, exchanging occasionally", because one of them happened to have a
+    run of a hundred frames. Dominance has to be measured over the whole
+    cluster, not from the longest run in it.
+    """
+    import inspect
+
+    from fastmdxplora.analysis import water_sites
+
+    source = inspect.getsource(water_sites.WaterSites.compute)
+    assert "dominant_share" in source
+    assert "dominant_share >= 0.5" in source, (
+        "the dominant molecule must hold most of the observations"
+    )

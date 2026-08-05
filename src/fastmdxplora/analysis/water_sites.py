@@ -68,6 +68,11 @@ class WaterSites(Analysis):
     minimum_samples : int, default 5
         How many observed positions a cluster needs before it counts as one.
         Guards against a handful of coincidental positions becoming a "site".
+    maximum_radius_nm : float, default 0.25
+        How far a cluster may spread and still be a site, in nm. Clustering
+        links neighbours through neighbours, so without this the whole first
+        hydration shell of a protein chains into one "site" occupied in every
+        frame.
     """
 
     #: The shape of the result, whether or not anything was found. An empty
@@ -92,6 +97,7 @@ class WaterSites(Analysis):
         eps_nm: float = 0.12,
         minimum_occupancy: float = 0.5,
         minimum_samples: int = 5,
+        maximum_radius_nm: float = 0.25,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -101,6 +107,7 @@ class WaterSites(Analysis):
         self.eps_nm = float(eps_nm)
         self.minimum_occupancy = float(minimum_occupancy)
         self.minimum_samples = int(minimum_samples)
+        self.maximum_radius_nm = float(maximum_radius_nm)
         self.options.update(
             site_selection=self.site_selection,
             ligand_resname=self.ligand_resname,
@@ -108,6 +115,7 @@ class WaterSites(Analysis):
             eps_nm=self.eps_nm,
             minimum_occupancy=self.minimum_occupancy,
             minimum_samples=self.minimum_samples,
+            maximum_radius_nm=self.maximum_radius_nm,
         )
 
     def _resolve_site(self, traj: Any) -> tuple[np.ndarray, str]:
@@ -194,6 +202,7 @@ class WaterSites(Analysis):
         residues = np.asarray(residues)
 
         rows = []
+        spread_out = 0
         for label in sorted(set(labels) - {-1}):
             member = labels == label
             member_frames = frames[member]
@@ -201,6 +210,20 @@ class WaterSites(Analysis):
 
             occupancy = len(set(member_frames.tolist())) / traj.n_frames
             if occupancy < self.minimum_occupancy:
+                continue
+
+            # A site has to be compact. DBSCAN links neighbours through
+            # neighbours, so on a real protein the whole first hydration
+            # shell chains into a single cluster -- on ubiquitin that was
+            # forty-eight thousand positions and eight hundred waters
+            # reported as one site occupied in every frame. A cluster
+            # spanning more than a couple of water diameters is a surface,
+            # not a position.
+            member_positions = coordinates[member]
+            centre = member_positions.mean(axis=0)
+            radius = float(np.linalg.norm(member_positions - centre, axis=1).max())
+            if radius > self.maximum_radius_nm:
+                spread_out += 1
                 continue
 
             distinct = len(set(member_residues.tolist()))
@@ -218,14 +241,20 @@ class WaterSites(Analysis):
             # The distinction that matters. A site held by one molecule
             # throughout is a bound water; one that many molecules pass
             # through is a position the geometry favours.
+            #
+            # "Mostly one molecule" needs that molecule to account for most
+            # of the observations, not merely to have had one long run: with
+            # eight hundred waters in a cluster, one of them having stayed a
+            # hundred frames says nothing about the rest.
+            counts = np.bincount(member_residues)
+            dominant_share = counts.max() / counts.sum()
+
             if distinct == 1:
                 interpretation = "one molecule, bound"
-            elif longest >= 0.5 * traj.n_frames:
+            elif dominant_share >= 0.5 and longest >= 0.5 * traj.n_frames:
                 interpretation = "mostly one molecule, exchanging occasionally"
             else:
                 interpretation = f"a favoured position, {distinct} waters passed through"
-
-            centre = coordinates[member].mean(axis=0)
             rows.append({
                 "site": int(label),
                 "x": float(centre[0]),
@@ -239,18 +268,35 @@ class WaterSites(Analysis):
             })
 
         if not rows:
-            self.findings["not_found"] = (
-                f"Water came near {site_expression!r}, but no position was "
-                f"held in at least {self.minimum_occupancy:.0%} of frames. "
-                "Either none persists, or the run is too short for one to "
-                "look persistent."
-            )
+            # Why nothing was found matters. "Nothing persisted" and "clusters
+            # were found and rejected as surfaces rather than sites" are
+            # different answers, and the second one says the settings may be
+            # wrong for this system rather than that the system has no sites.
+            if spread_out:
+                self.findings["not_found"] = (
+                    f"{spread_out} cluster(s) were occupied often enough but "
+                    f"spread further than {self.maximum_radius_nm:g} nm, so "
+                    "they are surface hydration rather than sites. Narrowing "
+                    "`site_selection` to a pocket, or lowering `cutoff_nm`, "
+                    "will separate positions that a whole-protein selection "
+                    "chains together."
+                )
+            else:
+                self.findings["not_found"] = (
+                    f"Water came near {site_expression!r}, but no position "
+                    f"was held in at least {self.minimum_occupancy:.0%} of "
+                    "frames. Either none persists, or the run is too short "
+                    "for one to look persistent."
+                )
+            self.findings["rejected_as_too_spread_out"] = spread_out
             return pd.DataFrame(columns=list(self.COLUMNS))
 
         result = pd.DataFrame(rows).sort_values(
             "occupancy", ascending=False).reset_index(drop=True)
 
         self.findings["n_sites"] = len(result)
+        if spread_out:
+            self.findings["rejected_as_too_spread_out"] = spread_out
         if len(result):
             self.findings["most_occupied"] = {
                 "occupancy": float(result.iloc[0]["occupancy"]),
