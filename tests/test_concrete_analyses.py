@@ -1696,3 +1696,136 @@ class TestRingsStackedOnRings:
             pytest.skip("benzene's charge is unambiguous, as it should be")
         with pytest.raises(ValueError, match="claim about charge"):
             pi_cation(traj, guessed, ligand, protein)
+
+
+class TestHalogenBondsAndMetals:
+    """Where two tools disagree, the literature decides and the disagreement
+    is recorded.
+
+    PLIP counts fluorine as a halogen bond donor; ProLIF does not. Politzer
+    and co-workers attribute fluorine's failure to halogen bond to its
+    electronegativity and sp hybridisation neutralising the sigma-hole, and
+    organic fluorine bound to carbon is unlikely to participate. Fluorine can
+    halogen bond attached to something strongly electron-withdrawing, but that
+    is not a C-F in a drug molecule.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _needs_rdkit(self):
+        pytest.importorskip("rdkit", reason="requires the [ligand] extra")
+
+    @staticmethod
+    def _pointed_at_an_acceptor(smiles, angle_deg, distance_nm=0.30):
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        from fastmdxplora.analysis.ligand_chemistry import resolve_ligand_chemistry
+
+        mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+        AllChem.EmbedMolecule(mol, randomSeed=5)
+        top = md.Topology()
+        chain = top.add_chain()
+        residue = top.add_residue("ALA", chain, resSeq=1)
+        carbon = top.add_atom("C", md.element.carbon, residue)
+        oxygen = top.add_atom("O", md.element.oxygen, residue)
+        top.add_bond(carbon, oxygen)
+
+        ligand_chain = top.add_chain()
+        ligand = top.add_residue("LIG", ligand_chain, resSeq=900)
+        elements = {"C": md.element.carbon, "H": md.element.hydrogen,
+                    "F": md.element.fluorine, "Cl": md.element.chlorine,
+                    "Br": md.element.bromine}
+        for index, atom in enumerate(mol.GetAtoms()):
+            top.add_atom(f"{atom.GetSymbol()}{index}",
+                         elements[atom.GetSymbol()], ligand)
+
+        halogen = next(a.GetIdx() for a in mol.GetAtoms()
+                       if a.GetSymbol() in ("F", "Cl", "Br"))
+        attached = next(n.GetIdx()
+                        for n in mol.GetAtomWithIdx(halogen).GetNeighbors())
+        conf = mol.GetConformer()
+        ligand_xyz = np.array(
+            [list(conf.GetAtomPosition(i)) for i in range(mol.GetNumAtoms())]) / 10.0
+        axis = ligand_xyz[halogen] - ligand_xyz[attached]
+        axis /= np.linalg.norm(axis)
+        turn = np.deg2rad(180 - angle_deg)
+        direction = np.array([
+            axis[0] * np.cos(turn) - axis[1] * np.sin(turn),
+            axis[0] * np.sin(turn) + axis[1] * np.cos(turn),
+            axis[2]])
+        acceptor_at = ligand_xyz[halogen] + direction * distance_nm
+        protein_xyz = np.array([acceptor_at + np.array([0, 0, 0.15]), acceptor_at])
+
+        traj = md.Trajectory(
+            xyz=np.vstack([protein_xyz, ligand_xyz])[None].astype(np.float32),
+            topology=top)
+        ligand_idx = list(range(2, top.n_atoms))
+        chemistry = resolve_ligand_chemistry(
+            traj, "LIG", ligand_idx, net_charge=0, allow_fetch=False)
+        return traj, chemistry, ligand_idx, [0, 1]
+
+    def test_a_chlorine_pointing_at_an_acceptor_bonds(self) -> None:
+        from fastmdxplora.analysis.interactions import halogen_bonds
+
+        args = self._pointed_at_an_acceptor("Clc1ccccc1", 175)
+        assert len(halogen_bonds(*args)) == 1
+
+    def test_a_bent_halogen_does_not(self) -> None:
+        """The sigma-hole points along the carbon-halogen axis, so the
+        interaction is directional and closeness alone is not enough."""
+        from fastmdxplora.analysis.interactions import halogen_bonds
+
+        args = self._pointed_at_an_acceptor("Clc1ccccc1", 100)
+        assert halogen_bonds(*args) == []
+
+    def test_fluorine_is_not_counted_by_default(self) -> None:
+        from fastmdxplora.analysis.interactions import halogen_bonds
+
+        args = self._pointed_at_an_acceptor("Fc1ccccc1", 175)
+        assert halogen_bonds(*args) == [], (
+            "organic fluorine bound to carbon has no positive sigma-hole"
+        )
+
+    def test_but_it_can_be_asked_for(self) -> None:
+        """PLIP counts it, so somebody comparing against PLIP needs it."""
+        from fastmdxplora.analysis.interactions import halogen_bonds
+
+        traj, chemistry, ligand, protein = self._pointed_at_an_acceptor(
+            "Fc1ccccc1", 175)
+        assert len(halogen_bonds(traj, chemistry, ligand, protein,
+                                 include_fluorine=True)) == 1
+
+    def test_a_metal_is_found_on_either_side(self) -> None:
+        """An ion is often neither protein nor ligand in the way a selection
+        divides them."""
+        from fastmdxplora.analysis.interactions import metal_coordination
+
+        top = md.Topology()
+        chain = top.add_chain()
+        residue = top.add_residue("HIS", chain, resSeq=1)
+        top.add_atom("NE2", md.element.nitrogen, residue)
+        ion_chain = top.add_chain()
+        ion = top.add_residue("ZN", ion_chain, resSeq=500)
+        top.add_atom("ZN", md.element.zinc, ion)
+
+        traj = md.Trajectory(
+            xyz=np.array([[[0, 0, 0], [0.21, 0, 0]]], dtype=np.float32),
+            topology=top)
+        found = metal_coordination(traj, [1], [0])
+        assert len(found) == 1
+        assert found[0].kind == "metal_coordination"
+
+    def test_a_metal_too_far_away_is_not_coordinating(self) -> None:
+        from fastmdxplora.analysis.interactions import metal_coordination
+
+        top = md.Topology()
+        chain = top.add_chain()
+        residue = top.add_residue("HIS", chain, resSeq=1)
+        top.add_atom("NE2", md.element.nitrogen, residue)
+        ion_chain = top.add_chain()
+        ion = top.add_residue("ZN", ion_chain, resSeq=500)
+        top.add_atom("ZN", md.element.zinc, ion)
+        traj = md.Trajectory(
+            xyz=np.array([[[0, 0, 0], [0.45, 0, 0]]], dtype=np.float32),
+            topology=top)
+        assert metal_coordination(traj, [1], [0]) == []

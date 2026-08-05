@@ -35,7 +35,39 @@ __all__ = [
     "pi_cation",
     "protein_aromatic_rings",
     "ligand_aromatic_rings",
+    "halogen_bonds",
+    "metal_coordination",
 ]
+
+
+#: Halogens with a positive sigma-hole when bound to carbon, which is what
+#: makes a halogen bond possible.
+#:
+#: Fluorine is left out, and this is a place where two widely used tools
+#: disagree. PLIP counts "all fluorine, chlorine, bromide or iodine atoms
+#: connected to a carbon atom" as donors; ProLIF's pattern admits only Cl, Br,
+#: I and At. The literature is with ProLIF for the case that matters here:
+#: Politzer and co-workers attribute fluorine's "failure to halogen bond" to
+#: its high electronegativity and sp hybridisation, which neutralise the
+#: sigma-hole, and organic fluorine bound to carbon "typically has negative
+#: sigma-holes and is unlikely to participate".
+#:
+#: Fluorine can halogen bond when attached to something strongly
+#: electron-withdrawing -- F2, ClF, FCN -- but that is not a C-F in a drug
+#: molecule. Set ``include_fluorine`` to count it and match PLIP.
+_HALOGENS = ("Cl", "Br", "I")
+
+#: Metals PLIP considers, which is the union of what turns up in deposited
+#: structures. Kept as a set rather than "anything not organic", because a
+#: silicon or a selenium is not a metal centre and would be coordinated by
+#: nothing.
+_METALS = frozenset({
+    "LI", "NA", "K", "RB", "CS", "MG", "CA", "SR", "BA", "SC", "TI", "V",
+    "CR", "MN", "FE", "CO", "NI", "CU", "ZN", "Y", "ZR", "NB", "MO", "TC",
+    "RU", "RH", "PD", "AG", "CD", "LA", "HF", "TA", "W", "RE", "OS", "IR",
+    "PT", "AU", "HG", "AL", "GA", "IN", "SN", "TL", "PB", "BI", "CE", "PR",
+    "ND", "SM", "EU", "GD", "TB", "DY", "HO", "ER", "TM", "YB", "LU", "U",
+})
 
 
 #: Aromatic side chains, by the atoms of each ring. Known, like the charges:
@@ -664,5 +696,131 @@ def pi_cation(
                 ligand_atom=int(ligand_atom),
                 protein_atom=int(protein_atom),
                 distance_nm=float(separations[frame, cation, ring]),
+            ))
+    return found
+
+
+def halogen_bonds(
+    traj: Any,
+    chemistry: Any,
+    ligand_indices: Any,
+    protein_indices: Any,
+    *,
+    distance_nm: float = 0.35,
+    donor_angle_deg: tuple[float, float] = (130.0, 180.0),
+    include_fluorine: bool = False,
+) -> list[Contact]:
+    """A halogen on the ligand donating to an acceptor on the protein.
+
+    The halogen's sigma-hole points along the C-X axis, so the interaction is
+    directional: the carbon-halogen-acceptor angle has to be near straight.
+    ProLIF requires 130 to 180 degrees within 3.5 A; PLIP uses 165 plus or
+    minus 30 within 4.0 A. The narrower distance is used because it is the one
+    the sigma-hole picture supports, and both are settings.
+
+    Fluorine is not counted unless asked for. See ``_HALOGENS`` for why, and
+    for which tool disagrees.
+
+    Only the ligand donates. Proteins carry no halogens unless somebody has
+    modified them, and a modified residue is something to say so about rather
+    than to guess at.
+    """
+    order = list(int(i) for i in ligand_indices)
+    mol = chemistry.mol
+    wanted = set(_HALOGENS) | ({"F"} if include_fluorine else set())
+
+    donors: list[tuple[int, int]] = []      # (carbon, halogen)
+    for atom in mol.GetAtoms():
+        if atom.GetSymbol() not in wanted or atom.GetIdx() >= len(order):
+            continue
+        for neighbour in atom.GetNeighbors():
+            if neighbour.GetSymbol() == "C" and neighbour.GetIdx() < len(order):
+                donors.append((order[neighbour.GetIdx()], order[atom.GetIdx()]))
+
+    _protein_donors, acceptors = donors_and_acceptors(
+        traj.topology, protein_indices)
+    if not donors or not acceptors:
+        return []
+
+    triples = [(carbon, halogen, acceptor)
+               for carbon, halogen in donors for acceptor in acceptors]
+    pairs = [(halogen, acceptor) for _c, halogen in donors for acceptor in acceptors]
+
+    separations = _distances(traj, np.array(pairs), False)
+    angles = _angles(traj, np.array(triples), False)
+    low, high = donor_angle_deg
+
+    found: list[Contact] = []
+    for frame, column in zip(*np.where(
+        (separations < distance_nm) & (angles > low) & (angles <= high)
+    )):
+        halogen, acceptor = pairs[column]
+        found.append(Contact(
+            kind="halogen_bond",
+            frame=int(frame),
+            ligand_atom=int(halogen),
+            protein_atom=int(acceptor),
+            distance_nm=float(separations[frame, column]),
+            angle_deg=float(angles[frame, column]),
+        ))
+    return found
+
+
+def metal_coordination(
+    traj: Any,
+    ligand_indices: Any,
+    protein_indices: Any,
+    *,
+    distance_nm: float = 0.30,
+) -> list[Contact]:
+    """A metal ion coordinated by the ligand, or coordinating it.
+
+    A donor atom within 3.0 A of the metal, which is PLIP's threshold. No
+    angle: the geometry of a metal centre is a property of the whole
+    coordination shell rather than of any one contact, and PLIP fits the shell
+    to known geometries afterwards. That fitting is not done here, because
+    which targets are superfluous to a coordination number is a judgement, and
+    reporting each contact leaves it visible.
+
+    The metal may be on either side. An ion in the structure is often neither
+    protein nor ligand in the way a selection divides them, so both directions
+    are searched.
+    """
+    topology = traj.topology
+
+    def split(indices):
+        wanted = set(int(i) for i in indices)
+        metals, donors = [], []
+        for atom in topology.atoms:
+            if atom.index not in wanted:
+                continue
+            symbol = (atom.element.symbol if atom.element is not None else "").upper()
+            name = atom.name.upper()
+            if symbol in _METALS or name in _METALS:
+                metals.append(atom.index)
+            elif symbol in {"N", "O", "S"}:
+                donors.append(atom.index)
+        return metals, donors
+
+    ligand_metals, ligand_donors = split(ligand_indices)
+    protein_metals, protein_donors = split(protein_indices)
+
+    found: list[Contact] = []
+    for metals, partners, metal_is_ligand in (
+        (ligand_metals, protein_donors, True),
+        (protein_metals, ligand_donors, False),
+    ):
+        if not metals or not partners:
+            continue
+        pairs = [(m, p) for m in metals for p in partners]
+        separations = _distances(traj, np.array(pairs), False)
+        for frame, column in zip(*np.where(separations < distance_nm)):
+            metal, partner = pairs[column]
+            found.append(Contact(
+                kind="metal_coordination",
+                frame=int(frame),
+                ligand_atom=int(metal if metal_is_ligand else partner),
+                protein_atom=int(partner if metal_is_ligand else metal),
+                distance_nm=float(separations[frame, column]),
             ))
     return found
