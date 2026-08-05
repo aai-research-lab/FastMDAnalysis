@@ -123,3 +123,23 @@ def test_the_conda_recipe_matches_pyproject() -> None:
         f"imported but absent from the conda recipe: {missing}. A conda "
         "install would fail at the point of use."
     )
+
+
+def test_the_recipe_says_where_the_package_is_actually_built() -> None:
+    """The recipe in this repository is a reference copy; the conda-forge
+    feedstock builds the package.
+
+    A dependency added to one and not the other gives a conda install that
+    fails at the point of use -- which is what happened when WeasyPrint was
+    added to the PyPI extras and nowhere else. The relationship is written in
+    the recipe so the next release does not have to rediscover it.
+    """
+    from pathlib import Path
+
+    recipe = Path(__file__).resolve().parents[1] / "recipes" / "fastmdxplora" / "recipe.yaml"
+    if not recipe.is_file():  # pragma: no cover - the recipe is optional
+        return
+    text = recipe.read_text(encoding="utf-8")
+    assert "feedstock" in text, (
+        "the recipe should say that the feedstock is what builds the package"
+    )

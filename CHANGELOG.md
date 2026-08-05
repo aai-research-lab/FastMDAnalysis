@@ -7,6 +7,26 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [2.3.0] — 2026-08-05
+
+This release is about knowing how far to trust a number.
+
+Ten analyses were checked against the method each cites -- a paper, a
+reference implementation, or the contract of the library beneath -- and eight
+defects were found. Four of them change published numbers. The pattern behind
+most of them was the same: software answering where the honest response is
+that the question cannot be answered from what was given, and this release
+teaches it to say so instead.
+
+Protein-ligand interactions are typed rather than counted, with the chemistry
+resolved before any geometry is measured and the route recorded. An occupancy
+now carries the observation behind it. The report writes a methods paragraph
+against the checklists journals apply, and a convergence assessment that says
+what a run cannot support. The browser interface was rebuilt around a single
+page that offers every setting the schema declares, and the command line now
+does the same.
+
+
 ### Added
 - **The report as a PDF**, alongside the Markdown. A Markdown file renders
   differently in every viewer and cannot be printed with the figures where the

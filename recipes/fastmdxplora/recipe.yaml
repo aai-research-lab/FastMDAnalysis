@@ -1,8 +1,14 @@
 schema_version: 1
 
+# This is the reference copy. The package is built from the conda-forge
+# feedstock at https://github.com/conda-forge/fastmdxplora-feedstock, and a
+# dependency added here has to be added there too: the version-bump pull
+# request the bot opens on release is where it goes. A dependency that reaches
+# one and not the other gives a conda install that fails at the point of use.
+
 context:
   name: fastmdxplora
-  version: "2.1.0"
+  version: "2.3.0"
 
 package:
   name: ${{ name|lower }}
@@ -10,7 +16,7 @@ package:
 
 source:
   url: https://pypi.org/packages/source/${{ name[0] }}/${{ name }}/${{ name }}-${{ version }}.tar.gz
-  sha256: b87e4b6ce6cc62aa9a9fde3fa443ce8cf43ccf44a6aeb534c899dd95a9dcf9dc
+  sha256: 0000000000000000000000000000000000000000000000000000000000000000
 
 build:
   noarch: python
