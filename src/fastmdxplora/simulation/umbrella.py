@@ -35,6 +35,7 @@ import numpy as np
 __all__ = [
     "Window",
     "expand_umbrella",
+    "plan_from_expanded",
     "UmbrellaPlan",
     "plan_windows",
     "windows_as_sweep",
@@ -129,8 +130,10 @@ def plan_windows(spec: dict[str, Any]) -> UmbrellaPlan:
         count = int(spec["n_windows"])
         if count < 2:
             raise ValueError("Umbrella sampling needs at least two windows.")
-        centres = list(np.linspace(float(spec["from"]), float(spec["to"]),
-                                   count))
+        # Plain floats: numpy scalars serialise as "!!python/object" in YAML
+        # and are not JSON, so a config written back out would not reload.
+        centres = [float(c) for c in np.linspace(
+            float(spec["from"]), float(spec["to"]), count)]
 
     return UmbrellaPlan(
         windows=tuple(Window(index=i, centre=c, force_constant=force)
@@ -173,7 +176,13 @@ def expand_umbrella(config: dict[str, Any]) -> dict[str, Any]:
         entry = dict(base)
         entry["id"] = f"window_{window.index:02d}"
         # Everything the window needs to bias itself, resolved per run.
-        entry["simulation"] = dict(entry.get("simulation") or {})
+        # Every shared simulation setting, then this window's own. A
+        # per-system block replaces the top-level one rather than merging, so
+        # a block holding only the umbrella settings silently discarded the
+        # step counts, the timestep and everything else the study asked for.
+        merged = {k: v for k, v in simulation.items() if k != "umbrella"}
+        merged.update(entry.get("simulation") or {})
+        entry["simulation"] = merged
         entry["simulation"]["umbrella"] = dict(
             {k: v for k, v in spec.items()
              if k not in ("centres", "centers", "from", "to", "n_windows")},
@@ -189,8 +198,41 @@ def expand_umbrella(config: dict[str, Any]) -> dict[str, Any]:
     # expand it again.
     expanded["simulation"] = {k: v for k, v in simulation.items()
                               if k != "umbrella"}
-    expanded["_umbrella_plan"] = plan
+    # The plan is deliberately not stashed in the config. It was, and
+    # validation rejected the extra key -- correctly, since a config is what
+    # a user wrote and not a place to hide state. Each window carries its own
+    # block, so the set can be rebuilt from the runs when they finish.
     return expanded
+
+
+def plan_from_expanded(config: dict[str, Any]) -> UmbrellaPlan | None:
+    """Rebuild the window set from a config that has already been expanded.
+
+    Returns ``None`` where this is not an umbrella study.
+    """
+    systems = config.get("systems") or []
+    windows = []
+    variable = ""
+    equilibration = 0
+    for entry in systems:
+        block = ((entry.get("simulation") or {}).get("umbrella")
+                 if isinstance(entry, dict) else None)
+        if not block or block.get("centre") is None:
+            continue
+        variable = str(block.get("collective_variable", variable))
+        equilibration = int(block.get("equilibration_steps", equilibration))
+        windows.append(Window(
+            index=int(block.get("index", len(windows))),
+            centre=float(block["centre"]),
+            force_constant=float(block["force_constant"]),
+        ))
+    if len(windows) < 2:
+        return None
+    return UmbrellaPlan(
+        windows=tuple(sorted(windows, key=lambda w: w.index)),
+        collective_variable=variable,
+        equilibration_steps=equilibration,
+    )
 
 
 def windows_as_sweep(plan: UmbrellaPlan) -> list[dict[str, Any]]:

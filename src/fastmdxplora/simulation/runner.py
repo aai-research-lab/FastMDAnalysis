@@ -890,7 +890,12 @@ def run_simulation(
                              "centres", "from", "to", "equilibration_steps")}
         spec.setdefault("sigma", 0.05)
         spec.setdefault("unbounded", True)
-        cv_plan = plan_from_config(spec, topology, temperature_K=temperature_K)
+        # The ligand's residue name, which a ligand variable needs and the
+        # metadynamics path already passes. Without it, ligand_distance in an
+        # umbrella window refused for want of something the run knew.
+        cv_plan = plan_from_config(
+            spec, topology, temperature_K=temperature_K,
+            ligand_resname=umbrella.get("ligand_resname"))
 
         window = Window(index=int(umbrella.get("index", 0)),
                         centre=float(centre), force_constant=float(force))

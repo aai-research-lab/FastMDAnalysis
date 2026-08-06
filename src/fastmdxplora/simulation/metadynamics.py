@@ -223,6 +223,40 @@ def _plumed_list(indices: list[int]) -> str:
     return ",".join(str(int(i) + 1) for i in indices)
 
 
+#: Everything a prepared system contains that is not a candidate ligand:
+#: the standard residues, the solvent, the ions and the lipids.
+_NOT_A_LIGAND = frozenset({
+    "ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE",
+    "LEU", "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL",
+    "HID", "HIE", "HIP", "CYX", "ASH", "GLH", "LYN", "ACE", "NME", "NMA",
+    "A", "C", "G", "U", "T", "DA", "DC", "DG", "DT",
+    "HOH", "WAT", "TIP", "TIP3", "SOL", "H2O",
+    "NA", "CL", "K", "MG", "CA", "ZN", "FE", "MN",
+    "POP", "POPC", "POPE", "DLPC", "DLPE", "DMPC", "DOPC", "DPPC",
+})
+
+
+def detect_ligand(topology: Any) -> str | None:
+    """The ligand's residue name, worked out from the system.
+
+    A prepared system contains the protein, the solvent, the ions, possibly
+    lipids, and the thing that was parameterised as a ligand. Where exactly
+    one residue is none of the former, it is the latter -- and that is a
+    deduction rather than a guess.
+
+    Returns ``None`` where there is no candidate or more than one, because
+    "which of these two is the ligand" is a question the topology cannot
+    answer and the caller should.
+    """
+    import mdtraj as md
+
+    mdtop = (topology if isinstance(topology, md.Topology)
+             else md.Topology.from_openmm(topology))
+    candidates = {r.name.upper() for r in mdtop.residues
+                  if r.name.upper() not in _NOT_A_LIGAND}
+    return next(iter(candidates)) if len(candidates) == 1 else None
+
+
 def plan_from_config(
     spec: dict[str, Any],
     topology: Any,
@@ -256,10 +290,14 @@ def plan_from_config(
 
     atoms: dict[str, list[int]] = {}
     if variable in ("ligand_rmsd", "ligand_distance"):
-        resname = spec.get("ligand_resname") or ligand_resname
+        resname = (spec.get("ligand_resname") or ligand_resname
+                   or detect_ligand(topology))
         if not resname:
             raise ValueError(
-                f"{variable} needs a ligand, and none was given or detected."
+                f"{variable} needs a ligand. None was given, and the system "
+                "contains either no residue that could be one or more than "
+                "one -- which is a question the topology cannot answer. Give "
+                "`ligand_resname`."
             )
         atoms["ligand"] = select(f"resname {resname}", "ligand")
         if variable == "ligand_distance":

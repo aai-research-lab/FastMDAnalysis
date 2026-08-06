@@ -150,6 +150,26 @@ def _execute_run(
         )
 
 
+def _not_submitted(after: str, *, umbrella: bool) -> str:
+    """Why a run was not started.
+
+    Umbrella windows are one measurement, so a failure ends the study rather
+    than costing it a data point -- and saying so is the difference between a
+    reader thinking something crashed and knowing the rest was not attempted
+    on purpose.
+    """
+    if umbrella:
+        return (
+            f"Not submitted: window '{after}' failed, and a free energy needs "
+            "every window -- the rest would be hours spent on runs that get "
+            "thrown away."
+        )
+    return (
+        f"Not submitted because continue_on_error=False stopped after failed "
+        f"run '{after}'."
+    )
+
+
 class BatchExplorer:
     """Run one or more FastMDXplora studies (systems × sweep).
 
@@ -199,9 +219,19 @@ class BatchExplorer:
         self.mode = execution.get("mode", "sequential")
         self.workers = execution.get("workers")
         self.devices = execution.get("devices")
+        # Umbrella windows are one measurement, not several systems. A
+        # campaign should carry on when one system fails -- the others are
+        # still results. A free energy cannot be computed at all if a window
+        # is missing, so continuing spends hours producing runs that will be
+        # thrown away.
+        from fastmdxplora.simulation.umbrella import plan_from_expanded
+
+        self._is_umbrella = plan_from_expanded(raw) is not None
+
         self.continue_on_error = (
             continue_on_error if continue_on_error is not None
-            else execution.get("continue_on_error", True)
+            else execution.get(
+                "continue_on_error", not self._is_umbrella)
         )
         # The cross-run comparison report is a reporting artifact, so it's
         # controlled by the `report` block (default on).
@@ -296,13 +326,20 @@ class BatchExplorer:
         set is visible -- and where the overlap between them can be checked,
         which is the thing that decides whether a free energy exists at all.
         """
-        plan = (self._raw or {}).get("_umbrella_plan")
-        if plan is None:
-            return
-
         import json
 
-        from fastmdxplora.simulation.umbrella import collect_samples, compute_pmf
+        from fastmdxplora.simulation.umbrella import (
+            collect_samples,
+            compute_pmf,
+            plan_from_expanded,
+        )
+
+        # Rebuilt from the runs rather than carried in the config: a config is
+        # what a user wrote, not a place to hide state, and validation
+        # rightly refused an extra key when this was smuggled through one.
+        plan = plan_from_expanded(self._raw or {})
+        if plan is None:
+            return
 
         try:
             samples = collect_samples(self.output_dir, plan)
@@ -427,9 +464,9 @@ class BatchExplorer:
                     results.append(_skipped_run_result(
                         skipped,
                         self._run_output_dir(skipped),
-                        (
-                            "Not submitted because continue_on_error=False "
-                            f"stopped after failed run '{spec.run_id}'."
+                        _not_submitted(
+                            spec.run_id,
+                            umbrella=getattr(self, "_is_umbrella", False),
                         ),
                     ))
                 break
@@ -534,9 +571,9 @@ class BatchExplorer:
                     results.append(_skipped_run_result(
                         spec,
                         self._run_output_dir(spec),
-                        (
-                            "Not submitted because continue_on_error=False "
-                            f"stopped after failed run '{stopped_after}'."
+                        _not_submitted(
+                            stopped_after,
+                            umbrella=getattr(self, "_is_umbrella", False),
                         ),
                     ))
         finally:

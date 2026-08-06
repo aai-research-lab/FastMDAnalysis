@@ -416,3 +416,231 @@ class TestItIsActuallyReached:
             assert name in sources, (
                 f"{name} is exported and nothing in the package calls it"
             )
+
+
+class TestNothingIsSmuggledThroughTheConfig:
+    """The expansion stashed the plan under `_umbrella_plan`, and validation
+    refused the unknown key -- correctly, since a config is what somebody
+    wrote and not a place to hide state.
+
+    Each window carries its own block, so the set is rebuilt from the runs.
+    """
+
+    @staticmethod
+    def _written(tmp_path):
+        path = tmp_path / "pmf.yml"
+        path.write_text(
+            "output: pmftest\n"
+            "systems:\n"
+            "  - system: 181L\n"
+            "simulation:\n"
+            "  umbrella:\n"
+            "    collective_variable: ligand_distance\n"
+            '    site_selection: "resid 84 to 121 and name CA"\n'
+            "    from: 0.3\n"
+            "    to: 1.5\n"
+            "    n_windows: 7\n"
+            "    force_constant: 1000\n",
+            encoding="utf-8")
+        return path
+
+    def test_an_expanded_config_validates(self, tmp_path) -> None:
+        from fastmdxplora.config.loader import load_config_file, validate_config
+
+        config = load_config_file(self._written(tmp_path))
+        validate_config(config, require_systems=True)   # raises if not
+
+    def test_no_private_key_is_added(self, tmp_path) -> None:
+        from fastmdxplora.config.loader import load_config_file
+
+        config = load_config_file(self._written(tmp_path))
+        assert not [k for k in config if k.startswith("_")], (
+            "the config should hold nothing but what a user could have written"
+        )
+
+    def test_the_plan_is_rebuilt_from_the_windows(self, tmp_path) -> None:
+        from fastmdxplora.config.loader import load_config_file
+        from fastmdxplora.simulation.umbrella import plan_from_expanded
+
+        plan = plan_from_expanded(load_config_file(self._written(tmp_path)))
+        assert plan is not None
+        assert len(plan.windows) == 7
+        assert plan.windows[0].centre == pytest.approx(0.3)
+        assert plan.windows[-1].centre == pytest.approx(1.5)
+        assert plan.collective_variable == "ligand_distance"
+
+    def test_a_plain_study_rebuilds_nothing(self) -> None:
+        from fastmdxplora.simulation.umbrella import plan_from_expanded
+
+        assert plan_from_expanded(
+            {"systems": [{"system": "1UBQ"}, {"system": "181L"}]}) is None
+
+    def test_the_explorer_rebuilds_rather_than_reads_a_stash(self) -> None:
+        import inspect
+
+        from fastmdxplora.batch import explorer
+
+        source = inspect.getsource(explorer.BatchExplorer._maybe_build_pmf)
+        assert "plan_from_expanded" in source
+        assert "_umbrella_plan" not in source
+
+
+class TestAWindowInheritsTheStudysSettings:
+    """A per-system block replaces the top-level one rather than merging, so a
+    block holding only the umbrella settings discarded the step counts. A run
+    asking for five thousand production steps ran a million.
+    """
+
+    @staticmethod
+    def _expanded():
+        from fastmdxplora.simulation.umbrella import expand_umbrella
+
+        return expand_umbrella({
+            "output": "x",
+            "systems": [{"system": "181L"}],
+            "simulation": {
+                "nvt_steps": 500, "npt_steps": 500, "production_steps": 5000,
+                "timestep_fs": 1.0,
+                "umbrella": {
+                    "collective_variable": "ligand_distance",
+                    "site_selection": "resid 84 to 121 and name CA",
+                    "from": 0.3, "to": 1.5, "n_windows": 7,
+                    "force_constant": 1000}},
+        })
+
+    def test_the_step_counts_reach_every_window(self) -> None:
+        for entry in self._expanded()["systems"]:
+            simulation = entry["simulation"]
+            assert simulation["production_steps"] == 5000
+            assert simulation["nvt_steps"] == 500
+            assert simulation["timestep_fs"] == 1.0
+
+    def test_and_each_still_holds_its_own_position(self) -> None:
+        centres = [e["simulation"]["umbrella"]["centre"]
+                   for e in self._expanded()["systems"]]
+        assert len(set(centres)) == 7
+
+
+class TestFindingTheLigand:
+    """A ligand variable in an umbrella window refused for want of something
+    the run knew: the runner never received the residue name, and neither did
+    the metadynamics path -- it had simply never been run with one.
+    """
+
+    @staticmethod
+    def _system(extra):
+        import mdtraj as md
+
+        top = md.Topology()
+        chain = top.add_chain()
+        for index in range(10):
+            residue = top.add_residue("ALA", chain, resSeq=index + 1)
+            for name in ("N", "CA", "C"):
+                top.add_atom(name, md.element.carbon, residue)
+        for name in extra:
+            other = top.add_chain()
+            residue = top.add_residue(name, other, resSeq=900)
+            for index in range(6):
+                top.add_atom(f"C{index}", md.element.carbon, residue)
+        waters = top.add_chain()
+        for index in range(3):
+            residue = top.add_residue("HOH", waters, resSeq=1000 + index)
+            top.add_atom("O", md.element.oxygen, residue)
+        return top
+
+    def test_one_candidate_is_the_ligand(self) -> None:
+        from fastmdxplora.simulation.metadynamics import detect_ligand
+
+        assert detect_ligand(self._system(["BNZ"])) == "BNZ"
+
+    def test_no_candidate_is_not_a_ligand(self) -> None:
+        from fastmdxplora.simulation.metadynamics import detect_ligand
+
+        assert detect_ligand(self._system([])) is None
+
+    def test_two_candidates_is_a_question_the_topology_cannot_answer(self) -> None:
+        from fastmdxplora.simulation.metadynamics import detect_ligand
+
+        assert detect_ligand(self._system(["BNZ", "LIG"])) is None
+
+    def test_the_refusal_says_to_name_it(self) -> None:
+        from fastmdxplora.simulation.metadynamics import plan_from_config
+
+        with pytest.raises(ValueError, match="ligand_resname"):
+            plan_from_config({"collective_variable": "ligand_distance",
+                              "site_selection": "name CA", "sigma": 0.05,
+                              "unbounded": True},
+                             self._system(["BNZ", "LIG"]))
+
+    def test_lipids_are_not_mistaken_for_a_ligand(self) -> None:
+        from fastmdxplora.simulation.metadynamics import detect_ligand
+
+        assert detect_ligand(self._system(["POP"])) is None
+
+
+class TestAFailedWindowStopsTheStudy:
+    """Umbrella windows are one measurement, not several systems.
+
+    A campaign should carry on when one system fails -- the others are still
+    results. A free energy cannot be computed at all if a window is missing,
+    so continuing spends hours producing runs that get thrown away.
+    """
+
+    @staticmethod
+    def _umbrella():
+        from fastmdxplora.simulation.umbrella import expand_umbrella
+
+        return expand_umbrella({
+            "output": "/tmp/u", "systems": [{"system": "181L"}],
+            "simulation": {"umbrella": {
+                "collective_variable": "ligand_distance",
+                "site_selection": "name CA", "from": 0.3, "to": 1.5,
+                "n_windows": 5, "force_constant": 1000}}})
+
+    def test_an_umbrella_study_stops_on_the_first_failure(self, tmp_path) -> None:
+        from fastmdxplora.batch.explorer import BatchExplorer
+
+        explorer = BatchExplorer(config_data=self._umbrella(),
+                                 output_dir=str(tmp_path))
+        assert explorer.continue_on_error is False
+
+    def test_an_ordinary_campaign_carries_on(self, tmp_path) -> None:
+        from fastmdxplora.batch.explorer import BatchExplorer
+
+        explorer = BatchExplorer(
+            config_data={"output": "x",
+                         "systems": [{"system": "1UBQ"}, {"system": "181L"}]},
+            output_dir=str(tmp_path))
+        assert explorer.continue_on_error is True
+
+    def test_it_can_still_be_asked_for_explicitly(self, tmp_path) -> None:
+        """Somebody who wants the surviving windows anyway should get them."""
+        from fastmdxplora.batch.explorer import BatchExplorer
+
+        explorer = BatchExplorer(config_data=self._umbrella(),
+                                 output_dir=str(tmp_path),
+                                 continue_on_error=True)
+        assert explorer.continue_on_error is True
+
+    def test_the_message_says_why_the_rest_were_not_run(self) -> None:
+        """The difference between a reader thinking something crashed and
+        knowing the rest was not attempted on purpose."""
+        from fastmdxplora.batch.explorer import _not_submitted
+
+        umbrella = _not_submitted("window_02", umbrella=True)
+        assert "a free energy needs every window" in umbrella
+        assert "thrown away" in umbrella
+
+        campaign = _not_submitted("run_02", umbrella=False)
+        assert "continue_on_error=False" in campaign
+
+    def test_the_expanded_config_is_still_json(self) -> None:
+        """The window centres came out of numpy, and a numpy scalar
+        serialises as an opaque object in YAML and not at all in JSON -- so a
+        config written back out would not reload."""
+        import json
+
+        json.dumps(self._umbrella())
+        for entry in self._umbrella()["systems"]:
+            centre = entry["simulation"]["umbrella"]["centre"]
+            assert type(centre) is float
