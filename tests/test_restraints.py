@@ -186,7 +186,14 @@ class TestARestraintActuallyHolds:
         simulation = Simulation(modeller.topology, system, integrator,
                                 omm.Platform.getPlatformByName("CPU"))
         simulation.context.setPositions(modeller.positions)
-        simulation.minimizeEnergy(maxIterations=150)
+        # To convergence, which is what the software does -- its
+        # minimize_max_iterations defaults to 0. Capped at 150 for speed, the
+        # clashes addSolvent leaves behind survive into dynamics, and the
+        # unrestrained arm becomes the very failure the restraints exist to
+        # prevent: it went non-finite on macOS while passing here, and a
+        # control that explodes measures nothing either way.
+        simulation.minimizeEnergy(
+            tolerance=10 * unit.kilojoule_per_mole / unit.nanometer)
         simulation.context.setVelocitiesToTemperature(300 * unit.kelvin, 7)
         heavy = md.Topology.from_openmm(modeller.topology).select(
             "protein and not element H")
@@ -211,11 +218,25 @@ class TestARestraintActuallyHolds:
         pytest.importorskip("openmm", reason="requires the [md] extra")
 
 
+        import math
+
         free, heavy, _ = self._system(restrained=False)
         held, _heavy, _params = self._system(restrained=True)
 
-        assert self._drift(held, heavy) < self._drift(free, heavy) / 2, (
-            "a restrained structure should move markedly less than a free one"
+        unrestrained = self._drift(free, heavy)
+        restrained = self._drift(held, heavy)
+
+        # Said before the comparison, because a control that blew up makes the
+        # ratio meaningless in the direction that looks like a pass.
+        assert math.isfinite(unrestrained) and unrestrained > 0, (
+            "the unrestrained control did not run: there is nothing to "
+            f"compare against (drift {unrestrained})")
+        assert math.isfinite(restrained), (
+            f"the restrained run did not survive (drift {restrained})")
+
+        assert restrained < unrestrained / 2, (
+            "a restrained structure should move markedly less than a free "
+            f"one: {restrained:.3f} nm restrained, {unrestrained:.3f} nm free"
         )
 
     @pytest.mark.slow
