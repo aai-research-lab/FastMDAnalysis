@@ -35,7 +35,8 @@ finished report in about ten minutes.
 - **Want to see what it can do?** [The FastMDXplora GUI](gui.md) and
   [The four phases](phases.md).
 - **Running something real?** [Beyond a box of water](simulations.md) for
-  restraints, membranes and metadynamics; [Production and GPUs](production.md)
+  restraints, membranes, and enhanced sampling — umbrella, steered and
+  metadynamics; [Production and GPUs](production.md)
   for long runs.
 - **Reading results?** [Protein-ligand interactions](interactions.md).
 - **Looking for a flag or a setting?** [CLI reference](cli_reference.md),

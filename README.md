@@ -56,9 +56,10 @@ fastmdx info
 | **A protein on its own** | Fold, flexibility, secondary structure, native contacts, conformational clustering — from a PDB code. |
 | **A protein with a ligand** | The ligand is found, its chemistry resolved, its protonation settled in the binding site. Eight interaction types against published criteria tell you what *holds* it, not just what it touches. |
 | **A membrane protein** | Embedded in one of seven bilayers, with the orientation checked rather than assumed and pressure coupling that suits a lipid system. |
-| **Free energy along a coordinate** | Metadynamics on a ligand distance, an RMSD, a torsion or a radius of gyration — with walls and funnels, which is what makes an absolute binding free energy recoverable. |
+| **Free energy along a coordinate** | Umbrella sampling, metadynamics and steered MD from a named collective variable — eight of them — without writing PLUMED input. Each says what its output is and is not: a surface if the bias converged, a pathway and the work along it, a potential of mean force if the windows overlap. |
 | **A trajectory from another engine** | Skip the simulation and analyse what you already have, from anything MDTraj reads. |
 | **Many systems at once** | Mutants against wild type, a sweep across a setting, runs pinned one per GPU, and a comparison report across all of them. |
+| **Water that stays** | The positions a water holds through a run, and whether one molecule sat there or a hundred passed through — which are different findings about a binding site. |
 
 And where a structure does not say enough — an ambiguous ligand charge, a
 protein pointed the wrong way for a membrane — FastMDXplora stops and names
@@ -81,7 +82,7 @@ picked up, repeated or explained afterwards.
 [The GUI](https://fastmdxplora.readthedocs.io/en/latest/gui.html) ·
 [The four phases](https://fastmdxplora.readthedocs.io/en/latest/phases.html)
 
-**Going further** — [Restraints, membranes, metadynamics](https://fastmdxplora.readthedocs.io/en/latest/simulations.html) ·
+**Going further** — [Restraints, membranes, enhanced sampling](https://fastmdxplora.readthedocs.io/en/latest/simulations.html) ·
 [Production and GPUs](https://fastmdxplora.readthedocs.io/en/latest/production.html) ·
 [Protein-ligand interactions](https://fastmdxplora.readthedocs.io/en/latest/interactions.html)
 

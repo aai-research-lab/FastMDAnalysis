@@ -2127,3 +2127,17 @@ body.state-ready .loading-screen {
     font-size: 12px;
     padding: 7px 10px;
 }
+
+/* A settings block, written the way it is written in a config file. One line
+   could not hold one, and a line that cannot hold what it is for is a control
+   that quietly loses work. */
+.builder-mapping {
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: .82rem;
+    line-height: 1.5;
+    resize: vertical;
+    min-height: 6.5em;
+    white-space: pre;
+    overflow-wrap: normal;
+    overflow-x: auto;
+}

@@ -3,11 +3,14 @@
 Version 2.3 could minimise, heat, equilibrate and run production in water.
 That covers a soluble protein and not much else. This page covers what 2.4
 added: holding parts of a system still while the rest settles, putting a
-protein in a lipid bilayer, biasing a run along a coordinate you name, and
-being told what went wrong when one fails.
+protein in a lipid bilayer, three ways of biasing a run along a coordinate you
+name, and being told what went wrong when one fails.
 
 Each is a setting on the simulation or setup phase, so each is available from
-the command line, a config file, and the browser without anything further.
+the command line, a config file, and the browser without anything further. The
+three biasing methods take a block of settings rather than one value, and the
+browser gives those a box you write the block into, one setting per line, the
+way it appears in a config file.
 
 ## Restraints
 

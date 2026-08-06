@@ -3881,3 +3881,93 @@ class TestTheProteinLigandAnalysesShareANaming:
 
             pytest.skip(payload["reason"])
         assert payload["categories"]["pl_contacts"] == "Protein and ligand together"
+
+
+class TestASettingsBlockCanBeWrittenInTheBrowser:
+    """Umbrella, steered and metadynamics are blocks of several settings, not
+    one value each.
+
+    They reached the form -- the schema declares them -- but as single-line
+    text boxes, and what was typed arrived as a string that no phase could
+    read. The browser was the one interface where enhanced sampling could not
+    be set up at all, which is the interface the documentation tells a new
+    user to start in.
+    """
+
+    @staticmethod
+    def _fields():
+        from fastmdxplora.gui.schema_payload import schema_payload
+
+        return {f["name"]: f
+                for f in schema_payload()["phases"]["simulation"]["fields"]}
+
+    def test_a_block_is_offered_as_a_mapping(self) -> None:
+        fields = self._fields()
+        for name in ("umbrella", "steered", "metadynamics"):
+            assert fields[name]["control"] == "mapping", name
+
+    def test_and_the_page_draws_something_that_can_hold_one(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        script = (pathlib.Path(server.__file__).parent / "static"
+                  / "run-builder.js").read_text(encoding="utf-8")
+        block = script[script.index('field.control === "mapping"'):][:700]
+        assert 'createElement("textarea")' in block
+
+    def test_each_block_shows_what_one_looks_like(self) -> None:
+        """A blank box for a block of seven settings says nothing about which
+        seven."""
+        fields = self._fields()
+        for name in ("umbrella", "steered", "metadynamics"):
+            example = fields[name].get("example")
+            assert isinstance(example, dict) and example, name
+            assert "collective_variable" in example, name
+
+    def test_what_was_typed_arrives_as_a_mapping(self) -> None:
+        from fastmdxplora.gui.config_builder import build_config
+
+        typed = ("collective_variable: distance\n"
+                 "selection_a: resname BNZ\nselection_b: protein\n"
+                 "from: 0.3\nto: 1.5\nn_windows: 7\nforce_constant: 5000\n")
+        built = build_config({"simulation": {"umbrella": typed}})
+        block = built["simulation"]["umbrella"]
+
+        assert isinstance(block, dict), "a string here reaches no phase"
+        assert block["n_windows"] == 7
+        assert block["force_constant"] == 5000
+
+    def test_and_the_config_it_writes_validates(self) -> None:
+        """Which is what says the round trip is real rather than shaped
+        right."""
+        from fastmdxplora.config import validate_config
+        from fastmdxplora.gui.config_builder import build_config
+
+        built = build_config({"simulation": {"umbrella": (
+            "collective_variable: distance\nselection_a: resname BNZ\n"
+            "selection_b: protein\nfrom: 0.3\nto: 1.5\nn_windows: 7\n"
+            "force_constant: 5000\n")}})
+        validate_config({"output": "out", "systems": [{"system": "181L"}],
+                         **built}, require_systems=True)
+
+    def test_something_unreadable_is_kept_rather_than_dropped(self) -> None:
+        """Validation reports it. Silently discarding a block somebody typed
+        is worse than a refusal that says why."""
+        from fastmdxplora.gui.config_builder import build_config
+
+        built = build_config({"simulation": {"umbrella": "from: [0.3\n"}})
+        assert built["simulation"]["umbrella"] == "from: [0.3\n"
+
+    def test_the_variables_the_help_names_are_the_variables_there_are(
+        self
+    ) -> None:
+        """The help said five when there were eight. It is what the browser
+        shows beside the box, what --help prints, and what the config template
+        carries, so a stale sentence is stale in four places."""
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+        from fastmdxplora.simulation.metadynamics import COLLECTIVE_VARIABLES
+
+        described = PHASE_SCHEMAS["simulation"].get("metadynamics").help
+        for variable in COLLECTIVE_VARIABLES:
+            assert variable in described, variable

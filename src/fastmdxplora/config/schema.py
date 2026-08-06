@@ -433,7 +433,16 @@ SIMULATION = PhaseSchema(
               "`n_windows`. Each window becomes a run, and the sampling is "
               "recombined into a potential of mean force -- unless adjacent "
               "windows fail to overlap, in which case the gap is reported "
-              "rather than bridged."),
+              "rather than bridged. `minimum_overlap` sets how much two "
+              "neighbours must share; `minimum_samples`, how full a window's "
+              "histogram must be before anything is concluded from it. The "
+              "system is prepared once and every window simulates from it, "
+              "so a difference between windows is the restraint rather than "
+              "where the water landed.",
+              example={"collective_variable": "distance",
+                       "selection_a": "resname BNZ", "selection_b": "protein",
+                       "from": 0.3, "to": 1.5, "n_windows": 7,
+                       "force_constant": 5000}),
         Field("steered", dict, None,
               "Pull the system along a named coordinate. A block with the "
               "same `collective_variable` metadynamics takes, plus `to` (the "
@@ -441,18 +450,25 @@ SIMULATION = PhaseSchema(
               "gives a pathway and the work done along it, not a free "
               "energy: the work depends on how fast the anchor moves, and a "
               "single fast pull overestimates a barrier. Its usual purpose "
-              "is generating starting structures for umbrella sampling."),
+              "is generating starting structures for umbrella sampling.",
+              example={"collective_variable": "distance",
+                       "selection_a": "resname BNZ", "selection_b": "protein",
+                       "to": 1.5, "steps": 500000}),
         Field("metadynamics", dict, None,
               "Metadynamics from a named collective variable, without "
               "writing PLUMED input. A block with `collective_variable` "
-              "(ligand_rmsd, ligand_distance, distance, torsion or "
-              "radius_of_gyration), the selections it needs, and `sigma` -- "
+              "(distance, angle, torsion, radius_of_gyration, coordination, "
+              "membrane_depth, ligand_distance or ligand_rmsd), the "
+              "selections it needs, and `sigma` -- "
               "the hill width, roughly the size of the fluctuations within a "
               "single state. Well-tempered by default, because plain "
               "metadynamics never lets the bias settle. Choosing the "
               "variable is the decision the method turns on: if it does not "
               "distinguish the states that matter, the surface converges and "
-              "describes something that is not the system."),
+              "describes something that is not the system.",
+              example={"collective_variable": "radius_of_gyration",
+                       "selection": "protein and name CA", "sigma": 0.02,
+                       "height_kjmol": 1.2, "pace_steps": 500}),
         Field("plumed", dict, None,
               "Optional PLUMED enhanced-sampling config: a dict with "
               "`enabled` (bool) and `script` (inline PLUMED text or a path "

@@ -147,6 +147,14 @@ visited.
 
 ### Changed
 
+- **A settings block can be written in the browser.** `umbrella`, `steered`
+  and `metadynamics` are blocks of several settings, not one value each. They
+  reached the form -- the schema declares them -- as single-line text boxes,
+  and what was typed arrived as a string no phase could read, so the browser
+  was the one interface where enhanced sampling could not be set up at all.
+  Each now gets a box you write the block into, one setting per line, with an
+  example of the right shape showing until you type.
+
 - **The documentation was reordered around how somebody meets it**, the
   reference pages point at what generates them, and the README leads with what
   can be studied rather than with what the software is not. Two pages
@@ -210,6 +218,12 @@ visited.
   selection was "given" when the setting was `auto` -- a truthiness check
   reading a value as an absence, so `options.json` claimed a decision was
   somebody's that was not.
+
+- **The metadynamics help named five collective variables where there are
+  eight.** It is what the browser shows beside the box, what `--help` prints,
+  and what the generated config template carries, so one stale sentence was
+  stale in four places. There is a test that fails when a variable is added
+  and the sentence is not.
 
 - **The Windows job failed on a test, not on the code.** `ctypes.CDLL(None)`
   asks for the running program's own symbols, which Windows does not have.

@@ -55,6 +55,21 @@ def _coerce(value: Any, field: Any) -> Any:
         if isinstance(value, bool):
             return value
         return str(value).strip().lower() in {"true", "1", "yes", "on"}
+    if dict in accepted and isinstance(value, str):
+        # An umbrella, steered or metadynamics block is a mapping, and the
+        # form can only send text. Read as YAML, which is what the person is
+        # already writing when they put one in a config file -- and what the
+        # help text for these settings describes.
+        import yaml
+
+        try:
+            parsed = yaml.safe_load(value)
+        except yaml.YAMLError:
+            # Kept as written rather than dropped: validation reports it, and
+            # silently discarding a block somebody typed is worse than a
+            # refusal that says why.
+            return value
+        return parsed if isinstance(parsed, dict) else value
     if list in accepted and isinstance(value, str):
         return [part for part in (p.strip() for p in value.split(",")) if part]
     if float in accepted or int in accepted:

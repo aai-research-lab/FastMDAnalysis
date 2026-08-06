@@ -332,6 +332,21 @@
       input = document.createElement("input");
       input.type = "checkbox";
       input.checked = Boolean(field.default);
+    } else if (field.control === "mapping") {
+      // Umbrella, steered and metadynamics are blocks of several settings,
+      // not one value. A single-line box could not hold one, and what was
+      // typed into it arrived as a string that no phase could read -- so the
+      // browser was the one interface where enhanced sampling could not be
+      // set up at all. Written here the way it is written in a config file.
+      input = document.createElement("textarea");
+      input.rows = 6;
+      input.spellcheck = false;
+      input.className = "builder-mapping";
+      input.placeholder = field.example
+        ? Object.keys(field.example)
+            .map((key) => key + ": " + field.example[key])
+            .join("\n")
+        : "one setting per line, as in a config file";
     } else {
       input = document.createElement("input");
       input.type = field.control === "number" ? "number" : "text";
