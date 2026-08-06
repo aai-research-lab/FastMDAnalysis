@@ -89,6 +89,61 @@ def _setup_outputs_present(setup_dir: Path) -> tuple[Path | None, Path | None, P
     return system_xml, state_xml, topology
 
 
+def _write_metadynamics_surface(output_dir: Path, presenter: Any) -> str | None:
+    """Build the free energy surface beside the run, or record why not.
+
+    Either way a file is written. A refusal that leaves no trace is a run that
+    looks as though the question was never asked, and the evidence behind it
+    is what lets a borderline run be judged rather than only rejected.
+    """
+    import json
+
+    import numpy as np
+
+    from fastmdxplora.simulation.metad_surface import compute_surface
+
+    hills = output_dir / "HILLS"
+    if not hills.is_file():
+        return None
+
+    colvar = output_dir / "COLVAR"
+    sampled = None
+    if colvar.is_file():
+        values = [
+            float(line.split()[1])
+            for line in colvar.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+            and len(line.split()) > 1
+        ]
+        sampled = np.array(values) if values else None
+
+    try:
+        outcome = compute_surface(hills, sampled)
+    except ValueError as exc:
+        outcome = {"surface": None, "grid": None, "refused": str(exc)}
+
+    record = {
+        "refused": outcome.get("refused"),
+        "evidence": outcome.get("evidence"),
+        "grid": (None if outcome.get("grid") is None
+                 else [float(x) for x in outcome["grid"]]),
+        "free_energy_kjmol": (None if outcome.get("surface") is None
+                              else [float(x) for x in outcome["surface"]]),
+    }
+    written = output_dir / "metadynamics_surface.json"
+    written.write_text(json.dumps(record, indent=2), encoding="utf-8")
+
+    if presenter:
+        if record["refused"]:
+            presenter.step("No free energy surface: "
+                           + record["refused"].split(":", 1)[-1].strip()[:160])
+        else:
+            barrier = outcome["evidence"]["barrier_kjmol"]
+            presenter.step(
+                f"Free energy surface: barrier {barrier:.1f} kJ/mol")
+    return "metadynamics_surface.json"
+
+
 def _where_the_system_was_prepared(
     orchestrator: "FastMDXplora", prepared_from: Any
 ) -> tuple[Path, bool]:
@@ -262,6 +317,16 @@ def run(
                 f"Production complete: {result.n_production_frames:,} frames, "
                 f"{result.duration_ns_actual:.3f} ns on {result.platform_used}"
             )
+
+        # A metadynamics run used to end here, with PLUMED's HILLS and COLVAR
+        # on disk and nothing reading them: the run produced files rather than
+        # a result, and whoever wanted a surface summed the hills themselves
+        # and got one with nothing attached. Umbrella sampling went from a
+        # config block to a curve or a refusal; this went to a pair of files.
+        if params.get("metadynamics"):
+            written = _write_metadynamics_surface(output_dir, presenter)
+            if written is not None:
+                artifacts.append(written)
 
         _write_manifest(
             output_dir, params, artifacts, notes,

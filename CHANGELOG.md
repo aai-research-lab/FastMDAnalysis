@@ -8,6 +8,21 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Added
+- **A metadynamics run produces a free energy surface, or refuses one.** It
+  wrote PLUMED's HILLS and COLVAR and stopped: nothing read them back, so the
+  module said "a run that has not converged has no free energy" while offering
+  no free energy either way, and whoever wanted a surface summed the hills
+  themselves and got one with nothing attached. Umbrella sampling went from a
+  config block to a curve or a refusal; this went to a pair of files.
+
+  Three conditions, each answerable from what the run already writes: the
+  hills must have decayed, so the bias has flattened rather than still filling
+  the landscape; the surface built from three quarters of the hills must match
+  the one built from all of them; and the system must have crossed between the
+  ends of the range more than once, because a barrier crossed once has been
+  observed once. The evidence is written down beside the verdict either way,
+  so a borderline run can be judged rather than only rejected.
+
 - **A run records which code made it.** The manifest carried the version
   string and nothing else, and setuptools-scm writes that at install time --
   so an editable install carries whatever it was when `pip install -e .` was
