@@ -38,6 +38,7 @@ __all__ = [
     "UmbrellaPlan",
     "plan_windows",
     "windows_as_sweep",
+    "collect_samples",
     "overlap_between",
     "compute_pmf",
 ]

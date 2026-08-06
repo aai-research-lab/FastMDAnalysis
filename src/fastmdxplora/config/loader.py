@@ -74,6 +74,19 @@ def load_config_file(path: str | Path) -> dict[str, Any]:
             f"Config file {p} must contain a YAML mapping at the top level, "
             f"got {type(data).__name__}."
         )
+
+    # An umbrella block describes a set of windows; everything downstream
+    # runs one system at a time. Expanding here means the block reaches
+    # exactly one place and every route into the software -- command line,
+    # Python, the browser -- gets the same expansion rather than each
+    # remembering to ask for it.
+    from fastmdxplora.simulation.umbrella import expand_umbrella
+
+    try:
+        data = expand_umbrella(data)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
+
     return data
 
 

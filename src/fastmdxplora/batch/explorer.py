@@ -283,10 +283,55 @@ class BatchExplorer:
         if not self.is_single:
             self._write_batch_manifest()
             self._maybe_build_comparison()
+            self._maybe_build_pmf()
             self._print_summary()
         return list(self.results)
 
     # ------------------------------------------------------------------
+    def _maybe_build_pmf(self) -> None:
+        """Recombine umbrella windows once they have all run.
+
+        The windows are ordinary runs, so nothing before this point knows
+        they belong together. Here is where they have all finished and the
+        set is visible -- and where the overlap between them can be checked,
+        which is the thing that decides whether a free energy exists at all.
+        """
+        plan = (self._raw or {}).get("_umbrella_plan")
+        if plan is None:
+            return
+
+        import json
+
+        from fastmdxplora.simulation.umbrella import collect_samples, compute_pmf
+
+        try:
+            samples = collect_samples(self.output_dir, plan)
+        except FileNotFoundError as exc:
+            # Some window did not produce sampling. Recorded rather than
+            # raised: the runs that did work are still on disk and worth
+            # keeping.
+            payload = {"pmf": None, "refused": str(exc),
+                       "plan": plan.as_record()}
+        else:
+            payload = compute_pmf(
+                samples, plan,
+                temperature_K=float(
+                    ((self._raw or {}).get("simulation") or {})
+                    .get("temperature_K", 300.0)))
+            payload["plan"] = plan.as_record()
+
+        destination = Path(self.output_dir) / "pmf.json"
+        destination.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+        presenter = getattr(self, "_presenter", None) or getattr(self, "presenter", None)
+        if presenter is not None:
+            if payload.get("refused"):
+                presenter.step(
+                    "No free energy: " + payload["refused"].split(".")[0],
+                    status="warn")
+            else:
+                presenter.step(f"Wrote {destination.name}")
+
     def _maybe_build_comparison(self) -> None:
         """Build the cross-run comparison report (best-effort).
 

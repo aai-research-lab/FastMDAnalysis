@@ -343,3 +343,76 @@ class TestOneWindowInTheRunner:
         from fastmdxplora.simulation import runner
 
         assert "needs a `centre`" in inspect.getsource(runner.run_simulation)
+
+
+class TestItIsActuallyReached:
+    """The expansion was written, tested and called by nothing -- the second
+    time in a row a piece of this feature worked and was unreachable.
+
+    A config file is the one place every route into the software passes
+    through, so expanding there means the command line, Python and the
+    browser all get it without each remembering to ask.
+    """
+
+    def test_a_config_file_expands_into_windows(self, tmp_path) -> None:
+        from fastmdxplora.config.loader import load_config_file
+
+        path = tmp_path / "pmf.yml"
+        path.write_text(
+            "output: runs/pmf\n"
+            "systems:\n"
+            "  - system: 181L\n"
+            "simulation:\n"
+            "  duration_ns: 5\n"
+            "  umbrella:\n"
+            "    collective_variable: ligand_distance\n"
+            '    site_selection: "resid 84 to 121 and name CA"\n'
+            "    from: 0.4\n"
+            "    to: 2.0\n"
+            "    n_windows: 9\n"
+            "    force_constant: 1000\n",
+            encoding="utf-8")
+
+        config = load_config_file(path)
+        assert len(config["systems"]) == 9
+        assert config["systems"][0]["id"] == "window_00"
+        assert config["simulation"]["duration_ns"] == 5
+
+    def test_a_bad_umbrella_block_reads_as_a_config_error(self, tmp_path) -> None:
+        """Rather than a ValueError from somewhere further in."""
+        from fastmdxplora.config.loader import ConfigError, load_config_file
+
+        path = tmp_path / "bad.yml"
+        path.write_text(
+            "output: runs/x\n"
+            "systems:\n"
+            "  - system: 181L\n"
+            "simulation:\n"
+            "  umbrella:\n"
+            "    collective_variable: distance\n"
+            "    from: 0.0\n"
+            "    to: 1.0\n"
+            "    n_windows: 5\n",
+            encoding="utf-8")
+
+        with pytest.raises(ConfigError, match="force_constant"):
+            load_config_file(path)
+
+    def test_every_public_piece_of_this_module_is_called(self) -> None:
+        """Twice now something here worked and nothing reached it. Checked by
+        searching the package rather than by remembering."""
+        from pathlib import Path
+
+        from fastmdxplora.simulation import umbrella
+
+        package = Path(__file__).resolve().parents[1] / "src" / "fastmdxplora"
+        sources = "\n".join(
+            path.read_text(encoding="utf-8") for path in package.rglob("*.py")
+            if path.name != "umbrella.py")
+
+        # Entry points a user's run should pass through.
+        for name in ("expand_umbrella", "collect_samples", "compute_pmf"):
+            assert name in umbrella.__all__, f"{name} is not public"
+            assert name in sources, (
+                f"{name} is exported and nothing in the package calls it"
+            )
