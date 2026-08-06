@@ -343,3 +343,145 @@ class TestBoundingWhereTheLigandGoes:
 
         plan = plan_from_config(self._spec(walls={"upper": 2.5}), _topology())
         assert plan.as_record()["walls"]["upper"] == 2.5
+
+
+class TestTheThreeAddedVariables:
+    """Coordination, membrane depth and angle -- the ones missing from the
+    first five that people actually use."""
+
+    @staticmethod
+    def _membrane_topology():
+        import mdtraj as md
+
+        top = _topology()
+        lipids = top.add_chain()
+        for index in range(8):
+            lipid = top.add_residue("POP", lipids, resSeq=500 + index)
+            for atom in range(4):
+                top.add_atom(f"C{atom}", md.element.carbon, lipid)
+        return top
+
+    def test_coordination_counts_through_a_switching_function(self) -> None:
+        """A hard cutoff has an infinite derivative at the boundary, and a
+        bias needs a force."""
+        from fastmdxplora.simulation.metadynamics import (
+            build_plumed_script,
+            plan_from_config,
+        )
+
+        plan = plan_from_config({
+            "collective_variable": "coordination",
+            "selection_a": "resname BNZ",
+            "selection_b": "resid 1 to 3 and name CA",
+            "sigma": 0.5}, _topology())
+        script = build_plumed_script(plan)
+        assert "COORDINATION" in script
+        assert "NN=6 MM=12" in script, "a switching function, not a step"
+
+    def test_the_switching_distance_is_a_setting_that_travels(self) -> None:
+        """It was declared on the plan and read by the script and never
+        passed from the config, so every run used the default whatever was
+        asked for."""
+        from fastmdxplora.simulation.metadynamics import (
+            build_plumed_script,
+            plan_from_config,
+        )
+
+        for wanted in (0.3, 0.45):
+            plan = plan_from_config({
+                "collective_variable": "coordination",
+                "selection_a": "resname BNZ",
+                "selection_b": "resid 1 to 3 and name CA",
+                "sigma": 0.5, "coordination_r0": wanted}, _topology())
+            assert plan.coordination_r0 == wanted
+            assert f"R_0={wanted:g}" in build_plumed_script(plan)
+
+    def test_coordination_needs_two_groups(self) -> None:
+        from fastmdxplora.simulation.metadynamics import plan_from_config
+
+        with pytest.raises(ValueError, match="selection_b"):
+            plan_from_config({
+                "collective_variable": "coordination",
+                "selection_a": "resname BNZ", "sigma": 0.5}, _topology())
+
+    def test_membrane_depth_is_measured_from_the_bilayer_itself(self) -> None:
+        """A membrane drifts in the box over a long run, so depth against a
+        fixed plane slowly becomes depth against nothing."""
+        from fastmdxplora.simulation.metadynamics import (
+            build_plumed_script,
+            plan_from_config,
+        )
+
+        plan = plan_from_config({
+            "collective_variable": "membrane_depth",
+            "ligand_resname": "BNZ", "sigma": 0.05},
+            self._membrane_topology())
+        script = build_plumed_script(plan)
+        assert "mem: COM" in script, "the bilayer's own centre"
+        assert "sep.z" in script, "along the normal"
+
+    def test_membrane_depth_needs_a_membrane(self) -> None:
+        from fastmdxplora.simulation.metadynamics import plan_from_config
+
+        with pytest.raises(ValueError, match="matched no atoms"):
+            plan_from_config({
+                "collective_variable": "membrane_depth",
+                "ligand_resname": "BNZ", "sigma": 0.05}, _topology())
+
+    def test_an_angle_is_three_atoms(self) -> None:
+        from fastmdxplora.simulation.metadynamics import (
+            build_plumed_script,
+            plan_from_config,
+        )
+
+        plan = plan_from_config({
+            "collective_variable": "angle",
+            "selection": "resid 0 and name N CA C", "sigma": 0.2}, _topology())
+        assert "ANGLE ATOMS=" in build_plumed_script(plan)
+
+        with pytest.raises(ValueError, match="three atoms"):
+            plan_from_config({
+                "collective_variable": "angle",
+                "selection": "resid 0", "sigma": 0.2}, _topology())
+
+    def test_all_eight_say_what_they_do_not_separate(self) -> None:
+        from fastmdxplora.simulation.metadynamics import COLLECTIVE_VARIABLES
+
+        assert len(COLLECTIVE_VARIABLES) == 8
+        for name, description in COLLECTIVE_VARIABLES.items():
+            assert "oes not" in description, name
+
+    def test_steered_md_gets_them_too(self) -> None:
+        """It reuses the same layer, so a new variable arrives in both."""
+        from fastmdxplora.simulation.steered import build_steered_script, plan_steered
+
+        plan = plan_steered({
+            "collective_variable": "membrane_depth",
+            "ligand_resname": "BNZ", "to": 2.5},
+            self._membrane_topology())
+        assert "sep.z" in build_steered_script(plan)
+
+
+def test_one_translation_serves_every_method_that_biases() -> None:
+    """Steered MD had a copy of the collective-variable translation, so
+    membrane_depth reached metadynamics and fell through steering's else
+    branch into one expecting a radius of gyration.
+
+    A variable should arrive everywhere at once. Checked by counting where
+    the translation lives rather than by listing the methods, because the
+    list is the thing that drifts.
+    """
+    import inspect
+
+    from fastmdxplora.simulation import metadynamics, steered, umbrella
+
+    definitions = sum(
+        inspect.getsource(module).count("cv: COORDINATION")
+        for module in (metadynamics, steered, umbrella)
+    )
+    assert definitions == 1, (
+        "the translation from a named variable to PLUMED should exist once"
+    )
+
+    # And steering reaches it rather than reimplementing.
+    assert "cv_lines(" in inspect.getsource(steered.build_steered_script)

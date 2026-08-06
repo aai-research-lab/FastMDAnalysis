@@ -70,6 +70,31 @@ COLLECTIVE_VARIABLES: dict[str, str] = {
         "which is the classic way a folding free energy surface comes out "
         "converged and wrong."
     ),
+    "coordination": (
+        "how many contacts there are between two groups, counted through a "
+        "switching function rather than a hard cutoff. Separates bound from "
+        "unbound more robustly than a distance does, because it does not "
+        "break when a ligand rotates or when one contact is exchanged for "
+        "another. Does not separate one close contact from several distant "
+        "ones -- a single atom at 3 Angstroms and three at 5 can give the "
+        "same number, which is the price of the robustness."
+    ),
+    "membrane_depth": (
+        "how far a molecule sits from the middle of a bilayer, along the "
+        "membrane normal. The coordinate for a permeation free energy, for "
+        "where a drug partitions, and for how deeply a peptide inserts. Does "
+        "not separate the two leaflets -- a molecule two nanometres above "
+        "the centre and one two below have the same depth unless the sign is "
+        "kept, and it does not distinguish sitting among the headgroups from "
+        "passing through them."
+    ),
+    "angle": (
+        "the angle at three atoms or three groups. Separates a hinge opening "
+        "from a hinge closed, and an orientation from its opposite. Does not "
+        "separate the two ways of reaching the same angle, since an angle "
+        "has no sign -- a torsion does, and is the right variable where "
+        "which way round matters."
+    ),
     "distance": (
         "the distance between two atom selections, by their centres. The "
         "general case of the ligand distance above. Does not separate two "
@@ -166,6 +191,11 @@ class MetadynamicsPlan:
     temperature_K: float = 300.0
     walls: Walls | None = None
     funnel: Funnel | None = None
+    #: Where a contact stops counting, in nm, for `coordination`. The
+    #: switching function is smooth rather than a step, so this is the
+    #: half-way point rather than a cutoff. 0.3 nm counts a hydrogen bond or
+    #: a close contact; 0.5 counts a coordination shell.
+    coordination_r0: float = 0.3
 
     def as_record(self) -> dict[str, Any]:
         return {
@@ -247,6 +277,43 @@ def plan_from_config(
             if not expression:
                 raise ValueError(f"`distance` needs `{name}`.")
             atoms[name] = select(str(expression), name)
+    elif variable == "coordination":
+        for name in ("selection_a", "selection_b"):
+            expression = spec.get(name)
+            if not expression:
+                raise ValueError(
+                    f"`coordination` counts contacts between two groups and "
+                    f"needs `{name}`."
+                )
+            atoms[name] = select(str(expression), name)
+    elif variable == "membrane_depth":
+        molecule = spec.get("selection") or (
+            f"resname {spec.get('ligand_resname') or ligand_resname}"
+            if (spec.get("ligand_resname") or ligand_resname) else None)
+        if not molecule:
+            raise ValueError(
+                "`membrane_depth` needs a `selection` for the molecule whose "
+                "depth is measured, or a ligand for it to default to."
+            )
+        atoms["molecule"] = select(str(molecule), "molecule")
+        # The bilayer centre is the reference, and it moves: a membrane
+        # drifts in the box over a long run, so depth measured against a
+        # fixed plane slowly becomes depth against nothing.
+        bilayer = spec.get("bilayer_selection") or "resname POP POPC POPE DOPC DPPC DMPC DLPC DLPE"
+        atoms["bilayer"] = select(str(bilayer), "bilayer")
+    elif variable == "angle":
+        expression = spec.get("selection")
+        if not expression:
+            raise ValueError(
+                "`angle` needs a `selection` matching exactly three atoms, "
+                "which are the angle."
+            )
+        found = select(str(expression), "angle")
+        if len(found) != 3:
+            raise ValueError(
+                f"An angle is three atoms; {expression!r} matched {len(found)}."
+            )
+        atoms["angle"] = found
     elif variable == "torsion":
         expression = spec.get("selection")
         if not expression:
@@ -349,7 +416,59 @@ def plan_from_config(
         pace_steps=int(spec.get("pace_steps", DEFAULT_PACE_STEPS)),
         bias_factor=float(spec.get("bias_factor", DEFAULT_BIAS_FACTOR)),
         temperature_K=float(temperature_K),
+        coordination_r0=float(spec.get("coordination_r0", 0.3)),
     )
+
+
+def cv_lines(plan: "MetadynamicsPlan",
+             reference_pdb: str | None = None) -> list[str]:
+    """The PLUMED that defines ``cv`` for a plan's collective variable.
+
+    One function, because steered MD needs the same translation and had a
+    copy of it -- so a variable added to one arrived in that one only, and
+    membrane_depth reached metadynamics while steering fell through to a
+    branch expecting a radius of gyration. Both call this now, and a new
+    variable reaches every method that biases a coordinate.
+    """
+    variable = plan.collective_variable
+    lines: list[str] = []
+    if variable == "ligand_rmsd":
+        if not reference_pdb:
+            raise ValueError(
+                "ligand_rmsd is measured against a reference structure, and "
+                "none was given."
+            )
+        lines.append(f"cv: RMSD REFERENCE={reference_pdb} TYPE=OPTIMAL")
+    elif variable == "ligand_distance":
+        lines.append(f"lig: COM ATOMS={_plumed_list(plan.atoms['ligand'])}")
+        lines.append(f"site: COM ATOMS={_plumed_list(plan.atoms['site'])}")
+        lines.append("cv: DISTANCE ATOMS=lig,site")
+    elif variable == "distance":
+        lines.append(f"a: COM ATOMS={_plumed_list(plan.atoms['selection_a'])}")
+        lines.append(f"b: COM ATOMS={_plumed_list(plan.atoms['selection_b'])}")
+        lines.append("cv: DISTANCE ATOMS=a,b")
+    elif variable == "coordination":
+        lines.append(f"ga: GROUP ATOMS={_plumed_list(plan.atoms['selection_a'])}")
+        lines.append(f"gb: GROUP ATOMS={_plumed_list(plan.atoms['selection_b'])}")
+        # A switching function rather than a hard cutoff: a step function has
+        # an infinite derivative at the cutoff, and a bias needs a force.
+        lines.append(
+            f"cv: COORDINATION GROUPA=ga GROUPB=gb "
+            f"R_0={plan.coordination_r0:g} NN=6 MM=12")
+    elif variable == "membrane_depth":
+        lines.append(f"mol: COM ATOMS={_plumed_list(plan.atoms['molecule'])}")
+        # Against the bilayer's own centre, which moves with it.
+        lines.append(f"mem: COM ATOMS={_plumed_list(plan.atoms['bilayer'])}")
+        lines.append("sep: DISTANCE ATOMS=mem,mol COMPONENTS")
+        lines.append("cv: CUSTOM ARG=sep.z FUNC=z VAR=z PERIODIC=NO")
+    elif variable == "angle":
+        lines.append(f"cv: ANGLE ATOMS={_plumed_list(plan.atoms['angle'])}")
+    elif variable == "torsion":
+        lines.append(f"cv: TORSION ATOMS={_plumed_list(plan.atoms['torsion'])}")
+    else:
+        lines.append(f"cv: GYRATION ATOMS={_plumed_list(plan.atoms['group'])}")
+
+    return lines
 
 
 def build_plumed_script(plan: MetadynamicsPlan, reference_pdb: str | None = None) -> str:
@@ -366,27 +485,7 @@ def build_plumed_script(plan: MetadynamicsPlan, reference_pdb: str | None = None
         "",
     ]
 
-    variable = plan.collective_variable
-    if variable == "ligand_rmsd":
-        if not reference_pdb:
-            raise ValueError(
-                "ligand_rmsd is measured against a reference structure, and "
-                "none was given."
-            )
-        lines.append(f"cv: RMSD REFERENCE={reference_pdb} TYPE=OPTIMAL")
-    elif variable == "ligand_distance":
-        lines.append(f"lig: COM ATOMS={_plumed_list(plan.atoms['ligand'])}")
-        lines.append(f"site: COM ATOMS={_plumed_list(plan.atoms['site'])}")
-        lines.append("cv: DISTANCE ATOMS=lig,site")
-    elif variable == "distance":
-        lines.append(f"a: COM ATOMS={_plumed_list(plan.atoms['selection_a'])}")
-        lines.append(f"b: COM ATOMS={_plumed_list(plan.atoms['selection_b'])}")
-        lines.append("cv: DISTANCE ATOMS=a,b")
-    elif variable == "torsion":
-        lines.append(f"cv: TORSION ATOMS={_plumed_list(plan.atoms['torsion'])}")
-    else:
-        lines.append(f"cv: GYRATION ATOMS={_plumed_list(plan.atoms['group'])}")
-
+    lines.extend(cv_lines(plan, reference_pdb))
     lines.append("")
     lines.append(
         "metad: METAD ARG=cv "

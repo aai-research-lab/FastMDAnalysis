@@ -119,7 +119,9 @@ class TestWhatItRefuses:
         with pytest.raises(ValueError, match="Unknown collective variable"):
             plan_steered({"collective_variable": "vibes", "to": 1.0},
                          _topology())
-        assert len(COLLECTIVE_VARIABLES) == 5
+        # Whatever metadynamics offers, steering offers -- one translation,
+        # so a new variable arrives in both.
+        assert len(COLLECTIVE_VARIABLES) >= 5
 
     def test_an_unbounded_pull_is_not_refused(self) -> None:
         """Metadynamics refuses an unbounded ligand run because the bias fills

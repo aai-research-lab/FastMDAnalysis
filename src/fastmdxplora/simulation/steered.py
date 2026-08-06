@@ -31,6 +31,7 @@ from typing import Any
 
 from fastmdxplora.simulation.metadynamics import (
     COLLECTIVE_VARIABLES,
+    cv_lines,
     MetadynamicsPlan,
     _plumed_list,
     plan_from_config,
@@ -146,27 +147,9 @@ def build_steered_script(plan: SteeredPlan,
         "# interest.",
         "",
     ]
-
-    if variable == "ligand_rmsd":
-        if not reference_pdb:
-            raise ValueError(
-                "ligand_rmsd is measured against a reference structure, and "
-                "none was given."
-            )
-        lines.append(f"cv: RMSD REFERENCE={reference_pdb} TYPE=OPTIMAL")
-    elif variable == "ligand_distance":
-        lines.append(f"lig: COM ATOMS={_plumed_list(plan.cv.atoms['ligand'])}")
-        lines.append(f"site: COM ATOMS={_plumed_list(plan.cv.atoms['site'])}")
-        lines.append("cv: DISTANCE ATOMS=lig,site")
-    elif variable == "distance":
-        lines.append(f"a: COM ATOMS={_plumed_list(plan.cv.atoms['selection_a'])}")
-        lines.append(f"b: COM ATOMS={_plumed_list(plan.cv.atoms['selection_b'])}")
-        lines.append("cv: DISTANCE ATOMS=a,b")
-    elif variable == "torsion":
-        lines.append(f"cv: TORSION ATOMS={_plumed_list(plan.cv.atoms['torsion'])}")
-    else:
-        lines.append(f"cv: GYRATION ATOMS={_plumed_list(plan.cv.atoms['group'])}")
-
+    # The same translation metadynamics uses. This was a copy of it, so a
+    # variable added there did not arrive here.
+    lines.extend(cv_lines(plan.cv, reference_pdb))
     lines.append("")
     # A moving restraint: the anchor starts where the system is (or where you
     # say) and arrives at the destination on the last step.
