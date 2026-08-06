@@ -112,6 +112,7 @@ def _execute_run(
     # by the tests as well as in a subprocess by a real run, and a worker
     # that leaves a global changed poisons everything after it.
     import os as _os
+    import sys as _sys
 
     class _QuietBanner:
         """Keep a worker's output out of the shared terminal.
@@ -147,6 +148,26 @@ def _execute_run(
 
         def __exit__(self, *_exc):
             if self.saved is not None:
+                # Flush while the descriptors are still moved. PLUMED's
+                # writes sit in the C runtime's buffer until something
+                # empties it, and whatever is still there when the
+                # descriptors go back lands in the shared terminal -- the
+                # leak this guard exists to prevent, arriving late. The
+                # trajectory loader learned the same thing from MDTraj's
+                # plugin messages on macOS.
+                from fastmdxplora.utils.native_output import _LIBC
+
+                for stream in (_sys.stdout, _sys.stderr):
+                    try:
+                        stream.flush()
+                    except (ValueError, OSError):
+                        pass
+                if _LIBC is not None:
+                    try:
+                        _LIBC.fflush(None)  # fflush(NULL): every open stream
+                    except OSError:
+                        pass
+
                 out, err = self.saved
                 _os.dup2(out, 1)
                 _os.dup2(err, 2)

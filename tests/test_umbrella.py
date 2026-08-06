@@ -785,19 +785,10 @@ class TestParallelRunsShareOneTerminal:
         assert "FASTMDX_LOG_STYLE" in source
         assert "share one terminal" in source
 
-    def test_plumeds_own_output_goes_to_the_run_log(self) -> None:
-        """PLUMED prints its banner from C++, straight to the file
-        descriptor, so silencing ours left three copies of its own
-        interleaved in the terminal. Python-level redirection does not reach
-        a C write -- the descriptor has to move, which is the same lesson a
-        Markdown renderer taught by printing its installation guide from a
-        dynamic loader.
-        """
-        import ctypes
+    @staticmethod
+    def _guard():
+        """The guard, lifted out of the worker and made runnable here."""
         import inspect
-        import os
-        import pathlib
-        import tempfile
         import textwrap
 
         from fastmdxplora.batch import explorer
@@ -806,15 +797,105 @@ class TestParallelRunsShareOneTerminal:
         block = source[source.index("    class _QuietBanner:"):
                        source.index("    # Imported here")]
         namespace: dict = {}
-        exec("import os as _os\n" + textwrap.dedent(block), namespace)
+        exec("import os as _os\nimport sys as _sys\n" + textwrap.dedent(block),
+             namespace)
+        return namespace["_QuietBanner"]
 
-        libc = ctypes.CDLL(None)
+    def test_plumeds_own_output_goes_to_the_run_log(self) -> None:
+        """PLUMED prints its banner from C++, straight to the file
+        descriptor, so silencing ours left three copies of its own
+        interleaved in the terminal. Python-level redirection does not reach
+        a C write -- the descriptor has to move, which is the same lesson a
+        Markdown renderer taught by printing its installation guide from a
+        dynamic loader.
+
+        Written through ``os.write``, which addresses the descriptor and not
+        ``sys.stdout``, so it is the same path a C write takes and it is one
+        every platform has.
+        """
+        import os
+        import pathlib
+        import tempfile
+
         with tempfile.TemporaryDirectory() as directory:
             log = os.path.join(directory, "run", "run.log")
-            with namespace["_QuietBanner"](log):
-                libc.puts(b"PLUMED: pretending to start")
-                libc.fflush(None)
+            with self._guard()(log):
+                os.write(1, b"PLUMED: pretending to start\n")
             assert "PLUMED" in pathlib.Path(log).read_text(encoding="utf-8")
+
+    def test_a_c_write_lands_there_too(self) -> None:
+        """The descriptor is the thing shared with a C library, so a real one
+        is used where the platform has a C runtime ``ctypes`` can reach.
+
+        In a subprocess, and with ``PYTHONUNBUFFERED`` cleared, because that
+        variable makes CPython set the C runtime's stdout unbuffered as well.
+        With it set, every write lands immediately and this test passes
+        whether or not the guard flushes -- which is to say it would pass for
+        the wrong reason, and pass here while the leak it is about happened in
+        CI.
+
+        Nothing is flushed by the caller on purpose: what is still buffered
+        when the descriptors go back is the guard's problem.
+        """
+        import os
+        import subprocess
+        import sys
+        import textwrap
+
+        import pytest
+
+        from fastmdxplora.utils.native_output import _load_libc
+
+        if _load_libc() is None:
+            pytest.skip("no C runtime reachable through ctypes on this platform")
+
+        script = textwrap.dedent("""
+            import inspect, os, pathlib, sys, tempfile, textwrap
+            from fastmdxplora.batch import explorer
+            from fastmdxplora.utils.native_output import _load_libc
+
+            source = inspect.getsource(explorer._execute_run)
+            block = source[source.index("    class _QuietBanner:"):
+                           source.index("    # Imported here")]
+            namespace = {}
+            exec("import os as _os\\nimport sys as _sys\\n"
+                 + textwrap.dedent(block), namespace)
+
+            directory = tempfile.mkdtemp()
+            log = os.path.join(directory, "run", "run.log")
+            with namespace["_QuietBanner"](log):
+                _load_libc().puts(b"PLUMED: pretending to start")
+            sys.stderr.write(pathlib.Path(log).read_text(encoding="utf-8"))
+        """)
+
+        environment = dict(os.environ)
+        environment.pop("PYTHONUNBUFFERED", None)
+        finished = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True, text=True, env=environment, timeout=120)
+        assert "PLUMED" in finished.stderr, (
+            "the C runtime's buffer still held it when the descriptors went "
+            f"back, so it reached the terminal instead: {finished.stderr!r}")
+
+    def test_the_terminal_comes_back(self) -> None:
+        """A worker that redirects and does not restore takes the study's
+        terminal with it.
+
+        Checked by what a later write does rather than by comparing
+        descriptors, so it means the same thing on every platform.
+        """
+        import os
+        import pathlib
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            log = os.path.join(directory, "run", "run.log")
+            with self._guard()(log):
+                os.write(1, b"during\n")
+            os.write(1, b"after\n")
+            written = pathlib.Path(log).read_text(encoding="utf-8")
+        assert "during" in written
+        assert "after" not in written
 
     def test_and_puts_it_back(self) -> None:
         """The worker is called in-process by the tests as well as in a
