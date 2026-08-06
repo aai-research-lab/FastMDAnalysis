@@ -8,6 +8,8 @@ is dissipated.
 
 from __future__ import annotations
 
+import re
+
 import numpy as np
 import pytest
 
@@ -1404,3 +1406,132 @@ class TestARunTooShortToJudge:
 
     def test_the_record_carries_it(self) -> None:
         assert self._plan(minimum_samples=25).as_record()["minimum_samples"] == 25
+
+
+class TestASettingThatDoesNotExist:
+    """Nothing checked inside the umbrella block.
+
+    `minimum_ovelap: 0.15` -- one letter -- was accepted, ignored, and the
+    study stitched at the three per cent default while its author believed it
+    had demanded fifteen. The run completes and produces a curve, and the
+    guard that was supposed to stand behind that curve never existed.
+
+    Every refusal this module makes can be switched off by a typo, so the typo
+    is what has to be caught.
+    """
+
+    @staticmethod
+    def _block(**extra):
+        return {"collective_variable": "distance", "from": 0.0, "to": 0.4,
+                "n_windows": 3, "force_constant": 1000, **extra}
+
+    def test_a_misspelled_setting_is_refused_with_the_spelling(self) -> None:
+        import pytest
+
+        from fastmdxplora.config import ConfigError
+        from fastmdxplora.simulation.umbrella import plan_windows
+
+        with pytest.raises(ConfigError, match="minimum_overlap"):
+            plan_windows(self._block(minimum_ovelap=0.15))
+
+    def test_a_case_mismatch_too(self) -> None:
+        """One of the commonest config typos, and short keys fall below
+        difflib's ratio when only the case differs."""
+        import pytest
+
+        from fastmdxplora.config import ConfigError
+        from fastmdxplora.simulation.umbrella import plan_windows
+
+        with pytest.raises(ConfigError, match="force_constant"):
+            plan_windows(self._block(Force_Constant=1000))
+
+    def test_the_settings_that_exist_are_accepted(self) -> None:
+        from fastmdxplora.simulation.umbrella import _accepted_keys, plan_windows
+
+        plan = plan_windows(self._block(
+            minimum_overlap=0.15, minimum_samples=25, equilibration_steps=100,
+            selection="protein and name CA"))
+        assert plan.minimum_overlap == 0.15
+        assert plan.minimum_samples == 25
+        assert {"minimum_overlap", "minimum_samples"} <= _accepted_keys()
+
+    def test_the_check_runs_when_a_config_is_only_validated(self) -> None:
+        """Which is the route the browser's Check it button takes, and
+        BatchExplorer given a config in memory -- neither expands the block,
+        so neither reached the reader that does the checking."""
+        import pytest
+
+        from fastmdxplora.config import ConfigError, validate_config
+
+        with pytest.raises(ConfigError, match="minimum_overlap"):
+            validate_config(
+                {"output": "o", "systems": [{"system": "181L"}],
+                 "simulation": {"umbrella": self._block(minimum_ovelap=0.15)}},
+                require_systems=True)
+
+    def test_and_when_a_file_is_loaded(self, tmp_path) -> None:
+        from fastmdxplora.config import ConfigError, load_config_file
+
+        config = tmp_path / "study.yml"
+        config.write_text(
+            "output: o\nsystems:\n  - system: 181L\n"
+            "simulation:\n  umbrella:\n    collective_variable: distance\n"
+            "    from: 0.0\n    to: 0.4\n    n_windows: 3\n"
+            "    force_constant: 1000\n    n_window: 7\n", encoding="utf-8")
+        import pytest
+
+        with pytest.raises(ConfigError, match="n_windows"):
+            load_config_file(str(config))
+
+    def test_the_expansion_still_reads_what_it_writes(self, tmp_path) -> None:
+        """The block is rewritten onto each window with keys of its own, and a
+        check that refused those would refuse every expanded study."""
+        from fastmdxplora.simulation.umbrella import (
+            expand_umbrella,
+            plan_from_expanded,
+        )
+
+        expanded = expand_umbrella({
+            "systems": [{"system": "181L"}],
+            "simulation": {"umbrella": self._block(minimum_overlap=0.2)},
+        })
+        assert plan_from_expanded(expanded).minimum_overlap == 0.2
+
+    def test_every_variable_can_be_named_the_way_it_is_documented(self) -> None:
+        """The dangerous direction is refusing a real setting, and the first
+        version of this check did: `site_selection` and the paired
+        `selection_a`/`selection_b` belong to the shared collective-variable
+        layer, not to umbrella, and a list written from umbrella's own reader
+        did not have them. Three tests failed; a study would have been
+        refused at the door.
+        """
+        from fastmdxplora.simulation.umbrella import check_umbrella_keys
+
+        for real in ("selection", "site_selection", "bilayer_selection",
+                     "axis_selection", "ligand_resname", "switch_distance_nm",
+                     "selection_a", "selection_b"):
+            check_umbrella_keys(self._block(**{real: "x"}))
+
+    def test_the_variable_settings_come_from_the_layer_that_owns_them(
+        self
+    ) -> None:
+        """Copied, they would go stale the next time a variable is added."""
+        from fastmdxplora.simulation.metadynamics import COLLECTIVE_VARIABLE_KEYS
+        from fastmdxplora.simulation.umbrella import _accepted_keys
+
+        assert COLLECTIVE_VARIABLE_KEYS <= _accepted_keys()
+
+    def test_a_setting_added_without_being_declared_is_caught(self) -> None:
+        """The list is declared beside the reader so the two cannot drift: a
+        setting read but not listed would be refused the moment anyone used
+        it, which is a loud failure in a test rather than a quiet one in a
+        study."""
+        import inspect
+
+        from fastmdxplora.simulation import umbrella
+
+        source = inspect.getsource(umbrella.plan_windows)
+        read = set(re.findall(r'spec\.get\("([a-z_]+)"', source))
+        read |= set(re.findall(r'spec\["([a-z_]+)"\]', source))
+        read |= set(re.findall(r'"([a-z_]+)" in spec', source))
+        assert read <= umbrella._accepted_keys(), read - umbrella._accepted_keys()

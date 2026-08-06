@@ -104,6 +104,56 @@ class UmbrellaPlan:
         }
 
 
+#: Every key the umbrella block reads. Declared beside the reader so the two
+#: cannot drift: a setting added below without being added here is refused,
+#: which is a loud failure in a test rather than a quiet one in a study.
+_UMBRELLA_OWN_KEYS: frozenset[str] = frozenset({
+    "force_constant", "centres", "centers", "from", "to", "n_windows",
+    "equilibration_steps", "minimum_overlap", "minimum_samples",
+    # Written by the expansion onto each window, and read back from it.
+    "centre", "index",
+})
+
+
+def _accepted_keys() -> frozenset[str]:
+    """Umbrella's own settings, plus whatever names a collective variable.
+
+    Taken from the collective-variable layer rather than copied, because the
+    layer is shared -- a study biasing a ligand's depth in a bilayer names the
+    bilayer the same way whichever method does the biasing, and a second copy
+    of that list would go stale the next time a variable is added.
+    """
+    from fastmdxplora.simulation.metadynamics import COLLECTIVE_VARIABLE_KEYS
+
+    return _UMBRELLA_OWN_KEYS | COLLECTIVE_VARIABLE_KEYS
+
+
+def check_umbrella_keys(spec: dict[str, Any]) -> None:
+    """Refuse a setting the block does not have.
+
+    Nothing else checked this. `minimum_ovelap: 0.15` -- one letter -- was
+    accepted, ignored, and the study stitched at the three per cent default
+    while its author believed it had demanded fifteen. The run completes and
+    produces a curve, and the guard that was supposed to stand behind that
+    curve never existed.
+
+    Every refusal this module makes can be switched off by a typo, so the
+    typo is what has to be caught.
+    """
+    from fastmdxplora.config.loader import ConfigError, _suggest
+
+    accepted = _accepted_keys()
+    unknown = sorted(set(spec) - accepted)
+    if not unknown:
+        return
+    named = ", ".join(
+        f"'{key}'{_suggest(key, set(accepted))}" for key in unknown)
+    raise ConfigError(
+        f"Unknown umbrella setting{'s' if len(unknown) > 1 else ''}: {named}. "
+        "Accepted: " + ", ".join(sorted(accepted - {"centre", "index"})) + "."
+    )
+
+
 def plan_windows(spec: dict[str, Any]) -> UmbrellaPlan:
     """Read an umbrella block into a set of windows.
 
@@ -111,6 +161,8 @@ def plan_windows(spec: dict[str, Any]) -> UmbrellaPlan:
     is the decision that matters: too few and adjacent windows do not overlap,
     which no amount of sampling repairs.
     """
+    check_umbrella_keys(spec)
+
     variable = str(spec.get("collective_variable", "")).lower()
     if not variable:
         raise ValueError(

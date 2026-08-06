@@ -364,6 +364,17 @@ The first fifth of each window is discarded before recombination, because a
 window begins away from where it settles and counting the approach biases the
 histogram towards where the run started.
 
+A recombination is only attempted once the histograms have something in them.
+Below `minimum_samples` (200 values per window, after equilibration is
+discarded) the overlaps are reported as observations and nothing is concluded
+from them: an overlap is the area two histograms share, and from tens of points
+that number is noise. A smoke test that wants to reach the recombination can
+lower the threshold.
+
+A misspelled setting is refused rather than ignored, with the spelling it was
+probably meant to be. `minimum_ovelap` used to be accepted and dropped, and the
+study would stitch at the three per cent default believing otherwise.
+
 If the windows never reach their centres, the recombination says so rather
 than reporting the gap that leaves. A study seeded from one bound structure
 came back with four windows held at 0.3, 0.5, 0.7 and 0.9 nm all sampling

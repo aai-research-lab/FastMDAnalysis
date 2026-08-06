@@ -44,11 +44,17 @@ visited.
   which want the opposite remedy from windows that simply do not touch. And
   nothing is concluded from histograms a run did not fill -- below
   `minimum_samples` the overlaps are reported and no free energy is offered,
-  because an overlap from tens of points is noise given a decimal place. How much
-  overlap is enough is a judgement about how much evidence a joint needs, so
-  `minimum_overlap` belongs to whoever is making the claim; three per cent is
-  enough to stitch and it is thin. The refusal states the threshold it
-  applied, so a genuine gap can be told from a strict setting.
+  because an overlap from tens of points is noise given a decimal place.
+
+  The block's own settings are checked, which nothing had done: a one-letter
+  misspelling of `minimum_overlap` was accepted, ignored, and the study
+  stitched at the three per cent default while its author believed it had
+  demanded fifteen. Every refusal above could be switched off by a typo.
+
+  How much overlap is enough is a judgement about how much evidence a joint
+  needs, so `minimum_overlap` belongs to whoever is making the claim; three
+  per cent is enough to stitch and it is thin. The refusal states the
+  threshold it applied, so a genuine gap can be told from a strict setting.
 
 - **One prepared system for a set of umbrella windows.** Seven windows of one
   study came out with 37,212, 37,254, 37,436 and 37,445 atoms: four different

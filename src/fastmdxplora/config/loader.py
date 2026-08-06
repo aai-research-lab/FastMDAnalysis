@@ -288,6 +288,16 @@ def validate_config(data: dict[str, Any], *, require_systems: bool = False) -> N
             )
         _validate_block(block, PHASE_SCHEMAS[phase], context=f"{phase}")
 
+    # The umbrella block is a mapping inside the simulation block, so the
+    # phase schema sees one key and looks no further. Everything inside it
+    # went unchecked: `minimum_ovelap: 0.15` was accepted, ignored, and the
+    # study stitched at the default while its author believed otherwise.
+    simulation = data.get("simulation")
+    if isinstance(simulation, dict) and isinstance(simulation.get("umbrella"), dict):
+        from fastmdxplora.simulation.umbrella import check_umbrella_keys
+
+        check_umbrella_keys(simulation["umbrella"])
+
     # analysis include/exclude mutual exclusion (nested)
     analysis = data.get("analysis", {})
     if isinstance(analysis, dict) and analysis.get("include") and analysis.get("exclude"):

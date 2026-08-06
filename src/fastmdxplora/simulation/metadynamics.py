@@ -257,6 +257,28 @@ def detect_ligand(topology: Any) -> str | None:
     return next(iter(candidates)) if len(candidates) == 1 else None
 
 
+#: What names a collective variable and the atoms it is measured on. Shared:
+#: metadynamics, steering and umbrella sampling all resolve a variable the
+#: same way, so a study biasing a ligand's depth in a bilayer names the
+#: bilayer the same way whichever method is doing the biasing.
+COLLECTIVE_VARIABLE_KEYS: frozenset[str] = frozenset({
+    "collective_variable", "selection", "site_selection", "bilayer_selection",
+    "axis_selection", "ligand_resname", "switch_distance_nm",
+    # A distance and a coordination are between two groups, so they are named
+    # in pairs. Read in a loop rather than one at a time, which is how they
+    # went missing from the first version of this list.
+    "selection_a", "selection_b",
+})
+
+#: What belongs to metadynamics itself: the shape of the hills and the bounds
+#: on where the bias may go.
+METADYNAMICS_KEYS: frozenset[str] = COLLECTIVE_VARIABLE_KEYS | frozenset({
+    "sigma", "height_kjmol", "pace_steps", "bias_factor",
+    "walls", "funnel", "lower", "upper", "kappa", "alpha_rad",
+    "cylinder_radius_nm", "unbounded",
+})
+
+
 def plan_from_config(
     spec: dict[str, Any],
     topology: Any,
