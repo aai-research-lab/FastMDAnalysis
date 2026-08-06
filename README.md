@@ -65,6 +65,10 @@ And where a structure does not say enough — an ambiguous ligand charge, a
 protein pointed the wrong way for a membrane — FastMDXplora stops and names
 what it could not decide, rather than returning a number that looks fine.
 
+Every step says *why* it is happening while it happens, with a citation where
+there is one worth following, so a first simulation produces a trajectory you
+can defend rather than one you merely have.
+
 ## How a run works
 
 ```

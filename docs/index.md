@@ -33,7 +33,9 @@ finished report in about ten minutes.
 - **New here?** [Installation](installation.md), then
   [Your first run](getting_started.md).
 - **Want to see what it can do?** [The FastMDXplora GUI](gui.md) and
-  [The four phases](phases.md).
+  [The four phases](phases.md). Every step explains itself as it runs, so
+  [Your first run](getting_started.md) is also the shortest way to learn what
+  the steps are for.
 - **Running something real?** [Beyond a box of water](simulations.md) for
   restraints, membranes, and enhanced sampling — umbrella, steered and
   metadynamics; [Production and GPUs](production.md)

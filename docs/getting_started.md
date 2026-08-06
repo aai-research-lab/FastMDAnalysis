@@ -99,6 +99,40 @@ fastmdx gui --output runs/trpcage
 
 ---
 
+## It says why, while it happens
+
+Molecular dynamics has a lot of steps that are obvious once you know them and
+opaque before that. A pipeline that does all of it silently is quicker to use
+and teaches nothing: you end up with a trajectory you cannot defend.
+
+So each step says why it is happening as it happens, with a citation where
+there is one worth following:
+
+```
+▸ Minimizing energy
+  The starting structure has strain in it — atoms slightly too close,
+  bonds slightly too long — from the experiment, from adding hydrogens,
+  and from dropping the protein into water. At the temperature of a
+  simulation that strain becomes violent motion. Minimisation walks the
+  structure downhill to a nearby arrangement with no such forces in it,
+  before anything moves.
+```
+
+Fifteen of them, covering protonation, heterogens, ligand chemistry and
+parameters, solvation, minimisation, NVT, NPT, production, restraints,
+membranes and their barostat, metadynamics, interactions and convergence. Each
+says *why* rather than repeating what the step already said, and a reference
+carries authors and a year or is absent — inventing one to look thorough would
+be worse than having none.
+
+On by default. To turn them off:
+
+```bash
+fastmdx explore --system 1L2Y --no-explain
+```
+
+---
+
 ## A protein with a ligand
 
 Nothing extra to do — hand it a structure that has one:

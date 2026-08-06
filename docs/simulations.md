@@ -185,6 +185,14 @@ So each variable states what it does **not** separate:
 | `torsion` | rotameric states of one bond | anything coupled to that bond |
 | `radius_of_gyration` | folded from extended | a correct fold from a compact wrong one |
 | `distance` | separation of two groups | arrangements putting the centres equally far apart |
+| `angle` | a hinge open from a hinge closed | the two ways of reaching the same angle — an angle has no sign, and a torsion does |
+| `coordination` | bound from unbound, without breaking when the ligand rotates | one close contact from several distant ones, which is the price of that robustness |
+| `membrane_depth` | how deeply something sits in a bilayer, measured against the bilayer's own centre | the two leaflets, unless the sign is kept, or headgroups from passage through them |
+
+`coordination` is the second most used variable after `distance`, and
+`membrane_depth` is measured against the bilayer's own centre rather than a
+fixed plane — a membrane drifts, and depth against a fixed plane becomes depth
+against nothing.
 
 Runs are **well-tempered** by default. Plain metadynamics deposits at full
 height forever, so the bias never settles and no free energy is recoverable.

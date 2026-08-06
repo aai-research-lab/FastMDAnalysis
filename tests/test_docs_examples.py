@@ -564,3 +564,57 @@ def test_the_readme_headline_example_needs_no_flags() -> None:
     readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
         encoding="utf-8")
     assert "fastmdx explore --system 181L" in readme
+
+
+class TestTheDocumentationQuotesWhatTheSoftwareSays:
+    """A page that quotes a message the software does not print is worse than
+    one that describes it: a reader checks the quote against their terminal
+    and finds it different.
+
+    The first draft of the explanations section paraphrased from memory and
+    got three clauses wrong.
+    """
+
+    def test_the_explanation_the_page_shows_is_the_one_that_is_printed(
+        self
+    ) -> None:
+        import pathlib
+        import re
+
+        from fastmdxplora.explain import EXPLANATIONS
+
+        page = (pathlib.Path(__file__).resolve().parents[1]
+                / "docs" / "getting_started.md").read_text(encoding="utf-8")
+        block = page[page.index("▸ Minimizing energy"):]
+        quoted = block[:block.index("```")]
+        # The page wraps and uses an em dash where the terminal writes two
+        # hyphens; neither changes the words.
+        flattened = re.sub(r"\s+", " ", quoted).replace("—", "--").strip()
+        flattened = flattened.removeprefix("▸ Minimizing energy").strip()
+
+        assert flattened == EXPLANATIONS["minimize"].why
+
+    def test_the_count_the_page_gives_is_the_count_there_is(self) -> None:
+        import pathlib
+
+        from fastmdxplora.explain import EXPLANATIONS
+
+        page = (pathlib.Path(__file__).resolve().parents[1]
+                / "docs" / "getting_started.md").read_text(encoding="utf-8")
+        assert f"{len(EXPLANATIONS)}" in page or "Fifteen" in page
+        assert len(EXPLANATIONS) == 15, (
+            "the page says fifteen; say the new number there too")
+
+    def test_the_variables_the_page_tabulates_are_the_variables_there_are(
+        self
+    ) -> None:
+        """The table listed five when there were eight -- the same drift as
+        the schema help, in a second place."""
+        import pathlib
+
+        from fastmdxplora.simulation.metadynamics import COLLECTIVE_VARIABLES
+
+        page = (pathlib.Path(__file__).resolve().parents[1]
+                / "docs" / "simulations.md").read_text(encoding="utf-8")
+        for variable in COLLECTIVE_VARIABLES:
+            assert f"`{variable}`" in page, variable
