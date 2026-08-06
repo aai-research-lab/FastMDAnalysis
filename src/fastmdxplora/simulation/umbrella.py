@@ -82,6 +82,13 @@ class UmbrellaPlan:
     #: might reasonably want fifteen. It is a judgement about how much
     #: evidence a joint needs, so it belongs to whoever is making the claim.
     minimum_overlap: float = 0.03
+    #: How many values a window must have recorded before its histogram means
+    #: anything. An overlap is the area two histograms share, and a histogram
+    #: from tens of points is mostly noise -- so a run short enough to be a
+    #: smoke test will produce overlaps, and gaps, that are arithmetic rather
+    #: than evidence. Like the overlap threshold, it is a judgement, so a
+    #: study can set its own.
+    minimum_samples: int = 200
 
     def as_record(self) -> dict[str, Any]:
         return {
@@ -93,6 +100,7 @@ class UmbrellaPlan:
                                if self.windows else None),
             "equilibration_steps": self.equilibration_steps,
             "minimum_overlap": self.minimum_overlap,
+            "minimum_samples": self.minimum_samples,
         }
 
 
@@ -148,6 +156,7 @@ def plan_windows(spec: dict[str, Any]) -> UmbrellaPlan:
         collective_variable=variable,
         equilibration_steps=int(spec.get("equilibration_steps", 0)),
         minimum_overlap=float(spec.get("minimum_overlap", 0.03)),
+        minimum_samples=int(spec.get("minimum_samples", 200)),
     )
 
 
@@ -223,6 +232,7 @@ def plan_from_expanded(config: dict[str, Any]) -> UmbrellaPlan | None:
     variable = ""
     equilibration = 0
     minimum = 0.03
+    fewest = 200
     for entry in systems:
         block = ((entry.get("simulation") or {}).get("umbrella")
                  if isinstance(entry, dict) else None)
@@ -231,6 +241,7 @@ def plan_from_expanded(config: dict[str, Any]) -> UmbrellaPlan | None:
         variable = str(block.get("collective_variable", variable))
         equilibration = int(block.get("equilibration_steps", equilibration))
         minimum = float(block.get("minimum_overlap", minimum))
+        fewest = int(block.get("minimum_samples", fewest))
         windows.append(Window(
             index=int(block.get("index", len(windows))),
             centre=float(block["centre"]),
@@ -243,6 +254,7 @@ def plan_from_expanded(config: dict[str, Any]) -> UmbrellaPlan | None:
         collective_variable=variable,
         equilibration_steps=equilibration,
         minimum_overlap=minimum,
+        minimum_samples=fewest,
     )
 
 
@@ -387,6 +399,26 @@ def windows_that_drifted(
     return drifted
 
 
+def windows_with_too_little_sampling(
+    samples: dict[int, np.ndarray], plan: "UmbrellaPlan"
+) -> list[dict[str, Any]]:
+    """Windows whose histograms are too sparse to mean anything.
+
+    An overlap is the area two histograms share. From tens of points a
+    histogram is mostly noise, so a run short enough to be a smoke test
+    produces overlaps -- and gaps -- that are arithmetic rather than
+    evidence. A free energy stitched from them would carry that noise as
+    structure and look exactly like a result.
+    """
+    thin = [
+        {"window": window.index, "samples": int(len(samples[window.index]))}
+        for window in plan.windows
+        if window.index in samples
+        and len(samples[window.index]) < plan.minimum_samples
+    ]
+    return thin
+
+
 def compute_pmf(
     samples: dict[int, np.ndarray],
     plan: UmbrellaPlan,
@@ -431,6 +463,48 @@ def compute_pmf(
             gaps.append((left, right, shared))
 
     drifted = windows_that_drifted(samples, plan)
+    thin = windows_with_too_little_sampling(samples, plan)
+
+    if thin:
+        # Said before the gap and before the drift, because both are read off
+        # histograms that this run did not fill. A refusal naming a specific
+        # pair would be a precise claim resting on tens of points.
+        fewest = min(t["samples"] for t in thin)
+        reason = (
+            f"{len(thin)} of {len(ordered)} windows recorded fewer than "
+            f"{plan.minimum_samples} values after equilibration was discarded "
+            f"-- the thinnest has {fewest}. An overlap is the area two "
+            "histograms share, and a histogram from tens of points is mostly "
+            "noise, so the overlaps below are arithmetic rather than "
+            "evidence. A free energy stitched from them would carry that "
+            "noise as structure and look exactly like a result.\n\n"
+        )
+        if drifted:
+            where = "; ".join(
+                f"window {d['window']} was held at {d['centre']:g} and "
+                f"sampled around {d['sampled_at']:.3g}"
+                for d in drifted
+            )
+            reason += (
+                f"{len(drifted)} of them are also not at their centres: "
+                f"{where}. A run this short explains that on its own -- a "
+                "restraint needs time to pull a system to where it is held -- "
+                "so whether the windows are too softly held cannot be told "
+                "apart from a run that ended before they arrived. Sample for "
+                "longer first, and read this again.\n\n"
+            )
+        reason += (
+            f"`minimum_samples` ({plan.minimum_samples}) is a judgement about "
+            "how much evidence a histogram needs, and a study that wants a "
+            "smoke test to reach the recombination can lower it."
+        )
+        return {
+            "pmf": None,
+            "overlaps": overlaps,
+            "drifted": drifted,
+            "thin": thin,
+            "refused": reason,
+        }
 
     if gaps:
         described = "; ".join(
@@ -478,6 +552,7 @@ def compute_pmf(
             "pmf": None,
             "overlaps": overlaps,
             "drifted": drifted,
+            "thin": thin,
             "refused": reason,
         }
 

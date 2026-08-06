@@ -372,6 +372,10 @@ restraints had lost, and the hole between 1.24 and 1.41 was the symptom. The
 remedy there is to seed from a steered run or hold harder; a softer force
 constant, which is what a genuine gap wants, would make it worse.
 
+A short run puts windows away from their centres too -- a restraint needs time
+to pull a system to where it is held -- so where the sampling is also thin the
+two cannot be told apart, and the message says so rather than choosing.
+
 ### What PLUMED is still needed for
 
 This covers one-dimensional well-tempered metadynamics on five variables, with

@@ -1300,3 +1300,107 @@ class TestAWindowThatIsNotWhereItWasHeld:
         result = compute_pmf(self._sampled(plan, where, 0.03), plan)
 
         assert [d["window"] for d in result["drifted"]] == [5]
+
+
+class TestARunTooShortToJudge:
+    """The study that found the drift recorded 41 values per window.
+
+    An overlap is the area two histograms share, and a histogram from tens of
+    points is mostly noise -- so a run short enough to be a smoke test
+    produces overlaps, and gaps, that are arithmetic rather than evidence.
+    Reporting a specific pair as sharing 0.0% is a precise claim resting on
+    nothing, and a free energy stitched from those histograms would carry the
+    noise as structure and look exactly like a result.
+    """
+
+    @staticmethod
+    def _plan(**spec):
+        from fastmdxplora.simulation.umbrella import plan_windows
+
+        return plan_windows({"collective_variable": "distance", "from": 0.3,
+                             "to": 1.5, "n_windows": 7,
+                             "force_constant": 5000, **spec})
+
+    @staticmethod
+    def _sampled(plan, n, at=None):
+        rng = np.random.RandomState(0)
+        return {w.index: rng.normal((at or {}).get(w.index, w.centre), 0.05, n)
+                for w in plan.windows}
+
+    def test_a_thin_run_is_refused_before_a_gap_is_claimed(self) -> None:
+        from fastmdxplora.simulation.umbrella import compute_pmf
+
+        plan = self._plan()
+        result = compute_pmf(self._sampled(plan, 41), plan)
+
+        assert result["pmf"] is None
+        assert "recorded fewer than 200 values" in result["refused"]
+        assert "the thinnest has 41" in result["refused"]
+
+    def test_and_the_overlaps_are_still_reported_as_observations(self) -> None:
+        """Nothing is hidden -- what changes is what may be concluded."""
+        from fastmdxplora.simulation.umbrella import compute_pmf
+
+        plan = self._plan()
+        result = compute_pmf(self._sampled(plan, 41), plan)
+        assert len(result["overlaps"]) == 6
+        assert [t["window"] for t in result["thin"]] == list(range(7))
+
+    def test_a_short_run_cannot_be_told_from_a_soft_restraint(self) -> None:
+        """Both put a window away from its centre. Saying which would be a
+        guess, so the refusal says it cannot tell and what to do first."""
+        from fastmdxplora.simulation.umbrella import compute_pmf
+
+        plan = self._plan()
+        where = {0: 0.114, 1: 0.156, 2: 0.219, 3: 0.485,
+                 4: 1.190, 5: 1.197, 6: 1.500}
+        refused = compute_pmf(self._sampled(plan, 41, where), plan)["refused"]
+
+        assert "not at their centres" in refused
+        assert "cannot be told apart" in refused
+        assert "Sample for longer first" in refused
+        # Not the confident diagnosis, which needs a run long enough to earn it.
+        assert "larger `force_constant`" not in refused
+
+    def test_a_long_enough_run_gets_the_confident_diagnosis(self) -> None:
+        """With the histograms filled, a window off its centre is a statement
+        about the restraint rather than about the clock."""
+        from fastmdxplora.simulation.umbrella import compute_pmf
+
+        plan = self._plan()
+        where = {0: 0.114, 1: 0.156, 2: 0.219, 3: 0.485,
+                 4: 1.190, 5: 1.197, 6: 1.500}
+        refused = compute_pmf(self._sampled(plan, 4000, where), plan)["refused"]
+
+        assert "larger `force_constant`" in refused
+        assert "Sample for longer first" not in refused
+
+    def test_the_threshold_belongs_to_the_study(self) -> None:
+        """A smoke test that wants to reach the recombination can lower it,
+        the way a study can raise the overlap it demands."""
+        from fastmdxplora.simulation.umbrella import compute_pmf
+
+        plan = self._plan(minimum_samples=20)
+        assert plan.minimum_samples == 20
+        result = compute_pmf(self._sampled(plan, 41), plan)
+        assert "recorded fewer than" not in (result["refused"] or "")
+
+    def test_it_survives_expansion_like_the_overlap_does(self) -> None:
+        """The recombination happens after the runs, from a rebuilt plan, so a
+        threshold that did not survive would silently revert to the default."""
+        from fastmdxplora.simulation.umbrella import (
+            expand_umbrella,
+            plan_from_expanded,
+        )
+
+        expanded = expand_umbrella({
+            "systems": [{"system": "181L"}],
+            "simulation": {"umbrella": {
+                "collective_variable": "distance", "from": 0.0, "to": 0.4,
+                "n_windows": 3, "force_constant": 1000,
+                "minimum_samples": 25}},
+        })
+        assert plan_from_expanded(expanded).minimum_samples == 25
+
+    def test_the_record_carries_it(self) -> None:
+        assert self._plan(minimum_samples=25).as_record()["minimum_samples"] == 25

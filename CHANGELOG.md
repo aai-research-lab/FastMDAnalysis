@@ -41,7 +41,10 @@ visited.
   Four refusals -- windows that do not overlap, a missing window, several
   systems at once, and two ways of biasing the same coordinate. A gap is told
   apart from its commonest cause: windows that never reached their centres,
-  which want the opposite remedy from windows that simply do not touch. How much
+  which want the opposite remedy from windows that simply do not touch. And
+  nothing is concluded from histograms a run did not fill -- below
+  `minimum_samples` the overlaps are reported and no free energy is offered,
+  because an overlap from tens of points is noise given a decimal place. How much
   overlap is enough is a judgement about how much evidence a joint needs, so
   `minimum_overlap` belongs to whoever is making the claim; three per cent is
   enough to stitch and it is thin. The refusal states the threshold it
