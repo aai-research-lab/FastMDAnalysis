@@ -147,7 +147,7 @@ def test_summary_csv_and_json_are_written(tmp_path: Path) -> None:
     assert data[0]["pdb_id"] == "1L2Y"
 
 
-def test_run_one_uses_local_pdb_path_and_gentle_by_default(tmp_path: Path) -> None:
+def test_run_one_uses_local_pdb_path_and_a_short_run(tmp_path: Path) -> None:
     local_pdb = tmp_path / "local.pdb"
     local_pdb.write_text("END\n", encoding="utf-8")
     with patch("fastmdxplora.FastMDXplora", FakeFastMDXploraSuccess), patch.object(
@@ -158,7 +158,16 @@ def test_run_one_uses_local_pdb_path_and_gentle_by_default(tmp_path: Path) -> No
     assert row["status"] == "ok"
     assert row["input_path"] == str(local_pdb.resolve())
     assert FakeFastMDXploraSuccess.captured_system == str(local_pdb)
-    assert FakeFastMDXploraSuccess.captured_options["simulation"]["preset"] == "gentle"
+    # A campaign runs short at the conditions a real run uses. It used to
+    # pass a gentle preset that also dropped the temperature to 100 K, so
+    # every campaign was asking whether structures survive as ice -- which is
+    # not the question a campaign exists to answer.
+    simulation = FakeFastMDXploraSuccess.captured_options["simulation"]
+    assert "preset" not in simulation
+    assert simulation["production_steps"] > 0
+    assert "temperature_K" not in simulation, (
+        "a campaign should not override the temperature"
+    )
 
 
 def test_missing_file_is_classified_without_crashing(tmp_path: Path) -> None:
