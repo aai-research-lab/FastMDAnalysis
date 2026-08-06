@@ -254,6 +254,12 @@ visited.
   The existing guard missed it because it sat in a list that exempts a package
   from being checked at all.
 
+- **The reference conda recipe carried the previous version too.** It is the
+  copy a dependency is added to before the feedstock, so somebody reading it
+  to see what this release requires was reading a file that said it was a
+  different one. It gets the same check the alias has, against the same source
+  of truth.
+
 - **The `fastmdx` alias carried the previous version.** Its version is written
   in a file where the main package takes its own from the git tag, and a
   hand-written version beside a derived one drifts. The release workflow

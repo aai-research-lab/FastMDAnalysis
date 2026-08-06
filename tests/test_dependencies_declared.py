@@ -215,6 +215,41 @@ def test_the_alias_package_carries_the_released_version() -> None:
     )
 
 
+def test_the_conda_recipe_declares_the_version_being_released() -> None:
+    """The reference recipe carried 2.3.0 while the changelog said 2.4.0.
+
+    It is the copy a dependency is added to before the feedstock, so somebody
+    reading it to check what 2.4.0 requires would be reading a file that says
+    it is a different release. The same drift the alias check exists to catch,
+    one file over -- so it gets the same check, against the same source of
+    truth.
+
+    The feedstock's own version is bumped by the bot from the PyPI upload;
+    this is only about the copy that lives here.
+    """
+    import re
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[1]
+    recipe = repo / "recipes" / "fastmdxplora" / "recipe.yaml"
+    if not recipe.is_file():  # pragma: no cover - the recipe is optional
+        return
+
+    written = re.search(r'^  version: "([^"]+)"',
+                        recipe.read_text(encoding="utf-8"), re.M)
+    assert written, "the recipe declares no version"
+
+    changelog = (repo / "CHANGELOG.md").read_text(encoding="utf-8")
+    released = re.search(r"^## \[(\d+\.\d+\.\d+)\]", changelog, re.M)
+    assert released, "the changelog names no released version"
+
+    assert written.group(1) == released.group(1), (
+        f"the recipe says {written.group(1)} and the changelog's latest "
+        f"release is {released.group(1)}. Bump "
+        "recipes/fastmdxplora/recipe.yaml before tagging."
+    )
+
+
 def test_info_reports_every_backend_the_software_reaches_for() -> None:
     """`fastmdx info` exists to say what will work on this machine.
 
