@@ -364,6 +364,14 @@ The first fifth of each window is discarded before recombination, because a
 window begins away from where it settles and counting the approach biases the
 histogram towards where the run started.
 
+If the windows never reach their centres, the recombination says so rather
+than reporting the gap that leaves. A study seeded from one bound structure
+came back with four windows held at 0.3, 0.5, 0.7 and 0.9 nm all sampling
+below 0.5, and two more held at 1.1 and 1.3 both settled at 1.19 -- the
+restraints had lost, and the hole between 1.24 and 1.41 was the symptom. The
+remedy there is to seed from a steered run or hold harder; a softer force
+constant, which is what a genuine gap wants, would make it worse.
+
 ### What PLUMED is still needed for
 
 This covers one-dimensional well-tempered metadynamics on five variables, with

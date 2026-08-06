@@ -1185,3 +1185,118 @@ class TestOneSystemForEveryWindow:
         assert _a_prepared_system_is_there(tmp_path) is False
         self._pretend_it_is_prepared(tmp_path / "setup")
         assert _a_prepared_system_is_there(tmp_path / "setup") is True
+
+
+class TestAWindowThatIsNotWhereItWasHeld:
+    """A window is a restraint at a position, and its histogram is supposed to
+    sit around that position.
+
+    On a real study of benzene leaving the T4 lysozyme cavity, four windows
+    held at 0.3, 0.5, 0.7 and 0.9 sampled around 0.11, 0.16, 0.22 and 0.49 --
+    they never left the bound state -- and two more held at 1.1 and 1.3 both
+    settled at 1.19, on top of each other. The refusal reported the gap that
+    left and advised a softer force constant, which is the remedy for windows
+    that do not reach each other and the opposite of what a window that has
+    already slipped needs.
+    """
+
+    @staticmethod
+    def _plan(n=7, first=0.3, last=1.5):
+        from fastmdxplora.simulation.umbrella import plan_windows
+
+        return plan_windows({"collective_variable": "distance", "from": first,
+                             "to": last, "n_windows": n,
+                             "force_constant": 5000})
+
+    @staticmethod
+    def _sampled(plan, at, spread=0.05, n=400):
+        rng = np.random.RandomState(0)
+        return {w.index: rng.normal(at[w.index], spread, n)
+                for w in plan.windows}
+
+    def test_a_window_sitting_on_its_centre_has_not_drifted(self) -> None:
+        from fastmdxplora.simulation.umbrella import windows_that_drifted
+
+        plan = self._plan()
+        on_target = {w.index: w.centre for w in plan.windows}
+        assert windows_that_drifted(self._sampled(plan, on_target), plan) == []
+
+    def test_one_that_slipped_onto_its_neighbour_is_named(self) -> None:
+        from fastmdxplora.simulation.umbrella import windows_that_drifted
+
+        plan = self._plan()
+        where = {w.index: w.centre for w in plan.windows}
+        where[5] = 1.19          # held at 1.3, sat on window 4's ground
+        drifted = windows_that_drifted(self._sampled(plan, where), plan)
+
+        assert [d["window"] for d in drifted] == [5]
+        assert drifted[0]["centre"] == plan.windows[5].centre
+        assert abs(drifted[0]["sampled_at"] - 1.19) < 0.02
+
+    def test_the_measure_is_the_spacing_the_plan_intended(self) -> None:
+        """Half the distance to the next window: further than that is sampling
+        where another window was supposed to be. Not an absolute number, which
+        would mean something different on every coordinate."""
+        from fastmdxplora.simulation.umbrella import windows_that_drifted
+
+        wide = self._plan(n=3, first=0.0, last=4.0)     # 2.0 apart
+        where = {w.index: w.centre for w in wide.windows}
+        where[1] += 0.6                                  # well inside half of 2.0
+        assert windows_that_drifted(self._sampled(wide, where), wide) == []
+
+        tight = self._plan(n=3, first=0.0, last=0.4)     # 0.2 apart
+        where = {w.index: w.centre for w in tight.windows}
+        where[1] += 0.6                                  # far outside half of 0.2
+        assert [d["window"] for d in
+                windows_that_drifted(self._sampled(tight, where, 0.01), tight)] == [1]
+
+    def test_the_refusal_says_the_windows_moved_not_that_there_are_too_few(
+        self
+    ) -> None:
+        from fastmdxplora.simulation.umbrella import compute_pmf
+
+        plan = self._plan()
+        where = {0: 0.114, 1: 0.156, 2: 0.219, 3: 0.485,
+                 4: 1.190, 5: 1.197, 6: 1.500}
+        result = compute_pmf(self._sampled(plan, where, 0.03), plan)
+
+        assert result["pmf"] is None
+        assert "did not sample where they were held" in result["refused"]
+        assert "window 5 was held at 1.3" in result["refused"]
+
+    def test_and_does_not_advise_the_remedy_that_makes_it_worse(self) -> None:
+        """A softer force constant lets a window that has already slipped slip
+        further."""
+        from fastmdxplora.simulation.umbrella import compute_pmf
+
+        plan = self._plan()
+        where = {0: 0.114, 1: 0.156, 2: 0.219, 3: 0.485,
+                 4: 1.190, 5: 1.197, 6: 1.500}
+        refused = compute_pmf(self._sampled(plan, where, 0.03), plan)["refused"]
+
+        assert "larger `force_constant`" in refused
+        assert "A softer one will make this worse." in refused
+        assert "or a softer force constant so each wanders further" not in refused
+
+    def test_a_genuine_gap_still_gets_the_advice_for_a_genuine_gap(self) -> None:
+        """Windows on their centres that simply do not reach each other want
+        more windows or a softer spring, and should still be told so."""
+        from fastmdxplora.simulation.umbrella import compute_pmf
+
+        plan = self._plan(n=3, first=0.0, last=4.0)
+        on_target = {w.index: w.centre for w in plan.windows}
+        refused = compute_pmf(self._sampled(plan, on_target, 0.05), plan)["refused"]
+
+        assert "did not sample where they were held" not in refused
+        assert "softer force constant so each wanders further" in refused
+
+    def test_the_finding_is_recorded_not_only_described(self) -> None:
+        """So a study can be read from its files rather than from a sentence."""
+        from fastmdxplora.simulation.umbrella import compute_pmf
+
+        plan = self._plan()
+        where = {w.index: w.centre for w in plan.windows}
+        where[5] = 1.19
+        result = compute_pmf(self._sampled(plan, where, 0.03), plan)
+
+        assert [d["window"] for d in result["drifted"]] == [5]

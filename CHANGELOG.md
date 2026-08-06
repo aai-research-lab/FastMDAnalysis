@@ -39,7 +39,9 @@ visited.
   10.1 kJ/mol against a known 10.0.
 
   Four refusals -- windows that do not overlap, a missing window, several
-  systems at once, and two ways of biasing the same coordinate. How much
+  systems at once, and two ways of biasing the same coordinate. A gap is told
+  apart from its commonest cause: windows that never reached their centres,
+  which want the opposite remedy from windows that simply do not touch. How much
   overlap is enough is a judgement about how much evidence a joint needs, so
   `minimum_overlap` belongs to whoever is making the claim; three per cent is
   enough to stitch and it is thin. The refusal states the threshold it

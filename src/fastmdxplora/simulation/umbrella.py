@@ -343,6 +343,50 @@ def overlap_between(a: np.ndarray, b: np.ndarray, bins: int = 50) -> float:
     return float(np.minimum(pa, pb).sum() * width)
 
 
+def windows_that_drifted(
+    samples: dict[int, np.ndarray], plan: "UmbrellaPlan"
+) -> list[dict[str, Any]]:
+    """Windows whose sampling is not where the restraint was told to hold it.
+
+    A window is a restraint at a position, and the histogram it produces is
+    supposed to sit around that position. When it does not, the restraint has
+    lost: usually because every window started from the same structure and the
+    spring never dragged it out, so the far windows relax back towards the
+    bound state and pile up on each other.
+
+    That is a different failure from a genuine gap, and it wants the opposite
+    remedy. A softer force constant -- the advice for windows that do not
+    reach each other -- lets a window that has already slipped slip further.
+
+    "Not where it was told" is measured against the spacing to its neighbour,
+    because that is the distance the plan intends between one window and the
+    next: sampling further from its own centre than half that is sampling
+    somewhere another window was supposed to be.
+    """
+    ordered = [w for w in plan.windows if w.index in samples]
+    drifted: list[dict[str, Any]] = []
+    for position, window in enumerate(ordered):
+        neighbours = [
+            abs(other.centre - window.centre)
+            for offset in (-1, 1)
+            if 0 <= position + offset < len(ordered)
+            for other in [ordered[position + offset]]
+        ]
+        if not neighbours:
+            continue
+        allowed = 0.5 * min(neighbours)
+        sat_at = float(np.median(samples[window.index]))
+        away = abs(sat_at - window.centre)
+        if away > allowed:
+            drifted.append({
+                "window": window.index,
+                "centre": window.centre,
+                "sampled_at": sat_at,
+                "away_by": away,
+            })
+    return drifted
+
+
 def compute_pmf(
     samples: dict[int, np.ndarray],
     plan: UmbrellaPlan,
@@ -386,27 +430,55 @@ def compute_pmf(
         if shared < minimum_overlap:
             gaps.append((left, right, shared))
 
+    drifted = windows_that_drifted(samples, plan)
+
     if gaps:
         described = "; ".join(
             f"windows {a.index} and {b.index} (at {a.centre:g} and "
             f"{b.centre:g}) share {s:.1%}"
             for a, b, s in gaps
         )
-        return {
-            "pmf": None,
-            "overlaps": overlaps,
-            "refused": (
-                "Adjacent windows do not overlap, so no free energy can be "
-                f"computed across the gap: {described}. Recombination "
-                "stitches histograms together, and where two neighbours never "
-                "visit the same value there is nothing to stitch -- a curve "
-                "drawn through the gap would be interpolation presented as a "
-                "measurement.\n\n"
+        reason = (
+            "Adjacent windows do not overlap, so no free energy can be "
+            f"computed across the gap: {described}. Recombination "
+            "stitches histograms together, and where two neighbours never "
+            "visit the same value there is nothing to stitch -- a curve "
+            "drawn through the gap would be interpolation presented as a "
+            "measurement.\n\n"
+        )
+        if drifted:
+            # The windows are not where they were told to be, so the gap is
+            # a symptom. Saying "use a softer force constant" here would make
+            # it worse, which is what the generic advice would have said.
+            where = "; ".join(
+                f"window {d['window']} was held at {d['centre']:g} and "
+                f"sampled around {d['sampled_at']:.3g}"
+                for d in drifted
+            )
+            reason += (
+                f"{len(drifted)} of {len(ordered)} windows did not sample "
+                f"where they were held: {where}. That is the gap's cause "
+                "rather than a shortage of windows -- a restraint that has "
+                "lost its window leaves the ground between them unvisited "
+                "however many more are added.\n\n"
+                "Windows started from one structure are strained at the far "
+                "end of the range and relax back towards the bound state. "
+                "Seed each window from a steered run near its own centre, or "
+                "hold them harder with a larger `force_constant`. A softer "
+                "one will make this worse."
+            )
+        else:
+            reason += (
                 f"Each pair must share at least {minimum_overlap:.0%} "
                 "(`minimum_overlap`). More windows between them, or a softer "
                 "force constant so each wanders further, will close a gap. "
                 "Sampling for longer will not."
-            ),
+            )
+        return {
+            "pmf": None,
+            "overlaps": overlaps,
+            "drifted": drifted,
+            "refused": reason,
         }
 
     # WHAM, iterated to self-consistency. MBAR is better where it is
