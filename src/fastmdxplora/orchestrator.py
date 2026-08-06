@@ -232,10 +232,19 @@ class FastMDXplora:
         # Display the opening banner once the session is ready.
         from fastmdxplora import __version__
 
+        # The settings this run will use, not the ones a command line
+        # mentioned. The banner reconstructed them from sys.argv, so a run
+        # driven by a config file showed the defaults for everything -- the
+        # step counts, the timestep, the temperature -- while using the
+        # config's values. A banner that reports different settings from the
+        # ones in force is worse than no banner.
+        simulation = dict(self.options.get("simulation") or {})
         self._presenter.banner(
             System=self.system,
             Output=str(self.output_dir),
             Version=__version__,
+            **{key: str(value) for key, value in simulation.items()
+               if isinstance(value, (int, float, str, bool))},
         )
 
         # The banner already shows system/output to the user; this log

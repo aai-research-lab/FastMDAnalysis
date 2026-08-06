@@ -513,13 +513,32 @@ class SessionPresenter:
 
             params = dict(_SIM_DEFAULTS)
 
+            # A field the caller passed beats a command-line flag, which beats
+            # the default. The caller knows what the run resolved to; argv
+            # only knows what somebody typed, and a run driven by a config
+            # file typed none of it.
             overrides = {
-                "nvt_steps": maybe_int(arg_value("--simulate-nvt-steps", "--nvt-steps", default="")),
-                "npt_steps": maybe_int(arg_value("--simulate-npt-steps", "--npt-steps", default="")),
-                "production_steps": maybe_int(arg_value("--simulate-production-steps", "--production-steps", default="")),
-                "duration_ns": maybe_float(arg_value("--simulate-duration-ns", "--duration-ns", default="")),
-                "nvt_duration_ns": maybe_float(arg_value("--simulate-nvt-duration-ns", "--nvt-duration-ns", default="")),
-                "npt_duration_ns": maybe_float(arg_value("--simulate-npt-duration-ns", "--npt-duration-ns", default="")),
+                "nvt_steps": maybe_int(field_value(
+                    "nvt_steps", default=arg_value(
+                        "--simulate-nvt-steps", "--nvt-steps", default=""))),
+                "npt_steps": maybe_int(field_value(
+                    "npt_steps", default=arg_value(
+                        "--simulate-npt-steps", "--npt-steps", default=""))),
+                "production_steps": maybe_int(field_value(
+                    "production_steps", default=arg_value(
+                        "--simulate-production-steps", "--production-steps",
+                        default=""))),
+                "duration_ns": maybe_float(field_value(
+                    "duration_ns", default=arg_value(
+                        "--simulate-duration-ns", "--duration-ns", default=""))),
+                "nvt_duration_ns": maybe_float(field_value(
+                    "nvt_duration_ns", default=arg_value(
+                        "--simulate-nvt-duration-ns", "--nvt-duration-ns",
+                        default=""))),
+                "npt_duration_ns": maybe_float(field_value(
+                    "npt_duration_ns", default=arg_value(
+                        "--simulate-npt-duration-ns", "--npt-duration-ns",
+                        default=""))),
                 "timestep_fs": maybe_float(timestep),
             }
             params.update({k: v for k, v in overrides.items() if v is not None})

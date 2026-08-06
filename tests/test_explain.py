@@ -368,3 +368,52 @@ def test_a_class_importing_openmm_is_guarded() -> None:
         f"these import openmm with no guard: {unguarded}. The machines that "
         "skip such a test are the ones that cannot run it."
     )
+
+
+class TestTheBannerReportsTheRunItIsAbout:
+    """It reconstructed the settings from sys.argv, so a run driven by a
+    config file printed the defaults for the step counts, the timestep and
+    the temperature while using the config's values.
+
+    A banner that reports different settings from the ones in force is worse
+    than no banner: it is read at a glance and believed.
+    """
+
+    @staticmethod
+    def _banner(**fields):
+        import io
+
+        from fastmdxplora.utils.presenter import SessionPresenter
+
+        out = io.StringIO()
+        SessionPresenter(stream=out, explain=False).banner(
+            System="181L", Output="x", Version="2.3.0", **fields)
+        return out.getvalue()
+
+    def test_a_config_driven_run_shows_its_own_steps(self) -> None:
+        printed = self._banner(nvt_steps="500", npt_steps="500",
+                               production_steps="5000")
+        assert "500 steps" in printed
+        assert "5,000 steps" in printed
+        assert "1,000,000" not in printed, "the default leaked through"
+
+    def test_the_total_follows(self) -> None:
+        printed = self._banner(nvt_steps="500", npt_steps="500",
+                               production_steps="5000")
+        assert "6,000 steps" in printed
+
+    def test_without_fields_it_still_shows_the_defaults(self) -> None:
+        printed = self._banner()
+        assert "steps" in printed
+
+    def test_the_orchestrator_passes_what_it_resolved(self) -> None:
+        import inspect
+
+        from fastmdxplora import orchestrator
+
+        source = inspect.getsource(orchestrator)
+        banner = source[source.index("self._presenter.banner("):]
+        assert "simulation.items()" in banner[:600], (
+            "the banner should be given the run's settings, not left to "
+            "reconstruct them from the command line"
+        )
