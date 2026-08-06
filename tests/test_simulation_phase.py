@@ -752,8 +752,18 @@ class TestSimulatingFromASystemPreparedElsewhere:
         assert "prepared_from" in str(raised.value)
         assert "setup directory" in str(raised.value)
 
-    def test_a_missing_setup_still_says_to_run_setup(self, tmp_path) -> None:
-        """The other message is still the right one when nothing was named."""
+    def test_a_missing_setup_still_says_to_run_setup(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """The other message is still the right one when nothing was named.
+
+        With the backends declared present, because a missing one is reported
+        first and is the more useful thing to say -- so on a machine without
+        OpenMM this test would be reading that message instead, and passing or
+        failing on what happens to be installed rather than on the code. It
+        did: green on a laptop with OpenMM, red in CI without it.
+        """
+        monkeypatch.setattr(_pipeline, "missing_dependencies", lambda: [])
         (tmp_path / "simulation").mkdir()
         with pytest.raises(RuntimeError) as raised:
             _pipeline.run(orchestrator=self._orchestrator(tmp_path),

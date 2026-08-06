@@ -866,3 +866,79 @@ sweep:
         # phase() helper
         assert run.phase("setup").name == "setup"
         assert run.phase("report") is None
+
+
+class TestAParallelStudySaysWhatItIsDoing:
+    """Each worker's output goes to its own log, so three of them do not
+    interleave into one unreadable screen. That left the terminal showing the
+    last completion and then nothing at all.
+
+    A window of a real study runs for hours. A study that is working looked
+    exactly like one that had hung, and the only way to tell was to go looking
+    for files.
+    """
+
+    def test_a_duration_reads_at_a_glance(self) -> None:
+        from fastmdxplora.batch.explorer import _elapsed
+
+        assert _elapsed(9) == "0m09s"
+        assert _elapsed(65) == "1m05s"
+        assert _elapsed(3725) == "1h02m"
+
+    def test_the_line_says_running_finished_and_queued(self) -> None:
+        """Which together answer 'is anything happening, and how much is
+        left'."""
+        from fastmdxplora.batch.explorer import _progress_line
+
+        line = _progress_line(running=3, done=2, queued=2, total=7,
+                              seconds=745)
+        assert "3 running" in line
+        assert "2/7 finished" in line
+        assert "2 queued" in line
+        assert "12m25s" in line
+
+    def test_a_run_is_named_when_it_starts_and_its_log_is_given(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        """So a run still going has been named once, and can be followed while
+        it goes rather than read after it ends."""
+        from fastmdxplora.batch import explorer
+
+        monkeypatch.setattr(explorer, "HEARTBEAT_SECONDS", 0.05)
+        config = tmp_path / "campaign.yml"
+        config.write_text(
+            "output: out\ninclude: [setup]\n"
+            "execution: {mode: parallel, workers: 2}\n"
+            "systems:\n"
+            f"  - system: {tmp_path / 'no-such-a.pdb'}\n    id: one\n"
+            f"  - system: {tmp_path / 'no-such-b.pdb'}\n    id: two\n",
+            encoding="utf-8")
+        explorer.BatchExplorer(config=config,
+                              output_dir=str(tmp_path / "out")).run()
+
+        printed = capsys.readouterr().out
+        assert "started one" in printed and "started two" in printed
+        assert "run.log" in printed
+
+    def test_and_says_something_while_nothing_finishes(
+        self, tmp_path, capsys, monkeypatch
+    ) -> None:
+        """The heartbeat is the whole point: without it the terminal is silent
+        for as long as the longest run takes."""
+        from fastmdxplora.batch import explorer
+
+        # Zero means every wait times out at once, so the line appears even
+        # though these runs fail in under a second.
+        monkeypatch.setattr(explorer, "HEARTBEAT_SECONDS", 0.0)
+        config = tmp_path / "campaign.yml"
+        config.write_text(
+            "output: out\ninclude: [setup]\n"
+            "execution: {mode: parallel, workers: 1}\n"
+            "systems:\n"
+            f"  - system: {tmp_path / 'no-such-a.pdb'}\n    id: one\n"
+            f"  - system: {tmp_path / 'no-such-b.pdb'}\n    id: two\n",
+            encoding="utf-8")
+        explorer.BatchExplorer(config=config,
+                              output_dir=str(tmp_path / "out")).run()
+
+        assert "running," in capsys.readouterr().out

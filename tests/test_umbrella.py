@@ -1036,7 +1036,15 @@ class TestOneSystemForEveryWindow:
 
     def test_and_none_of_them_prepares_another(self, tmp_path) -> None:
         """The saving is the point, and a second preparation would undo the
-        sharing as well."""
+        sharing as well.
+
+        Asserted on what the windows are told to run, not on which list says
+        so. The first version of this checked that setup had been added to
+        `exclude` -- which it had, beside an `include` that also named it.
+        Naming a phase in both is refused, so every window of a real study
+        failed before doing anything, and the test was green throughout
+        because it was pinning my choice of list rather than the outcome.
+        """
         study = self._study(tmp_path)
         self._pretend_it_is_prepared(tmp_path / "out" / "shared_setup" / "setup")
 
@@ -1044,7 +1052,43 @@ class TestOneSystemForEveryWindow:
         study._run_sequential = lambda include, exclude: seen.update(
             include=include, exclude=exclude) or []
         study.run()
+
+        assert "setup" not in (seen["include"] or [])
+        assert "simulation" in (seen["include"] or [])
+        assert not (seen["include"] and seen["exclude"]), (
+            "naming phases in both lists is refused, and the run fails before "
+            "it starts")
+
+    def test_a_study_that_excludes_instead_is_told_the_same_way(
+        self, tmp_path
+    ) -> None:
+        """A config can say what not to run rather than what to run, and then
+        `exclude` is the list that has to carry it."""
+        from fastmdxplora.batch.explorer import BatchExplorer
+
+        config = tmp_path / "study.yml"
+        config.write_text(
+            "output: out\nexclude: [report]\nsystems:\n  - system: 181L\n"
+            "simulation:\n  umbrella:\n    collective_variable: distance\n"
+            "    centres: [0.0, 0.2]\n    force_constant: 1000\n",
+            encoding="utf-8")
+        study = BatchExplorer(config=config, output_dir=str(tmp_path / "out"))
+        self._pretend_it_is_prepared(tmp_path / "out" / "shared_setup" / "setup")
+
+        seen: dict = {}
+        study._run_sequential = lambda include, exclude: seen.update(
+            include=include, exclude=exclude) or []
+        study.run()
+
         assert "setup" in seen["exclude"]
+        assert not seen["include"]
+
+    def test_preparing_is_not_shared_when_it_is_the_whole_study(
+        self, tmp_path
+    ) -> None:
+        """Doing it once would leave every window with nothing to run."""
+        study = self._study(tmp_path, include="[setup]")
+        assert study._maybe_prepare_once(["setup"], None) is None
 
     def test_an_ordinary_campaign_prepares_per_system(self, tmp_path) -> None:
         """Different systems *are* different systems. Sharing one preparation

@@ -32,7 +32,12 @@ from __future__ import annotations
 
 import json
 import os
-from concurrent.futures import ProcessPoolExecutor, as_completed
+import time
+from concurrent.futures import (
+    FIRST_COMPLETED,
+    ProcessPoolExecutor,
+    wait as wait_for_any,
+)
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -50,6 +55,31 @@ if TYPE_CHECKING:
     from fastmdxplora.orchestrator import RunResult
 
 logger = get_logger("batch")
+
+
+#: How long the terminal may say nothing before it says something. A window of
+#: a real study runs for hours, and every worker's output goes to its own log
+#: so three of them do not interleave -- which left the terminal silent for the
+#: whole run, with no way to tell a study that is working from one that has
+#: hung.
+HEARTBEAT_SECONDS = 60.0
+
+
+def _elapsed(seconds: float) -> str:
+    """A duration a person can read at a glance."""
+    seconds = int(seconds)
+    hours, seconds = divmod(seconds, 3600)
+    minutes, seconds = divmod(seconds, 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m"
+    return f"{minutes}m{seconds:02d}s"
+
+
+def _progress_line(*, running: int, done: int, queued: int, total: int,
+                   seconds: float) -> str:
+    """What is happening, for a terminal that would otherwise show nothing."""
+    return (f"       {running} running, {done}/{total} finished, "
+            f"{queued} queued -- {_elapsed(seconds)} elapsed")
 
 
 def _a_prepared_system_is_there(setup_dir: Path) -> bool:
@@ -389,8 +419,14 @@ class BatchExplorer:
         shared = self._maybe_prepare_once(include, exclude)
         if shared is not None:
             # The windows read the system that was just prepared, so none of
-            # them prepares one of its own.
-            exclude = list(exclude or []) + ["setup"]
+            # them prepares one of its own. Which of the two lists says so
+            # depends on which the study used: naming a phase in both is
+            # refused, and adding to the wrong one failed every window before
+            # it had done anything.
+            if include:
+                include = [phase for phase in include if phase != "setup"]
+            else:
+                exclude = list(exclude or []) + ["setup"]
 
         if self.is_single:
             logger.info("Exploring 1 molecular system in %s", self.output_dir)
@@ -440,6 +476,10 @@ class BatchExplorer:
         if "setup" not in wanted or "setup" in set(exclude or []):
             # Nothing is being prepared at all -- the windows are simulating
             # from something that already exists.
+            return None
+        if wanted == {"setup"}:
+            # Preparing is the whole study. There is nothing to share it
+            # with, and doing it once would leave every window with no work.
             return None
 
         # An umbrella study is one system by the time it gets here -- expansion
@@ -653,11 +693,17 @@ class BatchExplorer:
         print(f"Parallel execution: {n_workers} worker(s)"
               + (f", devices={self.devices}" if self.devices else ""))
 
+        # A worker's output goes to its own log so three of them do not
+        # interleave, which means the terminal will show nothing at all unless
+        # this loop says something.
+        print("Each run writes its own log; the study reports here.")
+
         results: list[RunResult] = []
         futures = {}
         next_index = 0
         done = 0
         stopped_after: str | None = None
+        began = time.monotonic()
 
         def submit_next(pool: ProcessPoolExecutor) -> bool:
             nonlocal next_index
@@ -673,7 +719,29 @@ class BatchExplorer:
             )
             futures[fut] = (next_index, spec)
             next_index += 1
+            # Said on the way in, so a run that is still going has been named
+            # once and its log can be followed while it goes.
+            print(f"       started {spec.run_id} -> {run_out / 'run.log'}",
+                  flush=True)
             return True
+
+        def await_one():
+            """The next run to finish, saying what is happening until one does.
+
+            A window runs for hours. Without this the terminal shows the last
+            completion and then nothing, and a study that is working looks
+            exactly like one that has hung.
+            """
+            while True:
+                finished, pending = wait_for_any(
+                    futures, timeout=HEARTBEAT_SECONDS,
+                    return_when=FIRST_COMPLETED)
+                if finished:
+                    return next(iter(finished))
+                print(_progress_line(
+                    running=len(pending), done=done, total=n,
+                    queued=n - next_index, seconds=time.monotonic() - began),
+                    flush=True)
 
         pool = ProcessPoolExecutor(max_workers=n_workers)
         try:
@@ -681,7 +749,7 @@ class BatchExplorer:
                 submit_next(pool)
 
             while futures:
-                fut = next(as_completed(futures))
+                fut = await_one()
                 _idx, spec = futures.pop(fut)
                 done += 1
                 try:
@@ -722,8 +790,9 @@ class BatchExplorer:
                         ))
                         futures.pop(fut, None)
 
-                for fut in as_completed(futures):
-                    _idx, spec = futures[fut]
+                while futures:
+                    fut = await_one()
+                    _idx, spec = futures.pop(fut)
                     done += 1
                     try:
                         result = fut.result()
