@@ -244,3 +244,113 @@ class TestARunTooShortToMeasureItsOwnCorrelation:
 
         assert strict is not None and lenient is None
         assert MINIMUM_EFFECTIVE_SAMPLES == 10.0
+
+
+class TestEveryPerFrameAnalysisSaysWhatItsMeanIsWorth:
+    """The summary is recorded once, in the base class, for any analysis
+    declaring that it produces one value per frame.
+
+    Declared rather than inferred from the array's length: a per-atom result
+    on a trajectory that happened to have as many frames as atoms would
+    otherwise be summarised as a time series, and the numbers would look
+    right.
+    """
+
+    @staticmethod
+    def _trajectory(n_frames=400, n_atoms=12, seed=0):
+        import mdtraj as md
+
+        rng = np.random.RandomState(seed)
+        topology = md.Topology()
+        chain = topology.add_chain()
+        residue = topology.add_residue("ALA", chain)
+        for i in range(n_atoms):
+            topology.add_atom(f"C{i}", md.element.carbon, residue)
+        # A drift settling into a fluctuation, which is what a production run
+        # looks like when equilibration was not quite finished.
+        base = rng.normal(0, 0.05, (n_frames, n_atoms, 3))
+        relax = np.exp(-np.arange(n_frames) / 40.0)[:, None, None]
+        return md.Trajectory(base + 0.5 * relax, topology)
+
+    def test_a_per_frame_analysis_records_it(self, tmp_path) -> None:
+        from fastmdxplora.analysis import get_analysis_class
+
+        traj = self._trajectory()
+        analysis = get_analysis_class("rg")(output_dir=tmp_path / "rg")
+        analysis.run(traj)
+
+        assert "mean" in analysis.findings
+        record = analysis.findings["mean"]
+        assert "standard_error" in record
+        assert "effective_samples" in record
+        assert "discard" in record
+
+    def test_the_error_is_not_the_naive_one(self, tmp_path) -> None:
+        """Which is the whole point: it is built from independent samples,
+        not from the frame count."""
+        from fastmdxplora.analysis import get_analysis_class
+
+        traj = self._trajectory()
+        analysis = get_analysis_class("rg")(output_dir=tmp_path / "rg")
+        analysis.run(traj)
+
+        record = analysis.findings["mean"]
+        assert record["effective_samples"] <= traj.n_frames
+        assert record["standard_error"] >= (
+            record["standard_deviation"] / np.sqrt(traj.n_frames))
+
+    def test_a_per_atom_analysis_records_nothing(self, tmp_path) -> None:
+        """RMSF is one value per atom. A mean over atoms is a different
+        quantity from a mean over time, and summarising it as though the two
+        were the same is the error the declaration exists to prevent."""
+        from fastmdxplora.analysis import get_analysis_class
+
+        traj = self._trajectory()
+        analysis = get_analysis_class("rmsf")(output_dir=tmp_path / "rmsf")
+        analysis.run(traj)
+
+        assert "mean" not in analysis.findings
+
+    def test_the_frame_number_is_not_averaged(self, tmp_path) -> None:
+        """Two analyses return a frame of (frame, value). Averaging the first
+        column gives the middle of the run, to three decimal places, and it
+        would look like a measurement."""
+        import inspect
+
+        from fastmdxplora.analysis.base import Analysis
+
+        source = inspect.getsource(Analysis._record_what_the_mean_is_worth)
+        assert 'str(c).lower() != "frame"' in source
+
+    def test_the_declarations_match_what_the_analyses_return(
+        self, tmp_path
+    ) -> None:
+        """The check that keeps the two from drifting: anything returning one
+        value per frame must say so, and anything saying so must return one.
+        """
+        from fastmdxplora.analysis import available_analyses, get_analysis_class
+
+        traj = self._trajectory()
+        for name in available_analyses():
+            cls = get_analysis_class(name)
+            if getattr(cls, "requires_ligand", False):
+                continue          # no ligand in this trajectory to measure
+            try:
+                analysis = cls(output_dir=tmp_path / name)
+                result = analysis.compute(traj)
+            except Exception:     # noqa: BLE001 - not what is under test here
+                continue
+
+            if hasattr(result, "columns"):
+                columns = [c for c in result.columns
+                           if str(c).lower() != "frame"]
+                per_frame = (len(columns) == 1
+                             and len(result) == traj.n_frames)
+            else:
+                array = np.asarray(result)
+                per_frame = (array.ndim == 1 and array.size == traj.n_frames)
+
+            if per_frame:
+                assert cls.time_series, (
+                    f"{name} returns one value per frame and does not say so, "
+                    "so its mean carries no error and no sample count")

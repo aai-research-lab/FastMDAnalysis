@@ -127,6 +127,20 @@ class Analysis(ABC):
     #: explicitly requested via ``include``.
     requires_ligand: bool = False
 
+    #: Whether ``compute`` returns one value per frame.
+    #:
+    #: A quantity measured every frame has a mean, and a mean is not a
+    #: measurement until two things are known: whether the system had settled
+    #: by the time the averaging started, and how many *independent*
+    #: observations the average rests on. Both are recorded automatically for
+    #: an analysis that says yes here.
+    #:
+    #: Declared rather than inferred from the array's length. A per-atom
+    #: result on a trajectory that happens to have as many frames as atoms
+    #: would otherwise be summarised as though it were a time series, and the
+    #: numbers would look right.
+    time_series: bool = False
+
     def __init__(
         self,
         *,
@@ -285,6 +299,7 @@ class Analysis(ABC):
 
         try:
             self.result = self.compute(traj)
+            self._record_what_the_mean_is_worth(traj)
             # Written again, because an analysis can only record some things
             # once it has looked at the trajectory: how confidently it knew
             # the ligand's chemistry, which measurements it could not make and
@@ -328,6 +343,47 @@ class Analysis(ABC):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _record_what_the_mean_is_worth(self, traj: md.Trajectory) -> None:
+        """Put the mean, its error and what stands behind it in the findings.
+
+        Recorded rather than enforced: an analysis whose series does not
+        support a mean still produces its figure and its data, and the reason
+        travels with them. Withholding an RMSD plot because the run was short
+        would hide the evidence that it was short.
+        """
+        if not self.time_series:
+            return
+
+        import numpy as np
+
+        from fastmdxplora.analysis.equilibration import summarise
+
+        values = self.result
+        if hasattr(values, "columns"):
+            # A frame of (frame, value): the frame number is the axis, not a
+            # quantity, and averaging it would give the middle of the run.
+            columns = [c for c in values.columns if str(c).lower() != "frame"]
+            if len(columns) != 1:
+                return
+            values = values[columns[0]]
+        if hasattr(values, "to_numpy"):
+            values = values.to_numpy()
+        try:
+            series = np.asarray(values, dtype=float).squeeze()
+        except (TypeError, ValueError):
+            return
+        if series.ndim != 1 or series.size != traj.n_frames:
+            return
+
+        settled, reason = summarise(series)
+        record: dict[str, Any] = {}
+        if settled is not None:
+            record.update(settled.as_record())
+        if reason is not None:
+            record["not_a_measurement"] = reason
+        self.findings["mean"] = record
+
     def select_atoms(self, traj: md.Trajectory) -> np.ndarray:
         """Resolve :attr:`selection` to atom indices on a given trajectory.
 

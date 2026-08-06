@@ -73,6 +73,7 @@ class Rg(Analysis):
     """
 
     name = "rg"
+    time_series = True
     description = "Radius of gyration"
     default_selection = None  # use all atoms by default
 

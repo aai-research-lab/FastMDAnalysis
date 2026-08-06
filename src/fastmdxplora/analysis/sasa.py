@@ -63,6 +63,7 @@ class SASA(Analysis):
     """
 
     name = "sasa"
+    time_series = True
     description = "Solvent-accessible surface area"
     default_selection = None
 

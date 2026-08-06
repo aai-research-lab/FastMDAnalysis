@@ -78,6 +78,7 @@ class QValue(Analysis):
     """
 
     name = "qvalue"
+    time_series = True
     description = "Native contact fraction (Q)"
     default_selection = None
 

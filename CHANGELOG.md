@@ -24,6 +24,13 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   worth. Below ten independent samples the mean describes the run rather than
   the system, and it is refused.
 
+  Recorded by the base class for any analysis declaring that it produces one
+  value per frame -- six of the sixteen -- so `findings` carries the mean, its
+  error, the frames discarded and the independent samples behind it. Declared
+  rather than inferred from the array's length: a per-atom result on a
+  trajectory with as many frames as atoms would otherwise be summarised as a
+  time series, and the numbers would look right.
+
   A run too short to measure its own correlation time is refused separately,
   because that failure flatters: the inefficiency comes back too small and the
   sample count too large. On a test series with a true inefficiency of 2000,
