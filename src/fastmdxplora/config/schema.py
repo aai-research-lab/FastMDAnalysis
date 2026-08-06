@@ -491,7 +491,9 @@ ANALYSIS = PhaseSchema(
               "Topology file. Default: simulation/topology.pdb.",
               example="simulation/topology.pdb"),
         Field("include", list, None,
-              "Subset of analyses to run. Default: all ten. "
+              "Subset of analyses to run. Default: every analysis the "
+              "system supports -- ten always, water sites where the "
+              "trajectory has water, and five more where there is a ligand. "
               "Mutually exclusive with `exclude`.",
               example=["rmsd", "rmsf", "rg", "cluster"]),
         Field("exclude", list, None,

@@ -228,6 +228,12 @@ visited.
   reading a value as an absence, so `options.json` claimed a decision was
   somebody's that was not.
 
+- **Two more counts had drifted.** The README said the trajectory is analysed
+  "fifteen ways" and the `include` help said "all ten"; there are sixteen
+  analyses registered. The help now says which run rather than how many -- ten
+  always, water sites where there is water, five more where there is a ligand
+  -- and the opening paragraph does not count at all.
+
 - **The metadynamics help named five collective variables where there are
   eight.** It is what the browser shows beside the box, what `--help` prints,
   and what the generated config template carries, so one stale sentence was

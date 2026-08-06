@@ -29,10 +29,18 @@
 fastmdx explore --system 181L
 ```
 
-Four characters of input. FastMDXplora fetches T4 lysozyme, parameterises the
-benzene bound in its cavity, runs the dynamics, analyses the trajectory
-fifteen ways, works out which residues hold the ligand in place, and writes
-the whole study up as a PDF.
+```
+setup  →  simulation  →  analysis  →  report
+```
+
+Four characters of PDB ID as input. FastMDXplora fetches T4 lysozyme,
+parameterises the benzene bound in its cavity, runs the dynamics, analyses the
+trajectory, works out which residues hold the ligand in place, and writes the
+whole study up as a PDF.
+
+Run all four phases, or any one on its own — `fastmdx setup`, `simulate`,
+`analyze`, `report`. Each records what it did, so a run can be picked up,
+repeated or explained afterwards.
 
 Or open the GUI and watch it happen:
 
@@ -68,16 +76,6 @@ what it could not decide, rather than returning a number that looks fine.
 Every step says *why* it is happening while it happens, with a citation where
 there is one worth following, so a first simulation produces a trajectory you
 can defend rather than one you merely have.
-
-## How a run works
-
-```
-  setup  →  simulation  →  analysis  →  report
-```
-
-Four phases. Run all of them, or any one on its own — `fastmdx setup`,
-`simulate`, `analyze`, `report`. Each records what it did, so a run can be
-picked up, repeated or explained afterwards.
 
 ## Documentation
 

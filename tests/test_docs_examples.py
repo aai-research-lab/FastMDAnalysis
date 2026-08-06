@@ -618,3 +618,37 @@ class TestTheDocumentationQuotesWhatTheSoftwareSays:
                 / "docs" / "simulations.md").read_text(encoding="utf-8")
         for variable in COLLECTIVE_VARIABLES:
             assert f"`{variable}`" in page, variable
+
+
+class TestNobodyCountsTheAnalysesTwice:
+    """The README said the trajectory is analysed 'fifteen ways' and the
+    `include` help said 'all ten'. There are sixteen registered.
+
+    A number in prose is a copy of something the code knows, and every copy
+    goes stale. These fail when one is added, which is when the sentences can
+    still be fixed cheaply.
+    """
+
+    def test_the_help_does_not_name_a_number_that_will_drift(self) -> None:
+        """It says which analyses run rather than how many, because 'ten
+        always, water sites where there is water, five more where there is a
+        ligand' stays true as the registry grows in the ligand-aware part."""
+        from fastmdxplora.analysis import available_analyses
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        described = PHASE_SCHEMAS["analysis"].get("include").help
+        assert "all ten" not in described
+        assert "ten always" in described
+        assert len(available_analyses()) == 16, (
+            "the help splits the registry ten / water sites / five "
+            "ligand-aware; say the new split there too")
+
+    def test_the_readme_does_not_count_them_either(self) -> None:
+        import pathlib
+        import re
+
+        readme = (pathlib.Path(__file__).resolve().parents[1]
+                  / "README.md").read_text(encoding="utf-8")
+        assert not re.search(
+            r"analys\w+ the\s+trajectory\s+\w+\s+ways", readme, re.I), (
+            "a count in the opening paragraph is a copy that goes stale")
