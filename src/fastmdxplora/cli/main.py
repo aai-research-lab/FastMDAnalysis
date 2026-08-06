@@ -405,10 +405,43 @@ def _attach_phase_options(
     group_title : str
         Title for the argument group (shown in --help).
     """
-    group = parser.add_argument_group(group_title)
+    # One group per set of related settings, so `--help` reads as sections
+    # rather than as thirty-seven flags in declaration order. The grouping is
+    # the schema's, which is where the browser gets it too -- two views of one
+    # list, rather than two lists that agree until one is edited.
+    from fastmdxplora.config.schema import SETTING_GROUPS
+
+    schema_key = _SCHEMA_KEY.get(phase, phase)
+    titles = {name: title
+              for title, _why, names in SETTING_GROUPS.get(schema_key, ())
+              for name in names}
+    order = [title for title, _why, _names in SETTING_GROUPS.get(schema_key, ())]
+    groups: dict[str, Any] = {}
+
+    def _group_for(kwarg: str):
+        """The argument group a setting belongs in, made when first needed."""
+        title = titles.get(kwarg)
+        if title is None:
+            # A convenience flag with no setting of its own -- there is
+            # nothing in the schema to have grouped it by.
+            stem = (group_title or "").removesuffix(" options")
+            heading = f"{stem}: other" if stem else "other"
+            return groups.setdefault(heading, parser.add_argument_group(heading))
+        # "simulate options" reads badly in front of a group name, and the
+        # word carries nothing: every flag is an option.
+        stem = (group_title or "").removesuffix(" options")
+        heading = f"{stem}: {title.lower()}" if stem else title
+        if title not in groups:
+            groups[title] = parser.add_argument_group(heading)
+        return groups[title]
+
     defaults = _schema_defaults(phase)
     choices = _schema_choices(phase)
-    for cli_suffix, kwarg, argparse_kwargs in options:
+    for cli_suffix, kwarg, argparse_kwargs in sorted(
+        options, key=lambda o: (order.index(titles[o[1]])
+                                if o[1] in titles else len(order))
+    ):
+        group = _group_for(kwarg)
         if prefix:
             flag = f"--{prefix}-{cli_suffix}"
             dest = f"{dest_prefix}__{kwarg}"

@@ -33,6 +33,15 @@ from the analysis itself rather than written out a second time.
 Nothing is hidden behind an "advanced" panel: a setting you cannot see is a
 setting you cannot check.
 
+They are grouped by what they decide rather than listed in the order they were
+declared — *the structure*, *the ligand*, *the membrane*, *solvent, ions and
+the box*, *the force field*, *how forces are computed* for setup; *how long it
+runs*, *where it starts*, *conditions*, *the integrator*, *enhanced sampling*,
+*restraints*, *where it runs*, *what gets written*, *watching it run* for
+simulation. Each group says what it is about. `fastmdx explore --help` reads
+in the same sections, from the same declaration, so moving between the
+terminal and the browser is not learning a second arrangement.
+
 Every path field has a **Browse** button, so there is no typing a path and
 finding out later that it was wrong.
 

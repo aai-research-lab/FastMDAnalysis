@@ -2141,3 +2141,30 @@ body.state-ready .loading-screen {
     overflow-wrap: normal;
     overflow-x: auto;
 }
+
+/* A named group of settings. Thirty-seven controls in one grid is a list to
+   read rather than a form to fill in, so each group says what it is about and
+   the grid under it holds only those. */
+.run-group-head {
+    align-items: baseline;
+    border-top: 1px solid var(--border-subtle);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    padding: 14px 18px 0;
+}
+.run-group-name {
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+.run-group-why {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+/* The group heading already draws the rule, so the grid under it must not
+   draw a second one. */
+.run-group-head + .run-section-body { border-top: none; }

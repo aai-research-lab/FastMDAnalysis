@@ -113,6 +113,25 @@
     return fieldsFor(phase).filter((field) => !SUPPLIED.has(field.name));
   }
 
+  /* The same settings, in the groups the schema declares. Thirty-seven
+   * controls in one grid is a list to read rather than a form to fill in:
+   * a pH sat beside a dispersion correction, and finding the one you wanted
+   * meant going through all of them. Empty groups are dropped, so choosing a
+   * trajectory does not leave headings with nothing under them. */
+  function groupsFor(phase) {
+    const block = state.schema.phases[phase];
+    if (!block || !block.groups) {
+      return [{ title: null, why: null, fields: settingsFor(phase) }];
+    }
+    return block.groups
+      .map((group) => ({
+        title: group.title,
+        why: group.why,
+        fields: group.fields.filter((field) => !SUPPLIED.has(field.name)),
+      }))
+      .filter((group) => group.fields.length);
+  }
+
   // ------------------------------------------------------- what have you got
 
   function renderStart() {
@@ -301,10 +320,22 @@
     section.appendChild(head);
 
     if (state.open.has(phase.name)) {
-      const grid = document.createElement("div");
-      grid.className = "run-section-body";
-      settings.forEach((field) => grid.appendChild(control(phase.name, field)));
-      section.appendChild(grid);
+      groupsFor(phase.name).forEach((group) => {
+        if (group.title) {
+          const head = document.createElement("div");
+          head.className = "run-group-head";
+          head.innerHTML =
+            `<span class="run-group-name">${group.title}</span>` +
+            (group.why ? `<span class="run-group-why">${group.why}</span>` : "");
+          section.appendChild(head);
+        }
+        const grid = document.createElement("div");
+        grid.className = "run-section-body";
+        group.fields.forEach((field) =>
+          grid.appendChild(control(phase.name, field))
+        );
+        section.appendChild(grid);
+      });
     }
     return section;
   }

@@ -492,3 +492,107 @@ systems:
         cfg = _write_yaml(tmp_path, f"systems:\n  - {{id: a, system: {stub_pdb}}}\n")
         with pytest.raises(ValueError, match="not both"):
             FastMDXplora(system=str(stub_pdb), config=str(cfg))
+
+
+class TestSettingsAreGrouped:
+    """Thirty-six settings for setup and thirty-seven for simulation arrived
+    as one flat list each, in the order they happened to be declared: a pH sat
+    beside a dispersion correction.
+
+    Finding the one you wanted meant reading all of them, which is a list to
+    read rather than a form to fill in. The schema is the one place that knows
+    what a setting is, so it is the place that says what it is about -- and
+    the browser and `--help` are two views of that one grouping rather than
+    two groupings that agree until one is edited.
+    """
+
+    def test_every_setting_is_in_exactly_one_group(self) -> None:
+        """A setting added and not placed would appear under 'Other' in every
+        interface at once. This is what makes that a failure rather than
+        something somebody notices later."""
+        from fastmdxplora.config.schema import PHASE_SCHEMAS, SETTING_GROUPS
+
+        for phase, schema in PHASE_SCHEMAS.items():
+            declared = {field.name for field in schema.fields}
+            placed: list[str] = []
+            for _title, _why, names in SETTING_GROUPS[phase]:
+                placed.extend(names)
+
+            assert not (declared - set(placed)), (
+                f"{phase}: not in any group: {sorted(declared - set(placed))}")
+            assert not (set(placed) - declared), (
+                f"{phase}: grouped but not declared: "
+                f"{sorted(set(placed) - declared)}")
+            assert len(placed) == len(set(placed)), (
+                f"{phase}: named in two groups: "
+                f"{sorted({n for n in placed if placed.count(n) > 1})}")
+
+    def test_a_group_says_what_it_is_about(self) -> None:
+        """A heading that only repeats the settings under it earns nothing."""
+        from fastmdxplora.config.schema import SETTING_GROUPS
+
+        for phase, groups in SETTING_GROUPS.items():
+            for title, why, names in groups:
+                assert title and not title.endswith(":"), (phase, title)
+                assert why and why.endswith("."), (phase, title)
+                assert names, (phase, title)
+
+    def test_the_groups_come_back_with_the_fields_in_them(self) -> None:
+        """In the declared order, which is the order a decision is met."""
+        from fastmdxplora.config.schema import (
+            PHASE_SCHEMAS,
+            SETTING_GROUPS,
+            grouped_fields,
+        )
+
+        for phase, schema in PHASE_SCHEMAS.items():
+            groups = grouped_fields(phase)
+            returned = [f.name for _t, _w, fields in groups for f in fields]
+            declared = [name for _t, _w, names in SETTING_GROUPS[phase]
+                        for name in names]
+
+            assert returned == declared
+            assert len(returned) == len(schema.fields)
+            assert not any(title == "Other" for title, _w, _f in groups)
+
+    def test_the_browser_is_given_them(self) -> None:
+        from fastmdxplora.gui.schema_payload import schema_payload
+
+        simulation = schema_payload()["phases"]["simulation"]
+        titles = [group["title"] for group in simulation["groups"]]
+        assert "Enhanced sampling" in titles
+        assert "How long it runs" in titles
+        drawn = sum(len(group["fields"]) for group in simulation["groups"])
+        assert drawn == len(simulation["fields"])
+
+    def test_and_help_reads_as_sections(self) -> None:
+        """Thirty-seven flags in declaration order is the same problem in a
+        terminal."""
+        from fastmdxplora.cli.main import _build_parser
+
+        parser = _build_parser()
+        simulate = parser._subparsers._group_actions[0].choices["simulate"]
+        titles = [group.title for group in simulate._action_groups]
+
+        assert "simulate: enhanced sampling" in titles
+        assert "simulate: how long it runs" in titles
+        assert "simulate options" not in titles, (
+            "every flag is an option; the word carries nothing")
+
+    def test_the_two_views_read_in_the_same_order(self) -> None:
+        """They are one grouping seen twice, so a reader moving between them
+        is not learning a second arrangement."""
+        from fastmdxplora.cli.main import _build_parser
+        from fastmdxplora.gui.schema_payload import schema_payload
+
+        page = [group["title"].lower()
+                for group in schema_payload()["phases"]["simulation"]["groups"]]
+
+        parser = _build_parser()
+        simulate = parser._subparsers._group_actions[0].choices["simulate"]
+        terminal = [group.title.removeprefix("simulate: ")
+                    for group in simulate._action_groups
+                    if group.title and group.title.startswith("simulate: ")
+                    and group.title != "simulate: other"]
+
+        assert terminal == page

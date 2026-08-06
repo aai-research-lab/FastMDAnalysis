@@ -598,6 +598,135 @@ EXECUTION = PhaseSchema(
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# How the settings are grouped
+# ---------------------------------------------------------------------------
+#: Settings, in the order somebody meets the decisions they stand for.
+#:
+#: Thirty-six settings for setup and thirty-seven for simulation arrived as one
+#: flat list each, in the order they happened to be declared: a pH sat beside a
+#: dispersion correction, and finding the one you wanted meant reading all of
+#: them. The schema is the one place that knows what a setting is, so it is the
+#: place that says what it is *about*.
+#:
+#: Declared here rather than on each Field so the order within a group is
+#: visible as an order, and so adding a group does not mean editing eighty-odd
+#: declarations. A setting left out of every group is caught by a test, not by
+#: somebody noticing it missing from the page.
+SETTING_GROUPS: dict[str, tuple[tuple[str, str, tuple[str, ...]], ...]] = {
+    "setup": (
+        ("The structure",
+         "What is kept, what is repaired, and how it is protonated.",
+         ("ph", "protonation_margin", "heterogens", "keep_heterogens",
+          "keep_water", "replace_nonstandard_residues", "fixed_pdb")),
+        ("The ligand",
+         "Found and parameterised, or named if the structure is ambiguous.",
+         ("ligand", "ligand_name", "ligand_forcefield", "ligand_net_charge",
+          "check_ligand_clashes", "ligand_clash_threshold_nm")),
+        ("The membrane",
+         "A bilayer to embed in, and whether the orientation is trusted.",
+         ("membrane", "membrane_orient", "membrane_orientation_checked")),
+        ("Solvent, ions and the box",
+         "How much water, of what kind, at what salt concentration.",
+         ("water_model", "solvent_padding_nm", "box_shape", "neutralize",
+          "ion_positive", "ion_negative", "ion_concentration_M")),
+        ("The force field",
+         "What the atoms are, and which motions are held rigid.",
+         ("forcefield", "force_field", "constraints", "rigid_water",
+          "hydrogen_mass_amu", "temperature_K")),
+        ("How forces are computed",
+         "The long-range treatment. Defaults suit a solvated protein; "
+         "changing one changes the physics.",
+         ("nonbonded_method", "nonbonded_cutoff_nm", "ewald_error_tolerance",
+          "use_switching_function", "switch_distance_nm",
+          "dispersion_correction", "remove_cm_motion")),
+    ),
+    "simulation": (
+        ("How long it runs",
+         "Production length, and the equilibration before it.",
+         ("duration_ns", "nvt_duration_ns", "npt_duration_ns",
+          "production_steps", "nvt_steps", "npt_steps")),
+        ("Where it starts",
+         "A system prepared here or elsewhere, and how hard it is minimised "
+         "first.",
+         ("prepared_from", "minimize", "minimize_tolerance_kjmol_per_nm",
+          "minimize_max_iterations")),
+        ("Conditions",
+         "The thermodynamic state the run is held at.",
+         ("temperature_K", "pressure_bar", "pressure_atm", "friction_per_ps",
+          "barostat_frequency")),
+        ("The integrator",
+         "How the equations of motion are stepped.",
+         ("integrator", "timestep_fs", "integrator_error_tolerance",
+          "random_seed")),
+        ("Enhanced sampling",
+         "Bias the run to reach what it would not reach on its own. Each is "
+         "a block of settings, and each says what its output is and is not.",
+         ("umbrella", "steered", "metadynamics", "plumed")),
+        ("Restraints",
+         "Hold part of the system still while the rest settles.",
+         ("restrain", "restraint_release", "restrain_production")),
+        ("Where it runs",
+         "The compute platform, and which device.",
+         ("platform", "precision", "device_index")),
+        ("What gets written",
+         "How often frames, states and checkpoints are saved.",
+         ("trajectory_interval_steps", "state_interval_steps",
+          "checkpoint_interval_steps")),
+        ("Watching it run",
+         "What the live dashboard shows while the simulation is going.",
+         ("live_telemetry", "telemetry_interval", "dashboard_ligand_resname",
+          "dashboard_binding_pocket_cutoff_A",
+          "dashboard_max_playback_frames")),
+    ),
+    "analysis": (
+        ("What to measure",
+         "Which analyses run, and how each is configured.",
+         ("include", "exclude", "options")),
+        ("What to measure it on",
+         "The trajectory, and which atoms count.",
+         ("trajectory", "topology", "selection", "scope")),
+        ("Which frames",
+         "Trimming and thinning before anything is measured.",
+         ("first", "last", "stride")),
+    ),
+    "report": (
+        ("What it says",
+         "Who it is by, and which sections it carries.",
+         ("title", "author", "include_methods", "include_reproducibility",
+          "region_highlights", "comparison")),
+        ("What comes out",
+         "The formats written to the run directory.",
+         ("document", "slides", "pdf", "bundle")),
+    ),
+}
+
+
+def grouped_fields(phase: str) -> tuple[tuple[str, str, tuple[Field, ...]], ...]:
+    """A phase's settings in named groups, in the order they are declared.
+
+    Anything the groups do not name is returned last under "Other", so a
+    setting added without being placed still appears rather than vanishing
+    from every interface at once. The test is what makes that a warning
+    rather than a habit.
+    """
+    group = PHASE_SCHEMAS.get(phase)
+    if group is None:
+        return ()
+    by_name = {f.name: f for f in group.fields}
+    placed: set[str] = set()
+    out: list[tuple[str, str, tuple[Field, ...]]] = []
+    for title, why, names in SETTING_GROUPS.get(phase, ()):
+        fields = tuple(by_name[n] for n in names if n in by_name)
+        placed.update(f.name for f in fields)
+        if fields:
+            out.append((title, why, fields))
+    left = tuple(f for f in group.fields if f.name not in placed)
+    if left:
+        out.append(("Other", "Not yet placed in a group.", left))
+    return tuple(out)
+
+
 PHASE_SCHEMAS: dict[str, PhaseSchema] = {
     "setup": SETUP,
     "simulation": SIMULATION,

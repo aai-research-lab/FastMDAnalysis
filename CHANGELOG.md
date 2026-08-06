@@ -147,6 +147,15 @@ visited.
 
 ### Changed
 
+- **The settings are grouped by what they decide.** Thirty-six for setup and
+  thirty-seven for simulation arrived as one flat list each, in the order they
+  happened to be declared: a pH sat beside a dispersion correction, and
+  finding the one you wanted meant reading all of them. Each phase now opens
+  into named groups that say what they are about, and `--help` reads in the
+  same sections -- one grouping declared in the schema and seen twice, rather
+  than two that agree until one is edited. A setting added without being
+  placed fails a test.
+
 - **A settings block can be written in the browser.** `umbrella`, `steered`
   and `metadynamics` are blocks of several settings, not one value each. They
   reached the form -- the schema declares them -- as single-line text boxes,

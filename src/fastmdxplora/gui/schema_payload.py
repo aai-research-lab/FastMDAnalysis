@@ -180,10 +180,21 @@ _STRUCTURAL_TOP_LEVEL = {
 
 def schema_payload() -> dict[str, Any]:
     """Every setting the software accepts, ready to be drawn."""
+    from fastmdxplora.config.schema import grouped_fields
+
     phases = {
         phase: {
             "fields": [field_payload(f) for f in group.fields],
             "description": getattr(group, "description", None),
+            # The same settings, in named groups. Thirty-odd controls in one
+            # grid is a list to read rather than a form to fill in, and the
+            # schema is the one place that knows what each setting is about.
+            "groups": [
+                {"title": title,
+                 "why": why,
+                 "fields": [field_payload(f) for f in fields]}
+                for title, why, fields in grouped_fields(phase)
+            ],
         }
         for phase, group in PHASE_SCHEMAS.items()
     }
