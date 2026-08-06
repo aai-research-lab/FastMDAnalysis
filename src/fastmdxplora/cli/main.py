@@ -1300,18 +1300,77 @@ def _probe_backends(import_names: tuple[str, ...]) -> dict[str, tuple[str, str]]
     return checked
 
 
+#: What a phase cannot run without, and what it does less of without the rest.
+#: Named by the group in ``_BACKENDS`` that already says what those packages
+#: are for, so a backend added to a group is one the phases needing that group
+#: are reported as needing.
+#:
+#: The distinction matters: setup prepares a protein with OpenMM and PDBFixer
+#: alone, and only a *ligand* needs the chemistry stack. Reporting setup as
+#: unavailable there would send somebody installing four packages for a run
+#: that would have worked.
+_PHASE_NEEDS: dict[str, tuple[tuple[str, ...], tuple[tuple[str, str], ...]]] = {
+    "setup": (("to run a simulation",),
+              (("to prepare a ligand", "proteins only"),)),
+    "simulation": (("to run a simulation",), ()),
+    # Analysis runs on a PyPI install alone, which is what the PyPI package is
+    # for. The report does too; the PDF is one format of several.
+    "analysis": ((), ()),
+    "report": ((), (("to write the report as a PDF", "no PDF"),)),
+}
+
+
+def _backends_in(group_names: tuple[str, ...]) -> tuple[tuple[str, str], ...]:
+    """The (display name, import name) of every backend in those groups."""
+    by_group = {group: backends for group, backends in _BACKENDS}
+    return tuple(
+        (display, import_name)
+        for group in group_names
+        for display, import_name, _hint in by_group.get(group, ())
+    )
+
+
+def _phase_status(phase: str, probed: dict[str, tuple[str, str]]) -> str:
+    """Whether the phase will run here, and what it will not do if it does."""
+    required, conditional = _PHASE_NEEDS[phase]
+
+    def absent(groups: tuple[str, ...]) -> list[str]:
+        # "installed" is the word the probe uses; comparing against any other
+        # reports every backend missing, which is the same contradiction
+        # pointing the other way.
+        return [display for display, import_name in _backends_in(groups)
+                if probed[import_name][0] != "installed"]
+
+    missing = absent(required)
+    if missing:
+        return "needs " + ", ".join(missing)
+    limits = [note for group, note in conditional if absent((group,))]
+    return "ready" + (f" ({', '.join(limits)})" if limits else "")
+
+
 def _cmd_info() -> int:
     print("FastMDXplora")
     print(f"  version: {__version__}")
     print(f"  Authors: {__author__}")
     print(f"  DOI:     {__doi__}")
     print()
+    # A phase is not available because its module imports. It said so anyway:
+    # a pip install reported setup and simulation "available" three lines
+    # above OpenMM and PDBFixer "missing", which is the same screen
+    # contradicting itself -- and the same defect this command was fixed for
+    # one block down.
+    probed = _probe_backends(tuple(
+        import_name
+        for _group, backends in _BACKENDS
+        for _display, import_name, _hint in backends
+    ))
     print("Molecular Dynamics Phases:")
     for name in ("setup", "simulation", "analysis", "report"):
         try:
             module = __import__(f"fastmdxplora.{name}", fromlist=["run"])
-            run_fn = getattr(module, "run", None)
-            status = "available" if callable(run_fn) else "missing run()"
+            status = ("missing run()"
+                      if not callable(getattr(module, "run", None))
+                      else _phase_status(name, probed))
         except Exception as exc:  # noqa: BLE001
             status = f"import error: {exc}"
         print(f"  {name:<11} {status}")
@@ -1320,11 +1379,6 @@ def _cmd_info() -> int:
     # This listed two of six, so a PyPI install reported both of them present
     # and said nothing about the toolkit a protein-ligand setup needs -- which
     # is the one question this command exists to answer.
-    probed = _probe_backends(tuple(
-        import_name
-        for _group, backends in _BACKENDS
-        for _display, import_name, _hint in backends
-    ))
     print("Backends:")
     for group, backends in _BACKENDS:
         print(f"  {group}")

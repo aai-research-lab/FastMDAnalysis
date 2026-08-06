@@ -461,3 +461,99 @@ def test_the_answer_does_not_come_back_on_stdout() -> None:
     source = inspect.getsource(module._probe_backends)
     assert "sys.stdout.write(json.dumps" not in source
     assert "open(sys.argv[2]" in source
+
+
+class TestAPhaseSaysWhetherItWillRun:
+    """`fastmdx info` reported setup and simulation as "available" three lines
+    above OpenMM and PDBFixer as "missing".
+
+    "Available" meant only that the module imported and had a callable `run`,
+    which is true of a phase that cannot run at all. So one screen contradicted
+    itself, and somebody reading the first block would conclude their install
+    was complete -- the same defect this command was fixed for one block down,
+    left in the block above it.
+
+    Found on a real PyPI install of 2.4.0, which is the environment the
+    question is asked in.
+    """
+
+    @staticmethod
+    def _probed(**state):
+        from fastmdxplora.cli.main import _BACKENDS
+
+        return {import_name: (state.get(import_name, "missing"), "")
+                for _group, backends in _BACKENDS
+                for _display, import_name, _hint in backends}
+
+    @staticmethod
+    def _everything():
+        from fastmdxplora.cli.main import _BACKENDS
+
+        return {import_name: ("installed", "")
+                for _group, backends in _BACKENDS
+                for _display, import_name, _hint in backends}
+
+    def test_a_pip_install_says_what_the_md_phases_need(self) -> None:
+        from fastmdxplora.cli.main import _phase_status
+
+        nothing = self._probed()
+        assert _phase_status("setup", nothing) == "needs OpenMM, PDBFixer"
+        assert _phase_status("simulation", nothing) == "needs OpenMM, PDBFixer"
+
+    def test_and_that_the_other_two_still_run(self) -> None:
+        """Which is what the PyPI package is for: analysis and reporting on a
+        trajectory you already have."""
+        from fastmdxplora.cli.main import _phase_status
+
+        nothing = self._probed()
+        assert _phase_status("analysis", nothing) == "ready"
+        assert _phase_status("report", nothing).startswith("ready")
+
+    def test_a_full_install_says_ready_without_qualification(self) -> None:
+        from fastmdxplora.cli.main import _phase_status
+
+        everything = self._everything()
+        for phase in ("setup", "simulation", "analysis", "report"):
+            assert _phase_status(phase, everything) == "ready", phase
+
+    def test_setup_runs_for_a_protein_without_the_ligand_stack(self) -> None:
+        """Reporting it unavailable would send somebody installing four
+        packages for a run that would have worked."""
+        from fastmdxplora.cli.main import _phase_status
+
+        md_only = self._probed(openmm="installed", pdbfixer="installed")
+        assert _phase_status("setup", md_only) == "ready (proteins only)"
+        assert _phase_status("simulation", md_only) == "ready"
+
+    def test_the_report_says_which_format_it_cannot_write(self) -> None:
+        """It still runs -- the PDF is one format of several."""
+        from fastmdxplora.cli.main import _phase_status
+
+        no_pdf = self._everything()
+        no_pdf["weasyprint"] = ("missing", "")
+        assert _phase_status("report", no_pdf) == "ready (no PDF)"
+
+    def test_installed_but_broken_counts_as_needed(self) -> None:
+        """A backend that will not load is not one you have."""
+        from fastmdxplora.cli.main import _phase_status
+
+        broken = self._everything()
+        broken["openmm"] = ("broken", "libOpenMM.so")
+        assert _phase_status("simulation", broken) == "needs OpenMM"
+
+    def test_the_two_blocks_cannot_disagree(self) -> None:
+        """They read one probe, so a phase reported ready has every backend
+        the block below it reports installed. The first version compared
+        against 'present' where the probe says 'installed', which reported
+        every backend absent -- the same contradiction pointing the other
+        way, and it got as far as being run."""
+        from fastmdxplora.cli.main import _BACKENDS, _PHASE_NEEDS, _phase_status
+
+        groups = {group for group, _backends in _BACKENDS}
+        for phase, (required, conditional) in _PHASE_NEEDS.items():
+            for group in required + tuple(g for g, _note in conditional):
+                assert group in groups, (phase, group)
+
+        everything = self._everything()
+        assert all(_phase_status(phase, everything) == "ready"
+                   for phase in _PHASE_NEEDS)

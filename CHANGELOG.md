@@ -273,6 +273,16 @@ visited.
   the ordinary test run now checks it against the changelog -- the thing a
   release is cut from.
 
+- **`fastmdx info` called a phase available that could not run.** It reported
+  setup and simulation as "available" three lines above OpenMM and PDBFixer as
+  "missing" -- "available" meant only that the module imported and had a
+  callable `run`, which is true of a phase with nothing to run it on. One
+  screen contradicted itself, and the block somebody reads first was the one
+  that was wrong. A phase now says what it needs, or that it is ready, or what
+  it will not be able to do: setup prepares a protein without the ligand
+  stack, and the report is written without a PDF, so neither is reported
+  unavailable for wanting them.
+
 - **`fastmdx info` reported two backends where the software reaches for
   eight.** A PyPI install showed OpenMM and PDBFixer present and said nothing
   about the OpenFF toolkit, which a protein-ligand setup needs and which pip
