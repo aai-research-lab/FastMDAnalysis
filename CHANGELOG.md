@@ -8,6 +8,28 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Added
+- **A mean says how much of a run is behind it.** Ten analyses averaged over
+  the whole production run without asking whether the system had settled by
+  the time the averaging started, or how many *independent* observations the
+  average rested on. Frames are not independent: a trajectory written every
+  picosecond from a system decorrelating over a hundred has a hundred times
+  fewer independent samples than frames, and an error computed as though each
+  frame counted is understated -- six-fold on a test series, which is how a
+  difference between two systems becomes significant on paper without being
+  real.
+
+  Both questions have one answer. The statistical inefficiency is the number
+  of frames per independent sample, so it fixes where the relaxation ended
+  (Chodera, J. Chem. Theory Comput. 2016, 12, 1799) and what the mean is
+  worth. Below ten independent samples the mean describes the run rather than
+  the system, and it is refused.
+
+  A run too short to measure its own correlation time is refused separately,
+  because that failure flatters: the inefficiency comes back too small and the
+  sample count too large. On a test series with a true inefficiency of 2000,
+  four thousand frames gave 361 and an apparent eleven independent samples
+  where the truth was two.
+
 - **A metadynamics run produces a free energy surface, or refuses one.** It
   wrote PLUMED's HILLS and COLVAR and stopped: nothing read them back, so the
   module said "a run that has not converged has no free energy" while offering
