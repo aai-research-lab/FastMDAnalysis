@@ -103,6 +103,62 @@ def _execute_run(
         except (AttributeError, ValueError):
             pass
 
+    # Several workers share one terminal, so none of them should print a
+    # banner to it. Three copies of the wordmark arriving a character at a
+    # time is not three runs starting -- it is one unreadable screen. Each
+    # run writes its own log file, and the batch prints the progress that
+    # belongs to the whole study.
+    # Restored when the run ends, because this function is called in-process
+    # by the tests as well as in a subprocess by a real run, and a worker
+    # that leaves a global changed poisons everything after it.
+    import os as _os
+
+    class _QuietBanner:
+        """Keep a worker's output out of the shared terminal.
+
+        Two sources. Ours obeys an environment variable. PLUMED's comes from
+        C++ and writes to the file descriptor directly, so redirecting
+        Python's ``sys.stdout`` does not reach it -- the same lesson as a
+        Markdown renderer that printed its installation guide from a dynamic
+        loader. The descriptor itself has to move.
+
+        It moves to the run's own log, so nothing is lost: a worker's output
+        belongs beside its results rather than mixed with two others'.
+        """
+
+        def __init__(self, log_path):
+            self.log_path = log_path
+
+        def __enter__(self):
+            self.previous = _os.environ.get("FASTMDX_LOG_STYLE")
+            _os.environ["FASTMDX_LOG_STYLE"] = "plain"
+
+            self.saved = None
+            try:
+                _os.makedirs(_os.path.dirname(self.log_path), exist_ok=True)
+                self.sink = open(self.log_path, "a", encoding="utf-8")
+                self.saved = (_os.dup(1), _os.dup(2))
+                _os.dup2(self.sink.fileno(), 1)
+                _os.dup2(self.sink.fileno(), 2)
+            except OSError:
+                # A worker that cannot redirect should still run.
+                self.saved = None
+            return self
+
+        def __exit__(self, *_exc):
+            if self.saved is not None:
+                out, err = self.saved
+                _os.dup2(out, 1)
+                _os.dup2(err, 2)
+                _os.close(out)
+                _os.close(err)
+                self.sink.close()
+            if self.previous is None:
+                _os.environ.pop("FASTMDX_LOG_STYLE", None)
+            else:
+                _os.environ["FASTMDX_LOG_STYLE"] = self.previous
+            return False
+
     # Imported here so the subprocess sets up its own logging/imports.
     from fastmdxplora import FastMDXplora
     from fastmdxplora.orchestrator import RunResult
@@ -115,15 +171,16 @@ def _execute_run(
         options["simulation"] = sim
 
     try:
-        fmdx = FastMDXplora(
-            system=spec_dict["system"],
-            output_dir=run_out,
-            options=options,
-            verbose=verbose,
-        )
-        # A single-system explore() returns a one-element list of RunResult;
-        # take its phases and re-stamp the run's identity from the spec.
-        inner = fmdx.explore(include=include, exclude=exclude, report=True)
+        with _QuietBanner(_os.path.join(run_out, "run.log")):
+            fmdx = FastMDXplora(
+                system=spec_dict["system"],
+                output_dir=run_out,
+                options=options,
+                verbose=verbose,
+            )
+            # A single-system explore() returns a one-element list of
+            # RunResult; take its phases and re-stamp the run's identity.
+            inner = fmdx.explore(include=include, exclude=exclude, report=True)
         phases = inner[0].phases if inner else []
         status = "error" if any(p.status == "error" for p in phases) else "ok"
         message = _first_error_phase_message(phases) if status == "error" else ""
@@ -341,8 +398,17 @@ class BatchExplorer:
         if plan is None:
             return
 
+        # Where the runs actually went, from the same method that put them
+        # there. Reconstructing the path from the output directory got both
+        # the "runs" level and the slugged identifier wrong.
+        directories = {}
+        for spec in self.run_specs:
+            block = (spec.options.get("simulation") or {}).get("umbrella") or {}
+            if block.get("index") is not None:
+                directories[int(block["index"])] = self._run_output_dir(spec)
+
         try:
-            samples = collect_samples(self.output_dir, plan)
+            samples = collect_samples(directories)
         except FileNotFoundError as exc:
             # Some window did not produce sampling. Recorded rather than
             # raised: the runs that did work are still on disk and worth

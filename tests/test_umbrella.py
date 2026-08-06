@@ -271,7 +271,9 @@ class TestReadingTheSamplingBack:
             "n_windows": 17, "force_constant": 200.0})
         self._written(tmp_path, plan)
 
-        result = compute_pmf(collect_samples(tmp_path, plan), plan)
+        directories = {w.index: tmp_path / f"window_{w.index:02d}"
+                       for w in plan.windows}
+        result = compute_pmf(collect_samples(directories), plan)
         x = np.array(result["pmf"]["coordinate"])
         f = np.array(result["pmf"]["free_energy_kjmol"])
         assert f[np.argmin(np.abs(x))] == pytest.approx(10.0, abs=1.5)
@@ -302,8 +304,10 @@ class TestReadingTheSamplingBack:
         import shutil
         shutil.rmtree(tmp_path / "window_02")
 
-        with pytest.raises(FileNotFoundError, match="window_02"):
-            collect_samples(tmp_path, plan)
+        directories = {w.index: tmp_path / f"window_{w.index:02d}"
+                       for w in plan.windows}
+        with pytest.raises(FileNotFoundError, match="window 2"):
+            collect_samples(directories)
 
 
 class TestOneWindowInTheRunner:
@@ -644,3 +648,184 @@ class TestAFailedWindowStopsTheStudy:
         for entry in self._umbrella()["systems"]:
             centre = entry["simulation"]["umbrella"]["centre"]
             assert type(centre) is float
+
+
+class TestItLooksWhereTheRunsActuallyWent:
+    """The first version guessed the path -- `<output>/window_00/simulation/
+    COLVAR` -- and the runs go to `<output>/runs/window-00/simulation/COLVAR`:
+    under a `runs` directory, with the identifier slugged.
+
+    Two mistakes in one path, neither visible until a real study finished and
+    the recombination found nothing. The caller knows where it put things.
+    """
+
+    @staticmethod
+    def _explorer(tmp_path):
+        from fastmdxplora.batch.explorer import BatchExplorer
+
+        config = tmp_path / "c.yml"
+        config.write_text(
+            "output: out\n"
+            "include: [setup, simulation]\n"
+            "systems:\n"
+            "  - system: 181L\n"
+            "simulation:\n"
+            "  umbrella:\n"
+            "    collective_variable: distance\n"
+            '    selection_a: "name CA"\n'
+            '    selection_b: "name CB"\n'
+            "    from: -1.6\n"
+            "    to: 1.6\n"
+            "    n_windows: 17\n"
+            "    force_constant: 200\n",
+            encoding="utf-8")
+        return BatchExplorer(config=config, output_dir=str(tmp_path / "out"))
+
+    def test_a_free_energy_comes_out_of_a_real_layout(self, tmp_path) -> None:
+        import json
+
+        explorer = self._explorer(tmp_path)
+        for spec in explorer.run_specs:
+            block = spec.options["simulation"]["umbrella"]
+            simulation = explorer._run_output_dir(spec) / "simulation"
+            simulation.mkdir(parents=True)
+            values = _sample(block["centre"], block["force_constant"],
+                             n=3000, seed=block["index"])
+            simulation.joinpath("COLVAR").write_text(
+                "#! FIELDS time cv bias\n"
+                + "\n".join(f"{i * 0.1:.1f} {v:.6f} 0.0"
+                            for i, v in enumerate(values)),
+                encoding="utf-8")
+
+        explorer._maybe_build_pmf()
+
+        written = json.loads(
+            (tmp_path / "out" / "pmf.json").read_text(encoding="utf-8"))
+        assert written["refused"] is None
+        x = np.array(written["pmf"]["coordinate"])
+        f = np.array(written["pmf"]["free_energy_kjmol"])
+        assert f[np.argmin(np.abs(x))] == pytest.approx(10.0, abs=1.5)
+
+    def test_the_directories_come_from_the_explorer(self) -> None:
+        """Not from reconstructing a path, which is what got it wrong."""
+        import inspect
+
+        from fastmdxplora.batch import explorer
+        from fastmdxplora.simulation import umbrella
+
+        assert "_run_output_dir(spec)" in inspect.getsource(
+            explorer.BatchExplorer._maybe_build_pmf)
+        # And the collector no longer builds one.
+        # The body, not the docstring -- which explains the mistake and
+        # therefore contains the very string this looks for.
+        source = inspect.getsource(umbrella.collect_samples)
+        body = source[source.index('"""', source.index('"""') + 3):]
+        assert "window_" not in body, (
+            "the collector should not know how a run directory is named"
+        )
+
+    def test_a_missing_window_names_the_path_it_looked_at(self, tmp_path) -> None:
+        """So the next path mistake is one line of output rather than an
+        empty result."""
+        from fastmdxplora.simulation.umbrella import collect_samples
+
+        with pytest.raises(FileNotFoundError, match="COLVAR"):
+            collect_samples({0: tmp_path / "nowhere"})
+
+
+class TestParallelRunsShareOneTerminal:
+    """Three workers printing the wordmark at once produced a screen of
+    interleaved fragments -- characters from three banners arriving mixed
+    together, which is not three runs starting but one unreadable page.
+
+    Each run writes its own log file. The terminal belongs to the study.
+    """
+
+    def test_a_worker_prints_no_banner(self) -> None:
+        import io
+        import os
+
+        from fastmdxplora.utils.presenter import SessionPresenter
+
+        previous = os.environ.get("FASTMDX_LOG_STYLE")
+        os.environ["FASTMDX_LOG_STYLE"] = "plain"
+        try:
+            out = io.StringIO()
+            SessionPresenter(stream=out).banner(
+                System="181L", Output="x", Version="2.3.0")
+            assert out.getvalue() == ""
+        finally:
+            if previous is None:
+                os.environ.pop("FASTMDX_LOG_STYLE", None)
+            else:
+                os.environ["FASTMDX_LOG_STYLE"] = previous
+
+    def test_an_ordinary_run_still_prints_one(self) -> None:
+        import io
+        import os
+
+        from fastmdxplora.utils.presenter import SessionPresenter
+
+        previous = os.environ.pop("FASTMDX_LOG_STYLE", None)
+        try:
+            out = io.StringIO()
+            SessionPresenter(stream=out).banner(
+                System="181L", Output="x", Version="2.3.0")
+            assert "181L" in out.getvalue()
+        finally:
+            if previous is not None:
+                os.environ["FASTMDX_LOG_STYLE"] = previous
+
+    def test_the_worker_asks_for_it(self) -> None:
+        import inspect
+
+        from fastmdxplora.batch import explorer
+
+        source = inspect.getsource(explorer._execute_run)
+        assert "FASTMDX_LOG_STYLE" in source
+        assert "share one terminal" in source
+
+    def test_plumeds_own_output_goes_to_the_run_log(self) -> None:
+        """PLUMED prints its banner from C++, straight to the file
+        descriptor, so silencing ours left three copies of its own
+        interleaved in the terminal. Python-level redirection does not reach
+        a C write -- the descriptor has to move, which is the same lesson a
+        Markdown renderer taught by printing its installation guide from a
+        dynamic loader.
+        """
+        import ctypes
+        import inspect
+        import os
+        import pathlib
+        import tempfile
+        import textwrap
+
+        from fastmdxplora.batch import explorer
+
+        source = inspect.getsource(explorer._execute_run)
+        block = source[source.index("    class _QuietBanner:"):
+                       source.index("    # Imported here")]
+        namespace: dict = {}
+        exec("import os as _os\n" + textwrap.dedent(block), namespace)
+
+        libc = ctypes.CDLL(None)
+        with tempfile.TemporaryDirectory() as directory:
+            log = os.path.join(directory, "run", "run.log")
+            with namespace["_QuietBanner"](log):
+                libc.puts(b"PLUMED: pretending to start")
+                libc.fflush(None)
+            assert "PLUMED" in pathlib.Path(log).read_text(encoding="utf-8")
+
+    def test_and_puts_it_back(self) -> None:
+        """The worker is called in-process by the tests as well as in a
+        subprocess by a real run. Setting a global and not restoring it made
+        seventeen unrelated tests fail."""
+        import inspect
+
+        from fastmdxplora.batch import explorer
+
+        source = inspect.getsource(explorer._execute_run)
+        assert "__exit__" in source
+        # The call, whatever it now takes as an argument -- pinning the exact
+        # text made this fail the moment the guard learned where to write.
+        assert "with _QuietBanner(" in source

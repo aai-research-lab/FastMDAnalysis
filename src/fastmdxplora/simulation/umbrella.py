@@ -253,12 +253,18 @@ def windows_as_sweep(plan: UmbrellaPlan) -> list[dict[str, Any]]:
 
 
 def collect_samples(
-    output_dir: Any,
-    plan: UmbrellaPlan,
+    directories: dict[int, Any],
     *,
     equilibration_fraction: float = 0.2,
 ) -> dict[int, np.ndarray]:
     """Read each window's sampling back from its COLVAR file.
+
+    Takes the directories rather than working them out. The first version
+    guessed -- ``<output>/window_00/simulation/COLVAR`` -- and the runs are
+    actually at ``<output>/runs/window-00/simulation/COLVAR``: under a
+    ``runs`` directory, with the identifier slugged. Two mistakes in one
+    path, neither visible until a real study finished and found nothing.
+    The caller knows where it put things.
 
     The first part of each window is discarded. A window begins away from
     where it will settle, and counting the approach as sampling biases the
@@ -267,14 +273,13 @@ def collect_samples(
     """
     from pathlib import Path
 
-    root = Path(output_dir)
     samples: dict[int, np.ndarray] = {}
     missing: list[str] = []
 
-    for window in plan.windows:
-        colvar = root / f"window_{window.index:02d}" / "simulation" / "COLVAR"
+    for index, directory in sorted(directories.items()):
+        colvar = Path(directory) / "simulation" / "COLVAR"
         if not colvar.is_file():
-            missing.append(f"window_{window.index:02d}")
+            missing.append(f"window {index} ({colvar})")
             continue
         rows = []
         for line in colvar.read_text(encoding="utf-8").splitlines():
@@ -287,15 +292,15 @@ def collect_samples(
                 except ValueError:
                     continue
         if not rows:
-            missing.append(f"window_{window.index:02d} (empty)")
+            missing.append(f"window {index} (empty COLVAR)")
             continue
         values = np.asarray(rows)
         cut = int(len(values) * equilibration_fraction)
-        samples[window.index] = values[cut:]
+        samples[index] = values[cut:]
 
     if missing:
         raise FileNotFoundError(
-            "These windows produced no sampling: " + ", ".join(missing) + ". "
+            "These windows produced no sampling: " + "; ".join(missing) + ". "
             "A free energy cannot be computed from a partial set, because "
             "the windows either side of a missing one have nothing between "
             "them to stitch through."
