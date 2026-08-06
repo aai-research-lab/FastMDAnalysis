@@ -338,3 +338,68 @@ def test_one_long_stay_does_not_make_a_cluster_one_molecule() -> None:
     assert "dominant_share >= 0.5" in source, (
         "the dominant molecule must hold most of the observations"
     )
+
+
+class TestARunTooShortToShowResidence:
+    """Ubiquitin over ten picoseconds produced a site occupied in every frame
+    and called it "one molecule, bound".
+
+    Water on a protein surface exchanges on ten to a hundred picoseconds. A
+    site fully occupied through ten of them shows that no water left, not that
+    one is held -- and every site in such a run looks the same. That is a
+    claim about residence the run cannot support.
+    """
+
+    @staticmethod
+    def _pinned(duration_ps, n_frames=100):
+        import mdtraj as md
+
+        top = md.Topology()
+        chain = top.add_chain()
+        residue = top.add_residue("ALA", chain, resSeq=1)
+        for name in ("N", "CA", "C", "O"):
+            top.add_atom(name, md.element.carbon, residue)
+        waters = top.add_chain()
+        water = top.add_residue("HOH", waters, resSeq=100)
+        for name, element in (("O", md.element.oxygen),
+                              ("H1", md.element.hydrogen),
+                              ("H2", md.element.hydrogen)):
+            top.add_atom(name, element, water)
+
+        rng = np.random.RandomState(0)
+        xyz = np.zeros((n_frames, top.n_atoms, 3), dtype=np.float32)
+        for frame in range(n_frames):
+            xyz[frame, :4] = [[0, 0, 0], [0.15, 0, 0], [0.3, 0, 0], [0.3, 0.12, 0]]
+            point = np.array([0.15, 0.30, 0.0]) + rng.normal(scale=0.02, size=3)
+            xyz[frame, 4] = point
+            xyz[frame, 5] = point + [0.01, 0, 0]
+            xyz[frame, 6] = point + [0, 0.01, 0]
+
+        traj = md.Trajectory(xyz=xyz, topology=top,
+                             time=np.linspace(0, duration_ps, n_frames))
+        traj.unitcell_lengths = np.tile([8.0, 8.0, 8.0], (n_frames, 1))
+        traj.unitcell_angles = np.tile([90.0, 90.0, 90.0], (n_frames, 1))
+        return traj
+
+    def _findings(self, duration_ps, tmp_path):
+        from fastmdxplora.analysis.water_sites import WaterSites
+
+        analysis = WaterSites(output_dir=str(tmp_path), site_selection="name CA",
+                              cutoff_nm=0.6)
+        analysis.compute(self._pinned(duration_ps))
+        return analysis.findings
+
+    def test_ten_picoseconds_carries_the_caveat(self, tmp_path) -> None:
+        findings = self._findings(10.0, tmp_path)
+        assert "too_short_for_residence" in findings
+        assert "no water left" in findings["too_short_for_residence"]
+
+    def test_five_nanoseconds_does_not(self, tmp_path) -> None:
+        findings = self._findings(5000.0, tmp_path)
+        assert "too_short_for_residence" not in findings
+
+    def test_the_duration_is_recorded_either_way(self, tmp_path) -> None:
+        """So a reader can weigh a residence claim without rerunning."""
+        assert self._findings(10.0, tmp_path)["duration_ps"] == pytest.approx(10.0)
+        assert self._findings(
+            5000.0, tmp_path)["duration_ps"] == pytest.approx(5000.0)

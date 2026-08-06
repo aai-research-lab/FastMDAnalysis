@@ -294,6 +294,25 @@ class WaterSites(Analysis):
         result = pd.DataFrame(rows).sort_values(
             "occupancy", ascending=False).reset_index(drop=True)
 
+        # How long the run was, against how long water stays. A water on a
+        # protein surface exchanges on ten to a hundred picoseconds, so a
+        # trajectory shorter than that cannot tell a bound water from one
+        # that had not left yet -- and every site in it will look fully
+        # occupied. Reporting "one molecule, bound" from ten picoseconds is a
+        # claim about residence the run cannot support.
+        duration_ps = None
+        if traj.time is not None and traj.n_frames > 1:
+            duration_ps = float(traj.time[-1] - traj.time[0])
+        self.findings["duration_ps"] = duration_ps
+        if duration_ps is not None and duration_ps < 1000.0:
+            self.findings["too_short_for_residence"] = (
+                f"This trajectory is {duration_ps:.0f} ps. Water on a protein "
+                "surface exchanges on ten to a hundred picoseconds, so a site "
+                "occupied throughout a run this short shows that no water "
+                "left, not that one is held. Distinguishing a structural "
+                "water from a slow one needs nanoseconds."
+            )
+
         self.findings["n_sites"] = len(result)
         if spread_out:
             self.findings["rejected_as_too_spread_out"] = spread_out
