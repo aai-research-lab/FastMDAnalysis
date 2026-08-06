@@ -132,28 +132,17 @@ def autocorrelation_time(values: Any) -> float:
     negative -- the standard truncation, because the tail of the estimate is
     noise and summing it adds variance rather than information.
 
-    Returns 1.0 where the series is uncorrelated or too short to tell, which
-    is the honest floor: a trajectory cannot have more independent samples
-    than frames.
+    One implementation, in the analysis layer, because there were briefly two:
+    this one and a second written for the per-frame analyses. They agreed to
+    two decimal places on every correlated series tested and disagreed on a
+    constant one, where this one was right -- a series that never changes is
+    perfectly correlated, and no number of frames of it is more than one
+    observation. Two functions computing the same statistic is how one of them
+    quietly becomes wrong.
     """
-    series = np.asarray(values, dtype=np.float64)
-    n = series.size
-    if n < 4:
-        return 1.0
-    centred = series - series.mean()
-    variance = float(np.dot(centred, centred) / n)
-    if variance <= 0:
-        # A series that never changes is perfectly correlated, and no number
-        # of frames of it is more than one observation.
-        return float(n)
+    from fastmdxplora.analysis.equilibration import statistical_inefficiency
 
-    total = 0.0
-    for lag in range(1, n // 2):
-        correlation = float(np.dot(centred[:-lag], centred[lag:]) / (n * variance))
-        if correlation <= 0:
-            break
-        total += correlation
-    return float(max(1.0, 1.0 + 2.0 * total))
+    return statistical_inefficiency(values)
 
 
 def _drift_in_noise(values: Any) -> float:
@@ -183,13 +172,21 @@ def assess_series(name: str, values: Any) -> Assessment:
     if n == 0:
         return Assessment(name, 0, float("nan"), float("nan"), 1.0, 0.0, 0.0)
 
+    from fastmdxplora.analysis.equilibration import correlation_is_resolved
+
     correlation = autocorrelation_time(series)
-    # The sum truncates at half the series, so a correlation approaching that
-    # is a floor rather than a measurement: the series is too short to see how
-    # long its memory is, and the effective-sample count that follows is the
-    # independence the estimate failed to rule out. A tenth is the usual
-    # working limit.
-    measurable = correlation <= max(2.0, n / 10.0)
+    # Whether the series can see how long its own memory is. A correlation
+    # approaching what the sum can reach is a floor rather than a measurement,
+    # and the effective-sample count that follows is the independence the
+    # estimate failed to rule out.
+    #
+    # The rule here was a tenth of the run, which is the usual working limit
+    # and lets the flattering case through: a series with a true correlation
+    # of 2000 measured 361 over 4000 frames, and 361 is under a tenth of 4000.
+    # Halving the series and asking whether the estimate moves catches it,
+    # and it is the same criterion the analyses apply -- one run should not be
+    # measurable in the report and unresolved in the findings.
+    measurable = correlation_is_resolved(series)
     # Drift is compared between the first and last thirds, so a series that
     # cannot be divided into thirds with anything in them says nothing about
     # trend. Six is the least that gives two points per third.

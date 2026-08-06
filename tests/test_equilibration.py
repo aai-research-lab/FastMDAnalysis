@@ -49,10 +49,23 @@ class TestCountingIndependentSamples:
         assert statistical_inefficiency(rng.normal(size=50000)) == \
             pytest.approx(1.0, abs=0.05)
 
-    def test_a_constant_series_has_nothing_to_correlate(self) -> None:
-        """No fluctuations, so no correlation time describes them. One rather
-        than a division by zero."""
-        assert statistical_inefficiency(np.full(500, 2.5)) == 1.0
+    def test_a_constant_series_is_one_observation(self) -> None:
+        """However many frames of it there are. This module first returned
+        one, which says a constant has as many independent samples as frames;
+        the report layer had it right, and there is now one implementation."""
+        assert statistical_inefficiency(np.full(500, 2.5)) == 500.0
+
+    def test_the_report_layer_and_this_one_are_the_same_function(self) -> None:
+        """There were briefly two. They agreed on every correlated series and
+        disagreed on a constant one, which is how a duplicated statistic
+        announces itself -- usually later than this."""
+        from fastmdxplora.report.convergence import autocorrelation_time
+
+        rng = np.random.RandomState(0)
+        for series in (rng.normal(size=2000), _correlated(0.8, 5000, seed=1),
+                       np.full(300, 1.5)):
+            assert autocorrelation_time(series) == \
+                statistical_inefficiency(series)
 
     def test_too_few_frames_to_ask(self) -> None:
         assert statistical_inefficiency(np.array([1.0, 2.0])) == 1.0
@@ -354,3 +367,41 @@ class TestEveryPerFrameAnalysisSaysWhatItsMeanIsWorth:
                 assert cls.time_series, (
                     f"{name} returns one value per frame and does not say so, "
                     "so its mean carries no error and no sample count")
+
+
+class TestOneRunGetsOneVerdict:
+    """The report layer and the analyses both ask whether a series can measure
+    its own correlation time, and they asked it differently.
+
+    The report's rule was a tenth of the run, which is the usual working limit
+    and lets the flattering case through: a series with a true correlation of
+    2000 measured 361 over 4000 frames, and 361 is under a tenth of 4000. So a
+    run could be measurable in the report and unresolved in the findings, on
+    the same numbers.
+    """
+
+    def test_the_case_the_old_rule_missed(self) -> None:
+        from fastmdxplora.report.convergence import assess_series
+
+        series = _correlated(0.999, 4000, seed=7)
+        old_rule = statistical_inefficiency(series) <= max(2.0, series.size / 10)
+
+        assert old_rule, "the tenth-of-the-run rule passes this series"
+        assert not assess_series("cv", series).correlation_is_measurable
+
+    def test_a_well_sampled_series_still_passes(self) -> None:
+        from fastmdxplora.report.convergence import assess_series
+
+        assert assess_series("cv", _correlated(0.9, 20000, seed=7)) \
+            .correlation_is_measurable
+
+    def test_the_report_and_the_analyses_agree(self) -> None:
+        from fastmdxplora.report.convergence import assess_series
+
+        rng = np.random.RandomState(0)
+        for series in (rng.normal(size=5000),
+                       _correlated(0.9, 20000, seed=1),
+                       _correlated(0.999, 4000, seed=2),
+                       _correlated(0.999, 20000, seed=3)):
+            assert (assess_series("cv", series).correlation_is_measurable
+                    == correlation_is_resolved(series))

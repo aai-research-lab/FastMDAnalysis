@@ -99,7 +99,12 @@ def statistical_inefficiency(series: np.ndarray) -> float:
     fluctuation = values - values.mean()
     variance = float(np.mean(fluctuation ** 2))
     if variance <= 0.0:
-        return 1.0
+        # A series that never changes is perfectly correlated, and no number
+        # of frames of it is more than one observation. Returning one instead
+        # would say a constant has as many independent samples as it has
+        # frames. (The reasoning is the report layer's, which had this right
+        # before this module existed.)
+        return float(n)
 
     return _inefficiency_and_reach(fluctuation, variance, n)[0]
 

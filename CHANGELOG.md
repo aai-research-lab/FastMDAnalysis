@@ -70,6 +70,21 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   uncommitted changes does not describe what ran, so saying so is what keeps
   the commit from being decorative.
 
+### Fixed
+- **One implementation of the correlation statistic, and one verdict from
+  it.** The report layer already measured independent samples from the
+  autocorrelation time; a second implementation was written for the per-frame
+  analyses before that was noticed. They agreed to two decimal places on every
+  correlated series and disagreed on a constant one, where the report layer
+  was right -- a series that never changes is one observation however many
+  frames of it there are. There is now one function.
+
+  They also asked differently whether a series can measure its own correlation
+  time. The report's rule was a tenth of the run, which is the usual working
+  limit and lets the flattering case through: a series with a true correlation
+  of 2000 measured 361 over 4000 frames, and 361 is under a tenth of 4000. Both
+  layers now halve the series and ask whether the estimate moves, so one run
+  cannot be measurable in the report and unresolved in the findings.
 
 ## [2.4.0] — 2026-08-05
 
