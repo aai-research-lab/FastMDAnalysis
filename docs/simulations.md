@@ -238,11 +238,50 @@ needs only a standard PLUMED rather than the optional FUNNEL module. The
 generated input is in `metadynamics.plumed`, and reading it is the way to
 check the geometry is what you meant.
 
+## Pulling along a coordinate
+
+Some things do not happen on their own within reach of a simulation. Steered
+MD attaches a spring to a coordinate and moves the anchor, dragging the system
+whether or not it wants to go:
+
+```yaml
+simulation:
+  steered:
+    collective_variable: ligand_distance
+    site_selection: "resid 84 to 121 and name CA"
+    from: 0.4          # nm
+    to: 3.0
+    steps: 5000000     # over which the anchor travels
+```
+
+The same five variables metadynamics offers, resolved the same way.
+
+**This gives a pathway and the work done along it, not a free energy.** The
+work depends on how fast you pull: drag a ligand out in a nanosecond and most
+of the work goes into pushing water aside and straining the protein, not into
+breaking the interactions you meant to measure. A single fast pull
+overestimates a barrier, sometimes by a great deal. Jarzynski's equality
+recovers a free energy from an ensemble of pulls, but the average is dominated
+by rare low-work trajectories, so it needs many repeats and converges badly
+when the pulling is fast.
+
+FastMDXplora reports the pulling rate and the work, and does not claim a free
+energy from a steered run.
+
+**What it is genuinely good for is generating starting structures.** Pull
+once, take frames along the way, and each is a window for umbrella sampling —
+which does give a free energy, from equilibrium sampling at each position
+rather than from work done in a hurry.
+
+A run can be steered or biased with metadynamics, not both: they are two ways
+of moving the same coordinate, and their forces would add.
+
 ### What PLUMED is still needed for
 
 This covers one-dimensional well-tempered metadynamics on five variables, with
 walls or a funnel. Beyond that, write PLUMED input and pass it as `plumed`:
 
+- **umbrella sampling** — many windows, recombined with WHAM
 - **two or more collective variables** — a 2D free energy surface
 - **reweighting** to a variable that was not biased
 - **multiple walkers**, path collective variables, and the rest of PLUMED

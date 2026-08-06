@@ -418,6 +418,14 @@ SIMULATION = PhaseSchema(
               "biased production run measures the bias: RMSF, clustering and "
               "dimensionality reduction would describe the restraint as much "
               "as the system. Turning it on is recorded with the results."),
+        Field("steered", dict, None,
+              "Pull the system along a named coordinate. A block with the "
+              "same `collective_variable` metadynamics takes, plus `to` (the "
+              "value to pull towards), optionally `from`, and `steps`. This "
+              "gives a pathway and the work done along it, not a free "
+              "energy: the work depends on how fast the anchor moves, and a "
+              "single fast pull overestimates a barrier. Its usual purpose "
+              "is generating starting structures for umbrella sampling."),
         Field("metadynamics", dict, None,
               "Metadynamics from a named collective variable, without "
               "writing PLUMED input. A block with `collective_variable` "

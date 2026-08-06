@@ -752,6 +752,7 @@ def run_simulation(
     restraint_release: Any = None,
     restrain_production: bool = False,
     metadynamics: dict[str, Any] | None = None,
+    steered: dict[str, Any] | None = None,
 ) -> SimulationResult:
     """Run minimize → NVT → NPT → production and return paths to outputs.
 
@@ -864,6 +865,38 @@ def run_simulation(
         for parameter in restraint_parameters:
             simulation.context.setParameter(parameter, strength)
         return strength
+
+    if steered and metadynamics:
+        raise ValueError(
+            "A run can be steered or biased with metadynamics, not both: "
+            "they are two ways of moving the same coordinate and their "
+            "forces would add. Pick one."
+        )
+
+    if steered:
+        from fastmdxplora.simulation.steered import (
+            build_steered_script,
+            plan_steered,
+        )
+
+        steered_plan = plan_steered(
+            steered, topology, temperature_K=temperature_K)
+        script = build_steered_script(
+            steered_plan, reference_pdb=str(topology_path)
+            if steered_plan.cv.collective_variable == "ligand_rmsd" else None)
+        script_path = Path(output_dir) / "steered.plumed"
+        script_path.parent.mkdir(parents=True, exist_ok=True)
+        script_path.write_text(script, encoding="utf-8")
+
+        rate = steered_plan.rate_per_ns(timestep_fs)
+        logger.info(
+            "Steering %s to %g over %s steps%s. This gives a pathway and the "
+            "work done along it, not a free energy.",
+            steered_plan.cv.collective_variable, steered_plan.to_value,
+            f"{steered_plan.steps:,}",
+            f" ({rate:.3g} per ns)" if rate is not None else "",
+        )
+        plumed = {"enabled": True, "script": str(script_path)}
 
     if metadynamics:
         # A named collective variable becomes PLUMED input, which the existing
