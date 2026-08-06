@@ -523,7 +523,16 @@ def _reproducibility_section(
     from fastmdxplora import __version__
 
     lines = ["## Reproducibility", ""]
+    from fastmdxplora.provenance import described, source_provenance
+
     lines.append(f"- **FastMDXplora version**: `{__version__}`")
+    # A version string is written at install time, so from a source checkout
+    # it can name a release the run could not have been made with. The commit
+    # says what the version cannot, and the dirty flag says when the commit
+    # does not describe the code either.
+    from_source = described(source_provenance())
+    if from_source:
+        lines.append(f"- **Source commit**: `{from_source}`")
     lines.append(f"- **Python**: `{sys.version.split()[0]}`")
     lines.append(f"- **Platform**: `{platform.platform()}`")
     lines.append(f"- **System input**: `{_code_text(orchestrator.system)}`")

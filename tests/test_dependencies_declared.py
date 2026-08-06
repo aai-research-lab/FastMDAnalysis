@@ -557,3 +557,102 @@ class TestAPhaseSaysWhetherItWillRun:
         everything = self._everything()
         assert all(_phase_status(phase, everything) == "ready"
                    for phase in _PHASE_NEEDS)
+
+
+class TestARunSaysWhichCodeMadeIt:
+    """A manifest recorded the version string and nothing else.
+
+    setuptools-scm writes that string at *install* time, so an editable
+    install carries whatever the version was when `pip install -e .` was last
+    run and drifts from then on. A real umbrella study came back stamped
+    2.3.0 for seven windows that used shared setup -- a feature 2.3.0 did not
+    have -- so the manifest named a version in which the run could not have
+    happened, and it is the number the report's reproducibility section
+    prints.
+    """
+
+    def test_the_checkout_is_found_from_the_package(self) -> None:
+        """Not from the working directory. A run started inside another
+        repository would otherwise record that repository's commit, which is
+        worse than recording nothing: a precise claim about the wrong code."""
+        import inspect
+        from pathlib import Path
+
+        from fastmdxplora import provenance
+
+        source = inspect.getsource(provenance.source_checkout)
+        assert "Path(__file__)" in source
+        assert "cwd" not in source and "getcwd" not in source
+
+        found = provenance.source_checkout()
+        if found is not None:
+            # Whatever it found, it is an ancestor of the package holding a
+            # .git -- rather than a fixed number of levels up, which the
+            # layout is free to change.
+            assert (found / ".git").exists()
+            assert found in Path(provenance.__file__).resolve().parents
+
+    def test_what_it_records_from_a_checkout(self) -> None:
+        from fastmdxplora.provenance import source_checkout, source_provenance
+
+        record = source_provenance()
+        if source_checkout() is None:  # pragma: no cover - installed copy
+            assert record is None
+            return
+
+        assert set(record) <= {"commit", "dirty", "branch"}
+        assert len(record["commit"]) == 12
+        assert record["dirty"] in (True, False, None)
+
+    def test_an_installed_copy_records_nothing_rather_than_guessing(
+        self, monkeypatch
+    ) -> None:
+        """There is no checkout to ask, and the version string is the whole
+        answer because the distribution was built from a tag."""
+        from fastmdxplora import provenance
+
+        provenance.source_provenance.cache_clear()
+        monkeypatch.setattr(provenance, "source_checkout", lambda: None)
+        try:
+            assert provenance.source_provenance() is None
+        finally:
+            provenance.source_provenance.cache_clear()
+
+    def test_a_dirty_tree_is_reported_rather_than_refused(self) -> None:
+        """Refusing would block the runs developers make all day. A commit
+        beside uncommitted changes does not describe the code that ran, so
+        saying so is what keeps the commit from being decorative."""
+        from fastmdxplora.provenance import described
+
+        dirty = described({"commit": "abcdef123456", "dirty": True})
+        assert "abcdef123456" in dirty
+        assert "uncommitted changes" in dirty
+
+        clean = described({"commit": "abcdef123456", "dirty": False})
+        assert clean == "abcdef123456"
+
+    def test_an_unknown_state_is_not_reported_as_clean(self) -> None:
+        """A failure to ask is not an answer of no."""
+        from fastmdxplora.provenance import described
+
+        unknown = described({"commit": "abcdef123456", "dirty": None})
+        assert "could not be determined" in unknown
+
+    def test_the_manifest_carries_it(self) -> None:
+        import inspect
+
+        from fastmdxplora.orchestrator import FastMDXplora
+
+        source = inspect.getsource(FastMDXplora)
+        assert '"source": source_provenance()' in source
+
+    def test_and_the_reproducibility_section_prints_it(self) -> None:
+        """It is where a reader looks, so a manifest holding it and a report
+        not showing it would only move the problem."""
+        import inspect
+
+        from fastmdxplora.report import document
+
+        source = inspect.getsource(document._reproducibility_section)
+        assert "source_provenance()" in source
+        assert "Source commit" in source

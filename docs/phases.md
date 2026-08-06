@@ -243,3 +243,15 @@ runs/study/
 
 `manifest.json` is the record of the whole run. `config.yml` is what you would
 give `fastmdx explore --config` to do it again.
+
+Where FastMDXplora was run from a source checkout rather than an install, the
+manifest also records the **commit**, and whether the working tree had
+uncommitted changes. The version string alone is not enough there: it is
+written when the package is installed, so an editable install carries whatever
+it was at that moment. A study of ours came back stamped `2.3.0` for a run that
+used a feature `2.3.0` did not have. The commit says what the version cannot,
+and the dirty flag says when the commit does not describe the code either.
+
+An installed copy records nothing under `source` — there is no checkout to
+ask, and the version is the whole answer because the distribution was built
+from a tag.

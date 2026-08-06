@@ -764,9 +764,19 @@ class FastMDXplora:
         """Write a single JSON manifest summarizing this session."""
         from fastmdxplora import __citation__, __doi__, __version__
 
+        from fastmdxplora.provenance import source_provenance
+
         manifest = {
             "tool": "FastMDXplora",
             "version": __version__,
+            # Where the package was imported from a checkout, which commit.
+            # The version string is written at install time, so an editable
+            # install carries whatever it was when pip was last run: a real
+            # study came back stamped 2.3.0 for a run using a feature 2.3.0
+            # did not have. Absent for an installed copy, where the version
+            # is the whole answer because the distribution was built from a
+            # tag.
+            "source": source_provenance(),
             "doi": __doi__,
             "citation": __citation__,
             "system": self.system,

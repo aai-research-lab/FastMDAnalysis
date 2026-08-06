@@ -7,6 +7,25 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+- **A run records which code made it.** The manifest carried the version
+  string and nothing else, and setuptools-scm writes that at install time --
+  so an editable install carries whatever it was when `pip install -e .` was
+  last run. A study of ours came back stamped `2.3.0` for seven windows that
+  used shared setup, a feature `2.3.0` did not have: the manifest named a
+  version in which the run could not have happened, and it is the number the
+  report's reproducibility section prints.
+
+  Where the package was imported from a checkout, the commit is recorded
+  beside the version, and so is whether the tree had uncommitted changes. The
+  checkout is found from the package rather than the working directory,
+  because a run started inside another repository would otherwise record that
+  repository's commit -- a precise claim about the wrong code, which is worse
+  than recording none. A dirty tree is reported rather than refused: refusing
+  would block the runs developers make all day, and a commit beside
+  uncommitted changes does not describe what ran, so saying so is what keeps
+  the commit from being decorative.
+
 
 ## [2.4.0] — 2026-08-05
 
