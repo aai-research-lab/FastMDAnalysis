@@ -311,6 +311,18 @@ which windows and by how much. What closes a gap is more windows between them,
 or a softer force constant so each wanders further. Sampling for longer does
 not.
 
+How much is enough is `minimum_overlap`, three per cent by default. That is
+enough to stitch and it is thin — on a real study, pairs sharing seven per
+cent passed while a reader might reasonably want fifteen. Raise it where the
+free energy matters:
+
+```yaml
+    minimum_overlap: 0.15
+```
+
+The refusal states the threshold it applied, so a genuine gap can be told from
+a strict setting.
+
 The `force_constant` therefore has no default: it decides how far a window
 wanders and so whether neighbours meet. Too stiff and they do not; too soft
 and the system escapes towards the nearest minimum.

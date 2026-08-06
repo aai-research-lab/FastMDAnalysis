@@ -76,6 +76,12 @@ class UmbrellaPlan:
     #: window begins away from where it will settle, and counting that
     #: approach as sampling biases the histogram towards where it started.
     equilibration_steps: int = 0
+    #: How much two neighbours must share before their free energies can be
+    #: placed relative to one another. Three per cent is enough to stitch and
+    #: thin: on a real study, pairs at seven per cent passed while a reader
+    #: might reasonably want fifteen. It is a judgement about how much
+    #: evidence a joint needs, so it belongs to whoever is making the claim.
+    minimum_overlap: float = 0.03
 
     def as_record(self) -> dict[str, Any]:
         return {
@@ -86,6 +92,7 @@ class UmbrellaPlan:
             "force_constant": (self.windows[0].force_constant
                                if self.windows else None),
             "equilibration_steps": self.equilibration_steps,
+            "minimum_overlap": self.minimum_overlap,
         }
 
 
@@ -140,6 +147,7 @@ def plan_windows(spec: dict[str, Any]) -> UmbrellaPlan:
                       for i, c in enumerate(centres)),
         collective_variable=variable,
         equilibration_steps=int(spec.get("equilibration_steps", 0)),
+        minimum_overlap=float(spec.get("minimum_overlap", 0.03)),
     )
 
 
@@ -214,6 +222,7 @@ def plan_from_expanded(config: dict[str, Any]) -> UmbrellaPlan | None:
     windows = []
     variable = ""
     equilibration = 0
+    minimum = 0.03
     for entry in systems:
         block = ((entry.get("simulation") or {}).get("umbrella")
                  if isinstance(entry, dict) else None)
@@ -221,6 +230,7 @@ def plan_from_expanded(config: dict[str, Any]) -> UmbrellaPlan | None:
             continue
         variable = str(block.get("collective_variable", variable))
         equilibration = int(block.get("equilibration_steps", equilibration))
+        minimum = float(block.get("minimum_overlap", minimum))
         windows.append(Window(
             index=int(block.get("index", len(windows))),
             centre=float(block["centre"]),
@@ -232,6 +242,7 @@ def plan_from_expanded(config: dict[str, Any]) -> UmbrellaPlan | None:
         windows=tuple(sorted(windows, key=lambda w: w.index)),
         collective_variable=variable,
         equilibration_steps=equilibration,
+        minimum_overlap=minimum,
     )
 
 
@@ -338,7 +349,7 @@ def compute_pmf(
     *,
     temperature_K: float = 300.0,
     bins: int = 60,
-    minimum_overlap: float = 0.03,
+    minimum_overlap: float | None = None,
 ) -> dict[str, Any]:
     """A potential of mean force, or a refusal saying why not.
 
@@ -350,6 +361,12 @@ def compute_pmf(
     other, and a curve drawn through the gap is interpolation presented as a
     measurement.
     """
+    # The plan carries it, so a study's own threshold applies wherever the
+    # recombination happens rather than only where somebody remembered to
+    # pass it.
+    if minimum_overlap is None:
+        minimum_overlap = plan.minimum_overlap
+
     ordered = [w for w in plan.windows if w.index in samples]
     if len(ordered) < 2:
         raise ValueError(
@@ -385,9 +402,10 @@ def compute_pmf(
                 "visit the same value there is nothing to stitch -- a curve "
                 "drawn through the gap would be interpolation presented as a "
                 "measurement.\n\n"
-                "More windows between them, or a softer force constant so "
-                "each wanders further, will close it. Sampling for longer "
-                "will not."
+                f"Each pair must share at least {minimum_overlap:.0%} "
+                "(`minimum_overlap`). More windows between them, or a softer "
+                "force constant so each wanders further, will close a gap. "
+                "Sampling for longer will not."
             ),
         }
 

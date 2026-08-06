@@ -829,3 +829,73 @@ class TestParallelRunsShareOneTerminal:
         # The call, whatever it now takes as an argument -- pinning the exact
         # text made this fail the moment the guard learned where to write.
         assert "with _QuietBanner(" in source
+
+
+class TestHowMuchOverlapIsEnough:
+    """Three per cent is enough to stitch and thin. On a real study, pairs at
+    7.3% passed while a reader might reasonably want fifteen.
+
+    It is a judgement about how much evidence a joint needs, so it belongs to
+    whoever is making the claim rather than to a number in the source.
+    """
+
+    @staticmethod
+    def _pair(threshold=None):
+        from fastmdxplora.simulation.umbrella import compute_pmf, plan_windows
+
+        spec = {"collective_variable": "distance", "centres": [0.0, 0.16],
+                "force_constant": 1000}
+        if threshold is not None:
+            spec["minimum_overlap"] = threshold
+        plan = plan_windows(spec)
+        rng = np.random.RandomState(0)
+        samples = {0: rng.normal(0.0, 0.10, 6000),
+                   1: rng.normal(0.16, 0.10, 6000)}
+        return compute_pmf(samples, plan)
+
+    def test_the_same_data_passes_or_fails_by_the_threshold(self) -> None:
+        assert self._pair(0.03)["refused"] is None
+        assert self._pair(0.50)["refused"] is not None
+
+    def test_the_default_is_the_permissive_one(self) -> None:
+        from fastmdxplora.simulation.umbrella import plan_windows
+
+        plan = plan_windows({"collective_variable": "distance",
+                             "centres": [0.0, 1.0], "force_constant": 100})
+        assert plan.minimum_overlap == 0.03
+
+    def test_the_refusal_says_what_the_threshold_was(self) -> None:
+        """So a reader can tell a genuine gap from a strict setting."""
+        refusal = self._pair(0.50)["refused"]
+        assert "50%" in refusal
+        assert "minimum_overlap" in refusal
+
+    def test_it_is_recorded_with_the_plan(self) -> None:
+        assert self._pair(0.20)["plan"]["minimum_overlap"] == 0.20 \
+            if "plan" in self._pair(0.20) else True
+
+        from fastmdxplora.simulation.umbrella import plan_windows
+
+        plan = plan_windows({"collective_variable": "distance",
+                             "centres": [0.0, 1.0], "force_constant": 100,
+                             "minimum_overlap": 0.2})
+        assert plan.as_record()["minimum_overlap"] == 0.2
+
+    def test_a_studys_threshold_survives_the_round_trip(self) -> None:
+        """The recombination happens after the runs, from a rebuilt plan --
+        so a threshold that did not survive expansion would silently revert
+        to the default."""
+        from fastmdxplora.simulation.umbrella import (
+            expand_umbrella,
+            plan_from_expanded,
+        )
+
+        expanded = expand_umbrella({
+            "output": "x", "systems": [{"system": "181L"}],
+            "simulation": {"umbrella": {
+                "collective_variable": "distance",
+                "selection_a": "name CA", "selection_b": "name CB",
+                "from": 0.0, "to": 1.0, "n_windows": 5,
+                "force_constant": 500, "minimum_overlap": 0.15}}})
+
+        assert plan_from_expanded(expanded).minimum_overlap == 0.15
