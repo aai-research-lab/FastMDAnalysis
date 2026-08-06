@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from fastmdxplora.analysis.equilibration import (
+from fastmdxplora.statistics import (
     MINIMUM_EFFECTIVE_SAMPLES,
     correlation_is_resolved,
     detect_equilibration,

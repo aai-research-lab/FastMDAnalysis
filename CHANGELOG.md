@@ -86,6 +86,10 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   layers now halve the series and ask whether the estimate moves, so one run
   cannot be measurable in the report and unresolved in the findings.
 
+  It lives at the top level, beside the other cross-cutting modules, rather
+  than inside the analysis package: nothing registers it, it produces no
+  figure, and the report asks it the same question the analyses do.
+
 ## [2.4.0] — 2026-08-05
 
 This release is about making a simulation go where an ordinary one will not.

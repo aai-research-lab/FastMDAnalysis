@@ -140,7 +140,7 @@ def autocorrelation_time(values: Any) -> float:
     observation. Two functions computing the same statistic is how one of them
     quietly becomes wrong.
     """
-    from fastmdxplora.analysis.equilibration import statistical_inefficiency
+    from fastmdxplora.statistics import statistical_inefficiency
 
     return statistical_inefficiency(values)
 
@@ -172,7 +172,7 @@ def assess_series(name: str, values: Any) -> Assessment:
     if n == 0:
         return Assessment(name, 0, float("nan"), float("nan"), 1.0, 0.0, 0.0)
 
-    from fastmdxplora.analysis.equilibration import correlation_is_resolved
+    from fastmdxplora.statistics import correlation_is_resolved
 
     correlation = autocorrelation_time(series)
     # Whether the series can see how long its own memory is. A correlation

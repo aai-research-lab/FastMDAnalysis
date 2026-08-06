@@ -1,5 +1,11 @@
 """Where a run settled, and how many independent samples it actually holds.
 
+At the top level rather than under ``analysis``, because it is not an
+analysis: nothing registers it, it produces no figure, and both the analyses
+and the report ask it the same question. It sat in the analysis package
+briefly and the report imported it from there, which reads as though measuring
+a correlation were something analyses do and reports borrow.
+
 Ten analyses averaged over the whole production run without asking either
 question. A mean root-mean-square deviation of 2.3 Å is not a measurement
 until two things are known about it: whether the system had stopped changing

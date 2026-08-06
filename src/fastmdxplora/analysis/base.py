@@ -357,7 +357,7 @@ class Analysis(ABC):
 
         import numpy as np
 
-        from fastmdxplora.analysis.equilibration import summarise
+        from fastmdxplora.statistics import summarise
 
         values = self.result
         if hasattr(values, "columns"):
