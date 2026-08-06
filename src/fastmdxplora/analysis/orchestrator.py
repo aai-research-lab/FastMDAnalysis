@@ -99,6 +99,10 @@ def _resolve_scope(scope: str, ligand_resname: str | None) -> str | None:
 # module-level dict avoids circular-import gymnastics and makes discovery
 # explicit. Subclasses of Analysis register themselves on import via
 # register_analysis(name, cls).
+#: Residue names for water, so an analysis needing solvent is not run on a
+#: system that has none.
+_WATER_RESIDUES = frozenset({"HOH", "WAT", "TIP", "TIP3", "SOL", "H2O"})
+
 _REGISTRY: dict[str, type[Analysis]] = {}
 
 
@@ -328,10 +332,23 @@ class AnalysisOrchestrator:
         all_names = list(_REGISTRY.keys())
         has_ligand = bool(self.ligand_resname)
 
+        has_water = any(
+            residue.name.upper() in _WATER_RESIDUES
+            for residue in self.traj.topology.residues
+        ) if getattr(self, "traj", None) is not None else True
+
         def _ligand_ok(name: str) -> bool:
             """Ligand-only analyses run by default only when a ligand exists."""
             cls = _REGISTRY[name]
             return has_ligand or not getattr(cls, "requires_ligand", False)
+
+        def _water_ok(name: str) -> bool:
+            """Likewise for water. An analysis of where water sits has nothing
+            to say about a system with none -- an implicit-solvent run, or a
+            trajectory stripped of solvent to save space -- and refusing by
+            default turned "there is no water here" into a failed phase."""
+            cls = _REGISTRY[name]
+            return has_water or not getattr(cls, "requires_water", False)
 
         if include is not None and exclude is not None:
             raise ValueError("Specify either `include` or `exclude`, not both.")
@@ -356,12 +373,12 @@ class AnalysisOrchestrator:
                 )
             return [
                 n for n in all_names
-                if n not in exclude and _ligand_ok(n)
+                if n not in exclude and _ligand_ok(n) and _water_ok(n)
             ]
 
         # Default plan: everything except ligand-only analyses when there is
         # no ligand. With a ligand, the ligand analyses run automatically.
-        return [n for n in all_names if _ligand_ok(n)]
+        return [n for n in all_names if _ligand_ok(n) and _water_ok(n)]
 
     def _merge_options(
         self,

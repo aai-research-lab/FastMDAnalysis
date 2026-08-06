@@ -267,3 +267,42 @@ class TestTheGuiCanTurnItOff:
                   / "gui" / "static" / "run-builder.js").read_text(encoding="utf-8")
         assert "runOptionsSection" in script
         assert "RUN_OPTIONS_KEY" in script
+
+
+def test_the_run_options_section_uses_the_layout_the_stylesheet_has() -> None:
+    """A bare heading with controls appended ran every label into its help
+    text, because the stylesheet lays out a head and a body grid and nothing
+    else."""
+    from pathlib import Path
+
+    script = (Path(__file__).resolve().parents[1] / "src" / "fastmdxplora"
+              / "gui" / "static" / "run-builder.js").read_text(encoding="utf-8")
+    section = script[script.index("function runOptionsSection"):]
+    section = section[:section.index("function settingsSection")]
+
+    assert "run-section-head" in section
+    assert "run-section-body" in section
+    assert "run-section-title" not in section, (
+        "that class is not in the stylesheet"
+    )
+
+
+def test_an_analysis_needing_water_does_not_run_without_it() -> None:
+    """water_sites refused on a system with no water, which is right, and it
+    failed the analysis phase, which is not: an implicit-solvent run or a
+    trajectory stripped of solvent has no water sites and that is not an
+    error."""
+    from fastmdxplora.analysis.water_sites import WaterSites
+
+    assert WaterSites.requires_water is True
+
+
+def test_the_gate_is_applied_wherever_the_ligand_gate_is() -> None:
+    import inspect
+
+    from fastmdxplora.analysis import orchestrator
+
+    source = inspect.getsource(orchestrator.AnalysisOrchestrator._build_plan)
+    assert source.count("_ligand_ok(") == source.count("_water_ok("), (
+        "a water-only analysis should be gated everywhere a ligand-only one is"
+    )

@@ -87,6 +87,10 @@ class WaterSites(Analysis):
     #: It works out its own atoms from the site selection, so a general
     #: selection has nothing to apply to.
     honours_selection = False
+    #: Runs by default only where there is water. An implicit-solvent run, or
+    #: a trajectory stripped of solvent to save space, has none -- and a
+    #: refusal there is correct but should not fail the phase.
+    requires_water = True
 
     def __init__(
         self,

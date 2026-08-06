@@ -247,14 +247,33 @@
     const options = (state.schema && state.schema.run_options) || [];
     if (!options.length) return section;
 
-    const heading = document.createElement("h3");
-    heading.className = "run-section-title";
-    heading.textContent = "This run";
-    section.appendChild(heading);
+    // The same markup a phase section uses, because the stylesheet lays out
+    // a head and a body grid and nothing else. A bare heading with controls
+    // appended ran the labels and their help text together.
+    const changed = Object.keys(state.values[RUN_OPTIONS_KEY] || {}).length;
 
-    options.forEach((field) => {
-      section.appendChild(control(RUN_OPTIONS_KEY, field));
+    const head = document.createElement("button");
+    head.type = "button";
+    head.className = "run-section-head";
+    head.setAttribute("aria-expanded", String(state.open.has(RUN_OPTIONS_KEY)));
+    head.innerHTML =
+      '<span class="run-section-name">This run</span>' +
+      `<span class="run-section-count">${
+        changed ? `${changed} changed` : `${options.length} settings`
+      }</span>`;
+    head.addEventListener("click", () => {
+      if (state.open.has(RUN_OPTIONS_KEY)) state.open.delete(RUN_OPTIONS_KEY);
+      else state.open.add(RUN_OPTIONS_KEY);
+      renderSettings();
     });
+    section.appendChild(head);
+
+    if (state.open.has(RUN_OPTIONS_KEY)) {
+      const grid = document.createElement("div");
+      grid.className = "run-section-body";
+      options.forEach((field) => grid.appendChild(control(RUN_OPTIONS_KEY, field)));
+      section.appendChild(grid);
+    }
     return section;
   }
 
