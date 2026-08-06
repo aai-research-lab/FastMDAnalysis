@@ -28,13 +28,13 @@ from scripts.run_pdb_smoke_campaign import build_parser as build_campaign_parser
         ),
         (
             "explore -s protein.pdb --include setup simulation "
-            "--simulate-preset gentle --simulate-platform CPU --dry-run"
+            "--simulate-production-steps 5000 --simulate-platform CPU --dry-run"
         ),
         (
             "explore --system local_pdbs/1L2Y.pdb "
             "--output local_runs/trpcage_live_full "
             "--include setup simulation analysis report "
-            "--simulate-preset gentle --dashboard"
+            "--simulate-production-steps 5000 --dashboard"
         ),
         "setup --system protein.pdb --ph 6.5 --box-shape octahedron",
         (
@@ -59,11 +59,11 @@ def test_documented_campaign_command_parses() -> None:
         shlex.split(
             "--input-list examples/pdb_list.txt "
             "--output-root runs/pdb_smoke_starter "
-            "--preset gentle --continue-on-error"
+            "--production-steps 5000 --continue-on-error"
         )
     )
 
-    assert args.preset == "gentle"
+    assert args.production_steps == 5000
     assert args.continue_on_error is True
 
 
@@ -83,7 +83,7 @@ def test_documented_configuration_shape_validates() -> None:
         {
             "systems": [{"id": "trpcage", "system": "1L2Y"}],
             "setup": {"ph": 7.0, "forcefield": "charmm36"},
-            "simulation": {"preset": "gentle", "duration_ns": 10},
+            "simulation": {"duration_ns": 10},
             "analysis": {"scope": "solute", "include": ["rmsd", "rmsf", "rg"]},
             "report": {
                 "title": "My study",

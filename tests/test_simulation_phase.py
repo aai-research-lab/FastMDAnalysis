@@ -506,20 +506,31 @@ class TestDefaults:
         assert _runner.DEFAULT_PRESSURE_BAR == 1.0
         assert _runner.DEFAULT_BAROSTAT_FREQUENCY == 25
 
-    def test_gentle_preset_expands_to_safe_smoke_settings(self):
-        params = _pipeline._resolve_params({"preset": "gentle", "platform": "CPU"})
-        assert params["timestep_fs"] == 0.5
-        assert params["temperature_K"] == 100.0
-        assert params["friction_per_ps"] == 5.0
-        assert params["npt_steps"] == 0
-        assert params["production_steps"] == 1000
-        assert params["platform"] == "CPU"
+    def test_there_is_no_preset(self) -> None:
+        """A `gentle` preset dropped the temperature to 100 K along with
+        shortening the run. That is not a smoke test, it is different physics:
+        water is ice at 100 K, and a run that survives there says nothing
+        about whether the system is stable at 300 K -- which is the question a
+        smoke test is asked.
 
+        Shortening a run at the conditions it will actually use is simpler and
+        more informative, and is what the documentation teaches.
+        """
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
 
-# ===========================================================================
-# Real end-to-end (skipped when OpenMM absent)
-# ===========================================================================
-@pytest.mark.skipif(not HAS_OPENMM, reason="needs openmm")
+        assert PHASE_SCHEMAS["simulation"].get("preset") is None
+
+    def test_nothing_still_reads_one(self) -> None:
+        import inspect
+
+        from fastmdxplora.simulation import pipeline
+        from fastmdxplora.utils import presenter
+
+        for module in (pipeline, presenter):
+            source = inspect.getsource(module)
+            assert "_SIM_PRESETS" not in source
+            assert 'options.get("preset")' not in source
+
 class TestRealSimulation:
     """End-to-end test using a real OpenMM run on a small system."""
 

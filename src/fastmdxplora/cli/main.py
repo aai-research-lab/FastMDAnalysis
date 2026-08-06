@@ -105,7 +105,6 @@ _SETUP_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
 ]
 
 _SIMULATION_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
-    ("preset", "preset", {"help": "Simulation preset. 'gentle' uses conservative smoke-test settings."}),
     ("duration-ns", "duration_ns", {"type": float,
         "help": "Production length in ns (standard MD convention; equilibration is independent)."}),
     ("nvt-duration-ns", "nvt_duration_ns", {"type": float,

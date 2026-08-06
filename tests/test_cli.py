@@ -340,8 +340,6 @@ def test_cli_explore_dashboard_does_not_read_missing_output_dir(
                 "simulation",
                 "analysis",
                 "report",
-                "--simulate-preset",
-                "gentle",
                 "--dashboard",
                 "--dashboard-stop-on-complete",
             ]

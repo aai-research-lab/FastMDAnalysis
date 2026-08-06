@@ -3,7 +3,7 @@
 
 The campaign intentionally starts small. It accepts local PDB/CIF paths or
 4-character PDB IDs, runs the normal FastMDXplora pipeline with the gentle
-simulation preset, validates expected artifacts, and writes CSV/JSON summaries
+short simulation, validates expected artifacts, and writes CSV/JSON summaries
 that make failures reviewable later.
 """
 
@@ -109,9 +109,14 @@ def pdb_id_for(value: str) -> str:
 
 
 def build_simulation_options(args: argparse.Namespace) -> dict[str, Any]:
-    """Gentle defaults for smoke campaigns, with CLI overrides."""
+    """Short runs at the conditions a real one uses.
+
+    There was a `gentle` preset here that also dropped the temperature to
+    100 K. A campaign wants to know whether these structures prepare and
+    simulate, and a run at 100 K cannot answer that: water is ice there, and
+    surviving it says nothing about 300 K.
+    """
     return {
-        "preset": args.preset,
         "nvt_steps": args.nvt_steps,
         "npt_steps": args.npt_steps,
         "production_steps": args.production_steps,
@@ -588,7 +593,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Text file of PDB IDs or local paths, one per line. # comments are allowed.",
     )
     parser.add_argument("--output-root", required=True, help="Directory for campaign outputs.")
-    parser.add_argument("--preset", default="gentle", choices=["gentle"])
     parser.add_argument("--nvt-steps", type=int, default=1000)
     parser.add_argument("--npt-steps", type=int, default=0)
     parser.add_argument("--production-steps", type=int, default=1000)

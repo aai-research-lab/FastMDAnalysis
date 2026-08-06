@@ -65,32 +65,18 @@ logger = get_logger("simulation")
 #: now, and a phase reads it rather than restating it.
 DEFAULTS: dict[str, Any] = SIMULATION.defaults()
 
-PRESETS: dict[str, dict[str, Any]] = {
-    "gentle": {
-        "timestep_fs": 0.5,
-        "temperature_K": 100.0,
-        "friction_per_ps": 5.0,
-        "nvt_steps": 1000,
-        "npt_steps": 0,
-        "production_steps": 1000,
-        "duration_ns": 0.001,
-        "precision": "double",
-    },
-}
-
-
 def _resolve_params(options: dict[str, Any]) -> dict[str, Any]:
-    """Merge defaults, an optional preset, and explicit user options."""
-    preset = options.get("preset")
-    if preset is None:
-        return {**DEFAULTS, **options}
-    preset_key = str(preset).lower()
-    if preset_key not in PRESETS:
-        valid = ", ".join(sorted(PRESETS))
-        raise ValueError(f"Unknown simulation preset {preset!r}. Valid presets: {valid}.")
-    explicit = dict(options)
-    explicit["preset"] = preset_key
-    return {**DEFAULTS, **PRESETS[preset_key], **explicit}
+    """What the run will use: the declared defaults, then what was asked for.
+
+    There was a `gentle` preset here that dropped the temperature to 100 K
+    along with shortening the run. That is not a smoke test, it is different
+    physics -- water is ice at 100 K, and a run that survives there says
+    nothing about whether the system is stable at 300 K, which is the question
+    a smoke test is asked. Shortening a run at the conditions it will actually
+    use is both simpler and more informative, and is what the documentation
+    teaches.
+    """
+    return {**DEFAULTS, **options}
 
 
 def _setup_outputs_present(setup_dir: Path) -> tuple[Path | None, Path | None, Path | None]:

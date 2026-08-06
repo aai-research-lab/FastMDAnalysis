@@ -307,12 +307,6 @@ SIMULATION = PhaseSchema(
     name="simulation",
     description="Molecular dynamics: minimize, equilibrate (NVT, NPT), produce.",
     fields=(
-        Field("preset", str, None,
-              "Optional simulation preset. 'gentle' uses conservative "
-              "smoke-test settings: 0.5 fs, 100 K, 5/ps friction, no NPT, "
-              "and short NVT/production.",
-              choices=("gentle",),
-              example="gentle"),
         Field("duration_ns", (int, float), None,
               "Production length in ns (standard MD convention — "
               "equilibration is independent). Default: 2 ns.",

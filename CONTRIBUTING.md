@@ -91,7 +91,6 @@ single structure eating the campaign:
 
 | | |
 |---|---|
-| `--preset gentle` | conservative simulation settings |
 | `--nvt-steps`, `--npt-steps`, `--production-steps` | shorter still |
 | `--max-input-mb` | skip a structure whose file is larger |
 | `--max-setup-atoms` | skip one that solvates to more atoms than this |

@@ -503,7 +503,6 @@ class SessionPresenter:
             """Resolve displayed stage steps from the same defaults as simulation."""
             try:
                 from fastmdxplora.simulation.pipeline import DEFAULTS as _SIM_DEFAULTS
-                from fastmdxplora.simulation.pipeline import PRESETS as _SIM_PRESETS
                 from fastmdxplora.simulation.runner import plan_stages as _plan_stages
             except Exception:
                 nvt = maybe_int(arg_value("--simulate-nvt-steps", "--nvt-steps", default=""))
@@ -513,10 +512,6 @@ class SessionPresenter:
                 return nvt, npt, prod, total
 
             params = dict(_SIM_DEFAULTS)
-            preset = arg_value("--simulate-preset", "--preset", default="")
-            if preset:
-                params.update(_SIM_PRESETS.get(preset.lower(), {}))
-                params["preset"] = preset.lower()
 
             overrides = {
                 "nvt_steps": maybe_int(arg_value("--simulate-nvt-steps", "--nvt-steps", default="")),
