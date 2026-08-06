@@ -7,7 +7,79 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+
+## [2.4.0] — 2026-08-05
+
+This release is about making a simulation go where an ordinary one will not.
+
+Most of what is interesting in a molecular system happens too rarely to see.
+A ligand unbinds once a second and a simulation runs for a microsecond, so
+plain molecular dynamics watches the bound state fluctuate and learns nothing
+about leaving it. Enhanced sampling pays for the rare event with a bias, and
+the whole difficulty is knowing what the biased run entitles you to say.
+
+Three methods arrive together, and each is explicit about what its output is
+and is not: metadynamics gives a free-energy surface if the bias converged,
+steered MD gives a pathway and the work along it and *not* a free energy, and
+umbrella sampling gives a potential of mean force if the windows overlap. That
+last one refuses more often than it produces -- which is the point. A seven-
+window study of benzene leaving the T4 lysozyme cavity was refused here
+because two adjacent windows shared no sampling at all, and a tool that
+returned a curve for it would have drawn a line through a region nothing
+visited.
+
 ### Added
+
+- **Umbrella sampling, from a config block to a free energy.** One block
+  expands into a run per window, which is the shape the batch machinery
+  already runs, so scheduling, parallelism and per-GPU pinning come from the
+  code that already does them. Each window writes its own PLUMED, the COLVARs
+  are read back, the approach to each window is discarded, and the sampling is
+  recombined. Verified end to end from files on disk: a barrier of
+  10.1 kJ/mol against a known 10.0.
+
+  Four refusals -- windows that do not overlap, a missing window, several
+  systems at once, and two ways of biasing the same coordinate. How much
+  overlap is enough is a judgement about how much evidence a joint needs, so
+  `minimum_overlap` belongs to whoever is making the claim; three per cent is
+  enough to stitch and it is thin. The refusal states the threshold it
+  applied, so a genuine gap can be told from a strict setting.
+
+- **One prepared system for a set of umbrella windows.** Seven windows of one
+  study came out with 37,212, 37,254, 37,436 and 37,445 atoms: four different
+  systems for one measurement. Solvation does not place water the same way
+  twice, so preparing each window separately makes part of the difference
+  between windows the solvent rather than the restraint. The system is
+  prepared once into `shared_setup/` and every window simulates from it.
+  `simulation.prepared_from` is an ordinary setting, useful on its own for a
+  system prepared elsewhere.
+
+- **Steered MD.** A spring attached to a collective variable, with the anchor
+  moved, dragging the system whether or not it wants to go. It gives a pathway
+  and the work along it, not a free energy: the work depends on how fast the
+  anchor moves, and a single fast pull spends most of it pushing water aside
+  rather than on the interactions of interest, overestimating the barrier.
+  Jarzynski recovers a free energy from an ensemble of pulls dominated by rare
+  low-work trajectories, so it needs many repeats. The rate and the work are
+  reported and no free energy is claimed.
+
+- **Metadynamics from a named collective variable**, rather than PLUMED input
+  written by hand. Eight variables, each stating what it does *not* separate
+  -- the failure mode of the method is biasing something that does not
+  distinguish the states that matter, after which the surface converges and
+  describes a different system. Well-tempered by default, and the hill width
+  is refused rather than guessed.
+
+  Coordination counts contacts through a switching function rather than a
+  step, so it does not break when a ligand rotates. Membrane depth is measured
+  against the bilayer's own centre, because a membrane drifts and depth
+  against a fixed plane becomes depth against nothing.
+
+- **Walls and funnels.** An unbounded ligand run is refused: biasing a
+  ligand's distance pushes it into bulk solvent, where the landscape is flat
+  and the bias fills a basin that is effectively infinite. Not wrong so much
+  as unfinishable.
+
 - **Restraints, released in stages.** A structure that has just been minimised
   is not at equilibrium, and heating it lets the solute move as well as the
   solvent. Position, distance, angle and torsion restraints hold it while the
@@ -29,12 +101,15 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   its area, and area per lipid is what membrane simulations are validated
   against: the run completes and is wrong.
 
-- **Metadynamics from a named collective variable**, rather than PLUMED input
-  written by hand. Five variables, each stating what it does *not* separate --
-  the failure mode of the method is biasing something that does not
-  distinguish the states that matter, after which the surface converges and
-  describes a different system. Well-tempered by default, and the hill width
-  is refused rather than guessed.
+- **Water sites.** Most water in a simulation is bulk, but some positions are
+  held throughout -- a water wedged between a ligand and a backbone carbonyl,
+  bridging a hydrogen bond neither could make alone -- and displacing one
+  costs entropy or gains affinity. Clustering positions and reporting
+  occupancy is standard; the distinction is not. A cluster occupied in every
+  frame is either one molecule that stayed, which has a residence time and is
+  a molecule to displace, or a position many waters passed through, which is
+  geometry the protein favours. Both are reported, and only waters near the
+  solute count: bulk clusters beautifully and means nothing.
 
 - **A diagnosis when a run fails**, read from the state it failed in. Which
   atoms went non-finite tells a wrong ligand parameter from a bilayer packing
@@ -44,16 +119,106 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   trajectory from a broken system is worse than a failure, because the failure
   is visible.
 
+- **An explanation of each step, while it happens.** Molecular dynamics has a
+  lot of steps that are obvious once you know them and opaque before that, and
+  a pipeline that does all of it silently is faster to use and teaches
+  nothing. Fifteen explanations, each saying *why* rather than repeating what
+  the step already said, with a citation where there is one worth following.
+  On by default; `--no-explain` turns them off. A reference must carry authors
+  and a year or be absent, because inventing one to look thorough would be
+  worse than having none.
 
-## [Unreleased]
+- **Run options in the browser.** The form was built from phase settings only,
+  so a top-level setting reached the command line and the config file and not
+  the browser -- which was the one interface that could not turn explanations
+  on or off. A guard checks that every top-level setting either reaches the
+  form or is on a list of exclusions with a reason.
+
+### Changed
+
+- **The documentation was reordered around how somebody meets it**, the
+  reference pages point at what generates them, and the README leads with what
+  can be studied rather than with what the software is not. Two pages
+  documented a command that does not exist and an API that was never written;
+  both are gone.
+
+### Removed
+
+- **The `gentle` preset.** It dropped the temperature to 100 K along with
+  shortening the run, which is not a smoke test but different physics: water
+  is ice at 100 K, and a run that survives there says nothing about whether
+  the system is stable at 300 K. The smoke campaign script defaulted to it, so
+  every campaign was simulating at 100 K -- the case where it mattered most,
+  since a campaign exists to find out whether real structures prepare and
+  simulate.
 
 ### Fixed
+
+- **The banner described a different run from the one about to happen.** It
+  reconstructed the settings from `sys.argv`, so a study driven by a config
+  file printed the defaults for the step counts, the timestep and the
+  temperature while using the config's values -- showing a million production
+  steps while running five thousand. A banner is read at a glance and
+  believed, which makes that worse than showing nothing.
+
+- **A per-system block replaced the top-level one rather than merging**, so an
+  expansion giving each window a block of only its umbrella settings discarded
+  everything else the study asked for: a run requesting five thousand
+  production steps ran a million, and nothing said so.
+
+- **The umbrella pieces were committed unreachable.** The expansion was called
+  by nothing, and after that the recombination was called by nothing -- a
+  config with an umbrella block would have been accepted, ignored, and run
+  once. The loader expands it, so every route in gets it, and the batch
+  explorer recombines once the windows have finished.
+
+- **PLUMED printed its banner three times, interleaved.** Silencing ours did
+  not reach it: it writes from C++ straight to the file descriptor, where
+  redirecting `sys.stdout` does not go. The descriptor moves to the run's own
+  log, so nothing is lost and a worker's output sits beside its results.
+
+- **A hydration shell clustered into a water site.** On ubiquitin the first
+  shell chained into one cluster -- forty-eight thousand positions and eight
+  hundred and fifty-four distinct waters, reported as a site occupied in every
+  frame and described as mostly one molecule. A site now has to be compact,
+  and "mostly one molecule" requires that molecule to hold most of the
+  observations.
+
+- **A run too short to show residence said it had.** Water on a protein
+  surface exchanges on ten to a hundred picoseconds, so a site fully occupied
+  through ten of them shows that no water left, not that one is held -- and
+  every site in such a run looks the same. Below a nanosecond the finding says
+  what the run cannot distinguish.
+
+- **A water analysis failed on a system with no water.** Refusing is right in
+  itself and wrong as a phase failure: an implicit-solvent run, or a
+  trajectory stripped of solvent to save space, has no water sites and that is
+  not an error.
+
+- **An automatic choice was recorded as the user's.** The record said the site
+  selection was "given" when the setting was `auto` -- a truthiness check
+  reading a value as an absence, so `options.json` claimed a decision was
+  somebody's that was not.
+
+- **The Windows job failed on a test, not on the code.** `ctypes.CDLL(None)`
+  asks for the running program's own symbols, which Windows does not have.
+  Writing the check portably exposed a real defect: the worker restored the
+  file descriptors without flushing the C runtime's buffer first, so whatever
+  PLUMED had not flushed arrived in the shared terminal after the redirect was
+  undone -- the leak the guard exists to prevent, arriving late.
+
 - **`pip install "fastmdxplora[ligand]"` could not succeed.** The extra named
   `openff-toolkit`, which has no PyPI distribution at all, so pip failed to
   resolve the whole command rather than installing what it could reach. The
   toolkit is out of the extra and named where it can be had: the conda recipe,
   and the error raised at the point of use. A command that cannot work is
   worse than one that installs part of the answer and says what is left.
+
+- **The `plumed` extra had the same defect, and worse.** `openmm-plumed` has
+  no PyPI distribution either, and it was absent from the conda recipe -- so
+  metadynamics would have failed at the point of use on the primary channel.
+  The existing guard missed it because it sat in a list that exempts a package
+  from being checked at all.
 
 - **The `fastmdx` alias carried the previous version.** Its version is written
   in a file where the main package takes its own from the git tag, and a
@@ -62,7 +227,6 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   the ordinary test run now checks it against the changelog -- the thing a
   release is cut from.
 
-### Fixed
 - **`fastmdx info` reported two backends where the software reaches for
   eight.** A PyPI install showed OpenMM and PDBFixer present and said nothing
   about the OpenFF toolkit, which a protein-ligand setup needs and which pip
@@ -73,6 +237,7 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   absent, because they need different remedies -- and because importing
   WeasyPrint without Pango raises from the dynamic loader rather than as an
   ImportError, which crashed the command outright.
+
 
 ## [2.3.0] — 2026-08-05
 
