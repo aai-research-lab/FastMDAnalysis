@@ -531,6 +531,11 @@ class TestDefaults:
             assert "_SIM_PRESETS" not in source
             assert 'options.get("preset")' not in source
 
+
+# ===========================================================================
+# Real end-to-end (skipped when OpenMM absent)
+# ===========================================================================
+@pytest.mark.skipif(not HAS_OPENMM, reason="needs openmm")
 class TestRealSimulation:
     """End-to-end test using a real OpenMM run on a small system."""
 

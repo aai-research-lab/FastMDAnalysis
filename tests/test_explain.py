@@ -306,3 +306,65 @@ def test_the_gate_is_applied_wherever_the_ligand_gate_is() -> None:
     assert source.count("_ligand_ok(") == source.count("_water_ok("), (
         "a water-only analysis should be gated everywhere a ligand-only one is"
     )
+
+
+def test_a_class_importing_openmm_is_guarded() -> None:
+    """A regex removing one test swallowed the decorator above the class that
+    followed it, so an end-to-end OpenMM test ran unguarded in CI.
+
+    Checked per class, by parsing. A file-level check does not work here: the
+    file still mentions HAS_OPENMM elsewhere, so it looked guarded while the
+    class that needed the guard had lost it. The first version of this test
+    passed with the decorator removed, which is a guard that does not guard.
+    """
+    import ast
+    from pathlib import Path
+
+    def imports_openmm(node: ast.AST) -> bool:
+        for child in ast.walk(node):
+            if isinstance(child, ast.Import):
+                if any(a.name.split(".")[0] == "openmm" for a in child.names):
+                    return True
+            elif isinstance(child, ast.ImportFrom):
+                if (child.module or "").split(".")[0] == "openmm":
+                    return True
+        return False
+
+    def guarded(node: ast.AST) -> bool:
+        text = " ".join(ast.dump(d) for d in getattr(node, "decorator_list", []))
+        if "skipif" in text or "importorskip" in text:
+            return True
+        # Or the first statement in its body is an importorskip.
+        for child in ast.walk(node):
+            if isinstance(child, ast.Call):
+                function = child.func
+                if getattr(function, "attr", "") == "importorskip":
+                    return True
+        return False
+
+    unguarded = []
+    for path in sorted(Path(__file__).resolve().parent.glob("test_*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in tree.body:
+            if not isinstance(node, (ast.ClassDef, ast.FunctionDef)):
+                continue
+            if not imports_openmm(node):
+                continue
+            # A helper whose whole job is to try the import is the guard, not
+            # something needing one.
+            if isinstance(node, ast.FunctionDef) and not node.name.startswith("test_"):
+                continue
+            if guarded(node):
+                continue
+            # A class may guard each method rather than itself.
+            if isinstance(node, ast.ClassDef):
+                methods = [m for m in node.body
+                           if isinstance(m, ast.FunctionDef) and imports_openmm(m)]
+                if methods and all(guarded(m) for m in methods):
+                    continue
+            unguarded.append(f"{path.name}:{node.name}")
+
+    assert not unguarded, (
+        f"these import openmm with no guard: {unguarded}. The machines that "
+        "skip such a test are the ones that cannot run it."
+    )
