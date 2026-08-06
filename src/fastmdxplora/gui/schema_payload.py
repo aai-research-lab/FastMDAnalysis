@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastmdxplora.config.schema import PHASE_SCHEMAS
+from fastmdxplora.config.schema import PHASE_SCHEMAS, TOP_LEVEL
 
 __all__ = ["schema_payload", "field_payload"]
 
@@ -168,6 +168,16 @@ def _analysis_options() -> dict[str, Any]:
     }
 
 
+#: Top-level settings the form already has a place for, so they are not drawn
+#: again as generic fields. Each is structural rather than a preference:
+#: where the run goes, and which phases run.
+_STRUCTURAL_TOP_LEVEL = {
+    "output": "the output directory has its own field with a file picker",
+    "include": "the phase checkboxes",
+    "exclude": "the phase checkboxes",
+}
+
+
 def schema_payload() -> dict[str, Any]:
     """Every setting the software accepts, ready to be drawn."""
     phases = {
@@ -177,7 +187,15 @@ def schema_payload() -> dict[str, Any]:
         }
         for phase, group in PHASE_SCHEMAS.items()
     }
+    # Top-level settings that are preferences rather than structure. These
+    # reached the command line and the config file and not the form, so the
+    # browser was the one interface that could not turn them on or off.
+    run_options = [
+        field_payload(field) for field in TOP_LEVEL.fields
+        if field.name not in _STRUCTURAL_TOP_LEVEL
+    ]
     return {
         "phases": phases,
+        "run_options": run_options,
         "analysis_options": _analysis_options(),
     }

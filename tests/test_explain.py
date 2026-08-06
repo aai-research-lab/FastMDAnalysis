@@ -203,3 +203,67 @@ class TestWhatTheStepsThemselvesSay:
                     if text and text.group(1).count("(") > 1:
                         offenders.append(f"{path.name}: {text.group(1)[:60]}")
         assert not offenders, f"these step messages nest parentheses: {offenders}"
+
+
+class TestTheGuiCanTurnItOff:
+    """The form was built from phase settings only, so a top-level one reached
+    the command line and the config file and not the browser -- which was the
+    one interface that could not turn explanations on or off.
+    """
+
+    def test_the_form_is_offered_them(self) -> None:
+        from fastmdxplora.gui.schema_payload import schema_payload
+
+        offered = {f["name"] for f in schema_payload()["run_options"]}
+        assert "explain" in offered
+        assert "verbose" in offered
+
+    def test_structural_top_level_settings_are_not_drawn_twice(self) -> None:
+        """Where the run goes and which phases run already have their own
+        controls, so they are excluded with a reason rather than by
+        omission."""
+        from fastmdxplora.gui.schema_payload import (
+            _STRUCTURAL_TOP_LEVEL,
+            schema_payload,
+        )
+
+        offered = {f["name"] for f in schema_payload()["run_options"]}
+        assert not (offered & set(_STRUCTURAL_TOP_LEVEL))
+        for name, reason in _STRUCTURAL_TOP_LEVEL.items():
+            assert reason, f"{name} is excluded without saying why"
+
+    def test_every_top_level_setting_is_drawn_or_excluded(self) -> None:
+        """So a new one cannot be added and quietly miss the form, which is
+        how explain came to reach two interfaces out of three."""
+        from fastmdxplora.config.schema import TOP_LEVEL
+        from fastmdxplora.gui.schema_payload import (
+            _STRUCTURAL_TOP_LEVEL,
+            schema_payload,
+        )
+
+        offered = {f["name"] for f in schema_payload()["run_options"]}
+        for field in TOP_LEVEL.fields:
+            assert field.name in offered or field.name in _STRUCTURAL_TOP_LEVEL, (
+                f"{field.name} reaches neither the form nor the exclusion list"
+            )
+
+    def test_turning_it_off_reaches_the_config(self) -> None:
+        from fastmdxplora.gui.config_builder import build_config
+
+        config = build_config({"system": "1UBQ", "__run__": {"explain": False}})
+        assert config["explain"] is False
+
+    def test_leaving_it_on_says_nothing(self) -> None:
+        """Restating a default buries the settings that were chosen."""
+        from fastmdxplora.gui.config_builder import build_config
+
+        config = build_config({"system": "1UBQ", "__run__": {"explain": True}})
+        assert "explain" not in config
+
+    def test_the_form_draws_them_under_their_own_heading(self) -> None:
+        from pathlib import Path
+
+        script = (Path(__file__).resolve().parents[1] / "src" / "fastmdxplora"
+                  / "gui" / "static" / "run-builder.js").read_text(encoding="utf-8")
+        assert "runOptionsSection" in script
+        assert "RUN_OPTIONS_KEY" in script

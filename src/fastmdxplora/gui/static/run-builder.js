@@ -220,6 +220,8 @@
       return;
     }
 
+    host.appendChild(runOptionsSection());
+
     chosen.forEach((phase) => {
       host.appendChild(settingsSection(phase));
       if (phase.name === "analysis") host.appendChild(analysisSection());
@@ -230,6 +232,30 @@
     if (window.FastMDXPicker && window.FastMDXPicker.attachAll) {
       window.FastMDXPicker.attachAll();
     }
+  }
+
+  /* Settings that belong to the run rather than to a phase. They reached the
+     command line and the config file and not this form, so the browser was
+     the one interface that could not turn them on or off. Stored under a
+     sentinel key so the same control builder draws them. */
+  const RUN_OPTIONS_KEY = "__run__";
+
+  function runOptionsSection() {
+    const section = document.createElement("div");
+    section.className = "run-section";
+
+    const options = (state.schema && state.schema.run_options) || [];
+    if (!options.length) return section;
+
+    const heading = document.createElement("h3");
+    heading.className = "run-section-title";
+    heading.textContent = "This run";
+    section.appendChild(heading);
+
+    options.forEach((field) => {
+      section.appendChild(control(RUN_OPTIONS_KEY, field));
+    });
+    return section;
   }
 
   function settingsSection(phase) {

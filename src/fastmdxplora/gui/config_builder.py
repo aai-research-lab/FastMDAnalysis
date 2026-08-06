@@ -31,7 +31,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastmdxplora.config.loader import ConfigError, validate_config
-from fastmdxplora.config.schema import PHASE_SCHEMAS
+from fastmdxplora.config.schema import PHASE_SCHEMAS, TOP_LEVEL
 
 __all__ = ["build_config", "config_yaml"]
 
@@ -175,6 +175,23 @@ def build_config(state: dict[str, Any], *, full: bool = False) -> dict[str, Any]
     # run includes -- not only the ones the form happened to touch. A phase
     # left entirely alone still runs, and still uses values worth recording.
     running = set(config.get("include") or PHASE_SCHEMAS.keys())
+
+    # Settings that belong to the run rather than a phase. The form keeps them
+    # under a sentinel key so one control builder draws everything; here they
+    # are lifted to where the config file expects them.
+    run_options = state.get("__run__")
+    if isinstance(run_options, dict):
+        top_level = {f.name: f for f in TOP_LEVEL.fields}
+        for name, raw in run_options.items():
+            field = top_level.get(name)
+            if field is None:
+                continue
+            value = _coerce(raw, field)
+            if value is None:
+                continue
+            if not full and value == field.default:
+                continue
+            config[name] = value
 
     for phase, group in PHASE_SCHEMAS.items():
         block = state.get(phase)
