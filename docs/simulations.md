@@ -276,12 +276,61 @@ rather than from work done in a hurry.
 A run can be steered or biased with metadynamics, not both: they are two ways
 of moving the same coordinate, and their forces would add.
 
+## Umbrella sampling
+
+A free energy along a coordinate, from equilibrium sampling at a series of
+positions rather than from work done in a hurry:
+
+```yaml
+systems:
+  - system: 181L
+simulation:
+  duration_ns: 5
+  umbrella:
+    collective_variable: ligand_distance
+    site_selection: "resid 84 to 121 and name CA"
+    from: 0.4          # nm
+    to: 2.0
+    n_windows: 17
+    force_constant: 1000
+```
+
+Each window becomes a run. They are scheduled by the same machinery that runs
+a multi-system campaign, so `execution.workers` and `execution.devices` pin
+them one per GPU exactly as they would separate systems.
+
+### Overlap is what makes it work
+
+Recombination stitches the windows' histograms together. Where two neighbours
+never visit the same value there is nothing to stitch: the free energy on one
+side cannot be placed relative to the other, and a curve drawn through the gap
+is interpolation presented as a measurement.
+
+So overlap is measured and **a gap is reported rather than bridged**, naming
+which windows and by how much. What closes a gap is more windows between them,
+or a softer force constant so each wanders further. Sampling for longer does
+not.
+
+The `force_constant` therefore has no default: it decides how far a window
+wanders and so whether neighbours meet. Too stiff and they do not; too soft
+and the system escapes towards the nearest minimum.
+
+### Where the windows start
+
+Windows started from a single structure are strained at the far end of the
+range, and the strain relaxes into the sampling as drift. The usual source is
+a steered run: pull once, take a frame near each window's centre, and each
+window begins near where it will sit.
+
+The first fifth of each window is discarded before recombination, because a
+window begins away from where it settles and counting the approach biases the
+histogram towards where the run started.
+
 ### What PLUMED is still needed for
 
 This covers one-dimensional well-tempered metadynamics on five variables, with
 walls or a funnel. Beyond that, write PLUMED input and pass it as `plumed`:
 
-- **umbrella sampling** — many windows, recombined with WHAM
 - **two or more collective variables** — a 2D free energy surface
 - **reweighting** to a variable that was not biased
 - **multiple walkers**, path collective variables, and the rest of PLUMED

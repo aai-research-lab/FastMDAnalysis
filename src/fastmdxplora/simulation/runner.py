@@ -753,6 +753,7 @@ def run_simulation(
     restrain_production: bool = False,
     metadynamics: dict[str, Any] | None = None,
     steered: dict[str, Any] | None = None,
+    umbrella: dict[str, Any] | None = None,
 ) -> SimulationResult:
     """Run minimize → NVT → NPT → production and return paths to outputs.
 
@@ -865,6 +866,51 @@ def run_simulation(
         for parameter in restraint_parameters:
             simulation.context.setParameter(parameter, strength)
         return strength
+
+    if umbrella:
+        # One window. The set of them is expanded above, so what arrives here
+        # is a coordinate and the position this run holds it at.
+        from fastmdxplora.simulation.metadynamics import cv_lines, plan_from_config
+        from fastmdxplora.simulation.umbrella import Window
+
+        centre = umbrella.get("centre")
+        if centre is None:
+            raise ValueError(
+                "An umbrella run needs a `centre`: the value of the "
+                "collective variable this window holds. A block describing a "
+                "whole set of windows is expanded into runs before it reaches "
+                "here."
+            )
+        force = umbrella.get("force_constant")
+        if force is None:
+            raise ValueError("An umbrella window needs a `force_constant`.")
+
+        spec = {k: v for k, v in umbrella.items()
+                if k not in ("centre", "force_constant", "n_windows",
+                             "centres", "from", "to", "equilibration_steps")}
+        spec.setdefault("sigma", 0.05)
+        spec.setdefault("unbounded", True)
+        cv_plan = plan_from_config(spec, topology, temperature_K=temperature_K)
+
+        window = Window(index=int(umbrella.get("index", 0)),
+                        centre=float(centre), force_constant=float(force))
+        script_path = Path(output_dir) / "umbrella.plumed"
+        script_path.parent.mkdir(parents=True, exist_ok=True)
+        script_path.write_text(
+            window.plumed_lines(cv_lines(cv_plan, str(topology_path))),
+            encoding="utf-8")
+        logger.info(
+            "Umbrella window %d: holding %s at %g with k=%g.",
+            window.index, cv_plan.collective_variable, window.centre,
+            window.force_constant)
+        plumed = {"enabled": True, "script": str(script_path)}
+
+    if len([x for x in (steered, metadynamics, umbrella) if x]) > 1:
+        raise ValueError(
+            "A run can be steered, biased with metadynamics, or held in an "
+            "umbrella window -- not more than one. They are different ways "
+            "of moving the same coordinate and their forces would add."
+        )
 
     if steered and metadynamics:
         raise ValueError(

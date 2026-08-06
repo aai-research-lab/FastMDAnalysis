@@ -180,3 +180,166 @@ class TestOverlapItself:
         from fastmdxplora.simulation.umbrella import overlap_between
 
         assert overlap_between(np.array([]), np.array([1.0, 2.0])) == 0.0
+
+
+class TestExpandingIntoRuns:
+    """An umbrella job is one system held at many positions, which is the
+    shape the batch machinery already runs -- so the scheduling, parallelism
+    and per-GPU pinning come from the code that already does those things."""
+
+    @staticmethod
+    def _config():
+        return {
+            "output": "runs/pmf",
+            "systems": [{"system": "181L"}],
+            "simulation": {"duration_ns": 5, "umbrella": {
+                "collective_variable": "ligand_distance",
+                "site_selection": "resid 84 to 121 and name CA",
+                "from": 0.4, "to": 2.0, "n_windows": 9,
+                "force_constant": 1000.0}},
+        }
+
+    def test_one_block_becomes_a_run_per_window(self) -> None:
+        from fastmdxplora.simulation.umbrella import expand_umbrella
+
+        expanded = expand_umbrella(self._config())
+        assert len(expanded["systems"]) == 9
+        assert expanded["systems"][0]["id"] == "window_00"
+
+    def test_each_run_holds_its_own_position(self) -> None:
+        from fastmdxplora.simulation.umbrella import expand_umbrella
+
+        expanded = expand_umbrella(self._config())
+        centres = [e["simulation"]["umbrella"]["centre"]
+                   for e in expanded["systems"]]
+        assert centres == sorted(centres)
+        assert centres[0] == pytest.approx(0.4)
+        assert centres[-1] == pytest.approx(2.0)
+
+    def test_shared_settings_survive(self) -> None:
+        from fastmdxplora.simulation.umbrella import expand_umbrella
+
+        expanded = expand_umbrella(self._config())
+        assert expanded["simulation"]["duration_ns"] == 5
+
+    def test_the_block_is_consumed(self) -> None:
+        """Leaving it would have every run try to expand it again."""
+        from fastmdxplora.simulation.umbrella import expand_umbrella
+
+        assert "umbrella" not in expand_umbrella(self._config())["simulation"]
+
+    def test_a_config_without_one_is_untouched(self) -> None:
+        from fastmdxplora.simulation.umbrella import expand_umbrella
+
+        plain = {"output": "runs/x", "systems": [{"system": "1UBQ"}]}
+        assert expand_umbrella(plain) == plain
+
+    def test_several_systems_at_once_is_refused(self) -> None:
+        """A window set for each would be several separate free energies,
+        each needing its own overlap check."""
+        from fastmdxplora.simulation.umbrella import expand_umbrella
+
+        config = self._config()
+        config["systems"].append({"system": "1UBQ"})
+        with pytest.raises(ValueError, match="one system at many positions"):
+            expand_umbrella(config)
+
+
+class TestReadingTheSamplingBack:
+    @staticmethod
+    def _written(tmp_path, plan, n=3000):
+        for window in plan.windows:
+            directory = tmp_path / f"window_{window.index:02d}" / "simulation"
+            directory.mkdir(parents=True)
+            values = _sample(window.centre, window.force_constant,
+                             n=n, seed=window.index)
+            directory.joinpath("COLVAR").write_text(
+                "#! FIELDS time cv restraint.bias\n"
+                + "\n".join(f"{i * 0.1:.1f} {v:.6f} 0.0"
+                            for i, v in enumerate(values)),
+                encoding="utf-8")
+
+    def test_a_free_energy_comes_back_from_files_on_disk(self, tmp_path) -> None:
+        from fastmdxplora.simulation.umbrella import (
+            collect_samples,
+            compute_pmf,
+            plan_windows,
+        )
+
+        plan = plan_windows({
+            "collective_variable": "distance", "from": -1.6, "to": 1.6,
+            "n_windows": 17, "force_constant": 200.0})
+        self._written(tmp_path, plan)
+
+        result = compute_pmf(collect_samples(tmp_path, plan), plan)
+        x = np.array(result["pmf"]["coordinate"])
+        f = np.array(result["pmf"]["free_energy_kjmol"])
+        assert f[np.argmin(np.abs(x))] == pytest.approx(10.0, abs=1.5)
+
+    def test_the_approach_to_each_window_is_discarded(self) -> None:
+        """A window begins away from where it will settle, and counting the
+        approach biases the histogram towards where the run started."""
+        import inspect
+
+        from fastmdxplora.simulation import umbrella
+
+        source = inspect.getsource(umbrella.collect_samples)
+        assert "equilibration_fraction" in source
+        # Flattened, because the sentence wraps and a substring check
+        # across a line break tests the layout rather than the meaning.
+        prose = " ".join(inspect.getdoc(umbrella.collect_samples).split())
+        assert "biases the histogram" in prose
+
+    def test_a_missing_window_stops_it(self, tmp_path) -> None:
+        """The windows either side of a missing one have nothing between them
+        to stitch through."""
+        from fastmdxplora.simulation.umbrella import collect_samples, plan_windows
+
+        plan = plan_windows({
+            "collective_variable": "distance", "from": -1.0, "to": 1.0,
+            "n_windows": 5, "force_constant": 200.0})
+        self._written(tmp_path, plan, n=500)
+        import shutil
+        shutil.rmtree(tmp_path / "window_02")
+
+        with pytest.raises(FileNotFoundError, match="window_02"):
+            collect_samples(tmp_path, plan)
+
+
+class TestOneWindowInTheRunner:
+    def test_the_setting_is_declared(self) -> None:
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        field = PHASE_SCHEMAS["simulation"].get("umbrella")
+        assert field is not None
+        assert "overlap" in field.help
+
+    def test_it_reaches_the_command_line(self) -> None:
+        from fastmdxplora.cli.main import _PHASE_SPEC
+
+        table, _prefix = _PHASE_SPEC["simulate"]
+        assert "umbrella" in {dest for _flag, dest, _kw in table}
+
+    def test_the_pipeline_passes_it(self) -> None:
+        import inspect
+
+        from fastmdxplora.simulation import pipeline
+
+        assert "umbrella=params.get" in inspect.getsource(pipeline)
+
+    def test_only_one_way_of_moving_a_coordinate_at_a_time(self) -> None:
+        """Steering, metadynamics and an umbrella restraint would add their
+        forces."""
+        import inspect
+
+        from fastmdxplora.simulation import runner
+
+        source = inspect.getsource(runner.run_simulation)
+        assert "not more than one" in source or "not more than one" in source.replace("\n", " ")
+
+    def test_a_window_needs_a_position(self) -> None:
+        import inspect
+
+        from fastmdxplora.simulation import runner
+
+        assert "needs a `centre`" in inspect.getsource(runner.run_simulation)

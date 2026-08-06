@@ -418,6 +418,15 @@ SIMULATION = PhaseSchema(
               "biased production run measures the bias: RMSF, clustering and "
               "dimensionality reduction would describe the restraint as much "
               "as the system. Turning it on is recorded with the results."),
+        Field("umbrella", dict, None,
+              "Umbrella sampling: a free energy along a coordinate, from "
+              "equilibrium sampling at a series of positions. A block with "
+              "`collective_variable`, the selections it needs, a "
+              "`force_constant`, and either `centres` or `from`/`to`/"
+              "`n_windows`. Each window becomes a run, and the sampling is "
+              "recombined into a potential of mean force -- unless adjacent "
+              "windows fail to overlap, in which case the gap is reported "
+              "rather than bridged."),
         Field("steered", dict, None,
               "Pull the system along a named coordinate. A block with the "
               "same `collective_variable` metadynamics takes, plus `to` (the "

@@ -194,6 +194,7 @@ def run(
             plumed=params.get("plumed"),
             metadynamics=params.get("metadynamics"),
             steered=params.get("steered"),
+            umbrella=params.get("umbrella"),
             restrain=params.get("restrain"),
             restraint_release=params.get("restraint_release"),
             restrain_production=bool(params.get("restrain_production", False)),

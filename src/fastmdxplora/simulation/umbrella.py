@@ -34,6 +34,7 @@ import numpy as np
 
 __all__ = [
     "Window",
+    "expand_umbrella",
     "UmbrellaPlan",
     "plan_windows",
     "windows_as_sweep",
@@ -138,6 +139,59 @@ def plan_windows(spec: dict[str, Any]) -> UmbrellaPlan:
     )
 
 
+def expand_umbrella(config: dict[str, Any]) -> dict[str, Any]:
+    """Turn a config with an umbrella block into one with a run per window.
+
+    An umbrella job is one system held at many positions, which is the shape
+    the batch machinery already runs -- so the windows become `systems`
+    entries differing in the position each holds, and the scheduling,
+    parallelism and per-GPU pinning come from the code that already does
+    those things.
+
+    Returns the config unchanged where there is no umbrella block.
+    """
+    simulation = config.get("simulation") or {}
+    spec = simulation.get("umbrella")
+    if not spec:
+        return config
+
+    if config.get("systems") and len(config["systems"]) > 1:
+        raise ValueError(
+            "Umbrella sampling holds one system at many positions. This "
+            f"config has {len(config['systems'])} systems, and a window set "
+            "for each would be several separate free energies -- run them as "
+            "separate studies so each has its own windows and its own "
+            "overlap check."
+        )
+
+    plan = plan_windows(spec)
+    base = dict(config.get("systems", [{}])[0]) if config.get("systems") else {}
+
+    systems = []
+    for window in plan.windows:
+        entry = dict(base)
+        entry["id"] = f"window_{window.index:02d}"
+        # Everything the window needs to bias itself, resolved per run.
+        entry["simulation"] = dict(entry.get("simulation") or {})
+        entry["simulation"]["umbrella"] = dict(
+            {k: v for k, v in spec.items()
+             if k not in ("centres", "centers", "from", "to", "n_windows")},
+            centre=window.centre,
+            force_constant=window.force_constant,
+            index=window.index,
+        )
+        systems.append(entry)
+
+    expanded = dict(config)
+    expanded["systems"] = systems
+    # The block has been expanded; leaving it would have every run try to
+    # expand it again.
+    expanded["simulation"] = {k: v for k, v in simulation.items()
+                              if k != "umbrella"}
+    expanded["_umbrella_plan"] = plan
+    return expanded
+
+
 def windows_as_sweep(plan: UmbrellaPlan) -> list[dict[str, Any]]:
     """The windows as a sweep, which is the shape the batch machinery runs.
 
@@ -153,6 +207,57 @@ def windows_as_sweep(plan: UmbrellaPlan) -> list[dict[str, Any]]:
         }
         for w in plan.windows
     ]
+
+
+def collect_samples(
+    output_dir: Any,
+    plan: UmbrellaPlan,
+    *,
+    equilibration_fraction: float = 0.2,
+) -> dict[int, np.ndarray]:
+    """Read each window's sampling back from its COLVAR file.
+
+    The first part of each window is discarded. A window begins away from
+    where it will settle, and counting the approach as sampling biases the
+    histogram towards where the run started -- which is the one place the
+    free energy is guaranteed not to be flat.
+    """
+    from pathlib import Path
+
+    root = Path(output_dir)
+    samples: dict[int, np.ndarray] = {}
+    missing: list[str] = []
+
+    for window in plan.windows:
+        colvar = root / f"window_{window.index:02d}" / "simulation" / "COLVAR"
+        if not colvar.is_file():
+            missing.append(f"window_{window.index:02d}")
+            continue
+        rows = []
+        for line in colvar.read_text(encoding="utf-8").splitlines():
+            if line.startswith("#") or not line.strip():
+                continue
+            parts = line.split()
+            if len(parts) >= 2:
+                try:
+                    rows.append(float(parts[1]))
+                except ValueError:
+                    continue
+        if not rows:
+            missing.append(f"window_{window.index:02d} (empty)")
+            continue
+        values = np.asarray(rows)
+        cut = int(len(values) * equilibration_fraction)
+        samples[window.index] = values[cut:]
+
+    if missing:
+        raise FileNotFoundError(
+            "These windows produced no sampling: " + ", ".join(missing) + ". "
+            "A free energy cannot be computed from a partial set, because "
+            "the windows either side of a missing one have nothing between "
+            "them to stitch through."
+        )
+    return samples
 
 
 def overlap_between(a: np.ndarray, b: np.ndarray, bins: int = 50) -> float:
