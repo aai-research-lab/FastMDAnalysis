@@ -677,3 +677,85 @@ def _build_fake_omm() -> dict:
         "Simulation": fake_simulation_cls,
         "PDBFile": fake_pdbfile_cls,
     }
+
+
+class TestSimulatingFromASystemPreparedElsewhere:
+    """A run ordinarily prepares its own system into ``setup/`` beside its
+    results. ``prepared_from`` points somewhere else instead: a run that
+    already prepared this molecule.
+
+    Useful on its own -- a reference system carried from a cluster, or one
+    prepared once by hand and reused -- and it is what lets a set of runs
+    share a preparation rather than each solvating separately.
+    """
+
+    @staticmethod
+    def _orchestrator(output_dir):
+        class _Stub:
+            pass
+
+        stub = _Stub()
+        stub.output_dir = Path(output_dir)
+        return stub
+
+    def test_the_setting_is_declared_where_settings_are_declared(self) -> None:
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        field = PHASE_SCHEMAS["simulation"].get("prepared_from")
+        assert field is not None
+        assert field.default is None, "a run prepares its own unless told otherwise"
+
+    def test_so_the_command_line_has_it_without_being_told(self) -> None:
+        """The flags are generated from the schema, which is the point of
+        generating them."""
+        from fastmdxplora.cli.main import _PHASE_SPEC
+
+        table, _prefix = _PHASE_SPEC["simulate"]
+        assert "prepared_from" in {dest for _flag, dest, _kw in table}
+
+    def test_without_it_a_run_reads_its_own_setup(self, tmp_path) -> None:
+        where, named = _pipeline._where_the_system_was_prepared(
+            self._orchestrator(tmp_path), None)
+        assert where == tmp_path / "setup"
+        assert named is False
+
+    def test_with_it_the_run_reads_what_it_was_pointed_at(self, tmp_path) -> None:
+        elsewhere = tmp_path / "reference" / "setup"
+        where, named = _pipeline._where_the_system_was_prepared(
+            self._orchestrator(tmp_path), str(elsewhere))
+        assert where == elsewhere
+        assert named is True
+
+    def test_a_relative_path_is_relative_to_where_you_typed_it(self) -> None:
+        """Not to the output directory, which is somewhere the person running
+        the command has not necessarily looked."""
+        where, _named = _pipeline._where_the_system_was_prepared(
+            self._orchestrator("/somewhere/else"), "runs/reference/setup")
+        assert where == Path.cwd() / "runs/reference/setup"
+
+    def test_a_path_that_holds_no_system_is_refused_as_a_wrong_path(
+        self, tmp_path
+    ) -> None:
+        """Rather than as a setup phase that has not run yet. It was named
+        explicitly, so 'run setup first' would send somebody to fix something
+        that is not broken.
+
+        The likeliest mistake is naming the run directory instead of the
+        setup directory inside it, so the message says which is wanted.
+        """
+        empty = tmp_path / "not-a-setup-directory"
+        empty.mkdir()
+        with pytest.raises(RuntimeError) as raised:
+            _pipeline.run(orchestrator=self._orchestrator(tmp_path),
+                          output_dir=tmp_path / "simulation",
+                          prepared_from=str(empty))
+        assert "prepared_from" in str(raised.value)
+        assert "setup directory" in str(raised.value)
+
+    def test_a_missing_setup_still_says_to_run_setup(self, tmp_path) -> None:
+        """The other message is still the right one when nothing was named."""
+        (tmp_path / "simulation").mkdir()
+        with pytest.raises(RuntimeError) as raised:
+            _pipeline.run(orchestrator=self._orchestrator(tmp_path),
+                          output_dir=tmp_path / "simulation")
+        assert "Run the setup phase first" in str(raised.value)

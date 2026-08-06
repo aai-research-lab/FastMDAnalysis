@@ -89,6 +89,33 @@ def _setup_outputs_present(setup_dir: Path) -> tuple[Path | None, Path | None, P
     return system_xml, state_xml, topology
 
 
+def _where_the_system_was_prepared(
+    orchestrator: "FastMDXplora", prepared_from: Any
+) -> tuple[Path, bool]:
+    """The directory to read the prepared system from, and whether it was named.
+
+    Ordinarily a run prepares its own system into ``setup/`` beside its
+    results. ``prepared_from`` points somewhere else instead: a run that
+    already prepared this molecule, so a set of runs can share one prepared
+    system rather than each solvating separately.
+
+    Sharing matters beyond the minutes saved. Solvation places water by a
+    procedure that does not give the same answer twice, so preparing the same
+    molecule n times gives n systems with different atom counts. Where the
+    runs are one measurement -- umbrella windows recombined into a single
+    free energy -- that difference is noise in the result rather than physics.
+    """
+    if not prepared_from:
+        return orchestrator.output_dir / "setup", False
+
+    named = Path(str(prepared_from)).expanduser()
+    if not named.is_absolute():
+        # Relative to where the run was started, which is where somebody
+        # typing the path can see it.
+        named = Path.cwd() / named
+    return named, True
+
+
 def run(
     *,
     orchestrator: "FastMDXplora",
@@ -116,8 +143,20 @@ def run(
     notes: list[str] = []
 
     # ---- Locate setup outputs ------------------------------------------
-    setup_dir = orchestrator.output_dir / "setup"
+    setup_dir, prepared_elsewhere = _where_the_system_was_prepared(
+        orchestrator, params.get("prepared_from")
+    )
     system_xml, state_xml, topology = _setup_outputs_present(setup_dir)
+    if system_xml is None and prepared_elsewhere:
+        # Named explicitly, so this is a wrong path rather than a phase that
+        # has not run yet, and saying "run setup first" would send somebody
+        # to fix the wrong thing.
+        raise RuntimeError(
+            f"prepared_from points at {setup_dir}, which does not hold a "
+            "prepared system (system.xml, state.xml and topology.pdb). It "
+            "should be the setup directory of a run that completed, not the "
+            "run directory above it."
+        )
     if system_xml is None:
         notes.append(
             f"Setup outputs not found in {setup_dir} (system.xml / state.xml / "

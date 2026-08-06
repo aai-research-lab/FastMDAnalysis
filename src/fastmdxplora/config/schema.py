@@ -328,6 +328,13 @@ SIMULATION = PhaseSchema(
         Field("production_steps", int, None,
               "Production step count (overrides duration_ns). Default: 1000000.",
               example=1000000),
+        Field("prepared_from", str, None,
+              "Directory holding a setup phase's system.xml, state.xml and "
+              "topology.pdb, to simulate from instead of preparing again. "
+              "Runs that share one prepared system share its water "
+              "placement, so a difference between them is the setting that "
+              "was changed rather than where the solvent happened to land.",
+              example="runs/reference/setup"),
         Field("minimize", bool, True,
               "Run energy minimization before equilibration."),
         Field("integrator", str, "langevin_middle",

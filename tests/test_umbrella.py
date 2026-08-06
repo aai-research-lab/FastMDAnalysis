@@ -980,3 +980,164 @@ class TestHowMuchOverlapIsEnough:
                 "force_constant": 500, "minimum_overlap": 0.15}}})
 
         assert plan_from_expanded(expanded).minimum_overlap == 0.15
+
+
+class TestOneSystemForEveryWindow:
+    """Seven windows of one real study came out with 37,212, 37,254, 37,436
+    and 37,445 atoms -- four different systems for one measurement.
+
+    The windows are the same molecule held at different points along a
+    coordinate, so they should be the same molecule. Solvation does not place
+    water the same way twice, and water arranged differently between windows
+    is noise in the free energy rather than physics. Preparing seven times
+    was also seven times the work.
+    """
+
+    @staticmethod
+    def _study(tmp_path, *, systems=("181L",), include="[setup, simulation]"):
+        from fastmdxplora.batch.explorer import BatchExplorer
+
+        listed = "\n".join(f"  - system: {s}" for s in systems)
+        config = tmp_path / "study.yml"
+        config.write_text(
+            f"output: out\ninclude: {include}\nsystems:\n{listed}\n"
+            "simulation:\n"
+            "  umbrella:\n"
+            "    collective_variable: radius_of_gyration\n"
+            '    selection: "protein and name CA"\n'
+            "    from: 0.4\n    to: 0.6\n    n_windows: 3\n"
+            "    force_constant: 5000\n",
+            encoding="utf-8")
+        return BatchExplorer(config=config, output_dir=str(tmp_path / "out"))
+
+    @staticmethod
+    def _pretend_it_is_prepared(directory):
+        directory.mkdir(parents=True, exist_ok=True)
+        for name in ("system.xml", "state.xml", "topology.pdb"):
+            (directory / name).write_text("<x/>", encoding="utf-8")
+
+    def test_a_study_prepares_once(self, tmp_path) -> None:
+        study = self._study(tmp_path)
+        shared = tmp_path / "out" / "shared_setup" / "setup"
+        self._pretend_it_is_prepared(shared)
+
+        assert study._maybe_prepare_once(["setup", "simulation"], None) == shared
+
+    def test_and_every_window_simulates_from_it(self, tmp_path) -> None:
+        study = self._study(tmp_path)
+        shared = tmp_path / "out" / "shared_setup" / "setup"
+        self._pretend_it_is_prepared(shared)
+        study._maybe_prepare_once(["setup", "simulation"], None)
+
+        pointed = {(spec.options.get("simulation") or {}).get("prepared_from")
+                   for spec in study.run_specs}
+        assert len(study.run_specs) == 3
+        assert pointed == {str(shared)}
+
+    def test_and_none_of_them_prepares_another(self, tmp_path) -> None:
+        """The saving is the point, and a second preparation would undo the
+        sharing as well."""
+        study = self._study(tmp_path)
+        self._pretend_it_is_prepared(tmp_path / "out" / "shared_setup" / "setup")
+
+        seen: dict = {}
+        study._run_sequential = lambda include, exclude: seen.update(
+            include=include, exclude=exclude) or []
+        study.run()
+        assert "setup" in seen["exclude"]
+
+    def test_an_ordinary_campaign_prepares_per_system(self, tmp_path) -> None:
+        """Different systems *are* different systems. Sharing one preparation
+        between them would be wrong rather than efficient."""
+        from fastmdxplora.batch.explorer import BatchExplorer
+
+        config = tmp_path / "campaign.yml"
+        config.write_text(
+            "output: out\nsystems:\n  - system: 1UBQ\n  - system: 181L\n",
+            encoding="utf-8")
+        campaign = BatchExplorer(config=config, output_dir=str(tmp_path / "out"))
+
+        assert campaign._maybe_prepare_once(None, None) is None
+        for spec in campaign.run_specs:
+            assert "prepared_from" not in (spec.options.get("simulation") or {})
+
+    def test_several_molecules_never_reach_here(self, tmp_path) -> None:
+        """Expansion refuses them: a window set for each would be several free
+        energies. So sharing does not need a guard against it, and one that
+        looked at the molecule would be a branch nothing could reach."""
+        import pytest
+
+        from fastmdxplora.config import ConfigError
+
+        with pytest.raises(ConfigError, match="one system at many positions"):
+            self._study(tmp_path, systems=("181L", "1UBQ"))
+
+    def test_but_windows_prepared_differently_do_not_share(self, tmp_path) -> None:
+        """A sweep can still ask for the windows to be prepared differently.
+        Sharing would quietly ignore what it asked for, which is worse than
+        preparing seven times."""
+        from fastmdxplora.batch.explorer import BatchExplorer
+
+        config = tmp_path / "swept.yml"
+        config.write_text(
+            "output: out\ninclude: [setup, simulation]\n"
+            "systems:\n  - system: 181L\n"
+            "sweep:\n  setup.ph: [6.5, 7.4]\n"
+            "simulation:\n"
+            "  umbrella:\n"
+            "    collective_variable: distance\n"
+            "    centres: [0.0, 0.2]\n    force_constant: 1000\n",
+            encoding="utf-8")
+        study = BatchExplorer(config=config, output_dir=str(tmp_path / "out"))
+
+        assert len({spec.options["setup"]["ph"] for spec in study.run_specs}) == 2
+        assert study._maybe_prepare_once(["setup", "simulation"], None) is None
+
+    def test_nothing_is_prepared_when_nothing_was_going_to_be(self, tmp_path) -> None:
+        """The windows are simulating from a system that already exists."""
+        study = self._study(tmp_path, include="[simulation]")
+        assert study._maybe_prepare_once(["simulation"], None) is None
+
+    def test_a_preparation_that_fails_stops_the_study(self, tmp_path) -> None:
+        """Every window would fail the same way, one after another, for hours.
+        It is said once, before any of them starts.
+
+        The failure is a path that cannot name a structure, so it fails for
+        the same reason on every machine. Written first as a study of 181L
+        that simply had nothing on disk, which failed only where the fetch
+        did: on a machine with a network it downloaded the protein and
+        solvated 36,957 atoms, and the test passed nothing but the sandbox's
+        firewall.
+        """
+        import pytest
+
+        study = self._study(tmp_path, systems=(str(tmp_path / "no-such.pdb"),))
+        with pytest.raises(RuntimeError, match="nothing for the windows"):
+            study._maybe_prepare_once(["setup", "simulation"], None)
+
+    def test_an_existing_preparation_is_not_repeated(self, tmp_path) -> None:
+        """A study rerun after a window failed should not solvate again --
+        that would replace the system its finished windows already used."""
+        import inspect
+
+        from fastmdxplora.batch import explorer
+
+        study = self._study(tmp_path)
+        shared = tmp_path / "out" / "shared_setup" / "setup"
+        self._pretend_it_is_prepared(shared)
+        marker = shared / "system.xml"
+        stamp = marker.stat().st_mtime_ns
+
+        study._maybe_prepare_once(["setup", "simulation"], None)
+        assert marker.stat().st_mtime_ns == stamp
+        assert "_a_prepared_system_is_there" in inspect.getsource(
+            explorer.BatchExplorer._maybe_prepare_once)
+
+    def test_the_check_reads_the_first_element_not_the_tuple(self, tmp_path) -> None:
+        """The simulation phase answers with a tuple of paths, and an empty
+        answer is a tuple of Nones -- which is truthy."""
+        from fastmdxplora.batch.explorer import _a_prepared_system_is_there
+
+        assert _a_prepared_system_is_there(tmp_path) is False
+        self._pretend_it_is_prepared(tmp_path / "setup")
+        assert _a_prepared_system_is_there(tmp_path / "setup") is True

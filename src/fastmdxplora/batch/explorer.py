@@ -52,6 +52,19 @@ if TYPE_CHECKING:
 logger = get_logger("batch")
 
 
+def _a_prepared_system_is_there(setup_dir: Path) -> bool:
+    """Whether the three files a simulation starts from are on disk.
+
+    Asked through the simulation phase's own check, so what counts as
+    prepared is decided in one place. Its answer is a tuple of paths, and an
+    empty answer is a tuple of Nones -- which is truthy, so it is the first
+    element that has to be read.
+    """
+    from fastmdxplora.simulation.pipeline import _setup_outputs_present
+
+    return _setup_outputs_present(setup_dir)[0] is not None
+
+
 def _first_error_phase_message(phases: list[Any]) -> str:
     for phase in phases:
         if getattr(phase, "status", None) == "error":
@@ -373,6 +386,12 @@ class BatchExplorer:
         include = self._raw.get("include")
         exclude = self._raw.get("exclude")
 
+        shared = self._maybe_prepare_once(include, exclude)
+        if shared is not None:
+            # The windows read the system that was just prepared, so none of
+            # them prepares one of its own.
+            exclude = list(exclude or []) + ["setup"]
+
         if self.is_single:
             logger.info("Exploring 1 molecular system in %s", self.output_dir)
         else:
@@ -394,6 +413,72 @@ class BatchExplorer:
             self._maybe_build_pmf()
             self._print_summary()
         return list(self.results)
+
+    # ------------------------------------------------------------------
+    def _maybe_prepare_once(self, include, exclude) -> Path | None:
+        """Prepare the system once for a set of umbrella windows.
+
+        Seven windows of one real study came out with 37,212, 37,254, 37,436
+        and 37,445 atoms: four different systems for one measurement. The
+        windows are the same molecule held at different points along a
+        coordinate, so they should be the same molecule. Solvation does not
+        place water the same way twice, and water arranged differently
+        between windows is noise in the free energy rather than physics.
+
+        A window is not a system of its own, so it does not get a system of
+        its own. Preparing seven times was also seven times the work.
+
+        Only for a study whose runs are one measurement. An ordinary campaign
+        is untouched: different systems *are* different systems, and one
+        preparation shared between them would be wrong rather than efficient.
+        """
+        if not self._is_umbrella:
+            return None
+
+        wanted = set(include) if include else {"setup", "simulation",
+                                               "analysis", "report"}
+        if "setup" not in wanted or "setup" in set(exclude or []):
+            # Nothing is being prepared at all -- the windows are simulating
+            # from something that already exists.
+            return None
+
+        # An umbrella study is one system by the time it gets here -- expansion
+        # refuses several -- but a sweep can still ask for the windows to be
+        # prepared differently from one another. Sharing then would quietly
+        # ignore what the sweep asked for, which is worse than preparing
+        # seven times.
+        preparations = {
+            json.dumps(spec.options.get("setup") or {}, sort_keys=True, default=str)
+            for spec in self.run_specs
+        }
+        if len(preparations) != 1:
+            logger.warning(
+                "The windows are swept over %d different setup settings, so "
+                "each prepares its own system.", len(preparations))
+            return None
+
+        shared = self.output_dir / "shared_setup"
+        prepared = shared / "setup"
+        if not _a_prepared_system_is_there(prepared):
+            print("\nPreparing one system for every window\n" + "=" * 40)
+            first = self.run_specs[0]
+            result = _execute_run(
+                first.to_dict(), str(shared), ["setup"], None,
+                self.verbose, None,
+            )
+            if result.status == "error" or not _a_prepared_system_is_there(prepared):
+                # Every window would fail the same way, one after another,
+                # for hours. Say it once here instead.
+                raise RuntimeError(
+                    "The system could not be prepared, so there is nothing "
+                    f"for the windows to simulate: {result.message or prepared}"
+                )
+
+        for spec in self.run_specs:
+            simulation = dict(spec.options.get("simulation") or {})
+            simulation["prepared_from"] = str(prepared)
+            spec.options["simulation"] = simulation
+        return prepared
 
     # ------------------------------------------------------------------
     def _maybe_build_pmf(self) -> None:

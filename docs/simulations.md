@@ -327,6 +327,32 @@ The `force_constant` therefore has no default: it decides how far a window
 wanders and so whether neighbours meet. Too stiff and they do not; too soft
 and the system escapes towards the nearest minimum.
 
+### One system, many windows
+
+The windows are the same molecule held at different points along the
+coordinate, so FastMDXplora prepares it once — into `shared_setup/` — and every
+window simulates from that.
+
+This matters beyond the minutes saved. Solvation does not place water the same
+way twice: preparing each window separately gives each its own water, and a
+seven-window study came out with 37,212, 37,254, 37,436 and 37,445 atoms. Four
+different systems for one measurement, and the difference between windows is
+then partly where the solvent happened to land rather than the restraint.
+
+A sweep over `setup` settings turns the sharing off, because the windows are
+being asked to be prepared differently and quietly ignoring that would be worse
+than preparing seven times.
+
+The same setting is available on its own, for a system prepared elsewhere:
+
+```yaml
+simulation:
+  prepared_from: runs/reference/setup
+```
+
+It names the `setup` directory of a run that completed — the one holding
+`system.xml`, `state.xml` and `topology.pdb` — not the run directory above it.
+
 ### Where the windows start
 
 Windows started from a single structure are strained at the far end of the
