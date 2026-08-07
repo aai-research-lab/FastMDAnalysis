@@ -20,6 +20,7 @@ import time
 import zipfile
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
@@ -34,8 +35,16 @@ from fastmdxplora.gui.exploration import (
 )
 from fastmdxplora.gui.ligand_detection import detect_ligands, normalise_ligand_resname
 from fastmdxplora.gui.live_frames import live_frame_exists, read_live_frame_index
-from fastmdxplora.gui.protein_preview import find_structure, protein_preview_payload
-from fastmdxplora.gui.structure_info import count_structure, ligand_atom_counts
+from fastmdxplora.gui.protein_preview import (
+    find_structure,
+    find_system,
+    protein_preview_payload,
+)
+from fastmdxplora.gui.structure_info import (
+    _MAX_PDB_BYTES_FOR_SYSTEM_SCAN,
+    count_structure,
+    ligand_atom_counts,
+)
 from fastmdxplora.gui.telemetry import (
     analyze_health,
     read_events,
@@ -603,11 +612,18 @@ def make_handler(
             self.wfile.write(data)
 
         def _send_structure(self, root: Path) -> None:
-            target = find_structure(root)
+            # Draw the system that was simulated, with bulk solvent stripped
+            # -- the same filter the live frames already go through. Serving
+            # the prepared solute kept the file small but omitted the ligand,
+            # which is put back only when the system is built, so a ligand run
+            # drew a bare protein and said nothing about the absence.
+            target = find_system(root)
+            if target is None or not target.is_file():
+                target = find_structure(root)
             if target is None or not target.is_file():
                 self.send_error(404, "Structure not found")
                 return
-            data = target.read_bytes()
+            data = _display_structure_bytes(target)
             self.send_response(200)
             self.send_header("Content-Type", "chemical/x-pdb; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -860,7 +876,11 @@ def _report_panels(root: Path) -> dict[str, Any]:
             sim_manifest=sim_manifest,
         )
         metrics = _metric_rows(root, analysis_manifest)
-        phases = _phase_rows(manifest)
+        # The live status too: during a run the manifest holds nothing, and
+        # a phase with no record is not one that did not happen.
+        from fastmdxplora.gui.telemetry import read_status
+
+        phases = _phase_rows(manifest, read_status(root))
     except Exception:  # noqa: BLE001 - a panel must never break the dashboard
         logger.debug("report panels unavailable", exc_info=True)
         return {"summary_cards": [], "metric_rows": [], "phase_rows": []}
@@ -953,10 +973,39 @@ def _results_payload(root: Path) -> dict[str, Any]:
     }
 
 
+@lru_cache(maxsize=4)
+def _display_structure_cached(path_string: str, _mtime_ns: int, _size: int) -> bytes:
+    from fastmdxplora.gui.live_frames import dashboard_display_pdb
+
+    target = Path(path_string)
+    text = target.read_text(encoding="utf-8", errors="ignore")
+    filtered = dashboard_display_pdb(text)
+    # An empty filter result means nothing matched the solute test -- an
+    # unusual file rather than a solvent box. Send it as written rather than
+    # sending nothing.
+    return filtered.encode("utf-8") if filtered.strip() else target.read_bytes()
+
+
+def _display_structure_bytes(target: Path) -> bytes:
+    """The structure as the browser should draw it: solute only.
+
+    Cached per file version, because a solvated topology is read in full to
+    filter it and the viewer asks on every page load.
+    """
+    try:
+        stat = target.stat()
+        return _display_structure_cached(
+            str(target.resolve()), int(stat.st_mtime_ns), int(stat.st_size)
+        )
+    except OSError:
+        return target.read_bytes()
+
+
 def _structure_info_payload(
     root: Path, config: DashboardConfig
 ) -> dict[str, Any]:
-    structure_path = find_structure(root)
+    # What the system contains, not what is drawn.
+    structure_path = find_system(root)
     if structure_path is None:
         return {
             "valid": False,
@@ -964,7 +1013,7 @@ def _structure_info_payload(
             "ligand_resnames": [],
             "ligand_instances": [],
         }
-    info = count_structure(structure_path)
+    info = count_structure(structure_path, max_bytes=_MAX_PDB_BYTES_FOR_SYSTEM_SCAN)
     if not info.get("valid"):
         return dict(
             info,
@@ -989,10 +1038,12 @@ def _structure_info_payload(
 def _ligands_payload(
     root: Path, config: DashboardConfig
 ) -> dict[str, Any]:
-    structure_path = find_structure(root)
+    # Preparation strips the ligand and puts it back with small-molecule
+    # parameters, so the prepared structure is the one file that never has it.
+    structure_path = find_system(root)
     if structure_path is None or not structure_path.is_file():
         return {"ligands": [], "explicit": normalise_ligand_resname(config.ligand_resname), "valid": False}
-    info = count_structure(structure_path)
+    info = count_structure(structure_path, max_bytes=_MAX_PDB_BYTES_FOR_SYSTEM_SCAN)
     instances = []
     if info.get("valid"):
         explicit = [config.ligand_resname] if config.ligand_resname else None
@@ -1062,8 +1113,13 @@ def _summary_records(
         status = "failed"
     elif phase_statuses:
         status = "in progress"
+    elif read_status(root):
+        # No manifest yet, but telemetry says a run is going. The manifest is
+        # written when the run ends, so its absence is not a fact about the
+        # run.
+        status = "in progress"
     else:
-        status = "not available"
+        status = "not run"
     frames = _first_present(
         analysis_manifest.get("n_frames"),
         sim_manifest.get("n_production_frames"),
@@ -1078,16 +1134,16 @@ def _summary_records(
     latest = _first_present(live_status.get("status"), status)
     return [
         {"label": "Project status", "value": status},
-        {"label": "Latest status", "value": str(latest or "not available")},
+        {"label": "Latest status", "value": str(latest or "—")},
         {"label": "Frames", "value": _display_value(frames)},
         {"label": "Atoms", "value": _display_value(atoms)},
         {
             "label": "Simulation time",
-            "value": f"{sim_time} ns" if sim_time is not None else "not available",
+            "value": f"{sim_time} ns" if sim_time is not None else "—",
         },
         {
             "label": "Temperature",
-            "value": f"{temperature} K" if temperature not in (None, "") else "not available",
+            "value": f"{temperature} K" if temperature not in (None, "") else "—",
         },
     ]
 
@@ -1111,7 +1167,9 @@ def _system_info(
     if not isinstance(params, dict):
         params = sim_manifest
     return {
-        "system": _display_value(manifest.get("system")),
+        # Empty rather than a dash: the browser falls back to its own label
+        # for an unnamed run, and a dash here would win that choice instead.
+        "system": str(manifest.get("system") or ""),
         "output_folder": root.as_posix(),
         "atoms": _display_value(analysis_manifest.get("n_atoms")),
         "frames": _display_value(
@@ -1298,7 +1356,15 @@ def _first_present(*values: Any) -> Any:
 
 
 def _display_value(value: Any) -> str:
-    return "not available" if value in (None, "") else str(value)
+    """A value, or a dash where there is not one yet.
+
+    This used to return the string "not available", which is a verdict rather
+    than a value: it travelled into the results payload and was rendered under
+    labels promising a system name, an atom count, a platform. A run in
+    progress has no manifest to read those from, and saying so with a dash is
+    the same convention the rest of the page uses for "not yet".
+    """
+    return "—" if value in (None, "") else str(value)
 
 
 def _phase_records(manifest: dict[str, Any]) -> list[dict[str, str]]:

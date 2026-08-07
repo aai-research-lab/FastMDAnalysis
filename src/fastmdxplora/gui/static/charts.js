@@ -15,12 +15,45 @@
 
   const CONFIG = [
     {key: "potential_energy", label: "Potential energy", unit: "kJ/mol", color: COLORS.cyan},
+    // Recorded since the beginning -- METRIC_FIELDS carries it and OpenMM's
+    // energy.csv is mapped to it -- but never drawn. Potential energy alone
+    // does not show whether the integration is holding; drift in the total
+    // is the thing that does.
+    {key: "total_energy", label: "Total energy", unit: "kJ/mol", color: COLORS.green},
     {key: "temperature", label: "Temperature", unit: "K", color: COLORS.orange},
     {key: "density", label: "Density", unit: "g/mL", color: COLORS.violet},
     {key: "speed", label: "Simulation speed", unit: "ns/day", color: COLORS.silver},
   ];
 
   const states = new Map();
+
+  /* The number and its trend, together. CONFIG is the single register of
+     what a metric is called and what it is measured in, so a series cannot
+     be plotted without a current value or given one without a plot. */
+  function renderLatest(metrics) {
+    const latest = metrics && metrics.length ? metrics[metrics.length - 1] : null;
+    CONFIG.forEach((config) => {
+      const target = document.querySelector(`[data-chart-value="${config.key}"]`);
+      if (!target) return;
+      // An empty cell is a gap, not a zero: Number("") is 0 and finite, so
+      // a metric the run has not sampled would have read 0.0000.
+      const cell = latest ? latest[config.key] : null;
+      const raw = cell === "" || cell == null ? NaN : Number(cell);
+      // No unit here -- the title beside it already carries one, and the row
+      // read "Potential energy (kJ/mol)  -506551 kJ/mol".
+      target.textContent = Number.isFinite(raw) ? formatValue(raw) : "—";
+    });
+  }
+
+  function formatValue(value) {
+    const magnitude = Math.abs(value);
+    // Grouped, because -506551 is read one digit at a time and -506,551 is
+    // read at a glance -- which is the whole point of a number on a chart.
+    if (magnitude >= 10000) return value.toLocaleString(undefined, {maximumFractionDigits: 0});
+    if (magnitude >= 100) return value.toFixed(2);
+    if (magnitude >= 1) return value.toFixed(3);
+    return value.toFixed(4);
+  }
   let lastMetrics = [];
   let resizeObserver = null;
 
@@ -96,6 +129,7 @@
         .filter((point) => Number.isFinite(point.y));
       entry.needsDraw = true;
     });
+    renderLatest(lastMetrics);
     updateEmptyState();
     drawAll();
   }

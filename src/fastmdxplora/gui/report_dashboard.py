@@ -259,6 +259,43 @@ def _load_json(path: Path) -> dict[str, Any]:
         return {}
 
 
+def _live_phase_progress(
+    project_root: Path,
+) -> tuple[dict[str, Any], list[str]]:
+    """What a run in progress has finished, read from its live status.
+
+    A phase counts as finished when the stage the run is in comes after all
+    of that phase's stages -- a run that is minimising has finished preparing,
+    because it could not have started otherwise. Returns an empty status where
+    there is no telemetry at all, which is a different claim from a run that
+    has finished nothing.
+    """
+    from fastmdxplora.gui.telemetry import PHASE_STAGES, STAGE_ORDER, read_status
+
+    status = read_status(project_root)
+    if not status:
+        return {}, []
+
+    states = status.get("stage_states")
+    if not isinstance(states, dict):
+        states = {}
+    settled = {"completed", "complete", "done", "ok"}
+    current = str(status.get("stage") or "").strip().lower()
+    index = STAGE_ORDER.index(current) if current in STAGE_ORDER else -1
+
+    finished: list[str] = []
+    for phase, stages in PHASE_STAGES.items():
+        reached_past = index >= 0 and all(
+            STAGE_ORDER.index(stage) < index for stage in stages
+        )
+        all_settled = bool(stages) and all(
+            str(states.get(stage, "")).lower() in settled for stage in stages
+        )
+        if reached_past or all_settled:
+            finished.append(phase)
+    return status, finished
+
+
 def _summary_cards(
     *,
     project_root: Path,
@@ -273,19 +310,46 @@ def _summary_cards(
         if p.get("status") == "ok" and p.get("name")
     ]
     status = _project_status(manifest)
-    cards = [
-        DashboardCard(
-            "Project status",
-            status.title(),
-            "Recorded from manifest" if manifest else "No run manifest found",
-            "good" if status == "ok" else "warn",
-        ),
-        DashboardCard(
-            "Phases completed",
-            str(len(completed)),
-            ", ".join(completed) if completed else "not available",
-        ),
-    ]
+    if manifest:
+        cards = [
+            DashboardCard(
+                "Project status",
+                status.title(),
+                "Recorded from manifest",
+                "good" if status == "ok" else "warn",
+            ),
+            DashboardCard(
+                "Phases completed",
+                str(len(completed)),
+                ", ".join(completed) if completed else "none recorded",
+            ),
+        ]
+    else:
+        # The manifest is written when the run ends, so during a run these
+        # two cards used to read "Unknown / No run manifest found" and
+        # "0 / not available" directly above a phases table correctly saying
+        # Setup ok, Simulation running. Same page, same run, contradicting
+        # itself -- because one of them was reading a file that does not hold
+        # the answer yet and reporting the gap as the answer.
+        live, live_completed = _live_phase_progress(project_root)
+        cards = [
+            DashboardCard(
+                "Project status",
+                str(live.get("status") or "starting").title() if live else "Not run",
+                (
+                    "In progress; the manifest is written when the run ends"
+                    if live
+                    else "Nothing has run in this folder"
+                ),
+                "warn" if not live or live.get("status") == "failed" else "good",
+            ),
+            DashboardCard(
+                "Phases completed",
+                str(len(live_completed)),
+                ", ".join(live_completed)
+                or ("none finished yet" if live else "nothing has run"),
+            ),
+        ]
 
     n_frames = analysis_manifest.get("n_frames")
     if n_frames is not None:
@@ -327,9 +391,12 @@ def _summary_cards(
     if wall_time:
         cards.append(DashboardCard("Wall time", wall_time, "recorded phase timestamps"))
 
-    cards.append(
-        DashboardCard("Output folder", project_root.as_posix(), "project root")
-    )
+    # No Output folder card. Every other card here is something measured
+    # about the run -- frames, atoms, temperature, wall time -- and a
+    # filesystem path is navigation, not a measurement. In the browser it sits
+    # in the sidebar beside the run's name and platform, and on the Open
+    # Output button; in a report sent to somebody else, an absolute path from
+    # the machine that produced it was never useful.
     return cards
 
 
@@ -344,17 +411,49 @@ def _project_status(manifest: dict[str, Any]) -> str:
     return "unknown"
 
 
-def _phase_rows(manifest: dict[str, Any]) -> list[PhaseRow]:
+def _phase_rows(
+    manifest: dict[str, Any], live_status: dict[str, Any] | None = None
+) -> list[PhaseRow]:
+    """What each phase did, or is doing.
+
+    The manifest is written when a run finishes, so during one it holds
+    nothing and every phase read "Not run" -- on a page showing that same
+    run's energy, its temperature and its speed in ns/day. "Not run" is a
+    claim that a phase did not happen; while a run is going the truth is that
+    it has not finished.
+
+    ``live_status`` is what the run writes as it goes. Where it says a run is
+    active, a phase with no record yet is pending rather than absent.
+    """
     recorded = {
         str(p.get("name")): p
         for p in manifest.get("phases", [])
         if isinstance(p, dict) and p.get("name")
     }
+    running = bool(live_status) and str(
+        (live_status or {}).get("status") or "").lower() in {"running", "live"}
+
+    order = ("setup", "simulation", "analysis", "report")
+    # A run that is simulating has finished preparing, whatever the manifest
+    # says: it could not have started otherwise. So the phases before the one
+    # in progress are complete, not pending.
+    live_at = order.index("simulation") if running else None
+
     rows: list[PhaseRow] = []
-    for name in ("setup", "simulation", "analysis", "report"):
+    for position, name in enumerate(order):
         phase = recorded.get(name)
         if phase is None:
-            rows.append(PhaseRow(name.title(), "not-run", "Not run"))
+            if live_at is None:
+                rows.append(PhaseRow(name.title(), "not-run", "Not run"))
+            elif position < live_at:
+                rows.append(PhaseRow(
+                    name.title(), "ok", "Complete; recorded when the run ends"))
+            elif position == live_at:
+                stage = str((live_status or {}).get("stage") or "").strip()
+                rows.append(PhaseRow(
+                    name.title(), "running", stage or "Running"))
+            else:
+                rows.append(PhaseRow(name.title(), "pending", "Not yet"))
             continue
         raw_status = str(phase.get("status") or "unknown")
         if raw_status == "ok":
@@ -1440,6 +1539,10 @@ def _render_dashboard(
     .phase-row.error .phase-dot {{ background: var(--accent-red); }}
     .phase-row.skipped .phase-dot {{ background: var(--accent-orange); }}
     .phase-row.not-run .phase-dot {{ background: var(--text-muted); }}
+    .phase-row.pending .phase-dot {{ background: var(--text-muted); opacity: .5; }}
+    .phase-row.running .phase-dot {{ background: var(--accent-cyan);
+                                     animation: phase-pulse 1.6s ease-in-out infinite; }}
+    @keyframes phase-pulse {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: .35; }} }}
     .phase-detail {{
       color: var(--text-muted);
       font-size: 0.84rem;
@@ -1858,14 +1961,18 @@ def _render_static_live_panel(project_root: Path) -> str:
             "<code>--live-telemetry</code>, and this page fills as the run "
             "goes."
         )
-        stage = "not available"
-        updated = "not available"
-        platform = "not available"
+        # The prose above has already said why there is nothing here; a dash
+        # says the same without three more verdicts. This page describes a
+        # finished run, so an unreported stage is not "starting" the way it is
+        # on the live page -- it is simply not recorded.
+        stage = "—"
+        updated = "—"
+        platform = "—"
     else:
-        body = escape(str(health.get("explanation") or "not available"))
-        stage = escape(str(status.get("stage") or "not available"))
-        updated = escape(str(status.get("last_update_timestamp") or "not available"))
-        platform = escape(str(status.get("platform") or "not available"))
+        body = escape(str(health.get("explanation") or "—"))
+        stage = escape(str(status.get("stage") or "—"))
+        updated = escape(str(status.get("last_update_timestamp") or "—"))
+        platform = escape(str(status.get("platform") or "—"))
     health_state = escape(str(health.get("state") or "unknown"))
     health_message = escape(str(health.get("message") or "Live telemetry is not available."))
     return (

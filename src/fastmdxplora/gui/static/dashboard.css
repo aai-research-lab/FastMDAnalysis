@@ -747,9 +747,10 @@ button {
 }
 .chart-canvas { width: 100%; height: 100%; display: block; }
 .chart-title {
-    position: absolute;
-    top: 8px;
-    left: 12px;
+    /* Above the canvas, not on it. Absolutely positioned at the top-left it
+       sat exactly where the chart draws its y-axis labels, and the two
+       overlapped as soon as there was data to label. */
+    margin: 0 0 4px 2px;
     color: var(--text-secondary);
     font-size: 11px;
     letter-spacing: 0.1em;
@@ -2182,3 +2183,42 @@ body.state-ready .loading-screen {
     text-decoration: none;
 }
 .footer-cite a:hover { text-decoration: underline; }
+
+/* ---------------------------------------------------------------------
+   Chart rows: a title, a current value, and the plot beneath them.
+
+   The row is a fixed-height box that clips, and the title now sits inside
+   it rather than floating over the canvas -- so a canvas at `height: 100%`
+   of the row overflowed by exactly the height of the title and had its
+   bottom edge cut off. Laying the row out as a column and letting the
+   canvas take what is left keeps the whole plot visible. The plot loses
+   the height the title occupies, which is the honest trade: it was never
+   free, it was just being taken out of view.
+   --------------------------------------------------------------------- */
+.chart-row {
+    display: flex;
+    flex-direction: column;
+}
+.chart-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex: 0 0 auto;
+}
+.chart-head .chart-title {
+    margin: 0;
+}
+.chart-latest {
+    padding: 4px 10px 4px 0;
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 1;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+.chart-row > .chart-canvas {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+}

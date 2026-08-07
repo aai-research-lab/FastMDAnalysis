@@ -20,21 +20,32 @@ from fastmdxplora.gui.ligand_detection import (
     detect_ligands,
 )
 
-# Keep the lightweight metadata scanner bounded. The viewer now prefers the
-# prepared solute PDB, so normal dashboard runs avoid parsing a full solvated
-# topology while retaining the original safety limit for unusually large files.
+# Keep the lightweight metadata scanner bounded. The viewer prefers the
+# prepared solute PDB, so rendering paths stay well inside this limit.
 _MAX_PDB_BYTES_FOR_INLINE_SCAN = 8 * 1024 * 1024
+
+# Saying what a run contains means reading the solvated system, and a water
+# box puts a modest protein past 8 MB: roughly 100k atoms is 8 MB of PDB, so
+# the ceiling above would have turned "no ligand, no water, no ions" into
+# "metadata not available" rather than into the answer. The scan streams a
+# line at a time and is cached per file version, so the cost is one pass per
+# run, not one per poll -- while still refusing a file large enough to stall
+# the handler.
+_MAX_PDB_BYTES_FOR_SYSTEM_SCAN = 256 * 1024 * 1024
 _COORD_SANITY_LIMIT = 1_000_000.0  # angstrom
 
 
-def count_structure(path: str | Path) -> dict[str, Any]:
+def count_structure(path: str | Path, *, max_bytes: int | None = None) -> dict[str, Any]:
     """Return chain/residue/atom/ligand counters for a PDB file.
 
     Results are cached by absolute path, file size, and nanosecond mtime.  A
     fresh dictionary is returned to callers so API code may safely enrich the
-    payload without mutating the cached value.
+    payload without mutating the cached value.  ``max_bytes`` raises the size
+    the caller is willing to scan: the composition of a simulated system is
+    worth a solvated-topology pass, a browser preview is not.
     """
 
+    limit = _MAX_PDB_BYTES_FOR_INLINE_SCAN if max_bytes is None else int(max_bytes)
     p = Path(path)
     if not p.is_file():
         return {"valid": False, "reason": "missing", "path": p.as_posix()}
@@ -42,13 +53,13 @@ def count_structure(path: str | Path) -> dict[str, Any]:
         stat = p.stat()
     except OSError as exc:
         return {"valid": False, "reason": f"stat-error: {exc}", "path": p.as_posix()}
-    if stat.st_size > _MAX_PDB_BYTES_FOR_INLINE_SCAN:
+    if stat.st_size > limit:
         return {
             "valid": False,
             "reason": "too-large",
             "path": p.as_posix(),
             "size": stat.st_size,
-            "max_inline_bytes": _MAX_PDB_BYTES_FOR_INLINE_SCAN,
+            "max_inline_bytes": limit,
         }
     result = _count_structure_cached(
         str(p.resolve()),

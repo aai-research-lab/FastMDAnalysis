@@ -627,8 +627,14 @@ def _run_md_stage_with_live_metrics(
     total_steps: int,
     timestep_fs: float,
     telemetry_interval: int,
+    trajectory_interval_steps: int | None = None,
 ) -> int:
-    """Run an MD stage in chunks so live telemetry can sample real state."""
+    """Run an MD stage in chunks so live telemetry can sample real state.
+
+    ``trajectory_interval_steps`` is passed only where a trajectory is being
+    written, so the frame count reports the frames on disk. Left unset during
+    equilibration, where a count of zero would be a claim rather than a gap.
+    """
     if n_steps <= 0:
         return current_step
     if on_progress:
@@ -643,6 +649,14 @@ def _run_md_stage_with_live_metrics(
             raise _validation_error(label, f"OpenMM integration failed ({exc})") from exc
         current_step += chunk
         remaining -= chunk
+        # Frames written so far, from steps actually run. The count used to
+        # arrive once, when production ended, so a page watching a run showed
+        # a dash where the frame count goes for the whole of it.
+        frames_written = (
+            (int(n_steps) - remaining) // trajectory_interval_steps
+            if trajectory_interval_steps
+            else None
+        )
         _append_live_metric(
             omm,
             simulation,
@@ -651,6 +665,7 @@ def _run_md_stage_with_live_metrics(
             step=current_step,
             total_steps=total_steps,
             timestep_fs=timestep_fs,
+            frame_count=frames_written,
         )
     return current_step
 
@@ -1063,6 +1078,11 @@ def run_simulation(
             planned_frames=planned_frames,
             timestep_fs=timestep_fs,
             platform=platform_name,
+            # `Precision` is a property of the GPU platforms only, so whether
+            # the requested value is in force depends on what was selected.
+            # The page needs both to say which happened.
+            precision=precision,
+            precision_applied=bool(platform_props.get("Precision")),
             target_temperature_K=temperature_K,
         )
         telemetry.event("Live simulation telemetry started")
@@ -1289,6 +1309,9 @@ def run_simulation(
         _attach_dcd_reporter(
             omm, simulation, traj_path, interval=trajectory_interval_steps
         )
+        # Where production begins, so what it produced can be measured from
+        # steps actually run rather than from the steps that were planned.
+        production_start_step = current_step
         # Checkpoint reporter for crash recovery / restart.
         _attach_checkpoint_reporter(
             omm, simulation, output_dir / "checkpoint.chk",
@@ -1313,6 +1336,7 @@ def run_simulation(
                 total_steps=total_planned_steps,
                 timestep_fs=timestep_fs,
                 telemetry_interval=telemetry_interval,
+                trajectory_interval_steps=trajectory_interval_steps,
             )
         else:
             _run_md_stage(
@@ -1335,9 +1359,8 @@ def run_simulation(
         with final_state_path.open("w", encoding="utf-8") as fh:
             fh.write(omm["openmm"].XmlSerializer.serialize(final_state))
         if telemetry is not None:
-            n_frames = (
-                plan["production_steps"] // trajectory_interval_steps
-                if plan["production_steps"] > 0 else 0
+            n_frames = _frames_written(
+                current_step - production_start_step, trajectory_interval_steps
             )
             _append_live_metric(
                 omm,
@@ -1395,16 +1418,14 @@ def run_simulation(
     finally:
         log_fh.close()
 
-    # Frame-count estimate (DCD frame counts require reading the file
-    # header; that's a hard dependency on mdtraj which we don't want here.
-    # The step / interval division is exact assuming no early termination.)
-    n_frames = (
-        plan["production_steps"] // trajectory_interval_steps
-        if plan["production_steps"] > 0 else 0
-    )
-    duration_ns_actual = (
-        plan["production_steps"] * timestep_fs / 1_000_000.0
-    )
+    # Counted from the steps production actually ran, not from the steps it
+    # was planned to run. Reading the DCD header would mean a hard dependency
+    # on mdtraj; step / interval is exact for a fixed reporter interval, and
+    # unlike the plan it is still right when a run stops early -- which is
+    # when a field labelled "actual" matters most.
+    produced_steps = current_step - production_start_step
+    n_frames = _frames_written(produced_steps, trajectory_interval_steps)
+    duration_ns_actual = produced_steps * timestep_fs / 1_000_000.0
 
     return SimulationResult(
         trajectory=traj_path,
@@ -1429,6 +1450,13 @@ def read_energy_csv(path: str | Path) -> list[dict[str, str]]:
     with p.open(newline="", encoding="utf-8") as fh:
         reader = csv.DictReader(fh)
         return list(reader)
+
+
+def _frames_written(steps: int, interval: int | None) -> int:
+    """Frames a reporter on ``interval`` has written over ``steps`` steps."""
+    if not interval or steps <= 0:
+        return 0
+    return int(steps) // int(interval)
 
 
 def _append_live_metric(

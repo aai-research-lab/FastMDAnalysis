@@ -109,6 +109,10 @@
           <div class="footer-label">Platform</div>
           <div class="footer-value" id="sidebar-platform">not available</div>
         </div>
+        <div class="footer-row">
+          <div class="footer-label">Output</div>
+          <div class="footer-value" id="sidebar-output-folder">—</div>
+        </div>
       </div>
     </aside>
 
@@ -130,8 +134,8 @@
           <div class="metric-cluster">
             <div class="metric"><span class="metric-label">Step</span><span class="metric-value mono" id="topbar-step">—</span></div>
             <div class="metric"><span class="metric-label">Total</span><span class="metric-value mono" id="topbar-total">—</span></div>
-            <div class="metric"><span class="metric-label">Platform</span><span class="metric-value mono" id="topbar-platform">—</span></div>
-            <div class="metric"><span class="metric-label">Temp</span><span class="metric-value mono" id="topbar-temperature">—</span></div>
+            <div class="metric"><span class="metric-label">Progress</span><span class="metric-value mono" id="topbar-progress">—</span></div>
+            <div class="metric"><span class="metric-label">ETA</span><span class="metric-value mono" id="topbar-eta">—</span></div>
           </div>
         </div>
         <div class="top-bar-right">
@@ -389,38 +393,52 @@
             </div>
             <div class="chart-stack" id="chart-stack">
               <div class="chart-row">
+                <div class="chart-head">
+                  <div class="chart-title">Potential energy (kJ/mol)</div>
+                  <div class="chart-latest mono" data-chart-value="potential_energy">—</div>
+                </div>
                 <canvas class="chart-canvas" data-chart="potential_energy" data-color="cyan" width="900" height="220"></canvas>
-                <div class="chart-title">Potential energy (kJ/mol)</div>
               </div>
               <div class="chart-row">
+                <div class="chart-head">
+                  <div class="chart-title">Total energy (kJ/mol)</div>
+                  <div class="chart-latest mono" data-chart-value="total_energy">—</div>
+                </div>
+                <canvas class="chart-canvas" data-chart="total_energy" data-color="green" width="900" height="220"></canvas>
+              </div>
+              <div class="chart-row">
+                <div class="chart-head">
+                  <div class="chart-title">Temperature (K)</div>
+                  <div class="chart-latest mono" data-chart-value="temperature">—</div>
+                </div>
                 <canvas class="chart-canvas" data-chart="temperature" data-color="orange" width="900" height="220"></canvas>
-                <div class="chart-title">Temperature (K)</div>
               </div>
               <div class="chart-row">
+                <div class="chart-head">
+                  <div class="chart-title">Density (g/mL)</div>
+                  <div class="chart-latest mono" data-chart-value="density">—</div>
+                </div>
                 <canvas class="chart-canvas" data-chart="density" data-color="violet" width="900" height="220"></canvas>
-                <div class="chart-title">Density (g/mL)</div>
               </div>
               <div class="chart-row">
+                <div class="chart-head">
+                  <div class="chart-title">Simulation speed (ns/day, derived)</div>
+                  <div class="chart-latest mono" data-chart-value="speed">—</div>
+                </div>
                 <canvas class="chart-canvas" data-chart="speed" data-color="silver" width="900" height="220"></canvas>
-                <div class="chart-title">Simulation speed (ns/day, derived)</div>
               </div>
             </div>
             <div class="chart-empty muted" id="chart-empty">Live telemetry will appear after the first sample.</div>
           </div>
 
-          <div class="grid grid-2">
-            <div class="card">
-              <div class="card-header">
-                <h2 class="card-title">Simulation health</h2>
-                <span class="stage-pill" id="live-health-pill">normal</span>
-              </div>
-              <p id="live-health-message">not available</p>
-              <p class="muted" id="live-health-explanation">Plain-English explanation of the latest sample.</p>
-            </div>
-            <div class="card">
-              <div class="card-header"><h2 class="card-title">Recent events</h2></div>
-              <ul class="events-list" id="events-list"></ul>
-            </div>
+          <!-- One health panel. This card said the same three things as the
+               hero card above it, from the same `analyze_health` call, on the
+               same screen -- and unlike that one it had nowhere to put the
+               list of what was wrong. Recent events takes the width the pair
+               used to share. -->
+          <div class="card">
+            <div class="card-header"><h2 class="card-title">Recent events</h2></div>
+            <ul class="events-list" id="events-list"></ul>
           </div>
         
         
@@ -517,33 +535,13 @@
             </div>
           </div>
 
-          <div class="grid grid-3 metric-cards" id="overview-metric-cards">
-            <div class="metric-card" data-metric="potential_energy">
-              <div class="metric-card-label">Potential energy</div>
-              <div class="metric-card-value mono" data-value>—</div>
-              <div class="metric-card-unit">kJ/mol</div>
-            </div>
-            <div class="metric-card" data-metric="temperature">
-              <div class="metric-card-label">Temperature</div>
-              <div class="metric-card-value mono" data-value>—</div>
-              <div class="metric-card-unit">K</div>
-            </div>
-            <div class="metric-card" data-metric="density">
-              <div class="metric-card-label">Density</div>
-              <div class="metric-card-value mono" data-value>—</div>
-              <div class="metric-card-unit">g/mL</div>
-            </div>
-            <div class="metric-card" data-metric="speed">
-              <div class="metric-card-label">Simulation speed</div>
-              <div class="metric-card-value mono" data-value>—</div>
-              <div class="metric-card-unit">ns/day</div>
-            </div>
-            <div class="metric-card" data-metric="frames">
-              <div class="metric-card-label">Frames written</div>
-              <div class="metric-card-value mono" data-value>—</div>
-              <div class="metric-card-unit">frames</div>
-            </div>
-          </div>
+          <!-- The current value of a metric now sits on the chart that
+               shows its trend. This row repeated four of them without
+               their history, and was a third place a metric had to be
+               registered -- which is how total energy came to be
+               recorded, plotted, and absent here. Frames written is not
+               a plotted series; it is progress, and the live table
+               already carries it. -->
         </section>
 <section class="page" data-page="viewer" hidden>
           <div class="page-header">

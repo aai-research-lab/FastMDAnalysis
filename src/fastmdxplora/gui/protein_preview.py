@@ -28,6 +28,27 @@ STRUCTURE_CANDIDATES = (
     "setup/solvated.pdb",
 )
 
+#: Where to look for the system that was *simulated*, best first.
+#:
+#: Asked what the system contains, the panels used to read whatever
+#: ``STRUCTURE_CANDIDATES`` offered first, which is ``setup/prepared.pdb``:
+#: the structure after repair and before solvation, and before the ligand is
+#: put back with small-molecule parameters, since preparation strips it. The
+#: setup log says so outright -- "Stripped BNZ from the structure; they are
+#: re-added with small-molecule parameters" -- so there genuinely is no
+#: ligand, no water and no ion in that file, and a protein-ligand run in
+#: explicit solvent reported none of any of them.
+#:
+#: ``setup/prepared.pdb`` stays, last: during setup, before a system exists,
+#: it is the only structure there is.
+SYSTEM_CANDIDATES = (
+    "simulation/final.pdb",
+    "simulation/topology.pdb",
+    "setup/topology.pdb",
+    "setup/solvated.pdb",
+    "setup/prepared.pdb",
+)
+
 AMINO_ACID_RESNAMES = {
     "ALA",
     "ARG",
@@ -116,8 +137,21 @@ def find_structure(root: str | Path) -> Path | None:
     return _find_structure(Path(root))
 
 
-def _find_structure(root: Path) -> Path | None:
-    for rel in STRUCTURE_CANDIDATES:
+def find_system(root: str | Path) -> Path | None:
+    """Return the file describing the system that was simulated.
+
+    Separate from :func:`find_structure`, which answers what to *draw*. What
+    is legible in a browser and what the system contains are different
+    questions, and answering both from one file made the panels report a
+    solvated protein-ligand run as having no ligand, no water and no ions.
+    """
+    return _find_structure(Path(root), candidates=SYSTEM_CANDIDATES)
+
+
+def _find_structure(
+    root: Path, *, candidates: tuple[str, ...] = STRUCTURE_CANDIDATES
+) -> Path | None:
+    for rel in candidates:
         path = root / rel
         if path.is_file():
             return path
@@ -179,7 +213,9 @@ def _viewer_only(root: Path, message: str) -> dict[str, Any]:
 
 
 def _structure_info(root: Path) -> dict[str, Any]:
-    structure = find_structure(root)
+    # The version stamp has to follow the file the viewer is actually sent,
+    # or the browser keeps a cached copy of a structure nobody is serving.
+    structure = find_system(root)
     structure_rel = None
     structure_url = None
     if structure is not None:

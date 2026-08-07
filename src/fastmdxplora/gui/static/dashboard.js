@@ -395,11 +395,27 @@
   }
 
   function updateConnectionState() {
+    // The sidebar row is labelled Connection, and used to be filled with the
+    // run's own status. So a server that had gone away left the last thing a
+    // live run said about itself frozen on the page: killing `fastmdx gui`
+    // and leaving it running looked identical. The run's state is reported
+    // by the topbar and the health panel; this row answers a different
+    // question -- whether the page is still being told anything.
     const ageSeconds = state.lastUpdateMs ? (Date.now() - state.lastUpdateMs) / 1000 : Infinity;
     const requestFailed = Object.keys(state.apiErrors).length > 0;
-    if (ageSeconds > 30 || requestFailed) {
-      byId("topbar-status-dot")?.classList.add("status-dot-stale");
-    }
+    const connection = !requestFailed
+      ? "live"
+      : (ageSeconds > 30 ? "lost" : "reconnecting");
+
+    setText("sidebar-connection-state", connection);
+    setClassName(
+      "sidebar-status-dot",
+      `status-dot ${connection === "live" ? "status-dot-live" : "status-dot-stale"}`
+    );
+    // Added and removed, not added and left. A dot that never comes back
+    // reports a fault that has passed.
+    const topbarDot = byId("topbar-status-dot");
+    if (topbarDot) topbarDot.classList.toggle("status-dot-stale", connection !== "live");
   }
 
   function updateRefreshedAt() {
@@ -452,15 +468,14 @@
   function renderTopBar(status, health) {
     if (!state.appState?.active_run) {
       setClassName("topbar-status-dot", "status-dot status-dot-waiting");
-      setClassName("sidebar-status-dot", "status-dot status-dot-waiting");
       setText("topbar-status-text", "ready");
       setText("topbar-stage", "configure a simulation");
       setText("topbar-step", "—");
       setText("topbar-total", "—");
-      setText("topbar-platform", "—");
-      setText("topbar-temperature", "—");
-      setText("sidebar-connection-state", "ready");
+      setText("topbar-progress", "—");
+      setText("topbar-eta", "—");
       setText("sidebar-platform", "—");
+      setText("sidebar-output-folder", "—");
       setText("sidebar-run-name", "No active exploration");
       setText("topbar-run-id", "workspace");
       setText("topbar-run-title", "No active exploration");
@@ -469,22 +484,21 @@
     const statusName = String(health.state || status.status || "waiting").toLowerCase();
     const dotClass = stateDotClass(statusName);
     setClassName("topbar-status-dot", `status-dot ${dotClass}`);
-    setClassName("sidebar-status-dot", `status-dot ${dotClass}`);
     setText("topbar-status-text", statusName);
-    setText("topbar-stage", status.stage || "not available");
+    // A run that has not reported a stage has not reached one; it is
+    // starting. It is not a run whose stage cannot be determined.
+    setText("topbar-stage", status.stage || "starting");
     setText("topbar-step", valueOrDash(status.current_step));
     setText("topbar-total", valueOrDash(status.total_planned_steps));
-    setText("topbar-platform", status.platform || state.simManifest.platform || "—");
+    const pct = progressPercent(status);
+    setText("topbar-progress", pct != null ? `${pct.toFixed(1)}%` : "—");
+    setText("topbar-eta", computeETA(status));
 
-    const latest = state.metrics[state.metrics.length - 1] || {};
-    const temperature = firstPresent(
-      latest.temperature,
-      status.target_temperature_K,
-      state.simManifest.temperature_K
+    setText("sidebar-platform", status.platform || state.simManifest.platform || "—");
+    setTextWithTooltip("sidebar-output-folder", state.outputDir || "—");
+    byId("open-output")?.setAttribute(
+      "title", state.outputDir ? `Open ${state.outputDir}` : "Open output folder"
     );
-    setText("topbar-temperature", temperature != null ? `${formatNumber(temperature, 1)} K` : "—");
-    setText("sidebar-connection-state", statusName);
-    setText("sidebar-platform", status.platform || state.simManifest.platform || "not available");
     setTextWithTooltip("sidebar-run-name", state.runTitle);
 
     state.runId = status.system_id || state.results?.system?.system || state.runId;
@@ -553,10 +567,6 @@
         </li>
       `).join("");
     }
-    setText("live-health-pill", stateName);
-    byId("live-health-pill")?.setAttribute("data-state", stateName);
-    setText("live-health-message", health.message || "not available");
-    setText("live-health-explanation", health.explanation || "");
   }
 
   function renderStageTimeline(status) {
@@ -643,27 +653,27 @@
         ? formatNumber(status.simulation_time_completed_ns, 3)
         : "—"
     );
-    setText("live-stage-cell", status.stage || "not available");
-    setText("live-step-cell", present(status.current_step));
-    setText("live-total-cell", present(status.total_planned_steps));
+    setText("live-stage-cell", status.stage || "starting");
+    setText("live-step-cell", valueOrDash(status.current_step));
+    setText("live-total-cell", valueOrDash(status.total_planned_steps));
     setText(
       "live-frames-cell",
       status.current_frame_count != null
         ? `${status.current_frame_count}${status.planned_frame_count != null ? ` / ${status.planned_frame_count}` : ""}`
-        : "not available"
+        : "—"
     );
     setText(
       "live-simtime-cell",
       status.simulation_time_completed_ns != null
         ? `${formatNumber(status.simulation_time_completed_ns, 6)} ns`
-        : "not available"
+        : "—"
     );
     setText(
       "live-elapsed-cell",
-      status.elapsed_wall_time_s != null ? fmtDuration(status.elapsed_wall_time_s) : "not available"
+      status.elapsed_wall_time_s != null ? fmtDuration(status.elapsed_wall_time_s) : "—"
     );
     setText("live-eta-cell", computeETA(status));
-    setText("live-checkpoint-cell", status.current_checkpoint_path || "not available");
+    setText("live-checkpoint-cell", status.current_checkpoint_path || "—");
     setText("live-lastupdate-cell", formatTimestamp(status.last_update_timestamp));
     setText("live-card-step", valueOrDash(status.current_step));
   }
@@ -675,7 +685,6 @@
     state.metrics = (Array.isArray(metrics) ? metrics : [])
       .map(normaliseMetricRow)
       .slice(-chartHistorySamples);
-    renderMetricCards();
     if (window.FastMDXCharts) window.FastMDXCharts.update(state.metrics);
     emit("metrics-updated", {metrics: state.metrics});
   }
@@ -694,49 +703,6 @@
       if (output[aliases[key]] == null && output[key] != null) output[aliases[key]] = output[key];
     });
     return output;
-  }
-
-  function renderMetricCards() {
-    const latest = state.metrics[state.metrics.length - 1] || {};
-    const units = {
-      potential_energy: "kJ/mol",
-      temperature: "K",
-      density: "g/mL",
-      speed: "ns/day",
-      frames: "frames",
-      pressure: "bar",
-    };
-    $$('.metric-card').forEach((card) => {
-      const key = card.getAttribute("data-metric");
-      const derived = deriveMetric(key, latest);
-      const value = card.querySelector("[data-value]");
-      const unit = card.querySelector(".metric-card-unit");
-      if (value) value.textContent = derived != null ? derived : "—";
-      if (unit && units[key]) unit.textContent = units[key];
-      const previous = card.getAttribute("data-last-value");
-      if (derived != null && previous && previous !== String(derived)) {
-        card.setAttribute("data-pulse", "");
-        window.setTimeout(() => card.removeAttribute("data-pulse"), 900);
-      }
-      card.setAttribute("data-last-value", derived != null ? String(derived) : "");
-    });
-  }
-
-  function deriveMetric(key, latest) {
-    if (key === "frames") {
-      const value = firstPresent(
-        latest.current_frame_count,
-        state.status.current_frame_count,
-        state.simManifest.n_production_frames
-      );
-      return value != null ? String(value) : null;
-    }
-    const value = latest[key];
-    const number = Number(value);
-    if (!Number.isFinite(number)) return null;
-    if (key === "speed") return number.toFixed(2);
-    if (key === "density") return number.toFixed(4);
-    return number.toFixed(2);
   }
 
   function renderEvents(events) {
@@ -1091,7 +1057,7 @@
       <tr><th>Ion concentration</th><td>${escapeHTML(setup.ion_concentration_M != null ? `${setup.ion_concentration_M} M` : "—")}</td></tr>
       <tr><th>Temperature</th><td>${escapeHTML(firstPresent(status.target_temperature_K, simulation.temperature_K) != null ? `${firstPresent(status.target_temperature_K, simulation.temperature_K)} K` : "—")}</td></tr>
       <tr><th>Timestep</th><td>${escapeHTML(firstPresent(status.timestep_fs, simulation.timestep_fs) != null ? `${firstPresent(status.timestep_fs, simulation.timestep_fs)} fs` : "—")}</td></tr>
-      <tr><th>Precision</th><td>${escapeHTML(simulation.precision || status.precision || "—")}</td></tr>
+      <tr><th>Precision</th><td>${escapeHTML(precisionText(status, simulation))}</td></tr>
       <tr><th>Platform</th><td>${escapeHTML(status.platform || simulation.platform || "—")}</td></tr>`;
   }
 
@@ -1104,7 +1070,7 @@
     const instance = instances.find((item) => item.resname === state.ligandResname) || instances[0];
     if (!instance) {
       tools.hidden = true;
-      meta.textContent = "not available";
+      meta.textContent = "—";
       body.innerHTML = '<tr><td colspan="2" class="muted">No ligand was detected.</td></tr>';
       return;
     }
@@ -1219,7 +1185,7 @@
   }
 
   function formatTimestamp(value) {
-    if (!value) return "not available";
+    if (!value) return "—";
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
   }
@@ -1241,8 +1207,17 @@
     return values.find((value) => value !== null && value !== undefined && value !== "");
   }
 
-  function present(value) {
-    return value !== null && value !== undefined && value !== "" ? String(value) : "not available";
+  function precisionText(status, simulation) {
+    const value = firstPresent(status?.precision, simulation?.precision);
+    if (value === undefined) return "—";
+    // `Precision` is a property of the CUDA/OpenCL/HIP platforms only. Where
+    // the platform has no such setting the requested value was carried but
+    // never applied, and printing it on its own would claim otherwise.
+    if (status?.precision_applied === false) {
+      const platform = status?.platform || simulation?.platform;
+      return platform ? `${value} (requested; unused on ${platform})` : `${value} (requested)`;
+    }
+    return String(value);
   }
 
   function valueOrDash(value) {

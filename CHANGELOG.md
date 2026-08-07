@@ -142,6 +142,20 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   system is a PDB identifier, not a file.
 
 ### Fixed
+- **A page watching a run said every phase was "Not run".** It showed that
+  run's energy, its temperature and its speed in ns/day above a table
+  reporting nothing had happened. The table reads the manifest, and the
+  manifest is written when a run finishes -- so "Not run", which is a claim
+  that a phase did not happen, stood in for "has not finished". A phase in
+  progress now names its stage, the ones before it are complete because a run
+  that is simulating has finished preparing, and the ones after are pending.
+  An empty directory still reads as not run, because that is a different
+  thing.
+
+- **The chart titles were drawn over the charts.** Absolutely positioned at
+  the top-left of each canvas, each sat exactly where the chart draws its
+  y-axis labels, and the two overlapped as soon as there was data to label.
+
 - **The GUI re-read the whole trajectory on every mount, and said so.** Its
   terminal filled with `dcdplugin) detected standard 32-bit DCD file`, a pair
   of lines every few seconds for as long as it was open. The lines are VMD's

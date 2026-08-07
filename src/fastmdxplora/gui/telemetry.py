@@ -93,6 +93,16 @@ class TelemetryWriter:
     planned_frames: int | None = None
     timestep_fs: float | None = None
     platform: str | None = None
+    #: Recorded beside the platform, because the two are one answer to "what
+    #: is this running on" and the page asks for both. Only the platform was
+    #: written, so a run in progress showed a dash where the precision goes:
+    #: the simulation manifest that carries it is not written until the run
+    #: ends. ``precision_applied`` records whether the selected platform took
+    #: the value -- ``Precision`` is a CUDA/OpenCL/HIP property, so on CPU the
+    #: requested setting is carried but never applied, and printing it alone
+    #: would claim otherwise.
+    precision: str | None = None
+    precision_applied: bool | None = None
     target_temperature_K: float | None = None
     start_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     _last_status: dict[str, Any] = field(default_factory=dict, init=False)
@@ -129,7 +139,11 @@ class TelemetryWriter:
             now = datetime.now(timezone.utc)
             persisted = _read_status_path(self.status_path)
             status = {
-                "stage": "not available",
+                # A run that has not reported a stage does not have one yet.
+                # Written as "not available" this travelled to the page and
+                # was displayed where the name of a stage goes, so a run that
+                # had only just started described itself that way.
+                "stage": None,
                 "status": "running",
                 "current_step": None,
                 "total_planned_steps": self.total_steps,
@@ -138,6 +152,8 @@ class TelemetryWriter:
                 "simulation_time_completed_ns": None,
                 "timestep_fs": self.timestep_fs,
                 "platform": self.platform,
+                "precision": self.precision,
+                "precision_applied": self.precision_applied,
                 "target_temperature_K": self.target_temperature_K,
                 "current_checkpoint_path": None,
                 "latest_warning": None,
@@ -148,8 +164,15 @@ class TelemetryWriter:
             status.update(self._last_status)
             # On-disk data may have been written by the simulation runner or
             # orchestrator since this instance last wrote. It is therefore
-            # newer than this instance's cache.
-            status.update(persisted)
+            # newer than this instance's cache -- but only where it says
+            # something. A None on disk is a default nobody filled in, and
+            # letting it through erased what this instance knows: the
+            # orchestrator opens the file to mark the setup phase, writing
+            # platform=None before the runner exists, so the runner's own
+            # platform, precision and step count never reached the page. No
+            # caller sets a field to None deliberately -- updates below drop
+            # Nones -- so a None on disk is never a value being cleared.
+            status.update({k: v for k, v in persisted.items() if v is not None})
             status.update({k: v for k, v in updates.items() if v is not None})
 
             states = status.get("stage_states")

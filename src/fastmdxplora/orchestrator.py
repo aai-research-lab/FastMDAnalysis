@@ -322,7 +322,7 @@ class FastMDXplora:
             )]
 
         merged_options = self._merge_options(options)
-        dashboard_writer = self._dashboard_writer(merged_options)
+        dashboard_writer = self._dashboard_writer(merged_options, plan)
         if dashboard_writer is not None:
             self._initialize_dashboard_timeline(dashboard_writer, plan)
 
@@ -492,6 +492,7 @@ class FastMDXplora:
     def _dashboard_writer(
         self,
         merged_options: dict[str, dict[str, Any]] | None = None,
+        plan: list[str] | None = None,
     ):
         """Return the project-level telemetry writer when a dashboard is active."""
 
@@ -515,8 +516,25 @@ class FastMDXplora:
             except (OSError, RuntimeError):
                 dashboard_matches_run = False
 
+        # Resolved the way the simulation runner resolves it, through the
+        # schema, rather than by reading the config dict directly. Merged
+        # options carry only what a config states, so a run leaving
+        # `live_telemetry` at its default got telemetry from the runner and no
+        # project-level writer here -- and this writer is the only thing that
+        # marks the setup phase, marks analysis and report, and records that
+        # the run finished. Without it a completed run described itself as
+        # running with stale telemetry, and Setup never lit on the timeline.
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        field = PHASE_SCHEMAS.get("simulation", {}).get("live_telemetry")
+        default = bool(getattr(field, "default", False))
+        # Telemetry lives under `simulation/`, so a run that does not
+        # simulate should not create that folder or claim to have recorded
+        # anything. An analysis-only run watched from the browser still gets a
+        # writer, because then somebody is reading it.
+        simulates = plan is None or "simulation" in plan
         active = bool(
-            simulation_options.get("live_telemetry")
+            (simulation_options.get("live_telemetry", default) and simulates)
             or dashboard_matches_run
         )
 

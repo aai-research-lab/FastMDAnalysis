@@ -4220,8 +4220,13 @@ class TestOnePageForOneRun:
         end = markup.index('<section class="page"', start + 10)
         overview = markup[start:end]
 
+        # `health-headline` rather than `live-health-message`: the overview
+        # carried two health panels rendering the same `analyze_health` call,
+        # and the surviving one is the hero card, which also lists what is
+        # wrong. The claim here is unchanged -- the live panels are on this
+        # page -- only which element proves it.
         for identifier in ("live-panels", "live-absent", "live-progress-fill",
-                           "live-stage-cell", "live-health-message",
+                           "live-stage-cell", "health-headline",
                            "events-list"):
             assert f'id="{identifier}"' in overview, identifier
 
@@ -4367,3 +4372,78 @@ def _completed_run_with_trajectory(tmp_path):
     traj[0].save_pdb(str(sim / "topology.pdb"))
     traj.save_dcd(str(sim / "production.dcd"))
     return tmp_path
+
+
+class TestAPageWatchingARunSaysWhatIsHappening:
+    """Opened on a run in progress, the page showed that run's energy, its
+    temperature and its speed in ns/day above a table saying every phase was
+    "Not run".
+
+    The phase table reads the manifest, and the manifest is written when a run
+    finishes. "Not run" is a claim that a phase did not happen; while a run is
+    going the truth is that it has not finished.
+    """
+
+    def test_a_running_phase_says_which_stage(self) -> None:
+        from fastmdxplora.gui.report_dashboard import _phase_rows
+
+        rows = {row.name: row for row in _phase_rows(
+            {}, {"status": "running", "stage": "Production"})}
+
+        assert rows["Simulation"].status == "running"
+        assert rows["Simulation"].detail == "Production"
+
+    def test_the_phases_before_it_are_complete(self) -> None:
+        """A run that is simulating has finished preparing, whatever the
+        manifest says: it could not have started otherwise."""
+        from fastmdxplora.gui.report_dashboard import _phase_rows
+
+        rows = {row.name: row for row in _phase_rows(
+            {}, {"status": "running", "stage": "NVT equilibration"})}
+
+        assert rows["Setup"].status == "ok"
+        assert "recorded when the run ends" in rows["Setup"].detail
+
+    def test_the_phases_after_it_are_pending_not_absent(self) -> None:
+        from fastmdxplora.gui.report_dashboard import _phase_rows
+
+        rows = {row.name: row for row in _phase_rows(
+            {}, {"status": "running", "stage": "Production"})}
+
+        assert rows["Analysis"].status == "pending"
+        assert rows["Report"].status == "pending"
+
+    def test_with_no_run_at_all_they_are_not_run(self) -> None:
+        """An empty directory is a different thing from a run in progress."""
+        from fastmdxplora.gui.report_dashboard import _phase_rows
+
+        for row in _phase_rows({}, None):
+            assert row.status == "not-run"
+
+    def test_a_finished_run_still_reads_from_its_manifest(self) -> None:
+        from fastmdxplora.gui.report_dashboard import _phase_rows
+
+        manifest = {"phases": [{"name": "setup", "status": "ok"},
+                               {"name": "simulation", "status": "ok"}]}
+        rows = {row.name: row for row in _phase_rows(manifest, None)}
+
+        assert rows["Setup"].status == "ok"
+        assert rows["Analysis"].status == "not-run"
+
+    def test_the_chart_titles_are_not_drawn_over_the_charts(self) -> None:
+        """Absolutely positioned at the top-left, the title sat exactly where
+        the chart draws its y-axis labels."""
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        static = pathlib.Path(server.__file__).parent / "static"
+        css = (static / "dashboard.css").read_text(encoding="utf-8")
+        block = css[css.index(".chart-title {"):][:260]
+        assert "position: absolute" not in block
+
+        markup = (pathlib.Path(server.__file__).parent / "templates"
+                  / "dashboard.html").read_text(encoding="utf-8")
+        row = markup[markup.index('<div class="chart-row">'):][:400]
+        assert row.index("chart-title") < row.index("chart-canvas"), (
+            "the title must come before the canvas to sit above it")
