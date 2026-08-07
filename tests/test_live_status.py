@@ -1721,3 +1721,107 @@ class TestAStructureIsCheckedBeforeItIsSolvated:
         # It names the usual cause and where to look.
         assert "build_missing_termini" in message
         assert "prepared.pdb" in message
+
+
+class TestCopiesOfAChainFaceTheSameWay:
+    """Every other membrane check asks about one chain at a time, and each
+    copy passes them whichever way up it is. 6B73 completed with 193,605
+    atoms and its two receptors antiparallel -- long axes at z -0.81 and
+    +0.80, dot product -0.99 -- with their soluble partners on opposite faces
+    of one bilayer."""
+
+    def _chains(self, *specs):
+        """specs: (axis direction, residue count) per chain."""
+        import numpy as np
+
+        coordinates: list = []
+        chains: dict[int, list[int]] = {}
+        counts: dict[int, int] = {}
+        for index, (direction, residues) in enumerate(specs):
+            start = len(coordinates)
+            unit = np.asarray(direction, dtype=float)
+            unit = unit / np.linalg.norm(unit)
+            for residue in range(residues):
+                for atom in range(5):
+                    coordinates.append(
+                        unit * (residue * 0.35)
+                        + np.array([atom * 0.05, index * 3.0, 0.0])
+                    )
+            chains[index] = list(range(start, len(coordinates)))
+            counts[index] = residues
+        return chains, counts, np.asarray(coordinates)
+
+    #: The axes measured on 6B73's built system.
+    RECEPTOR_DOWN = (-0.08, -0.58, -0.81)
+    RECEPTOR_UP = (-0.08, 0.59, 0.80)
+    PARTNER_A = (-1.00, -0.07, -0.06)
+    PARTNER_B = (-0.95, 0.32, -0.06)
+
+    def test_the_real_case_is_caught(self) -> None:
+        from fastmdxplora.setup.membrane import inverted_chain_pairs
+
+        found = inverted_chain_pairs(
+            *self._chains((self.RECEPTOR_DOWN, 289), (self.RECEPTOR_UP, 281))
+        )
+        assert found == [(0, 1)]
+
+    def test_ragged_ends_do_not_make_two_copies_different_molecules(self) -> None:
+        """289 and 281 residues: the same receptor, with a different number of
+        unresolved terminal residues declined at each end. Requiring equal
+        counts read them as different molecules and compared nothing, which
+        is why the first version of this check passed on 6B73."""
+        from fastmdxplora.setup.membrane import inverted_chain_pairs
+
+        assert inverted_chain_pairs(
+            *self._chains((self.RECEPTOR_DOWN, 289), (self.RECEPTOR_UP, 281))
+        )
+
+    def test_chains_lying_in_the_plane_are_left_alone(self) -> None:
+        """6B73's two partners sit at z -0.06: chains lying in the membrane
+        plane, not chains pointing down. A sign test on a number that small
+        reports noise as a fault."""
+        from fastmdxplora.setup.membrane import inverted_chain_pairs
+
+        assert inverted_chain_pairs(
+            *self._chains((self.PARTNER_A, 126), (self.PARTNER_B, 126))
+        ) == []
+
+    def test_copies_facing_the_same_way_are_accepted(self) -> None:
+        from fastmdxplora.setup.membrane import inverted_chain_pairs
+
+        assert inverted_chain_pairs(
+            *self._chains((self.RECEPTOR_DOWN, 289), ((0.08, 0.58, -0.81), 281))
+        ) == []
+
+    def test_one_copy_cannot_disagree_with_itself(self) -> None:
+        from fastmdxplora.setup.membrane import inverted_chain_pairs
+
+        assert inverted_chain_pairs(*self._chains((self.RECEPTOR_DOWN, 289))) == []
+
+    def test_chains_of_genuinely_different_length_are_not_copies(self) -> None:
+        """A receptor and its partner point differently for good reasons."""
+        from fastmdxplora.setup.membrane import inverted_chain_pairs
+
+        assert inverted_chain_pairs(
+            *self._chains((self.RECEPTOR_DOWN, 289), (self.RECEPTOR_UP, 140))
+        ) == []
+
+    def test_the_message_says_what_to_do(self) -> None:
+        import inspect
+
+        from fastmdxplora.setup import membrane
+
+        source = inspect.getsource(membrane.check_chains_point_the_same_way)
+        assert "opm.phar.umich.edu" in source
+        assert "building one copy" in source
+
+    def test_it_runs_inside_the_membrane_path(self) -> None:
+        import inspect
+
+        from fastmdxplora.setup import prepare
+
+        source = inspect.getsource(prepare)
+        assert "check_chains_point_the_same_way" in source
+        assert source.index("check_hydrophobic_belt") < source.index(
+            "check_chains_point_the_same_way"
+        )

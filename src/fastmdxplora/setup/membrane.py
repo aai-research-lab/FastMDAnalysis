@@ -347,6 +347,147 @@ def check_hydrophobic_belt(topology: Any, positions: Any) -> str | None:
     )
 
 
+#: How far two chains' residue counts may differ and still be copies of one
+#: another. 6B73's two receptors came out 289 and 281 residues -- the same
+#: molecule, with a different number of unresolved terminal residues declined
+#: at each end. Requiring equal counts read them as different molecules and
+#: compared nothing.
+_COPY_LENGTH_TOLERANCE = 0.10
+
+#: Below this, a chain's long axis lies too near the membrane plane for its
+#: direction along the normal to mean anything. 6B73's two soluble partners
+#: sit at -0.06, which is a chain lying in the plane, not a chain pointing
+#: down; a sign test on a number that small reports noise as a fault.
+_NORMAL_COMPONENT_FLOOR = 0.35
+
+
+def inverted_chain_pairs(
+    chains: dict[int, list[int]],
+    residue_counts: dict[int, int],
+    coordinates: Any,
+) -> list[tuple[int, int]]:
+    """Pairs of chains that are copies and span the bilayer opposite ways.
+
+    Separate from the topology reading so the geometry can be tested without
+    OpenMM: `md.Topology.from_openmm` needs it, and the arithmetic does not.
+
+    What makes an embedding wrong is the direction each copy spans the
+    membrane, so this compares the sign of each chain's long axis along the
+    normal rather than the two axes against each other. Comparing the axes
+    directly also works where they are near-collinear and says nothing where
+    a symmetry leaves two copies perpendicular in the plane; the normal
+    component is the quantity the bilayer actually cares about.
+    """
+    import numpy as np
+
+    coordinates = np.asarray(coordinates, dtype=float)
+
+    def long_axis(atom_indices: list[int]) -> Any:
+        block = coordinates[atom_indices]
+        centred = block - block.mean(axis=0)
+        _, _, right = np.linalg.svd(centred, full_matrices=False)
+        return right[0]
+
+    axes = {index: long_axis(atoms) for index, atoms in chains.items()
+            if len(atoms) >= 100}
+
+    ordered = sorted(axes)
+    inverted: list[tuple[int, int]] = []
+    for position, first in enumerate(ordered):
+        for other in ordered[position + 1:]:
+            a_count = residue_counts.get(first, 0)
+            b_count = residue_counts.get(other, 0)
+            longer = max(a_count, b_count)
+            if not longer:
+                continue
+            # Copies, allowing for ragged ends.
+            if abs(a_count - b_count) / longer > _COPY_LENGTH_TOLERANCE:
+                continue
+            a_normal = float(axes[first][2])
+            b_normal = float(axes[other][2])
+            # Both have to be meaningfully out of the plane before their
+            # signs are worth comparing.
+            if (abs(a_normal) < _NORMAL_COMPONENT_FLOOR
+                    or abs(b_normal) < _NORMAL_COMPONENT_FLOOR):
+                continue
+            if a_normal * b_normal < 0:
+                inverted.append((first, other))
+    return inverted
+
+
+def check_chains_point_the_same_way(topology: Any, positions: Any) -> str | None:
+    """Whether copies of one chain ended up the same way up in the bilayer.
+
+    Every other check here asks about one chain at a time, and each copy of a
+    membrane protein passes them individually whichever way up it is: it spans
+    the bilayer, its hydrophobic belt sits in the middle, its axis is well
+    defined. What none of them can see is the two copies together.
+
+    6B73 is the case. Two receptors related by a two-fold that is not
+    perpendicular to the membrane; principal-axis rotation put one through the
+    bilayer inverted relative to the other, and their soluble partners came to
+    rest on opposite faces -- one at z +4.0 nm, one at -4.1 nm. Every check
+    passed and the run completed, giving a 193,388-atom system in which one
+    receptor is upside down. A membrane has two sides and they are not
+    equivalent; two copies of one protein in one bilayer have the same
+    topology, always.
+
+    Compared by sequence length, because two chains of the same length in one
+    deposited structure are the same molecule in practice, and comparing
+    sequences costs more than this is worth. The test is the sign of the dot
+    product of their principal axes: two copies pointing the same way agree,
+    two inverted copies do not.
+    """
+    import numpy as np
+
+    import mdtraj as md
+
+    try:
+        from openmm import unit as openmm_unit
+
+        if openmm_unit.is_quantity(positions):
+            positions = positions.value_in_unit(openmm_unit.nanometer)
+    except ImportError:  # pragma: no cover - only without OpenMM
+        pass
+
+    mdtop = md.Topology.from_openmm(topology)
+    coordinates = np.asarray(
+        [[float(p[0]), float(p[1]), float(p[2])] for p in positions],
+        dtype=float)
+
+    chains: dict[int, list[int]] = {}
+    residue_counts: dict[int, int] = {}
+    for residue in mdtop.residues:
+        if not residue.is_protein:
+            continue
+        chains.setdefault(residue.chain.index, []).extend(
+            atom.index for atom in residue.atoms)
+        residue_counts[residue.chain.index] = (
+            residue_counts.get(residue.chain.index, 0) + 1)
+
+    inverted = inverted_chain_pairs(chains, residue_counts, coordinates)
+    if not inverted:
+        return None
+
+    listed = ", ".join(f"{a} and {b}" for a, b in inverted)
+    return (
+        f"Chains {listed} are copies of one another and point in opposite "
+        "directions along the membrane normal, so one of each pair would be "
+        "embedded upside down.\n\n"
+        "A membrane has two sides and they are not the same: the two copies "
+        "of a protein in one bilayer face the same way. Rotating by principal "
+        "axes fixes which axis lies along the normal but not which end of it "
+        "points up, and where two copies are related by a symmetry that is "
+        "not perpendicular to the membrane it can invert one of them. Each "
+        "copy on its own passes every other check here, which is why this "
+        "asks about them together.\n\n"
+        "An oriented structure from OPM (https://opm.phar.umich.edu) resolves "
+        "it, as does building one copy: a single complex has an orientation "
+        "that principal axes can find, where two related by such a symmetry "
+        "do not."
+    )
+
+
 def check_axis_is_well_defined(topology: Any, positions: Any) -> str | None:
     """Whether the structure has a longest axis worth rotating onto.
 

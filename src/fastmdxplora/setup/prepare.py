@@ -493,6 +493,16 @@ def prepare_system(
                 modeller.topology, modeller.positions)
             if problem:
                 raise ValueError(problem)
+
+            # And whether the copies agree with each other. Each one passes
+            # the checks above whichever way up it is; only together do they
+            # show that one was inverted.
+            from fastmdxplora.setup.membrane import check_chains_point_the_same_way
+
+            problem = check_chains_point_the_same_way(
+                modeller.topology, modeller.positions)
+            if problem:
+                raise ValueError(problem)
             logger.info(
                 "Hydrophobic belt check passed: the hydrophobic residues sit "
                 "nearer the middle than the charged ones, as a bilayer-"
