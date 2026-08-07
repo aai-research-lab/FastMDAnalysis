@@ -2344,22 +2344,55 @@ class TestSASAReportsWhatVersionOneReported:
         written = {f.name for f in tmp_path.rglob("*") if f.is_file()}
         assert "sasa_average_per_residue.csv" in written
 
-    def test_the_two_routes_to_the_average_agree(self) -> None:
+    def test_shrake_rupley_gives_the_same_answer_twice(self) -> None:
+        """Pinned because it stopped being true.
+
+        Our two routes to a per-residue average each call MDTraj once, and on
+        Windows they disagreed: by eight per cent on one residue in one run,
+        then by fifteen per cent on all five in the next, with the per-frame
+        values matching what every other platform produces and the direct
+        route alone coming out low. Different Python versions failed each time
+        -- 3.11, then 3.9 and 3.12 -- which is what nondeterminism looks like
+        rather than a version-specific bug.
+
+        Ten calls on one trajectory are bit-identical here. If this fails, the
+        fault is in the surface-area calculation itself and not in anything
+        this package does with the result, and this is the reproduction to
+        send upstream.
+        """
+        traj = self._traj()
+        runs = [
+            md.shrake_rupley(traj, probe_radius=0.14, n_sphere_points=960,
+                             mode="residue")
+            for _ in range(10)
+        ]
+
+        for index, run in enumerate(runs[1:], start=2):
+            assert np.array_equal(runs[0], run), (
+                f"call {index} differs from the first by up to "
+                f"{np.abs(run - runs[0]).max():.4g} nm^2 on the same "
+                f"trajectory.\n  first: {runs[0]}\n  this : {run}"
+            )
+
+    def test_the_two_routes_to_the_average_agree(self, monkeypatch) -> None:
         """One computes it directly, the other groups a per-frame table. They
         are the same number or one of them is wrong.
 
-        This failed once, on one job of fifteen, disagreeing by eight per cent
-        on a single residue. It could not be reproduced. Two plausible causes
-        were removed --- the fixture was a cloud of points with atoms half a
-        bond apart, where Shrake-Rupley's inside-or-outside decisions are
-        knife-edge, and the direct route averaged a float32 array in float32
-        where the grouped route used double --- and the failure now carries
-        what would be needed to diagnose a recurrence, since a bare `assert
-        False` cost a round trip.
+        Both are given the same surface areas, so this asks about the two
+        aggregations and nothing else. It used to let each route call MDTraj
+        for itself, which meant it was also asserting that two calls agree --
+        a property of MDTraj, tested above, and one that failed on Windows
+        while this package's arithmetic was correct.
         """
+        from fastmdxplora.analysis import sasa as sasa_module
         from fastmdxplora.analysis.sasa import SASA
 
         traj = self._traj()
+        fixed = md.shrake_rupley(traj, probe_radius=0.14,
+                                 n_sphere_points=960, mode="residue")
+        monkeypatch.setattr(sasa_module.md, "shrake_rupley",
+                            lambda *args, **kwargs: fixed)
+
         direct = SASA(mode="average_residue").compute(traj)
         per_frame = SASA(mode="residue").compute(traj)
         grouped = per_frame.groupby("residue")["sasa_nm2"].mean()
@@ -2368,7 +2401,6 @@ class TestSASAReportsWhatVersionOneReported:
         right = grouped.loc[direct["residue"]].to_numpy()
 
         if not np.allclose(left, right, atol=1e-6):
-            counts = per_frame["residue"].value_counts().sort_index().to_dict()
             offenders = {
                 int(res): per_frame.loc[per_frame["residue"] == res,
                                         "sasa_nm2"].tolist()
@@ -2377,8 +2409,8 @@ class TestSASAReportsWhatVersionOneReported:
                 if not ok
             }
             raise AssertionError(
-                f"the two routes disagree.\n  direct : {left}\n"
-                f"  grouped: {right}\n  rows per residue: {counts}\n"
+                f"the two aggregations disagree on one array of areas.\n"
+                f"  direct : {left}\n  grouped: {right}\n"
                 f"  per-frame values for the residues that differ: {offenders}"
             )
 

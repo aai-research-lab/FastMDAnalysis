@@ -101,6 +101,21 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   diagnosed. Both are back, with a test for each, and the recipe says
   graphical interface where it said browser.
 
+- **A SASA test was asserting a property of MDTraj.** Two routes to a
+  per-residue average each called the surface-area calculation once and
+  compared the results, so the test was also asserting that two identical
+  calls agree. On Windows they did not: by eight per cent on one residue in
+  one run, then by fifteen per cent on all five in the next, with the
+  per-frame values matching every other platform and the direct route alone
+  coming out low. Different Python versions failed each time -- 3.11, then 3.9
+  and 3.12 -- which is nondeterminism rather than a version-specific bug.
+
+  The two routes are now given the same areas, so the test asks about this
+  package's arithmetic and nothing else, and a separate test calls the
+  surface-area calculation ten times on one trajectory and requires the
+  answers to be identical. If that one fails, the fault is upstream and the
+  test is the reproduction to send there.
+
 - **A mean over frames was accumulated in single precision.** `numpy.mean` on
   a float32 array sums in float32, so the average exposure of a residue lost
   digits over a long run that the per-frame route -- grouped by pandas in
