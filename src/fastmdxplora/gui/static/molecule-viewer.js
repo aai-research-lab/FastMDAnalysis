@@ -130,12 +130,6 @@
       );
       return null;
     }
-    try {
-      STATE.viewer.setHoverable({}, true, onHoverAtom, clearHoverAtom);
-      STATE.viewer.setClickable({}, true, onClickAtom);
-    } catch (error) {
-      console.debug("3Dmol interaction callbacks unavailable", error);
-    }
     if (STATE.currentPdb) installPdb(STATE.viewer, STATE.currentPdb, {main: true, center: true});
     return STATE.viewer;
   }
@@ -206,7 +200,11 @@
       return;
     }
 
-    const url = info.structure_url || "/structure/topology.pdb";
+    // Water and ions are stripped from the copy the browser gets, so the
+    // toggles for them had nothing to act on. Ask for the solvated system
+    // only when one of them is on: the box is most of the atoms, and a reader
+    // who never opens that view should not pay to download it.
+    const url = withSolvent(info.structure_url || "/structure/topology.pdb");
     if (url === STATE.structureUrl && STATE.structurePdb) {
       const main = ensureMainViewer();
       if (main && !STATE.model) {
@@ -244,6 +242,15 @@
     if (mini && STATE.currentPdb) installPdb(mini, STATE.currentPdb, {mini: true, center: !!center});
   }
 
+  function wantsSolvent() {
+    return Boolean(STATE.visibility?.water || STATE.visibility?.ions);
+  }
+
+  function withSolvent(url) {
+    if (!wantsSolvent()) return url;
+    return url + (url.includes("?") ? "&" : "?") + "solvent=1";
+  }
+
   function installPdb(viewer, pdbText, options) {
     if (!viewer || !pdbText) return;
     const opts = options || {};
@@ -265,6 +272,17 @@
     }
     if (opts.main) {
       STATE.model = model;
+      // Made clickable here, not once at viewer creation. 3Dmol sets the
+      // property on the atoms currently selected, and at creation there are
+      // none -- the model is added afterwards, and every atom in it arrived
+      // unclickable. Clicking the structure did nothing, and the selection
+      // panel waited for an event that could not be raised.
+      try {
+        viewer.setHoverable({}, true, onHoverAtom, clearHoverAtom);
+        viewer.setClickable({}, true, onClickAtom);
+      } catch (error) {
+        console.debug("3Dmol interaction callbacks unavailable", error);
+      }
       styleViewer(viewer, model, false);
       document.getElementById("viewer-canvas-frame")?.setAttribute("data-ready", "true");
     } else {
@@ -602,7 +620,15 @@
     });
     document.querySelectorAll(".chip-toggle input[data-vis]").forEach((checkbox) => {
       checkbox.addEventListener("change", () => {
-        STATE.visibility[checkbox.getAttribute("data-vis")] = checkbox.checked;
+        const which = checkbox.getAttribute("data-vis");
+        STATE.visibility[which] = checkbox.checked;
+        if (which === "water" || which === "ions") {
+          // The atoms themselves have to be fetched or dropped, not restyled.
+          STATE.structureUrl = null;
+          // Re-enter the same path the poll uses, with the info it last saw.
+          onStructureUpdated(STATE.structureInfo || {});
+          return;
+        }
         restyleViewers();
       });
     });

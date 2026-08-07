@@ -380,7 +380,10 @@ def make_handler(
                 self._send_svg_bundle(root)
                 return
             if path == "/structure/topology.pdb":
-                self._send_structure(root)
+                wanted = parse_qs(parsed.query).get("solvent", ["0"])[0]
+                self._send_structure(
+                    root, with_solvent=wanted.lower() in {"1", "true", "yes"}
+                )
                 return
             if path == "/structure/live-frame.pdb":
                 self._send_live_frame(root)
@@ -612,7 +615,7 @@ def make_handler(
             self.end_headers()
             self.wfile.write(data)
 
-        def _send_structure(self, root: Path) -> None:
+        def _send_structure(self, root: Path, *, with_solvent: bool = False) -> None:
             # Draw the system that was simulated, with bulk solvent stripped
             # -- the same filter the live frames already go through. Serving
             # the prepared solute kept the file small but omitted the ligand,
@@ -624,7 +627,16 @@ def make_handler(
             if target is None or not target.is_file():
                 self.send_error(404, "Structure not found")
                 return
-            data = _display_structure_bytes(target)
+            # Water and ions on request only. The viewer's Water and Ions
+            # toggles had nothing to act on, because the copy sent to the
+            # browser has bulk solvent stripped -- and before that it was the
+            # prepared solute, which has none either. So the controls have
+            # never shown anything. Sending the whole box every time would
+            # cost every reader the download for a view most of them never
+            # open; sending it when asked costs only them.
+            data = (
+                target.read_bytes() if with_solvent else _display_structure_bytes(target)
+            )
             self.send_response(200)
             self.send_header("Content-Type", "chemical/x-pdb; charset=utf-8")
             self.send_header("Cache-Control", "no-store")

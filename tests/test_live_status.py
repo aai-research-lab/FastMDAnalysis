@@ -1065,3 +1065,54 @@ class TestThePanelSaysWhatHeldTheLigand:
         js = (base / "static" / "dashboard.js").read_text(encoding="utf-8")
         assert "Chain (simulated)" in js
         assert "<th>Chain</th>" not in js
+
+
+class TestTheViewerRespondsToClicksAndToggles:
+    def _text(self, name: str) -> str:
+        base = Path(protein_preview.__file__).parent
+        return (base / "static" / name).read_text(encoding="utf-8")
+
+    def test_atoms_are_made_clickable_after_they_exist(self) -> None:
+        """3Dmol sets the property on the atoms currently selected. Called at
+        viewer creation, before any model is added, it set it on nothing --
+        so every atom arrived unclickable and the selection panel waited for
+        an event that could not be raised."""
+        js = self._text("molecule-viewer.js")
+        install = js.split("function installPdb(", 1)[1].split("\n  function ", 1)[0]
+        assert "setClickable" in install
+        assert "setHoverable" in install
+
+        creation = js.split("function ensureMainViewer(", 1)[1].split("\n  function ", 1)[0]
+        assert "setClickable" not in creation
+
+    def test_water_and_ions_are_fetched_rather_than_restyled(self) -> None:
+        """They are stripped from the copy the browser gets, so restyling
+        could never reveal them."""
+        js = self._text("molecule-viewer.js")
+        assert "solvent=1" in js
+        handler = js.split('data-vis]")', 1)[1].split("\n    });", 1)[0]
+        assert 'which === "water"' in handler
+        assert "onStructureUpdated" in handler
+
+    def test_the_route_serves_the_solvated_system_on_request(
+        self, tmp_path: Path
+    ) -> None:
+        from urllib.request import urlopen
+
+        run = tmp_path / "run"
+        sim = run / "simulation"
+        sim.mkdir(parents=True)
+        (sim / "topology.pdb").write_text(_solvated_pdb(), encoding="utf-8")
+
+        server, base_url = start_test_server(run)
+        try:
+            plain = urlopen(f"{base_url}/structure/topology.pdb", timeout=30).read().decode()
+            full = urlopen(
+                f"{base_url}/structure/topology.pdb?solvent=1", timeout=30
+            ).read().decode()
+        finally:
+            server.shutdown()
+            server.server_close()
+
+        assert "HOH" not in plain and "BNZ" in plain
+        assert "HOH" in full and "BNZ" in full
