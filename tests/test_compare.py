@@ -193,7 +193,8 @@ class TestComparisonAutoTrigger:
         from fastmdxplora.batch import explorer as exp_mod
         from fastmdxplora.orchestrator import RunResult
 
-        def fake_execute_run(spec_dict, run_out, include, exclude, verbose, device):
+        def fake_execute_run(spec_dict, run_out, include, exclude, verbose,
+                             device, quiet=True):
             out = Path(run_out)
             T = spec_dict["sweep_values"]["setup.temperature_K"]
             for analysis in ("rmsd", "rg"):
@@ -233,7 +234,8 @@ sweep:
         from fastmdxplora.batch import explorer as exp_mod
         from fastmdxplora.orchestrator import RunResult
 
-        def fake_execute_run(spec_dict, run_out, include, exclude, verbose, device):
+        def fake_execute_run(spec_dict, run_out, include, exclude, verbose,
+                             device, quiet=True):
             out = Path(run_out)
             d = out / "analysis" / "rmsd"
             d.mkdir(parents=True, exist_ok=True)

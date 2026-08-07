@@ -33,6 +33,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from contextlib import contextmanager
 from concurrent.futures import (
     FIRST_COMPLETED,
     ProcessPoolExecutor,
@@ -119,6 +120,12 @@ def _skipped_run_result(spec: RunSpec, run_out: Path, message: str) -> "RunResul
 # ---------------------------------------------------------------------------
 # Module-level worker (must be top-level so ProcessPoolExecutor can pickle it)
 # ---------------------------------------------------------------------------
+@contextmanager
+def _nothing_to_silence():
+    """A context manager that lets the output through."""
+    yield
+
+
 def _execute_run(
     spec_dict: dict[str, Any],
     run_out: str,
@@ -126,6 +133,7 @@ def _execute_run(
     exclude: list[str] | None,
     verbose: bool,
     device_override: str | None,
+    quiet: bool = True,
 ) -> "RunResult":
     """Run one study and return a RunResult. Safe to call in a subprocess.
 
@@ -235,7 +243,13 @@ def _execute_run(
         options["simulation"] = sim
 
     try:
-        with _QuietBanner(_os.path.join(run_out, "run.log")):
+        # Redirected only where output would collide. The guard exists so
+        # three parallel workers do not interleave three PLUMED banners into
+        # one unreadable screen; with a single run there is nothing to
+        # interleave with, and redirecting it left a config-driven study of
+        # one system printing a line and then nothing for half an hour.
+        with _QuietBanner(_os.path.join(run_out, "run.log")) if quiet \
+                else _nothing_to_silence():
             fmdx = FastMDXplora(
                 system=spec_dict["system"],
                 output_dir=run_out,
@@ -504,7 +518,7 @@ class BatchExplorer:
             first = self.run_specs[0]
             result = _execute_run(
                 first.to_dict(), str(shared), ["setup"], None,
-                self.verbose, None,
+                self.verbose, None, quiet=False,
             )
             if result.status == "error" or not _a_prepared_system_is_there(prepared):
                 # Every window would fail the same way, one after another,
@@ -667,7 +681,7 @@ class BatchExplorer:
             device = self._device_for_worker(0) if self.devices else None
             result = _execute_run(
                 spec.to_dict(), str(run_out), include, exclude,
-                self.verbose, device,
+                self.verbose, device, quiet=not self.is_single,
             )
             results.append(result)
             if result.status == "error" and not self.continue_on_error:

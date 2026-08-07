@@ -79,6 +79,7 @@ def _fake_worker_factory(*, fail_values: set[int], write_analysis: bool = False,
         exclude,
         verbose,
         device_override,
+        quiet: bool = True,
     ):
         out = Path(run_out)
         out.mkdir(parents=True, exist_ok=True)
@@ -942,3 +943,55 @@ class TestAParallelStudySaysWhatItIsDoing:
                               output_dir=str(tmp_path / "out")).run()
 
         assert "running," in capsys.readouterr().out
+
+
+class TestASingleRunIsNotSilenced:
+    """Each worker's output goes to its own log so three of them do not
+    interleave three PLUMED banners into one unreadable screen.
+
+    With one run there is nothing to interleave with, and redirecting it left
+    a config-driven study of a single system printing one line and then
+    nothing for as long as the run took.
+    """
+
+    @staticmethod
+    def _study(tmp_path, systems):
+        from fastmdxplora.batch.explorer import BatchExplorer
+
+        listed = "\n".join(f"  - system: {s}" for s in systems)
+        config = tmp_path / "study.yml"
+        config.write_text(f"output: out\ninclude: [setup]\nsystems:\n{listed}\n",
+                          encoding="utf-8")
+        return BatchExplorer(config=config, output_dir=str(tmp_path / "out"))
+
+    def test_one_system_speaks(self, tmp_path, monkeypatch) -> None:
+        from fastmdxplora.batch import explorer
+
+        seen: dict = {}
+        monkeypatch.setattr(
+            explorer, "_execute_run",
+            lambda *args, **kwargs: seen.update(quiet=kwargs.get("quiet"))
+            or _ok_result(args[0]))
+
+        self._study(tmp_path, [tmp_path / "a.pdb"]).run()
+        assert seen["quiet"] is False
+
+    def test_several_do_not(self, tmp_path, monkeypatch) -> None:
+        """Where their output would collide, it goes to their own logs."""
+        from fastmdxplora.batch import explorer
+
+        seen: list = []
+        monkeypatch.setattr(
+            explorer, "_execute_run",
+            lambda *args, **kwargs: seen.append(kwargs.get("quiet"))
+            or _ok_result(args[0]))
+
+        self._study(tmp_path, [tmp_path / "a.pdb", tmp_path / "b.pdb"]).run()
+        assert seen == [True, True]
+
+
+def _ok_result(spec_dict):
+    from fastmdxplora.orchestrator import RunResult
+
+    return RunResult(run_id=spec_dict["run_id"], system=spec_dict["system"],
+                     status="ok", sweep_values={}, phases=[])

@@ -88,6 +88,13 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   word; everything else naming the interface says GUI.
 
 ### Fixed
+- **A study of one system printed one line and then nothing.** Each run's
+  output goes to its own log so that several running at once do not interleave
+  into an unreadable screen -- and that was applied to a single run too, which
+  has nothing to interleave with. A config naming one system therefore said
+  "Exploring 1 molecular system" and went quiet for as long as the run took.
+  Output is redirected only where it would collide.
+
 - **The reference conda recipe had fallen behind the feedstock.** It exists
   so a dependency added here reaches the package, and the traffic runs both
   ways: the feedstock learns what the conda-forge solver does and what its
