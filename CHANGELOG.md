@@ -88,6 +88,20 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   word; everything else naming the interface says GUI.
 
 ### Fixed
+- **The same observable was reported twice in one document with two different
+  means.** A real study's RMSD read 0.08895 in the convergence table and
+  0.09461 in its own results section, both labelled the mean, with nothing to
+  say why. The table averaged the whole series; the per-analysis finding
+  discarded the relaxation first, as the method requires. The table now takes
+  the same settled part, so the two agree by construction, and it says how
+  many frames were discarded. Drift is still measured over the whole series,
+  since that is the question of whether the run was still relaxing.
+
+- **The summary called a run settled that held six independent samples.**
+  Settled and adequately sampled are different questions, and it reported only
+  the first: a study whose RMSD held six independent samples and whose density
+  held ten was described as having entirely settled. It now says both.
+
 - **A study of one system printed one line and then nothing.** Each run's
   output goes to its own log so that several running at once do not interleave
   into an unreadable screen -- and that was applied to a single run too, which

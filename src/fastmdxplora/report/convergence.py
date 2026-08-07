@@ -51,6 +51,10 @@ class Assessment:
 
     name: str
     n_frames: int
+    #: Frames discarded before averaging, so that the mean describes the
+    #: equilibrium rather than the approach to it. The same point the
+    #: per-analysis findings use, so the two agree.
+    discard: int
     mean: float
     #: Standard deviation over the frames, which is a property of the
     #: trajectory rather than an uncertainty on the mean.
@@ -115,6 +119,7 @@ class Assessment:
             "spread": round(self.spread, 5),
             "frames_per_independent_sample": round(self.correlation_frames, 2),
             "effective_samples": round(self.effective_samples, 2),
+            "discard": self.discard,
             "standard_error": (None if np.isnan(self.standard_error)
                                else round(self.standard_error, 5)),
             "sampled_enough": self.is_sampled_enough,
@@ -170,10 +175,20 @@ def assess_series(name: str, values: Any) -> Assessment:
     series = series[np.isfinite(series)]
     n = series.size
     if n == 0:
-        return Assessment(name, 0, float("nan"), float("nan"), 1.0, 0.0, 0.0)
+        return Assessment(name, 0, 0, float("nan"), float("nan"), 1.0, 0.0, 0.0)
 
-    from fastmdxplora.statistics import correlation_is_resolved
+    from fastmdxplora.statistics import correlation_is_resolved, summarise
 
+    # The mean is taken over the settled part, which is what the per-analysis
+    # findings report. Taken over the whole series here, the same observable
+    # appeared twice in one document with two different means and nothing to
+    # say why: the RMSD of a real study read 0.08895 in this table and 0.09461
+    # in its own section, both labelled the mean.
+    #
+    # Drift is still measured over the whole series. It is the question of
+    # whether the run was still relaxing, and discarding the relaxation before
+    # asking would answer it by construction.
+    settled, _reason = summarise(series)
     correlation = autocorrelation_time(series)
     # Whether the series can see how long its own memory is. A correlation
     # approaching what the sum can reach is a floor rather than a measurement,
@@ -194,10 +209,14 @@ def assess_series(name: str, values: Any) -> Assessment:
     return Assessment(
         name=name,
         n_frames=int(n),
-        mean=float(series.mean()),
-        spread=float(series.std(ddof=1)) if n > 1 else 0.0,
-        correlation_frames=correlation,
-        effective_samples=float(n / correlation),
+        discard=int(settled.discard) if settled else 0,
+        mean=float(settled.mean) if settled else float(series.mean()),
+        spread=(float(settled.standard_deviation) if settled
+                else (float(series.std(ddof=1)) if n > 1 else 0.0)),
+        correlation_frames=(float(settled.inefficiency) if settled
+                            else correlation),
+        effective_samples=(float(settled.effective_samples) if settled
+                           else float(n / correlation)),
         drift_in_noise=_drift_in_noise(series),
         correlation_is_measurable=bool(measurable),
         drift_is_measurable=bool(drift_measurable),

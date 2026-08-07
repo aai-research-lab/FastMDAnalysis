@@ -157,11 +157,20 @@ def _what_the_run_supports(project_root: Path) -> str | None:
     settled = sum(1 for r in records if r["settled"] is True)
     drifting = sum(1 for r in records if r["settled"] is False)
     unjudged = total - settled - drifting
+    # Settled and adequately sampled are different questions. A real study
+    # reported all five observables settled while two of them held six and ten
+    # independent samples -- at or under the point where a mean stops
+    # describing the system -- and the summary said only the first.
+    thin = sum(1 for r in records if not r.get("sampled_enough", True))
 
     what = "observable" if total == 1 else "observables"
+    if settled == total and not thin:
+        return (f"All {total} {what} assessed had settled and hold enough "
+                "independent samples to average.")
     if settled == total:
-        return (f"All {total} {what} assessed had settled; see Convergence "
-                "for the independent-sample counts behind each average.")
+        return (f"All {total} {what} assessed had settled, but {thin} hold "
+                "too few independent samples for the mean to describe the "
+                "system rather than this run; see Convergence.")
 
     parts = []
     if settled:
@@ -170,6 +179,8 @@ def _what_the_run_supports(project_root: Path) -> str | None:
         parts.append(f"{drifting} had not")
     if unjudged:
         parts.append(f"{unjudged} could not be judged from a run this length")
+    if thin:
+        parts.append(f"{thin} hold too few independent samples to average")
     return (f"Of {total} {what} assessed, " + ", ".join(parts)
             + "; see Convergence below before using any average from this run.")
 
@@ -525,13 +536,15 @@ def _convergence_section(project_root: Path) -> str:
     )
     lines.append("")
     lines.append(
-        "| measure | frames | independent | mean | uncertainty | settled |"
+        "| measure | frames | discarded | independent | mean | uncertainty "
+        "| settled |"
     )
-    lines.append("|---|---|---|---|---|---|")
+    lines.append("|---|---|---|---|---|---|---|")
     for record in assessed["observables"].values():
         error = record["standard_error"]
         lines.append(
             f"| {record['observable']} | {record['frames']:,} | "
+            f"{record.get('discard', 0):,} | "
             f"{record['effective_samples']:.1f} | {record['mean']:.4g} | "
             + (f"{error:.3g}" if error is not None else "not enough to say")
             + " | "

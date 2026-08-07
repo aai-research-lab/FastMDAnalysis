@@ -2267,3 +2267,108 @@ class TestTheResultsCarryTheMeasurement:
         assert "if not (opts or selection or notes):" in source
         assert "        else:\n            lines.append(\"_Ran with default options._\")" \
             not in source
+
+
+class TestOneMeanPerObservable:
+    """A real study reported the RMSD twice in one document: 0.08895 in the
+    convergence table and 0.09461 in its own results section, both labelled
+    the mean, with nothing to say why they differed.
+
+    The table averaged the whole series; the per-analysis finding discarded
+    the relaxation first, as the method requires. A reader comparing the two
+    had no way to know which to quote.
+    """
+
+    @staticmethod
+    def _relaxing(n=200, seed=0):
+        rng = np.random.RandomState(seed)
+        return (0.05 * np.exp(-np.arange(n) / 40.0) + 0.089
+                + rng.normal(0, 0.004, n))
+
+    def test_the_table_and_the_findings_agree(self) -> None:
+        from fastmdxplora.report.convergence import assess_series
+        from fastmdxplora.statistics import summarise
+
+        series = self._relaxing()
+        assessed = assess_series("rmsd", series)
+        settled, _reason = summarise(series)
+
+        assert assessed.mean == settled.mean
+        assert assessed.effective_samples == settled.effective_samples
+        assert assessed.discard == settled.discard
+
+    def test_the_relaxation_is_discarded(self) -> None:
+        """Otherwise the mean describes the approach to equilibrium as much as
+        the equilibrium."""
+        from fastmdxplora.report.convergence import assess_series
+
+        series = self._relaxing()
+        assessed = assess_series("rmsd", series)
+
+        assert assessed.discard > 0
+        assert assessed.mean < float(series.mean()), (
+            "a decaying series averaged from the start reads high")
+
+    def test_drift_is_still_measured_over_the_whole_run(self) -> None:
+        """It is the question of whether the run was still relaxing, and
+        discarding the relaxation before asking would answer it by
+        construction."""
+        import inspect
+
+        from fastmdxplora.report import convergence
+
+        source = inspect.getsource(convergence.assess_series)
+        assert "_drift_in_noise(series)" in source, (
+            "drift must see the series it is asked about")
+
+    def test_the_table_says_what_it_discarded(self) -> None:
+        import inspect
+
+        from fastmdxplora.report import document
+
+        source = inspect.getsource(document)
+        assert "| measure | frames | discarded | independent" in source
+
+
+class TestSettledIsNotTheSameAsSampled:
+    """The summary said "All 5 observables assessed had settled" for a run
+    whose RMSD held six independent samples and whose density held ten -- at
+    or under the point where a mean stops describing the system."""
+
+    def test_a_settled_but_thinly_sampled_run_says_so(self) -> None:
+        from fastmdxplora.report.document import _what_the_run_supports
+
+        records = {
+            "observables": {
+                "a": {"settled": True, "sampled_enough": True,
+                      "correlation_measurable": True},
+                "b": {"settled": True, "sampled_enough": False,
+                      "correlation_measurable": True},
+            }
+        }
+        import unittest.mock as mock
+
+        with mock.patch("fastmdxplora.report.document._assess_this_run",
+                        return_value=records):
+            said = _what_the_run_supports(Path("/nowhere"))
+
+        assert "had settled" in said
+        assert "too few independent samples" in said
+
+    def test_a_run_that_is_both_says_neither(self) -> None:
+        from fastmdxplora.report.document import _what_the_run_supports
+
+        records = {
+            "observables": {
+                "a": {"settled": True, "sampled_enough": True,
+                      "correlation_measurable": True},
+            }
+        }
+        import unittest.mock as mock
+
+        with mock.patch("fastmdxplora.report.document._assess_this_run",
+                        return_value=records):
+            said = _what_the_run_supports(Path("/nowhere"))
+
+        assert "too few" not in said
+        assert "enough independent samples" in said
