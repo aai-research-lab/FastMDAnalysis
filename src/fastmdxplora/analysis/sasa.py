@@ -69,55 +69,63 @@ def _unwritten_frames(sasa: np.ndarray) -> np.ndarray:
     return np.flatnonzero(zero[:, intermittent].any(axis=1))
 
 
+#: How many times to ask before giving up. Two was not enough: CI returned
+#: answers truncated on both attempts. How often a call is truncated, and
+#: whether attempts are independent, is not yet known -- see the
+#: characterisation test in the suite -- so this is a number chosen to be
+#: cheap rather than one derived from a measured rate.
+ATTEMPTS = 5
+
+
 def _areas_that_were_written(
     traj: Any, *, probe_radius: float, n_sphere_points: int, mode: str
 ) -> tuple[np.ndarray, str | None]:
-    """Surface areas, computed again if the first answer was truncated.
+    """Surface areas, asking again while the answer comes back truncated.
 
-    On Windows the first call to MDTraj's ``shrake_rupley`` returns a final
-    frame of zeros, with a partial value in its first element, and a second
-    call on the same trajectory returns it fully written. Frames other than
-    the last come back bit-identical.
+    On Windows, MDTraj's ``shrake_rupley`` returns frames that were not fully
+    written: a partial value followed by zeros. It is not confined to the last
+    frame -- frames 0, 2 and 5 have all been seen -- and a second call is not
+    reliably clean, so this asks up to ``ATTEMPTS`` times and refuses if none
+    of them is.
 
-    Calling again is a workaround and not a rescue, and the difference is
-    worth being explicit about. This package refuses to salvage a failed
-    simulation, because a trajectory produced by a recovery looks exactly like
-    one that never needed it and the failure stops being visible. Here the
-    wrong answer identifies itself -- a frame of exact zeros cannot be a
-    surface area -- and the right one is a second call away and agrees with
-    every other platform. So it is taken, and the run records that it had to
-    be, rather than either failing on a defect that is not ours or repairing
-    it silently.
+    Asking again is a workaround, not a rescue, and the distinction is the one
+    this package draws elsewhere: a failed simulation is diagnosed and stopped
+    because a salvaged trajectory looks exactly like one that never needed
+    salvaging. Here the wrong answer identifies itself -- a residue exposed in
+    five frames and reading exactly zero in the sixth was not measured -- and a
+    correct one may be one call away.
 
-    Returns the areas and, where a retry was needed, a note for the findings.
+    Returns the areas and, where more than one attempt was needed, a note for
+    the findings.
     """
-    areas = md.shrake_rupley(
-        traj, probe_radius=probe_radius, n_sphere_points=n_sphere_points,
-        mode=mode)
-    empty = _unwritten_frames(areas)
-    if empty.size == 0:
-        return areas, None
+    truncated: list[int] = []
+    for attempt in range(1, ATTEMPTS + 1):
+        areas = md.shrake_rupley(
+            traj, probe_radius=probe_radius,
+            n_sphere_points=n_sphere_points, mode=mode)
+        empty = _unwritten_frames(areas)
+        if empty.size == 0:
+            if attempt == 1:
+                return areas, None
+            return areas, (
+                f"The surface-area calculation returned unwritten frames on "
+                f"{attempt - 1} of {attempt} attempts and completed on the "
+                "last. This is a known defect in the underlying library on "
+                "some platforms, not a property of this trajectory; the areas "
+                "reported are from the complete result."
+            )
+        truncated.append(int(empty.size))
 
-    retried = md.shrake_rupley(
-        traj, probe_radius=probe_radius, n_sphere_points=n_sphere_points,
-        mode=mode)
-    if _unwritten_frames(retried).size:
-        raise RuntimeError(
-            "The surface-area calculation returned zero for every residue in "
-            f"frame(s) {', '.join(str(int(f)) for f in empty)}, twice. A "
-            "molecule has surface, so a frame of exact zeros is a row the "
-            "calculation did not finish writing, and computing it again gave "
-            "the same. This is a defect in the underlying library rather "
-            "than in the trajectory; it has been seen on Windows, where a "
-            "second attempt usually succeeds."
-        )
-
-    return retried, (
-        f"The surface-area calculation returned {empty.size} unwritten "
-        f"frame(s) on the first attempt and completed on the second. This is "
-        "a known defect in the underlying library on some platforms, not a "
-        "property of this trajectory; the areas reported are from the "
-        "complete result."
+    raise RuntimeError(
+        f"The surface-area calculation returned unwritten frames on all "
+        f"{ATTEMPTS} attempts ({', '.join(str(n) for n in truncated)} frames "
+        "each time). A molecule has surface, so a residue exposed in some "
+        "frames and reading exactly zero in others was not measured -- that "
+        "row was not written.\n\n"
+        "This is a defect in the underlying library rather than in the "
+        "trajectory, seen on Windows. On a platform where it occurs this "
+        "often, solvent-accessible surface area cannot be computed reliably; "
+        "run the analysis elsewhere, or omit it."
     )
 
 

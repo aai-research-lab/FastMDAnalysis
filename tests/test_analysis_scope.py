@@ -13,6 +13,8 @@ the orchestrator, and we capture the selection each analysis is built with.
 
 from __future__ import annotations
 
+import sys
+
 import numpy as np
 import pytest
 
@@ -217,6 +219,16 @@ class TestSolventBlindAnalysesSlice:
         result = qv.compute(protein_water_traj)  # would be huge/hang if unsliced
         assert np.asarray(result).shape == (2,)
 
+    @pytest.mark.xfail(
+        sys.platform == "win32",
+        reason=(
+            "Computes surface areas for real, so it meets the MDTraj "
+            "defect that returns unwritten frames on Windows. Not "
+            "strict: which calls are affected varies, so the test "
+            "passes whenever the retry finds a complete answer."
+        ),
+        strict=False,
+    )
     def test_sasa_slices_to_protein(self, protein_water_traj, tmp_path):
         from fastmdxplora.analysis.sasa import SASA
 

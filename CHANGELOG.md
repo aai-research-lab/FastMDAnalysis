@@ -109,19 +109,26 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
   The truncated answer identifies itself: a residue exposed in five frames and
   reading exactly zero in the sixth was not measured as completely enclosed,
-  it was not written. Where that is seen, the areas are computed again and the
-  complete result used, with the run recording that it had to be. A residue
-  buried throughout is left alone, and an answer truncated twice is refused
-  rather than returned.
+  it was not written. Where that is seen the areas are computed again, up to
+  five times, and the complete result used with the run recording that it had
+  to be. Where every attempt is truncated it is refused, with the message
+  saying that on a platform where this happens that often the analysis cannot
+  be relied on.
+
+  Two things about the defect were assumed and both were wrong. It is not
+  confined to the final frame -- frames 0, 2 and 5 have been seen -- and a
+  second call is not reliably clean. A test now measures the rate over twenty
+  calls rather than assuming a shape, and its failure message carries what a
+  fix would need.
 
   This is a workaround, not a rescue, and the distinction is the one this
   package draws elsewhere: a failed simulation is diagnosed and stopped
   because a salvaged trajectory looks like one that never needed salvaging.
-  Here the wrong answer is identifiable by inspection and the right one is a
-  second call away.
+  Here the wrong answer identifies itself and a correct one may be one call
+  away.
 
-  Without it, a zero row pulls a six-frame mean down by a sixth, and the
-  number reaching a report, with an error bar on it, looks like a
+  Without it, an unwritten frame pulls a six-frame mean down by a sixth, and
+  the number reaching a report, with an error bar on it, looks like a
   measurement. Reported upstream; it affects anyone computing
   solvent-accessible surface area on Windows.
 
