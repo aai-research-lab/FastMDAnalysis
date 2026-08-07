@@ -527,26 +527,6 @@
     if (card) card.setAttribute("data-state", String(status.status || "running").toLowerCase());
     setText("hero-status-text", humanise(status.status || status.stage || "waiting"));
     setText("hero-stage", status.stage || "—");
-    const pct = progressPercent(status);
-    setWidth("hero-progress-fill", pct);
-    setText("hero-progress-pct", pct != null ? pct.toFixed(1) : "—");
-    setText(
-      "hero-sim-time",
-      status.simulation_time_completed_ns != null
-        ? formatNumber(status.simulation_time_completed_ns, 3)
-        : "—"
-    );
-    setText(
-      "hero-elapsed",
-      status.elapsed_wall_time_s != null ? fmtDuration(status.elapsed_wall_time_s) : "—"
-    );
-    setText("hero-eta", computeETA(status));
-    setText(
-      "hero-step",
-      status.current_step != null
-        ? `${status.current_step} / ${status.total_planned_steps ?? "—"}`
-        : "—"
-    );
   }
 
   function renderHealth(health) {

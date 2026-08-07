@@ -4030,18 +4030,23 @@ class TestTheLiveTabDoesNotPretendToHaveData:
 
     And it explained the absence by advising the reader to start the dashboard
     during a simulation -- which is what somebody looking at that page has
-    just done. Telemetry is written only when a run asks for it, and that is
-    off by default, so the advice sent them to repeat what had already failed.
+    just done, so the advice sent them to repeat what had already failed.
     """
 
     def test_the_reason_names_the_setting(self) -> None:
+        """The message used to say telemetry was off by default and tell the
+        reader to switch it on. The schema default is now True, so that had
+        become advice for a problem that no longer exists: a run reaching this
+        message either turned it off or predates the setting.
+        """
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
         from fastmdxplora.gui.telemetry import analyze_health
 
-        health = analyze_health({}, [])
-        explanation = health["explanation"]
+        explanation = analyze_health({}, [])["explanation"]
 
         assert "live_telemetry" in explanation
-        assert "off by default" in explanation
+        assert PHASE_SCHEMAS["simulation"].get("live_telemetry").default is True
+        assert "on by default" in explanation
         assert "during a simulation to monitor progress" not in explanation
 
     def test_it_names_a_flag_that_exists(self) -> None:
@@ -4061,7 +4066,8 @@ class TestTheLiveTabDoesNotPretendToHaveData:
         # A word starting with two hyphens and then a letter. The prose uses
         # a bare "--" as a dash, which a looser match reads as a flag.
         named = re.findall(r"--[a-z][a-z0-9-]+", explanation)
-        assert named, "the explanation names no flag"
+        # Naming no flag is fine -- the setting is on by default, so a flag is
+        # not the remedy any more. Naming one that does not exist is not.
         for flag in named:
             assert flag in real, f"{flag} is not a flag this software has"
 

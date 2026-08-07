@@ -847,3 +847,117 @@ class TestTheTimelineShowsTheStagesThatRan:
         self._config(run, "exclude: [report]\n")
         assert "report" not in run_phases(run)
         assert "setup" in run_phases(run)
+
+
+class TestEveryTabIsReachable:
+    """The Ligand tab was clipped off the right edge of the information
+    panel: four flex items that refuse to shrink below their labels, on one
+    unwrapped line, inside a container with `overflow: hidden`."""
+
+    def _text(self, name: str) -> str:
+        base = Path(protein_preview.__file__).parent
+        folder = "templates" if name.endswith(".html") else "static"
+        return (base / folder / name).read_text(encoding="utf-8")
+
+    def test_the_strip_wraps(self) -> None:
+        css = self._text("dashboard.css")
+        rule = css.split(".info-tabs {", 1)[1].split("}", 1)[0]
+        assert "flex-wrap: wrap" in rule
+
+    def test_a_tab_keeps_its_label(self) -> None:
+        """`flex: 1` is `1 1 0%`; a basis of zero with `min-width: auto` is
+        what made the line overflow rather than the tabs share it."""
+        css = self._text("dashboard.css")
+        rule = css.split("\n.info-tab {", 1)[1].split("}", 1)[0]
+        assert "flex: 1 1 auto" in rule
+
+    def test_all_four_tabs_are_declared(self) -> None:
+        import re
+
+        html = self._text("dashboard.html")
+        tabs = re.findall(r'class="info-tab[^"]*"[^>]*data-tab="(\w+)"', html)
+        panes = re.findall(r'class="info-pane[^"]*" data-tab="(\w+)"', html)
+        assert set(tabs) == {"structure", "simulation", "selection", "ligand"}
+        assert set(tabs) == set(panes)
+
+
+class TestAFactAppearsOnce:
+    """Progress, ETA and step were on the page three times each -- the top
+    bar, the Simulation progress card, and the Exploration status hero -- so
+    a reader had to check three places to see whether they agreed."""
+
+    def _text(self, name: str) -> str:
+        base = Path(protein_preview.__file__).parent
+        folder = "templates" if name.endswith(".html") else "static"
+        return (base / folder / name).read_text(encoding="utf-8")
+
+    def test_the_hero_keeps_only_what_it_says_best(self) -> None:
+        html = self._text("dashboard.html")
+        assert 'id="hero-status-text"' in html
+        assert 'id="hero-stage"' in html
+        for gone in ("hero-progress-fill", "hero-progress-pct", "hero-sim-time",
+                     "hero-elapsed", "hero-eta", "hero-step"):
+            assert gone not in html, gone
+
+    def test_nothing_still_writes_to_them(self) -> None:
+        js = self._text("dashboard.js")
+        for gone in ("hero-progress-fill", "hero-sim-time", "hero-elapsed",
+                     "hero-eta", "hero-step"):
+            assert gone not in js, gone
+
+    def test_the_numbers_still_have_a_home(self) -> None:
+        """Removed from the hero, not from the page."""
+        html = self._text("dashboard.html")
+        for kept in ("live-progress-fill", "live-sim-time", "live-elapsed-cell",
+                     "live-eta-cell", "live-step-cell", "topbar-progress", "topbar-eta"):
+            assert kept in html, kept
+
+    def test_no_cell_opens_with_a_verdict(self) -> None:
+        """Placeholders the first poll overwrites. Until then a dash, not a
+        claim that the value could not be obtained."""
+        import re
+
+        html = self._text("dashboard.html")
+        filled = re.findall(r'id="(?:live|hero|topbar|sidebar|health)[\w-]*"[^>]*>([^<]*)<', html)
+        assert "not available" not in filled
+
+
+class TestAFinishedRunIsNotProgressing:
+    """Every check in `analyze_health` reads the last sample. When nothing was
+    wrong it fell through to "Normal progress / Simulation is progressing
+    normally" -- present tense, on a page opened hours after the run ended."""
+
+    def test_a_completed_run_says_so(self) -> None:
+        from fastmdxplora.gui.telemetry import analyze_health
+
+        health = analyze_health({"status": "completed"}, [])
+        assert health["state"] == "ok"
+        assert health["message"] == "Completed"
+        assert "progressing" not in health["explanation"]
+
+    def test_a_running_one_still_reads_the_same(self) -> None:
+        from fastmdxplora.gui.telemetry import analyze_health
+
+        health = analyze_health({"status": "running"}, [])
+        assert health["message"] == "Normal progress"
+
+    def test_a_finished_run_that_went_wrong_still_says_so(self) -> None:
+        """The terminal case is about tense, not about suppressing faults."""
+        from fastmdxplora.gui.telemetry import analyze_health
+
+        health = analyze_health(
+            {"status": "completed"}, [{"temperature": float("nan")}]
+        )
+        assert health["state"] == "failed"
+
+    def test_the_advice_matches_the_default(self) -> None:
+        """The no-telemetry text said the feature was off by default and told
+        you to switch it on. It has been on by default since the schema
+        changed, so that was a fix for a problem that no longer exists."""
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+        from fastmdxplora.gui.telemetry import analyze_health
+
+        assert PHASE_SCHEMAS["simulation"].get("live_telemetry").default is True
+        explanation = analyze_health({}, [])["explanation"]
+        assert "off by default" not in explanation
+        assert "on by default" in explanation

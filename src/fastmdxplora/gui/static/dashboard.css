@@ -974,11 +974,21 @@ button {
 }
 .info-tabs {
     display: flex;
+    /* Wrapping, because these tabs cannot shrink. A flex item defaults to
+       `min-width: auto`, so each tab stays at least as wide as its label --
+       four uppercase words with letter-spacing and padding come to more than
+       the panel is wide, the line overflows, and `.info-panel`'s
+       `overflow: hidden` clips whatever hangs off the right. That was always
+       the last tab, Ligand, which simply was not there. Wrapped, a narrow
+       panel gets two rows instead of three tabs and a stump. */
+    flex-wrap: wrap;
     border-bottom: 1px solid var(--border-subtle);
     background: rgba(255,255,255,0.02);
 }
 .info-tab {
-    flex: 1;
+    /* `1 1 auto`, not `1 1 0`: share the row when there is room, keep the
+       label intact when there is not. */
+    flex: 1 1 auto;
     padding: 10px 12px;
     color: var(--text-muted);
     text-transform: uppercase;

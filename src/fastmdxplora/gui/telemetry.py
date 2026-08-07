@@ -468,6 +468,17 @@ def read_events(project_root: str | Path, *, limit: int = 100) -> list[dict[str,
     return events
 
 
+#: Statuses a run writes when it stops. `completed` is what the orchestrator
+#: records at the end; the rest are accepted so an older run, or one written
+#: by something else, is not described as still going.
+_FINISHED_STATUSES = frozenset({"completed", "complete", "finished", "done", "ok"})
+
+COMPLETED_EXPLANATION = (
+    "The run finished, and the last sample it wrote was within normal "
+    "ranges. Nothing here is being measured any more."
+)
+
+
 def analyze_health(
     status: dict[str, Any],
     metrics: list[dict[str, Any]],
@@ -529,18 +540,27 @@ def analyze_health(
                 "explanation": STALE_EXPLANATION,
             }
 
+    if str(status.get("status", "")).lower() in _FINISHED_STATUSES:
+        # A run that has stopped is not progressing. Every check above still
+        # applies -- they read the last sample it wrote -- but the verdict is
+        # about a run that ended, and the present tense made a page opened
+        # hours later read as though the simulation were still going.
+        return {
+            "state": "ok",
+            "message": "Completed",
+            "explanation": COMPLETED_EXPLANATION,
+        }
+
     if status:
         return {"state": "ok", "message": "Normal progress", "explanation": NORMAL_EXPLANATION}
     return {
         "state": "unknown",
         "message": "Live telemetry is not available.",
         "explanation": (
-            "Live telemetry is written only when a run asks for it, and it "
-            "is off by default: set `live_telemetry: true` under `simulation` "
-            "in the config, or pass `--live-telemetry`, and this page "
-            "fills as the run goes. Starting the dashboard during a run that "
-            "did not record it shows nothing, because there is nothing to "
-            "read -- which is what this page used to advise doing."
+            "Live telemetry is on by default, so this run either turned it "
+            "off with `live_telemetry: false` under `simulation`, or predates "
+            "the setting. Either way there is nothing on disk to read, and "
+            "the page cannot fill. A new run records it without being asked."
         ),
     }
 

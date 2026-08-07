@@ -103,11 +103,11 @@
         </div>
         <div class="footer-row">
           <div class="footer-label">Exploring</div>
-          <div class="footer-value" id="sidebar-run-name">not available</div>
+          <div class="footer-value" id="sidebar-run-name">—</div>
         </div>
         <div class="footer-row">
           <div class="footer-label">Platform</div>
-          <div class="footer-value" id="sidebar-platform">not available</div>
+          <div class="footer-value" id="sidebar-platform">—</div>
         </div>
         <div class="footer-row">
           <div class="footer-label">Output</div>
@@ -129,7 +129,7 @@
             <span class="status-dot status-dot-live" id="topbar-status-dot"></span>
             <span class="status-text" id="topbar-status-text">live</span>
             <span class="status-divider" aria-hidden="true">·</span>
-            <span class="status-text-muted" id="topbar-stage">not available</span>
+            <span class="status-text-muted" id="topbar-stage">—</span>
           </div>
           <div class="metric-cluster">
             <div class="metric"><span class="metric-label">Step</span><span class="metric-value mono" id="topbar-step">—</span></div>
@@ -356,15 +356,15 @@
               </div>
               <table class="kv-table mono">
                 <tbody>
-                  <tr><th>Current stage</th><td id="live-stage-cell">not available</td></tr>
-                  <tr><th>Current step</th><td id="live-step-cell">not available</td></tr>
-                  <tr><th>Total planned steps</th><td id="live-total-cell">not available</td></tr>
-                  <tr><th>Frames written</th><td id="live-frames-cell">not available</td></tr>
-                  <tr><th>Simulation time</th><td id="live-simtime-cell">not available</td></tr>
-                  <tr><th>Elapsed wall time</th><td id="live-elapsed-cell">not available</td></tr>
-                  <tr><th>ETA</th><td id="live-eta-cell">not available</td></tr>
-                  <tr><th>Checkpoint</th><td id="live-checkpoint-cell">not available</td></tr>
-                  <tr><th>Last update</th><td id="live-lastupdate-cell">not available</td></tr>
+                  <tr><th>Current stage</th><td id="live-stage-cell">—</td></tr>
+                  <tr><th>Current step</th><td id="live-step-cell">—</td></tr>
+                  <tr><th>Total planned steps</th><td id="live-total-cell">—</td></tr>
+                  <tr><th>Frames written</th><td id="live-frames-cell">—</td></tr>
+                  <tr><th>Simulation time</th><td id="live-simtime-cell">—</td></tr>
+                  <tr><th>Elapsed wall time</th><td id="live-elapsed-cell">—</td></tr>
+                  <tr><th>ETA</th><td id="live-eta-cell">—</td></tr>
+                  <tr><th>Checkpoint</th><td id="live-checkpoint-cell">—</td></tr>
+                  <tr><th>Last update</th><td id="live-lastupdate-cell">—</td></tr>
                 </tbody>
               </table>
             </div>
@@ -454,39 +454,23 @@
               <div class="hero-card-top">
                 <div>
                   <div class="hero-label">Exploration status</div>
-                  <div class="hero-status" id="hero-status-text">not available</div>
+                  <div class="hero-status" id="hero-status-text">—</div>
                 </div>
                 <span class="stage-pill mono" id="hero-stage">—</span>
               </div>
-              <div class="progress-large" aria-hidden="true">
-                <div class="progress-large-track">
-                  <div class="progress-large-fill" id="hero-progress-fill" style="width:0%"></div>
-                </div>
-                <div class="progress-large-meta">
-                  <span class="mono"><span id="hero-progress-pct">—</span>% complete</span>
-                  <span class="muted">sim time <span class="mono" id="hero-sim-time">—</span> ns</span>
-                </div>
-              </div>
-              <div class="hero-grid">
-                <div class="hero-stat">
-                  <div class="hero-stat-label">Elapsed wall time</div>
-                  <div class="hero-stat-value mono" id="hero-elapsed">—</div>
-                </div>
-                <div class="hero-stat">
-                  <div class="hero-stat-label">ETA</div>
-                  <div class="hero-stat-value mono" id="hero-eta">—</div>
-                </div>
-                <div class="hero-stat">
-                  <div class="hero-stat-label">Step</div>
-                  <div class="hero-stat-value mono" id="hero-step">—</div>
-                </div>
-              </div>
+              <!-- No progress bar, sim time, elapsed, ETA or step here.
+                   Every one of them is in the Simulation progress card
+                   opposite, and percent and ETA are in the top bar as
+                   well -- so a reader had to check three places to find
+                   out whether they agreed. This card keeps the one thing
+                   it says better than anywhere else: the run's state,
+                   in a word, with the stage it is in. -->
             </div>
             <div class="card hero-card" id="hero-health" data-state="normal" data-needs-phase="simulation">
               <div class="hero-card-top">
                 <div>
                   <div class="hero-label">Simulation health</div>
-                  <div class="hero-status" id="health-headline">not available</div>
+                  <div class="hero-status" id="health-headline">—</div>
                 </div>
                 <span class="stage-pill" id="health-pill">normal</span>
               </div>
