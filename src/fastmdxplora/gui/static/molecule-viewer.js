@@ -225,7 +225,13 @@
       }
       STATE.structureUrl = url;
       STATE.structurePdb = pdb;
-      if (STATE.mode !== "live" || !STATE.currentPdb) STATE.currentPdb = pdb;
+      // Solvent wins over the live frame. Frames are written to disk with
+      // water and ions already stripped, so live mode cannot show them at
+      // all -- asking for water while a frame is mounted otherwise fetched
+      // the solvated system, stored it, and went on drawing the frame.
+      if (STATE.mode !== "live" || !STATE.currentPdb || wantsSolvent()) {
+        STATE.currentPdb = pdb;
+      }
       STATE.mode = STATE.liveFrameIndex != null ? "live" : "structure";
       mountStoredStructureWhereVisible(true);
       hideViewerMessage();
@@ -393,6 +399,11 @@
       const pdb = await frameResponse.text();
       if (!pdb.includes("ATOM") && !pdb.includes("HETATM")) return;
       STATE.liveFrameIndex = index.live_frame_index;
+      if (wantsSolvent()) {
+        // The frame has no solvent in it; replacing the solvated system with
+        // it would empty the view the reader just asked for.
+        return;
+      }
       STATE.currentPdb = pdb;
       STATE.mode = "live";
       STATE.playbackLoaded = false;
@@ -625,6 +636,9 @@
         if (which === "water" || which === "ions") {
           // The atoms themselves have to be fetched or dropped, not restyled.
           STATE.structureUrl = null;
+          // Drop the mounted frame so the refetched structure is what mounts.
+          STATE.currentPdb = null;
+          STATE.mode = "structure";
           // Re-enter the same path the poll uses, with the info it last saw.
           onStructureUpdated(STATE.structureInfo || {});
           return;

@@ -41,7 +41,11 @@ _CONTROL_FOR_TYPE = {
 
 def _control(field: Any) -> str:
     if field.choices:
-        return "select"
+        # A list of choices is not a choice. `include` and `exclude` take
+        # several analyses, and offered as a single select the form could
+        # express only one of them -- so they were left as free text, where a
+        # misspelling was found only when the run did not do what was asked.
+        return "multiselect" if field.type is list else "select"
     return _CONTROL_FOR_TYPE.get(field.type, "text")
 
 

@@ -1429,3 +1429,88 @@ class TestTheLigandIsIdentifiedTwoWays:
         # position in the first place.
         assert "<th>Chain</th>" not in js
         assert "<th>Residue ID</th>" not in js
+
+
+class TestTheSolventTogglesShowSolvent:
+    """`?solvent=1` fetched the solvated system, and the viewer went on
+    drawing the live frame -- which is written to disk with water and ions
+    already stripped, so live mode cannot show them at all."""
+
+    def _text(self, name: str) -> str:
+        base = Path(protein_preview.__file__).parent
+        return (base / "static" / name).read_text(encoding="utf-8")
+
+    def test_a_written_frame_has_no_solvent_to_reveal(self) -> None:
+        from fastmdxplora.gui.live_frames import dashboard_display_pdb
+
+        drawn = dashboard_display_pdb(
+            "ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\n"
+            "HETATM  201  O   HOH C   1      10.000   0.000   0.000  1.00 10.00           O\n"
+            "HETATM  301 NA    NA D   1      20.000   0.000   0.000  1.00 10.00          NA\n"
+        )
+        assert "HOH" not in drawn
+        assert " NA D" not in drawn
+
+    def test_the_solvated_system_is_mounted_rather_than_stored(self) -> None:
+        js = self._text("molecule-viewer.js")
+        body = js.split("async function onStructureUpdated(", 1)[1].split(
+            "\n  function ", 1
+        )[0]
+        assert "wantsSolvent()" in body
+
+    def test_a_new_frame_does_not_replace_it(self) -> None:
+        """A frame arriving during a solvent view would empty the view the
+        reader just asked for."""
+        js = self._text("molecule-viewer.js")
+        assert js.count("wantsSolvent()") >= 3
+
+    def test_toggling_drops_the_mounted_frame(self) -> None:
+        js = self._text("molecule-viewer.js")
+        handler = js.split('data-vis]")', 1)[1].split("\n    });", 1)[0]
+        assert "STATE.currentPdb = null" in handler
+        assert 'STATE.mode = "structure"' in handler
+
+
+class TestAListOfChoicesIsOfferedAsChoices:
+    """`include` and `exclude` take several analyses from a known set, and the
+    form gave a text box -- so a misspelling was found only when the run did
+    not do what was asked."""
+
+    def test_the_schema_names_the_analyses(self) -> None:
+        import fastmdxplora.analysis  # noqa: F401  (populates the registry)
+        from fastmdxplora.analysis.orchestrator import available_analyses
+        from fastmdxplora.config.schema import ANALYSIS_NAMES
+
+        # Held in step by this test, because the analyses import the schema
+        # and reading the registry back from it would be a cycle.
+        assert set(ANALYSIS_NAMES) == set(available_analyses())
+
+    def test_both_fields_offer_them(self) -> None:
+        from fastmdxplora.config.schema import ANALYSIS_NAMES, PHASE_SCHEMAS
+
+        for name in ("include", "exclude"):
+            field = PHASE_SCHEMAS["analysis"].get(name)
+            assert tuple(field.choices) == ANALYSIS_NAMES, name
+
+    def test_a_list_of_choices_is_not_a_single_choice(self) -> None:
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+        from fastmdxplora.gui.schema_payload import field_payload
+
+        listed = field_payload(PHASE_SCHEMAS["analysis"].get("include"))
+        assert listed["control"] == "multiselect"
+        assert listed["choices"]
+
+        # A single-valued field with choices is unaffected.
+        single = PHASE_SCHEMAS["analysis"].get("scope")
+        if single is not None and single.choices:
+            assert field_payload(single)["control"] == "select"
+
+    def test_the_builder_reads_a_list_back(self) -> None:
+        from fastmdxplora.gui import protein_preview
+
+        base = Path(protein_preview.__file__).parent
+        js = (base / "static" / "run-builder.js").read_text(encoding="utf-8")
+        assert 'field.control === "multiselect"' in js
+        assert "input.readValue" in js
+        # An empty selection means the field is absent, not an empty list.
+        assert "Array.isArray(value) && value.length === 0" in js

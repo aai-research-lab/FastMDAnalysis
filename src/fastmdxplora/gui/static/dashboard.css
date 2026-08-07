@@ -2256,3 +2256,11 @@ body.state-ready .loading-screen {
     margin-top: 2px;
     word-break: break-all;
 }
+
+/* A list of choices, all visible, none needing a modifier key to pick. */
+.builder-multiselect {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.builder-multiselect .chip-toggle { font-size: 11px; }

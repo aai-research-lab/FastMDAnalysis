@@ -38,6 +38,17 @@ from typing import Any
 _UNSET = object()
 
 
+#: Every analysis the registry knows, named here so the schema can offer them
+#: as choices. Kept as a literal rather than imported from the registry: the
+#: analyses import this module, so reading it back would be a cycle. The test
+#: below it holds the two in step.
+ANALYSIS_NAMES = (
+    "rmsd", "rmsf", "rg", "hbonds", "ss", "sasa", "dihedrals", "qvalue",
+    "cluster", "dimred", "water_sites", "ligand_rmsd", "ligand_rmsf",
+    "pl_contacts", "pl_hbonds", "pl_interactions",
+)
+
+
 @dataclass(frozen=True)
 class Field:
     """One configurable option.
@@ -500,9 +511,11 @@ ANALYSIS = PhaseSchema(
               "system supports -- ten always, water sites where the "
               "trajectory has water, and five more where there is a ligand. "
               "Mutually exclusive with `exclude`.",
+              choices=ANALYSIS_NAMES,
               example=["rmsd", "rmsf", "rg", "cluster"]),
         Field("exclude", list, None,
               "Analyses to skip. Mutually exclusive with `include`.",
+              choices=ANALYSIS_NAMES,
               example=["dimred"]),
         Field("selection", str, None,
               "Default MDTraj atom selection applied across analyses. "

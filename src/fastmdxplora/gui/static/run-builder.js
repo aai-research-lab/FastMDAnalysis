@@ -359,6 +359,30 @@
         if (choice === field.default) option.selected = true;
         input.appendChild(option);
       });
+    } else if (field.control === "multiselect") {
+      // Checkboxes rather than a `<select multiple>`: every option visible at
+      // once, and no modifier key needed to pick a second one. The value is a
+      // list, which is what the config file wants.
+      input = document.createElement("div");
+      input.className = "builder-multiselect";
+      (field.choices || []).forEach((choice) => {
+        const label = document.createElement("label");
+        label.className = "chip-toggle";
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.value = choice;
+        label.appendChild(box);
+        label.appendChild(document.createTextNode(choice));
+        input.appendChild(label);
+      });
+      input.readValue = () =>
+        Array.from(input.querySelectorAll("input:checked")).map((box) => box.value);
+      input.writeValue = (value) => {
+        const chosen = new Set(Array.isArray(value) ? value : []);
+        input.querySelectorAll("input").forEach((box) => {
+          box.checked = chosen.has(box.value);
+        });
+      };
     } else if (field.control === "checkbox") {
       input = document.createElement("input");
       input.type = "checkbox";
@@ -390,14 +414,19 @@
     }
     const current = (state.values[phase] || {})[field.name];
     if (current !== undefined) {
-      if (input.type === "checkbox") input.checked = Boolean(current);
+      if (input.writeValue) input.writeValue(current);
+      else if (input.type === "checkbox") input.checked = Boolean(current);
       else input.value = current;
     }
 
     input.addEventListener("change", () => {
-      const value = input.type === "checkbox" ? input.checked : input.value;
+      const value = input.readValue
+        ? input.readValue()
+        : input.type === "checkbox" ? input.checked : input.value;
       state.values[phase] = state.values[phase] || {};
-      if (value === "" || value === null) delete state.values[phase][field.name];
+      const empty = value === "" || value === null
+        || (Array.isArray(value) && value.length === 0);
+      if (empty) delete state.values[phase][field.name];
       else state.values[phase][field.name] = value;
       renderSettings();
       updateSummary();
