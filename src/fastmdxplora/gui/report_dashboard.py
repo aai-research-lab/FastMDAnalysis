@@ -169,6 +169,19 @@ class MetricRow:
     unit: str
 
 
+def _system_label(system: object) -> str:
+    """The system's name for the header.
+
+    The output folder and the `fastmdx gui --output ...` instruction below
+    keep their full paths: this is a page opened on the machine that produced
+    the run, and both need a path to be of any use. The header is the same
+    field the report and the slides show, and it shows the same thing.
+    """
+    from fastmdxplora.report.context import _system_label as label
+
+    return label(system)
+
+
 def build_dashboard(
     *,
     orchestrator: "FastMDXplora",
@@ -1547,7 +1560,7 @@ def _render_dashboard(
           <h1>Dashboard</h1>
           <div class="subtle">{escape(title)}</div>
           <div class="breadcrumb">Project / Results / Dashboard</div>
-          <div class="subtle">System: {escape(system or "not available")}</div>
+          <div class="subtle">System: {escape(_system_label(system) if system else "not available")}</div>
         </div>
         <div class="status">
           <span class="dot {escape(status)}"></span>{escape(status.title())} -

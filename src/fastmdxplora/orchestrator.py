@@ -363,6 +363,13 @@ class FastMDXplora:
 
         self._write_manifest()
         self._write_resolved_config()
+        # Only now can the bundle hold them. It is built during the report
+        # phase, and these two are written once every phase has finished, so
+        # the archive went out with the outputs and without the record of what
+        # produced them or the file that reproduces it -- a recipient got 13 MB
+        # of results and no way to trace them. The bundle is refreshed rather
+        # than rebuilt: everything else in it is already correct.
+        self._add_run_record_to_bundle()
         self._presenter.done()
 
         # Wrap the phase results into a single RunResult (a study of one).
@@ -759,6 +766,33 @@ class FastMDXplora:
 
             return run
         raise ValueError(f"Unknown phase: {phase}")
+
+    def _add_run_record_to_bundle(self) -> None:
+        """Put the manifest and the resolved config into the bundle.
+
+        Quietly: a bundle that could not be updated is not a reason to fail a
+        study that has otherwise finished, and the files themselves are on
+        disk beside it either way.
+        """
+        import zipfile
+
+        bundle = self.output_dir / "report" / "project_bundle.zip"
+        if not bundle.is_file():
+            return
+
+        wanted = [name for name in ("manifest.json", "resolved_config.yml")
+                  if (self.output_dir / name).is_file()]
+        if not wanted:
+            return
+
+        try:
+            with zipfile.ZipFile(bundle, "a", zipfile.ZIP_DEFLATED) as archive:
+                held = set(archive.namelist())
+                for name in wanted:
+                    if name not in held:
+                        archive.write(self.output_dir / name, name)
+        except (OSError, zipfile.BadZipFile) as exc:  # pragma: no cover
+            logger.warning("Could not add the run record to the bundle: %s", exc)
 
     def _write_manifest(self) -> None:
         """Write a single JSON manifest summarizing this session."""

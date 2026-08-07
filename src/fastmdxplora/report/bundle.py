@@ -1,9 +1,15 @@
 """Project bundle: zip the entire study into a shareable archive.
 
 Produces a single ``project_bundle.zip`` containing every artifact written
-during the run: setup, simulation, analysis, report, and the top-level
-manifest. The bundle is suitable for attaching to a publication's
-supplementary materials or sharing with a collaborator.
+during the run: setup, simulation, analysis and report. The bundle is
+suitable for attaching to a publication's supplementary materials or sharing
+with a collaborator.
+
+The top-level ``manifest.json`` and ``resolved_config.yml`` are added by the
+orchestrator once every phase has finished, because they do not exist while
+this runs. Until they were, the archive went out with thirteen megabytes of
+results and no record of what produced them -- and this docstring said
+otherwise.
 """
 
 from __future__ import annotations

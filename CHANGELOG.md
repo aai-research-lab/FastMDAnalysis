@@ -71,6 +71,20 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   the commit from being decorative.
 
 ### Fixed
+- **The shareable archive omitted the record of what produced it.** The bundle
+  carried every output including the trajectory, and neither `manifest.json`
+  nor `resolved_config.yml`: not by exclusion, but because both are written
+  once every phase has finished and the bundle is built during the report
+  phase, so they did not exist yet. A recipient got thirteen megabytes of
+  results with no way to trace them and no file to rerun them from -- while
+  the module's docstring said it contained the manifest. They are added once
+  they exist.
+
+- **The dashboard header showed the input path** where the report and the
+  slides show the system's name. Its output-folder field and its
+  `fastmdx gui --output ...` instruction keep their paths: that page is opened
+  on the machine that produced the run, and both need one to be of any use.
+
 - **The summary said nothing about the study.** The first section a reader
   reads was "This report was generated automatically by FastMDXplora from the
   outputs of an end-to-end molecular dynamics study" -- a statement about the

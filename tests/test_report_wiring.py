@@ -2133,3 +2133,86 @@ class TestTheSlidesArePresentable:
 
         source = inspect.getsource(slides)
         assert ") or lines.append(" not in source
+
+
+class TestTheBundleCarriesTheRunRecord:
+    """The archive is the thing a study is sent as. It carried the outputs,
+    including the trajectory, and not the manifest recording what produced
+    them nor the configuration file that reproduces them.
+
+    Not by exclusion: those two are written once every phase has finished, and
+    the bundle is built during the report phase, so they did not exist yet.
+    The module's own docstring claimed it contained "the top-level manifest".
+    """
+
+    def test_the_manifest_and_the_config_are_inside(self, tmp_path) -> None:
+        import zipfile
+
+        from fastmdxplora.orchestrator import FastMDXplora
+
+        root = tmp_path / "run"
+        (root / "report").mkdir(parents=True)
+        with zipfile.ZipFile(root / "report" / "project_bundle.zip", "w") as z:
+            z.writestr("analysis/rmsd/rmsd.dat", "0.1\n")
+        (root / "manifest.json").write_text('{"phases": []}', encoding="utf-8")
+        (root / "resolved_config.yml").write_text("output: run\n", encoding="utf-8")
+
+        fmdx = FastMDXplora(system="1L2Y", output_dir=root)
+        fmdx._add_run_record_to_bundle()
+
+        inside = zipfile.ZipFile(root / "report" / "project_bundle.zip").namelist()
+        assert "manifest.json" in inside
+        assert "resolved_config.yml" in inside
+        assert "analysis/rmsd/rmsd.dat" in inside, "nothing already there is lost"
+
+    def test_it_is_added_after_they_are_written(self) -> None:
+        """Which is the whole point: called earlier, there is nothing to add."""
+        import inspect
+
+        from fastmdxplora.orchestrator import FastMDXplora
+
+        source = inspect.getsource(FastMDXplora)
+        order = [source.index(call) for call in (
+            "self._write_manifest()",
+            "self._write_resolved_config()",
+            "self._add_run_record_to_bundle()",
+        )]
+        assert order == sorted(order)
+
+    def test_a_missing_bundle_is_not_an_error(self, tmp_path) -> None:
+        """Bundles are optional, and a study that finished should not fail for
+        want of an archive nobody asked for."""
+        from fastmdxplora.orchestrator import FastMDXplora
+
+        root = tmp_path / "run"
+        root.mkdir()
+        FastMDXplora(system="1L2Y", output_dir=root)._add_run_record_to_bundle()
+
+    def test_nothing_is_added_twice(self, tmp_path) -> None:
+        import zipfile
+
+        from fastmdxplora.orchestrator import FastMDXplora
+
+        root = tmp_path / "run"
+        (root / "report").mkdir(parents=True)
+        with zipfile.ZipFile(root / "report" / "project_bundle.zip", "w") as z:
+            z.writestr("manifest.json", "{}")
+        (root / "manifest.json").write_text('{"phases": []}', encoding="utf-8")
+
+        fmdx = FastMDXplora(system="1L2Y", output_dir=root)
+        fmdx._add_run_record_to_bundle()
+
+        names = zipfile.ZipFile(root / "report" / "project_bundle.zip").namelist()
+        assert names.count("manifest.json") == 1
+
+
+class TestTheDashboardHeaderNamesTheSystem:
+    """The same field the report and the slides show. The output folder and
+    the `fastmdx gui --output ...` instruction keep their paths: that page is
+    opened on the machine that produced the run, and both need one."""
+
+    def test_the_header_shows_a_name(self) -> None:
+        from fastmdxplora.gui.report_dashboard import _system_label
+
+        assert _system_label("/home/someone/ala3.pdb") == "ala3"
+        assert _system_label("181L") == "181L"
