@@ -70,6 +70,16 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   uncommitted changes does not describe what ran, so saying so is what keeps
   the commit from being decorative.
 
+### Removed
+- **The `datasets` package.** It promised a Trp-cage trajectory that was never
+  bundled: `TrpCage.traj` returned the path to a file that had never existed,
+  from v0.1.0 through v2.4.0, so reading it gave a plausible string and
+  passing it anywhere gave a file-not-found from inside a trajectory reader.
+  Nothing replaces it. FastMDXplora fetches a deposited structure and
+  simulates it, so a reference trajectory carried in the distribution would be
+  megabytes of wheel for something one command produces --- and a reference
+  system is a PDB identifier, not a file.
+
 ### Changed
 - **The interface is called the GUI.** Documentation and comments used "the
   browser" for both the interface and the thing it renders in, so the three
@@ -78,6 +88,12 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   word; everything else naming the interface says GUI.
 
 ### Fixed
+- **A mean over frames was accumulated in single precision.** `numpy.mean` on
+  a float32 array sums in float32, so the average exposure of a residue lost
+  digits over a long run that the per-frame route -- grouped by pandas in
+  double -- did not. The two answers then differed in their last figures for
+  no reason a reader could guess. Both are in double now.
+
 - **A results section carried a figure and no number.** The mean, its
   uncertainty and the independent samples behind it are recorded for every
   per-frame analysis and were shown nowhere; each analysis now states what it
@@ -86,13 +102,6 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 - **An analysis was described as running with default options beside a list of
   the options it ran with.** A `for ... else` runs its else when the loop
   finishes without a break, which is every time.
-
-- **`TrpCage.traj` returned the path to a file that had never existed.** The
-  module described itself as a placeholder whose trajectory would be "bundled
-  in a future release"; that was v0.1.0. Reading the attribute gave a
-  plausible string and passing it anywhere gave a file-not-found from inside a
-  trajectory reader. The metadata that is true is kept, and the paths that
-  were not explain themselves and name the command that produces one.
 
 - **The shareable archive omitted the record of what produced it.** The bundle
   carried every output including the trajectory, and neither `manifest.json`

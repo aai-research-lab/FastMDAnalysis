@@ -57,8 +57,6 @@ FastMDXplora/
 │       │   ├── schema.py          # Config schema (single source of truth for options)
 │       │   ├── loader.py          # YAML load, merge, strict validation
 │       │   └── generate.py        # `fastmdx init-config` templates
-│       ├── datasets/
-│       │   └── trp_cage.py        # Reference dataset stub (from version 1)
 │       └── utils/
 │           ├── logging.py         # Structured logging
 │           ├── presenter.py       # Terminal presentation layer (banner, phase output)

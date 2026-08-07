@@ -2284,8 +2284,38 @@ class TestSASAReportsWhatVersionOneReported:
             if previous_c is not None:
                 top.add_bond(previous_c, n)
             previous_c = c
+        # A peptide, not a cloud of points. Random coordinates at 0.3 nm put
+        # the closest pair 0.074 nm apart -- half a bond length, and deep
+        # inside another atom's van der Waals radius. Shrake-Rupley answers
+        # such a geometry by deciding, for each of its sphere points, whether
+        # it falls inside a neighbour; for spheres nested that far the
+        # decision is knife-edge, and a point flipping changes an atom's area
+        # by a whole quantum. The two routes to the average then disagreed by
+        # eight per cent on one residue, on one job of fifteen.
+        #
+        # Built here from bond lengths and angles, so the atoms are where
+        # atoms go, and jittered per frame to give the run something to
+        # average over.
+        backbone = np.array([
+            [0.000, 0.000, 0.000],   # N
+            [0.146, 0.000, 0.000],   # CA
+            [0.199, 0.140, 0.000],   # C
+            [0.322, 0.157, 0.000],   # O
+            [0.199, -0.076, -0.123],  # CB
+        ], dtype=np.float64)
+
+        positions = np.concatenate([
+            backbone + np.array([0.38 * index, 0.0, 0.0])
+            for index in range(5)
+        ])
+
+        # Jitter small against a bond: at 0.02 nm per coordinate the draw
+        # brought one N and CA to 0.075 nm apart, which is half a bond and
+        # back inside the regime this fixture exists to leave.
         rng = np.random.RandomState(3)
-        xyz = rng.normal(scale=0.3, size=(6, top.n_atoms, 3)).astype(np.float32)
+        xyz = (positions[None, :, :]
+               + rng.normal(scale=0.008, size=(6, top.n_atoms, 3))
+               ).astype(np.float32)
         return md.Trajectory(xyz=xyz, topology=top)
 
     def test_the_average_per_residue_is_a_mode_of_its_own(self) -> None:
@@ -2316,20 +2346,41 @@ class TestSASAReportsWhatVersionOneReported:
 
     def test_the_two_routes_to_the_average_agree(self) -> None:
         """One computes it directly, the other groups a per-frame table. They
-        are the same number or one of them is wrong."""
-        import pandas as pd
+        are the same number or one of them is wrong.
 
+        This failed once, on one job of fifteen, disagreeing by eight per cent
+        on a single residue. It could not be reproduced. Two plausible causes
+        were removed --- the fixture was a cloud of points with atoms half a
+        bond apart, where Shrake-Rupley's inside-or-outside decisions are
+        knife-edge, and the direct route averaged a float32 array in float32
+        where the grouped route used double --- and the failure now carries
+        what would be needed to diagnose a recurrence, since a bare `assert
+        False` cost a round trip.
+        """
         from fastmdxplora.analysis.sasa import SASA
 
         traj = self._traj()
         direct = SASA(mode="average_residue").compute(traj)
         per_frame = SASA(mode="residue").compute(traj)
         grouped = per_frame.groupby("residue")["sasa_nm2"].mean()
-        assert np.allclose(
-            direct.set_index("residue")["mean_sasa_nm2"].to_numpy(),
-            grouped.loc[direct["residue"]].to_numpy(),
-            atol=1e-6,
-        )
+
+        left = direct.set_index("residue")["mean_sasa_nm2"].to_numpy()
+        right = grouped.loc[direct["residue"]].to_numpy()
+
+        if not np.allclose(left, right, atol=1e-6):
+            counts = per_frame["residue"].value_counts().sort_index().to_dict()
+            offenders = {
+                int(res): per_frame.loc[per_frame["residue"] == res,
+                                        "sasa_nm2"].tolist()
+                for res, ok in zip(direct["residue"],
+                                   np.isclose(left, right, atol=1e-6))
+                if not ok
+            }
+            raise AssertionError(
+                f"the two routes disagree.\n  direct : {left}\n"
+                f"  grouped: {right}\n  rows per residue: {counts}\n"
+                f"  per-frame values for the residues that differ: {offenders}"
+            )
 
     def test_the_modes_are_declared_for_a_form_to_read(self) -> None:
         import fastmdxplora.analysis  # noqa: F401

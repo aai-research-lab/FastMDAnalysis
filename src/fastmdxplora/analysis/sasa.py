@@ -133,11 +133,16 @@ class SASA(Analysis):
                 labels = np.array([r.index for r in residues])
             return pd.DataFrame({
                 "residue": labels,
-                "mean_sasa_nm2": sasa.mean(axis=0),
+                # Accumulated in double. `numpy.mean` on a float32 array
+                # sums in float32, so a long run loses digits the per-frame
+                # route does not -- pandas groups in double and the two
+                # answers then differ in their last figures for no reason
+                # anyone reading them could guess.
+                "mean_sasa_nm2": sasa.mean(axis=0, dtype=np.float64),
                 # The spread matters: a residue at 1.0 every frame and one
                 # alternating between 0 and 2 have the same mean and are not
                 # the same thing.
-                "std_sasa_nm2": sasa.std(axis=0),
+                "std_sasa_nm2": sasa.std(axis=0, dtype=np.float64),
             })
 
         # Per-residue: build a long-form table. Residue labels = resSeq

@@ -51,8 +51,17 @@ def test_alias_pattern_works() -> None:
     assert fastmdx.FastMDXplora is not None
 
 
-def test_datasets_helper() -> None:
-    from fastmdxplora.datasets import TrpCage
+def test_no_dataset_is_shipped() -> None:
+    """A `datasets` package promised a Trp-cage trajectory that was never
+    bundled: `TrpCage.traj` returned the path to a file that had never
+    existed, from v0.1.0 through v2.4.0.
 
-    assert TrpCage.pdb_id == "1L2Y"
-    assert TrpCage.n_residues == 20
+    Nothing takes its place. FastMDXplora fetches a deposited structure and
+    simulates it, so a reference trajectory carried in the distribution would
+    be megabytes of wheel for something one command produces --- and a
+    reference system is a PDB identifier, not a file.
+    """
+    import pytest
+
+    with pytest.raises(ImportError):
+        import fastmdxplora.datasets  # noqa: F401

@@ -2267,25 +2267,3 @@ class TestTheResultsCarryTheMeasurement:
         assert "if not (opts or selection or notes):" in source
         assert "        else:\n            lines.append(\"_Ran with default options._\")" \
             not in source
-
-
-class TestTheDatasetSaysWhatItHas:
-    """`TrpCage.traj` returned the path to a file that had never existed. The
-    module called itself a placeholder whose data would be "bundled in a
-    future release"; that was v0.1.0, two major releases ago."""
-
-    def test_the_metadata_that_is_true_is_kept(self) -> None:
-        from fastmdxplora.datasets import TrpCage
-
-        assert TrpCage.pdb_id == "1L2Y"
-        assert TrpCage.n_residues == 20
-
-    def test_asking_for_a_trajectory_explains_rather_than_lies(self) -> None:
-        import pytest
-
-        from fastmdxplora.datasets import TrpCage
-
-        with pytest.raises(FileNotFoundError, match="fastmdx explore"):
-            TrpCage.traj
-        with pytest.raises(FileNotFoundError, match="1L2Y"):
-            TrpCage.top
