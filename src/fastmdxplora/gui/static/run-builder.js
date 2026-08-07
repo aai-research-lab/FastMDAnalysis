@@ -109,8 +109,23 @@
    * thing that makes a form feel like paperwork. */
   const SUPPLIED = new Set(["trajectory", "topology"]);
 
+  /* Settings another control on this page already owns. The Measurements
+   * panel is the analysis picker: sixteen analyses grouped by what they
+   * answer, each with what it measures and why. Offering `include` and
+   * `exclude` again in the options grid put two controls on one key -- and
+   * the grid won, because the config it builds is merged over the panel's.
+   * Somebody could choose four measurements, then set `include` to something
+   * else without either control saying the other existed. */
+  const OWNED_ELSEWHERE = {analysis: new Set(["include", "exclude"])};
+
+  function ownedElsewhere(phase, name) {
+    return Boolean(OWNED_ELSEWHERE[phase] && OWNED_ELSEWHERE[phase].has(name));
+  }
+
   function settingsFor(phase) {
-    return fieldsFor(phase).filter((field) => !SUPPLIED.has(field.name));
+    return fieldsFor(phase).filter(
+      (field) => !SUPPLIED.has(field.name) && !ownedElsewhere(phase, field.name)
+    );
   }
 
   /* The same settings, in the groups the schema declares. Thirty-seven
@@ -127,7 +142,9 @@
       .map((group) => ({
         title: group.title,
         why: group.why,
-        fields: group.fields.filter((field) => !SUPPLIED.has(field.name)),
+        fields: group.fields.filter(
+          (field) => !SUPPLIED.has(field.name) && !ownedElsewhere(phase, field.name)
+        ),
       }))
       .filter((group) => group.fields.length);
   }
@@ -460,7 +477,9 @@
     const note = document.createElement("p");
     note.className = "builder-card-note run-section-note";
     note.textContent =
-      "Choose nothing and every analysis that applies is run.";
+      state.analyses.size
+        ? "Written to the config as `analysis.include`."
+        : "Choose nothing and every analysis that applies is run.";
     section.appendChild(note);
 
     const options = state.schema.analysis_options;

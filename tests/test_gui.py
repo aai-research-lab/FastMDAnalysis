@@ -2939,9 +2939,14 @@ class TestOnePageBuildsAnyRun:
         from fastmdxplora.config.schema import PHASE_SCHEMAS
 
         _, script = self._files()
-        # Fields the page supplies itself from earlier answers are named on
-        # purpose; everything else must come from the schema.
-        supplied = {"trajectory", "topology", "system", "output", "include"}
+        # Fields the page supplies itself from earlier answers, or that
+        # another control on the page owns, are named on purpose; everything
+        # else must come from the schema. `include` and `exclude` are the
+        # Measurements panel's -- offered in the options grid as well, two
+        # controls wrote one key and the grid's value won silently.
+        supplied = {
+            "trajectory", "topology", "system", "output", "include", "exclude",
+        }
         named = [
             field.name
             for group in PHASE_SCHEMAS.values()

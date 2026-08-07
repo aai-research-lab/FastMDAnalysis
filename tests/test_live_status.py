@@ -1514,3 +1514,48 @@ class TestAListOfChoicesIsOfferedAsChoices:
         assert "input.readValue" in js
         # An empty selection means the field is absent, not an empty list.
         assert "Array.isArray(value) && value.length === 0" in js
+
+
+class TestOneControlPerSetting:
+    """The Measurements panel is the analysis picker -- sixteen analyses
+    grouped by what they answer, each with what it measures and why. Offering
+    `include` and `exclude` again in the options grid put two controls on one
+    key, and the grid won: its config is merged over the panel's, so four
+    chosen measurements could be silently replaced by whatever was typed
+    into the grid, with neither control mentioning the other."""
+
+    def _builder(self) -> str:
+        from fastmdxplora.gui import protein_preview
+
+        base = Path(protein_preview.__file__).parent
+        return (base / "static" / "run-builder.js").read_text(encoding="utf-8")
+
+    def test_the_grid_does_not_offer_the_analysis_picker_again(self) -> None:
+        js = self._builder()
+        assert "OWNED_ELSEWHERE" in js
+        owned = js.split("const OWNED_ELSEWHERE = ", 1)[1].split("\n", 1)[0]
+        assert '"include"' in owned and '"exclude"' in owned
+
+    def test_the_panel_still_writes_the_key(self) -> None:
+        js = self._builder()
+        assert "analysis.include = Array.from(state.analyses)" in js
+
+    def test_the_panel_says_what_it_writes(self) -> None:
+        """The mapping from a picker to a config key should not be implicit."""
+        assert "analysis.include" in self._builder()
+
+    def test_the_grid_still_offers_lists_it_owns(self) -> None:
+        """Suppression is per phase and per field, not a retreat from the
+        multiselect control."""
+        js = self._builder()
+        assert 'field.control === "multiselect"' in js
+        assert "OWNED_ELSEWHERE[phase]" in js
+
+    def test_a_comma_string_from_the_browser_is_still_read_as_a_list(self) -> None:
+        """The panel joins its choice with commas; the field is declared a
+        list. `_coerce` splits it back, so the two agree."""
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+        from fastmdxplora.gui.config_builder import _coerce
+
+        field = PHASE_SCHEMAS["analysis"].get("include")
+        assert _coerce("rmsd, rmsf", field) == ["rmsd", "rmsf"]
