@@ -1,10 +1,20 @@
 schema_version: 1
 
 # This is the reference copy. The package is built from the conda-forge
-# feedstock at https://github.com/conda-forge/fastmdxplora-feedstock, and a
-# dependency added here has to be added there too: the version-bump pull
-# request the bot opens on release is where it goes. A dependency that reaches
-# one and not the other gives a conda install that fails at the point of use.
+# feedstock at https://github.com/conda-forge/fastmdxplora-feedstock, and the
+# two have to be kept level in both directions.
+#
+# Outward: a dependency added here has to reach the feedstock, and the
+# version-bump pull request the bot opens on release is where it goes. One
+# that reaches only this file gives a conda install that fails at the point of
+# use.
+#
+# Inward: the feedstock learns things this copy cannot -- what the conda-forge
+# solver does with a dependency, what its review asks for -- and those have to
+# come back. The import tests below and the disabled pip check were both
+# established there first, and a regeneration from a copy that had lost them
+# would reintroduce a build failure whose reason had been written down and
+# then discarded.
 
 context:
   name: fastmdxplora
@@ -88,10 +98,23 @@ tests:
         # If these fail the recipe has not delivered what it promises.
         - openmm
         - pdbfixer
+        # Declaring the small-molecule stack is not the same as it resolving.
+        # Importing it here means a broken solve fails the build rather than
+        # the first protein-ligand run a user attempts.
+        - openff.toolkit
+        - openmmforcefields
+        - rdkit
+        - propka
       python_version:
         - ${{ python_min }}.*
         - "*"
-      pip_check: true
+      # Disabled deliberately. openff-toolkit pulls in AmberTools components
+      # (ndfes, edgembar, fetkutils) whose metadata still declares numpy<2
+      # while the environment provides numpy 2.x. Nothing in this package
+      # imports them, and pinning numpy<2 to satisfy metadata we do not use
+      # would be worse than not running the check. The import tests above
+      # already prove the stack resolves.
+      pip_check: false
   - script:
       - fastmdx --version
       - fastmdx info
@@ -114,10 +137,10 @@ about:
     Analysis computes the standard structural and dynamic metrics, along with
     protein-ligand measures when a ligand is present. Reporting packages the
     results into a written report, a slide deck, and a shareable bundle. A
-    browser interface is included for designing, starting, watching, and
+    graphical interface is included for designing, starting, watching, and
     reviewing a run.
   # The package bundles a minified build of 3Dmol.js (BSD-3-Clause) for the
-  # molecular viewer in the browser interface, so its licenses ship too.
+  # molecular viewer in the graphical interface, so its licenses ship too.
   license: MIT AND BSD-3-Clause
   license_file:
     - LICENSE

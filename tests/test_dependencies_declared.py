@@ -656,3 +656,52 @@ class TestARunSaysWhichCodeMadeIt:
         source = inspect.getsource(document._reproducibility_section)
         assert "source_provenance()" in source
         assert "Source commit" in source
+
+
+def test_the_reference_recipe_carries_every_conda_only_backend() -> None:
+    """The conda-forge distribution exists so that one install command makes
+    all four phases work; the PyPI package covers analysis and reporting
+    alone. Every backend that pip cannot supply must therefore be a run
+    dependency here.
+
+    Checked because the feedstock's own recipe is bumped by a bot that changes
+    only the version and the checksum. A dependency added here does not travel
+    with that bump, so the feedstock sat three versions back with eight fewer
+    run dependencies than this file, and merging the bump alone would have
+    shipped a conda package without the ligand stack, PDF rendering or PLUMED.
+    """
+    import re
+    from pathlib import Path
+
+    recipe = (Path(__file__).resolve().parents[1]
+              / "recipes" / "fastmdxplora" / "recipe.yaml")
+    if not recipe.is_file():  # pragma: no cover - the recipe is optional
+        return
+
+    text = recipe.read_text(encoding="utf-8")
+    run = text[text.index("  run:"):text.index("tests:")]
+    declared = set(re.findall(r"^\s+- ([a-z0-9_.-]+)", run, re.M))
+
+    # Everything `fastmdx info` reports and pip cannot install.
+    for backend in ("openmm", "pdbfixer", "openff-toolkit", "openmmforcefields",
+                    "rdkit", "propka", "weasyprint", "markdown",
+                    "openmm-plumed"):
+        assert backend in declared, (
+            f"{backend} is a conda-only backend and is not a run dependency "
+            "of the reference recipe")
+
+    # Declaring a dependency is not the same as it resolving, so the ligand
+    # stack is imported by the recipe's own tests: a broken solve then fails
+    # the build rather than the first protein-ligand run somebody attempts.
+    # Established in the feedstock during review and brought back here.
+    for imported in ("openff.toolkit", "openmmforcefields", "rdkit", "propka"):
+        assert imported in text, (
+            f"the recipe does not import {imported} in its tests, so a solve "
+            "that resolves the name and not the package would pass the build")
+
+    # openff-toolkit pulls in AmberTools components whose metadata declares
+    # numpy<2 against a numpy 2.x environment. The reason is recorded beside
+    # the setting, because a regeneration that restored the check without it
+    # would reintroduce a build failure somebody had already diagnosed.
+    assert "pip_check: false" in text
+    assert "numpy<2" in text

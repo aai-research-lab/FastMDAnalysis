@@ -88,6 +88,19 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   word; everything else naming the interface says GUI.
 
 ### Fixed
+- **The reference conda recipe had fallen behind the feedstock.** It exists
+  so a dependency added here reaches the package, and the traffic runs both
+  ways: the feedstock learns what the conda-forge solver does and what its
+  review asks for, and two such lessons had not come back. Its tests import
+  the small-molecule stack, because declaring a dependency is not the same as
+  it resolving and a broken solve should fail the build rather than somebody's
+  first protein-ligand run. And its pip check is disabled, because
+  openff-toolkit pulls in AmberTools components declaring numpy<2 against a
+  numpy 2.x environment -- a reason recorded there and nowhere else, so a
+  regeneration from this copy would have reintroduced a build failure already
+  diagnosed. Both are back, with a test for each, and the recipe says
+  graphical interface where it said browser.
+
 - **A mean over frames was accumulated in single precision.** `numpy.mean` on
   a float32 array sums in float32, so the average exposure of a residue lost
   digits over a long run that the per-frame route -- grouped by pandas in
