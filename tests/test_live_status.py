@@ -961,3 +961,107 @@ class TestAFinishedRunIsNotProgressing:
         explanation = analyze_health({}, [])["explanation"]
         assert "off by default" not in explanation
         assert "on by default" in explanation
+
+
+class TestThePanelSaysWhatHeldTheLigand:
+    """Three rows read "Requires analysis output" unconditionally -- on a run
+    that had produced `analysis/pl_interactions/`, they were asking for
+    something already on disk. And they could not distinguish a contact type
+    looked for and not found from one never looked for."""
+
+    def _table(self, root: Path, *rows: str) -> None:
+        folder = root / "analysis" / "pl_interactions"
+        folder.mkdir(parents=True)
+        header = (
+            "kind,ligand_atom,protein_atom,residue,frames_present,"
+            "frames_total,occupancy,episodes,standard_error,well_sampled\n"
+        )
+        (folder / "pl_interactions.dat").write_text(
+            header + "".join(rows), encoding="utf-8"
+        )
+
+    def test_an_unanalysed_run_says_so(self, tmp_path: Path) -> None:
+        from fastmdxplora.gui.server import _ligand_interactions
+
+        assert _ligand_interactions(tmp_path)["analysed"] is False
+
+    def test_the_kinds_are_counted(self, tmp_path: Path) -> None:
+        from fastmdxplora.gui.server import _ligand_interactions
+
+        self._table(
+            tmp_path,
+            "hydrophobic,1,10,LEU99,180,200,0.90,3,0.02,True\n",
+            "hydrophobic,2,14,VAL111,40,200,0.20,7,0.03,False\n",
+            "hydrogen_bond,3,22,SER117,120,200,0.60,2,0.02,True\n",
+        )
+        kinds = _ligand_interactions(tmp_path)["kinds"]
+
+        # Two rows, two residues -- and where the same residue contributes
+        # several atom pairs it is still one residue.
+        assert kinds["hydrophobic"]["residues"] == 2
+        assert kinds["hydrophobic"]["pairs"] == 2
+        assert kinds["hydrophobic"]["best_occupancy"] == 0.90
+        assert kinds["hydrophobic"]["best_residue"] == "LEU99"
+        assert kinds["hbonds"]["residues"] == 1
+
+    def test_looked_for_and_not_found_is_its_own_answer(self, tmp_path: Path) -> None:
+        """Different from never looked for, which is what the row used to say
+        in both cases."""
+        from fastmdxplora.gui.server import _ligand_interactions
+
+        self._table(tmp_path, "hydrophobic,1,10,LEU99,180,200,0.90,3,0.02,True\n")
+        measured = _ligand_interactions(tmp_path)
+
+        assert measured["analysed"] is True
+        assert measured["kinds"]["salt_bridges"]["residues"] == 0
+
+    def test_a_thinly_observed_contact_is_counted_as_such(self, tmp_path: Path) -> None:
+        """A contact seen in a handful of frames is not the observation a bare
+        count implies."""
+        from fastmdxplora.gui.server import _ligand_interactions
+
+        self._table(
+            tmp_path,
+            "hydrophobic,1,10,LEU99,180,200,0.90,3,0.02,True\n",
+            "hydrophobic,2,14,VAL111,40,200,0.20,7,0.03,False\n",
+        )
+        assert _ligand_interactions(tmp_path)["kinds"]["hydrophobic"]["thinly_sampled"] == 1
+
+    def test_the_rows_are_no_longer_hardcoded(self) -> None:
+        base = Path(protein_preview.__file__).parent
+        js = (base / "static" / "dashboard.js").read_text(encoding="utf-8")
+        assert "<td>Requires analysis output</td>" not in js
+        assert 'interactionCell(info, "salt_bridges")' in js
+
+    def test_atom_pairs_are_not_reported_as_contacts(self, tmp_path: Path) -> None:
+        """`pl_interactions.dat` has one row per ligand-atom / protein-atom
+        pair. Benzene against three residues produced thirteen rows, and
+        reporting that read as though the ligand were held by thirteen
+        separate things."""
+        from fastmdxplora.gui.server import _ligand_interactions
+
+        rows = [
+            f"hydrophobic,{i},{20 + i},LEU99,180,200,0.84,3,0.02,True\n"
+            for i in range(1, 8)
+        ] + [
+            f"hydrophobic,{i},{40 + i},VAL111,30,200,0.15,9,0.03,False\n"
+            for i in range(1, 6)
+        ] + ["hydrophobic,9,60,ILE78,150,200,0.75,2,0.02,True\n"]
+        self._table(tmp_path, *rows)
+
+        hydrophobic = _ligand_interactions(tmp_path)["kinds"]["hydrophobic"]
+        assert hydrophobic["pairs"] == 13
+        assert hydrophobic["residues"] == 3
+        assert hydrophobic["best_residue"] == "LEU99"
+        # VAL111's every contact is thinly observed; the other two are not.
+        assert hydrophobic["thinly_sampled"] == 1
+
+    def test_the_numbering_names_the_structure_it_belongs_to(self) -> None:
+        """The ligand's chain and residue id are OpenMM's, from the solvated
+        system. The crystal numbering the setup log reports is not recorded in
+        any artifact the page can read, so the rows say which one this is
+        rather than leaving it to be mistaken for the other."""
+        base = Path(protein_preview.__file__).parent
+        js = (base / "static" / "dashboard.js").read_text(encoding="utf-8")
+        assert "Chain (simulated)" in js
+        assert "<th>Chain</th>" not in js

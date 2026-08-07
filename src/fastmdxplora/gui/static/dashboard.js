@@ -1061,14 +1061,39 @@
     meta.textContent = `${residueName} · chain ${instance.chain || "—"} · resi ${instance.resi || "—"} · ${atoms} atoms`;
     body.innerHTML = `
       <tr><th>Ligand</th><td>${escapeHTML(residueName)}</td></tr>
-      <tr><th>Chain</th><td>${escapeHTML(instance.chain || "—")}</td></tr>
-      <tr><th>Residue ID</th><td>${escapeHTML(instance.resi || "—")}</td></tr>
+      <tr><th>Chain (simulated)</th><td>${escapeHTML(instance.chain || "—")}</td></tr>
+      <tr><th>Residue ID (simulated)</th><td>${escapeHTML(instance.resi || "—")}</td></tr>
       <tr><th>Atom count</th><td>${escapeHTML(atoms)}</td></tr>
       <tr><th>Nearby residues</th><td>Use “Show pocket residues”</td></tr>
       <tr><th>Pocket distance</th><td>${escapeHTML(state.bindingPocketCutoff)} Å cutoff</td></tr>
-      <tr><th>H-bonds</th><td>Requires analysis output</td></tr>
-      <tr><th>Hydrophobic contacts</th><td>Requires analysis output</td></tr>
-      <tr><th>Salt bridges</th><td>Requires analysis output</td></tr>`;
+      <tr><th>H-bonds</th><td>${interactionCell(info, "hbonds")}</td></tr>
+      <tr><th>Hydrophobic contacts</th><td>${interactionCell(info, "hydrophobic")}</td></tr>
+      <tr><th>Salt bridges</th><td>${interactionCell(info, "salt_bridges")}</td></tr>`;
+  }
+
+  function interactionCell(info, kind) {
+    // Three different things, said differently: the analysis has not run, it
+    // ran and found none of this kind, or it found some. All three used to
+    // read "Requires analysis output" -- including on a run that had just
+    // produced it.
+    const measured = info?.interactions;
+    if (!measured?.analysed) return "Not analysed";
+    const entry = measured.kinds?.[kind];
+    if (!entry || !entry.residues) return "none observed";
+    // Residues, not atom pairs: a twelve-atom ligand against six residues
+    // makes scores of pairs, and the pair count reads as though the ligand
+    // were held by scores of separate things.
+    const parts = [`${entry.residues} residue${entry.residues === 1 ? "" : "s"}`];
+    if (entry.best_occupancy != null) {
+      const pct = Math.round(entry.best_occupancy * 100);
+      parts.push(entry.best_residue ? `best ${entry.best_residue} ${pct}%` : `best ${pct}%`);
+    }
+    if (entry.thinly_sampled) {
+      // A residue whose every contact is thinly observed is a weaker claim
+      // than the count alone suggests.
+      parts.push(`${entry.thinly_sampled} thinly sampled`);
+    }
+    return escapeHTML(parts.join(" · "));
   }
 
   function applyPlayback(payload) {

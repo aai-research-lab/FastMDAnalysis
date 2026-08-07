@@ -9,6 +9,7 @@ and caches the result.
 from __future__ import annotations
 
 import io
+import csv
 import json
 import logging
 import mimetypes
@@ -1014,6 +1015,8 @@ def _structure_info_payload(
             "ligand_instances": [],
         }
     info = count_structure(structure_path, max_bytes=_MAX_PDB_BYTES_FOR_SYSTEM_SCAN)
+    info = dict(info)
+    info["interactions"] = _ligand_interactions(root)
     if not info.get("valid"):
         return dict(
             info,
@@ -1154,6 +1157,87 @@ def _last_metric_value(root: Path, field: str) -> str | None:
         return None
     value = metrics[-1].get(field)
     return str(value) if value not in (None, "") else None
+
+
+#: The three interaction kinds the ligand panel has rows for, and the label
+#: each row carries. `pl_interactions` records eight; these are the three a
+#: reader is shown without opening the analysis.
+_PANEL_INTERACTION_KINDS = {
+    "hydrogen_bond": "hbonds",
+    "hydrophobic": "hydrophobic",
+    "salt_bridge": "salt_bridges",
+}
+
+
+def _ligand_interactions(root: Path) -> dict[str, Any]:
+    """What holds the ligand, from the analysis that measured it.
+
+    The panel used to print "Requires analysis output" in all three rows,
+    unconditionally -- including for a run that had produced exactly that
+    output. It also could not distinguish a contact type that was looked for
+    and not found from one that was never looked for, which are different
+    things to tell somebody about a binding site.
+    """
+    table = root / "analysis" / "pl_interactions" / "pl_interactions.dat"
+    if not table.is_file():
+        return {"analysed": False, "kinds": {}}
+
+    # Counted by residue, not by row. Each row is one ligand-atom /
+    # protein-atom pair, so a twelve-atom benzene against six residues
+    # produces scores of rows -- and reporting that count read as though the
+    # ligand were held by eighty-four separate things. What a binding site is
+    # described by is which residues touch it.
+    seen: dict[str, dict[str, Any]] = {
+        label: {"residues": {}, "pairs": 0} for label in _PANEL_INTERACTION_KINDS.values()
+    }
+    try:
+        with table.open(newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                label = _PANEL_INTERACTION_KINDS.get(str(row.get("kind", "")).strip())
+                if label is None:
+                    continue
+                entry = seen[label]
+                entry["pairs"] += 1
+                residue = str(row.get("residue", "")).strip() or "?"
+                record = entry["residues"].setdefault(
+                    residue, {"occupancy": None, "well_sampled": False}
+                )
+                occupancy = _safe_float_value(row.get("occupancy"))
+                if occupancy is not None:
+                    best = record["occupancy"]
+                    record["occupancy"] = occupancy if best is None else max(best, occupancy)
+                if str(row.get("well_sampled", "")).strip().lower() in {"true", "1"}:
+                    record["well_sampled"] = True
+    except (OSError, csv.Error):
+        return {"analysed": False, "kinds": {}}
+
+    kinds: dict[str, Any] = {}
+    for label, entry in seen.items():
+        residues = entry["residues"]
+        ranked = sorted(
+            residues.items(),
+            key=lambda item: (item[1]["occupancy"] is None, -(item[1]["occupancy"] or 0.0)),
+        )
+        best_name, best = (ranked[0] if ranked else (None, {}))
+        kinds[label] = {
+            "residues": len(residues),
+            "pairs": entry["pairs"],
+            "best_residue": best_name,
+            "best_occupancy": best.get("occupancy") if best else None,
+            # A residue whose every contact is thinly observed is a weaker
+            # claim than the count alone suggests.
+            "thinly_sampled": sum(
+                1 for record in residues.values() if not record["well_sampled"]
+            ),
+        }
+    return {"analysed": True, "kinds": kinds}
+
+
+def _safe_float_value(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _system_name(root: Path, manifest: dict[str, Any]) -> str:
