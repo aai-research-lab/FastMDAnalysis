@@ -588,6 +588,7 @@ def run(
                 reinstated=tuple(params.get("_reinstated_heterogens", ())),
                 explained=tuple(params.get("_explained_heterogens", ())),
                 replace_nonstandard=bool(params["replace_nonstandard_residues"]),
+                build_missing_termini=bool(params.get("build_missing_termini", False)),
             )
             artifacts.append("prepared.pdb")
             if presenter:

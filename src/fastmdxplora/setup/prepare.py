@@ -61,6 +61,59 @@ DEFAULT_IONIC_STRENGTH_M = 0.15
 # value that is no longer true is a trap for whoever reaches for it next. The
 # pH default lives in the schema, and the setup phase reads it from there.
 
+def _refuse_an_implausible_structure(topology: Any, positions: Any, unit: Any) -> None:
+    """Stop before solvating something no protein could be.
+
+    Nothing looked at the prepared structure before it went into a box. 6B73
+    arrived 51 nm across for 1,104 residues -- rebuilt terminal residues had
+    walked off in every direction -- and the first anyone heard of it was
+    `addMembrane` failing with a NaN after ten minutes of packing lipids
+    across that face.
+
+    A folded protein's longest dimension grows roughly as the cube root of
+    its residue count: about 3 nm for 100 residues, 7 nm for 1,000, 15 nm for
+    10,000. The bound here is several times that, so an elongated fibril or a
+    long coiled coil passes and only a structure that is not one object at
+    all is refused. Measured before solvation, because afterwards the cost of
+    finding out is minutes and the message names none of the cause.
+    """
+    import numpy as np
+
+    try:
+        if hasattr(positions, "value_in_unit"):
+            coordinates = np.asarray(
+                positions.value_in_unit(unit.nanometer), dtype=float)
+        else:
+            coordinates = np.asarray(
+                [[float(p[0]), float(p[1]), float(p[2])] for p in positions],
+                dtype=float)
+        residues = sum(1 for _ in topology.residues())
+    except (AttributeError, TypeError, ValueError):
+        return
+    if coordinates.size == 0 or residues <= 0:
+        return
+
+    extent = float(np.max(coordinates.max(axis=0) - coordinates.min(axis=0)))
+    plausible = 4.0 * (residues ** (1.0 / 3.0))
+    if extent <= plausible:
+        return
+
+    raise ValueError(
+        f"The prepared structure is {extent:.0f} nm across for {residues} "
+        f"residues, where a folded structure of that size would be under "
+        f"{plausible:.0f} nm. Something in it is far from everything else.\n\n"
+        "The usual cause is residues rebuilt where there was nothing to "
+        "rebuild from. Unresolved residues past the end of a chain are "
+        "anchored at one end only, so what is built there is placed rather "
+        "than determined, and it can end up anywhere; FastMDXplora does not "
+        "build them unless asked, so check setup.build_missing_termini. "
+        "Solvating this would produce a box big enough to hold it, which for "
+        "a membrane means packing lipids across the whole face -- minutes of "
+        "work to arrive at a structure nobody would recognise.\n\n"
+        "Open setup/prepared.pdb and look at what is far from the rest."
+    )
+
+
 def _solvate_with_room_for_the_cutoff(
     modeller: Any,
     ff: Any,
@@ -359,6 +412,8 @@ def prepare_system(
         ff = omm["ForceField"](*force_field)
 
     # ----- 3. Solvate + ionize with Modeller -----
+    _refuse_an_implausible_structure(modeller.topology, modeller.positions, unit)
+
     logger.info(
         "%s, padding=%.2f nm, ions=%s/%s @ %.3f M",
         (f"Embedding in a {str(membrane).upper()} bilayer" if membrane

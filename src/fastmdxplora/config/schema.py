@@ -195,6 +195,15 @@ SETUP = PhaseSchema(
               "Substitute modified residues (selenomethionine, oxidised "
               "cysteine) with their standard equivalents. They are part of "
               "the polymer, and few force fields describe them directly."),
+        Field("build_missing_termini", bool, False,
+              "Build unresolved residues past the ends of a chain as well as "
+              "the gaps between resolved ones. Off, because the two are not "
+              "the same: a gap is pinned at both ends and what is built has "
+              "to reach between them, while a terminus is anchored at one end "
+              "only and what is built there is placed rather than determined. "
+              "Cryo-EM entries commonly leave tens of residues unresolved at "
+              "each terminus, and building them can extend a chain far enough "
+              "to make the structure unusable."),
         Field("keep_heterogens", bool, False,
               "Retain non-standard residues. Equivalent to heterogens: keep."),
         Field("keep_water", bool, False,
@@ -644,7 +653,8 @@ SETTING_GROUPS: dict[str, tuple[tuple[str, str, tuple[str, ...]], ...]] = {
         ("The structure",
          "What is kept, what is repaired, and how it is protonated.",
          ("ph", "protonation_margin", "heterogens", "keep_heterogens",
-          "keep_water", "replace_nonstandard_residues", "fixed_pdb")),
+          "keep_water", "replace_nonstandard_residues",
+          "build_missing_termini", "fixed_pdb")),
         ("The ligand",
          "Found and parameterised, or named if the structure is ambiguous.",
          ("ligand", "ligand_name", "ligand_forcefield", "ligand_net_charge",

@@ -1607,3 +1607,117 @@ class TestTheDefaultBoxIsNotACube:
         # that is contiguous.
         guard = inspect.getsource(prepare)
         assert "half the smallest periodic box dimension" in guard
+
+
+class TestATerminusIsNotALoop:
+    """`findMissingResidues` schedules every residue SEQRES declares and the
+    model does not have -- including those before the first and after the last
+    anyone could see. A gap between two resolved residues is pinned at both
+    ends. A run past the last resolved one is anchored at one end and free at
+    the other, and what gets built there walks."""
+
+    class _Chain:
+        def __init__(self, count: int) -> None:
+            self._count = count
+
+        def residues(self):
+            return iter(range(self._count))
+
+    class _Topology:
+        def __init__(self, *counts: int) -> None:
+            self._chains = [TestATerminusIsNotALoop._Chain(n) for n in counts]
+
+        def chains(self):
+            return iter(self._chains)
+
+    class _Fixer:
+        def __init__(self, topology, missing) -> None:
+            self.topology = topology
+            self.missingResidues = missing
+
+    def test_internal_gaps_are_built(self) -> None:
+        from fastmdxplora.setup.pdbfix import _drop_terminal_extensions
+
+        fixer = self._Fixer(
+            self._Topology(281),
+            {(0, 40): ["GLY", "SER"], (0, 150): ["ALA"]},
+        )
+        _drop_terminal_extensions(fixer)
+        assert fixer.missingResidues == {(0, 40): ["GLY", "SER"], (0, 150): ["ALA"]}
+
+    def test_terminal_extensions_are_not(self) -> None:
+        from fastmdxplora.setup.pdbfix import _drop_terminal_extensions
+
+        fixer = self._Fixer(
+            self._Topology(281),
+            {(0, 0): ["MET"] * 50, (0, 100): ["GLY"], (0, 281): ["LEU"] * 87},
+        )
+        _drop_terminal_extensions(fixer)
+        # The loop survives; the two termini do not.
+        assert fixer.missingResidues == {(0, 100): ["GLY"]}
+
+    def test_asking_for_them_still_builds_them(self) -> None:
+        from fastmdxplora.setup.pdbfix import _drop_terminal_extensions
+
+        missing = {(0, 0): ["MET"], (0, 281): ["LEU"]}
+        fixer = self._Fixer(self._Topology(281), dict(missing))
+        _drop_terminal_extensions(fixer, build_termini=True)
+        assert fixer.missingResidues == missing
+
+    def test_the_option_exists_and_is_off(self) -> None:
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        field = PHASE_SCHEMAS["setup"].get("build_missing_termini")
+        assert field is not None
+        assert field.default is False
+
+
+class TestAStructureIsCheckedBeforeItIsSolvated:
+    """6B73 arrived 51 nm across for 1,104 residues and the first anyone heard
+    of it was `addMembrane` failing with a NaN ten minutes later."""
+
+    class _Topology:
+        def __init__(self, count: int) -> None:
+            self._count = count
+
+        def residues(self):
+            return iter(range(self._count))
+
+    class _Unit:
+        nanometer = 1
+
+    def _positions(self, span: float, atoms: int = 2000):
+        import numpy as np
+
+        return np.random.default_rng(0).uniform(0, span, size=(atoms, 3))
+
+    def test_a_folded_complex_passes(self) -> None:
+        from fastmdxplora.setup.prepare import _refuse_an_implausible_structure
+
+        _refuse_an_implausible_structure(
+            self._Topology(1104), self._positions(12.0), self._Unit()
+        )
+
+    def test_a_fibril_passes_too(self) -> None:
+        """The bound is several times a folded protein's size, so a long
+        assembly is not refused for being long."""
+        from fastmdxplora.setup.prepare import _refuse_an_implausible_structure
+
+        _refuse_an_implausible_structure(
+            self._Topology(2000), self._positions(40.0), self._Unit()
+        )
+
+    def test_a_structure_that_is_not_one_object_is_refused(self) -> None:
+        from fastmdxplora.setup.prepare import _refuse_an_implausible_structure
+
+        positions = self._positions(12.0)
+        positions[0] = [58.0, 58.0, 58.0]
+        with pytest.raises(ValueError) as caught:
+            _refuse_an_implausible_structure(
+                self._Topology(1104), positions, self._Unit()
+            )
+        message = str(caught.value)
+        assert "58 nm" in message and "1104 residues" in message
+        # It names the usual cause and where to look.
+        assert "build_missing_termini" in message
+        assert "prepared.pdb" in message

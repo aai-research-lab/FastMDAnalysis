@@ -113,11 +113,83 @@ def _drop_untemplated_gaps(fixer) -> None:
     fixer.missingResidues = pruned
 
 
+def _drop_terminal_extensions(fixer, *, build_termini: bool = False) -> None:
+    """Build gaps between resolved residues; do not extend a chain past its end.
+
+    ``findMissingResidues`` compares SEQRES against what was modelled, so every
+    unresolved residue is scheduled -- including the ones before the first and
+    after the last that anyone could see. Those two cases are not the same
+    thing.
+
+    A gap between two resolved residues is a loop: both ends are pinned, and
+    what is built has to reach from one to the other. A run past the last
+    resolved residue is a disordered terminus, anchored at one end and free at
+    the other, and what gets built walks wherever the builder puts it.
+
+    6B73 is the case. SEQRES declares about 429 residues per receptor copy and
+    281 and 269 were modelled, so 137 and 149 were scheduled -- mostly
+    terminal. The built chains reached 54 and 59 nm from the structure, giving
+    a "protein" 51 nm across for 1,104 residues, and `addMembrane` then spent
+    ten minutes packing lipids across that face before failing with a NaN that
+    named none of this. Its two nanobody chains, whose gaps are internal, were
+    built correctly and stayed within 7 nm.
+
+    Residues nobody observed are not restored by guessing where they went. The
+    ones dropped here are named, because a methods section should say the
+    termini were not modelled.
+    """
+    missing = getattr(fixer, "missingResidues", None)
+    if not missing or build_termini:
+        return
+
+    try:
+        lengths = {
+            index: sum(1 for _ in chain.residues())
+            for index, chain in enumerate(fixer.topology.chains())
+        }
+    except (AttributeError, TypeError):
+        return
+
+    kept: dict = {}
+    dropped: dict[int, int] = {}
+    for insertion_point, names in missing.items():
+        try:
+            chain_index, offset = insertion_point
+        except (TypeError, ValueError):
+            kept[insertion_point] = names
+            continue
+        length = lengths.get(chain_index)
+        # Offset 0 inserts before the first resolved residue; offset == length
+        # appends after the last. Everything between is a gap with an anchor
+        # at both ends.
+        if length is not None and 0 < offset < length:
+            kept[insertion_point] = names
+        else:
+            dropped[chain_index] = dropped.get(chain_index, 0) + len(names)
+
+    if not dropped:
+        return
+
+    summary = ", ".join(
+        f"chain {index}: {count}" for index, count in sorted(dropped.items())
+    )
+    logger.info(
+        "Not building %d unresolved residue(s) at chain termini (%s). They "
+        "were never observed, and a terminus has an anchor at one end only, "
+        "so what is built there is placed rather than determined. Internal "
+        "gaps, which are pinned at both ends, are built as usual. Pass "
+        "setup.build_missing_termini: true to build them anyway.",
+        sum(dropped.values()), summary,
+    )
+    fixer.missingResidues = kept
+
+
 def fix_pdb_with_pdbfixer(
     input_pdb: str,
     output_pdb: str,
     *,
     ph: float = 7.0,
+    build_missing_termini: bool = False,
     keep_heterogens: bool = False,
     keep_water: bool = False,
     reinstated: tuple[str, ...] = (),
@@ -238,6 +310,7 @@ def fix_pdb_with_pdbfixer(
     # inserted into its gap. That failure is silent, and a quietly wrong
     # structure is worse than a loud crash.
     _drop_untemplated_gaps(fixer)
+    _drop_terminal_extensions(fixer, build_termini=build_missing_termini)
 
     # Modified residues are part of the polymer, not ligands: a selenomethionine
     # or an oxidised cysteine belongs in the chain. Left in place they reach the
