@@ -1156,6 +1156,20 @@ def _last_metric_value(root: Path, field: str) -> str | None:
     return str(value) if value not in (None, "") else None
 
 
+def _system_name(root: Path, manifest: dict[str, Any]) -> str:
+    """What this run is of, from whichever record has it yet."""
+    named = manifest.get("system")
+    if named:
+        return str(named)
+    setup_manifest = _load_json(root / "setup" / "setup_parameters.json")
+    recorded = setup_manifest.get("input")
+    if isinstance(recorded, dict) and recorded.get("system"):
+        return str(recorded["system"])
+    # Empty rather than a dash: with no name anywhere, the browser's own
+    # fallback label is better than a dash overriding it.
+    return ""
+
+
 def _system_info(
     root: Path,
     manifest: dict[str, Any],
@@ -1167,9 +1181,11 @@ def _system_info(
     if not isinstance(params, dict):
         params = sim_manifest
     return {
-        # Empty rather than a dash: the browser falls back to its own label
-        # for an unnamed run, and a dash here would win that choice instead.
-        "system": str(manifest.get("system") or ""),
+        # The setup phase records the system before simulation starts, so a
+        # run in progress has had a name from its first minute. Reading only
+        # the manifest, which is written when the run ends, the top bar spent
+        # the whole run showing the browser's placeholder label instead.
+        "system": _system_name(root, manifest),
         "output_folder": root.as_posix(),
         "atoms": _display_value(analysis_manifest.get("n_atoms")),
         "frames": _display_value(

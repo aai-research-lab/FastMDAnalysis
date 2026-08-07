@@ -490,12 +490,15 @@ def _metric_rows(project_root: Path, analysis_manifest: dict[str, Any]) -> list[
             )
         )
 
+    # A count is one number, not a sample: there is no standard deviation to
+    # report, which is a different thing from one we could not obtain. The
+    # column said "not available", which reads as a measurement that failed.
     n_frames = analysis_manifest.get("n_frames")
     if n_frames is not None:
-        rows.append(MetricRow("Frame count", _format_number(n_frames), "not available", "frames"))
+        rows.append(MetricRow("Frame count", _format_number(n_frames), "—", "frames"))
     n_atoms = analysis_manifest.get("n_atoms")
     if n_atoms is not None:
-        rows.append(MetricRow("Atom count", _format_number(n_atoms), "not available", "atoms"))
+        rows.append(MetricRow("Atom count", _format_number(n_atoms), "—", "atoms"))
     return rows
 
 
@@ -1099,8 +1102,13 @@ def _render_dashboard(
     phase_html = "\n".join(_render_phase_row(row) for row in phase_rows)
     metrics_html = "\n".join(_render_metric_row(row) for row in metrics)
     if not metrics_html:
+        # What is absent, not the fact of absence. This table is filled from
+        # the analysis outputs, so an empty one means the analysis phase has
+        # not produced them yet -- which is worth saying.
         metrics_html = (
-            '<tr><td colspan="4" class="table-empty">not available</td></tr>'
+            '<tr><td colspan="4" class="table-empty">'
+            "No analysis outputs to summarise yet."
+            "</td></tr>"
         )
     notice_html = (
         f'<div class="notice"><strong>Existing trajectory analysis</strong>'
@@ -1673,7 +1681,7 @@ def _render_dashboard(
           <h1>Dashboard</h1>
           <div class="subtle">{escape(title)}</div>
           <div class="breadcrumb">Project / Results / Dashboard</div>
-          <div class="subtle">System: {escape(_system_label(system) if system else "not available")}</div>
+          <div class="subtle">System: {escape(_system_label(system) if system else "—")}</div>
         </div>
         <div class="status">
           <span class="dot {escape(status)}"></span>{escape(status.title())} -

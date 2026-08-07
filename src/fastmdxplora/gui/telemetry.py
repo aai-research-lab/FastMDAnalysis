@@ -304,6 +304,22 @@ def run_phases(project_root: str | Path) -> list[str]:
     import yaml
 
     root = Path(project_root)
+
+    # What ran, where that is recorded, beats any inference about what was
+    # meant to run.
+    try:
+        manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        manifest = {}
+    if isinstance(manifest, dict):
+        ran = [
+            str(entry.get("name"))
+            for entry in manifest.get("phases", [])
+            if isinstance(entry, dict) and entry.get("name")
+        ]
+        if ran:
+            return ran
+
     for name in _CONFIG_NAMES:
         path = root / name
         if not path.is_file():
@@ -317,10 +333,16 @@ def run_phases(project_root: str | Path) -> list[str]:
         included = data.get("include")
         if isinstance(included, list) and included:
             return [str(phase) for phase in included]
-        # No `include` means every phase the config describes.
-        named = [phase for phase in PHASE_STAGES if isinstance(data.get(phase), dict)]
-        if named:
-            return named
+        excluded = data.get("exclude")
+        if isinstance(excluded, list) and excluded:
+            names = {str(phase) for phase in excluded}
+            return [phase for phase in PHASE_STAGES if phase not in names]
+        # Nothing further to go on. A phase block is not a statement about
+        # what runs: `write_resolved_config` writes only phases with non-empty
+        # options, so analysis and report -- which run on defaults -- leave no
+        # trace in it. Reading that as "these phases were not included" hid two
+        # stages that had just finished, and only once the run ended, because
+        # the config is written into the output directory at the end.
     return []
 
 

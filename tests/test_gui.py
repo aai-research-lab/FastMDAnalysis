@@ -54,6 +54,15 @@ from fastmdxplora.gui.trajectory_playback import (
 # ---------------------------------------------------------------------------
 # Fixture: tiny four-atom helper used by several tests
 # ---------------------------------------------------------------------------
+#: How long a request to the test server may take before the test calls it a
+#: failure. Five seconds was enough on an idle machine and a coin flip on a
+#: busy one: these tests run a real HTTP server in a thread, and a laptop also
+#: running an MD simulation pushed a fourteen-route loop past the ceiling. A
+#: generous limit costs nothing when the server answers promptly, and stops
+#: the suite reporting "the machine was busy" as a defect.
+HTTP_TIMEOUT = 30
+
+
 def _tiny_pdb() -> str:
     return "\n".join(
         [
@@ -165,7 +174,7 @@ def test_structure_route_serves_topology(tmp_path: Path, monkeypatch) -> None:
 
     server, base_url = start_test_server(run)
     try:
-        response = urlopen(f"{base_url}/structure/topology.pdb", timeout=5)
+        response = urlopen(f"{base_url}/structure/topology.pdb", timeout=HTTP_TIMEOUT)
         body = response.read().decode("utf-8")
     finally:
         server.shutdown()
@@ -470,7 +479,7 @@ def test_dashboard_html_has_aai_branding(tmp_path: Path) -> None:
     writer.write_status(stage="NVT")
     server, base_url = start_test_server(run)
     try:
-        html = urlopen(f"{base_url}/", timeout=5).read().decode("utf-8")
+        html = urlopen(f"{base_url}/", timeout=HTTP_TIMEOUT).read().decode("utf-8")
     finally:
         server.shutdown()
         server.server_close()
@@ -572,7 +581,7 @@ def test_dashboard_server_serves_new_routes(tmp_path: Path) -> None:
             "/structure/topology.pdb",
             "/structure/live-frame.pdb",
         ):
-            response = urlopen(f"{base_url}{path}", timeout=5)
+            response = urlopen(f"{base_url}{path}", timeout=HTTP_TIMEOUT)
             response.read()
             assert response.headers["Cache-Control"] == "no-store", path
     finally:
@@ -587,7 +596,7 @@ def test_structure_info_endpoint_payload_keys(tmp_path: Path) -> None:
     (sim / "topology.pdb").write_text(_tiny_pdb(), encoding="utf-8")
     server, base_url = start_test_server(run, config=DashboardConfig(ligand_resname="LIG"))
     try:
-        payload = json.loads(urlopen(f"{base_url}/api/structure-info", timeout=5).read())
+        payload = json.loads(urlopen(f"{base_url}/api/structure-info", timeout=HTTP_TIMEOUT).read())
     finally:
         server.shutdown()
         server.server_close()
@@ -604,7 +613,7 @@ def test_live_frame_endpoint_serves_pdb(tmp_path: Path) -> None:
     write_live_frame(sim, pdb_text=_tiny_pdb(), frame_index=5)
     server, base_url = start_test_server(run)
     try:
-        body = urlopen(f"{base_url}/structure/live-frame.pdb", timeout=5).read().decode("utf-8")
+        body = urlopen(f"{base_url}/structure/live-frame.pdb", timeout=HTTP_TIMEOUT).read().decode("utf-8")
     finally:
         server.shutdown()
         server.server_close()
@@ -618,7 +627,7 @@ def test_live_frame_endpoint_404_when_missing(tmp_path: Path) -> None:
     server, base_url = start_test_server(run)
     try:
         try:
-            urlopen(f"{base_url}/structure/live-frame.pdb", timeout=5)
+            urlopen(f"{base_url}/structure/live-frame.pdb", timeout=HTTP_TIMEOUT)
         except HTTPError as exc:
             assert exc.code == 404
         else:
@@ -633,7 +642,7 @@ def test_playback_info_unavailable_when_no_trajectory(tmp_path: Path) -> None:
     run.mkdir()
     server, base_url = start_test_server(run)
     try:
-        payload = json.loads(urlopen(f"{base_url}/api/playback-info", timeout=5).read())
+        payload = json.loads(urlopen(f"{base_url}/api/playback-info", timeout=HTTP_TIMEOUT).read())
     finally:
         server.shutdown()
         server.server_close()
@@ -647,7 +656,7 @@ def test_artifacts_response_includes_files(tmp_path: Path) -> None:
     (sim / "live_status.json").write_text("{}", encoding="utf-8")
     server, base_url = start_test_server(run)
     try:
-        payload = json.loads(urlopen(f"{base_url}/api/files", timeout=5).read())
+        payload = json.loads(urlopen(f"{base_url}/api/files", timeout=HTTP_TIMEOUT).read())
     finally:
         server.shutdown()
         server.server_close()
@@ -661,7 +670,7 @@ def test_results_response_keys_match_dashboard_bindings(tmp_path: Path) -> None:
     (sim / "live_status.json").write_text("{}", encoding="utf-8")
     server, base_url = start_test_server(run)
     try:
-        payload = json.loads(urlopen(f"{base_url}/api/results", timeout=5).read())
+        payload = json.loads(urlopen(f"{base_url}/api/results", timeout=HTTP_TIMEOUT).read())
     finally:
         server.shutdown()
         server.server_close()
@@ -703,7 +712,7 @@ def test_live_server_rejects_artifact_path_traversal(tmp_path: Path) -> None:
     server, base_url = start_test_server(run)
     try:
         try:
-            urlopen(f"{base_url}/artifacts/../outside.txt", timeout=5)
+            urlopen(f"{base_url}/artifacts/../outside.txt", timeout=HTTP_TIMEOUT)
         except HTTPError as exc:
             assert exc.code in {403, 404}
         else:
@@ -719,7 +728,7 @@ def test_live_server_does_not_serve_static_path_traversal(tmp_path: Path) -> Non
     server, base_url = start_test_server(run)
     try:
         try:
-            urlopen(f"{base_url}/static/../server.py", timeout=5)
+            urlopen(f"{base_url}/static/../server.py", timeout=HTTP_TIMEOUT)
         except HTTPError as exc:
             assert exc.code == 404
         else:
@@ -734,7 +743,7 @@ def test_static_3dmol_asset_is_served_locally(tmp_path: Path) -> None:
     run.mkdir()
     server, base_url = start_test_server(run)
     try:
-        response = urlopen(f"{base_url}/static/3Dmol-min.js", timeout=5)
+        response = urlopen(f"{base_url}/static/3Dmol-min.js", timeout=HTTP_TIMEOUT)
         body = response.read().decode("utf-8", errors="ignore")
     finally:
         server.shutdown()
@@ -757,7 +766,7 @@ def test_live_json_endpoints_are_no_store(tmp_path: Path) -> None:
             "live-frame-index", "live-coordinates", "playback-info",
             "analyses",
         ):
-            response = urlopen(f"{base_url}/api/{endpoint}", timeout=5)
+            response = urlopen(f"{base_url}/api/{endpoint}", timeout=HTTP_TIMEOUT)
             response.read()
             assert response.headers["Cache-Control"] == "no-store", endpoint
     finally:
@@ -769,13 +778,13 @@ def test_live_json_endpoints_are_sane_for_empty_run(tmp_path: Path) -> None:
     run = tmp_path / "empty_run"
     server, base_url = start_test_server(run)
     try:
-        status_payload = json.loads(urlopen(f"{base_url}/api/status", timeout=5).read())
-        metrics_payload = json.loads(urlopen(f"{base_url}/api/metrics", timeout=5).read())
-        events_payload = json.loads(urlopen(f"{base_url}/api/events", timeout=5).read())
-        artifacts_payload = json.loads(urlopen(f"{base_url}/api/artifacts", timeout=5).read())
-        results_payload = json.loads(urlopen(f"{base_url}/api/results", timeout=5).read())
-        structure_payload = json.loads(urlopen(f"{base_url}/api/structure-info", timeout=5).read())
-        ligands_payload = json.loads(urlopen(f"{base_url}/api/ligands", timeout=5).read())
+        status_payload = json.loads(urlopen(f"{base_url}/api/status", timeout=HTTP_TIMEOUT).read())
+        metrics_payload = json.loads(urlopen(f"{base_url}/api/metrics", timeout=HTTP_TIMEOUT).read())
+        events_payload = json.loads(urlopen(f"{base_url}/api/events", timeout=HTTP_TIMEOUT).read())
+        artifacts_payload = json.loads(urlopen(f"{base_url}/api/artifacts", timeout=HTTP_TIMEOUT).read())
+        results_payload = json.loads(urlopen(f"{base_url}/api/results", timeout=HTTP_TIMEOUT).read())
+        structure_payload = json.loads(urlopen(f"{base_url}/api/structure-info", timeout=HTTP_TIMEOUT).read())
+        ligands_payload = json.loads(urlopen(f"{base_url}/api/ligands", timeout=HTTP_TIMEOUT).read())
     finally:
         server.shutdown()
         server.server_close()
@@ -805,7 +814,7 @@ def test_static_endpoint_serves_packaged_assets(tmp_path: Path) -> None:
     run.mkdir()
     server, base_url = start_test_server(run)
     try:
-        response = urlopen(f"{base_url}/static/dashboard.css", timeout=5)
+        response = urlopen(f"{base_url}/static/dashboard.css", timeout=HTTP_TIMEOUT)
         body = response.read().decode("utf-8", errors="ignore")
     finally:
         server.shutdown()
@@ -875,7 +884,7 @@ def test_ligands_endpoint_returns_detected_instances(tmp_path: Path) -> None:
 
     server, base_url = start_test_server(run)
     try:
-        payload = json.loads(urlopen(f"{base_url}/api/ligands", timeout=5).read())
+        payload = json.loads(urlopen(f"{base_url}/api/ligands", timeout=HTTP_TIMEOUT).read())
     finally:
         server.shutdown()
         server.server_close()
@@ -923,7 +932,7 @@ def test_results_endpoint_discovers_analysis_and_report_outputs(
 
     server, base_url = start_test_server(run)
     try:
-        payload = json.loads(urlopen(f"{base_url}/api/results", timeout=5).read())
+        payload = json.loads(urlopen(f"{base_url}/api/results", timeout=HTTP_TIMEOUT).read())
     finally:
         server.shutdown()
         server.server_close()
@@ -952,7 +961,7 @@ def test_artifact_download_route_sets_attachment_header(tmp_path: Path) -> None:
     try:
         response = urlopen(
             f"{base_url}/artifacts/report/report.md?download=1",
-            timeout=5,
+            timeout=HTTP_TIMEOUT,
         )
         response.read()
     finally:
@@ -993,7 +1002,7 @@ def test_dashboard_refresh_seconds_are_injected_into_html(tmp_path: Path) -> Non
         config=DashboardConfig(refresh_seconds=1.5),
     )
     try:
-        html = urlopen(base_url, timeout=5).read().decode("utf-8")
+        html = urlopen(base_url, timeout=HTTP_TIMEOUT).read().decode("utf-8")
     finally:
         server.shutdown()
         server.server_close()
@@ -1071,7 +1080,7 @@ def test_results_endpoint_pairs_png_preview_with_svg_download(tmp_path: Path) ->
 
     server, base_url = start_test_server(run)
     try:
-        payload = json.loads(urlopen(f"{base_url}/api/results", timeout=5).read())
+        payload = json.loads(urlopen(f"{base_url}/api/results", timeout=HTTP_TIMEOUT).read())
     finally:
         server.shutdown()
         server.server_close()
@@ -1094,7 +1103,7 @@ def test_svg_bundle_endpoint_downloads_generated_vector_figures(tmp_path: Path) 
 
     server, base_url = start_test_server(run)
     try:
-        response = urlopen(f"{base_url}/analysis-figures-svg.zip", timeout=5)
+        response = urlopen(f"{base_url}/analysis-figures-svg.zip", timeout=HTTP_TIMEOUT)
         data = response.read()
     finally:
         server.shutdown()
@@ -1129,7 +1138,7 @@ def test_run_dependent_nav_sections_are_marked(tmp_path: Path) -> None:
     run.mkdir()
     server, base_url = start_test_server(run)
     try:
-        html = urlopen(f"{base_url}/", timeout=5).read().decode("utf-8")
+        html = urlopen(f"{base_url}/", timeout=HTTP_TIMEOUT).read().decode("utf-8")
     finally:
         server.shutdown()
         server.server_close()
@@ -1266,7 +1275,7 @@ def test_overview_hosts_the_report_panels(tmp_path: Path) -> None:
     run.mkdir()
     server, base_url = start_test_server(run)
     try:
-        html = urlopen(f"{base_url}/", timeout=5).read().decode("utf-8")
+        html = urlopen(f"{base_url}/", timeout=HTTP_TIMEOUT).read().decode("utf-8")
     finally:
         server.shutdown()
         server.server_close()
@@ -1362,7 +1371,7 @@ def test_analysis_view_hosts_sections_and_quick_actions(tmp_path: Path) -> None:
     run.mkdir()
     server, base_url = start_test_server(run)
     try:
-        html = urlopen(f"{base_url}/", timeout=5).read().decode("utf-8")
+        html = urlopen(f"{base_url}/", timeout=HTTP_TIMEOUT).read().decode("utf-8")
     finally:
         server.shutdown()
         server.server_close()
@@ -1422,7 +1431,7 @@ def test_pressure_is_not_advertised_as_a_live_metric(tmp_path: Path) -> None:
     run.mkdir()
     server, base_url = start_test_server(run)
     try:
-        html = urlopen(f"{base_url}/", timeout=5).read().decode("utf-8")
+        html = urlopen(f"{base_url}/", timeout=HTTP_TIMEOUT).read().decode("utf-8")
     finally:
         server.shutdown()
         server.server_close()
@@ -2703,14 +2712,23 @@ class TestATimelineShowsOnlyWhatCanHappen:
             "include: [report, analysis, setup]\n", encoding="utf-8")
         assert run_stages(tmp_path) == ["setup", "analysis", "report"]
 
-    def test_a_config_without_include_names_what_it_describes(
+    def test_a_config_describing_a_phase_says_nothing_about_the_others(
         self, tmp_path
     ) -> None:
-        from fastmdxplora.gui.telemetry import run_phases
+        """Phase blocks used to be read as the plan. But a block means the
+        phase was configured, not that it was included: `write_resolved_config`
+        writes only phases with non-empty options, so a run whose analysis and
+        report took defaults left no trace of them in the file -- and since
+        that file lands in the output directory when the run ends, the
+        timeline showed seven stages throughout and dropped to five the moment
+        it finished. The test below gives the rule this now follows.
+        """
+        from fastmdxplora.gui.telemetry import run_phases, run_stages
 
         (tmp_path / "exploration.yml").write_text(
             "setup: {ph: 7.4}\nanalysis: {scope: protein}\n", encoding="utf-8")
-        assert run_phases(tmp_path) == ["setup", "analysis"]
+        assert run_phases(tmp_path) == []
+        assert len(run_stages(tmp_path)) == 7
 
     def test_nothing_to_go_on_means_show_everything(self, tmp_path) -> None:
         """An older run, or one started outside the GUI. Hiding a stage that
@@ -4083,7 +4101,7 @@ class TestTheGUICitesTheSoftware:
         writer.write_status(stage="NVT")
         server, base_url = start_test_server(run)
         try:
-            html = urlopen(f"{base_url}/", timeout=5).read().decode("utf-8")
+            html = urlopen(f"{base_url}/", timeout=HTTP_TIMEOUT).read().decode("utf-8")
         finally:
             server.shutdown()
             server.server_close()

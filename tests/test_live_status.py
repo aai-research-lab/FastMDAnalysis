@@ -658,3 +658,192 @@ class TestTheTopBarCarriesProgressNotTrivia:
             )
         ]
         assert "Output folder" not in labels
+
+
+class TestInapplicableIsNotUnavailable:
+    """A count has one value, not a sample. The standard-deviation column
+    said "not available", which reads as a measurement that was attempted."""
+
+    def test_a_count_has_no_standard_deviation(self, tmp_path: Path) -> None:
+        from fastmdxplora.gui.report_dashboard import _metric_rows
+
+        rows = {
+            row.metric: row
+            for row in _metric_rows(tmp_path, {"n_frames": 200, "n_atoms": 36_843})
+        }
+        assert rows["Frame count"].average == "200"
+        assert rows["Frame count"].stddev == "—"
+        assert rows["Atom count"].stddev == "—"
+
+    def test_an_empty_table_says_what_is_missing(self) -> None:
+        from fastmdxplora.gui import report_dashboard
+
+        source = Path(report_dashboard.__file__).read_text(encoding="utf-8")
+        assert "No analysis outputs to summarise yet." in source
+        assert '<td colspan="4" class="table-empty">not available' not in source
+
+    def test_the_report_header_does_not_name_an_absent_system(self) -> None:
+        from fastmdxplora.gui import report_dashboard
+
+        source = Path(report_dashboard.__file__).read_text(encoding="utf-8")
+        assert 'if system else "not available"' not in source
+
+
+class TestTheSuiteDoesNotReportABusyMachineAsADefect:
+    def test_one_ceiling_for_every_request(self) -> None:
+        from fastmdxplora.gui import protein_preview
+
+        tests_dir = Path(protein_preview.__file__).parents[3] / "tests"
+        source = (tests_dir / "test_gui.py").read_text(encoding="utf-8")
+        assert "HTTP_TIMEOUT = " in source
+        # Not one raised number among a dozen that were left alone.
+        assert "timeout=5" not in source
+
+
+class TestTheBannerDescribesTheRunItIsStarting:
+    """The frame interval was read from the command line alone. A run driven
+    by a config file typed none of it, so the banner computed a default and
+    announced a frame every 100 steps for a run writing one every 250 --
+    500 frames promised, 200 written."""
+
+    @staticmethod
+    def _banner(argv, **fields) -> str:
+        import contextlib
+        import io
+        import sys
+
+        from fastmdxplora.utils.presenter import SessionPresenter
+
+        original = sys.argv
+        sys.argv = ["fastmdx"] + argv
+        buffer = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buffer):
+                SessionPresenter(stream=buffer).banner(**fields)
+        finally:
+            sys.argv = original
+        return buffer.getvalue()
+
+    def test_the_config_is_read(self, tmp_path: Path) -> None:
+        config = tmp_path / "study.yml"
+        config.write_text(
+            "simulation:\n"
+            "  production_steps: 50000\n"
+            "  trajectory_interval_steps: 250\n",
+            encoding="utf-8",
+        )
+
+        text = self._banner(["explore", "--config", str(config)])
+
+        assert "every 250 production steps" in text
+        # 100 is what `trajectory_interval_for(50000)` computes, and what the
+        # banner used to print regardless of what the run was told to do.
+        assert "every 100 production steps" not in text
+
+    def test_the_command_line_still_wins(self, tmp_path: Path) -> None:
+        config = tmp_path / "study.yml"
+        config.write_text(
+            "simulation:\n  trajectory_interval_steps: 250\n", encoding="utf-8"
+        )
+
+        text = self._banner(
+            ["explore", "--config", str(config),
+             "--simulate-trajectory-interval-steps", "500"]
+        )
+
+        assert "every 500 production steps" in text
+
+
+class TestTheTopBarNamesTheRunFromItsFirstMinute:
+    """Reading only the manifest -- written when a run ends -- the top bar
+    showed a placeholder for the whole run. Setup records the system before
+    simulation starts."""
+
+    def _setup_written(self, root: Path, system: str) -> None:
+        import json
+
+        (root / "setup").mkdir(parents=True)
+        (root / "setup" / "setup_parameters.json").write_text(
+            json.dumps({"phase": "setup", "input": {"system": system}}),
+            encoding="utf-8",
+        )
+
+    def test_the_name_comes_from_setup_during_a_run(self, tmp_path: Path) -> None:
+        from fastmdxplora.gui.server import _system_info
+
+        run = tmp_path / "run"
+        self._setup_written(run, "181L")
+        assert _system_info(run, {}, {}, {})["system"] == "181L"
+
+    def test_the_manifest_still_wins_once_there_is_one(self, tmp_path: Path) -> None:
+        from fastmdxplora.gui.server import _system_info
+
+        run = tmp_path / "run"
+        self._setup_written(run, "181L")
+        assert _system_info(run, {"system": "1UBQ"}, {}, {})["system"] == "1UBQ"
+
+    def test_with_no_name_anywhere_the_browser_chooses(self, tmp_path: Path) -> None:
+        """Empty, not a dash: a dash would override the page's own label."""
+        from fastmdxplora.gui.server import _system_info
+
+        run = tmp_path / "run"
+        run.mkdir()
+        assert _system_info(run, {}, {}, {})["system"] == ""
+
+
+class TestTheTimelineShowsTheStagesThatRan:
+    """A phase block in a config is not a statement about what runs.
+    `write_resolved_config` writes only phases with non-empty options, and it
+    writes them into the output directory when the run ends -- so a run whose
+    analysis and report used defaults showed seven stages while running and
+    five the moment it finished."""
+
+    def _config(self, root: Path, text: str) -> None:
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "resolved_config.yml").write_text(text, encoding="utf-8")
+
+    def _manifest(self, root: Path, *names: str) -> None:
+        import json
+
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "manifest.json").write_text(
+            json.dumps({"phases": [{"name": n, "status": "ok"} for n in names]}),
+            encoding="utf-8",
+        )
+
+    def test_a_finished_run_shows_what_it_ran(self, tmp_path: Path) -> None:
+        from fastmdxplora.gui.telemetry import run_phases, run_stages
+
+        run = tmp_path / "run"
+        self._config(run, "setup: {ph: 7.4}\nsimulation: {nvt_steps: 5000}\n")
+        self._manifest(run, "setup", "simulation", "analysis", "report")
+
+        assert run_phases(run) == ["setup", "simulation", "analysis", "report"]
+        assert len(run_stages(run)) == 7
+
+    def test_a_configured_phase_is_not_an_included_one(self, tmp_path: Path) -> None:
+        """Without a manifest, a config naming two phase blocks says nothing
+        about the other two -- so assume all rather than hide them."""
+        from fastmdxplora.gui.telemetry import run_phases, run_stages
+
+        run = tmp_path / "run"
+        self._config(run, "setup: {ph: 7.4}\nsimulation: {nvt_steps: 5000}\n")
+
+        assert run_phases(run) == []
+        assert len(run_stages(run)) == 7
+
+    def test_include_is_still_honoured(self, tmp_path: Path) -> None:
+        from fastmdxplora.gui.telemetry import run_phases
+
+        run = tmp_path / "run"
+        self._config(run, "include: [analysis, report]\n")
+        assert run_phases(run) == ["analysis", "report"]
+
+    def test_exclude_is_honoured_too(self, tmp_path: Path) -> None:
+        """Stated outright, unlike a phase block, so it can be trusted."""
+        from fastmdxplora.gui.telemetry import run_phases
+
+        run = tmp_path / "run"
+        self._config(run, "exclude: [report]\n")
+        assert "report" not in run_phases(run)
+        assert "setup" in run_phases(run)

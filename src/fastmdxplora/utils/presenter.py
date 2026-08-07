@@ -571,7 +571,20 @@ class SessionPresenter:
         nvt_steps, npt_steps, prod_steps, total_steps = resolve_stage_display()
 
         def resolve_trajectory_display() -> str:
-            raw = arg_value("--simulate-trajectory-interval-steps", "--trajectory-interval-steps", default="")
+            # Fields beat the command line, and the command line beats the
+            # config -- the same precedence the stage steps above use, and for
+            # the same reason: a run driven by a config file typed none of it.
+            # Reading argv alone, this printed a computed default while the
+            # run used the config's value, so a banner promising a frame every
+            # 100 steps introduced a run writing one every 250.
+            raw = field_value(
+                "trajectory_interval_steps",
+                default=arg_value(
+                    "--simulate-trajectory-interval-steps",
+                    "--trajectory-interval-steps",
+                    default=configured("simulation", "trajectory_interval_steps"),
+                ),
+            )
             explicit = maybe_int(raw)
             if explicit is not None:
                 return f"save frame every {explicit:,} production steps"
