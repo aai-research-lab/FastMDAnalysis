@@ -266,8 +266,14 @@ SETUP = PhaseSchema(
               "yourself, or taken it from OPM."),
         Field("solvent_padding_nm", float, 1.0,
               "Minimum distance (nm) between solute and the box wall."),
-        Field("box_shape", str, "cube",
-              "Periodic box geometry: cube, dodecahedron, or octahedron.",
+        Field("box_shape", str, "dodecahedron",
+              "Periodic box geometry: cube, dodecahedron, or octahedron. "
+              "A dodecahedron holds the same clearance around the solute in "
+              "roughly 71% of a cube\'s volume, so about a third of the water "
+              "a cube would need is not simulated -- and water is most of the "
+              "atoms. A cube is the right choice where the box must be "
+              "orthorhombic, or where a solute tumbles far enough that only a "
+              "cube keeps it clear of its own image.",
               choices=("cube", "dodecahedron", "octahedron")),
         Field("ion_positive", str, "Na+",
               "Counter-ion cation."),

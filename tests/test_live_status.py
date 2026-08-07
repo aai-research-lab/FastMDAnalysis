@@ -1559,3 +1559,51 @@ class TestOneControlPerSetting:
 
         field = PHASE_SCHEMAS["analysis"].get("include")
         assert _coerce("rmsd, rmsf", field) == ["rmsd", "rmsf"]
+
+
+class TestTheDefaultBoxIsNotACube:
+    def test_a_dodecahedron_by_default(self) -> None:
+        """Water is most of the atoms in a solvated system, and a cube keeps
+        more of it than the clearance requires. 5WYZ came to 711,205 atoms."""
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        field = PHASE_SCHEMAS["setup"].get("box_shape")
+        assert field.default == "dodecahedron"
+        assert "cube" in field.choices
+
+    def test_the_reason_is_recorded_where_the_default_is(self) -> None:
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        help_text = PHASE_SCHEMAS["setup"].get("box_shape").help
+        assert "71%" in help_text
+        # ...and when a cube is still the right answer.
+        assert "orthorhombic" in help_text
+
+    def test_a_default_box_that_the_shape_made_invalid_is_adjusted(self) -> None:
+        """A dodecahedron's smallest dimension is shorter than a cube's for
+        the same padding, so a small solute at the default 1.0 nm padding and
+        1.0 nm cutoff fell under the minimum-image limit where a cube did
+        not. A few tenths of a nanometre fixes it."""
+        import inspect
+
+        from fastmdxplora.setup import prepare
+
+        body = inspect.getsource(prepare._solvate_with_room_for_the_cutoff)
+        assert "Re-solvating" in body
+        assert "most_it_may_grow_nm" in body
+
+    def test_but_contradictory_settings_are_reported_not_absorbed(self) -> None:
+        """0.4 nm of padding with a 1.5 nm cutoff needs four times the box.
+        Somebody who asked for both is better told than handed a system four
+        times the size."""
+        import inspect
+
+        from fastmdxplora.setup import prepare
+
+        signature = inspect.signature(prepare._solvate_with_room_for_the_cutoff)
+        assert signature.parameters["most_it_may_grow_nm"].default == 0.5
+
+        # Split across two f-string literals in the source, so match the part
+        # that is contiguous.
+        guard = inspect.getsource(prepare)
+        assert "half the smallest periodic box dimension" in guard

@@ -563,8 +563,16 @@ class TestAFailureDuringSolvationExplainsItself:
 
         from fastmdxplora.setup import prepare
 
+        # Anchored on the call site rather than on `modeller.addSolvent`,
+        # which now appears twice: solvation goes through a helper that can
+        # re-solvate with more padding when the box comes out smaller than
+        # twice the cutoff. The helper is called inside the same `try`, so
+        # the protection is unchanged -- only where to look for it.
         source = inspect.getsource(prepare)
-        solvate = source[source.index("modeller.addSolvent"):][:900]
+        # The call, not the definition: the definition comes first in the file.
+        call = source.index("_solvate_with_room_for_the_cutoff(", source.index("addSolvent"))
+        # The call spans several lines now, so the window has to reach past it.
+        solvate = source[call:][:1800]
         assert "_explain_unparameterized" in solvate, (
             "a template failure during solvation still reaches the user raw"
         )

@@ -541,12 +541,35 @@ class TestTheBannerDescribesThisRun:
         assert "charmm36" in printed
         assert "310" in printed
 
-    def test_a_config_without_include_names_what_it_describes(
+    def test_a_config_that_configures_one_phase_still_runs_them_all(
         self, tmp_path
     ) -> None:
+        """A phase block says the phase was configured, not that it is the
+        only one that runs. This config runs setup, simulation, analysis and
+        report -- the last three on their defaults -- so hiding the
+        SIMULATION section described a run that was not happening."""
         config = self._config(tmp_path, (
             "output: o\nsystems: [{system: 1ubq}]\nsetup: {ph: 7.0}\n"))
         printed = self._banner(["explore", "--config", config],
+                               system="1ubq", output="o")
+        assert "SETUP" in printed
+        assert "SIMULATION" in printed
+
+    def test_include_on_the_command_line_narrows_it(self, tmp_path) -> None:
+        """`--include setup` printed a SIMULATION section announcing
+        1,750,000 steps that were never going to run: the banner read the
+        config for phase selection and the config was silent."""
+        config = self._config(tmp_path, (
+            "output: o\nsystems: [{system: 1ubq}]\nsetup: {ph: 7.0}\n"))
+        printed = self._banner(["explore", "--config", config, "--include", "setup"],
+                               system="1ubq", output="o")
+        assert "SETUP" in printed
+        assert "SIMULATION" not in printed
+
+    def test_exclude_on_the_command_line_narrows_it_too(self, tmp_path) -> None:
+        config = self._config(tmp_path, (
+            "output: o\nsystems: [{system: 1ubq}]\n"))
+        printed = self._banner(["explore", "--config", config, "--exclude", "simulation"],
                                system="1ubq", output="o")
         assert "SETUP" in printed
         assert "SIMULATION" not in printed

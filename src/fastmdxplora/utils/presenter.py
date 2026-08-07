@@ -361,19 +361,44 @@ class SessionPresenter:
             value = block.get(key)
             return "" if value is None else str(value)
 
+        def argv_list(*names: str) -> list[str]:
+            """A multi-value option from the command line, or an empty list.
+
+            `--include` and `--exclude` take several phases, which `arg_value`
+            cannot read: it returns the first word after the flag.
+            """
+            for index, token in enumerate(argv):
+                if token not in names:
+                    continue
+                values = []
+                for candidate in argv[index + 1:]:
+                    if candidate.startswith("-"):
+                        break
+                    values.append(candidate)
+                return values
+            return []
+
         def will_run(phase: str) -> bool:
             """Whether this run includes a phase.
 
-            With no config there is nothing to go on, and a section left out
-            of the banner would be worse than one shown for a phase that
-            happens not to run.
+            Read from the command line first, then the config. Reading only
+            the config, `--include setup` printed a SIMULATION section for a
+            run that stops after setup -- announcing 1,750,000 steps that were
+            never going to happen.
+
+            A phase block in a config says the phase was configured, not that
+            it runs: analysis and report take their defaults and appear in no
+            block, so treating a block as inclusion hid two sections of a run
+            that did all four. Where nothing says, every section is shown --
+            leaving one out is the worse mistake.
             """
-            if not from_config:
-                return True
-            included = from_config.get("include")
+            included = argv_list("--include") or from_config.get("include")
             if isinstance(included, list) and included:
                 return phase in included
-            return isinstance(from_config.get(phase), dict)
+            excluded = argv_list("--exclude") or from_config.get("exclude")
+            if isinstance(excluded, list) and excluded:
+                return phase not in excluded
+            return True
 
         def arg_value(*names: str, default: str = "") -> str:
             """First matching option on the command line, else ``default``.

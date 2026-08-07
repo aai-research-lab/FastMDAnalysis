@@ -61,6 +61,81 @@ DEFAULT_IONIC_STRENGTH_M = 0.15
 # value that is no longer true is a trap for whoever reaches for it next. The
 # pH default lives in the schema, and the setup phase reads it from there.
 
+def _solvate_with_room_for_the_cutoff(
+    modeller: Any,
+    ff: Any,
+    add_solvent_kwargs: dict[str, Any],
+    *,
+    nonbonded_cutoff_nm: float,
+    padding_nm: float,
+    nonbonded_method: Any,
+    unit: Any,
+    attempts: int = 3,
+    most_it_may_grow_nm: float = 0.5,
+) -> None:
+    """Solvate, and grow the padding if the box comes out too small.
+
+    A periodic cutoff has to be at most half the smallest box dimension --
+    below that a particle sees its own image and the physics is wrong, which
+    is why OpenMM refuses. Padding is measured from the solute, and a
+    dodecahedron's smallest dimension is shorter than a cube's for the same
+    padding, so a small solute at the default 1.0 nm padding and 1.0 nm
+    cutoff now lands under the limit where a cube did not.
+
+    Growing the padding is the only remedy that keeps what was asked for:
+    the alternative is shrinking the cutoff, which changes the physics rather
+    than the box. Said out loud, because a run that quietly used more padding
+    than the config states would be reporting the config and doing something
+    else.
+
+    Only a little, though. A default box that a change of shape made invalid
+    needs a few tenths of a nanometre. A 1.5 nm cutoff asked for with 0.4 nm
+    of padding needs four times the box, and somebody who asked for both has
+    given settings that contradict each other -- better told than quietly
+    handed a system four times the size. Past ``most_it_may_grow_nm`` this
+    stops adjusting and lets the check further down say so.
+    """
+    kwargs = dict(add_solvent_kwargs)
+    padding = float(padding_nm)
+    for attempt in range(attempts):
+        modeller.addSolvent(ff, **kwargs)
+        # The raw setting, not the resolved key: that is derived further down,
+        # after solvation, so reading it here was a use before assignment.
+        if str(nonbonded_method) not in ("CutoffPeriodic", "PME", "Ewald"):
+            return
+        vectors = modeller.topology.getPeriodicBoxVectors()
+        if vectors is None:
+            return
+        try:
+            smallest = min(
+                float(vectors[i][i].value_in_unit(unit.nanometer)) for i in range(3)
+            )
+        except (TypeError, ValueError, AttributeError):
+            return
+        # A box of no size is not a box to add padding to -- it means the
+        # topology could not say, which is not a problem this can solve.
+        if smallest <= 0.0:
+            return
+        if nonbonded_cutoff_nm <= 0.5 * smallest or attempt == attempts - 1:
+            return
+
+        # Enough for the cutoff, plus a little so a box on the exact boundary
+        # does not fail on a rounding difference.
+        shortfall = (2.0 * nonbonded_cutoff_nm) - smallest
+        grown = padding + (shortfall / 2.0) + 0.1
+        if grown - float(padding_nm) > most_it_may_grow_nm:
+            return
+        padding = grown
+        logger.info(
+            "Box came out %.2f nm across, which is under twice the %.2f nm "
+            "cutoff. Re-solvating with %.2f nm padding so no particle sees "
+            "its own periodic image.",
+            smallest, nonbonded_cutoff_nm, padding,
+        )
+        kwargs["padding"] = padding * unit.nanometer
+        modeller.deleteWater()
+
+
 
 def _import_openmm():
     """Lazy import of OpenMM. Raises a clean ImportError otherwise."""
@@ -383,7 +458,15 @@ def prepare_system(
     else:
         try:
             try:
-                modeller.addSolvent(ff, **add_solvent_kwargs)
+                _solvate_with_room_for_the_cutoff(
+                    modeller,
+                    ff,
+                    add_solvent_kwargs,
+                    nonbonded_cutoff_nm=nonbonded_cutoff_nm,
+                    padding_nm=solvent_padding_nm,
+                    nonbonded_method=nonbonded_method,
+                    unit=unit,
+                )
             except TypeError:
                 # Older OpenMM versions (<7.7) don't support boxShape.
                 add_solvent_kwargs.pop("boxShape", None)
