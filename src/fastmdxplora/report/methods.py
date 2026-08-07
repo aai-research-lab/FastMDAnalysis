@@ -170,10 +170,17 @@ def methods_paragraphs(
     # ---- system preparation -------------------------------------------
     if setup:
         source = system_name or _get(setup, "system", default="the input structure")
-        looks_like_pdb_id = isinstance(source, str) and len(source) == 4
+        # Setup records what the input was; guessing from the length of the
+        # string calls any four-character filename a deposited structure, and
+        # a methods section saying coordinates came from the Protein Data Bank
+        # when they came off a disk is a false statement about provenance.
+        recorded = setup.get("input")
+        form = recorded.get("form") if isinstance(recorded, dict) else None
+        if form is None:
+            form = "pdb_id" if isinstance(source, str) and len(source) == 4 else None
         origin = (
             f"the Protein Data Bank entry {source}"
-            if looks_like_pdb_id
+            if form == "pdb_id"
             else f"`{source}`"
         )
 
@@ -206,6 +213,15 @@ def methods_paragraphs(
         water = resolved.get("water_model") or _get(setup, "water_model")
         ligand_ff = (resolved.get("small_molecule_forcefield")
                      or _get(setup, "ligand_forcefield"))
+        # Whether a ligand was *parameterised*, not whether one could have
+        # been. `ligand_name` defaults to LIG -- a naming convention for a
+        # ligand if there is one -- and the small-molecule force field is a
+        # property of the protein force field, present whether or not it was
+        # used. Testing those two put "The ligand LIG was parameterized with
+        # openff-2.2.1" into the methods section of every run, including a
+        # tri-alanine in water with no ligand in it. A methods section is the
+        # part of a report that gets published.
+        parameterised = _get(setup, "ligand")
         ligand_name = _get(setup, "ligand_name", "ligand")
 
         parameterisation = []
@@ -215,7 +231,7 @@ def methods_paragraphs(
                 + (f" with the {water} water model" if water else "")
                 + "."
             )
-        if ligand_name and ligand_ff:
+        if parameterised and ligand_name and ligand_ff:
             charge = _get(setup, "ligand_net_charge")
             parameterisation.append(
                 f"The ligand {ligand_name} was parameterized with {ligand_ff}"

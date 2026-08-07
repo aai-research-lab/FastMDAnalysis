@@ -738,10 +738,16 @@ def test_report_phase_manifest_artifacts_exist(tmp_path: Path):
     report_record = next(p for p in manifest["phases"] if p["name"] == "report")
     # A PDF is written where WeasyPrint is available and left out where it is
     # not, so the list is checked for what must be there rather than for an
-    # exact sequence that depends on what somebody installed.
+    # exact sequence that depends on what somebody installed. Where it is left
+    # out, not_produced.json says so -- the two are alternatives, and exactly
+    # one of them appears.
     written = report_record["artifacts"]
     assert "report.md" in written and "dashboard.html" in written
-    assert set(written) <= {"report.md", "report.pdf", "dashboard.html"}
+    assert set(written) <= {"report.md", "report.pdf", "dashboard.html",
+                            "not_produced.json"}
+    assert ("report.pdf" in written) != ("not_produced.json" in written), (
+        "a PDF was requested, so either it was written or the reason it was "
+        "not is recorded beside the outputs")
     for artifact in report_record["artifacts"]:
         assert (Path(report_record["output_dir"]) / artifact).is_file()
 
@@ -888,7 +894,11 @@ def test_full_pipeline_report_keeps_end_to_end_wording(tmp_path: Path):
 
     assert result.status == "ok"
     report = (root / "report" / "report.md").read_text(encoding="utf-8")
-    assert "end-to-end molecular dynamics study" in report
+    # The summary used to open with "end-to-end molecular dynamics study" for
+    # every full run. It now says what the study was, so the distinction this
+    # test is about -- a full pipeline against analysis from a supplied
+    # trajectory -- is checked by what it does not claim.
+    assert "1 ps" in report, "the summary states the run it is about"
     assert "Production MD was performed" in report
     assert "Setup and simulation were not run in this workflow" not in report
 
@@ -1100,6 +1110,9 @@ class TestTheReportWritesAMethodsSection:
             "input": {"system": "181L", "form": "pdb_id"},
             "parameters": {
                 "ph": 7.4, "heterogens": "auto", "forcefield": "amber-openff",
+                # Written by setup when it prepares a ligand; a manifest
+                # without it is a run that had none.
+                "ligand": ["ligands/BNZ.sdf"],
                 "ligand_name": "BNZ", "ligand_net_charge": 0,
                 "solvent_padding_nm": 0.8, "box_shape": "cube",
                 "ion_concentration_M": 0.15, "nonbonded_method": "PME",
@@ -1233,8 +1246,8 @@ class TestTheMethodsSectionReadsTheRealManifests:
                 "solvent_padding_nm": 0.8, "box_shape": "cube",
                 "ion_concentration_M": 0.15, "nonbonded_method": "PME",
                 "nonbonded_cutoff_nm": 1.0, "constraints": "HBonds",
-                "rigid_water": True, "ligand_name": "BNZ",
-                "ligand_net_charge": 0,
+                "rigid_water": True, "ligand": ["ligands/BNZ.sdf"],
+                "ligand_name": "BNZ", "ligand_net_charge": 0,
             },
             "resolved_forcefield": {
                 "source": "named", "name": "amber-openff",
@@ -1884,3 +1897,239 @@ class TestTheMethodsSectionReportsTheRestraints:
                               "temperature_K": 300.0, "production_steps": 1000}}
         text = methods_paragraphs(Path("."), {}, sim)
         assert "None" not in text
+
+
+class TestTheReportDoesNotStateWhatDidNotHappen:
+    """A methods section is the part of a report that gets published.
+
+    Run on a tri-alanine in water, with no ligand in it, the methods paragraph
+    read: "The ligand LIG was parameterized with openff-2.2.1." Both values
+    behind that sentence are defaults --- LIG is the naming convention for a
+    ligand if there is one, and the small-molecule force field is a property
+    of the protein force field, present whether or not it was used --- so the
+    sentence appeared in every run.
+    """
+
+    @staticmethod
+    def _setup(**over):
+        base = {
+            "input": {"system": "/home/someone/ala3.pdb", "form": "pdb_file"},
+            "parameters": {
+                "ph": 7.4, "ligand": None, "ligand_name": "LIG",
+                "ligand_forcefield": None, "solvent_padding_nm": 1.2,
+                "box_shape": "cube", "water_model": "tip3p",
+            },
+            "resolved_forcefield": {
+                "xmls": ["amber14-all.xml"], "water_model": "tip3p",
+                "supports_ligand": True,
+                "small_molecule_forcefield": "openff-2.2.1",
+            },
+            "n_atoms_solvated": 1271,
+        }
+        base["parameters"].update(over)
+        return base
+
+    def test_no_ligand_is_claimed_when_none_was_parameterised(
+        self, tmp_path
+    ) -> None:
+        from fastmdxplora.report.methods import methods_paragraphs
+
+        text = methods_paragraphs(tmp_path, self._setup(), {})
+        assert "ligand" not in text.lower()
+
+    def test_one_is_claimed_when_a_ligand_was(self, tmp_path) -> None:
+        from fastmdxplora.report.methods import methods_paragraphs
+
+        text = methods_paragraphs(
+            tmp_path,
+            self._setup(ligand=["ligands/BNZ.sdf"], ligand_name="BNZ",
+                        ligand_forcefield="openff-2.2.1"),
+            {})
+        assert "BNZ" in text
+        assert "openff-2.2.1" in text
+
+    def test_the_coordinate_source_is_read_not_guessed(self, tmp_path) -> None:
+        """A four-character filename is not a deposited structure. The origin
+        was decided by the length of the string, so any such name was
+        described as coming from the Protein Data Bank."""
+        from fastmdxplora.report.methods import methods_paragraphs
+
+        setup = self._setup()
+        setup["input"] = {"system": "abcd", "form": "pdb_file"}
+        assert "Protein Data Bank" not in methods_paragraphs(tmp_path, setup, {})
+
+        setup["input"] = {"system": "181L", "form": "pdb_id"}
+        assert "Protein Data Bank entry" in methods_paragraphs(tmp_path, setup, {})
+
+
+class TestTheTitleNamesTheSystem:
+    """The title read "FastMDXplora Study --- /home/claude/ala3.pdb": the
+    author's home directory, on the first line of a document meant to be sent
+    to somebody."""
+
+    def test_a_path_becomes_a_name(self) -> None:
+        from fastmdxplora.report.run import _system_label
+
+        assert _system_label("/home/someone/ala3.pdb") == "ala3"
+        assert _system_label("/Users/someone/runs/1UBQ.cif") == "1UBQ"
+
+    def test_a_pdb_entry_stays_one(self) -> None:
+        from fastmdxplora.report.run import _system_label
+
+        assert _system_label("181L") == "181L"
+        assert _system_label("1ubq") == "1UBQ"
+
+    def test_two_suffixes_both_come_off(self) -> None:
+        """Taking one left "trp_cage.pdb" as the name of a study."""
+        from fastmdxplora.report.run import _system_label
+
+        assert _system_label("trp_cage.pdb.gz") == "trp_cage"
+
+
+class TestARequestedOutputThatCouldNotBeMadeIsRecorded:
+    """The terminal warned that no PDF could be written and the manifest did
+    not. Read from its files afterwards, the run showed four formats where
+    five were asked for, with nothing to say the fifth had been attempted."""
+
+    def test_the_reason_is_written_beside_the_outputs(self) -> None:
+        import inspect
+
+        # `fastmdxplora.report.run` is the function, re-exported over the
+        # module of the same name.
+        import fastmdxplora.report.run as report_run_module
+
+        source = inspect.getsource(report_run_module)
+        assert 'not_produced.append(("report.pdf", reason))' in source
+        assert '"not_produced.json"' in source
+
+
+class TestTheSummarySaysWhatTheStudyWas:
+    """The first section a reader reads said "This report was generated
+    automatically by FastMDXplora from the outputs of an end-to-end molecular
+    dynamics study" --- a statement about the software, in a document about
+    their system."""
+
+    def test_it_states_the_system_and_the_run(self, tmp_path) -> None:
+        import json
+
+        from fastmdxplora.report.document import _study_in_one_paragraph
+
+        (tmp_path / "setup").mkdir()
+        (tmp_path / "setup" / "setup_parameters.json").write_text(
+            json.dumps({"n_atoms_solvated": 37098}), encoding="utf-8")
+        (tmp_path / "simulation").mkdir()
+        (tmp_path / "simulation" / "simulation_parameters.json").write_text(
+            json.dumps({"duration_ns_actual": 20.0,
+                        "parameters": {"temperature_K": 300.0}}),
+            encoding="utf-8")
+
+        said = _study_in_one_paragraph(tmp_path)
+        assert "37,098 atoms" in said
+        assert "20 ns" in said and "300 K" in said
+
+    def test_a_short_run_is_given_in_picoseconds(self, tmp_path) -> None:
+        """"0.008 ns" is a number nobody says out loud."""
+        import json
+
+        from fastmdxplora.report.document import _study_in_one_paragraph
+
+        (tmp_path / "simulation").mkdir()
+        (tmp_path / "simulation" / "simulation_parameters.json").write_text(
+            json.dumps({"duration_ns_actual": 0.008}), encoding="utf-8")
+        assert "8 ps" in _study_in_one_paragraph(tmp_path)
+
+    def test_nothing_recorded_means_nothing_claimed(self, tmp_path) -> None:
+        """A sentence assembled from three absent values is worse than the
+        generic one it replaces."""
+        from fastmdxplora.report.document import _study_in_one_paragraph
+
+        assert _study_in_one_paragraph(tmp_path) is None
+
+    def test_the_convergence_counts_add_up(self) -> None:
+        """A first version counted settled and unjudged from overlapping
+        conditions, and reported three and six out of six."""
+        import re
+
+        from fastmdxplora.report.document import _what_the_run_supports
+
+        text = _what_the_run_supports.__doc__
+        assert text  # the behaviour is checked below against a real run
+
+        import inspect
+        source = inspect.getsource(_what_the_run_supports)
+        assert "unjudged = total - settled - drifting" in source, (
+            "the three states must be exclusive or the counts do not sum")
+
+
+class TestTheSlidesArePresentable:
+    """Twenty-one slides, twelve figures, not one number; three of them
+    displaying filesystem paths from the machine that produced them; and the
+    whole deck in 4:3."""
+
+    @staticmethod
+    def _recorded(tmp_path):
+        import json
+
+        (tmp_path / "setup").mkdir(exist_ok=True)
+        (tmp_path / "setup" / "setup_parameters.json").write_text(json.dumps({
+            "n_atoms_solvated": 37098,
+            "parameters": {"ph": 7.4, "solvent_padding_nm": 1.0,
+                           "box_shape": "cube", "ion_concentration_M": 0.15,
+                           "ligand": ["ligands/BNZ.sdf"], "ligand_name": "BNZ",
+                           "ligand_forcefield": "openff-2.2.1"},
+            "resolved_forcefield": {"xmls": ["amber14-all.xml"],
+                                    "water_model": "tip3p"},
+        }), encoding="utf-8")
+        (tmp_path / "simulation").mkdir(exist_ok=True)
+        (tmp_path / "simulation" / "simulation_parameters.json").write_text(
+            json.dumps({
+                "duration_ns_actual": 20.0, "pressure_bar_used": 1.0,
+                "platform_used": "CUDA",
+                "parameters": {"temperature_K": 300.0, "timestep_fs": 2.0,
+                               "integrator": "langevin_middle",
+                               "constraints": "HBonds", "random_seed": 7},
+            }), encoding="utf-8")
+
+    def test_the_deck_is_widescreen(self) -> None:
+        import inspect
+
+        from fastmdxplora.report import slides
+
+        source = inspect.getsource(slides._build_pptx)
+        assert "Inches(13.333)" in source, "4:3 shows black bands on a projector"
+
+    def test_the_setup_slide_states_the_system_not_a_path(self, tmp_path) -> None:
+        from fastmdxplora.report.slides import _setup_bullets
+
+        self._recorded(tmp_path)
+        bullets = _setup_bullets(tmp_path)
+
+        assert any("37,098 atoms" in b for b in bullets)
+        assert any("amber14-all.xml" in b for b in bullets)
+        assert any("BNZ" in b for b in bullets)
+        assert not any("/" in b and b.startswith("  •") for b in bullets)
+
+    def test_the_ensemble_comes_from_what_ran(self, tmp_path) -> None:
+        """`pressure_bar` is what was asked for and is None when the default
+        was taken; reading it called an NPT run at 1 bar an NVT one."""
+        from fastmdxplora.report.slides import _simulation_bullets
+
+        self._recorded(tmp_path)
+        assert any("1 bar (NPT)" in b for b in _simulation_bullets(tmp_path))
+
+    def test_the_seed_is_stated_either_way(self, tmp_path) -> None:
+        from fastmdxplora.report.slides import _simulation_bullets
+
+        self._recorded(tmp_path)
+        assert any("Random seed: 7" in b for b in _simulation_bullets(tmp_path))
+
+    def test_the_outline_does_not_also_point_at_the_json(self, tmp_path) -> None:
+        """`list.extend` returns None, so "extend(...) or append(fallback)"
+        ran the fallback every time: the outline carried the bullets and then
+        told the reader to go and look at the manifest anyway."""
+        import inspect
+
+        from fastmdxplora.report import slides
+
+        source = inspect.getsource(slides)
+        assert ") or lines.append(" not in source

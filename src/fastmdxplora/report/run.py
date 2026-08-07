@@ -6,11 +6,14 @@ unified report artifact set.
 
 from __future__ import annotations
 
+import json
+
 from fastmdxplora.utils.logging import get_logger
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastmdxplora.report.bundle import build_bundle
+from fastmdxplora.report.context import _system_label
 from fastmdxplora.gui.report_dashboard import build_dashboard
 from fastmdxplora.report.document import build_document
 from fastmdxplora.config.schema import REPORT
@@ -53,10 +56,11 @@ def run(
         Paths (relative to ``output_dir``) of artifacts produced.
     """
     params = {**DEFAULTS, **options}
-    title = params["title"] or f"FastMDXplora Study — {orchestrator.system}"
+    title = params["title"] or f"FastMDXplora Study — {_system_label(orchestrator.system)}"
 
     presenter = getattr(orchestrator, "_presenter", None)
     artifacts: list[str] = []
+    not_produced: list[tuple[str, str]] = []
 
     region_artifacts = build_region_highlight_artifacts(
         project_root=orchestrator.output_dir,
@@ -103,8 +107,16 @@ def run(
                 artifacts.append("report.pdf")
                 if presenter:
                     presenter.step("Wrote report.pdf")
-            elif presenter:
-                presenter.step(f"No PDF: {reason}", status="warn")
+            else:
+                # Written down as well as said. A run read from its files
+                # later shows four formats where five were asked for, and
+                # nothing to say the fifth was attempted -- the terminal
+                # warning is gone by then, and the difference between "not
+                # requested" and "requested and not possible" is exactly what
+                # somebody checking the outputs needs.
+                not_produced.append(("report.pdf", reason))
+                if presenter:
+                    presenter.step(f"No PDF: {reason}", status="warn")
 
     if params["slides"]:
         slide_artifacts = build_slides(
@@ -136,6 +148,14 @@ def run(
         artifacts.extend(bundle_artifacts)
         if presenter:
             presenter.step("Wrote project_bundle.zip")
+
+    if not_produced:
+        (output_dir / "not_produced.json").write_text(
+            json.dumps(
+                [{"artifact": name, "reason": why} for name, why in not_produced],
+                indent=2),
+            encoding="utf-8")
+        artifacts.append("not_produced.json")
 
     logger.debug("report: wrote %d artifact(s) to %s", len(artifacts), output_dir)
     return artifacts

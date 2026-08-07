@@ -63,3 +63,30 @@ def load_phase_context(project_root: Path) -> PhaseContext:
         analysis_present="analysis" in phases,
         report_present="report" in phases,
     )
+
+
+def _system_label(system: object) -> str:
+    """What to call the system in a title.
+
+    The name of the structure, not the path to it. A report is a document
+    somebody sends to a colleague or attaches to a submission, and the title
+    read "FastMDXplora Study --- /home/claude/ala3.pdb": the author's home
+    directory, on the first line, in a file meant to leave the machine. A
+    four-character PDB entry is already a name and is kept as one.
+    """
+    from pathlib import Path
+
+    text = str(system)
+    if len(text) == 4 and text.isalnum():
+        return text.upper()
+    stem = Path(text).name
+    # Repeatedly, because a compressed structure carries two: taking one left
+    # "trp_cage.pdb" as the name of a study.
+    changed = True
+    while changed:
+        changed = False
+        for suffix in (".gz", ".bz2", ".pdb", ".cif", ".pdbx", ".ent"):
+            if stem.lower().endswith(suffix) and len(stem) > len(suffix):
+                stem = stem[: -len(suffix)]
+                changed = True
+    return stem or text

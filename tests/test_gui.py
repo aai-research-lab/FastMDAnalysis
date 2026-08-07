@@ -3082,7 +3082,7 @@ class TestNothingPromisesASequence:
 
         from fastmdxplora.setup.pipeline import _resolve_input
 
-        with pytest.raises(NotImplementedError, match="Sequence-to-structure"):
+        with pytest.raises(NotImplementedError, match="structure predictor"):
             _resolve_input("ACDEFGHIKLMNPQRSTVWY", "sequence", tmp_path)
 
     def test_the_page_does_not_offer_it(self) -> None:

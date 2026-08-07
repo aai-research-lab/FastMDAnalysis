@@ -70,8 +70,15 @@ def _classify_input(system: str | None) -> str:
     if system.isalpha():
         return "sequence"
     raise ValueError(
-        f"Could not classify system input {system!r}. Expected a PDB file path, "
-        "a 4-character PDB ID, or a one-letter amino-acid sequence."
+        f"Could not classify system input {system!r}. Expected the path to a "
+        ".pdb, .cif or .pdbx file, or a 4-character PDB ID.\n\n"
+        # A one-letter sequence is recognised below and then refused, because
+        # building a structure from one needs a predictor this software does
+        # not carry. Listing it here as an accepted form -- which this message
+        # used to do -- sends somebody to try it, and it also found its way
+        # into a manuscript describing the software.
+        "A one-letter amino-acid sequence is recognised but cannot yet be "
+        "built into a structure; predict one first and pass the file."
     )
 
 
@@ -99,8 +106,11 @@ def _resolve_input(
         # Sequence -> PDB generation needs a builder (PyRosetta, Modeller,
         # AlphaFold). Out of scope for v0.2; record and bail.
         raise NotImplementedError(
-            "Sequence-to-structure not yet supported in the setup phase. "
-            "Pass a PDB file or a 4-character PDB ID for now."
+            "A structure cannot be built from a sequence here: that needs a "
+            "structure predictor, which this software does not carry. Predict "
+            "the structure first -- with AlphaFold, ESMFold or a homology "
+            "model -- and pass the resulting file, or give a 4-character PDB "
+            "ID for a deposited structure."
         )
     else:
         raise ValueError(f"Unknown input_form {input_form!r}")

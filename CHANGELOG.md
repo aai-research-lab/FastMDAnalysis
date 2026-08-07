@@ -71,6 +71,63 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   the commit from being decorative.
 
 ### Fixed
+- **The summary said nothing about the study.** The first section a reader
+  reads was "This report was generated automatically by FastMDXplora from the
+  outputs of an end-to-end molecular dynamics study" -- a statement about the
+  software, in a document about their system. It now says what was simulated,
+  for how long, at what temperature, and how much of the run can be
+  interpreted, so the caveat arrives before the results rather than six pages
+  after them.
+
+- **The slides were a slideshow.** Twenty-one slides carrying twelve figures
+  and not one number; three of them displaying filesystem paths from the
+  machine that produced them; and the whole deck in 4:3, which shows on a
+  modern projector with a black band down each side. The deck is 16:9, the
+  path slides state how the system was built and how it was simulated, and a
+  final slide gives every observable's mean with its uncertainty and the
+  independent samples behind it -- from the same assessment the report uses,
+  so the two cannot disagree.
+
+- **The slide outline described a deck that no longer existed.** Three of its
+  five sections read "See `setup_parameters.json`". It is built from the same
+  content as the slides.
+
+- **The methods section stated a ligand that was never there.** Run on a
+  tri-alanine in water it read "The ligand LIG was parameterized with
+  openff-2.2.1". Both values behind that sentence are defaults: LIG is the
+  naming convention for a ligand if there is one, and the small-molecule force
+  field is a property of the protein force field, present whether or not it
+  was used. The sentence therefore appeared in every run. It is now written
+  only where setup recorded that it prepared a ligand, which is the evidence
+  rather than the setting. A methods section is the part of a report that gets
+  published.
+
+- **And stated the wrong provenance for the coordinates.** Whether they came
+  from the Protein Data Bank was decided by the input being four characters
+  long, so a local file named `abcd` was described as a deposited structure.
+  Setup records the input form; it is read.
+
+- **The report title carried the author's home directory.** "FastMDXplora
+  Study --- /home/claude/ala3.pdb", on the first line of a document meant to
+  be sent to somebody. The title names the system: `ala3`, or `181L` where the
+  input was a PDB entry.
+
+- **A requested output that could not be produced left no record.** The
+  terminal warned that WeasyPrint was absent and no PDF would be written, and
+  the manifest did not: read from its files afterwards, the run showed four
+  formats where five were asked for, with nothing to say the fifth had been
+  attempted. `not_produced.json` records what was asked for, and why it is not
+  there.
+
+- **A message advertised an input the software does not accept.** Asked to
+  classify something it did not recognise, setup replied that it expected "a
+  PDB file path, a 4-character PDB ID, or a one-letter amino-acid sequence" --
+  and a sequence, passed, is recognised and then refused two steps later,
+  because building a structure from one needs a predictor this software does
+  not carry. The message now says what works, says plainly that a sequence
+  does not, and the refusal names what to do instead. Found while checking a
+  manuscript's claims against the code, where it had already propagated.
+
 - **One implementation of the correlation statistic, and one verdict from
   it.** The report layer already measured independent samples from the
   autocorrelation time; a second implementation was written for the per-frame

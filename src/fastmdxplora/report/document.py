@@ -68,28 +68,136 @@ def _load_json_safely(path: Path) -> dict | None:
         return None
 
 
-def _summary_section(phase_context: PhaseContext) -> str:
-    if phase_context.is_full_pipeline:
-        summary = (
-            "This report was generated automatically by FastMDXplora from the "
-            "outputs of an end-to-end molecular dynamics study."
-        )
-    elif phase_context.is_analysis_from_existing_trajectory:
-        summary = (
+def _study_in_one_paragraph(project_root: Path) -> str | None:
+    """What was simulated, for how long, and what came of it.
+
+    The summary said "This report was generated automatically by FastMDXplora
+    from the outputs of an end-to-end molecular dynamics study" -- a statement
+    about the software, in the first section a reader reads, of a document
+    about their system. Everything needed to say something is recorded by the
+    time this runs.
+
+    Returns None where too little was recorded to say anything, because a
+    sentence assembled from three absent values is worse than the generic one
+    it replaces.
+    """
+    def flattened(path: Path) -> dict:
+        """A manifest with its nested `parameters` lifted to the top.
+
+        Values live at either level depending on whether they were requested
+        or measured, and reading only the top missed the duration on manifests
+        that record it under `parameters` -- so the summary fell back to the
+        generic sentence for a run that had one.
+        """
+        record = _load_json_safely(path) or {}
+        merged = dict(record)
+        nested = record.get("parameters")
+        if isinstance(nested, dict):
+            for key, value in nested.items():
+                if merged.get(key) is None:
+                    merged[key] = value
+        return merged
+
+    setup = flattened(project_root / "setup" / "setup_parameters.json")
+    sim = flattened(project_root / "simulation" / "simulation_parameters.json")
+
+    said: list[str] = []
+
+    atoms = (setup or {}).get("n_atoms_solvated")
+    if isinstance(atoms, int):
+        said.append(f"The prepared system contained {atoms:,} atoms")
+
+    duration = (sim or {}).get("duration_ns_actual") or (sim or {}).get("duration_ns")
+    if isinstance(duration, (int, float)) and duration > 0:
+        length = (f"{duration * 1000:.0f} ps" if duration < 1
+                  else f"{duration:.3g} ns")
+        # Recorded under `parameters`, with the top level kept as a fallback
+        # for manifests written before that nesting.
+        temperature = sim.get("temperature_K")
+        at = f" at {temperature:g} K" if isinstance(temperature, (int, float)) else ""
+        said.append(("and was simulated" if said else "The system was simulated")
+                    + f" for {length}{at}")
+
+    if not said:
+        return None
+
+    paragraph = " ".join(said).rstrip(".") + "."
+
+    analyses = _load_json_safely(
+        project_root / "analysis" / "analysis_manifest.json") or {}
+    records = analyses.get("analyses") or analyses.get("results") or []
+    if isinstance(records, list) and records:
+        ran = sum(1 for r in records
+                  if isinstance(r, dict) and r.get("status") == "ok")
+        if ran:
+            paragraph += f" {ran} analys{'is' if ran == 1 else 'es'} completed."
+
+    return paragraph
+
+
+def _what_the_run_supports(project_root: Path) -> str | None:
+    """One line on how much of the run can be interpreted.
+
+    The convergence section reports this per observable. Saying it once at the
+    top is what stops a reader taking the results at face value and meeting
+    the caveat six pages later.
+    """
+    assessed = _assess_this_run(project_root)
+    if not assessed:
+        return None
+
+    records = list(assessed["observables"].values())
+    if not records:
+        return None
+
+    # The three states are exclusive, so the counts add up. A first version
+    # counted "settled" and "could not be judged" from overlapping conditions
+    # and reported three and six out of six.
+    total = len(records)
+    settled = sum(1 for r in records if r["settled"] is True)
+    drifting = sum(1 for r in records if r["settled"] is False)
+    unjudged = total - settled - drifting
+
+    what = "observable" if total == 1 else "observables"
+    if settled == total:
+        return (f"All {total} {what} assessed had settled; see Convergence "
+                "for the independent-sample counts behind each average.")
+
+    parts = []
+    if settled:
+        parts.append(f"{settled} had settled")
+    if drifting:
+        parts.append(f"{drifting} had not")
+    if unjudged:
+        parts.append(f"{unjudged} could not be judged from a run this length")
+    return (f"Of {total} {what} assessed, " + ", ".join(parts)
+            + "; see Convergence below before using any average from this run.")
+
+
+def _summary_section(phase_context: PhaseContext, project_root: Path) -> str:
+    """What this study was, before what the software is."""
+    said: list[str] = []
+
+    study = _study_in_one_paragraph(project_root)
+    if study:
+        said.append(study)
+        supports = _what_the_run_supports(project_root)
+        if supports:
+            said.append(supports)
+
+    if phase_context.is_analysis_from_existing_trajectory:
+        # Kept as it was: this one is about the study rather than the
+        # software, and a reader needs to know the trajectory was not produced
+        # here before reading anything measured from it.
+        said.append(
             "This report was generated from an existing trajectory. Setup and "
-            "simulation were not run in this workflow."
-        )
-    elif phase_context.analysis_present:
-        summary = (
-            "This report summarizes the FastMDXplora phases recorded for this "
-            "workflow."
-        )
-    else:
-        summary = (
-            "This report summarizes the available FastMDXplora outputs for "
-            "this workflow."
-        )
-    return f"## Summary\n\n{summary}"
+            "simulation were not run in this workflow.")
+    elif not said:
+        said.append(
+            "This report summarizes the FastMDXplora outputs recorded for "
+            "this workflow.")
+
+    return "## Summary\n\n" + " ".join(said)
 
 
 def _methods_section(project_root: Path, phase_context: PhaseContext) -> str:
@@ -330,12 +438,13 @@ def _last_numeric_column(path: Path) -> list[float]:
     return values
 
 
-def _convergence_section(project_root: Path) -> str:
-    """How much independent information the trajectory holds.
+def _assess_this_run(project_root: Path) -> dict[str, Any] | None:
+    """Everything this run says about whether it can be interpreted.
 
-    Placed after the results because it is about them: every mean and error
-    bar above rests on how many independent observations the run contains,
-    and that is usually far fewer than the frame count suggests.
+    Gathered in one place because two sections need it: the summary states in
+    one line how much of the run can be interpreted, and the convergence
+    section reports it per observable. Two gatherings would be two answers
+    the moment one of them learned to read a new file.
     """
     import csv
 
@@ -377,17 +486,30 @@ def _convergence_section(project_root: Path) -> str:
             series[name] = values
 
     if not series:
-        return ""
+        return None
 
     setup = _load_json_safely(project_root / "setup" / "setup_parameters.json") or {}
     sim = _load_json_safely(
         project_root / "simulation" / "simulation_parameters.json") or {}
-    assessed = assess_run(
+    return assess_run(
         series,
         duration_ns=sim.get("duration_ns_actual"),
         n_atoms=setup.get("n_atoms_solvated"),
         target_temperature_K=(sim.get("parameters") or {}).get("temperature_K"),
     )
+
+
+def _convergence_section(project_root: Path) -> str:
+    """How much independent information the trajectory holds.
+
+    Placed after the results because it is about them: every mean and error
+    bar above rests on how many independent observations the run contains,
+    and that is usually far fewer than the frame count suggests.
+    """
+    assessed = _assess_this_run(project_root)
+    if assessed is None:
+        return ""
+
 
     lines = ["## Convergence", ""]
     lines.append(
@@ -587,7 +709,7 @@ def build_document(
     header.append("_Dashboard: [dashboard.html](dashboard.html)_")
     sections.append("\n".join(header))
 
-    sections.append(_summary_section(phase_context))
+    sections.append(_summary_section(phase_context, project_root))
 
     if include_methods:
         sections.append(_methods_section(project_root, phase_context))

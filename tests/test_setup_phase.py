@@ -130,7 +130,7 @@ class TestResolveInput:
     def test_sequence_raises_not_implemented(self, tmp_path: Path):
         out_dir = tmp_path / "out"
         out_dir.mkdir()
-        with pytest.raises(NotImplementedError, match="Sequence-to-structure"):
+        with pytest.raises(NotImplementedError, match="structure predictor"):
             _resolve_input("MKTAYIA", "sequence", out_dir)
 
     def test_pdb_id_uses_urllib(self, tmp_path: Path):
@@ -460,7 +460,7 @@ class TestPipelineRun:
         assert "input.sequence" in artifacts
         manifest = json.loads((out_dir / "setup_parameters.json").read_text(encoding="utf-8"))
         assert manifest["input"]["form"] == "sequence"
-        assert any("Sequence" in n for n in manifest["notes"])
+        assert any("structure predictor" in n for n in manifest["notes"])
 
 
 # ===========================================================================
@@ -538,3 +538,49 @@ class TestRealSetup:
                 solvent_padding_nm=0.4,   # tiny box
                 nonbonded_cutoff_nm=1.5,  # cutoff > half the box
             )
+
+
+class TestTheSoftwareDoesNotAdvertiseWhatItCannotDo:
+    """A sequence is recognised and then refused, because building a structure
+    from one needs a predictor this software does not carry.
+
+    The message for an unrecognised input listed a one-letter sequence among
+    the accepted forms. Anyone reading it would try one and reach a
+    NotImplementedError two steps later, and the claim also found its way into
+    a manuscript describing the software.
+    """
+
+    def test_an_unrecognised_input_is_told_what_actually_works(self) -> None:
+        import pytest
+
+        from fastmdxplora.setup.pipeline import _classify_input
+
+        with pytest.raises(ValueError) as raised:
+            _classify_input("no-such-structure.xyz")
+
+        message = str(raised.value)
+        assert ".pdb" in message and "4-character PDB ID" in message
+        assert "or a one-letter amino-acid sequence." not in message
+
+    def test_and_told_that_a_sequence_is_not_one_of_them(self) -> None:
+        """Said rather than omitted, because a sequence is a reasonable thing
+        to try and silence about it is its own confusion."""
+        import pytest
+
+        from fastmdxplora.setup.pipeline import _classify_input
+
+        with pytest.raises(ValueError, match="cannot yet be built"):
+            _classify_input("no-such-structure.xyz")
+
+    def test_a_sequence_is_refused_with_what_to_do_instead(self) -> None:
+        import pytest
+
+        from fastmdxplora.setup.pipeline import _resolve_input
+
+        with pytest.raises(NotImplementedError) as raised:
+            _resolve_input("ACDEFGHIKLM", "sequence",
+                           __import__("pathlib").Path("/tmp"))
+
+        message = str(raised.value)
+        assert "structure predictor" in message
+        assert any(name in message for name in ("AlphaFold", "ESMFold"))
