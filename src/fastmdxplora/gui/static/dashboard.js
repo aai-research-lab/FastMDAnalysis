@@ -731,13 +731,15 @@
     // Categorised panels and quick actions, matching the generated report.
     // When the report phase has produced its curated charts these panels use
     // them; otherwise they fall back to each analysis's own figure.
-    const actions = Array.isArray(payload.quick_actions) ? payload.quick_actions : [];
+    // No report links here. The markdown report, the slides, the bundle and
+    // the analysis manifest are all deliverables of the report phase, and the
+    // Report tab lists every one of them with its size and date. Repeating
+    // four of them on this tab made this the place people looked, and the
+    // Report tab the place they did not.
     const actionHost = byId("analysis-quick-actions");
     if (actionHost) {
-      actionHost.innerHTML = actions.map((action) => `
-        <a class="ghost-btn" href="${escapeHTML(action.href)}" target="_blank" rel="noopener"
-           title="${escapeHTML(action.detail || "")}">${escapeHTML(action.label || "Open")}</a>`).join("");
-      actionHost.hidden = actions.length === 0;
+      actionHost.innerHTML = "";
+      actionHost.hidden = true;
     }
 
     const sections = Array.isArray(payload.analysis_sections) ? payload.analysis_sections : [];
@@ -919,25 +921,54 @@
       </article>`;
   }
 
+  const FILE_GROUPS = [
+    ["deliverables", "Reports and deliverables"],
+    ["simulation", "Simulation data"],
+    ["analysis", "Analysis data"],
+    ["figures", "Figures"],
+    ["record", "Run record"],
+  ];
+
   function renderFiles(payload) {
     const artifacts = Array.isArray(payload.artifacts) ? payload.artifacts : [];
-    const groups = {
-      "reports-files": Array.isArray(payload.reports) ? payload.reports : artifacts.filter((item) => item.path.startsWith("report/")),
-      "simulation-files": artifacts.filter((item) => item.path.startsWith("simulation/")),
-      "analysis-files": artifacts.filter((item) => item.path.startsWith("analysis/")),
-    };
-    Object.entries(groups).forEach(([id, files]) => {
-      const root = byId(id);
-      if (!root) return;
-      root.innerHTML = files.length
-        ? files.map(fileRowHtml).join("")
-        : '<div class="muted small">No files are available in this section yet.</div>';
-    });
+    const host = byId("file-groups");
+    if (!host) return;
+
+    const cards = FILE_GROUPS.map(([key, title]) => {
+      const files = artifacts.filter((item) => (item.group || "record") === key);
+      if (!files.length) return "";
+      // The run record is mostly scratch and manifests -- worth keeping, not
+      // worth putting between somebody and the trajectory.
+      const folded = key === "record";
+      const bytes = files.reduce((total, item) => total + (parseInt(item.size, 10) || 0), 0);
+      const rows = files.map(fileRowHtml).join("");
+      const body = folded
+        ? `<details class="file-fold"><summary>${files.length} files, ${escapeHTML(humanSize(bytes))}</summary>${rows}</details>`
+        : rows;
+      return `
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">${escapeHTML(title)}</h2>
+            <span class="muted small mono">${files.length} · ${escapeHTML(humanSize(bytes))}</span>
+          </div>
+          <div class="files-list">${body}</div>
+        </div>`;
+    }).filter(Boolean);
+
+    host.innerHTML = cards.length
+      ? cards.join("")
+      : '<div class="card"><div class="muted small">This run has not written any files yet.</div></div>';
     wireCopyActions();
   }
 
   function fileRowHtml(file) {
-    const title = file.name || file.path || "Artifact";
+    // What the file is, above where it lives. A reader deciding whether to
+    // download 85 MB should not have to know that `production.dcd` is the
+    // trajectory, or that of sixteen files called `options.json` this one
+    // belongs to rmsd.
+    const within = String(file.path || "").split("/").slice(1).join("/");
+    const title = file.label || within || file.name || "Artifact";
+    const subtitle = within && within !== title ? within : "";
     const size = file.size != null ? humanSize(parseInt(file.size, 10)) : "—";
     const mtime = file.mtime != null
       ? new Date(parseFloat(file.mtime) * 1000).toLocaleString()
@@ -947,6 +978,7 @@
     return `
       <div class="file-row" data-path="${escapeAttr(file.absolute_path || file.path || "")}">
         <div class="file-title" title="${escapeAttr(file.path || "")}">${escapeHTML(title)}</div>
+        ${subtitle ? `<div class="file-subtitle mono">${escapeHTML(subtitle)}</div>` : ""}
         <div class="file-meta">
           <span>${escapeHTML(size)}</span>
           <span class="muted">${escapeHTML(mtime)}</span>

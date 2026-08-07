@@ -757,17 +757,14 @@
             <div class="summary-grid mono" id="summary-grid"></div>
           </div>
 
-          <div class="card">
-            <div class="card-header"><h2 class="card-title">Reports</h2></div>
-            <div class="files-list" data-fileset="reports" id="reports-files"></div>
-          </div>
-          <div class="card">
-            <div class="card-header"><h2 class="card-title">Simulation files</h2></div>
-            <div class="files-list" data-fileset="simulation" id="simulation-files"></div>
-          </div>
-          <div class="card">
-            <div class="card-header"><h2 class="card-title">Analysis files</h2></div>
-            <div class="files-list" data-fileset="analysis" id="analysis-files"></div>
+          <!-- Grouped by what a reader came for, not by which directory the
+               file happens to sit in. The cards are built from the payload so
+               a group with nothing in it does not appear at all. -->
+          <div id="file-groups"></div>
+          <div hidden>
+            <div class="files-list" id="reports-files"></div>
+            <div class="files-list" id="simulation-files"></div>
+            <div class="files-list" id="analysis-files"></div>
           </div>
         </section>
 

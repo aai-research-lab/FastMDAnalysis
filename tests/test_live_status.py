@@ -1116,3 +1116,102 @@ class TestTheViewerRespondsToClicksAndToggles:
 
         assert "HOH" not in plain and "BNZ" in plain
         assert "HOH" in full and "BNZ" in full
+
+
+class TestTheFileListCanBeReadWithoutGuessing:
+    def _text(self, name: str) -> str:
+        base = Path(protein_preview.__file__).parent
+        folder = "templates" if name.endswith(".html") else "static"
+        return (base / folder / name).read_text(encoding="utf-8")
+
+    def test_a_row_names_the_file_within_its_group(self) -> None:
+        """Sixteen analyses each write an `options.json`. Listed by bare
+        filename they were sixteen identical rows, told apart only by their
+        byte counts -- and the payload already carried the path that
+        distinguishes them."""
+        js = self._text("dashboard.js")
+        row = js.split("function fileRowHtml(file) {", 1)[1].split("\n  }", 1)[0]
+        assert 'String(file.path || "").split("/").slice(1)' in row
+        assert row.index("within") < row.index("file.name")
+
+    def test_the_payload_carries_the_path_that_distinguishes_them(
+        self, tmp_path: Path
+    ) -> None:
+        from fastmdxplora.gui.server import _artifact_records
+
+        for analysis in ("rmsd", "rmsf"):
+            target = tmp_path / "analysis" / analysis
+            target.mkdir(parents=True)
+            (target / "options.json").write_text("{}", encoding="utf-8")
+
+        paths = {record["path"] for record in _artifact_records(tmp_path)}
+        assert paths == {"analysis/rmsd/options.json", "analysis/rmsf/options.json"}
+        # The names alone do not tell them apart, which is what the row used
+        # to show.
+        assert {record["name"] for record in _artifact_records(tmp_path)} == {
+            "options.json"
+        }
+
+    def test_the_viewer_scratch_is_folded_away(self) -> None:
+        """The live page writes a rolling PDB history as it goes. Sixty-four
+        of them listed flat buried the trajectory, the checkpoint and the
+        final state. They now land in the run record, which folds as a whole
+        -- the same treatment for the same reason, applied to manifests and
+        options files too."""
+        from fastmdxplora.gui.server import _artifact_label
+
+        label, group = _artifact_label(
+            "simulation/live_frames/frame_000001_nvt_000000001000.pdb"
+        )
+        assert group == "record"
+        assert "scratch" in label.lower()
+
+        js = self._text("dashboard.js")
+        assert 'key === "record"' in js
+        assert "file-fold" in js
+        assert ".file-fold" in self._text("dashboard.css")
+
+    def test_a_row_says_what_the_file_is(self) -> None:
+        """Deciding whether to download 85 MB should not require knowing that
+        `production.dcd` is the trajectory."""
+        from fastmdxplora.gui.server import _artifact_label
+
+        assert _artifact_label("simulation/production.dcd") == (
+            "Production trajectory", "simulation",
+        )
+        assert _artifact_label("report/report.pdf")[0] == "Report (PDF)"
+        assert _artifact_label("analysis/rmsd/options.json")[0] == "rmsd: options used"
+
+    def test_the_groups_are_purposes_not_directories(self) -> None:
+        """`production.dcd` and the dashboard's own scratch shared a group
+        because they share a folder."""
+        from fastmdxplora.gui.server import _artifact_label
+
+        assert _artifact_label("simulation/production.dcd")[1] == "simulation"
+        assert _artifact_label("simulation/live_status.json")[1] == "record"
+        assert _artifact_label("analysis/rmsd/rmsd.png")[1] == "figures"
+        assert _artifact_label("analysis/rmsd/rmsd.dat")[1] == "analysis"
+
+    def test_the_record_is_kept_rather_than_hidden(self, tmp_path: Path) -> None:
+        from fastmdxplora.gui.server import _artifact_records
+
+        scratch = tmp_path / "simulation" / "live_frames"
+        scratch.mkdir(parents=True)
+        (scratch / "frame_000001_nvt_000000001000.pdb").write_text("x", encoding="utf-8")
+
+        records = _artifact_records(tmp_path)
+        assert len(records) == 1
+        assert records[0]["group"] == "record"
+        assert records[0]["href"].startswith("/artifacts/")
+
+    def test_the_analysis_tab_does_not_offer_the_report(self) -> None:
+        """The markdown report, slides, bundle and analysis manifest are the
+        report phase's deliverables, and the Report tab lists all of them with
+        size and date. Four of them repeated here made this the place people
+        looked."""
+        js = self._text("dashboard.js")
+        section = js.split("function renderAnalysisSections(payload) {", 1)[1].split(
+            "\n  function ", 1
+        )[0]
+        assert "quick_actions" not in section
+        assert "actionHost.hidden = true" in section

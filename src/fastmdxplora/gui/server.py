@@ -839,6 +839,7 @@ def _artifact_records(root: Path) -> list[dict[str, str]]:
             continue
         if "__pycache__" in path.parts:
             continue
+        label, group = _artifact_label(rel)
         records.append(
             {
                 "path": rel,
@@ -850,6 +851,8 @@ def _artifact_records(root: Path) -> list[dict[str, str]]:
                 "size": str(path.stat().st_size),
                 "mtime": str(path.stat().st_mtime),
                 "display_path": _compact_path(rel),
+                "label": label,
+                "group": group,
             }
         )
     return records
@@ -1250,6 +1253,71 @@ def _safe_float_value(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+#: What a reader is looking for when they open the Report tab, in the order
+#: they are likely to want it. Grouping by top-level directory instead put the
+#: trajectory beside the dashboard's own scratch, and sorted everything by
+#: filename -- so finding `production.dcd` meant knowing it was called that.
+ARTIFACT_GROUPS = (
+    ("deliverables", "Reports and deliverables"),
+    ("simulation", "Simulation data"),
+    ("analysis", "Analysis data"),
+    ("figures", "Figures"),
+    ("record", "Run record"),
+)
+
+#: Files whose purpose is not guessable from the name.
+_ARTIFACT_LABELS = {
+    "report/report.pdf": ("Report (PDF)", "deliverables"),
+    "report/report.md": ("Report (Markdown)", "deliverables"),
+    "report/slides.pptx": ("Slide deck", "deliverables"),
+    "report/slides_outline.md": ("Slide outline", "deliverables"),
+    "report/dashboard.html": ("Standalone dashboard", "deliverables"),
+    "report/project_bundle.zip": ("Everything, zipped", "deliverables"),
+    "simulation/production.dcd": ("Production trajectory", "simulation"),
+    "simulation/topology.pdb": ("Simulated system, solvated", "simulation"),
+    "simulation/state_final.xml": ("Final state: positions, velocities, box", "simulation"),
+    "simulation/state_minimized.xml": ("State after minimisation", "simulation"),
+    "simulation/checkpoint.chk": ("Checkpoint: resume the run from here", "simulation"),
+    "simulation/energy.csv": ("Energy log written by OpenMM", "simulation"),
+    "simulation/playback.pdb": ("Trajectory prepared for the viewer", "record"),
+    "simulation/simulation.log": ("Simulation log", "record"),
+    "simulation/simulation_parameters.json": ("Settings this simulation used", "record"),
+    "analysis/analysis_manifest.json": ("What each analysis produced", "record"),
+    "manifest.json": ("What each phase produced", "record"),
+    "resolved_config.yml": ("The configuration this run resolved to", "record"),
+}
+
+#: Where a name says enough on its own, with the extension deciding the group.
+_ARTIFACT_SUFFIXES = {
+    ".png": ("figure (PNG)", "figures"),
+    ".svg": ("figure (SVG)", "figures"),
+    ".dat": ("data", "analysis"),
+    ".csv": ("data (CSV)", "analysis"),
+    ".npy": ("array", "analysis"),
+}
+
+
+def _artifact_label(rel: str) -> tuple[str, str]:
+    """A description a reader can act on, and the group it belongs in."""
+    named = _ARTIFACT_LABELS.get(rel)
+    if named:
+        return named
+
+    path = Path(rel)
+    if "live_frames" in path.parts or path.name.startswith("live_"):
+        return (f"Live viewer scratch: {path.name}", "record")
+    if path.name == "options.json":
+        # The analysis it belongs to is its parent directory, and sixteen of
+        # these listed by name were indistinguishable.
+        return (f"{path.parent.name}: options used", "record")
+
+    described, group = _ARTIFACT_SUFFIXES.get(path.suffix.lower(), ("", ""))
+    if described:
+        stem = path.stem.replace("_", " ")
+        return (f"{stem}: {described}", group)
+    return (path.name, "record")
 
 
 def _system_name(root: Path, manifest: dict[str, Any]) -> str:

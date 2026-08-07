@@ -2232,3 +2232,27 @@ body.state-ready .loading-screen {
     min-height: 0;
     height: auto;
 }
+
+/* The rolling viewer history, folded. Sixty-four near-identical PDBs listed
+   flat buried the trajectory, the checkpoint and the final state among them;
+   they are still reachable, just not first. */
+.file-fold {
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    margin-top: 8px;
+}
+.file-fold > summary {
+    padding: 10px 12px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+}
+.file-fold > summary:hover { color: var(--accent-white); }
+.file-fold[open] > summary { border-bottom: 1px solid var(--border-subtle); }
+.file-subtitle {
+    color: var(--text-muted);
+    font-size: 11px;
+    margin-top: 2px;
+    word-break: break-all;
+}
