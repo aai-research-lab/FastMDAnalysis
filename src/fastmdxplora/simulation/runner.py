@@ -19,6 +19,8 @@ module does not.
 
 from __future__ import annotations
 
+import time as _time
+
 import csv
 import math
 import shutil
@@ -571,16 +573,46 @@ def _run_md_stage(
     n_steps: int,
     label: str,
     on_progress: Callable[[str], None] | None = None,
+    on_step_progress: Callable[..., None] | None = None,
+    timestep_fs: float | None = None,
 ) -> None:
     """Run ``n_steps`` of MD. Skips cleanly if ``n_steps <= 0``."""
     if n_steps <= 0:
         return
     if on_progress:
         on_progress(f"{label}: {n_steps:,} steps")
-    try:
-        simulation.step(int(n_steps))
-    except Exception as exc:  # noqa: BLE001
-        raise _validation_error(label, f"OpenMM integration failed ({exc})") from exc
+
+    # Stepped in chunks so the run can say how far through it is. A single
+    # blocking call to step() printed the count and then nothing until the
+    # stage finished, which for production is half an hour of a terminal that
+    # looks exactly like a hung one. The chunk is a fiftieth of the stage,
+    # bounded so that a short stage still reports and a long one does not pay
+    # for the interruption: OpenMM's overhead per call is small beside the
+    # steps in it, and at a fiftieth it is under a percent.
+    total = int(n_steps)
+    chunk = min(max(total // 50, 1), 5000)
+    done = 0
+    started = _time.monotonic()
+    while done < total:
+        this = min(chunk, total - done)
+        try:
+            simulation.step(this)
+        except Exception as exc:  # noqa: BLE001
+            raise _validation_error(
+                label, f"OpenMM integration failed ({exc})") from exc
+        done += this
+        if on_step_progress is not None:
+            elapsed = _time.monotonic() - started
+            rate = None
+            left = None
+            if elapsed > 0:
+                steps_per_second = done / elapsed
+                if timestep_fs and steps_per_second > 0:
+                    ns_per_day = (steps_per_second * timestep_fs * 1e-6
+                                  * 86_400)
+                    rate = ns_per_day
+                    left = (total - done) / steps_per_second
+            on_step_progress(label, done, total, rate, left)
 
 
 def _run_md_stage_with_live_metrics(
@@ -746,6 +778,7 @@ def run_simulation(
     telemetry_interval: int = DEFAULT_STATE_INTERVAL_STEPS,
     # Hooks
     on_progress: Callable[[str], None] | None = None,
+    on_step_progress: Callable[..., None] | None = None,
     # Enhanced sampling
     plumed: dict[str, Any] | None = None,
     restrain: Any = None,
@@ -1041,6 +1074,16 @@ def run_simulation(
             current_checkpoint_path=(output_dir / "checkpoint.chk").as_posix(),
         )
 
+    def _bar(label: str, done: int, total: int, rate, left) -> None:
+        """Show how far through a stage the run is, without logging it.
+
+        Deliberately not written to the run log: a bar is for somebody
+        watching, and a file full of the same line at one per cent intervals
+        is noise where the log's job is to record what happened.
+        """
+        if on_step_progress is not None:
+            on_step_progress(label, done, total, rate, left)
+
     def _log_step(msg: str) -> None:
         log_fh.write(msg + "\n")
         log_fh.flush()
@@ -1134,6 +1177,8 @@ def run_simulation(
                 n_steps=plan["nvt_steps"],
                 label="NVT equilibration",
                 on_progress=_log_step,
+                on_step_progress=_bar,
+                timestep_fs=timestep_fs,
             )
             current_step += plan["nvt_steps"]
         _validate_state_finite(omm, simulation, stage="NVT equilibration")
@@ -1190,6 +1235,8 @@ def run_simulation(
                     n_steps=plan["npt_steps"],
                     label="NPT equilibration",
                     on_progress=_log_step,
+                    on_step_progress=_bar,
+                    timestep_fs=timestep_fs,
                 )
                 current_step += plan["npt_steps"]
             _validate_state_finite(omm, simulation, stage="NPT equilibration")
@@ -1273,6 +1320,8 @@ def run_simulation(
                 n_steps=plan["production_steps"],
                 label="Production",
                 on_progress=_log_step,
+                on_step_progress=_bar,
+                timestep_fs=timestep_fs,
             )
             current_step += plan["production_steps"]
 

@@ -314,7 +314,11 @@ class TestDashboard:
         assert '<aside class="sidebar">' in text
         assert "Run Progress" in text
         assert "Live Simulation" in text
-        assert "Live simulation telemetry was not recorded for this run" in text
+        # The message used to advise starting the dashboard during a
+        # simulation, which is what somebody reading it has just done.
+        # It names the setting that was off instead.
+        assert "did not record live telemetry" in text
+        assert "live_telemetry" in text
         assert "Top Metrics" in text
         assert "Recent Outputs" in text
         assert "Quick Actions" in text
@@ -2372,3 +2376,43 @@ class TestSettledIsNotTheSameAsSampled:
 
         assert "too few" not in said
         assert "enough independent samples" in said
+class TestReproducibilitySaysWhatItReproduces:
+    """Rerunning a configuration gives an equivalent study, not an identical
+    one. Solvation places water by a procedure with no seed -- OpenMM's
+    `addSolvent` takes none -- so the same file run twice gave 37,251 atoms
+    and then 37,763, with `random_seed` fixed both times. The seed fixes the
+    dynamics; it cannot fix the solvent.
+
+    Worth stating where somebody reads the run's provenance, because the
+    section otherwise implies the file is enough.
+    """
+
+    def test_the_section_says_what_a_rerun_gives(self) -> None:
+        import inspect
+
+        from fastmdxplora.report import document
+
+        source = inspect.getsource(document._reproducibility_section)
+        assert "equivalent study and" in source
+        assert "cannot be seeded" in source
+
+    def test_and_names_the_way_to_repeat_it_exactly(self) -> None:
+        """Which the software supports: simulate from the prepared system
+        rather than preparing another."""
+        import inspect
+
+        from fastmdxplora.report import document
+
+        source = inspect.getsource(document._reproducibility_section)
+        assert "prepared_from" in source
+
+    def test_it_is_only_said_where_a_system_was_prepared(self) -> None:
+        """An analysis of a supplied trajectory did not solvate anything."""
+        import inspect
+
+        from fastmdxplora.report import document
+
+        source = inspect.getsource(document._reproducibility_section)
+        block = source[source.index("What rerunning") - 200:]
+        assert "phase_context.setup_present" in source[:source.index("What rerunning")]
+

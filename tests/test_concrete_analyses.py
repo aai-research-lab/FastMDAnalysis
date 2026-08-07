@@ -2474,16 +2474,44 @@ class TestSASAReportsWhatVersionOneReported:
         assert _unwritten_frames(truncated).tolist() == [len(areas) - 1]
         assert _unwritten_frames(areas).size == 0
 
-    def test_a_residue_buried_throughout_is_left_alone(self) -> None:
-        """Exact zero means every test point was occluded. A residue that is
-        enclosed stays enclosed; one that is exposed in five frames and
-        completely enclosed in the sixth was not measured, it was not
-        written."""
+    def test_a_protein_with_buried_residues_is_left_alone(self) -> None:
+        """The reason the first version of this check was wrong, and the case
+        it broke.
+
+        A deeply buried residue has a surface area of exactly zero, and
+        flickers between zero and a little above it as the structure breathes.
+        Asking whether a residue was exposed in some frames and zero in others
+        is therefore true of every buried residue in every protein: it refused
+        a solvated T4 lysozyme outright, five attempts and eighty seconds
+        before giving up, on a run that was perfectly good.
+        """
         from fastmdxplora.analysis.sasa import _unwritten_frames
 
-        areas = self._areas()
-        areas[:, 2] = 0.0
-        assert _unwritten_frames(areas).size == 0
+        rng = np.random.RandomState(0)
+        protein = rng.uniform(0.2, 2.0, size=(200, 160)).astype(np.float32)
+        buried = rng.choice(160, 24, replace=False)
+        protein[:, buried] = np.where(
+            rng.uniform(size=(200, 24)) < 0.7, 0.0,
+            rng.uniform(0, 0.05, size=(200, 24)))
+
+        assert _unwritten_frames(protein).size == 0
+
+    def test_a_wholly_buried_set_is_left_alone(self) -> None:
+        """Every residue at zero in every frame is a strange system, not an
+        unwritten one: nothing stands out against the rest."""
+        from fastmdxplora.analysis.sasa import _unwritten_frames
+
+        assert _unwritten_frames(np.zeros((10, 40), dtype=np.float32)).size == 0
+
+    def test_a_row_wiped_in_the_middle_is_caught(self) -> None:
+        """The fault is not confined to the last frame."""
+        from fastmdxplora.analysis.sasa import _unwritten_frames
+
+        rng = np.random.RandomState(0)
+        areas = rng.uniform(0.2, 2.0, size=(50, 40)).astype(np.float32)
+        areas[7] = 0.0
+
+        assert _unwritten_frames(areas).tolist() == [7]
 
     def test_a_truncated_answer_is_computed_again(self, monkeypatch) -> None:
         """The second call returns the frame fully written, and it agrees with

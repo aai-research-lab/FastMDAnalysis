@@ -492,7 +492,8 @@ def test_dashboard_html_has_aai_branding(tmp_path: Path) -> None:
     assert "/static/3Dmol-min.js" in html
 
     # Pages
-    for page in ("overview", "live", "viewer", "analysis", "files", "settings"):
+    # "live" was a page of its own; its panels are on the overview now.
+    for page in ("overview", "viewer", "analysis", "files", "settings", "cite"):
         assert f'data-page="{page}"' in html
 
     # Loading screen + branded particles
@@ -501,14 +502,17 @@ def test_dashboard_html_has_aai_branding(tmp_path: Path) -> None:
     # No CDN references
     assert "cdn" not in html.lower()
     assert "googleapis" not in html.lower()
-    # The documentation + GitHub sidebar links are the only legitimate
-    # external refs, both harmless but explicit.
+    # The documentation, GitHub and DOI links are the only legitimate external
+    # refs. Listed explicitly and counted, so that anything else added later
+    # has to be argued for here rather than appearing quietly -- which is the
+    # point of the count, not the number itself.
     for allowed in (
         "https://fastmdxplora.readthedocs.io",
         "https://github.com/aai-research-lab/FastMDXplora",
+        "https://doi.org/",
     ):
         assert allowed in html
-    assert html.count("https://") == 2
+    assert html.count("https://") == 3
 
 
 def test_dashboard_css_uses_black_scientific_palette() -> None:
@@ -1130,7 +1134,8 @@ def test_run_dependent_nav_sections_are_marked(tmp_path: Path) -> None:
         server.shutdown()
         server.server_close()
 
-    for view in ("overview", "live", "viewer", "analysis", "files"):
+    # "live" was a view of its own; its panels are on the overview now.
+    for view in ("overview", "viewer", "analysis", "files"):
         assert f'data-view-link="{view}" data-requires-run="true"' in html
     # The builder is always reachable; it is what an empty workspace needs.
     assert 'data-view-link="builder" data-requires-run' not in html
@@ -1276,7 +1281,9 @@ def test_overview_hosts_the_report_panels(tmp_path: Path) -> None:
     # Both tables carry the statistics columns the report shows.
     assert "Std. dev." in html
     assert "Trajectory statistics" in html
-    assert "Exploration progress" in html
+    # Renamed when the live panels joined this page: one card is a bar for the
+    # running stage and the other a table of phases, and both were "progress".
+    assert "Phases" in html
 
     import fastmdxplora.gui as gui_pkg
 
@@ -3971,3 +3978,392 @@ class TestASettingsBlockCanBeWrittenInTheBrowser:
         described = PHASE_SCHEMAS["simulation"].get("metadynamics").help
         for variable in COLLECTIVE_VARIABLES:
             assert variable in described, variable
+
+
+class TestTheBannerSaysHowToWatchTheRun:
+    """It computed the dashboard address and discarded it, on the reasoning
+    that the GUI prints its own -- true while a server is running, and no help
+    to somebody who has just started a run and wants to see it."""
+
+    def test_it_names_the_command_where_no_server_is_running(self) -> None:
+        import inspect
+
+        from fastmdxplora.utils import presenter
+
+        source = inspect.getsource(presenter)
+        assert 'kv("Watch", f"fastmdx gui --output {output}"' in source
+
+    def test_and_the_address_where_one_is(self) -> None:
+        """A bare URL printed for a server nobody started points at nothing."""
+        import inspect
+
+        from fastmdxplora.utils import presenter
+
+        source = inspect.getsource(presenter)
+        watch = source[source.index('if dashboard_enabled:'):]
+        assert 'kv("Watch", dashboard_link' in watch[:200]
+
+
+class TestTheLiveTabDoesNotPretendToHaveData:
+    """Opened on a run that recorded no telemetry, the page rendered its whole
+    apparatus with every field reading "not available": current stage, current
+    step, total planned steps, frames written, simulation time, elapsed time,
+    checkpoint, last update. Twelve of them.
+
+    And it explained the absence by advising the reader to start the dashboard
+    during a simulation -- which is what somebody looking at that page has
+    just done. Telemetry is written only when a run asks for it, and that is
+    off by default, so the advice sent them to repeat what had already failed.
+    """
+
+    def test_the_reason_names_the_setting(self) -> None:
+        from fastmdxplora.gui.telemetry import analyze_health
+
+        health = analyze_health({}, [])
+        explanation = health["explanation"]
+
+        assert "live_telemetry" in explanation
+        assert "off by default" in explanation
+        assert "during a simulation to monitor progress" not in explanation
+
+    def test_it_names_a_flag_that_exists(self) -> None:
+        """The first attempt at this message invented `--simulate-live-
+        telemetry` from the schema's prefix. The flag is `--live-telemetry`."""
+        from fastmdxplora.cli.main import _build_parser
+        from fastmdxplora.gui.telemetry import analyze_health
+
+        parser = _build_parser()
+        simulate = parser._subparsers._group_actions[0].choices["simulate"]
+        real = {option for action in simulate._actions
+                for option in action.option_strings}
+
+        import re
+
+        explanation = analyze_health({}, [])["explanation"]
+        # A word starting with two hyphens and then a letter. The prose uses
+        # a bare "--" as a dash, which a looser match reads as a flag.
+        named = re.findall(r"--[a-z][a-z0-9-]+", explanation)
+        assert named, "the explanation names no flag"
+        for flag in named:
+            assert flag in real, f"{flag} is not a flag this software has"
+
+    def test_the_panels_are_hidden_when_there_is_nothing_to_read(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        script = (pathlib.Path(server.__file__).parent / "static"
+                  / "dashboard.js").read_text(encoding="utf-8")
+        block = script[script.index("function renderLiveProgress"):][:1200]
+
+        assert "live-panels" in block and "live-absent" in block
+        assert "if (nothing) return;" in block
+
+    def test_and_the_page_has_somewhere_to_put_the_reason(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        markup = (pathlib.Path(server.__file__).parent / "templates"
+                  / "dashboard.html").read_text(encoding="utf-8")
+        assert 'id="live-absent"' in markup
+        assert 'id="live-panels"' in markup
+
+
+class TestTheGUICitesTheSoftware:
+    """The report, the slides and `fastmdx info` all print the citation and
+    the GUI printed none -- so the interface the documentation sends a new
+    user to first was the one that never said how to cite the work."""
+
+    def test_the_live_page_carries_it(self, tmp_path: Path) -> None:
+        from fastmdxplora import __citation__, __doi__
+
+        run = tmp_path / "run"
+        writer = TelemetryWriter(run / "simulation")
+        writer.write_status(stage="NVT")
+        server, base_url = start_test_server(run)
+        try:
+            html = urlopen(f"{base_url}/", timeout=5).read().decode("utf-8")
+        finally:
+            server.shutdown()
+            server.server_close()
+
+        assert 'data-page="cite"' in html
+        assert __doi__ in html
+        assert __citation__.split(".")[0] in html
+
+    def test_it_is_injected_rather_than_written_into_the_template(self) -> None:
+        """Hardcoding it would put a fourth copy beside the report's, the
+        slides' and the CLI's, free to drift from all three."""
+        from fastmdxplora.gui.server import _load_template
+
+        template = _load_template()
+        assert "__FASTMDX_CITATION__" in template
+        assert "Aina" not in template, (
+            "the citation is filled by the server, not stored in the page")
+
+    def test_the_bibtex_is_there_to_be_taken(self) -> None:
+        from fastmdxplora.gui.server import _load_template
+
+        template = _load_template()
+        assert "__FASTMDX_BIBTEX__" in template
+        assert 'id="cite-copy"' in template
+
+    def test_one_bibtex_entry_serves_every_surface(self) -> None:
+        """There were two copies, in the report and in the GUI, and a third
+        was very nearly added: the page was storing the entry rather than
+        being given it, which the test above caught."""
+        import pathlib
+
+        from fastmdxplora import __bibtex__, __doi__
+
+        assert __doi__ in __bibtex__
+
+        root = pathlib.Path(__file__).resolve().parents[1] / "src"
+        holders = [f for f in root.rglob("*")
+                   if f.suffix in {".py", ".html"}
+                   and f.name != "__init__.py"
+                   and "@article{aina2026fastmd" in f.read_text(encoding="utf-8")]
+        assert holders == [], (
+            f"the BibTeX entry is written out in {[f.name for f in holders]} "
+            "as well as in __init__.py")
+
+    def test_the_report_dashboard_carries_it_too(self) -> None:
+        import inspect
+
+        from fastmdxplora.gui import report_dashboard
+
+        source = inspect.getsource(report_dashboard._render_dashboard)
+        assert "__citation__" in source
+        assert "citation_html" in source
+
+
+class TestTheGUIAsksToBeCited:
+    """The citation page existed and was the last item in the sidebar,
+    beneath Documentation and GitHub, under a heading reading Tools -- so the
+    one thing a scientific tool most needs its user to find was placed after
+    the two links that navigate away from it.
+    """
+
+    @staticmethod
+    def _markup():
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        return (pathlib.Path(server.__file__).parent / "templates"
+                / "dashboard.html").read_text(encoding="utf-8")
+
+    def test_cite_comes_before_the_links_that_leave(self) -> None:
+        import re
+
+        markup = self._markup()
+        nav = markup[markup.index("<nav"):markup.index("</nav>")]
+        order = re.findall(r"<span>([^<]+)</span>", nav)
+
+        assert order.index("Cite") < order.index("Documentation")
+        assert order.index("Cite") < order.index("GitHub")
+
+    def test_every_page_carries_the_reminder(self) -> None:
+        """The sidebar footer shows on all of them, so the request does too."""
+        markup = self._markup()
+        footer = markup[markup.index('class="sidebar-footer"'):]
+        assert 'data-view-link="cite"' in footer[:600]
+
+    def test_the_page_itself_carries_the_reference_and_the_doi(self) -> None:
+        markup = self._markup()
+        assert "__FASTMDX_CITATION__" in markup
+        assert "__FASTMDX_DOI__" in markup
+
+    def test_and_the_server_fills_them_in(self) -> None:
+        """A placeholder that reaches the browser unreplaced is worse than
+        no citation at all."""
+        import inspect
+
+        from fastmdxplora.gui import server
+
+        source = inspect.getsource(server)
+        assert '"__FASTMDX_CITATION__"' in source
+        assert '"__FASTMDX_DOI__"' in source
+
+
+class TestOnePageForOneRun:
+    """Overview and Live Simulation showed the same run, and the top bar
+    showed it a third time: three places to look for one answer, and neither
+    page complete on its own.
+
+    They are one page now, with what is happening at the top and what has been
+    recorded beneath it.
+    """
+
+    @staticmethod
+    def _markup():
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        return (pathlib.Path(server.__file__).parent / "templates"
+                / "dashboard.html").read_text(encoding="utf-8")
+
+    def test_there_is_no_separate_live_page(self) -> None:
+        markup = self._markup()
+        assert 'data-page="live"' not in markup
+        assert 'data-view-link="live"' not in markup
+
+    def test_the_live_panels_are_on_the_overview(self) -> None:
+        """Moved rather than rebuilt, so every identifier the script reads is
+        where it was."""
+        import re
+
+        markup = self._markup()
+        start = markup.index('<section class="page" data-page="overview"')
+        end = markup.index('<section class="page"', start + 10)
+        overview = markup[start:end]
+
+        for identifier in ("live-panels", "live-absent", "live-progress-fill",
+                           "live-stage-cell", "live-health-message",
+                           "events-list"):
+            assert f'id="{identifier}"' in overview, identifier
+
+    def test_what_is_happening_comes_before_what_was_recorded(self) -> None:
+        """A page opened during a run answered "is it running, and how far"
+        below a table of phases that had already finished."""
+        import re
+
+        markup = self._markup()
+        start = markup.index('<section class="page" data-page="overview"')
+        end = markup.index('<section class="page"', start + 10)
+        cards = re.findall(r'card-title">([^<]+)<', markup[start:end])
+
+        assert cards.index("Simulation progress") < cards.index("Phases")
+        assert cards.index("Live charts") < cards.index("Trajectory statistics")
+
+    def test_the_two_progress_cards_say_which_is_which(self) -> None:
+        """One is a bar for the running stage, the other a table of phases.
+        Both were called progress."""
+        markup = self._markup()
+        assert 'card-title">Simulation progress<' in markup
+        assert 'card-title">Phases<' in markup
+        assert 'card-title">Exploration progress<' not in markup
+
+    def test_opening_the_overview_starts_the_polling(self) -> None:
+        """It was keyed to opening a page that no longer exists, so nothing
+        would have started."""
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        script = (pathlib.Path(server.__file__).parent / "static"
+                  / "dashboard.js").read_text(encoding="utf-8")
+        assert 'if (page === "overview") emit("live-page-opened"' in script
+
+
+class TestWatchingIsOnByDefault:
+    """The live dashboard could not show anything unless somebody knew to
+    turn on a setting called telemetry -- a word that elsewhere means data
+    sent to a vendor, and which here means four files in the run directory."""
+
+    def test_it_is_on(self) -> None:
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        assert PHASE_SCHEMAS["simulation"].get("live_telemetry").default is True
+
+    def test_and_says_what_it_costs(self) -> None:
+        """Measured at a tenth of a per cent, which is why there is no reason
+        to leave it off."""
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        described = PHASE_SCHEMAS["simulation"].get("live_telemetry").help
+        assert "tenth of a per cent" in described
+        assert "Nothing leaves the machine" in described
+
+
+class TestTheTrajectoryIsReadOnceAndQuietly:
+    """The GUI's terminal filled with
+
+        dcdplugin) detected standard 32-bit DCD file of native endianness
+        dcdplugin) CHARMM format DCD file (also NAMD 2.1 and later)
+
+    a pair every few seconds, for as long as it was open. The lines are VMD's
+    DCD plugin, which MDTraj wraps: it announces every file it opens on the
+    C-level file descriptor, where Python's logging cannot reach it.
+
+    The noise was the symptom. The cause was the viewer asking for the
+    playback payload with ``force=1`` whenever the browser did not already
+    hold one -- so every mount and every reload re-streamed the whole
+    trajectory to rebuild a file already sitting beside it.
+    """
+
+    def test_the_viewer_asks_for_the_cache_first(self) -> None:
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        script = (pathlib.Path(server.__file__).parent / "static"
+                  / "molecule-viewer.js").read_text(encoding="utf-8")
+        block = script[script.index("async function ensurePlaybackPayload"):][:600]
+
+        assert "requestPlaybackPayload(false)" in block, (
+            "force means the user asked for a rebuild, not that the browser "
+            "has not got it yet")
+
+    def test_a_second_request_does_not_reopen_the_file(self, tmp_path) -> None:
+        """The disk cache is keyed on the trajectory's size and modification
+        time, so an unchanged file is read once."""
+        import mdtraj as md
+
+        from fastmdxplora.gui import trajectory_playback as playback
+
+        run = _completed_run_with_trajectory(tmp_path)
+        opens = {"n": 0}
+        real = md.iterload
+
+        def counted(*args, **kwargs):
+            opens["n"] += 1
+            return real(*args, **kwargs)
+
+        md.iterload = counted
+        try:
+            for _ in range(4):
+                playback.playback_info(run, max_browser_frames=50, force=False)
+        finally:
+            md.iterload = real
+
+        assert opens["n"] == 1, (
+            f"the trajectory was opened {opens['n']} times for four requests")
+
+    def test_the_reader_does_not_write_to_the_terminal(self, tmp_path,
+                                                       capfd) -> None:
+        from fastmdxplora.gui import trajectory_playback as playback
+
+        run = _completed_run_with_trajectory(tmp_path)
+        playback.playback_info(run, max_browser_frames=50, force=False)
+
+        captured = capfd.readouterr()
+        assert "dcdplugin" not in captured.out
+        assert "dcdplugin" not in captured.err
+
+
+def _completed_run_with_trajectory(tmp_path):
+    """A run directory with a topology and a short production trajectory."""
+    import mdtraj as md
+    import numpy as np
+
+    sim = tmp_path / "simulation"
+    sim.mkdir(parents=True)
+
+    topology = md.Topology()
+    chain = topology.add_chain()
+    for index in range(4):
+        residue = topology.add_residue("ALA", chain, resSeq=index + 1)
+        for name, element in (("N", md.element.nitrogen), ("CA", md.element.carbon),
+                              ("C", md.element.carbon), ("O", md.element.oxygen)):
+            topology.add_atom(name, element, residue)
+
+    rng = np.random.RandomState(0)
+    xyz = (np.linspace(0, 1.6, topology.n_atoms)[None, :, None]
+           + rng.normal(0, 0.01, (30, topology.n_atoms, 3))).astype(np.float32)
+    traj = md.Trajectory(xyz, topology)
+    traj[0].save_pdb(str(sim / "topology.pdb"))
+    traj.save_dcd(str(sim / "production.dcd"))
+    return tmp_path

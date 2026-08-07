@@ -66,6 +66,18 @@ def _ansi_supported(stream: IO) -> bool:
     return bool(stream.isatty())
 
 
+def _readable_duration(seconds: float) -> str:
+    """A duration somebody can act on, rather than a float."""
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes, seconds = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{minutes}m{seconds:02d}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h{minutes:02d}m"
+
+
 def _strip_ansi(s: str) -> str:
     """Remove ANSI escape sequences. Used for width calculations."""
     out: list[str] = []
@@ -720,6 +732,15 @@ class SessionPresenter:
         kv("Version", version, "green")
         kv("Started", started, "green")
         kv("Platform", f"{platform} ({precision} precision)", "green")
+        # How to watch it. The banner computed this address and threw it away,
+        # on the reasoning that the GUI prints its own -- true when a server
+        # is running, and no help to somebody who has just started a run and
+        # wants to see it. Where no server is running, the command that starts
+        # one is the useful thing to print; a bare URL would point at nothing.
+        if dashboard_enabled:
+            kv("Watch", dashboard_link, "green")
+        else:
+            kv("Watch", f"fastmdx gui --output {output}", "green")
         # Only the phases this run includes. Announcing a million production
         # steps for a run that only analyses a trajectory is not a small
         # inaccuracy: it is the log saying the run did something it did not.
@@ -810,6 +831,57 @@ class SessionPresenter:
         self._write("")
         self._phase_start = None
         self._current_phase = None
+
+    def progress(
+        self,
+        label: str,
+        done: int,
+        total: int,
+        *,
+        rate_ns_per_day: float | None = None,
+        seconds_left: float | None = None,
+    ) -> None:
+        """Show how far through a stage the run is.
+
+        Molecular dynamics is the part that takes the time, and it used to
+        print the number of steps it was about to take and then nothing until
+        it finished -- half an hour of a terminal that looked identical to a
+        hung one.
+
+        On a terminal this rewrites one line. Where the output is a file --
+        which is where a worker's output goes when several run at once -- a
+        line of carriage returns is unreadable, so it prints at intervals
+        instead.
+        """
+        if self.quiet or total <= 0:
+            return
+
+        fraction = min(1.0, max(0.0, done / total))
+        parts = [f"{fraction * 100:5.1f}%"]
+        if rate_ns_per_day is not None and rate_ns_per_day > 0:
+            parts.append(f"{rate_ns_per_day:.2f} ns/day")
+        if seconds_left is not None and seconds_left > 0:
+            parts.append(f"{_readable_duration(seconds_left)} left")
+        trailer = "  ".join(parts)
+
+        if not _ansi_supported(self.stream):
+            # A file. Say something every tenth, and once at the end.
+            tenth = max(1, total // 10)
+            if done % tenth and done != total:
+                return
+            self._write(f"    {label}: {trailer}")
+            return
+
+        width = 28
+        filled = int(width * fraction)
+        bar = "\u2501" * filled + "\u2500" * (width - filled)
+        line = (f"    {self._c(bar, 'green' if fraction < 1 else 'cyan')} "
+                f"{trailer}  {label}")
+        self.stream.write("\r\x1b[2K" + line)
+        self.stream.flush()
+        if done >= total:
+            self.stream.write("\n")
+            self.stream.flush()
 
     def step(self, message: str, *, status: str = "ok",
              explain: str | None = None) -> None:

@@ -691,3 +691,68 @@ class TestTheBannerDescribesTheRunNotTheSoftware:
                       "SETUP", "pH", "Force Field",
                       "SIMULATION", "Timestep", "Temperature", "Production"):
             assert value in printed, f"the banner lost {value}"
+
+
+class TestTheRunSaysHowFarThroughItIs:
+    """Molecular dynamics is the part that takes the time, and it announced
+    how many steps it was about to take and then said nothing until the stage
+    ended: half an hour of a terminal that looked exactly like a hung one."""
+
+    class _Tty(io.StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    def test_a_terminal_gets_a_bar_on_one_line(self) -> None:
+        from fastmdxplora.utils.presenter import SessionPresenter
+
+        presenter = SessionPresenter(stream=self._Tty())
+        for done in (100, 500, 1000):
+            presenter.progress("Production", done, 1000)
+
+        written = presenter.stream.getvalue()
+        assert written.count("\r") == 3, "one line, rewritten"
+        assert written.count("\n") == 1, "a newline only when it finishes"
+
+    def test_it_reports_the_rate_and_what_is_left(self) -> None:
+        """ns/day is the number somebody running a simulation actually wants,
+        and the time remaining is what decides whether to wait."""
+        from fastmdxplora.utils.presenter import SessionPresenter
+
+        presenter = SessionPresenter(stream=self._Tty())
+        presenter.progress("Production", 250, 50_000,
+                           rate_ns_per_day=18.4, seconds_left=1776)
+
+        written = presenter.stream.getvalue()
+        assert "18.40 ns/day" in written
+        assert "29m36s left" in written
+
+    def test_a_file_gets_lines_rather_than_carriage_returns(self) -> None:
+        """Which is where a worker's output goes when several run at once. A
+        file full of one rewritten line is unreadable."""
+        from fastmdxplora.utils.presenter import SessionPresenter
+
+        presenter = SessionPresenter(stream=io.StringIO())
+        for done in range(1, 101):
+            presenter.progress("Production", done, 100)
+
+        written = presenter.stream.getvalue()
+        assert "\r" not in written
+        assert 5 <= written.count("\n") <= 12, "about one line per tenth"
+
+    def test_nothing_is_claimed_about_an_empty_stage(self) -> None:
+        from fastmdxplora.utils.presenter import SessionPresenter
+
+        presenter = SessionPresenter(stream=self._Tty())
+        presenter.progress("Production", 0, 0)
+        assert presenter.stream.getvalue() == ""
+
+    def test_a_stage_steps_in_chunks_so_it_can_report(self) -> None:
+        """A single blocking call to step() cannot say anything until it
+        returns."""
+        import inspect
+
+        from fastmdxplora.simulation import runner
+
+        source = inspect.getsource(runner._run_md_stage)
+        assert "while done < total:" in source
+        assert "on_step_progress(label, done, total" in source

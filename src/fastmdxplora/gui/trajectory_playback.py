@@ -222,60 +222,67 @@ def _generate_from_dcd(
     simulation_time_ns_total: float | None,
     source_signature: str,
 ) -> dict[str, Any]:
-    topology_traj = md.load_pdb(str(topology_path))
-    try:
-        display_atoms = topology_traj.topology.select("not water")
-    except Exception:
-        display_atoms = None
-    if display_atoms is not None and len(display_atoms) == 0:
-        display_atoms = None
+    # MDTraj reads DCDs through VMD's plugin, which announces every file it
+    # opens on the C-level file descriptor -- "dcdplugin) detected standard
+    # 32-bit DCD file" -- where Python's logging cannot reach it. Two lines
+    # per read, into the terminal of a server that reads on demand.
+    from fastmdxplora.utils.native_output import suppress_native_output
 
-    # Stream the DCD in bounded chunks.  Loading the complete production
-    # trajectory before downsampling can exhaust memory on realistic runs.
-    display_topology = topology_traj.topology
-    if display_atoms is not None and hasattr(topology_traj, "atom_slice"):
-        display_topology = topology_traj.atom_slice(display_atoms).topology
-    selected_traj = None
-    selected_indices: list[int] = []
-    total_seen = 0
-    if not hasattr(md, "iterload"):
-        # Keep lightweight test doubles and older MDTraj-compatible adapters
-        # working; real MDTraj uses the bounded streaming path below.
-        trajectory = md.load_dcd(
-            str(dcd_path),
-            top=topology_traj.topology,
-            atom_indices=display_atoms,
-        )
-        total_seen = int(trajectory.n_frames)
-        selected_indices = _even_indices(total_seen, max_browser_frames)
-        selected_traj = trajectory[selected_indices]
-    else:
-        for chunk in md.iterload(
-            str(dcd_path),
-            top=topology_traj.topology,
-            atom_indices=display_atoms,
-            chunk=1000,
-        ):
-            chunk_count = int(chunk.n_frames)
-            if chunk_count == 0:
-                continue
-            chunk_indices = list(range(total_seen, total_seen + chunk_count))
-            if selected_traj is None:
-                combined_xyz = chunk.xyz
-                combined_time = chunk.time
-                combined_indices = chunk_indices
-            else:
-                combined_xyz = np.concatenate((selected_traj.xyz, chunk.xyz), axis=0)
-                combined_time = np.concatenate((selected_traj.time, chunk.time), axis=0)
-                combined_indices = selected_indices + chunk_indices
-            keep = _even_indices(len(combined_indices), max_browser_frames)
-            selected_indices = [combined_indices[index] for index in keep]
-            selected_traj = md.Trajectory(
-                combined_xyz[keep],
-                display_topology,
-                time=combined_time[keep],
+    with suppress_native_output():
+        topology_traj = md.load_pdb(str(topology_path))
+        try:
+            display_atoms = topology_traj.topology.select("not water")
+        except Exception:
+            display_atoms = None
+        if display_atoms is not None and len(display_atoms) == 0:
+            display_atoms = None
+
+        # Stream the DCD in bounded chunks.  Loading the complete production
+        # trajectory before downsampling can exhaust memory on realistic runs.
+        display_topology = topology_traj.topology
+        if display_atoms is not None and hasattr(topology_traj, "atom_slice"):
+            display_topology = topology_traj.atom_slice(display_atoms).topology
+        selected_traj = None
+        selected_indices: list[int] = []
+        total_seen = 0
+        if not hasattr(md, "iterload"):
+            # Keep lightweight test doubles and older MDTraj-compatible adapters
+            # working; real MDTraj uses the bounded streaming path below.
+            trajectory = md.load_dcd(
+                str(dcd_path),
+                top=topology_traj.topology,
+                atom_indices=display_atoms,
             )
-            total_seen += chunk_count
+            total_seen = int(trajectory.n_frames)
+            selected_indices = _even_indices(total_seen, max_browser_frames)
+            selected_traj = trajectory[selected_indices]
+        else:
+            for chunk in md.iterload(
+                str(dcd_path),
+                top=topology_traj.topology,
+                atom_indices=display_atoms,
+                chunk=1000,
+            ):
+                chunk_count = int(chunk.n_frames)
+                if chunk_count == 0:
+                    continue
+                chunk_indices = list(range(total_seen, total_seen + chunk_count))
+                if selected_traj is None:
+                    combined_xyz = chunk.xyz
+                    combined_time = chunk.time
+                    combined_indices = chunk_indices
+                else:
+                    combined_xyz = np.concatenate((selected_traj.xyz, chunk.xyz), axis=0)
+                    combined_time = np.concatenate((selected_traj.time, chunk.time), axis=0)
+                    combined_indices = selected_indices + chunk_indices
+                keep = _even_indices(len(combined_indices), max_browser_frames)
+                selected_indices = [combined_indices[index] for index in keep]
+                selected_traj = md.Trajectory(
+                    combined_xyz[keep],
+                    display_topology,
+                    time=combined_time[keep],
+                )
+                total_seen += chunk_count
 
     if selected_traj is None:
         return PlaybackUnavailable("not-enough-trajectory-frames")

@@ -52,6 +52,22 @@ __citation__ = (
 )
 __doi__ = "10.1002/jcc.70350"
 
+#: The same reference as a BibTeX entry. Beside the prose one so the two
+#: cannot describe different papers: there were two copies of this, in the
+#: report and in the GUI, and a third was very nearly added before a test
+#: pointed out that the page was storing what it should have been given.
+__bibtex__ = """@article{aina2026fastmd,
+  author  = {Aina, Adekunle and Kwan, Derrick},
+  title   = {FastMDAnalysis: Software for Automated Analysis of Molecular
+             Dynamics Trajectories},
+  journal = {Journal of Computational Chemistry},
+  volume  = {47},
+  number  = {8},
+  pages   = {e70350},
+  year    = {2026},
+  doi     = {10.1002/jcc.70350},
+}"""
+
 # Canonical Python version range for the full conda install (setup +
 # simulation stages). MAX_PYTHON is the *exclusive* upper bound, so 3.13.x
 # is the highest supported, matching `pyproject.toml`'s

@@ -388,10 +388,15 @@ SIMULATION = PhaseSchema(
         Field("checkpoint_interval_steps", int, 10000,
               "Binary checkpoint (.chk) interval in steps, for restart / "
               "crash recovery. 0 disables checkpointing."),
-        Field("live_telemetry", bool, False,
+        Field("live_telemetry", bool, True,
               "Write live_status.json, live_metrics.csv, and live_events.log "
               "for the local live dashboard. Also writes a live-frame PDB so "
-              "the molecular viewer can refresh on the simulation."),
+              "the molecular viewer can refresh on the simulation. On by "
+              "default: it costs a tenth of a per cent of the run, measured "
+              "on a solvated system over 2,000 steps with and without, and "
+              "the frame history is capped, so the only thing switching it "
+              "off saves is the ability to watch. Nothing leaves the machine "
+              "-- these are files in the run directory that the GUI reads."),
         Field("telemetry_interval", int, 1000,
               "Minimum step interval for live dashboard telemetry updates."),
         Field("dashboard_ligand_resname", str, None,

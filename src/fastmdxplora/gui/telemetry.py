@@ -490,8 +490,12 @@ def analyze_health(
         "state": "unknown",
         "message": "Live telemetry is not available.",
         "explanation": (
-            "Live simulation telemetry was not recorded for this run. Start "
-            "fastmdx gui --output ... during a simulation to monitor progress."
+            "Live telemetry is written only when a run asks for it, and it "
+            "is off by default: set `live_telemetry: true` under `simulation` "
+            "in the config, or pass `--live-telemetry`, and this page "
+            "fills as the run goes. Starting the dashboard during a run that "
+            "did not record it shows nothing, because there is nothing to "
+            "read -- which is what this page used to advise doing."
         ),
     }
 

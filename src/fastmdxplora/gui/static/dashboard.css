@@ -2168,3 +2168,17 @@ body.state-ready .loading-screen {
 /* The group heading already draws the rule, so the grid under it must not
    draw a second one. */
 .run-group-head + .run-section-body { border-top: none; }
+
+/* The citation reminder in the sidebar footer. On every page, because a
+   citation nobody sees is a citation nobody makes. */
+.footer-cite {
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+}
+.footer-cite a {
+    color: var(--accent-cyan);
+    font-size: 12px;
+    text-decoration: none;
+}
+.footer-cite a:hover { text-decoration: underline; }

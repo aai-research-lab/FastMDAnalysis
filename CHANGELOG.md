@@ -8,6 +8,30 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Added
+- **The GUI cites the software.** The report, the slides and `fastmdx info`
+  all print the citation and the GUI printed none, which made the interface
+  the documentation sends a new user to first the one that never said how to
+  cite the work. There is a Cite page with the reference, the DOI and the
+  BibTeX entry, and the report's own dashboard carries it in its footer.
+
+  Filled by the server from the same constants, because writing it into the
+  page would have put a fourth copy beside the report's, the slides' and the
+  CLI's. There were already two copies of the BibTeX entry; it is now declared
+  once beside the citation it belongs to, and a test fails if it is written
+  out anywhere else.
+
+- **A progress bar during molecular dynamics.** The part of a run that takes
+  the time announced how many steps it was about to take and then said nothing
+  until the stage ended -- half an hour of a terminal that looked exactly like
+  a hung one. Each stage now steps in chunks of a fiftieth and reports how far
+  through it is, at what rate in ns/day, and how long is left, so the decision
+  to wait or to stop can be made in the first few seconds rather than at the
+  end.
+
+  On a terminal it is one line, rewritten. Where the output is a file -- which
+  is where a worker's output goes when several run at once -- a line of
+  carriage returns is unreadable, so it prints at tenths instead.
+
 - **A mean says how much of a run is behind it.** Ten analyses averaged over
   the whole production run without asking whether the system had settled by
   the time the averaging started, or how many *independent* observations the
@@ -70,6 +94,43 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   uncommitted changes does not describe what ran, so saying so is what keeps
   the commit from being decorative.
 
+- **The banner says how to watch the run.** It computed the dashboard address
+  and discarded it, on the reasoning that the GUI prints its own -- true while
+  a server is running, and no help to somebody who has just started a run.
+  Where none is running it prints the command that starts one, pointed at this
+  run's output; where one is, the address.
+
+### Changed
+- **One page for one run.** Overview and Live Simulation showed the same run,
+  and the top bar showed it a third time: three places to look for one answer,
+  and neither page complete on its own. They are one page now, with what is
+  happening at the top -- progress, charts, health, the structure -- and what
+  has been recorded beneath it. The panels were moved rather than rebuilt, so
+  every element the script reads is where it was. Two cards were both called
+  progress; one is a bar for the running stage and the other a table of
+  phases, and they now say so.
+
+- **Watching a run is on by default.** The live dashboard could show nothing
+  unless somebody knew to turn on a setting called telemetry -- a word that
+  elsewhere means data sent to a vendor, and here means four files written
+  into the run directory for the local page to read. It cost a tenth of a per
+  cent, measured on a solvated system over 2,000 steps with and without, and
+  the frame history is capped, so the only thing the default saved was the
+  ability to watch.
+
+- **The GUI asks to be cited where somebody will see it.** The citation page
+  existed and was the last item in the sidebar, beneath Documentation and
+  GitHub under a heading reading Tools -- so the one thing a scientific tool
+  most needs its user to find sat after the two links that navigate away from
+  it. It comes before them now, and the sidebar footer, which shows on every
+  page, carries a line linking to it.
+
+- **The interface is called the GUI.** Documentation and comments used "the
+  browser" for both the interface and the thing it renders in, so the three
+  interfaces read as "the command line, a config file, and the browser". A
+  browser tab and the `--no-browser` flag are the literal thing and keep the
+  word; everything else naming the interface says GUI.
+
 ### Removed
 - **The `datasets` package.** It promised a Trp-cage trajectory that was never
   bundled: `TrpCage.traj` returned the path to a file that had never existed,
@@ -80,14 +141,41 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   megabytes of wheel for something one command produces --- and a reference
   system is a PDB identifier, not a file.
 
-### Changed
-- **The interface is called the GUI.** Documentation and comments used "the
-  browser" for both the interface and the thing it renders in, so the three
-  interfaces read as "the command line, a config file, and the browser". A
-  browser tab and the `--no-browser` flag are the literal thing and keep the
-  word; everything else naming the interface says GUI.
-
 ### Fixed
+- **The GUI re-read the whole trajectory on every mount, and said so.** Its
+  terminal filled with `dcdplugin) detected standard 32-bit DCD file`, a pair
+  of lines every few seconds for as long as it was open. The lines are VMD's
+  DCD plugin, which MDTraj wraps, announcing every file it opens on the
+  C-level file descriptor where Python's logging cannot reach it.
+
+  The noise was the symptom. The viewer asked for the playback payload with
+  `force=1` whenever the browser did not already hold one, so every mount and
+  every reload bypassed the disk cache and re-streamed the trajectory to
+  rebuild a file already sitting beside it. Force means the user asked for a
+  rebuild. The reader is also silenced, so a legitimate read no longer writes
+  to a server's terminal.
+
+- **The Live Simulation page rendered an apparatus for reading data it did
+  not have.** Opened on a run without telemetry it showed every field --
+  current stage, current step, total planned steps, frames written, simulation
+  time, elapsed time, checkpoint, last update -- reading "not available",
+  twelve of them, above empty charts. It now says why, once, and shows nothing
+  else.
+
+  And it explained the absence by advising the reader to start the dashboard
+  during a simulation, which is what somebody looking at that page has just
+  done. Live telemetry is written only when a run asks for it and that is off
+  by default, so the advice sent them to repeat what had already failed. The
+  message names the setting and the flag that turn it on.
+
+- **The reproducibility section implied a rerun would reproduce the study.**
+  It gives an equivalent one. Solvation places water by a procedure that
+  cannot be seeded -- OpenMM's `addSolvent` takes no seed -- so the same
+  configuration run twice gave 37,251 atoms and then 37,763, with
+  `random_seed` fixed both times: the seed fixes the dynamics, not the
+  solvent. The section says so, and names what does repeat a study exactly,
+  which is to simulate from the system it prepared.
+
 - **The same observable was reported twice in one document with two different
   means.** A real study's RMSD read 0.08895 in the convergence table and
   0.09461 in its own results section, both labelled the mean, with nothing to
@@ -128,19 +216,24 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   and the same frame complete on a second call to the same trajectory. Frames
   other than the last come back bit-identical.
 
-  The truncated answer identifies itself: a residue exposed in five frames and
-  reading exactly zero in the sixth was not measured as completely enclosed,
-  it was not written. Where that is seen the areas are computed again, up to
-  five times, and the complete result used with the run recording that it had
-  to be. Where every attempt is truncated it is refused, with the message
-  saying that on a platform where this happens that often the analysis cannot
-  be relied on.
+  The truncated answer identifies itself by how much of a frame reads exactly
+  zero: the fault leaves a row like `[0.5354027, 0, 0, 0, 0]`, four fifths of
+  it zero against none in the frames around it. Compared against the run's own
+  median, because a real protein has buried residues whose surface area is
+  exactly zero and which flicker between zero and a little above it as the
+  structure breathes. Where a frame stands out the areas are computed again,
+  up to five times, and the complete result used with the run recording that
+  it had to be.
 
-  Two things about the defect were assumed and both were wrong. It is not
-  confined to the final frame -- frames 0, 2 and 5 have been seen -- and a
-  second call is not reliably clean. A test now measures the rate over twenty
-  calls rather than assuming a shape, and its failure message carries what a
-  fix would need.
+  Three things about the defect were assumed and all three were wrong. It is
+  not confined to the final frame -- frames 0, 2 and 5 have been seen. A
+  second call is not reliably clean. And the first attempt to recognise it
+  asked whether a residue was exposed in some frames and exactly zero in
+  others, which is true of every buried residue in every protein: it refused a
+  solvated T4 lysozyme outright, five attempts and eighty seconds before
+  giving up, on a run that was perfectly good. A test now measures the rate
+  over twenty calls rather than assuming a shape, and its failure message
+  carries what a fix would need.
 
   This is a workaround, not a rescue, and the distinction is the one this
   package draws elsewhere: a failed simulation is diagnosed and stopped

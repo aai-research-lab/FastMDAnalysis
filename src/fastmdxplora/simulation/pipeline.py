@@ -251,6 +251,18 @@ def run(
             if presenter:
                 presenter.info(msg)
 
+        def _bar(label, done, total, rate, seconds_left) -> None:
+            """Drive the terminal's progress bar during a stage.
+
+            Molecular dynamics is the part that takes the time, and it
+            announced how many steps it was about to take and then said
+            nothing until the stage ended.
+            """
+            if presenter:
+                presenter.progress(label, done, total,
+                                   rate_ns_per_day=rate,
+                                   seconds_left=seconds_left)
+
         result = run_simulation(
             system_xml=system_xml,
             state_xml=state_xml,
@@ -285,6 +297,7 @@ def run(
             live_telemetry=bool(params["live_telemetry"]),
             telemetry_interval=int(params["telemetry_interval"]),
             on_progress=_progress,
+            on_step_progress=_bar,
             plumed=params.get("plumed"),
             metadynamics=params.get("metadynamics"),
             steered=params.get("steered"),

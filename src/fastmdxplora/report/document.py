@@ -646,7 +646,7 @@ def _findings_notes(findings: dict[str, Any]) -> list[str]:
 
 
 def _citation_section() -> str:
-    from fastmdxplora import __citation__
+    from fastmdxplora import __bibtex__, __citation__
 
     return "\n".join(
         [
@@ -659,17 +659,7 @@ def _citation_section() -> str:
             "BibTeX:",
             "",
             "```bibtex",
-            "@article{aina2026fastmd,",
-            "  author  = {Aina, Adekunle and Kwan, Derrick},",
-            "  title   = {FastMDAnalysis: Software for Automated Analysis of "
-            "Molecular Dynamics Trajectories},",
-            "  journal = {Journal of Computational Chemistry},",
-            "  volume  = {47},",
-            "  number  = {8},",
-            "  pages   = {e70350},",
-            "  year    = {2026},",
-            "  doi     = {10.1002/jcc.70350},",
-            "}",
+            __bibtex__,
             "```",
         ]
     )
@@ -709,6 +699,20 @@ def _reproducibility_section(
             "Per-phase parameter manifests for phases in this workflow are "
             f"preserved at {', '.join(manifests)}. The complete session manifest "
             "is at `manifest.json` at the project root."
+        )
+
+    if phase_context.setup_present:
+        lines.append("")
+        lines.append(
+            "**What rerunning the configuration does and does not reproduce.** "
+            "Running `resolved_config.yml` again gives an equivalent study and "
+            "not an identical one: solvation places water by a procedure that "
+            "cannot be seeded, so the same configuration produces a system "
+            "with a slightly different atom count each time, and a fixed "
+            "`random_seed` fixes the dynamics rather than the solvent. To "
+            "repeat this study exactly, simulate from the system it prepared "
+            "by pointing `simulation.prepared_from` at its `setup/` "
+            "directory."
         )
     else:
         lines.append(

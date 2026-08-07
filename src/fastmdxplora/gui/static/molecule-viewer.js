@@ -822,7 +822,11 @@
 
   async function ensurePlaybackPayload() {
     if (STATE.playbackPayload?.playback_available) return STATE.playbackPayload;
-    const payload = await requestPlaybackPayload(true);
+    // Not forced. Force means "the user asked for this to be rebuilt"; using
+    // it for "the browser has not got it yet" bypassed the disk cache every
+    // time the viewer mounted or the page reloaded, re-streaming the whole
+    // trajectory to produce the file that was already sitting beside it.
+    const payload = await requestPlaybackPayload(false);
     if (!payload?.playback_available) {
       const reason = String(payload?.reason || "not enough frames yet").replaceAll("-", " ");
       announce(`Trajectory playback is not ready: ${reason}. Live molecular updates remain active.`);

@@ -74,6 +74,25 @@
     state.pages = $$('.page')
       .map((element) => element.getAttribute("data-page"))
       .filter(Boolean);
+    // The BibTeX entry is there to be taken, so make taking it one click.
+    const citeCopy = document.getElementById("cite-copy");
+    if (citeCopy) {
+      citeCopy.addEventListener("click", async () => {
+        const entry = document.getElementById("cite-bibtex");
+        if (!entry) return;
+        try {
+          await navigator.clipboard.writeText(entry.textContent.trim());
+          citeCopy.textContent = "Copied";
+        } catch (err) {
+          // Clipboard access needs a secure context, which http://127.0.0.1
+          // is but a remote http:// host is not. Say so rather than
+          // pretending it worked.
+          citeCopy.textContent = "Select and copy";
+        }
+        setTimeout(() => { citeCopy.textContent = "Copy"; }, 2000);
+      });
+    }
+
     $$('[data-view-link]').forEach((element) => {
       element.addEventListener("click", (event) => {
         event.preventDefault();
@@ -105,7 +124,10 @@
       history.replaceState(null, "", `#${page}`);
     }
     requestAnimationFrame(() => {
-      if (page === "live") emit("live-page-opened", {});
+      // The live panels moved onto the overview, so opening that is
+      // what starts the polling they need. Keyed to a page that no
+      // longer exists, nothing would have started.
+      if (page === "overview") emit("live-page-opened", {});
       if (page === "viewer") emit("viewer-page-opened", {});
       if (page === "analysis" || page === "files") emit("results-page-opened", {});
     });
@@ -590,6 +612,28 @@
   }
 
   function renderLiveProgress(status) {
+    // With no telemetry there is nothing for these panels to read, and
+    // filling twelve fields with "not available" is an apparatus for reading
+    // something that is not there. Say why once, and show nothing else.
+    const nothing = !status || Object.keys(status).length === 0;
+    const panels = document.getElementById("live-panels");
+    const absent = document.getElementById("live-absent");
+    if (panels) panels.hidden = nothing;
+    if (absent) {
+      absent.hidden = !nothing;
+      const body = document.getElementById("live-absent-body");
+      if (body && nothing && !body.innerHTML) {
+        body.innerHTML =
+          "This run did not record live telemetry, so there is nothing for " +
+          "this page to read. It is written only when a run asks for it, and " +
+          "that is off by default: set <code>live_telemetry: true</code> " +
+          "under <code>simulation</code> in the config, or pass " +
+          "<code>--live-telemetry</code>, and this page fills as the run " +
+          "goes.";
+      }
+    }
+    if (nothing) return;
+
     const pct = progressPercent(status);
     setWidth("live-progress-fill", pct);
     setText("live-progress-pct", pct != null ? pct.toFixed(1) : "—");

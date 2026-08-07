@@ -199,6 +199,23 @@ def make_handler(
     html = template_html if template_html is not None else _load_template()
     refresh_seconds = min(60.0, max(1.0, float(cfg.refresh_seconds or 3.0)))
     html = html.replace("__FASTMDX_REFRESH_SECONDS__", f"{refresh_seconds:g}")
+    # Injected rather than written into the template, so the citation cannot
+    # drift from the one the report, the slides and `fastmdx info` print. The
+    # GUI carried none at all: the interface the documentation sends a new
+    # user to first was the one that never said how to cite the software.
+    from html import escape as _escape
+
+    from fastmdxplora import (
+        __bibtex__,
+        __citation__,
+        __doi__,
+        __version__,
+    )
+
+    html = html.replace("__FASTMDX_CITATION__", _escape(__citation__))
+    html = html.replace("__FASTMDX_DOI__", _escape(__doi__))
+    html = html.replace("__FASTMDX_VERSION__", _escape(__version__))
+    html = html.replace("__FASTMDX_BIBTEX__", _escape(__bibtex__))
 
     class LiveDashboardHandler(BaseHTTPRequestHandler):
         server_version = "FastMDXLive/1.0"

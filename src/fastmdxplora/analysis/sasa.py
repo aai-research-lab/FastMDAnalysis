@@ -37,36 +37,36 @@ from fastmdxplora.analysis.orchestrator import register_analysis
 VALID_MODES = ("total", "residue", "average_residue")
 
 
+#: How far above the run's usual proportion of zeros a frame must sit before
+#: it is taken as unwritten. The fault puts most of a row at zero at once,
+#: against a median of none; a real protein sits at a steady tenth or so,
+#: because the residues that are buried stay buried.
+UNWRITTEN_MARGIN = 0.4
+
+
 def _unwritten_frames(sasa: np.ndarray) -> np.ndarray:
     """Frames the surface-area calculation did not finish writing.
 
-    The signature is a residue reading exactly ``0.0`` in one frame while
-    being exposed in the others. Exact zero means every test point on that
-    residue was occluded -- a residue completely enclosed by its neighbours --
-    and a residue does not become completely enclosed for one frame of a run
-    and open again in the next. A residue that is buried is buried throughout,
-    and that case is left alone.
+    The signature is a frame in which far more residues read exactly zero
+    than in any other. On Windows the fault leaves a row like
+    ``[0.5354027, 0, 0, 0, 0]`` -- a partial value where the write stopped,
+    then nothing -- so four fifths of that row is zero against none in the
+    frames around it.
 
-    Checked this way rather than by looking for an all-zero row. The frame
-    Windows returns is ``[0.5354027, 0, 0, 0, 0]``: a partial value followed
-    by zeros, because the write stopped part-way rather than never starting.
-    A test for a wholly empty row does not see it, which is what a first
-    version of this did.
+    Compared against the run's own median rather than against an absolute
+    count, because a real protein has buried residues whose surface area is
+    exactly zero, and they flicker between zero and a little above it as the
+    structure breathes. A first version asked whether a residue was exposed in
+    some frames and zero in others, which is true of every buried residue in
+    every protein: it refused a solvated T4 lysozyme outright, five attempts
+    and eighty seconds before giving up, on a run that was perfectly good.
     """
-    if sasa.ndim != 2 or sasa.shape[0] < 2:
+    if sasa.ndim != 2 or sasa.shape[0] < 3 or sasa.shape[1] == 0:
         return np.empty(0, dtype=int)
 
-    zero = sasa == 0.0
-    if not zero.any():
-        return np.empty(0, dtype=int)
-
-    # Columns that are zero somewhere and not everywhere: a residue exposed
-    # in some frames and reported as completely enclosed in others.
-    intermittent = zero.any(axis=0) & ~zero.all(axis=0)
-    if not intermittent.any():
-        return np.empty(0, dtype=int)
-
-    return np.flatnonzero(zero[:, intermittent].any(axis=1))
+    zero_fraction = (sasa == 0.0).sum(axis=1) / sasa.shape[1]
+    usual = float(np.median(zero_fraction))
+    return np.flatnonzero(zero_fraction > usual + UNWRITTEN_MARGIN)
 
 
 #: How many times to ask before giving up. Two was not enough: CI returned

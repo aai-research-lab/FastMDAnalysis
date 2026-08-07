@@ -51,10 +51,6 @@
           <span class="nav-icon" aria-hidden="true"></span>
           <span>Overview</span>
         </a>
-        <a href="#" class="nav-link" data-view-link="live" data-requires-run="true">
-          <span class="nav-icon" aria-hidden="true"></span>
-          <span>Live Simulation</span>
-        </a>
         <a href="#" class="nav-link" data-view-link="viewer" data-requires-run="true">
           <span class="nav-icon" aria-hidden="true"></span>
           <span>Molecular Viewer</span>
@@ -72,6 +68,14 @@
           <span class="nav-icon" aria-hidden="true"></span>
           <span>Settings</span>
         </a>
+        <!-- Above the two links that leave the page. It sat last, beneath
+             them, under a heading reading Tools -- so the one thing a
+             scientific tool most needs its user to find was the item after
+             the ones that navigate away. -->
+        <a href="#" class="nav-link" data-view-link="cite">
+          <span class="nav-icon" aria-hidden="true"></span>
+          <span>Cite</span>
+        </a>
         <a href="https://fastmdxplora.readthedocs.io/en/latest/gui.html"
            class="nav-link" target="_blank" rel="noopener">
           <span class="nav-icon" aria-hidden="true"></span>
@@ -84,6 +88,12 @@
         </a>
       </nav>
       <div class="sidebar-footer">
+        <!-- On every page, because a citation nobody sees is a citation
+             nobody makes. The full reference is on the Cite page; this is
+             the reminder that there is one. -->
+        <div class="footer-row footer-cite">
+          <a href="#" data-view-link="cite">Cite FastMDXplora</a>
+        </div>
         <div class="footer-row">
           <div class="footer-label">Connection</div>
           <div class="footer-value">
@@ -317,134 +327,20 @@
               <div class="page-subtitle">Health, exploration status, and quick actions</div>
             </div>
           </div>
-
-          <div class="grid grid-4 metric-cards" id="overview-summary-cards" hidden></div>
-
-          <div class="grid grid-2">
-            <div class="card hero-card" id="hero-card" data-state="running" data-needs-phase="simulation">
-              <div class="hero-card-top">
-                <div>
-                  <div class="hero-label">Exploration status</div>
-                  <div class="hero-status" id="hero-status-text">not available</div>
-                </div>
-                <span class="stage-pill mono" id="hero-stage">—</span>
-              </div>
-              <div class="progress-large" aria-hidden="true">
-                <div class="progress-large-track">
-                  <div class="progress-large-fill" id="hero-progress-fill" style="width:0%"></div>
-                </div>
-                <div class="progress-large-meta">
-                  <span class="mono"><span id="hero-progress-pct">—</span>% complete</span>
-                  <span class="muted">sim time <span class="mono" id="hero-sim-time">—</span> ns</span>
-                </div>
-              </div>
-              <div class="hero-grid">
-                <div class="hero-stat">
-                  <div class="hero-stat-label">Elapsed wall time</div>
-                  <div class="hero-stat-value mono" id="hero-elapsed">—</div>
-                </div>
-                <div class="hero-stat">
-                  <div class="hero-stat-label">ETA</div>
-                  <div class="hero-stat-value mono" id="hero-eta">—</div>
-                </div>
-                <div class="hero-stat">
-                  <div class="hero-stat-label">Step</div>
-                  <div class="hero-stat-value mono" id="hero-step">—</div>
-                </div>
-              </div>
-            </div>
-            <div class="card hero-card" id="hero-health" data-state="normal" data-needs-phase="simulation">
-              <div class="hero-card-top">
-                <div>
-                  <div class="hero-label">Simulation health</div>
-                  <div class="hero-status" id="health-headline">not available</div>
-                </div>
-                <span class="stage-pill" id="health-pill">normal</span>
-              </div>
-              <p class="muted" id="health-explanation">Live health classification will appear once telemetry has been written.</p>
-              <ul class="health-list" id="health-list" role="list"></ul>
-            </div>
+          <!-- What was the Live Simulation page. It showed the same
+               run as this one, and the top bar showed it a third
+               time: three places to look for one answer. -->
+          <!-- Shown instead of the panels when a run recorded no telemetry.
+               The panels used to render regardless, twelve fields deep in
+               "not available", which is an apparatus for reading something
+               that is not there. -->
+          <div class="card" id="live-absent" hidden>
+            <div class="card-header"><h2 class="card-title">Nothing to show</h2></div>
+            <div class="card-body" id="live-absent-body"></div>
           </div>
-
-          <div class="card stage-timeline-card">
-            <div class="card-header">
-              <h2 class="card-title">Stage timeline</h2>
-            </div>
-            <ol class="stage-timeline" id="stage-timeline">
-              <li class="stage-step" data-stage="setup"><span class="stage-marker"></span><span class="stage-label">Setup</span></li>
-              <li class="stage-step" data-stage="minimization"><span class="stage-marker"></span><span class="stage-label">Minimization</span></li>
-              <li class="stage-step" data-stage="nvt"><span class="stage-marker"></span><span class="stage-label">NVT</span></li>
-              <li class="stage-step" data-stage="npt"><span class="stage-marker"></span><span class="stage-label">NPT</span></li>
-              <li class="stage-step" data-stage="production"><span class="stage-marker"></span><span class="stage-label">Production</span></li>
-              <li class="stage-step" data-stage="analysis"><span class="stage-marker"></span><span class="stage-label">Analysis</span></li>
-              <li class="stage-step" data-stage="report"><span class="stage-marker"></span><span class="stage-label">Report</span></li>
-            </ol>
-          </div>
-
-          <div class="grid grid-2">
-            <div class="card" id="overview-phase-card" hidden>
-              <div class="card-header">
-                <h2 class="card-title">Exploration progress</h2>
-              </div>
-              <table class="kv-table">
-                <thead>
-                  <tr><th>Phase</th><th>Status</th><th>Detail</th></tr>
-                </thead>
-                <tbody id="overview-phase-rows"></tbody>
-              </table>
-            </div>
-            <div class="card" id="overview-stats-card" hidden>
-              <div class="card-header">
-                <h2 class="card-title">Trajectory statistics</h2>
-              </div>
-              <table class="kv-table">
-                <thead>
-                  <tr><th>Metric</th><th>Average</th><th>Std. dev.</th><th>Unit</th></tr>
-                </thead>
-                <tbody id="overview-stat-rows"></tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="grid grid-3 metric-cards" id="overview-metric-cards">
-            <div class="metric-card" data-metric="potential_energy">
-              <div class="metric-card-label">Potential energy</div>
-              <div class="metric-card-value mono" data-value>—</div>
-              <div class="metric-card-unit">kJ/mol</div>
-            </div>
-            <div class="metric-card" data-metric="temperature">
-              <div class="metric-card-label">Temperature</div>
-              <div class="metric-card-value mono" data-value>—</div>
-              <div class="metric-card-unit">K</div>
-            </div>
-            <div class="metric-card" data-metric="density">
-              <div class="metric-card-label">Density</div>
-              <div class="metric-card-value mono" data-value>—</div>
-              <div class="metric-card-unit">g/mL</div>
-            </div>
-            <div class="metric-card" data-metric="speed">
-              <div class="metric-card-label">Simulation speed</div>
-              <div class="metric-card-value mono" data-value>—</div>
-              <div class="metric-card-unit">ns/day</div>
-            </div>
-            <div class="metric-card" data-metric="frames">
-              <div class="metric-card-label">Frames written</div>
-              <div class="metric-card-value mono" data-value>—</div>
-              <div class="metric-card-unit">frames</div>
-            </div>
-          </div>
-        </section>
-
-        <section class="page" data-page="live" hidden>
-          <div class="page-header">
-            <div>
-              <h1 class="page-title">Live Simulation</h1>
-              <div class="page-subtitle">Detailed progress, live charts, and the latest events</div>
-            </div>
-          </div>
-          <div class="grid grid-2">
+          <div class="grid grid-2" id="live-panels">
             <div class="card">
-              <div class="card-header"><h2 class="card-title">Progress</h2></div>
+              <div class="card-header"><h2 class="card-title">Simulation progress</h2></div>
               <div class="progress-large">
                 <div class="progress-large-track">
                   <div class="progress-large-fill" id="live-progress-fill" style="width:0%"></div>
@@ -526,9 +422,130 @@
               <ul class="events-list" id="events-list"></ul>
             </div>
           </div>
-        </section>
+        
+        
 
-        <section class="page" data-page="viewer" hidden>
+          <!-- What has been recorded so far. Below the live
+               panels, because during a run the question is
+               what is happening, and afterwards this is
+               still here. -->
+          <div class="grid grid-4 metric-cards" id="overview-summary-cards" hidden></div>
+
+          <div class="grid grid-2">
+            <div class="card hero-card" id="hero-card" data-state="running" data-needs-phase="simulation">
+              <div class="hero-card-top">
+                <div>
+                  <div class="hero-label">Exploration status</div>
+                  <div class="hero-status" id="hero-status-text">not available</div>
+                </div>
+                <span class="stage-pill mono" id="hero-stage">—</span>
+              </div>
+              <div class="progress-large" aria-hidden="true">
+                <div class="progress-large-track">
+                  <div class="progress-large-fill" id="hero-progress-fill" style="width:0%"></div>
+                </div>
+                <div class="progress-large-meta">
+                  <span class="mono"><span id="hero-progress-pct">—</span>% complete</span>
+                  <span class="muted">sim time <span class="mono" id="hero-sim-time">—</span> ns</span>
+                </div>
+              </div>
+              <div class="hero-grid">
+                <div class="hero-stat">
+                  <div class="hero-stat-label">Elapsed wall time</div>
+                  <div class="hero-stat-value mono" id="hero-elapsed">—</div>
+                </div>
+                <div class="hero-stat">
+                  <div class="hero-stat-label">ETA</div>
+                  <div class="hero-stat-value mono" id="hero-eta">—</div>
+                </div>
+                <div class="hero-stat">
+                  <div class="hero-stat-label">Step</div>
+                  <div class="hero-stat-value mono" id="hero-step">—</div>
+                </div>
+              </div>
+            </div>
+            <div class="card hero-card" id="hero-health" data-state="normal" data-needs-phase="simulation">
+              <div class="hero-card-top">
+                <div>
+                  <div class="hero-label">Simulation health</div>
+                  <div class="hero-status" id="health-headline">not available</div>
+                </div>
+                <span class="stage-pill" id="health-pill">normal</span>
+              </div>
+              <p class="muted" id="health-explanation">Live health classification will appear once telemetry has been written.</p>
+              <ul class="health-list" id="health-list" role="list"></ul>
+            </div>
+          </div>
+
+          <div class="card stage-timeline-card">
+            <div class="card-header">
+              <h2 class="card-title">Stage timeline</h2>
+            </div>
+            <ol class="stage-timeline" id="stage-timeline">
+              <li class="stage-step" data-stage="setup"><span class="stage-marker"></span><span class="stage-label">Setup</span></li>
+              <li class="stage-step" data-stage="minimization"><span class="stage-marker"></span><span class="stage-label">Minimization</span></li>
+              <li class="stage-step" data-stage="nvt"><span class="stage-marker"></span><span class="stage-label">NVT</span></li>
+              <li class="stage-step" data-stage="npt"><span class="stage-marker"></span><span class="stage-label">NPT</span></li>
+              <li class="stage-step" data-stage="production"><span class="stage-marker"></span><span class="stage-label">Production</span></li>
+              <li class="stage-step" data-stage="analysis"><span class="stage-marker"></span><span class="stage-label">Analysis</span></li>
+              <li class="stage-step" data-stage="report"><span class="stage-marker"></span><span class="stage-label">Report</span></li>
+            </ol>
+          </div>
+
+          <div class="grid grid-2">
+            <div class="card" id="overview-phase-card" hidden>
+              <div class="card-header">
+                <h2 class="card-title">Phases</h2>
+              </div>
+              <table class="kv-table">
+                <thead>
+                  <tr><th>Phase</th><th>Status</th><th>Detail</th></tr>
+                </thead>
+                <tbody id="overview-phase-rows"></tbody>
+              </table>
+            </div>
+            <div class="card" id="overview-stats-card" hidden>
+              <div class="card-header">
+                <h2 class="card-title">Trajectory statistics</h2>
+              </div>
+              <table class="kv-table">
+                <thead>
+                  <tr><th>Metric</th><th>Average</th><th>Std. dev.</th><th>Unit</th></tr>
+                </thead>
+                <tbody id="overview-stat-rows"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="grid grid-3 metric-cards" id="overview-metric-cards">
+            <div class="metric-card" data-metric="potential_energy">
+              <div class="metric-card-label">Potential energy</div>
+              <div class="metric-card-value mono" data-value>—</div>
+              <div class="metric-card-unit">kJ/mol</div>
+            </div>
+            <div class="metric-card" data-metric="temperature">
+              <div class="metric-card-label">Temperature</div>
+              <div class="metric-card-value mono" data-value>—</div>
+              <div class="metric-card-unit">K</div>
+            </div>
+            <div class="metric-card" data-metric="density">
+              <div class="metric-card-label">Density</div>
+              <div class="metric-card-value mono" data-value>—</div>
+              <div class="metric-card-unit">g/mL</div>
+            </div>
+            <div class="metric-card" data-metric="speed">
+              <div class="metric-card-label">Simulation speed</div>
+              <div class="metric-card-value mono" data-value>—</div>
+              <div class="metric-card-unit">ns/day</div>
+            </div>
+            <div class="metric-card" data-metric="frames">
+              <div class="metric-card-label">Frames written</div>
+              <div class="metric-card-value mono" data-value>—</div>
+              <div class="metric-card-unit">frames</div>
+            </div>
+          </div>
+        </section>
+<section class="page" data-page="viewer" hidden>
           <div class="page-header">
             <div>
               <h1 class="page-title">Molecular Viewer</h1>
@@ -769,6 +786,37 @@
           <div class="card">
             <div class="card-header"><h2 class="card-title">Analysis files</h2></div>
             <div class="files-list" data-fileset="analysis" id="analysis-files"></div>
+          </div>
+        </section>
+
+        <!-- The report, the slides and `fastmdx info` all print this and the
+             GUI printed none, which made it the one interface that never told
+             a new user how to cite the software. Filled by the server from
+             the same constant, so it cannot drift from the others. -->
+        <section class="page" data-page="cite" hidden>
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">Citing FastMDXplora</h1>
+              <div class="page-subtitle">If this software contributed to your work, please cite it</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><h2 class="card-title">Reference</h2></div>
+            <div class="card-body">
+              <p id="cite-reference">__FASTMDX_CITATION__</p>
+              <p class="subtle">DOI: <a href="https://doi.org/__FASTMDX_DOI__"
+                 target="_blank" rel="noopener">__FASTMDX_DOI__</a>
+                 &nbsp;·&nbsp; version <span id="cite-version">__FASTMDX_VERSION__</span></p>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title">BibTeX</h2>
+              <button class="btn btn-small" id="cite-copy">Copy</button>
+            </div>
+            <div class="card-body">
+              <pre class="mono" id="cite-bibtex">__FASTMDX_BIBTEX__</pre>
+            </div>
           </div>
         </section>
 
