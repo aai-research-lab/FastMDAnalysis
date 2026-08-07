@@ -80,6 +80,7 @@ def _fake_worker_factory(*, fail_values: set[int], write_analysis: bool = False,
         verbose,
         device_override,
         quiet: bool = True,
+        force: bool = False,
     ):
         out = Path(run_out)
         out.mkdir(parents=True, exist_ok=True)
@@ -125,10 +126,12 @@ class _ImmediateProcessPoolExecutor:
     def __init__(self, max_workers):
         self.max_workers = max_workers
 
-    def submit(self, fn, *args):
+    def submit(self, fn, *args, **kwargs):
+        # A real Executor.submit forwards keyword arguments; this stood in for
+        # one without them, so a caller that used any looked like a fault here.
         fut = Future()
         try:
-            fut.set_result(fn(*args))
+            fut.set_result(fn(*args, **kwargs))
         except Exception as exc:  # noqa: BLE001
             fut.set_exception(exc)
         return fut

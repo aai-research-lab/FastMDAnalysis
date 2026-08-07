@@ -320,7 +320,7 @@ def test_cli_explore_dashboard_does_not_read_missing_output_dir(
     out = tmp_path / "run"
     session = _FakeDashboardSession()
 
-    def fake_explore(self, *, dry_run=False):
+    def fake_explore(self, *, dry_run=False, force=False):
         self.output_dir = out
         return [SimpleNamespace(status="ok")]
 

@@ -134,6 +134,7 @@ def _execute_run(
     verbose: bool,
     device_override: str | None,
     quiet: bool = True,
+    force: bool = False,
 ) -> "RunResult":
     """Run one study and return a RunResult. Safe to call in a subprocess.
 
@@ -258,7 +259,9 @@ def _execute_run(
             )
             # A single-system explore() returns a one-element list of
             # RunResult; take its phases and re-stamp the run's identity.
-            inner = fmdx.explore(include=include, exclude=exclude, report=True)
+            inner = fmdx.explore(
+                include=include, exclude=exclude, report=True, force=force
+            )
         phases = inner[0].phases if inner else []
         status = "error" if any(p.status == "error" for p in phases) else "ok"
         message = _first_error_phase_message(phases) if status == "error" else ""
@@ -335,6 +338,7 @@ class BatchExplorer:
         output_dir: str | os.PathLike | None = None,
         verbose: bool = False,
         continue_on_error: bool | None = None,
+        force: bool = False,
     ) -> None:
         if config is None and config_data is None:
             raise ValueError("BatchExplorer requires `config` (path) or `config_data` (dict).")
@@ -347,6 +351,7 @@ class BatchExplorer:
             raw = load_config_file(self.config_path)
         validate_config(raw, require_systems=True)
         self._raw = raw
+        self.force = bool(force)
         self.verbose = verbose
 
         # Execution settings
@@ -399,6 +404,38 @@ class BatchExplorer:
         return expand_runs(systems=systems, sweep=sweep, base_options=base_options)
 
     # ------------------------------------------------------------------
+    def _refuse_to_overwrite_runs(
+        self, include: list[str] | None, exclude: list[str] | None
+    ) -> None:
+        if self.force:
+            return
+        from fastmdxplora.orchestrator import PHASES
+
+        planned = [
+            phase
+            for phase in PHASES
+            if (not include or phase in include)
+            and (not exclude or phase not in exclude)
+        ]
+        clashes: list[str] = []
+        for spec in self.run_specs:
+            run_out = self._run_output_dir(spec)
+            occupied = [
+                phase
+                for phase in planned
+                if (run_out / phase).is_dir() and any((run_out / phase).iterdir())
+            ]
+            if occupied:
+                clashes.append(f"{run_out} ({', '.join(occupied)})")
+        if clashes:
+            listed = "\n  ".join(clashes)
+            raise FileExistsError(
+                "These output directories already hold results:\n  "
+                f"{listed}\n"
+                "Choose another output directory, delete these, or pass "
+                "--force to overwrite them."
+            )
+
     def _run_output_dir(self, spec: RunSpec) -> Path:
         """Flat output for a single run; runs/<id>/ for many."""
         if self.is_single:
@@ -429,6 +466,14 @@ class BatchExplorer:
         n = len(self.run_specs)
         include = self._raw.get("include")
         exclude = self._raw.get("exclude")
+
+        # Checked here, before anything starts. Each run also refuses to
+        # overwrite its own directory, but that refusal is raised inside a
+        # worker and recorded as a failed run -- the study exits non-zero and
+        # says nothing about why, or what to do instead. A study of eight
+        # systems should also not run seven of them before saying the eighth
+        # cannot start.
+        self._refuse_to_overwrite_runs(include, exclude)
 
         shared = self._maybe_prepare_once(include, exclude)
         if shared is not None:
@@ -682,6 +727,7 @@ class BatchExplorer:
             result = _execute_run(
                 spec.to_dict(), str(run_out), include, exclude,
                 self.verbose, device, quiet=not self.is_single,
+                force=self.force,
             )
             results.append(result)
             if result.status == "error" and not self.continue_on_error:
@@ -729,7 +775,7 @@ class BatchExplorer:
             fut = pool.submit(
                 _execute_run,
                 spec.to_dict(), str(run_out), include, exclude,
-                self.verbose, device,
+                self.verbose, device, force=self.force,
             )
             futures[fut] = (next_index, spec)
             next_index += 1

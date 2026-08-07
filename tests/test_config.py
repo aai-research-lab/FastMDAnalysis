@@ -405,12 +405,14 @@ systems:
 
     def test_config_short_flags(self, tmp_path, stub_pdb):
         """-c / -config / --config all work on explore."""
-        for flag in ("-c", "-config", "--config"):
-            out = tmp_path / f"out_{flag.strip('-')}"
+        # Numbered, because `strip("-")` gave `-config` and `--config` the
+        # same directory -- so the third run wrote into the second's output.
+        for index, flag in enumerate(("-c", "-config", "--config")):
+            out = tmp_path / f"out_{index}_{flag.strip('-')}"
             cfg2 = _write_yaml(
                 tmp_path,
                 f"output: {out}\ninclude: [setup]\nsystems:\n  - {{id: a, system: {stub_pdb}}}\n",
-                name=f"c_{flag.strip('-')}.yml",
+                name=f"c_{index}_{flag.strip('-')}.yml",
             )
             rc = cli_main(["explore", flag, str(cfg2)])
             assert rc == 0, f"{flag} failed"

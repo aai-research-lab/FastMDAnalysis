@@ -264,6 +264,7 @@ class FastMDXplora:
         options: dict[str, dict[str, Any]] | None = None,
         report: bool = True,
         dry_run: bool = False,
+        force: bool = False,
     ) -> list[RunResult]:
         """Run the full pipeline, end to end.
 
@@ -304,6 +305,7 @@ class FastMDXplora:
         if self._config_path is not None or self._config_data is not None:
             return self._explore_config(
                 include=include, exclude=exclude, report=report, dry_run=dry_run,
+                force=force,
             )
 
         # Config-file phase selection is the fallback when this call omits it.
@@ -320,6 +322,9 @@ class FastMDXplora:
                 run_id="s1", system=self.system, status="planned",
                 output_dir=self.output_dir, phases=[],
             )]
+
+        if not dry_run:
+            self._refuse_to_overwrite(plan, force=force)
 
         merged_options = self._merge_options(options)
         dashboard_writer = self._dashboard_writer(merged_options, plan)
@@ -397,6 +402,7 @@ class FastMDXplora:
         exclude: list[str] | None,
         report: bool,
         dry_run: bool = False,
+        force: bool = False,
     ) -> list[RunResult]:
         """Run a config-driven study through the internal batch machinery.
 
@@ -411,6 +417,7 @@ class FastMDXplora:
             config_data=self._config_data,
             output_dir=self._deferred_output_dir,
             verbose=self._deferred_verbose,
+            force=force,
         )
         # explore()-level phase overrides win over the config file.
         if include is not None:
@@ -705,6 +712,39 @@ class FastMDXplora:
             plan.remove("report")
 
         return plan
+
+    def _refuse_to_overwrite(self, plan: list[str], *, force: bool) -> None:
+        """Stop a second run from writing over the first one's output.
+
+        Nothing prevented it. A run started into a directory that already held
+        one overwrote the science files as it produced them, appended to the
+        metrics CSV and the event log, and merged its status forward from the
+        previous run's -- so the page showed one run's platform and step count
+        against another's charts, with the two traces drawn as one.
+
+        Only the phases this run will produce are checked, so the phase-by-
+        phase workflow still works: `analyze` into a directory holding a
+        finished `simulation` is exactly the intended use.
+        """
+        if force:
+            return
+        # One construction path defers the output directory; nothing has been
+        # written yet in that case, so there is nothing to refuse over.
+        if getattr(self, "output_dir", None) is None:
+            return
+        occupied = [
+            phase
+            for phase in plan
+            if (self.output_dir / phase).is_dir()
+            and any((self.output_dir / phase).iterdir())
+        ]
+        if not occupied:
+            return
+        raise FileExistsError(
+            f"{self.output_dir} already holds output from "
+            f"{', '.join(occupied)}. Choose another --output directory, "
+            f"delete this one, or pass --force to overwrite it."
+        )
 
     def _merge_options(
         self, override: dict[str, dict[str, Any]] | None

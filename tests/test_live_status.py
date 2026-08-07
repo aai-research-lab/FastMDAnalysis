@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+
+import pytest
 from urllib.request import urlopen
 
 from fastmdxplora.gui import protein_preview
@@ -1215,3 +1217,158 @@ class TestTheFileListCanBeReadWithoutGuessing:
         )[0]
         assert "quick_actions" not in section
         assert "actionHost.hidden = true" in section
+
+
+class TestTheContactResiduesAreNamed:
+    """The row read "Use \u201cShow pocket residues\u201d" -- an instruction where
+    a value belongs, for residues the analysis had already identified."""
+
+    def _table(self, root: Path, *rows: str) -> None:
+        folder = root / "analysis" / "pl_interactions"
+        folder.mkdir(parents=True)
+        header = (
+            "kind,ligand_atom,protein_atom,residue,frames_present,"
+            "frames_total,occupancy,episodes,standard_error,well_sampled\n"
+        )
+        (folder / "pl_interactions.dat").write_text(
+            header + "".join(rows), encoding="utf-8"
+        )
+
+    def test_the_contact_residues_are_named(self, tmp_path: Path) -> None:
+        """Best observed first, and across every kind rather than one."""
+        from fastmdxplora.gui.server import _ligand_interactions
+
+        self._table(
+            tmp_path,
+            "hydrophobic,1,10,ALA99,180,200,0.84,3,0.02,True\n",
+            "hydrophobic,2,14,VAL111,150,200,0.75,4,0.02,True\n",
+            "hydrogen_bond,3,26,SER117,120,200,0.60,2,0.02,True\n",
+        )
+        residues = _ligand_interactions(tmp_path)["contact_residues"]
+
+        # Best observed first, and across every kind rather than one of them.
+        assert residues == ["ALA99", "VAL111", "SER117"]
+
+    def test_a_contact_is_not_a_neighbour(self) -> None:
+        """The viewer's pocket button takes every residue within a distance
+        cutoff. These met an interaction criterion. Reporting one under a
+        label meaning the other would overstate what was measured."""
+        base = Path(protein_preview.__file__).parent
+        js = (base / "static" / "dashboard.js").read_text(encoding="utf-8")
+
+        assert "<th>Contact residues</th>" in js
+        assert "<th>Pocket residues</th>" in js
+        assert "Show pocket residues" in js
+        assert "<th>Nearby residues</th>" not in js
+
+
+class TestADirectoryHoldsOneRun:
+    """Nothing stopped a second run writing over the first. It overwrote the
+    science files as it produced them, appended to the metrics CSV and the
+    event log, and merged its status forward from the previous run's -- so one
+    run's platform and step count appeared against another's charts, with the
+    two traces drawn as one line."""
+
+    def _orchestrator(self, root: Path):
+        from fastmdxplora.orchestrator import FastMDXplora
+
+        return FastMDXplora(system="181L", output_dir=str(root))
+
+    def _used(self, root: Path, phase: str) -> None:
+        folder = root / phase
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "output.txt").write_text("x", encoding="utf-8")
+
+    def test_a_second_run_is_refused(self, tmp_path: Path) -> None:
+        run = tmp_path / "run"
+        self._used(run, "setup")
+
+        with pytest.raises(FileExistsError) as caught:
+            self._orchestrator(run)._refuse_to_overwrite(
+                ["setup", "simulation", "analysis", "report"], force=False
+            )
+        # The message has to say what to do, not only what is wrong.
+        assert "--force" in str(caught.value)
+        assert "setup" in str(caught.value)
+
+    def test_force_overrides_it(self, tmp_path: Path) -> None:
+        run = tmp_path / "run"
+        self._used(run, "setup")
+        self._orchestrator(run)._refuse_to_overwrite(["setup"], force=True)
+
+    def test_a_fresh_directory_is_fine(self, tmp_path: Path) -> None:
+        run = tmp_path / "run"
+        self._orchestrator(run)._refuse_to_overwrite(["setup", "simulation"], force=False)
+
+    def test_an_empty_phase_directory_is_fine(self, tmp_path: Path) -> None:
+        """Created and not written to -- a previous run that got nowhere is
+        not output to protect."""
+        run = tmp_path / "run"
+        (run / "setup").mkdir(parents=True)
+        self._orchestrator(run)._refuse_to_overwrite(["setup"], force=False)
+
+    def test_the_phase_by_phase_workflow_still_works(self, tmp_path: Path) -> None:
+        """`analyze` into a directory holding a finished simulation is the
+        intended use, so only the phases this run will produce are checked."""
+        run = tmp_path / "run"
+        self._used(run, "simulation")
+        self._orchestrator(run)._refuse_to_overwrite(["analysis", "report"], force=False)
+
+    def test_the_flag_exists_on_explore(self) -> None:
+        from fastmdxplora.cli.main import _build_parser
+
+        parser = _build_parser()
+        explore = parser._subparsers._group_actions[0].choices["explore"]
+        assert any("--force" in action.option_strings for action in explore._actions)
+
+    def test_it_reaches_a_config_driven_study(self) -> None:
+        """A study runs through the batch layer, which builds one orchestrator
+        per system -- so the flag has to travel to reach the check."""
+        import inspect
+
+        from fastmdxplora.batch import explorer
+
+        assert "force" in inspect.signature(explorer._execute_run).parameters
+        assert "force" in inspect.signature(explorer.BatchExplorer.__init__).parameters
+
+    def test_a_study_refuses_before_it_starts(self, tmp_path: Path) -> None:
+        """The per-run refusal is raised inside a worker and recorded as a
+        failed run: the study exits non-zero and says nothing about why. A
+        study of eight systems should also not run seven before saying the
+        eighth cannot start."""
+        from fastmdxplora.batch.explorer import BatchExplorer
+
+        run = tmp_path / "run"
+        self._used(run, "setup")
+        config = tmp_path / "study.yml"
+        config.write_text(
+            f"output: {run}\ninclude: [setup]\n"
+            "systems:\n  - {id: a, system: 181L}\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(FileExistsError) as caught:
+            BatchExplorer(config=str(config)).run()
+        assert "--force" in str(caught.value)
+
+    def test_the_cli_says_it_plainly(self, tmp_path: Path, capsys) -> None:
+        """Refusing to overwrite is a decision, not a crash -- no traceback."""
+        from fastmdxplora.cli.main import main
+
+        run = tmp_path / "run"
+        self._used(run, "setup")
+        config = tmp_path / "study.yml"
+        config.write_text(
+            f"output: {run}\ninclude: [setup]\n"
+            "systems:\n  - {id: a, system: 181L}\n",
+            encoding="utf-8",
+        )
+
+        code = main(["explore", "--config", str(config)])
+        message = capsys.readouterr().err
+
+        assert code == 2
+        assert message.startswith("fastmdx: ")
+        assert "already hold results" in message
+        assert "--force" in message
+        assert "Traceback" not in message

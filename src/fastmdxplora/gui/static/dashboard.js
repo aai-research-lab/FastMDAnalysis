@@ -1096,11 +1096,25 @@
       <tr><th>Chain (simulated)</th><td>${escapeHTML(instance.chain || "—")}</td></tr>
       <tr><th>Residue ID (simulated)</th><td>${escapeHTML(instance.resi || "—")}</td></tr>
       <tr><th>Atom count</th><td>${escapeHTML(atoms)}</td></tr>
-      <tr><th>Nearby residues</th><td>Use “Show pocket residues”</td></tr>
-      <tr><th>Pocket distance</th><td>${escapeHTML(state.bindingPocketCutoff)} Å cutoff</td></tr>
+      <tr><th>Contact residues</th><td>${contactResidueCell(info)}</td></tr>
+      <tr><th>Pocket residues</th><td>Use “Show pocket residues” — everything within ${escapeHTML(state.bindingPocketCutoff)} Å</td></tr>
       <tr><th>H-bonds</th><td>${interactionCell(info, "hbonds")}</td></tr>
       <tr><th>Hydrophobic contacts</th><td>${interactionCell(info, "hydrophobic")}</td></tr>
       <tr><th>Salt bridges</th><td>${interactionCell(info, "salt_bridges")}</td></tr>`;
+  }
+
+  function contactResidueCell(info) {
+    // Named, rather than an instruction to go and look. These are the
+    // residues that met an interaction criterion, best observed first -- a
+    // narrower set than the pocket button's, which takes every residue
+    // within a distance cutoff whether or not anything was measured.
+    const measured = info?.interactions;
+    if (!measured?.analysed) return "Not analysed";
+    const residues = measured.contact_residues || [];
+    if (!residues.length) return "none observed";
+    const shown = residues.slice(0, 5).join(", ");
+    const rest = residues.length - 5;
+    return escapeHTML(rest > 0 ? `${shown} +${rest} more` : shown);
   }
 
   function interactionCell(info, kind) {

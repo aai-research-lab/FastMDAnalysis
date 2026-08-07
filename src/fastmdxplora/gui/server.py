@@ -1226,6 +1226,19 @@ def _ligand_interactions(root: Path) -> dict[str, Any]:
     except (OSError, csv.Error):
         return {"analysed": False, "kinds": {}}
 
+    # Every residue that met an interaction criterion, whichever kind, best
+    # observed first. Distinct from the viewer's pocket button, which takes
+    # everything within a distance cutoff: these are contacts that were
+    # measured, not neighbours that were counted.
+    contacts: dict[str, float] = {}
+    for entry in seen.values():
+        for residue, record in entry["residues"].items():
+            occupancy = record["occupancy"] or 0.0
+            contacts[residue] = max(contacts.get(residue, 0.0), occupancy)
+    ranked_contacts = [
+        name for name, _ in sorted(contacts.items(), key=lambda item: -item[1])
+    ]
+
     kinds: dict[str, Any] = {}
     for label, entry in seen.items():
         residues = entry["residues"]
@@ -1245,7 +1258,7 @@ def _ligand_interactions(root: Path) -> dict[str, Any]:
                 1 for record in residues.values() if not record["well_sampled"]
             ),
         }
-    return {"analysed": True, "kinds": kinds}
+    return {"analysed": True, "kinds": kinds, "contact_residues": ranked_contacts}
 
 
 def _safe_float_value(value: Any) -> float | None:

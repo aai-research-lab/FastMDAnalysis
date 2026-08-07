@@ -739,6 +739,14 @@ def _build_parser() -> argparse.ArgumentParser:
         )
         _common_input_args(ep)
         ep.add_argument(
+            "--force",
+            action="store_true",
+            help=(
+                "Run into an output directory that already holds results, "
+                "overwriting them. Without this a second run is refused."
+            ),
+        )
+        ep.add_argument(
             "--include",
             nargs="+",
             metavar="PHASE",
@@ -1111,7 +1119,10 @@ def _cmd_explore(args: argparse.Namespace) -> int:
     if _dashboard_requested(args) and not getattr(args, "dry_run", False):
         session = _start_dashboard_for_command(args, dashboard_output_dir)
     try:
-        results = fmdx.explore(dry_run=getattr(args, "dry_run", False))
+        results = fmdx.explore(
+            dry_run=getattr(args, "dry_run", False),
+            force=getattr(args, "force", False),
+        )
     except KeyboardInterrupt:
         if session is not None:
             session.stop()
@@ -1602,6 +1613,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_info()
     except ConfigError as exc:
         print(f"fastmdx: config error: {exc}", file=sys.stderr)
+        return 2
+    except FileExistsError as exc:
+        # Refusing to overwrite a previous run is a decision, not a crash:
+        # said plainly, with what to do about it, and no traceback.
+        print(f"fastmdx: {exc}", file=sys.stderr)
         return 2
 
     parser.print_help()
