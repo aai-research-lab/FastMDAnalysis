@@ -7,9 +7,9 @@ protein in a lipid bilayer, three ways of biasing a run along a coordinate you
 name, and being told what went wrong when one fails.
 
 Each is a setting on the simulation or setup phase, so each is available from
-the command line, a config file, and the browser without anything further. The
+the command line, a config file, and the GUI without anything further. The
 three biasing methods take a block of settings rather than one value, and the
-browser gives those a box you write the block into, one setting per line, the
+GUI gives those a box you write the block into, one setting per line, the
 way it appears in a config file.
 
 ## Restraints

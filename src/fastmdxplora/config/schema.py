@@ -63,7 +63,7 @@ class Field:
         default is ``None`` (so the template is illustrative, not blank).
     choices : tuple of str, optional
         The complete set of accepted values, where there is one. Declared
-        here so that argparse, the browser's controls, the config template,
+        here so that argparse, the GUI's controls, the config template,
         and validation all offer the same list. They used to hold four
         separate copies of it.
     phase_sentinel : Any, optional

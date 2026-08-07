@@ -40,7 +40,7 @@ runs*, *where it starts*, *conditions*, *the integrator*, *enhanced sampling*,
 *restraints*, *where it runs*, *what gets written*, *watching it run* for
 simulation. Each group says what it is about. `fastmdx explore --help` reads
 in the same sections, from the same declaration, so moving between the
-terminal and the browser is not learning a second arrangement.
+terminal and the GUI is not learning a second arrangement.
 
 Every path field has a **Browse** button, so there is no typing a path and
 finding out later that it was wrong.
@@ -49,7 +49,7 @@ A setting that is a *block* rather than a value — `umbrella`, `steered`,
 `metadynamics` — gets a box you write the block into, one setting per line,
 exactly as it appears in a config file. An example of the right shape sits in
 the box until you type. These used to be single-line fields, which meant the
-browser was the one interface where enhanced sampling could not be set up.
+GUI was the one interface where enhanced sampling could not be set up.
 
 ### Taking the config with you
 

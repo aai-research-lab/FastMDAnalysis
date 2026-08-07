@@ -652,3 +652,27 @@ class TestNobodyCountsTheAnalysesTwice:
         assert not re.search(
             r"analys\w+ the\s+trajectory\s+\w+\s+ways", readme, re.I), (
             "a count in the opening paragraph is a copy that goes stale")
+
+
+class TestTheInterfaceIsCalledTheGUI:
+    """The GUI is the interface; a browser is where it happens to render.
+
+    Documentation and comments used "the browser" for both, so the product and
+    its rendering surface had the same name -- and the three interfaces read
+    as "the command line, a config file, and the browser".
+    """
+
+    def test_the_docs_name_the_interface_consistently(self) -> None:
+        import pathlib
+        import re
+
+        root = pathlib.Path(__file__).resolve().parents[1]
+        for page in ("docs/gui.md", "docs/simulations.md", "README.md"):
+            text = (root / page).read_text(encoding="utf-8")
+            for line in text.splitlines():
+                if "browser" not in line:
+                    continue
+                # A browser tab, and the flag that suppresses it, are the
+                # literal thing and keep the word.
+                assert ("browser tab" in line or "--no-browser" in line), (
+                    f"{page}: {line.strip()[:80]}")

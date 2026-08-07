@@ -70,6 +70,13 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   uncommitted changes does not describe what ran, so saying so is what keeps
   the commit from being decorative.
 
+### Changed
+- **The interface is called the GUI.** Documentation and comments used "the
+  browser" for both the interface and the thing it renders in, so the three
+  interfaces read as "the command line, a config file, and the browser". A
+  browser tab and the `--no-browser` flag are the literal thing and keep the
+  word; everything else naming the interface says GUI.
+
 ### Fixed
 - **A results section carried a figure and no number.** The mean, its
   uncertainty and the independent samples behind it are recorded for every

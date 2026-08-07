@@ -27,7 +27,7 @@ from fastmdxplora.dependencies import dependency_error_message, missing_dependen
 _FORCEFIELDS = ("auto", "charmm36", "amber14", "amber-fb15", "amber-openff")
 _PLATFORMS = ("auto", "CPU", "CUDA", "OpenCL", "HIP")
 # The accepted values are declared once, in the schema, and read here. The
-# browser used to keep its own copies alongside the CLI's, and a control
+# GUI used to keep its own copies alongside the CLI's, and a control
 # offering something the CLI rejects is a worse failure than either list
 # being wrong: it looks like the tool disagreeing with itself.
 def _schema_choices(phase: str, field: str) -> tuple[str, ...]:
@@ -307,7 +307,7 @@ def build_config_yaml(config: Mapping[str, Any], output_dir: Path | str) -> str:
 
     The GUI builder collects the same options the CLI accepts. This turns
     that selection into the canonical config format so a study designed in
-    the browser can be saved, reviewed, version-controlled, and submitted
+    the GUI can be saved, reviewed, version-controlled, and submitted
     anywhere, including on a cluster where the GUI cannot run.
 
     The output is accepted by ``fastmdx explore --config``.
@@ -785,7 +785,7 @@ class DashboardRuntime:
         set of flags, which is why it can only start the kind of run somebody
         thought to wire up -- and why analysing a trajectory that already
         existed was not among them. This one writes the config and runs it, so
-        anything a config can say, the browser can start.
+        anything a config can say, the GUI can start.
         """
         from fastmdxplora.gui.run_from_config import prepare_run
 

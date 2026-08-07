@@ -1,7 +1,7 @@
 """Run what the page describes, from the file the page would give you.
 
 The dashboard used to start a run by assembling a command out of hand-picked
-flags -- four setup settings, a few simulation ones -- which meant the browser
+flags -- four setup settings, a few simulation ones -- which meant the GUI
 could only ever start the kind of run somebody had thought to wire up. An
 analysis of a trajectory that already exists was not among them: the phase list
 was fixed at setup and simulation before anything else was considered.

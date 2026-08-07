@@ -78,7 +78,7 @@ def load_config_file(path: str | Path) -> dict[str, Any]:
     # An umbrella block describes a set of windows; everything downstream
     # runs one system at a time. Expanding here means the block reaches
     # exactly one place and every route into the software -- command line,
-    # Python, the browser -- gets the same expansion rather than each
+    # Python, the GUI -- gets the same expansion rather than each
     # remembering to ask for it.
     from fastmdxplora.simulation.umbrella import expand_umbrella
 
