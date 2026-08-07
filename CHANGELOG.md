@@ -101,6 +101,30 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   diagnosed. Both are back, with a test for each, and the recipe says
   graphical interface where it said browser.
 
+- **A surface-area calculation that did not finish writing is computed
+  again.** On Windows, MDTraj's `shrake_rupley` returns a final frame that was
+  not fully written -- a partial value followed by zeros -- on the first call,
+  and the same frame complete on a second call to the same trajectory. Frames
+  other than the last come back bit-identical.
+
+  The truncated answer identifies itself: a residue exposed in five frames and
+  reading exactly zero in the sixth was not measured as completely enclosed,
+  it was not written. Where that is seen, the areas are computed again and the
+  complete result used, with the run recording that it had to be. A residue
+  buried throughout is left alone, and an answer truncated twice is refused
+  rather than returned.
+
+  This is a workaround, not a rescue, and the distinction is the one this
+  package draws elsewhere: a failed simulation is diagnosed and stopped
+  because a salvaged trajectory looks like one that never needed salvaging.
+  Here the wrong answer is identifiable by inspection and the right one is a
+  second call away.
+
+  Without it, a zero row pulls a six-frame mean down by a sixth, and the
+  number reaching a report, with an error bar on it, looks like a
+  measurement. Reported upstream; it affects anyone computing
+  solvent-accessible surface area on Windows.
+
 - **A SASA test was asserting a property of MDTraj.** Two routes to a
   per-residue average each called the surface-area calculation once and
   compared the results, so the test was also asserting that two identical

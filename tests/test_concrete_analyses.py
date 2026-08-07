@@ -17,6 +17,7 @@ real timing) provides realistic input for protein analyses.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -2344,6 +2345,18 @@ class TestSASAReportsWhatVersionOneReported:
         written = {f.name for f in tmp_path.rglob("*") if f.is_file()}
         assert "sasa_average_per_residue.csv" in written
 
+    @pytest.mark.xfail(
+        sys.platform == "win32",
+        reason=(
+            "MDTraj returns an unwritten final frame from the first call on "
+            "Windows; reported upstream. Not strict, because which runs "
+            "manifest it varies -- 3.11 on one commit, 3.9 and 3.12 on the "
+            "next -- so requiring the failure would flake the other way. An "
+            "unexpected pass is the signal that upstream has fixed it and "
+            "the retry in sasa.py can go."
+        ),
+        strict=False,
+    )
     def test_shrake_rupley_gives_the_same_answer_twice(self) -> None:
         """Pinned because it stopped being true.
 
@@ -2413,6 +2426,103 @@ class TestSASAReportsWhatVersionOneReported:
                 f"  direct : {left}\n  grouped: {right}\n"
                 f"  per-frame values for the residues that differ: {offenders}"
             )
+
+    #: The final frame MDTraj returns from a first call on Windows: a partial
+    #: value where the write stopped, then zeros.
+    TRUNCATED_TAIL = [0.5354027, 0.0, 0.0, 0.0, 0.0]
+
+    def _areas(self):
+        return md.shrake_rupley(self._traj(), probe_radius=0.14,
+                                n_sphere_points=960, mode="residue")
+
+    def test_the_frame_windows_returns_is_recognised(self) -> None:
+        """A first version looked for an all-zero row and would not have seen
+        it: the row is a partial value followed by zeros, because the write
+        stopped part-way rather than never starting."""
+        from fastmdxplora.analysis.sasa import _unwritten_frames
+
+        areas = self._areas()
+        truncated = areas.copy()
+        truncated[-1] = self.TRUNCATED_TAIL
+
+        assert _unwritten_frames(truncated).tolist() == [len(areas) - 1]
+        assert _unwritten_frames(areas).size == 0
+
+    def test_a_residue_buried_throughout_is_left_alone(self) -> None:
+        """Exact zero means every test point was occluded. A residue that is
+        enclosed stays enclosed; one that is exposed in five frames and
+        completely enclosed in the sixth was not measured, it was not
+        written."""
+        from fastmdxplora.analysis.sasa import _unwritten_frames
+
+        areas = self._areas()
+        areas[:, 2] = 0.0
+        assert _unwritten_frames(areas).size == 0
+
+    def test_a_truncated_answer_is_computed_again(self, monkeypatch) -> None:
+        """The second call returns the frame fully written, and it agrees with
+        every other platform. Taken, and recorded."""
+        from fastmdxplora.analysis import sasa as sasa_module
+        from fastmdxplora.analysis.sasa import SASA
+
+        traj = self._traj()
+        complete = self._areas()
+        truncated = complete.copy()
+        truncated[-1] = self.TRUNCATED_TAIL
+
+        calls = {"n": 0}
+
+        def flaky(*args, **kwargs):
+            calls["n"] += 1
+            return truncated if calls["n"] == 1 else complete
+
+        monkeypatch.setattr(sasa_module.md, "shrake_rupley", flaky)
+
+        analysis = SASA(mode="average_residue")
+        result = analysis.compute(traj)
+
+        assert calls["n"] == 2
+        assert np.allclose(result["mean_sasa_nm2"].to_numpy(),
+                           complete.mean(axis=0), atol=1e-6)
+        assert "unwritten frame" in analysis.findings["recomputed"]
+
+    def test_a_complete_answer_is_not_computed_twice(self, monkeypatch) -> None:
+        """The retry is for a defect, not a routine."""
+        from fastmdxplora.analysis import sasa as sasa_module
+        from fastmdxplora.analysis.sasa import SASA
+
+        traj = self._traj()
+        complete = self._areas()
+        calls = {"n": 0}
+
+        def counted(*args, **kwargs):
+            calls["n"] += 1
+            return complete
+
+        monkeypatch.setattr(sasa_module.md, "shrake_rupley", counted)
+        analysis = SASA(mode="residue")
+        analysis.compute(traj)
+
+        assert calls["n"] == 1
+        assert "recomputed" not in analysis.findings
+
+    def test_twice_truncated_is_refused(self, monkeypatch) -> None:
+        """A workaround that quietly returns a wrong answer would be worse
+        than the defect it works around."""
+        import pytest as _pytest
+
+        from fastmdxplora.analysis import sasa as sasa_module
+        from fastmdxplora.analysis.sasa import SASA
+
+        traj = self._traj()
+        truncated = self._areas()
+        truncated[-1] = self.TRUNCATED_TAIL
+
+        monkeypatch.setattr(sasa_module.md, "shrake_rupley",
+                            lambda *a, **k: truncated)
+
+        with _pytest.raises(RuntimeError, match="twice"):
+            SASA(mode="residue").compute(traj)
 
     def test_the_modes_are_declared_for_a_form_to_read(self) -> None:
         import fastmdxplora.analysis  # noqa: F401

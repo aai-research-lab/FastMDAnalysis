@@ -37,6 +37,90 @@ from fastmdxplora.analysis.orchestrator import register_analysis
 VALID_MODES = ("total", "residue", "average_residue")
 
 
+def _unwritten_frames(sasa: np.ndarray) -> np.ndarray:
+    """Frames the surface-area calculation did not finish writing.
+
+    The signature is a residue reading exactly ``0.0`` in one frame while
+    being exposed in the others. Exact zero means every test point on that
+    residue was occluded -- a residue completely enclosed by its neighbours --
+    and a residue does not become completely enclosed for one frame of a run
+    and open again in the next. A residue that is buried is buried throughout,
+    and that case is left alone.
+
+    Checked this way rather than by looking for an all-zero row. The frame
+    Windows returns is ``[0.5354027, 0, 0, 0, 0]``: a partial value followed
+    by zeros, because the write stopped part-way rather than never starting.
+    A test for a wholly empty row does not see it, which is what a first
+    version of this did.
+    """
+    if sasa.ndim != 2 or sasa.shape[0] < 2:
+        return np.empty(0, dtype=int)
+
+    zero = sasa == 0.0
+    if not zero.any():
+        return np.empty(0, dtype=int)
+
+    # Columns that are zero somewhere and not everywhere: a residue exposed
+    # in some frames and reported as completely enclosed in others.
+    intermittent = zero.any(axis=0) & ~zero.all(axis=0)
+    if not intermittent.any():
+        return np.empty(0, dtype=int)
+
+    return np.flatnonzero(zero[:, intermittent].any(axis=1))
+
+
+def _areas_that_were_written(
+    traj: Any, *, probe_radius: float, n_sphere_points: int, mode: str
+) -> tuple[np.ndarray, str | None]:
+    """Surface areas, computed again if the first answer was truncated.
+
+    On Windows the first call to MDTraj's ``shrake_rupley`` returns a final
+    frame of zeros, with a partial value in its first element, and a second
+    call on the same trajectory returns it fully written. Frames other than
+    the last come back bit-identical.
+
+    Calling again is a workaround and not a rescue, and the difference is
+    worth being explicit about. This package refuses to salvage a failed
+    simulation, because a trajectory produced by a recovery looks exactly like
+    one that never needed it and the failure stops being visible. Here the
+    wrong answer identifies itself -- a frame of exact zeros cannot be a
+    surface area -- and the right one is a second call away and agrees with
+    every other platform. So it is taken, and the run records that it had to
+    be, rather than either failing on a defect that is not ours or repairing
+    it silently.
+
+    Returns the areas and, where a retry was needed, a note for the findings.
+    """
+    areas = md.shrake_rupley(
+        traj, probe_radius=probe_radius, n_sphere_points=n_sphere_points,
+        mode=mode)
+    empty = _unwritten_frames(areas)
+    if empty.size == 0:
+        return areas, None
+
+    retried = md.shrake_rupley(
+        traj, probe_radius=probe_radius, n_sphere_points=n_sphere_points,
+        mode=mode)
+    if _unwritten_frames(retried).size:
+        raise RuntimeError(
+            "The surface-area calculation returned zero for every residue in "
+            f"frame(s) {', '.join(str(int(f)) for f in empty)}, twice. A "
+            "molecule has surface, so a frame of exact zeros is a row the "
+            "calculation did not finish writing, and computing it again gave "
+            "the same. This is a defect in the underlying library rather "
+            "than in the trajectory; it has been seen on Windows, where a "
+            "second attempt usually succeeds."
+        )
+
+    return retried, (
+        f"The surface-area calculation returned {empty.size} unwritten "
+        f"frame(s) on the first attempt and completed on the second. This is "
+        "a known defect in the underlying library on some platforms, not a "
+        "property of this trajectory; the areas reported are from the "
+        "complete result."
+    )
+
+
 class SASA(Analysis):
     """Solvent-accessible surface area.
 
@@ -107,12 +191,14 @@ class SASA(Analysis):
             traj = traj.atom_slice(atom_idx)
 
         mode_arg = "atom" if self.mode == "total" else "residue"
-        sasa = md.shrake_rupley(
+        sasa, retried = _areas_that_were_written(
             traj,
             probe_radius=self.probe_radius,
             n_sphere_points=self.n_sphere_points,
             mode=mode_arg,
         )
+        if retried:
+            self.findings["recomputed"] = retried
 
         if self.mode == "total":
             total = sasa.sum(axis=1)
