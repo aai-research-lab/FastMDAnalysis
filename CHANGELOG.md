@@ -71,6 +71,22 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   the commit from being decorative.
 
 ### Fixed
+- **A results section carried a figure and no number.** The mean, its
+  uncertainty and the independent samples behind it are recorded for every
+  per-frame analysis and were shown nowhere; each analysis now states what it
+  measured, with the reason attached where the run cannot support it.
+
+- **An analysis was described as running with default options beside a list of
+  the options it ran with.** A `for ... else` runs its else when the loop
+  finishes without a break, which is every time.
+
+- **`TrpCage.traj` returned the path to a file that had never existed.** The
+  module described itself as a placeholder whose trajectory would be "bundled
+  in a future release"; that was v0.1.0. Reading the attribute gave a
+  plausible string and passing it anywhere gave a file-not-found from inside a
+  trajectory reader. The metadata that is true is kept, and the paths that
+  were not explain themselves and name the command that produces one.
+
 - **The shareable archive omitted the record of what produced it.** The bundle
   carried every output including the trajectory, and neither `manifest.json`
   nor `resolved_config.yml`: not by exclusion, but because both are written

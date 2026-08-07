@@ -2216,3 +2216,76 @@ class TestTheDashboardHeaderNamesTheSystem:
 
         assert _system_label("/home/someone/ala3.pdb") == "ala3"
         assert _system_label("181L") == "181L"
+
+
+class TestTheResultsCarryTheMeasurement:
+    """A results subsection showed the settings that produced a figure, and
+    the figure, and no number --- while the mean, its uncertainty and the
+    independent samples behind it were already recorded for every per-frame
+    analysis.
+    """
+
+    def test_the_mean_and_its_error_are_stated(self) -> None:
+        from fastmdxplora.report.document import _findings_notes
+
+        notes = _findings_notes({"mean": {
+            "mean": 0.01208, "standard_error": 0.00292,
+            "effective_samples": 8.1, "discard": 40,
+        }})
+        said = " ".join(notes)
+
+        assert "0.01208 ± 0.00292" in said
+        assert "8 independent samples" in said
+        assert "discarding 40 frames" in said
+
+    def test_a_mean_that_is_not_a_measurement_says_so(self) -> None:
+        from fastmdxplora.report.document import _findings_notes
+
+        notes = _findings_notes({"mean": {
+            "mean": 1.0, "standard_error": 0.1, "effective_samples": 3,
+            "not_a_measurement": "3.0 independent samples in 40 frames.",
+        }})
+        assert any("independent samples in 40 frames" in n for n in notes)
+
+    def test_nothing_recorded_says_nothing(self) -> None:
+        from fastmdxplora.report.document import _findings_notes
+
+        assert _findings_notes({}) == []
+        assert _findings_notes({"mean": {}}) == []
+
+    def test_default_options_are_not_claimed_beside_a_list_of_options(
+        self
+    ) -> None:
+        """A `for ... else` runs its else when the loop finishes without a
+        break, which is every time: the report listed an analysis's parameters
+        and then said it had run with the defaults."""
+        import inspect
+
+        from fastmdxplora.report import document
+
+        source = inspect.getsource(document)
+        assert "if not (opts or selection or notes):" in source
+        assert "        else:\n            lines.append(\"_Ran with default options._\")" \
+            not in source
+
+
+class TestTheDatasetSaysWhatItHas:
+    """`TrpCage.traj` returned the path to a file that had never existed. The
+    module called itself a placeholder whose data would be "bundled in a
+    future release"; that was v0.1.0, two major releases ago."""
+
+    def test_the_metadata_that_is_true_is_kept(self) -> None:
+        from fastmdxplora.datasets import TrpCage
+
+        assert TrpCage.pdb_id == "1L2Y"
+        assert TrpCage.n_residues == 20
+
+    def test_asking_for_a_trajectory_explains_rather_than_lies(self) -> None:
+        import pytest
+
+        from fastmdxplora.datasets import TrpCage
+
+        with pytest.raises(FileNotFoundError, match="fastmdx explore"):
+            TrpCage.traj
+        with pytest.raises(FileNotFoundError, match="1L2Y"):
+            TrpCage.top

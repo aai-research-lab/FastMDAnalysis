@@ -384,9 +384,13 @@ def _results_section(project_root: Path) -> str:
         # and a reader needs to know that the chemistry was resolved, not to
         # read the tuples.
         findings = per_analysis.get("findings") or {}
-        for note in _findings_notes(findings):
+        notes = _findings_notes(findings)
+        for note in notes:
             lines.append(f"- {note}")
-        else:
+        # A `for ... else` runs its else when the loop finishes without a
+        # break, which is every time: the report listed an analysis's
+        # parameters and then said it had run with the defaults.
+        if not (opts or selection or notes):
             lines.append("_Ran with default options._")
         lines.append("")
 
@@ -562,6 +566,26 @@ def _findings_notes(findings: dict[str, Any]) -> list[str]:
     """
     notes: list[str] = []
 
+    # What the analysis measured. Recorded for every per-frame analysis and
+    # shown nowhere: a results section carried a figure and the settings that
+    # produced it, and no number.
+    measured = findings.get("mean")
+    if isinstance(measured, dict) and measured.get("mean") is not None:
+        error = measured.get("standard_error")
+        value = (f"{measured['mean']:.4g} ± {error:.3g}"
+                 if isinstance(error, (int, float)) and error == error
+                 else f"{measured['mean']:.4g}")
+        independent = measured.get("effective_samples")
+        said = f"Mean over the settled part of the run: {value}"
+        if isinstance(independent, (int, float)):
+            said += f", from {independent:.0f} independent samples"
+        discarded = measured.get("discard")
+        if isinstance(discarded, int) and discarded:
+            said += f" after discarding {discarded:,} frames"
+        notes.append(said + ".")
+    if isinstance(measured, dict) and measured.get("not_a_measurement"):
+        notes.append(str(measured["not_a_measurement"]))
+
     chemistry = findings.get("ligand_chemistry")
     if isinstance(chemistry, dict):
         source = chemistry.get("source")
@@ -720,9 +744,15 @@ def build_document(
         sections.append(convergence)
 
     sections.append(
-        "## Discussion\n\n_This section is intended for the user to complete. "
-        "FastMDXplora provides the analytical scaffolding; scientific "
-        "interpretation remains the researcher's responsibility._"
+        "## Discussion\n\n"
+        "_Everything above is measurement: what was built, what was run, what "
+        "was computed from it, and how much of it the run supports. What none "
+        "of it says is what the system was doing, or whether that answers the "
+        "question the study was for. That judgement is yours, and this "
+        "section is where it goes._\n\n"
+        "_Software can report that a mean rests on eight independent samples. "
+        "It cannot tell you whether eight is enough for the claim you intend "
+        "to make._"
     )
 
     sections.append(_citation_section())
