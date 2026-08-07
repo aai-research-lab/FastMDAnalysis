@@ -1093,14 +1093,26 @@
     meta.textContent = `${residueName} · chain ${instance.chain || "—"} · resi ${instance.resi || "—"} · ${atoms} atoms`;
     body.innerHTML = `
       <tr><th>Ligand</th><td>${escapeHTML(residueName)}</td></tr>
-      <tr><th>Chain (simulated)</th><td>${escapeHTML(instance.chain || "—")}</td></tr>
-      <tr><th>Residue ID (simulated)</th><td>${escapeHTML(instance.resi || "—")}</td></tr>
+      <tr><th>Position in structure</th><td>${crystalPositionCell(info, residueName)}</td></tr>
+      <tr><th>Position in simulation</th><td>${escapeHTML(
+        `${instance.chain || "—"} ${instance.resi ?? "—"}`
+      )}</td></tr>
       <tr><th>Atom count</th><td>${escapeHTML(atoms)}</td></tr>
       <tr><th>Contact residues</th><td>${contactResidueCell(info)}</td></tr>
       <tr><th>Pocket residues</th><td>Use “Show pocket residues” — everything within ${escapeHTML(state.bindingPocketCutoff)} Å</td></tr>
       <tr><th>H-bonds</th><td>${interactionCell(info, "hbonds")}</td></tr>
       <tr><th>Hydrophobic contacts</th><td>${interactionCell(info, "hydrophobic")}</td></tr>
       <tr><th>Salt bridges</th><td>${interactionCell(info, "salt_bridges")}</td></tr>`;
+  }
+
+  function crystalPositionCell(info, resname) {
+    // From the structure the run started from, which is the numbering the
+    // PDB entry uses and any other tool will expect. The row beneath gives
+    // OpenMM's, which is what the viewer selects on -- both are true, of
+    // different files, and which one you want depends on what you are doing.
+    const positions = info?.crystal_positions?.[resname];
+    if (!positions || !positions.length) return "—";
+    return escapeHTML(positions.join(", "));
   }
 
   function contactResidueCell(info) {

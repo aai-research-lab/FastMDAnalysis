@@ -1032,6 +1032,7 @@ def _structure_info_payload(
     info = count_structure(structure_path, max_bytes=_MAX_PDB_BYTES_FOR_SYSTEM_SCAN)
     info = dict(info)
     info["interactions"] = _ligand_interactions(root)
+    info["crystal_positions"] = _crystal_positions(root)
     if not info.get("valid"):
         return dict(
             info,
@@ -1331,6 +1332,35 @@ def _artifact_label(rel: str) -> tuple[str, str]:
         stem = path.stem.replace("_", " ")
         return (f"{stem}: {described}", group)
     return (path.name, "record")
+
+
+def _crystal_positions(root: Path) -> dict[str, list[str]]:
+    """Where each ligand sits in the structure the run started from.
+
+    The chain and residue number the panel shows otherwise are OpenMM's, from
+    the solvated system it built -- `X 0` for a benzene the PDB entry calls
+    `BNZ A400`. The crystal numbering is the durable one: it is what the entry
+    says, what a reader would check, and what any other tool will expect.
+
+    Read from `setup/input.pdb`, the source structure placed there unaltered,
+    rather than plumbed through the setup pipeline -- the file is already in
+    every run directory.
+    """
+    source = root / "setup" / "input.pdb"
+    if not source.is_file():
+        return {}
+    info = count_structure(source)
+    if not info.get("valid"):
+        return {}
+    positions: dict[str, list[str]] = {}
+    for instance in info.get("ligand_instances", []):
+        resname = str(instance.get("resname") or "").strip()
+        chain = str(instance.get("chain") or "").strip()
+        resi = str(instance.get("resi") or "").strip()
+        if not resname or not (chain or resi):
+            continue
+        positions.setdefault(resname, []).append(f"{chain}{resi}".strip())
+    return positions
 
 
 def _system_name(root: Path, manifest: dict[str, Any]) -> str:

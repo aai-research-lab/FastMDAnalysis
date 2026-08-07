@@ -1060,12 +1060,14 @@ class TestThePanelSaysWhatHeldTheLigand:
 
     def test_the_numbering_names_the_structure_it_belongs_to(self) -> None:
         """The ligand's chain and residue id are OpenMM's, from the solvated
-        system. The crystal numbering the setup log reports is not recorded in
-        any artifact the page can read, so the rows say which one this is
-        rather than leaving it to be mistaken for the other."""
+        system. Labelling them "(simulated)" stopped them being mistaken for
+        the crystal numbering; the panel now gives both, because the run keeps
+        the structure it started from and the crystal position can be read
+        straight out of it."""
         base = Path(protein_preview.__file__).parent
         js = (base / "static" / "dashboard.js").read_text(encoding="utf-8")
-        assert "Chain (simulated)" in js
+        assert "Position in simulation" in js
+        assert "Position in structure" in js
         assert "<th>Chain</th>" not in js
 
 
@@ -1372,3 +1374,58 @@ class TestADirectoryHoldsOneRun:
         assert "already hold results" in message
         assert "--force" in message
         assert "Traceback" not in message
+
+
+class TestTheLigandIsIdentifiedTwoWays:
+    """The panel gave OpenMM's numbering from the solvated system -- `X 0` for
+    a benzene the PDB entry calls `BNZ A400`. Both are true, of different
+    files: the crystal numbering is what a reader would check and what other
+    tools expect, and OpenMM's is what the viewer selects on."""
+
+    def _input_pdb(self, root: Path, *lines: str) -> None:
+        folder = root / "setup"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "input.pdb").write_text("\n".join(lines) + "\nEND\n", encoding="utf-8")
+
+    def test_the_crystal_position_is_read_from_the_kept_input(
+        self, tmp_path: Path
+    ) -> None:
+        """Not plumbed through setup: the run already keeps the structure it
+        started from, unaltered, at `setup/input.pdb`."""
+        from fastmdxplora.gui.server import _crystal_positions
+
+        self._input_pdb(
+            tmp_path,
+            "ATOM      1  CA  ALA A  99       0.000   0.000   0.000  1.00  0.00           C",
+            "HETATM 1305  C1  BNZ A 400       5.000   0.000   0.000  1.00  0.00           C",
+        )
+        assert _crystal_positions(tmp_path) == {"BNZ": ["A400"]}
+
+    def test_several_copies_are_all_reported(self, tmp_path: Path) -> None:
+        from fastmdxplora.gui.server import _crystal_positions
+
+        self._input_pdb(
+            tmp_path,
+            "ATOM      1  CA  ALA A  99       0.000   0.000   0.000  1.00  0.00           C",
+            "HETATM 1305  C1  BNZ A 400       5.000   0.000   0.000  1.00  0.00           C",
+            "HETATM 1306  C1  BNZ B 400       9.000   0.000   0.000  1.00  0.00           C",
+        )
+        assert _crystal_positions(tmp_path)["BNZ"] == ["A400", "B400"]
+
+    def test_a_run_without_its_input_says_nothing(self, tmp_path: Path) -> None:
+        """An analysis-only run pointed at a bare trajectory has no source
+        structure to read, which is a gap rather than a wrong answer."""
+        from fastmdxplora.gui.server import _crystal_positions
+
+        assert _crystal_positions(tmp_path) == {}
+
+    def test_the_panel_labels_which_numbering_is_which(self) -> None:
+        base = Path(protein_preview.__file__).parent
+        js = (base / "static" / "dashboard.js").read_text(encoding="utf-8")
+
+        assert "<th>Position in structure</th>" in js
+        assert "<th>Position in simulation</th>" in js
+        # The unqualified labels are what made `X 0` look like a crystal
+        # position in the first place.
+        assert "<th>Chain</th>" not in js
+        assert "<th>Residue ID</th>" not in js
