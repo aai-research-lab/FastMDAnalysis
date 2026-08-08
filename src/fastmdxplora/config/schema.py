@@ -195,6 +195,16 @@ SETUP = PhaseSchema(
               "Substitute modified residues (selenomethionine, oxidised "
               "cysteine) with their standard equivalents. They are part of "
               "the polymer, and few force fields describe them directly."),
+        Field("chains", list, None,
+              "Chains to simulate, by their deposited ID -- for example "
+              "[A, B]. Default: every chain in the structure. A deposited "
+              "entry is what the experiment produced, not what anyone means "
+              "to simulate: a crystal may hold two copies where one is "
+              "wanted, and a complex may hold partners that belong to a "
+              "different question. Heterogens are kept by proximity rather "
+              "than by their own chain ID, so a ligand in a kept binding "
+              "site comes with it however the entry numbers it.",
+              example=["A", "B"]),
         Field("build_missing_termini", bool, False,
               "Build unresolved residues past the ends of a chain as well as "
               "the gaps between resolved ones. Off, because the two are not "
@@ -654,7 +664,7 @@ SETTING_GROUPS: dict[str, tuple[tuple[str, str, tuple[str, ...]], ...]] = {
          "What is kept, what is repaired, and how it is protonated.",
          ("ph", "protonation_margin", "heterogens", "keep_heterogens",
           "keep_water", "replace_nonstandard_residues",
-          "build_missing_termini", "fixed_pdb")),
+          "chains", "build_missing_termini", "fixed_pdb")),
         ("The ligand",
          "Found and parameterised, or named if the structure is ambiguous.",
          ("ligand", "ligand_name", "ligand_forcefield", "ligand_net_charge",

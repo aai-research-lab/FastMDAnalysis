@@ -93,6 +93,164 @@ def _fetch_pdb_from_rcsb(pdb_id: str, dest: Path) -> Path:
     return dest
 
 
+#: Where each record type carries its chain identifiers, by column, from the
+#: PDB format specification. Records naming a chain that was dropped describe
+#: a structure the file no longer holds.
+_CHAIN_COLUMNS = {
+    "HELIX": (19, 31),
+    "SHEET": (21, 32),
+    "SSBOND": (15, 29),
+    "LINK": (21, 51),
+}
+
+#: How near a heterogen has to come to a kept chain to be kept with it.
+#: A ligand in a binding site is within a couple of Angstroms of the residues
+#: that hold it; 5 A also catches one sitting in a shallow surface pocket
+#: without reaching across to a neighbour that was not selected.
+_LIGAND_KEEP_DISTANCE_NM = 0.5
+
+
+def _select_chains(
+    input_pdb: Path, chains: str | list[str], *, presenter: Any = None
+) -> Path:
+    """Keep only the named chains, and the heterogens that belong to them.
+
+    A deposited entry is what crystallography or cryo-EM produced, not what
+    anyone means to simulate. 5WYZ holds a biological dimer and both copies
+    are wanted; 6B73 holds two copies of a receptor-G protein complex whose
+    two-fold is not perpendicular to the membrane, so both together cannot be
+    embedded and one alone can. Without a way to say which chains, the only
+    options were all of them or a hand-edited file.
+
+    Heterogens are kept by proximity rather than by their own chain ID. An
+    entry is free to number a ligand into a chain of its own, so matching IDs
+    would drop the ligand out of a kept binding site and the run would go on
+    without it -- a wrong answer that completes, which is the worst kind.
+    """
+    import numpy as np
+
+    # Split every element, not just a bare string. The field is declared a
+    # list, so `--setup-chains A,C` arrives as ["A,C"] -- one element holding
+    # two names -- while a config's `chains: [A, C]` arrives as two. Handling
+    # only the outer shape read "A,C" as a single chain and refused a
+    # structure that has both.
+    given = [chains] if isinstance(chains, str) else list(chains or [])
+    wanted = {
+        part.strip()
+        for element in given
+        for part in str(element).replace(" ", ",").split(",")
+        if part.strip()
+    }
+    if not wanted:
+        return input_pdb
+
+    lines = input_pdb.read_text(encoding="utf-8").splitlines()
+
+    def chain_of(line: str) -> str:
+        return line[21:22].strip()
+
+    def coordinates(line: str) -> tuple[float, float, float]:
+        return (float(line[30:38]) / 10.0, float(line[38:46]) / 10.0,
+                float(line[46:54]) / 10.0)
+
+    kept_chain_atoms: list[tuple[float, float, float]] = []
+    present: set[str] = set()
+    for line in lines:
+        record = line[:6].strip().upper()
+        if record not in {"ATOM", "HETATM"}:
+            continue
+        present.add(chain_of(line))
+        if record == "ATOM" and chain_of(line) in wanted:
+            try:
+                kept_chain_atoms.append(coordinates(line))
+            except ValueError:
+                continue
+
+    missing = sorted(wanted - present)
+    if missing:
+        raise ValueError(
+            f"No chain named {', '.join(missing)} in this structure. It has "
+            f"{', '.join(sorted(c for c in present if c))}."
+        )
+    if not kept_chain_atoms:
+        raise ValueError(
+            f"Chains {', '.join(sorted(wanted))} hold no polymer atoms, so "
+            "there would be nothing to simulate."
+        )
+
+    anchors = np.asarray(kept_chain_atoms, dtype=float)
+
+    def near_a_kept_chain(point: tuple[float, float, float]) -> bool:
+        distances = np.linalg.norm(anchors - np.asarray(point), axis=1)
+        return bool(distances.min() <= _LIGAND_KEEP_DISTANCE_NM)
+
+    # One decision per residue, so a ligand is kept or dropped whole.
+    verdicts: dict[tuple[str, str, str], bool] = {}
+    for line in lines:
+        if line[:6].strip().upper() != "HETATM":
+            continue
+        key = (chain_of(line), line[17:20].strip(), line[22:27].strip())
+        if key in verdicts:
+            continue
+        if key[0] in wanted:
+            verdicts[key] = True
+            continue
+        residue_points = [
+            coordinates(other) for other in lines
+            if other[:6].strip().upper() == "HETATM"
+            and (chain_of(other), other[17:20].strip(), other[22:27].strip()) == key
+        ]
+        verdicts[key] = any(near_a_kept_chain(point) for point in residue_points)
+
+    out: list[str] = []
+    for line in lines:
+        record = line[:6].strip().upper()
+        if record == "ATOM":
+            if chain_of(line) in wanted:
+                out.append(line)
+        elif record == "HETATM":
+            key = (chain_of(line), line[17:20].strip(), line[22:27].strip())
+            if verdicts.get(key):
+                out.append(line)
+        elif record == "SEQRES":
+            # The declared sequence, per chain, in column 12. Dropping these
+            # left PDBFixer with nothing to compare the model against, so
+            # `findMissingResidues` found none: no terminal residues declined
+            # -- correct by accident -- and no internal loops built either,
+            # which is a chain break left in a structure that then simulated
+            # anyway. Kept for the chains that survive; the numbering inside
+            # each record is per chain, so a subset needs no renumbering.
+            if line[11:12].strip() in wanted:
+                out.append(line)
+        elif record in {"HELIX", "SHEET", "SSBOND", "LINK"}:
+            # Secondary structure and connectivity, also per chain. PDBFixer
+            # does not read them, but a record naming a chain that is no
+            # longer here describes a structure this file is not.
+            if any(line[position:position + 1].strip() in wanted
+                   for position in _CHAIN_COLUMNS.get(record, ())):
+                out.append(line)
+        elif record in {"TER", "END", "CRYST1", "MODEL", "ENDMDL"}:
+            out.append(line)
+
+    dropped_chains = sorted(c for c in present if c and c not in wanted)
+    carried = sorted({
+        f"{name}{seq}" for (chain, name, seq), keep in verdicts.items()
+        if keep and chain not in wanted
+    })
+    logger.info(
+        "Keeping chain(s) %s; dropping %s.%s",
+        ", ".join(sorted(wanted)),
+        ", ".join(dropped_chains) if dropped_chains else "nothing",
+        (f" Carried with them: {', '.join(carried)}, which sit within "
+         f"{_LIGAND_KEEP_DISTANCE_NM * 10:.0f} A of a kept chain."
+         if carried else ""),
+    )
+
+    target = input_pdb.with_name("input_selected.pdb")
+    target.write_text("\n".join(out) + "\n", encoding="utf-8")
+    return target
+
+
 def _resolve_input(
     system: str, input_form: str, setup_dir: Path
 ) -> Path:
@@ -493,6 +651,9 @@ def run(
     # ---- Stage 1: resolve input ----------------------------------------
     try:
         input_pdb = _resolve_input(orchestrator.system, input_form, setup_dir)
+        if params.get("chains"):
+            input_pdb = _select_chains(
+                input_pdb, params["chains"], presenter=presenter)
 
         artifacts.append("input.pdb")
         if presenter:

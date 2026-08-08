@@ -1872,3 +1872,157 @@ class TestTheWordmarkIsDrawnOnce:
         assert "|_|   " not in printed.splitlines()[1]
         assert len(printed.splitlines()) >= 6
         assert "Fully" in printed and "eXploration" in printed
+
+
+class TestChainsCanBeChosen:
+    """A deposited entry is what the experiment produced, not what anyone
+    means to simulate. 6B73 holds two copies of a receptor-G protein complex
+    whose two-fold is not perpendicular to the membrane, so both together
+    cannot be embedded and one alone can."""
+
+    def _atom(self, record, serial, resname, chain, seq, x, y, z):
+        return (
+            f"{record:<6}{serial:>5} {'CA':^4} {resname:>3} {chain}{seq:>4}    "
+            f"{x:>8.3f}{y:>8.3f}{z:>8.3f}  1.00  0.00"
+        )
+
+    def _structure(self, tmp_path: Path) -> Path:
+        """Two copies of a chain, and one ligand on each -- both numbered
+        into a chain of their own, as entries are free to do."""
+        lines, serial = [], 1
+        for chain, offset in (("A", 0.0), ("B", 50.0)):
+            for residue in range(1, 21):
+                lines.append(self._atom(
+                    "ATOM", serial, "ALA", chain, residue, offset + residue * 1.5, 0, 0))
+                serial += 1
+        for seq, offset in ((900, 5.0), (901, 55.0)):
+            for step in range(3):
+                lines.append(self._atom(
+                    "HETATM", serial, "LIG", "L", seq, offset + step * 1.4, 1.0, 0))
+                serial += 1
+        lines.append("END")
+        path = tmp_path / "input.pdb"
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return path
+
+    def _kept(self, path: Path):
+        return [
+            line for line in path.read_text(encoding="utf-8").splitlines()
+            if line[:6].strip() in {"ATOM", "HETATM"}
+        ]
+
+    def test_only_the_named_chains_survive(self, tmp_path: Path) -> None:
+        from fastmdxplora.setup.pipeline import _select_chains
+
+        kept = self._kept(_select_chains(self._structure(tmp_path), "A"))
+        assert "B" not in {line[21] for line in kept}
+
+    def test_a_ligand_follows_the_chain_it_binds(self, tmp_path: Path) -> None:
+        """Numbered into chain L, not A. Matching on the ligand's own chain ID
+        would drop it out of a kept binding site and the run would go on
+        without it -- a wrong answer that completes."""
+        from fastmdxplora.setup.pipeline import _select_chains
+
+        kept = self._kept(_select_chains(self._structure(tmp_path), "A"))
+        residues = {line[17:20].strip() + line[22:27].strip() for line in kept}
+        assert "LIG900" in residues
+
+    def test_the_other_copys_ligand_does_not(self, tmp_path: Path) -> None:
+        from fastmdxplora.setup.pipeline import _select_chains
+
+        kept = self._kept(_select_chains(self._structure(tmp_path), "A"))
+        residues = {line[17:20].strip() + line[22:27].strip() for line in kept}
+        assert "LIG901" not in residues
+
+    def test_choosing_both_keeps_both(self, tmp_path: Path) -> None:
+        from fastmdxplora.setup.pipeline import _select_chains
+
+        kept = self._kept(_select_chains(self._structure(tmp_path), "A,B"))
+        residues = {line[17:20].strip() + line[22:27].strip() for line in kept}
+        assert {"LIG900", "LIG901"} <= residues
+
+    def test_every_shape_the_option_arrives_in(self, tmp_path: Path) -> None:
+        """The field is declared a list, so `--setup-chains A,B` arrives as
+        ["A,B"] -- one element holding two names -- while a config's
+        `chains: [A, B]` arrives as two. Splitting only the outer shape read
+        "A,B" as a single chain and refused a structure that has both."""
+        from fastmdxplora.setup.pipeline import _select_chains
+
+        structure = self._structure(tmp_path)
+        both = {"A", "B"}
+        for spec in ("A,B", ["A,B"], ["A", "B"], "A B", ("A", "B")):
+            kept = self._kept(_select_chains(structure, spec))
+            assert {line[21] for line in kept if line.startswith("ATOM")} == both, spec
+
+    def test_one_chain_still_means_one(self, tmp_path: Path) -> None:
+        from fastmdxplora.setup.pipeline import _select_chains
+
+        structure = self._structure(tmp_path)
+        for spec in ("A", ["A"]):
+            kept = self._kept(_select_chains(structure, spec))
+            assert {line[21] for line in kept if line.startswith("ATOM")} == {"A"}
+
+    def test_naming_a_chain_that_is_not_there_is_refused(self, tmp_path: Path) -> None:
+        """Silently simulating everything because a name was mistyped is the
+        failure this feature exists to prevent."""
+        from fastmdxplora.setup.pipeline import _select_chains
+
+        with pytest.raises(ValueError) as caught:
+            _select_chains(self._structure(tmp_path), "Z")
+        assert "Z" in str(caught.value)
+        # It says what is there instead.
+        assert "A" in str(caught.value) and "B" in str(caught.value)
+
+    def test_selecting_nothing_leaves_the_structure_alone(self, tmp_path: Path) -> None:
+        from fastmdxplora.setup.pipeline import _select_chains
+
+        structure = self._structure(tmp_path)
+        assert _select_chains(structure, "") == structure
+
+    def test_the_declared_sequence_follows_the_chains(self, tmp_path: Path) -> None:
+        """`SEQRES` is what PDBFixer compares the model against. Dropping it
+        left `findMissingResidues` with nothing to find: no terminal residues
+        declined -- right by accident -- and no internal loops built either,
+        so a chain break stayed in a structure that simulated anyway. 6B73
+        selected to chains A and C came out with 0 SEQRES records where the
+        deposited file has 88, and not one residue was rebuilt."""
+        from fastmdxplora.setup.pipeline import _select_chains
+
+        structure = self._structure(tmp_path)
+        text = structure.read_text(encoding="utf-8")
+        structure.write_text(
+            "SEQRES   1 A   25  MET ALA LEU\n"
+            "SEQRES   1 B   25  MET ALA LEU\n" + text,
+            encoding="utf-8",
+        )
+
+        kept = _select_chains(structure, "A").read_text(encoding="utf-8").splitlines()
+        seqres = [line for line in kept if line.startswith("SEQRES")]
+        assert len(seqres) == 1
+        assert seqres[0][11:12] == "A"
+
+    def test_annotations_naming_a_dropped_chain_go_with_it(
+        self, tmp_path: Path
+    ) -> None:
+        """A helix record for a chain that is no longer here describes a
+        structure the file does not hold."""
+        from fastmdxplora.setup.pipeline import _select_chains
+
+        structure = self._structure(tmp_path)
+        text = structure.read_text(encoding="utf-8")
+        structure.write_text(
+            "HELIX    1   1 ALA A    3  LEU A    9  1\n"
+            "HELIX    2   2 ALA B    3  LEU B    9  1\n" + text,
+            encoding="utf-8",
+        )
+
+        kept = _select_chains(structure, "A").read_text(encoding="utf-8").splitlines()
+        helices = [line for line in kept if line.startswith("HELIX")]
+        assert len(helices) == 1
+        assert " A " in helices[0]
+
+    def test_the_option_exists(self) -> None:
+        from fastmdxplora.config.schema import PHASE_SCHEMAS
+
+        field = PHASE_SCHEMAS["setup"].get("chains")
+        assert field is not None and field.default is None
