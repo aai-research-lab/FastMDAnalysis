@@ -213,7 +213,13 @@ class TestARunThatDoesNotSupportASurface:
 
         result = compute_surface(_written(tmp_path, same), crossing)
 
-        assert result["surface"] is None
+        # The snapshot is returned, marked provisional. It used to be None,
+        # which contradicted the refusal's own words -- "the surface below is
+        # a snapshot of that filling" -- and left a run whose wells had
+        # converged with nothing to plot. "Not converged" and "not available"
+        # are different claims.
+        assert result["surface"] is not None
+        assert result["provisional"] is True
         assert "still arriving" in result["refused"]
 
     def test_a_surface_still_moving_is_refused(self, tmp_path) -> None:
@@ -225,8 +231,10 @@ class TestARunThatDoesNotSupportASurface:
 
         # These hills are deposited left to right rather than by sampling, so
         # the last quarter carries a whole basin: the surface moves a great
-        # deal and the check says so.
-        assert result["surface"] is None
+        # deal and the check says so -- while still handing back what it has.
+        assert result["refused"]
+        assert result["surface"] is not None
+        assert result["provisional"] is True
         assert "has not stopped changing" in result["refused"]
         assert result["evidence"]["drift_kjmol"] > SETTLED_DRIFT_KJMOL
 
@@ -267,6 +275,13 @@ class TestARunThatDoesNotSupportASurface:
         assert set(result["evidence"]) == {
             "hills", "bias_factor", "first_hill_height_kjmol",
             "last_hill_height_kjmol", "drift_kjmol", "recrossings",
+            # What "recrossings" counts, because the word is ambiguous and
+            # the two readings differed by 60% on a real run.
+            "recrossings_definition",
+            # Where drift was judged, and what it would have read over the
+            # whole grid: 2.3 against 5.4 on a real torsion, the difference
+            # being one point on top of a 65 kJ/mol barrier.
+            "drift_ceiling_kjmol", "drift_over_the_whole_grid_kjmol",
             "barrier_kjmol"}
 
     def test_every_refusal_says_that_longer_is_the_remedy(self, tmp_path) -> None:
@@ -348,7 +363,11 @@ class TestTheRunActuallyProducesIt:
         assert name == "metadynamics_surface.json"
         record = json.loads((tmp_path / name).read_text(encoding="utf-8"))
         assert record["refused"]
-        assert record["free_energy_kjmol"] is None
+        # Written, not withheld: the refusal says the surface below is a
+        # snapshot of the filling, and a record that carries the sentence
+        # without the numbers leaves a reader with nothing to look at.
+        assert record["free_energy_kjmol"] is not None
+        assert record["provisional"] is True
         assert record["evidence"]["recrossings"] == 0
 
     def test_nothing_is_written_where_there_were_no_hills(self, tmp_path) -> None:
@@ -381,3 +400,151 @@ class TestARefusalIsPrintedWhole:
 
         source = inspect.getsource(metad_surface)
         assert "is a snapshot of that filling" in source
+
+
+class TestTheRecrossingCountSaysWhatItCounts:
+    """"Recrossings" is a word whose definition changes the number. A run
+    recorded as 61 gave 97 by counting sign changes of the raw coordinate --
+    60% apart -- and anyone comparing their own count against the record, not
+    knowing which was meant, would draw the wrong conclusion about their
+    sampling."""
+
+    def test_jitter_is_not_a_traversal(self) -> None:
+        """The distinction the hysteresis band exists for: a coordinate
+        rattling at a threshold scores hundreds by sign changes and none
+        here."""
+        import numpy as np
+
+        from fastmdxplora.simulation.metad_surface import recrossings
+
+        jitter = np.random.default_rng(0).normal(0.0, 0.05, 400)
+        assert recrossings(jitter, low=-1.5, high=1.5) == 0
+        # What a naive count would have said.
+        assert int(np.sum(np.diff(np.sign(jitter)) != 0)) > 100
+
+    def test_a_genuine_traversal_counts(self) -> None:
+        import numpy as np
+
+        from fastmdxplora.simulation.metad_surface import recrossings
+
+        back_and_forth = np.tile(
+            np.concatenate([np.full(20, -3.0), np.full(20, 3.0)]), 10)
+        assert recrossings(back_and_forth, low=-1.5, high=1.5) == 19
+
+    def test_the_record_carries_the_definition(self) -> None:
+        import inspect
+
+        from fastmdxplora.simulation import metad_surface
+
+        source = inspect.getsource(metad_surface)
+        assert '"recrossings_definition"' in source
+        # It quotes the band, so the number can be reproduced.
+        assert "low_edge" in source and "high_edge" in source
+
+
+class TestDriftIsJudgedWhereTheSurfaceMeansSomething:
+    """Comparing every point on the grid makes the number the worst point
+    rather than the typical one, and the worst point is always the top of the
+    highest barrier -- estimated from a handful of visits out of thousands of
+    hills.
+
+    A tripeptide's psi torsion settled to 1.2 kJ/mol within 10 of its
+    minimum and 2.3 within 20, while the whole-grid figure read 5.4 from a
+    single point atop a 65 kJ/mol barrier. On that measure no steep
+    coordinate can pass however well its wells are resolved: the test could
+    not say yes to a correct answer."""
+
+    def test_the_ceiling_is_recorded_with_the_number(self) -> None:
+        """A drift measured over part of the range means nothing without
+        saying which part."""
+        grid = _grid()
+        hills = _hills_reaching(_double_well(grid), grid)
+        import tempfile
+        from pathlib import Path
+
+        result = compute_surface(
+            _written(Path(tempfile.mkdtemp()), hills), np.tile([0., 1.], 20))
+        evidence = result["evidence"]
+
+        assert "drift_ceiling_kjmol" in evidence
+        assert "drift_over_the_whole_grid_kjmol" in evidence
+        assert evidence["drift_kjmol"] <= evidence["drift_over_the_whole_grid_kjmol"]
+
+    def test_the_ceiling_is_a_few_multiples_of_rt(self) -> None:
+        """A state rarer than this is not one a simulation is measuring."""
+        from fastmdxplora.simulation.metad_surface import DRIFT_CEILING_KJMOL
+
+        rt_300k = 2.4789
+        assert 4 * rt_300k < DRIFT_CEILING_KJMOL < 15 * rt_300k
+
+    def test_a_barrier_top_does_not_decide_a_converged_run(self) -> None:
+        """Wells stable, one high point moving: the verdict should follow the
+        wells."""
+        import tempfile
+        from pathlib import Path
+
+        from fastmdxplora.simulation.metad_surface import (
+            DRIFT_CEILING_KJMOL,
+            SETTLED_DRIFT_KJMOL,
+        )
+
+        # Built directly: a surface differing only far above its minimum.
+        grid = np.linspace(-np.pi, np.pi, 200)
+        shape = 30.0 * (1.0 - np.cos(grid))          # 0 at the well, 60 at the top
+        moved = shape.copy()
+        moved[shape > DRIFT_CEILING_KJMOL] += 5.0    # only the barrier moves
+
+        difference = np.abs(shape - moved)
+        judged = shape <= DRIFT_CEILING_KJMOL
+
+        assert difference.max() > SETTLED_DRIFT_KJMOL      # over the whole grid
+        assert difference[judged].max() <= SETTLED_DRIFT_KJMOL  # where it counts
+
+
+class TestARefusedRunStillHandsBackWhatItHas:
+    """The refusal says "the surface below is a snapshot of that filling" and
+    then returned None, so a run whose wells had converged to half of RT left
+    nothing to plot. "Not converged" and "not available" are different
+    claims."""
+
+    def _refused(self, tmp_path):
+        grid = _grid()
+        hills = _hills_reaching(_double_well(grid), grid)
+        return compute_surface(_written(tmp_path, hills), np.tile([0., 1.], 20))
+
+    def test_the_snapshot_comes_back(self, tmp_path) -> None:
+        result = self._refused(tmp_path)
+        assert result["refused"]
+        assert result["surface"] is not None
+        assert len(result["surface"]) == len(result["grid"])
+
+    def test_it_is_marked_provisional(self, tmp_path) -> None:
+        """Both are worth having; only one is worth quoting."""
+        result = self._refused(tmp_path)
+        assert result["provisional"] is True
+
+    def test_the_flag_distinguishes_the_two(self, tmp_path) -> None:
+        """`provisional` is what tells a reader whether the numbers beside it
+        are an answer or a progress report, so it has to be present either
+        way rather than only when it is true."""
+        result = self._refused(tmp_path)
+        assert "provisional" in result
+        assert isinstance(result["provisional"], bool)
+
+        import inspect
+
+        from fastmdxplora.simulation import metad_surface
+
+        source = inspect.getsource(metad_surface.compute_surface)
+        # Set on the accepted path too, not only the refused one.
+        assert source.count('"provisional"') >= 2
+
+    def test_a_coordinate_that_never_moved_still_has_nothing(
+        self, tmp_path
+    ) -> None:
+        """The one refusal where None is the honest answer: no surface exists
+        along a coordinate that did not move."""
+        still = Hills(np.arange(50.0), np.full(50, 0.3), np.full(50, SIGMA),
+                      np.full(50, 1.0), GAMMA)
+        result = compute_surface(_written(tmp_path, still), np.full(50, 0.3))
+        assert result["surface"] is None

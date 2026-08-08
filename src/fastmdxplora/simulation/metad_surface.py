@@ -59,6 +59,15 @@ SETTLED_HEIGHT_FRACTION = 0.1
 #: feature that moves by less than kT is not a feature that has moved.
 SETTLED_DRIFT_KJMOL = 2.5
 
+#: How far above its minimum a surface is still judged for drift. Beyond
+#: this the free energy is estimated from too few visits to be stable, and
+#: including it means reporting the reliability of the least-sampled point on
+#: the grid rather than of the surface anyone reads. Twenty kJ/mol is about
+#: eight times RT at 300 K: a state that rare is not one a simulation is
+#: measuring, and the barrier heights above it are read off the shape rather
+#: than trusted point by point.
+DRIFT_CEILING_KJMOL = 20.0
+
 
 @dataclass(frozen=True)
 class Hills:
@@ -206,18 +215,41 @@ def compute_surface(
     grid = np.linspace(lowest, highest, points)
     surface = surface_from_hills(hills, grid)
     earlier = surface_from_hills(hills, grid, upto=int(len(hills) * 0.75))
-    drift = float(np.max(np.abs(surface - earlier)))
+
+    # Judged where the surface means something, not everywhere on the grid.
+    #
+    # Both surfaces are reported against their own minimum, so they are
+    # compared as shapes. The comparison used to run over every point, which
+    # makes the number the worst point rather than the typical one -- and the
+    # worst point is always the top of the highest barrier, estimated from a
+    # handful of visits out of thousands of hills. A tripeptide's psi torsion
+    # settled to 1.2 kJ/mol within 10 of its minimum and 2.3 within 20, while
+    # the whole-grid figure read 5.4 from a single point at the top of a 65
+    # kJ/mol barrier. On that measure no steep coordinate can ever pass,
+    # however well its wells are resolved: the test could not say yes to a
+    # correct answer.
+    shape = surface - float(np.min(surface))
+    earlier_shape = earlier - float(np.min(earlier))
+    difference = np.abs(shape - earlier_shape)
+    judged = shape <= DRIFT_CEILING_KJMOL
+    if not judged.any():
+        judged = np.ones_like(shape, dtype=bool)
+    drift = float(np.max(difference[judged]))
+    drift_over_the_whole_grid = float(np.max(difference))
 
     first = float(np.mean(hills.height[:max(1, len(hills) // 20)]))
     last = float(np.mean(hills.height[-max(1, len(hills) // 20):]))
     settled = last <= SETTLED_HEIGHT_FRACTION * first if first > 0 else False
 
     span = highest - lowest
+    # Named, because the record quotes them: the band a crossing has to span.
+    low_edge = lowest + 0.25 * span
+    high_edge = highest - 0.25 * span
     crossed: int | None = None
     if colvar_values is not None and colvar_values.size:
         crossed = recrossings(
             np.asarray(colvar_values, dtype=float),
-            low=lowest + 0.25 * span, high=highest - 0.25 * span)
+            low=low_edge, high=high_edge)
 
     evidence: dict[str, Any] = {
         "hills": len(hills),
@@ -225,7 +257,22 @@ def compute_surface(
         "first_hill_height_kjmol": first,
         "last_hill_height_kjmol": last,
         "drift_kjmol": drift,
+        "drift_ceiling_kjmol": DRIFT_CEILING_KJMOL,
+        "drift_over_the_whole_grid_kjmol": drift_over_the_whole_grid,
         "recrossings": crossed,
+        # Named, because "recrossings" is a word whose definition changes the
+        # number. Counting sign changes of the raw coordinate gave 97 on a run
+        # this recorded as 61 -- a 60% difference, and the smaller number is
+        # the honest one, since it only counts a crossing once the coordinate
+        # has reached the far side. Anyone comparing their own count against
+        # this one, and not knowing that, would draw the wrong conclusion
+        # about their sampling.
+        "recrossings_definition": (
+            f"transitions between the regions below {low_edge:.3g} and above "
+            f"{high_edge:.3g}, counted once the far region is reached rather "
+            "than at every crossing of a threshold, so a coordinate jittering "
+            "on top of a barrier does not accumulate crossings it never made"
+        ),
         "barrier_kjmol": float(np.max(surface)),
     }
 
@@ -241,7 +288,11 @@ def compute_surface(
         reasons.append(
             f"the surface moved {drift:.1f} kJ/mol between three quarters of "
             f"the hills and all of them, against a tolerance of "
-            f"{SETTLED_DRIFT_KJMOL:g}, so it has not stopped changing"
+            f"{SETTLED_DRIFT_KJMOL:g}, so it has not stopped changing "
+            f"(measured where the surface is within "
+            f"{DRIFT_CEILING_KJMOL:g} kJ/mol of its minimum; over the whole "
+            f"grid it moved {drift_over_the_whole_grid:.1f}, which is "
+            "dominated by the top of the highest barrier and says little)"
         )
     if crossed is None:
         reasons.append(
@@ -259,7 +310,15 @@ def compute_surface(
 
     if reasons:
         return {
-            "surface": None,
+            # The surface, not None. The refusal says "the surface below is a
+            # snapshot of that filling" and "the hills are on disk, so the
+            # check can be made again" -- and then withheld it, so a run whose
+            # wells had converged to half of RT left nothing to plot. "Not
+            # converged" and "not available" are different claims, and only
+            # the first one is true here. It is provisional, which is what the
+            # refusal beside it is for.
+            "surface": surface,
+            "provisional": True,
             "grid": grid,
             "evidence": evidence,
             "refused": (
@@ -273,6 +332,7 @@ def compute_surface(
 
     return {
         "surface": surface,
+        "provisional": False,
         "grid": grid,
         "evidence": evidence,
         "refused": None,

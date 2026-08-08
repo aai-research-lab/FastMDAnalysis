@@ -2208,3 +2208,61 @@ class TestTheBeltIsMeasuredOnTheSurface:
         stopping = body.split("> most_it_may_grow_nm:", 1)[1].split("return", 1)[0]
         assert "logger.info" in stopping
         assert "Stopping at" in stopping
+
+
+class TestEveryStageShowsProgress:
+    """`_run_md_stage` took `on_step_progress` and drove the bar;
+    `_run_md_stage_with_live_metrics` had no such parameter. That second one
+    is the branch taken whenever live telemetry is on, which is the default --
+    so production, the stage that takes the hours, was the one stage that
+    showed nothing. "Production: 1,000,000 steps" and then fifty minutes of a
+    terminal indistinguishable from a hung one."""
+
+    def _runner(self) -> str:
+        import inspect
+
+        from fastmdxplora.simulation import runner
+
+        return inspect.getsource(runner)
+
+    def test_the_chunked_stage_accepts_the_callback(self) -> None:
+        import inspect
+
+        from fastmdxplora.simulation.runner import (
+            _run_md_stage_with_live_metrics,
+        )
+
+        parameters = inspect.signature(_run_md_stage_with_live_metrics).parameters
+        assert "on_step_progress" in parameters
+
+    def test_every_call_site_passes_it(self) -> None:
+        """Three stages -- NVT, NPT and production -- and each has two
+        branches depending on whether telemetry is on. All six should show a
+        bar."""
+        source = self._runner()
+        assert source.count("on_step_progress=_bar") == 6
+
+    def test_the_bar_is_driven_from_inside_the_chunk_loop(self) -> None:
+        """Where the work happens: a callback outside it would fire once."""
+        import inspect
+
+        from fastmdxplora.simulation.runner import (
+            _run_md_stage_with_live_metrics,
+        )
+
+        body = inspect.getsource(_run_md_stage_with_live_metrics)
+        loop = body.index("while remaining > 0:")
+        call = body.index("on_step_progress(label, done")
+        assert call > loop
+
+    def test_it_reports_a_rate_and_a_time_left(self) -> None:
+        """A percentage alone does not say whether to wait or to stop."""
+        import inspect
+
+        from fastmdxplora.simulation.runner import (
+            _run_md_stage_with_live_metrics,
+        )
+
+        body = inspect.getsource(_run_md_stage_with_live_metrics)
+        assert "rate" in body and "left" in body
+        assert "_time.monotonic()" in body

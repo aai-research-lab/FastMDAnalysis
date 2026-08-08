@@ -124,6 +124,10 @@ def _write_metadynamics_surface(output_dir: Path, presenter: Any) -> str | None:
 
     record = {
         "refused": outcome.get("refused"),
+        # Whether the surface beside this is a finished answer or a snapshot
+        # of a landscape still filling. Both are worth having; only one is
+        # worth quoting.
+        "provisional": bool(outcome.get("provisional")),
         "evidence": outcome.get("evidence"),
         "grid": (None if outcome.get("grid") is None
                  else [float(x) for x in outcome["grid"]]),

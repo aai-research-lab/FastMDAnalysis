@@ -628,6 +628,7 @@ def _run_md_stage_with_live_metrics(
     timestep_fs: float,
     telemetry_interval: int,
     trajectory_interval_steps: int | None = None,
+    on_step_progress: Callable[..., None] | None = None,
 ) -> int:
     """Run an MD stage in chunks so live telemetry can sample real state.
 
@@ -641,6 +642,7 @@ def _run_md_stage_with_live_metrics(
         on_progress(f"{label}: {n_steps:,} steps")
     remaining = int(n_steps)
     interval = max(1, int(telemetry_interval or DEFAULT_STATE_INTERVAL_STEPS))
+    started = _time.monotonic()
     while remaining > 0:
         chunk = min(interval, remaining)
         try:
@@ -667,6 +669,22 @@ def _run_md_stage_with_live_metrics(
             timestep_fs=timestep_fs,
             frame_count=frames_written,
         )
+        # The bar, which this stage could not drive because it had no
+        # parameter for it. `_run_md_stage` took `on_step_progress` and this
+        # one did not, and this one is the branch taken whenever live
+        # telemetry is on -- which is the default. So production, the stage
+        # that takes the hours, was the one stage with no progress shown:
+        # "Production: 1,000,000 steps" and then fifty minutes of silence.
+        if on_step_progress is not None:
+            done = int(n_steps) - remaining
+            elapsed = _time.monotonic() - started
+            rate = None
+            left = None
+            if elapsed > 0 and done > 0:
+                per_step = elapsed / done
+                left = per_step * remaining
+                rate = (done * timestep_fs * 1e-6) / (elapsed / 86400.0)
+            on_step_progress(label, done, int(n_steps), rate, left)
     return current_step
 
 
@@ -1197,6 +1215,7 @@ def run_simulation(
                 total_steps=total_planned_steps,
                 timestep_fs=timestep_fs,
                 telemetry_interval=telemetry_interval,
+                on_step_progress=_bar,
             )
         else:
             _run_md_stage(
@@ -1255,6 +1274,7 @@ def run_simulation(
                     total_steps=total_planned_steps,
                     timestep_fs=timestep_fs,
                     telemetry_interval=telemetry_interval,
+                    on_step_progress=_bar,
                 )
             else:
                 _run_md_stage(
@@ -1344,6 +1364,7 @@ def run_simulation(
                 timestep_fs=timestep_fs,
                 telemetry_interval=telemetry_interval,
                 trajectory_interval_steps=trajectory_interval_steps,
+                on_step_progress=_bar,
             )
         else:
             _run_md_stage(
