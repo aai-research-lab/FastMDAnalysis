@@ -2026,3 +2026,169 @@ class TestChainsCanBeChosen:
 
         field = PHASE_SCHEMAS["setup"].get("chains")
         assert field is not None and field.default is None
+
+
+class TestTheBeltIsMeasuredOnTheSurface:
+    """Every folded protein buries its hydrophobic residues and exposes its
+    charged ones, so comparing all of them measures burial -- true of a
+    soluble protein as much as a membrane one. That is why this check passed
+    on a structure 51 nm across and on one with a receptor upside down.
+
+    What distinguishes a membrane protein is a band of hydrophobic residues
+    on its outside, where a soluble protein has polar ones."""
+
+    def _blob(self, count: int, radius: float, half_height: float, seed: int = 0):
+        import numpy as np
+
+        rng = np.random.default_rng(seed)
+        direction = rng.normal(size=(count, 3))
+        direction /= np.linalg.norm(direction, axis=1)[:, None]
+        points = direction * (rng.random(count) ** (1 / 3))[:, None]
+        points[:, :2] *= radius
+        points[:, 2] *= half_height
+        return points, rng
+
+    def _membrane_like(self):
+        from fastmdxplora.setup.membrane import surface_residues
+
+        points, rng = self._blob(400, 2.0, 3.0)
+        exposed = surface_residues(points)
+        kinds = [
+            ("hydrophobic" if abs(points[i, 2]) < 1.6 else "charged")
+            if exposed[i]
+            else ("hydrophobic" if rng.random() < 0.7 else "charged")
+            for i in range(len(points))
+        ]
+        return points, kinds
+
+    def _soluble_like(self):
+        from fastmdxplora.setup.membrane import surface_residues
+
+        points, rng = self._blob(400, 2.2, 2.2, seed=1)
+        exposed = surface_residues(points)
+        kinds = [
+            ("hydrophobic" if rng.random() < 0.35 else "charged")
+            if exposed[i]
+            else ("hydrophobic" if rng.random() < 0.7 else "charged")
+            for i in range(len(points))
+        ]
+        return points, kinds
+
+    def test_a_banded_surface_reads_low(self) -> None:
+        from fastmdxplora.setup.membrane import surface_belt_ratio
+
+        points, kinds = self._membrane_like()
+        assert surface_belt_ratio(points, kinds)[2] < 0.5
+
+    def test_a_mixed_surface_reads_high(self) -> None:
+        from fastmdxplora.setup.membrane import surface_belt_ratio
+
+        points, kinds = self._soluble_like()
+        assert surface_belt_ratio(points, kinds)[2] > 0.7
+
+    def test_the_two_separate_further_than_burial_does(self) -> None:
+        """Burial gave 0.55 against 0.79 -- a factor of one and a half, with
+        the threshold sitting inside the noise between them."""
+        from fastmdxplora.setup.membrane import surface_belt_ratio
+
+        membrane = surface_belt_ratio(*self._membrane_like())[2]
+        soluble = surface_belt_ratio(*self._soluble_like())[2]
+        assert soluble / membrane > 1.8
+
+    def test_too_few_residues_says_nothing(self) -> None:
+        """A claim from ten residues would be a claim from nothing."""
+        from fastmdxplora.setup.membrane import surface_belt_ratio
+
+        points, _ = self._blob(12, 2.0, 2.0)
+        assert surface_belt_ratio(points, ["hydrophobic"] * 12) is None
+
+    def test_only_one_kind_present_says_nothing(self) -> None:
+        from fastmdxplora.setup.membrane import surface_belt_ratio
+
+        points, _ = self._blob(400, 2.0, 3.0)
+        assert surface_belt_ratio(points, ["hydrophobic"] * 400) is None
+
+    def test_the_surface_is_a_relative_cut(self) -> None:
+        """An absolute neighbour count depends on how big and how densely
+        packed the structure is."""
+        from fastmdxplora.setup.membrane import surface_residues
+
+        for count in (100, 400):
+            points, _ = self._blob(count, 2.0, 3.0)
+            exposed = surface_residues(points)
+            assert 0.2 < exposed.mean() < 0.6, count
+
+    def test_a_helix_has_no_inside(self) -> None:
+        """A single helix is all surface. Restricting to the least-surrounded
+        residues picks its two ends, which says nothing about the arrangement
+        between them -- and made the check pass on the soluble arrangement it
+        exists to refuse."""
+        import numpy as np
+
+        from fastmdxplora.setup.membrane import surface_residues
+
+        rng = np.random.RandomState(0)
+        helix = np.array([[0.0, 0.0, (i - 15) * 0.15] for i in range(30)])
+        helix = helix + rng.normal(scale=0.05, size=(30, 3))
+        assert surface_residues(helix).all()
+
+    def test_an_extended_chain_has_no_inside_either(self) -> None:
+        """Even with enough residues to have a core, a structure whose
+        residues are all similarly surrounded does not have one."""
+        import numpy as np
+
+        from fastmdxplora.setup.membrane import surface_residues
+
+        rng = np.random.RandomState(1)
+        chain = np.array([[0.0, 0.0, i * 0.15] for i in range(200)])
+        chain = chain + rng.normal(scale=0.05, size=(200, 3))
+        assert surface_residues(chain).all()
+
+    def test_a_globule_does(self) -> None:
+        from fastmdxplora.setup.membrane import surface_residues
+
+        points, _ = self._blob(400, 2.0, 2.0)
+        exposed = surface_residues(points)
+        assert 0.2 < exposed.mean() < 0.6
+
+    def test_the_refusal_renders(self) -> None:
+        """The check reached the right verdict and then raised a NameError
+        explaining it: the message named two variables a refactor had moved
+        into the measurement. Nothing here caught it, because building the
+        message needed a real topology and OpenMM, which the tests that would
+        have reached it skip without."""
+        from fastmdxplora.setup.membrane import belt_refusal
+
+        text = belt_refusal(0.92, 1.10, 0.84)
+        for number in ("0.92", "1.10", "0.84"):
+            assert number in text, number
+        assert "opm.phar.umich.edu" in text
+
+    def test_the_measurement_returns_what_the_message_quotes(self) -> None:
+        """Three numbers, in the order the refusal reads them."""
+        from fastmdxplora.setup.membrane import surface_belt_ratio
+
+        points, kinds = self._membrane_like()
+        hydrophobic, charged, ratio = surface_belt_ratio(points, kinds)
+        assert ratio == pytest.approx(hydrophobic / charged)
+
+    def test_the_refusal_renders(self) -> None:
+        """The check reached the right verdict and then raised a NameError
+        explaining it: the message named two variables a refactor had moved
+        into the measurement. Nothing here caught it, because building the
+        message needed a real topology and OpenMM, which the tests that would
+        have reached it skip without."""
+        from fastmdxplora.setup.membrane import belt_refusal
+
+        text = belt_refusal(0.92, 1.10, 0.84)
+        for number in ("0.92", "1.10", "0.84"):
+            assert number in text, number
+        assert "opm.phar.umich.edu" in text
+
+    def test_the_measurement_returns_what_the_message_quotes(self) -> None:
+        """Three numbers, in the order the refusal reads them."""
+        from fastmdxplora.setup.membrane import surface_belt_ratio
+
+        points, kinds = self._membrane_like()
+        hydrophobic, charged, ratio = surface_belt_ratio(points, kinds)
+        assert ratio == pytest.approx(hydrophobic / charged)

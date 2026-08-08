@@ -259,6 +259,131 @@ _CHARGED = frozenset({"ASP", "GLU", "LYS", "ARG", "HIS"})
 _BELT_RATIO = 0.75
 
 
+#: What fraction of residues to treat as surface. A relative cut rather than
+#: an absolute neighbour count, because the latter depends on how big and how
+#: densely packed the structure is; a third to a half is the surface of most
+#: folded proteins.
+_SURFACE_FRACTION = 0.40
+
+#: How far to look for neighbours when deciding whether a residue is exposed.
+_SURFACE_RADIUS_NM = 1.0
+
+#: Fewer residues than this and there is no core to be outside of.
+_SURFACE_MINIMUM_RESIDUES = 100
+
+#: How much more crowded the crowded tenth has to be than the sparse tenth
+#: before a structure is treated as having an inside. A folded globule gives
+#: about 2.3; a single helix gives 1.75, because its least-surrounded
+#: residues are its two ends.
+_CORE_NEIGHBOUR_CONTRAST = 2.0
+
+
+def surface_residues(centroids: Any, fraction: float = _SURFACE_FRACTION) -> Any:
+    """Which residues sit on the outside, by how few neighbours they have.
+
+    A cheap stand-in for solvent-accessible surface area: a residue in the
+    core is surrounded, one on the surface is not. Exact enough for a
+    comparison of two populations, and it costs one distance matrix rather
+    than a rolling-sphere calculation over every atom.
+    """
+    import numpy as np
+
+    points = np.asarray(centroids, dtype=float)
+    # Below this there is no core to be outside of, and the fewest-neighbours
+    # residues are the chain's two ends rather than its surface. A single
+    # helix is the case: every residue of it is exposed, and restricting to
+    # the least-surrounded ones picks the termini and says nothing about the
+    # arrangement in between.
+    if len(points) < _SURFACE_MINIMUM_RESIDUES:
+        return np.ones(len(points), dtype=bool)
+
+    separations = np.linalg.norm(points[:, None, :] - points[None, :, :], axis=-1)
+    neighbours = (separations < _SURFACE_RADIUS_NM).sum(axis=1)
+
+    # And a structure whose residues are all similarly surrounded has no
+    # inside either, however many of them there are -- an extended chain or a
+    # thin sheet. Comparing the crowded tenth with the sparse tenth says
+    # whether a core exists to speak of.
+    sparse = float(np.percentile(neighbours, 10.0))
+    crowded = float(np.percentile(neighbours, 90.0))
+    if sparse <= 0 or crowded / sparse < _CORE_NEIGHBOUR_CONTRAST:
+        return np.ones(len(points), dtype=bool)
+
+    return neighbours <= np.percentile(neighbours, fraction * 100.0)
+
+
+def surface_belt_ratio(
+    centroids: Any, kinds: list[str]
+) -> tuple[float, float, float] | None:
+    """How tightly the exposed hydrophobic residues gather about the middle.
+
+    Measured on the surface, not on everything. Every folded protein buries
+    its hydrophobic residues and exposes its charged ones, so comparing all
+    of them measures burial -- which is true of a soluble protein as much as
+    a membrane one, and is why this check passed on a structure 51 nm across
+    and on one with a receptor embedded upside down.
+
+    What distinguishes a membrane protein is a band of hydrophobic residues
+    on its *outside*, where a soluble protein has polar ones. Restricted to
+    exposed residues, the two separate by about a factor of two rather than
+    the factor of one and a half that burial gives.
+    """
+    import numpy as np
+
+    points = np.asarray(centroids, dtype=float)
+    labels = np.asarray(kinds, dtype=object)
+    if len(points) != len(labels) or len(points) < 20:
+        return None
+
+    exposed = surface_residues(points)
+    z = points[:, 2]
+    hydrophobic = z[exposed & (labels == "hydrophobic")]
+    charged = z[exposed & (labels == "charged")]
+    if len(hydrophobic) < 10 or len(charged) < 10:
+        return None
+
+    centre = float(np.median(np.concatenate([hydrophobic, charged])))
+    charged_spread = float(np.mean(np.abs(charged - centre)))
+    if charged_spread <= 0:
+        return None
+    hydrophobic_spread = float(np.mean(np.abs(hydrophobic - centre)))
+    # The spreads travel with the ratio, because the refusal quotes all three
+    # and a bare number gives the reader nothing to check it against.
+    return hydrophobic_spread, charged_spread, hydrophobic_spread / charged_spread
+
+
+def belt_refusal(
+    hydrophobic_spread: float, charged_spread: float, ratio: float
+) -> str:
+    """The refusal, built from the three numbers it quotes.
+
+    Separate from the measurement so it can be exercised without OpenMM.
+    Written inline it named two variables that a refactor had moved into
+    the measurement, so the check reached the right verdict and then
+    raised a NameError explaining it -- on the one path no test in this
+    environment could reach.
+    """
+    return (
+        "After orienting, the hydrophobic residues are not gathered near the "
+        f"middle the way a bilayer-spanning protein's are: they sit "
+        f"{hydrophobic_spread:.2f} nm from the centre along z against "
+        f"{charged_spread:.2f} nm for the charged ones, a ratio of "
+        f"{ratio:.2f} where a membrane protein gives well under "
+        f"{_BELT_RATIO}. A protein that "
+        "spans a bilayer has a band of hydrophobic side chains around its "
+        "middle and charged ones at the two interfaces, so this structure "
+        "either is not a membrane protein or has not been put in the frame a "
+        "membrane needs.\n\n"
+        "Rotating by principal axes is right for a transmembrane bundle and "
+        "wrong where a soluble domain dominates the shape, which is the case "
+        "this looks like. The OPM database "
+        "(https://opm.phar.umich.edu) publishes structures oriented against "
+        "a real transfer energy; use one of those, or "
+        "`membrane_orientation_checked: true` to proceed anyway and say so "
+        "in the methods."
+    )
+
+
 def check_hydrophobic_belt(topology: Any, positions: Any) -> str | None:
     """Whether an oriented structure looks like it belongs in a bilayer.
 
@@ -295,28 +420,29 @@ def check_hydrophobic_belt(topology: Any, positions: Any) -> str | None:
         [[float(p[0]), float(p[1]), float(p[2])] for p in positions],
         dtype=float)
 
-    def band(residue_names: frozenset) -> np.ndarray | None:
-        atoms = [a.index for a in mdtop.atoms
-                 if a.residue.name.upper() in residue_names
-                 and a.element is not None and a.element.symbol != "H"]
-        if len(atoms) < 10:
-            return None
-        return coordinates[atoms][:, 2]
+    centroids: list[list[float]] = []
+    kinds: list[str] = []
+    for residue in mdtop.residues:
+        heavy = [a.index for a in residue.atoms
+                 if a.element is not None and a.element.symbol != "H"]
+        if not heavy:
+            continue
+        name = residue.name.upper()
+        if name in _HYDROPHOBIC:
+            kind = "hydrophobic"
+        elif name in _CHARGED:
+            kind = "charged"
+        else:
+            continue
+        centroids.append(list(coordinates[heavy].mean(axis=0)))
+        kinds.append(kind)
 
-    hydrophobic = band(_HYDROPHOBIC)
-    charged = band(_CHARGED)
-    if hydrophobic is None or charged is None:
+    measured = surface_belt_ratio(centroids, kinds)
+    if measured is None:
         # Too few of one kind to compare. Saying nothing is right: a claim
-        # from ten atoms would be a claim from nothing.
+        # from ten residues would be a claim from nothing.
         return None
-
-    centre = float(np.median(np.concatenate([hydrophobic, charged])))
-    hydrophobic_spread = float(np.mean(np.abs(hydrophobic - centre)))
-    charged_spread = float(np.mean(np.abs(charged - centre)))
-
-    if charged_spread <= 0:
-        return None
-    ratio = hydrophobic_spread / charged_spread
+    hydrophobic_spread, charged_spread, ratio = measured
 
     # A margin, not a bare comparison. Measured on constructed cases, a
     # bilayer-spanning arrangement gives about 0.4 and one with charged and
@@ -326,25 +452,7 @@ def check_hydrophobic_belt(topology: Any, positions: Any) -> str | None:
     if ratio <= _BELT_RATIO:
         return None
 
-    return (
-        "After orienting, the hydrophobic residues are not gathered near the "
-        f"middle the way a bilayer-spanning protein's are: they sit "
-        f"{hydrophobic_spread:.2f} nm from the centre along z against "
-        f"{charged_spread:.2f} nm for the charged ones, a ratio of "
-        f"{ratio:.2f} where a membrane protein gives well under "
-        f"{_BELT_RATIO}. A protein that "
-        "spans a bilayer has a band of hydrophobic side chains around its "
-        "middle and charged ones at the two interfaces, so this structure "
-        "either is not a membrane protein or has not been put in the frame a "
-        "membrane needs.\n\n"
-        "Rotating by principal axes is right for a transmembrane bundle and "
-        "wrong where a soluble domain dominates the shape, which is the case "
-        "this looks like. The OPM database "
-        "(https://opm.phar.umich.edu) publishes structures oriented against "
-        "a real transfer energy; use one of those, or "
-        "`membrane_orientation_checked: true` to proceed anyway and say so "
-        "in the methods."
-    )
+    return belt_refusal(hydrophobic_spread, charged_spread, ratio)
 
 
 #: How far two chains' residue counts may differ and still be copies of one
