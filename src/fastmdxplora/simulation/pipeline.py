@@ -135,8 +135,14 @@ def _write_metadynamics_surface(output_dir: Path, presenter: Any) -> str | None:
 
     if presenter:
         if record["refused"]:
+            # Whole, not clipped at 160 characters. This is the one message
+            # whose only job is to explain why there is no surface, and the
+            # cut fell mid-sentence -- "...rather than having flattened it --
+            # the surface" -- losing the clause that says the output is still
+            # a usable snapshot of the filling. A refusal that runs long is
+            # a refusal with something to say.
             presenter.step("No free energy surface: "
-                           + record["refused"].split(":", 1)[-1].strip()[:160])
+                           + record["refused"].split(":", 1)[-1].strip())
         else:
             barrier = outcome["evidence"]["barrier_kjmol"]
             presenter.step(

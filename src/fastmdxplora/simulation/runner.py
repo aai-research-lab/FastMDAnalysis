@@ -1007,18 +1007,25 @@ def run_simulation(
             plan_from_config,
         )
 
-        plan = plan_from_config(
+        # `bias_plan`, not `plan`: `plan` is the stage plan -- a dict of step
+        # counts that the rest of this function subscripts. Rebinding it to a
+        # MetadynamicsPlan made the next `plan["nvt_steps"]` raise
+        # "'MetadynamicsPlan' object is not subscriptable", so metadynamics
+        # failed on the first line of use. Thirty-eight tests cover the module
+        # and twenty-three the surface; none of them runs the runner, which is
+        # where the two names met.
+        bias_plan = plan_from_config(
             metadynamics, topology, temperature_K=temperature_K)
         script = build_plumed_script(
-            plan, reference_pdb=str(topology_path)
-            if plan.collective_variable == "ligand_rmsd" else None)
+            bias_plan, reference_pdb=str(topology_path)
+            if bias_plan.collective_variable == "ligand_rmsd" else None)
         script_path = Path(output_dir) / "metadynamics.plumed"
         script_path.parent.mkdir(parents=True, exist_ok=True)
         script_path.write_text(script, encoding="utf-8")
         logger.info(
             "Metadynamics biasing %s. %s",
-            plan.collective_variable,
-            "Well-tempered." if plan.bias_factor > 1 else
+            bias_plan.collective_variable,
+            "Well-tempered." if bias_plan.bias_factor > 1 else
             "Not well-tempered: the bias will not settle and the surface "
             "will not converge.",
         )

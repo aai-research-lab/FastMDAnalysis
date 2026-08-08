@@ -156,14 +156,25 @@ class TestAStudyThatStopsBeforeItStartsSaysSoPlainly:
     reporting undid it: what the reader needs is the sentence."""
 
     def test_a_value_error_prints_rather_than_traces(self, capsys) -> None:
-        import sys
+        """Patched on the module object, not by dotted string.
+        `fastmdxplora/cli/__init__.py` binds `main` as the function, so
+        `patch("fastmdxplora.cli.main._cmd_explore")` resolves the name to
+        that function rather than the submodule on Python 3.9 and 3.10 --
+        where the import order differs from 3.11 -- and the whole CI matrix
+        failed on those two while passing everywhere else.
+        """
         from unittest.mock import patch
 
-        from fastmdxplora.cli.main import main
+        import importlib
 
-        with patch("fastmdxplora.cli.main._cmd_explore",
-                   side_effect=ValueError("the selection matched no atoms")):
-            code = main(["explore", "--system", "1UBQ"])
+        # `from fastmdxplora.cli import main` gets the function, not the
+        # module: the package's __init__ binds that name. importlib asks for
+        # the submodule and gets it, on every version.
+        cli = importlib.import_module("fastmdxplora.cli.main")
+
+        with patch.object(cli, "_cmd_explore",
+                          side_effect=ValueError("the selection matched no atoms")):
+            code = cli.main(["explore", "--system", "1UBQ"])
 
         captured = capsys.readouterr()
         assert code == 1
@@ -174,11 +185,14 @@ class TestAStudyThatStopsBeforeItStartsSaysSoPlainly:
     def test_the_same_for_a_runtime_error(self, capsys) -> None:
         from unittest.mock import patch
 
-        from fastmdxplora.cli.main import main
+        import importlib
 
-        with patch("fastmdxplora.cli.main._cmd_explore",
-                   side_effect=RuntimeError("the system could not be prepared")):
-            code = main(["explore", "--system", "1UBQ"])
+        cli = importlib.import_module("fastmdxplora.cli.main")
+
+        with patch.object(cli, "_cmd_explore",
+                          side_effect=RuntimeError(
+                              "the system could not be prepared")):
+            code = cli.main(["explore", "--system", "1UBQ"])
 
         captured = capsys.readouterr()
         assert code == 1

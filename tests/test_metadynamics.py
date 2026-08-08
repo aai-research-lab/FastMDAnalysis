@@ -485,3 +485,43 @@ def test_one_translation_serves_every_method_that_biases() -> None:
 
     # And steering reaches it rather than reimplementing.
     assert "cv_lines(" in inspect.getsource(steered.build_steered_script)
+
+
+class TestTheStagePlanSurvivesTheBiasPlan:
+    """`plan = plan_from_config(...)` in the runner rebound the stage plan --
+    a dict of step counts that the rest of the function subscripts -- to a
+    MetadynamicsPlan. The next `plan["nvt_steps"]` raised
+    "'MetadynamicsPlan' object is not subscriptable", so metadynamics failed
+    on the first line of real use.
+
+    Thirty-eight tests cover this module and twenty-three the surface it
+    produces. None of them runs the runner, which is where the two names met.
+    """
+
+    def _runner_source(self) -> str:
+        import inspect
+
+        from fastmdxplora.simulation import runner
+
+        return inspect.getsource(runner)
+
+    def test_the_bias_plan_has_its_own_name(self) -> None:
+        source = self._runner_source()
+        assert "bias_plan = plan_from_config(" in source
+        assert "\n        plan = plan_from_config(" not in source
+
+    def test_the_umbrella_path_already_did_this(self) -> None:
+        """`cv_plan` beside it: the pattern was there to copy."""
+        source = self._runner_source()
+        assert "cv_plan" in source
+
+    def test_the_stage_plan_is_still_a_mapping_afterwards(self) -> None:
+        """The failure was a dict becoming a dataclass, so the guard is that
+        every use of `plan` in the runner subscripts it."""
+        import re
+
+        source = self._runner_source()
+        # Every `plan = ` assignment in the runner should be a mapping, so no
+        # assignment from a *_from_config factory may bind the bare name.
+        for match in re.finditer(r"^\s+plan = (\w+)\(", source, re.M):
+            assert not match.group(1).endswith("_from_config"), match.group(0)

@@ -355,3 +355,29 @@ class TestTheRunActuallyProducesIt:
         from fastmdxplora.simulation.pipeline import _write_metadynamics_surface
 
         assert _write_metadynamics_surface(tmp_path, None) is None
+
+
+class TestARefusalIsPrintedWhole:
+    """The message explaining why there is no surface was cut at 160
+    characters, mid-sentence: "...rather than having flattened it -- the
+    surface". What went missing was the clause saying the output is still a
+    usable snapshot of the filling."""
+
+    def test_nothing_clips_it(self) -> None:
+        import inspect
+
+        from fastmdxplora.simulation import pipeline
+
+        source = inspect.getsource(pipeline)
+        refusal = source.split('"No free energy surface: "', 1)[1][:300]
+        assert "[:160]" not in refusal
+        assert "[:" not in refusal.split("presenter.step")[0]
+
+    def test_the_reason_says_the_snapshot_is_still_there(self) -> None:
+        """The clause the cut removed."""
+        import inspect
+
+        from fastmdxplora.simulation import metad_surface
+
+        source = inspect.getsource(metad_surface)
+        assert "is a snapshot of that filling" in source
