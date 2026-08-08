@@ -81,10 +81,17 @@ class TestBanner:
         assert "Output:" not in _strip_ansi(out)
 
     def test_the_wordmark_names_the_software(self):
+        """The tagline is justified to the wordmark's width, so the gaps
+        between its words depend on how wide the wordmark happens to be.
+        Asserting a particular gap pins that width rather than the intent --
+        it broke when the letterforms changed and the wordmark narrowed from
+        71 columns to 67."""
+        import re
+
         p, buf = _presenter()
         p.banner(System="x.pdb")
         out = _strip_ansi(buf.getvalue())
-        assert "Molecular   Dynamics" in out
+        assert re.search(r"Molecular\s+Dynamics\s+eXploration", out)
 
 
 # ===========================================================================

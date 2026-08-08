@@ -1825,3 +1825,50 @@ class TestCopiesOfAChainFaceTheSameWay:
         assert source.index("check_hydrophobic_belt") < source.index(
             "check_chains_point_the_same_way"
         )
+
+
+class TestTheWordmarkIsDrawnOnce:
+    """The class held three `_GLYPHS` sets in a row -- a mixed-case one, then
+    two uppercase ones -- each shadowing the last. The mixed-case set had
+    never once been used, and the banner printed in capitals regardless."""
+
+    def test_there_is_one_glyph_set(self) -> None:
+        import inspect
+
+        from fastmdxplora.utils import presenter
+
+        source = inspect.getsource(presenter.SessionPresenter)
+        assert source.count("_GLYPHS: dict[str, tuple[str, ...]] = {") == 1
+        assert source.count("_WORDMARK = ") == 1
+
+    def test_every_glyph_is_a_rectangle(self) -> None:
+        """One character short in any row shifts every letter after it."""
+        from fastmdxplora.utils.presenter import SessionPresenter
+
+        for name, glyph in SessionPresenter._GLYPHS.items():
+            widths = {len(row) for row in glyph}
+            assert len(widths) == 1, f"{name} has rows of {sorted(widths)}"
+            assert len(glyph) == 5, f"{name} has {len(glyph)} rows"
+
+    def test_the_wordmark_reads_in_mixed_case(self) -> None:
+        from fastmdxplora.utils.presenter import SessionPresenter
+
+        assert SessionPresenter._WORDMARK == "FastMDXplora"
+        # Every letter it names has to be drawable.
+        missing = set(SessionPresenter._WORDMARK) - set(SessionPresenter._GLYPHS)
+        assert not missing, missing
+
+    def test_it_prints(self) -> None:
+        import io
+
+        from fastmdxplora.utils.presenter import SessionPresenter
+
+        buffer = io.StringIO()
+        SessionPresenter(stream=buffer).welcome()
+        printed = buffer.getvalue()
+
+        # The descender on `p` is what gives the name a baseline rather than
+        # a straight cut, and it is the row a four-row font would lose.
+        assert "|_|   " not in printed.splitlines()[1]
+        assert len(printed.splitlines()) >= 6
+        assert "Fully" in printed and "eXploration" in printed

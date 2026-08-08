@@ -195,55 +195,76 @@ class SessionPresenter:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    # Five-row block glyphs for the startup wordmark. Uppercase letters fill
-    # all five rows; lowercase sit on the x-height (rows 1-4) with ascenders
-    # on row 0 and descenders on row 4, so "FastMDXplora" reads in mixed case.
+    #: The wordmark, drawn rather than filled from a grid.
+    #:
+    #: This was three bitmap sets in a row -- a mixed-case one, then two
+    #: uppercase ones -- each shadowing the last, so the mixed-case set that
+    #: was already here had never once been used and the banner printed in
+    #: capitals regardless.
+    #:
+    #: Each glyph is a rectangle: five rows of equal width. Ascenders reach
+    #: row 0, x-height letters start at row 1, and `p` descends into row 4, so
+    #: the name reads with the capitals it actually carries. A single
+    #: character short in any row shifts every letter after it, which is what
+    #: the rectangle test guards.
     _GLYPHS: dict[str, tuple[str, ...]] = {
-        "F": ("11111", "10000", "11110", "10000", "10000"),
-        "M": ("10001", "11011", "10101", "10001", "10001"),
-        "D": ("11110", "10001", "10001", "10001", "11110"),
-        "X": ("10001", "01010", "00100", "01010", "10001"),
-        "a": ("00000", "01110", "10001", "10001", "01111"),
-        "s": ("00000", "01111", "11000", "00011", "11110"),
-        "t": ("01000", "11110", "01000", "01000", "00110"),
-        "p": ("00000", "11110", "10001", "11110", "10000"),
-        "l": ("11000", "01000", "01000", "01000", "01110"),
-        "o": ("00000", "01110", "10001", "10001", "01110"),
-        "r": ("00000", "10110", "11001", "10000", "10000"),
+        "F": (" ___ ",
+              "| __|",
+              "| _| ",
+              "|_|  ",
+              "     "),
+        "a": ("      ",
+              " __ _ ",
+              "/ _` |",
+              "\\__,_|",
+              "      "),
+        "s": ("     ",
+              " ___ ",
+              "(_-< ",
+              "/__/ ",
+              "     "),
+        "t": (" _   ",
+              "| |_ ",
+              "| __|",
+              " \\__|",
+              "     "),
+        "M": (" __  __ ",
+              "|  \\/  |",
+              "| |\\/| |",
+              "|_|  |_|",
+              "        "),
+        "D": (" ___  ",
+              "|   \\ ",
+              "| |) |",
+              "|___/ ",
+              "      "),
+        "X": ("__  __",
+              "\\ \\/ /",
+              " >  < ",
+              "/_/\\_\\",
+              "      "),
+        "p": ("      ",
+              " _ __ ",
+              "| '_ \\",
+              "| .__/",
+              "|_|   "),
+        "l": (" _  ",
+              "| | ",
+              "| | ",
+              "|_| ",
+              "    "),
+        "o": ("     ",
+              " ___ ",
+              "/ _ \\",
+              "\\___/",
+              "     "),
+        "r": ("     ",
+              " _ __",
+              "| '_/",
+              "|_|  ",
+              "     "),
     }
     _WORDMARK = "FastMDXplora"
-
-    # Five-row block glyphs for the startup wordmark.
-    _GLYPHS: dict[str, tuple[str, ...]] = {
-        "F": ("11111", "10000", "11110", "10000", "10000"),
-        "A": ("01110", "10001", "11111", "10001", "10001"),
-        "S": ("01111", "10000", "01110", "00001", "11110"),
-        "T": ("11111", "00100", "00100", "00100", "00100"),
-        "M": ("10001", "11011", "10101", "10001", "10001"),
-        "D": ("11110", "10001", "10001", "10001", "11110"),
-        "X": ("10001", "01010", "00100", "01010", "10001"),
-        "P": ("11110", "10001", "11110", "10000", "10000"),
-        "L": ("10000", "10000", "10000", "10000", "11111"),
-        "O": ("01110", "10001", "10001", "10001", "01110"),
-        "R": ("11110", "10001", "11110", "10100", "10010"),
-    }
-    _WORDMARK = "FASTMDXPLORA"
-
-    # Five-row block glyphs for the startup wordmark.
-    _GLYPHS: dict[str, tuple[str, ...]] = {
-        "F": ("11111", "10000", "11110", "10000", "10000"),
-        "A": ("01110", "10001", "11111", "10001", "10001"),
-        "S": ("01111", "10000", "01110", "00001", "11110"),
-        "T": ("11111", "00100", "00100", "00100", "00100"),
-        "M": ("10001", "11011", "10101", "10001", "10001"),
-        "D": ("11110", "10001", "10001", "10001", "11110"),
-        "X": ("10001", "01010", "00100", "01010", "10001"),
-        "P": ("11110", "10001", "11110", "10000", "10000"),
-        "L": ("10000", "10000", "10000", "10000", "11111"),
-        "O": ("01110", "10001", "10001", "10001", "01110"),
-        "R": ("11110", "10001", "11110", "10100", "10010"),
-    }
-    _WORDMARK = "FASTMDXPLORA"
     _TAGLINE = "Fully Automated SysTem for Molecular Dynamics eXploration"
 
     def welcome(
@@ -266,11 +287,10 @@ class SessionPresenter:
             return
         self._welcome_shown = True
 
+        # Joined without a separator: the glyphs carry their own side bearings,
+        # and a space between them opens gaps the letterforms already close.
         logo = [
-            " ".join(
-                "".join("\u2588" if bit == "1" else " " for bit in self._GLYPHS[ch][row])
-                for ch in self._WORDMARK
-            )
+            "".join(self._GLYPHS[ch][row] for ch in self._WORDMARK).rstrip()
             for row in range(5)
         ]
         block = max(len(row) for row in logo)
