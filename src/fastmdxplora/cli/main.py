@@ -1614,6 +1614,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ConfigError as exc:
         print(f"fastmdx: config error: {exc}", file=sys.stderr)
         return 2
+    except (RuntimeError, ValueError) as exc:
+        # A study that stops before it starts says so once. These carry a
+        # written explanation -- a selection matching no atoms, a system that
+        # could not be prepared -- and the stack behind them names batch and
+        # setup internals, which is forty lines telling the reader nothing
+        # they can act on. The traceback is still available by raising the
+        # logging level; what a user needs is the sentence.
+        print(f"fastmdx: {exc}", file=sys.stderr)
+        logger.debug("stopping after %s", type(exc).__name__, exc_info=True)
+        return 1
     except FileExistsError as exc:
         # Refusing to overwrite a previous run is a decision, not a crash:
         # said plainly, with what to do about it, and no traceback.

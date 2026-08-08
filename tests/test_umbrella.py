@@ -1535,3 +1535,69 @@ class TestASettingThatDoesNotExist:
         read |= set(re.findall(r'spec\["([a-z_]+)"\]', source))
         read |= set(re.findall(r'"([a-z_]+)" in spec', source))
         assert read <= umbrella._accepted_keys(), read - umbrella._accepted_keys()
+
+
+class TestAnUnsampledBinIsNotAMeasurement:
+    """The floor that stops `log(0)` inside the WHAM iteration was carried
+    into the output. A bin nobody sampled left as -kT*log(1e-300) -- 1724
+    kJ/mol at 300 K, about seven hundred times RT -- sitting in the array
+    between neighbours of eleven and thirteen, indistinguishable from a
+    measurement. The tripeptide smoke run had six of them among sixty."""
+
+    def _samples(self, gap: bool):
+        """Five windows across a coordinate, with or without a hole."""
+        import numpy as np
+
+        rng = np.random.default_rng(0)
+        centres = [0.6, 0.7, 0.8, 0.9, 1.0]
+        samples = {}
+        for index, centre in enumerate(centres):
+            if gap and index == 2:
+                # This window sampled somewhere else entirely, so the bins
+                # around its centre stay empty.
+                draw = rng.normal(0.62, 0.01, 400)
+            else:
+                draw = rng.normal(centre, 0.03, 400)
+            samples[index] = np.asarray(draw)
+        return centres, samples
+
+    def _pmf(self, gap: bool):
+        from fastmdxplora.simulation.umbrella import compute_pmf, plan_windows
+
+        centres, samples = self._samples(gap)
+        plan = plan_windows({
+            "collective_variable": "distance",
+            "selection_a": "resid 0 and name CA",
+            "selection_b": "resid 2 and name CA",
+            "centres": centres,
+            "force_constant": 2000.0,
+        })
+        return compute_pmf(
+            samples, plan, temperature_K=300.0, minimum_overlap=0.0)
+
+    def test_a_sampled_bin_reports_a_number(self) -> None:
+        result = self._pmf(gap=False)
+        values = result["pmf"]["free_energy_kjmol"]
+        assert any(v is not None for v in values)
+        assert all(v is None or v < 500 for v in values), (
+            "a free energy of hundreds of kJ/mol on a smooth coordinate is a "
+            "clip leaking into the output, not a barrier"
+        )
+
+    def test_an_unsampled_bin_reports_nothing(self) -> None:
+        """`null`, not a sentinel: the coordinate exists and the free energy
+        there is unknown, which JSON says exactly."""
+        result = self._pmf(gap=True)
+        values = result["pmf"]["free_energy_kjmol"]
+        assert None in values
+        assert all(v is None or v < 500 for v in values)
+
+    def test_the_count_is_reported(self) -> None:
+        result = self._pmf(gap=True)
+        assert result["unsampled_bins"] == sum(
+            1 for v in result["pmf"]["free_energy_kjmol"] if v is None)
+
+    def test_the_minimum_is_taken_over_what_was_sampled(self) -> None:
+        result = self._pmf(gap=True)
+        values = [v for v in result["pmf"]["free_energy_kjmol"] if v is not None]
+        assert min(values) == pytest.approx(0.0, abs=1e-9)

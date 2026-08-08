@@ -27,10 +27,13 @@ where it will sit.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "Window",
@@ -638,12 +641,43 @@ def compute_pmf(
             break
         free_energies = updated
 
+    # The floor belongs in the iteration, where log(0) would poison the
+    # self-consistency loop, and not in what comes out of it. Carried through,
+    # a bin nobody sampled left with -kT*log(1e-300) -- 1724 kJ/mol at 300 K,
+    # some seven hundred times RT -- sitting in the array between neighbours
+    # of eleven and thirteen, indistinguishable from a measurement. Anyone
+    # plotting it saw spikes a hundred times the real barrier; anyone taking a
+    # minimum or fitting a curve got a number out of a clip.
+    sampled = probability > 0
     with np.errstate(divide="ignore"):
-        pmf = -kT * np.log(np.clip(probability, 1e-300, None))
-    pmf -= pmf[np.isfinite(pmf)].min()
+        pmf = np.where(sampled, -kT * np.log(np.clip(probability, 1e-300, None)),
+                       np.nan)
+    if not sampled.any():
+        raise ValueError(
+            "No window contributed a single sample, so there is no free "
+            "energy to report. Check that the windows ran and that the "
+            "coordinate they biased is the one being histogrammed."
+        )
+    pmf -= np.nanmin(pmf)
+
+    # `null` rather than a number: the coordinate exists and the free energy
+    # there is unknown, which JSON says exactly and every plotting library
+    # understands. A sentinel would be read as data by anything that did not
+    # know to look for it.
+    free_energy = [None if np.isnan(value) else float(value) for value in pmf]
+    unsampled = int(np.count_nonzero(~sampled))
+    if unsampled:
+        logger.info(
+            "%d of %d bins hold no samples and are reported as unknown rather "
+            "than given a value. Windows further apart than their restraints "
+            "are wide leave gaps like these; the overlaps above say whether "
+            "the sampled parts still join up.",
+            unsampled, len(pmf),
+        )
 
     return {
-        "pmf": {"coordinate": centres.tolist(), "free_energy_kjmol": pmf.tolist()},
+        "pmf": {"coordinate": centres.tolist(), "free_energy_kjmol": free_energy},
+        "unsampled_bins": unsampled,
         "overlaps": overlaps,
         "refused": None,
         "temperature_K": float(temperature_K),

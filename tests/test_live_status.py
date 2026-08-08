@@ -2192,3 +2192,19 @@ class TestTheBeltIsMeasuredOnTheSurface:
         points, kinds = self._membrane_like()
         hydrophobic, charged, ratio = surface_belt_ratio(points, kinds)
         assert ratio == pytest.approx(hydrophobic / charged)
+
+    def test_giving_up_is_said_out_loud(self) -> None:
+        """The check further down reports the padding the config asked for
+        and knows nothing of what was tried. Silent, this advised raising
+        0.80 nm without mentioning that 1.19 had already been attempted and
+        was still short -- so the obvious next guess fails the same way."""
+        import inspect
+
+        from fastmdxplora.setup import prepare
+
+        body = inspect.getsource(prepare._solvate_with_room_for_the_cutoff)
+        # The comparison, not the signature: the parameter is annotated
+        # `most_it_may_grow_nm: float` and splitting on that lands above.
+        stopping = body.split("> most_it_may_grow_nm:", 1)[1].split("return", 1)[0]
+        assert "logger.info" in stopping
+        assert "Stopping at" in stopping

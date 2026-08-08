@@ -177,6 +177,20 @@ def _solvate_with_room_for_the_cutoff(
         shortfall = (2.0 * nonbonded_cutoff_nm) - smallest
         grown = padding + (shortfall / 2.0) + 0.1
         if grown - float(padding_nm) > most_it_may_grow_nm:
+            # Said out loud, because the check further down reports the
+            # padding the config asked for and knows nothing of what was
+            # tried. Silent, this advised raising 0.80 nm without mentioning
+            # that 1.19 had already been attempted and was still short --
+            # so the obvious next guess fails the same way.
+            logger.info(
+                "Stopping at %.2f nm padding: reaching twice the %.2f nm "
+                "cutoff would need about %.2f nm, which is %.2f nm more than "
+                "the %.2f nm this will add on its own. The cutoff and the "
+                "padding asked for are further apart than a small adjustment "
+                "can settle.",
+                padding, nonbonded_cutoff_nm, grown,
+                grown - float(padding_nm), most_it_may_grow_nm,
+            )
             return
         padding = grown
         logger.info(

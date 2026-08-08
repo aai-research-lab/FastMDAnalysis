@@ -998,3 +998,46 @@ def _ok_result(spec_dict):
 
     return RunResult(run_id=spec_dict["run_id"], system=spec_dict["system"],
                      status="ok", sweep_values={}, phases=[])
+
+
+class TestSelectionsAreCheckedAgainstWhateverWillBeSimulated:
+    """The check was written inside the block that prepares the shared
+    system, so a study re-run with --force -- which finds one already there
+    and prepares nothing -- skipped it entirely and failed three windows in
+    parallel instead. The one case it covered was a freshly prepared system,
+    which is the case where the author has just watched the structure being
+    built."""
+
+    def test_it_runs_outside_the_preparation_block(self) -> None:
+        import inspect
+
+        from fastmdxplora.batch import explorer
+
+        source = inspect.getsource(explorer.BatchExplorer._maybe_prepare_once)
+        check = source.index("_check_selections_against(")
+        prepared_block = source.index('if not _a_prepared_system_is_there(prepared):')
+        raise_block = source.index("The system could not be prepared")
+        # After the block that prepares and after its failure is raised,
+        # so a reused system is checked too.
+        assert check > raise_block > prepared_block
+
+    def test_an_unresolvable_selection_is_not_a_verdict(self) -> None:
+        """A selection this cannot resolve is not thereby wrong; refusing on
+        that basis would be worse than the wait it saves."""
+        import inspect
+
+        from fastmdxplora.batch import explorer
+
+        source = inspect.getsource(explorer._check_selections_against)
+        assert "except Exception" in source
+        assert "return" in source.split("except Exception")[1][:200]
+
+    def test_a_missing_topology_is_passed_over(self, tmp_path) -> None:
+        from fastmdxplora.batch.explorer import _check_selections_against
+
+        # Nothing raised: there is no system to check against yet.
+        _check_selections_against(tmp_path, {"umbrella": {
+            "collective_variable": "distance",
+            "selection_a": "resid 0 and name CA",
+            "selection_b": "resid 99 and name CA",
+        }})

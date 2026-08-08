@@ -147,3 +147,40 @@ class TestReasonsReachTheUser:
         assert code == 1
         # The reason, not merely the fact.
         assert "PDB identifier" in output
+
+
+class TestAStudyThatStopsBeforeItStartsSaysSoPlainly:
+    """A selection matching no atoms is caught against the prepared system
+    before any window is launched -- and then came out as forty lines of
+    stack naming batch and setup internals. The check was right and the
+    reporting undid it: what the reader needs is the sentence."""
+
+    def test_a_value_error_prints_rather_than_traces(self, capsys) -> None:
+        import sys
+        from unittest.mock import patch
+
+        from fastmdxplora.cli.main import main
+
+        with patch("fastmdxplora.cli.main._cmd_explore",
+                   side_effect=ValueError("the selection matched no atoms")):
+            code = main(["explore", "--system", "1UBQ"])
+
+        captured = capsys.readouterr()
+        assert code == 1
+        assert "fastmdx: the selection matched no atoms" in captured.err
+        assert "Traceback" not in captured.err
+        assert "explorer.py" not in captured.err
+
+    def test_the_same_for_a_runtime_error(self, capsys) -> None:
+        from unittest.mock import patch
+
+        from fastmdxplora.cli.main import main
+
+        with patch("fastmdxplora.cli.main._cmd_explore",
+                   side_effect=RuntimeError("the system could not be prepared")):
+            code = main(["explore", "--system", "1UBQ"])
+
+        captured = capsys.readouterr()
+        assert code == 1
+        assert "fastmdx: the system could not be prepared" in captured.err
+        assert "Traceback" not in captured.err

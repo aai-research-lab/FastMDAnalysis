@@ -103,6 +103,61 @@ def _first_error_phase_message(phases: list[Any]) -> str:
     return ""
 
 
+def _check_selections_against(prepared: Path, spec: dict[str, Any]) -> None:
+    """Resolve a biasing block's selections before any window is launched.
+
+    A selection is checked when a window starts, which is after the shared
+    system has been built and a run submitted. `resid 3 and name CA` on a
+    tripeptide -- MDTraj counts residues from zero, so there is no resid 3 --
+    cost a full preparation and a failed run to discover, and in a parallel
+    study it failed three windows at once. The topology is on disk by then
+    and the selections are in the config, so nothing about it needed a
+    simulation to find out.
+
+    Silent where it cannot tell: a selection this cannot resolve is not
+    thereby wrong, and refusing on that basis would be worse than the wait.
+    """
+    block = spec.get("umbrella") or spec.get("metadynamics")
+    if not isinstance(block, dict):
+        return
+    topology = prepared / "topology.pdb"
+    if not topology.is_file():
+        return
+
+    try:
+        import mdtraj as md
+
+        from fastmdxplora.simulation.metadynamics import plan_from_config
+
+        mdtop = md.load(str(topology)).topology
+        plan_from_config(dict(block), mdtop)
+    except ValueError as exc:
+        raise ValueError(
+            f"{exc}\n\nFound before any window ran, by resolving the "
+            "selection against the prepared system. Nothing has been "
+            "simulated."
+        ) from exc
+    except Exception:  # noqa: BLE001 - anything else is not a verdict
+        # Could not resolve it here, which is not the same as it being wrong.
+        return
+
+
+def _why_it_failed(result: Any) -> str:
+    """The reason a run stopped, ready to print.
+
+    The message was written into the manifest and never to the screen, so a
+    study that stopped said only which run had failed. Three separate causes
+    -- a selection matching no atoms, a box collapsing under NPT, a directory
+    already holding output -- each looked identical from the terminal, and
+    each needed the manifest opened to tell apart. A run's own log has the
+    detail; the reason it stopped belongs where the reader is looking.
+    """
+    message = str(getattr(result, "message", "") or "").strip()
+    if not message:
+        return "No reason was recorded. The run's own log may say more."
+    return message
+
+
 def _skipped_run_result(spec: RunSpec, run_out: Path, message: str) -> "RunResult":
     from fastmdxplora.orchestrator import RunResult
 
@@ -558,12 +613,19 @@ class BatchExplorer:
 
         shared = self.output_dir / "shared_setup"
         prepared = shared / "setup"
+        if self.force and shared.exists() and not _a_prepared_system_is_there(prepared):
+            # A half-written shared setup from an interrupted study: with
+            # --force the intent is plainly to start again, and leaving the
+            # remains there means the preparation refuses its own directory.
+            import shutil
+
+            shutil.rmtree(shared)
         if not _a_prepared_system_is_there(prepared):
             print("\nPreparing one system for every window\n" + "=" * 40)
             first = self.run_specs[0]
             result = _execute_run(
                 first.to_dict(), str(shared), ["setup"], None,
-                self.verbose, None, quiet=False,
+                self.verbose, None, quiet=False, force=self.force,
             )
             if result.status == "error" or not _a_prepared_system_is_there(prepared):
                 # Every window would fail the same way, one after another,
@@ -572,6 +634,14 @@ class BatchExplorer:
                     "The system could not be prepared, so there is nothing "
                     f"for the windows to simulate: {result.message or prepared}"
                 )
+
+        # Outside the block that prepares, because the selections need
+        # checking against whatever system the windows will use -- and a
+        # study re-run with --force finds one already there and prepares
+        # nothing. Inside, this checked only freshly prepared systems, which
+        # is the one case where the author has just seen the structure built.
+        _check_selections_against(
+            prepared, self.run_specs[0].options.get("simulation") or {})
 
         for spec in self.run_specs:
             simulation = dict(spec.options.get("simulation") or {})
@@ -731,7 +801,9 @@ class BatchExplorer:
             )
             results.append(result)
             if result.status == "error" and not self.continue_on_error:
-                logger.error("Stopping after failed run '%s'.", spec.run_id)
+                logger.error(
+                    "Stopping after failed run '%s': %s",
+                    spec.run_id, _why_it_failed(result))
                 for skipped in self.run_specs[i:]:
                     results.append(_skipped_run_result(
                         skipped,
@@ -824,11 +896,15 @@ class BatchExplorer:
                     )
                 mark = "✓" if result.status == "ok" else "✗"
                 print(f"[{done}/{n}] {mark} {spec.run_id}")
+                if result.status == "error":
+                    print(f"      {_why_it_failed(result)}")
                 results.append(result)
 
                 if result.status == "error" and not self.continue_on_error:
                     stopped_after = spec.run_id
-                    logger.error("Stopping parallel batch after failed run '%s'.", spec.run_id)
+                    logger.error(
+                        "Stopping parallel batch after failed run '%s': %s",
+                        spec.run_id, _why_it_failed(result))
                     break
 
                 if stopped_after is None:
