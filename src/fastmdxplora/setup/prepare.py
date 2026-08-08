@@ -715,11 +715,27 @@ def _resolve_ligand_names(ligands, ligand_name) -> list[str]:
         # indistinguishable in the topology and in every later selection.
         names = [_Path(str(p)).stem.strip().upper()[:3] or "LIG" for p in ligands]
 
-    if len(set(names)) != len(names):
+    # Distinct chemistries need distinct names; copies of one component do
+    # not. Two 7VF molecules in a structure are both called 7VF, and an
+    # analysis selecting `resname 7VF` wants both -- requiring uniqueness per
+    # copy is what drove the generated names that lost the component code.
+    # The file stem carries the component before its chain and number, so
+    # copies of one component are recognisable as such.
+    from pathlib import Path as _Path
+
+    components: dict[str, set[str]] = {}
+    for name, path in zip(names, ligands):
+        component = _Path(str(path)).stem.split("_")[0].strip().upper()
+        components.setdefault(name, set()).add(component)
+    clashes = {name: sorted(found)
+               for name, found in components.items() if len(found) > 1}
+    if clashes:
         raise ValueError(
-            f"ligand residue names must be distinct, got {names}. Two ligands "
-            "sharing a name cannot be told apart in the topology or in any "
-            "analysis that selects by residue."
+            f"different ligands were given the same residue name: {clashes}. "
+            "Copies of one component may share a name -- they are told apart "
+            "by chain and residue number -- but two different molecules "
+            "cannot, in the topology or in any analysis that selects by "
+            "residue."
         )
     return names
 

@@ -563,14 +563,23 @@ def _auto_ligands(params: dict, input_pdb, setup_dir, entry_id: str | None) -> l
             chemistry.path.read_text(encoding="utf-8"), chemistry, state
         )
 
-        # Copies of one component need distinct residue names, or nothing
-        # downstream can tell them apart.
+        # Files are per copy, because two copies can settle into different
+        # protonation states and each needs its own chemistry on disk.
         suffix = "" if len(copies) == 1 else f"_{instance.chain}{instance.resseq}"
         target = ligand_dir / f"{decision.resname}{suffix}.sdf"
         target.write_text(sdf_text, encoding="utf-8")
         files.append(str(target))
-        names.append(decision.resname if len(copies) == 1
-                     else f"{decision.resname[:1]}{len(names):02d}")
+        # Names are per component, because that is what a residue name means.
+        # This used to generate one per copy -- `C00`, `C01`, `O02` -- whenever
+        # a structure held more than one ligand instance, even where the
+        # components were already distinct. 6B73's cholesterol, opioid agonist
+        # and oleic acid all lost their codes that way, and 5WYZ's two copies
+        # of 7VF became `700` and `701`. The component code is the identifier
+        # the entry uses, that the analyses select on, and that the page
+        # displays; a generated one leaves the built system unable to say what
+        # is in it. Two copies of one component share a name in a PDB and are
+        # told apart by chain and residue number, as they are here.
+        names.append(decision.resname)
         charges.append(net_charge)
 
     # Remembered so preparation can report these as re-added with parameters

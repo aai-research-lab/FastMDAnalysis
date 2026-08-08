@@ -124,11 +124,30 @@ class TestMultipleLigands:
         with pytest.raises(ValueError, match="single ligand name"):
             _resolve_ligand_names(["a", "b"], "LIG")
 
-    def test_duplicate_names_are_refused(self) -> None:
+    def test_two_different_molecules_may_not_share_a_name(self) -> None:
         from fastmdxplora.setup.prepare import _resolve_ligand_names
 
-        with pytest.raises(ValueError, match="must be distinct"):
-            _resolve_ligand_names(["a", "b"], ["X", "X"])
+        with pytest.raises(ValueError, match="same residue name"):
+            _resolve_ligand_names(["a.sdf", "b.sdf"], ["X", "X"])
+
+    def test_but_copies_of_one_component_may(self) -> None:
+        """Two 7VF molecules in a structure are both called 7VF and told
+        apart by chain and residue number, as they are in the entry.
+        Requiring a distinct name per copy is what drove the generated names
+        that lost the component code: 7VF became `700` and `701`, and 6B73's
+        three distinct ligands became `C00`, `C01` and `O02`."""
+        from fastmdxplora.setup.prepare import _resolve_ligand_names
+
+        names = _resolve_ligand_names(
+            ["7VF_A901.sdf", "7VF_B901.sdf"], ["7VF", "7VF"])
+        assert names == ["7VF", "7VF"]
+
+    def test_the_component_code_survives_several_ligands(self) -> None:
+        from fastmdxplora.setup.prepare import _resolve_ligand_names
+
+        names = _resolve_ligand_names(
+            ["CLR_A2002.sdf", "CVV_A2001.sdf", "OLA_A2003.sdf"], None)
+        assert names == ["CLR", "CVV", "OLA"]
 
     def test_a_mismatched_number_of_names_is_refused(self) -> None:
         from fastmdxplora.setup.prepare import _resolve_ligand_names
