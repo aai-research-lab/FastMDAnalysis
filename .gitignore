@@ -53,3 +53,9 @@ fastmdxplora_output_*/
 local_pdbs/
 local_runs/
 private_reports/
+
+# The default output name is covered above, but --output takes any path and
+# the documented example is `runs/`. A trajectory is large, it is the user's
+# data, and `git add -A` during a run would commit a directory being written to.
+runs/
+run/
