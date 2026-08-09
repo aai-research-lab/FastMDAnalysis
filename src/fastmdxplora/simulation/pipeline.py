@@ -111,20 +111,32 @@ def _write_steered_work(output_dir: Path, params: dict, presenter: Any) -> str |
 
     colvar = output_dir / "COLVAR"
     if not colvar.is_file():
+        logger.info(
+            "No work recorded for the pull: PLUMED wrote no COLVAR in %s. "
+            "The pull may have been configured without a PRINT line.",
+            output_dir)
         return None
 
     try:
         columns = np.loadtxt(colvar, comments="#")
-    except (OSError, ValueError):
+    except (OSError, ValueError) as exc:
+        logger.info("No work recorded for the pull: %s could not be read (%s).",
+                    colvar.name, exc)
         return None
-    if columns.ndim != 2 or columns.shape[1] < 2 or not len(columns):
+    # A pull short enough to write one row gives a 1-D array, which is a short
+    # pull rather than an absent one.
+    columns = np.atleast_2d(columns)
+    if columns.shape[1] < 3 or not len(columns):
+        logger.info(
+            "No work recorded for the pull: %s holds %d column(s), and the "
+            "work is the third. PLUMED was asked to print %s.",
+            colvar.name, columns.shape[1] if columns.ndim == 2 else 0,
+            "cv,pull.work,pull.bias")
         return None
 
     # PRINT ARG=cv,pull.work,pull.bias, so time, cv, work, bias.
     coordinate = columns[:, 1]
-    work = columns[:, 2] if columns.shape[1] > 2 else None
-    if work is None:
-        return None
+    work = columns[:, 2]
 
     spec = params.get("steered") or {}
     timestep_fs = float(params.get("timestep_fs") or 2.0)
@@ -445,6 +457,15 @@ def run(
             written = _write_steered_work(output_dir, params, presenter)
             if written is not None:
                 artifacts.append(written)
+        elif params.get("plumed"):
+            # A steered block reaches the runner as a PLUMED script, and if
+            # anything downstream reads the script rather than the block the
+            # record is never written -- the pull happens and nothing
+            # summarises it. Said rather than passed over.
+            logger.debug(
+                "No steered block in the resolved parameters, so no work "
+                "record was written. Keys present: %s",
+                sorted(k for k in params if params.get(k) is not None)[:40])
 
         _write_manifest(
             output_dir, params, artifacts, notes,

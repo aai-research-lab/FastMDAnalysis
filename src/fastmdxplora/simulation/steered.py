@@ -165,6 +165,16 @@ def build_steered_script(plan: SteeredPlan,
     lines.append("")
     # The work is the point of recording anything: without it a steered run
     # has produced a trajectory and no number.
-    lines.append(
-        "PRINT ARG=cv,pull.work,pull.bias STRIDE=100 FILE=COLVAR")
+    lines.append("PRINT ARG=cv,pull.work,pull.bias STRIDE=100 FILE=COLVAR")
+    # Flushed as it goes. PLUMED buffers its output and writes on teardown,
+    # and the work record is built at the end of the simulation phase --
+    # before the force is finalised. COLVAR existed, held no rows, and the
+    # record was silently not written; run by hand afterwards on the same
+    # file it worked. A race rather than a logic error, which is why reading
+    # the code found nothing.
+    #
+    # The cost is a flush every hundred steps, which is nothing beside the
+    # dynamics, and it also means a pull can be watched while it runs rather
+    # than only after it ends.
+    lines.append("FLUSH STRIDE=100")
     return "\n".join(lines) + "\n"

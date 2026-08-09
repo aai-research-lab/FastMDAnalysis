@@ -248,3 +248,105 @@ class TestAPullReportsItsWork:
         source = inspect.getsource(pipeline)
         assert 'if params.get("steered"):' in source
         assert "_write_steered_work(output_dir, params, presenter)" in source
+
+
+class TestAPullThatWroteNoRecordSaysWhy:
+    """`_write_steered_work` returned None in three places and said nothing
+    in any of them. A pull ran, PLUMED wrote a valid COLVAR, no record
+    appeared, and finding out why took an hour of reading the pipeline --
+    for a function written to fix exactly that: a result available rather
+    than reported."""
+
+    def test_a_missing_colvar_is_explained(self, tmp_path, caplog) -> None:
+        import logging
+
+        from fastmdxplora.simulation.pipeline import _write_steered_work
+
+        with caplog.at_level(logging.INFO):
+            assert _write_steered_work(tmp_path, {"steered": {}}, None) is None
+        assert "no COLVAR" in caplog.text
+
+    def test_a_colvar_without_the_work_column_is_explained(
+        self, tmp_path, caplog
+    ) -> None:
+        """PLUMED prints what the script asked for. A script without
+        `pull.work` produces a file that looks fine and holds no work."""
+        import logging
+
+        from fastmdxplora.simulation.pipeline import _write_steered_work
+
+        (tmp_path / "COLVAR").write_text(
+            "#! FIELDS time cv\n 1.0 0.7\n", encoding="utf-8")
+        with caplog.at_level(logging.INFO):
+            assert _write_steered_work(tmp_path, {"steered": {}}, None) is None
+        assert "column" in caplog.text
+
+    def test_a_single_row_is_a_short_pull_not_an_absent_one(
+        self, tmp_path
+    ) -> None:
+        """`np.loadtxt` gives a 1-D array for one row, and the shape check
+        read that as no data at all."""
+        from fastmdxplora.simulation.pipeline import _write_steered_work
+
+        (tmp_path / "COLVAR").write_text(
+            "#! FIELDS time cv pull.work pull.bias\n 1.0 0.7 2.5 0.1\n",
+            encoding="utf-8")
+        assert _write_steered_work(
+            tmp_path, {"steered": {"to": 0.95}}, None) == "steered_work.json"
+
+
+class TestThePullFlushesAsItGoes:
+    """PLUMED buffers its output and writes on teardown, and the work record
+    is built at the end of the simulation phase -- before the force is
+    finalised. `COLVAR` existed, held no rows, and the record was silently
+    not written; run by hand afterwards on the same file it worked. A race
+    rather than a logic error, which is why five readings of the pipeline
+    found nothing."""
+
+    def _script(self):
+        import mdtraj as md
+        import numpy as np
+
+        top = md.Topology()
+        chain = top.add_chain()
+        for _ in range(3):
+            residue = top.add_residue("ALA", chain)
+            for name, element in (
+                ("N", md.element.nitrogen), ("CA", md.element.carbon),
+                ("C", md.element.carbon), ("O", md.element.oxygen),
+            ):
+                top.add_atom(name, element, residue)
+        trajectory = md.Trajectory(
+            np.zeros((1, 12, 3)), top)
+
+        from fastmdxplora.simulation.steered import (
+            build_steered_script,
+            plan_steered,
+        )
+
+        plan = plan_steered({
+            "collective_variable": "distance",
+            "selection_a": "resid 0 and name CA",
+            "selection_b": "resid 2 and name CA",
+            "to": 0.95,
+            "steps": 1000,
+        }, trajectory.topology)
+        return build_steered_script(plan)
+
+    def test_the_script_asks_plumed_to_flush(self) -> None:
+        assert "FLUSH" in self._script()
+
+    def test_it_flushes_as_often_as_it_prints(self) -> None:
+        """A flush rarer than the print leaves the last rows buffered, which
+        is the same failure with fewer missing lines."""
+        import re
+
+        script = self._script()
+        printed = re.search(r"PRINT[^\n]*STRIDE=(\d+)", script)
+        flushed = re.search(r"FLUSH STRIDE=(\d+)", script)
+        assert printed and flushed
+        assert int(flushed.group(1)) <= int(printed.group(1))
+
+    def test_the_work_is_still_printed(self) -> None:
+        script = self._script()
+        assert "pull.work" in script
