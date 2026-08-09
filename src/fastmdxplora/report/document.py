@@ -26,6 +26,11 @@ from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from fastmdxplora.report.context import PhaseContext, load_phase_context
+from fastmdxplora.report.reweighted import (
+    load_reweighted,
+    reweighted_line,
+    reweighted_section,
+)
 
 if TYPE_CHECKING:
     from fastmdxplora.orchestrator import FastMDXplora
@@ -314,6 +319,14 @@ def _results_section(project_root: Path) -> str:
     lines.append(f"Analyses performed: {', '.join(_md_text(a) for a in plan)}.")
     lines.append("")
 
+    # The corrected averages come before the analyses they correct. A reader
+    # who meets the RMSD heading first has already read the raw number by the
+    # time they reach a section saying it was not a measurement.
+    reweighted_record = load_reweighted(project_root)
+    if reweighted_record:
+        lines.append(reweighted_section(project_root, reweighted_record))
+        lines.append("")
+
     summary_fig = project_root / "report" / "analysis_summary.png"
     summary_manifest = project_root / "report" / "analysis_summary_manifest.json"
     if summary_fig.is_file():
@@ -356,6 +369,11 @@ def _results_section(project_root: Path) -> str:
                     break
 
     for analysis in plan:
+        # The reweighting pass is not an analysis of the trajectory and has
+        # already been rendered as its own section above, with a table the
+        # generic heading-and-figure treatment here could not produce.
+        if analysis == "reweighted" and reweighted_record:
+            continue
         # Pretty heading: uppercase short names, title-case longer ones
         heading = analysis.upper() if len(analysis) <= 4 else analysis.title()
         heading = _md_text(heading)
@@ -374,6 +392,14 @@ def _results_section(project_root: Path) -> str:
                 lines.append(f"Reason: {_md_text(result_meta['message'])}")
             lines.append("")
             continue
+
+        # Where this analysis reports a per-frame quantity on a biased run,
+        # its corrected value goes first: the section heading is where a
+        # reader looking for that number actually goes.
+        corrected = reweighted_line(reweighted_record, analysis)
+        if corrected:
+            lines.append(corrected)
+            lines.append("")
 
         # Options come from each analysis's own options.json (more reliable
         # than the manifest because the per-analysis file records the

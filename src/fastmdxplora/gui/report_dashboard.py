@@ -469,24 +469,74 @@ def _phase_rows(
 
 
 def _metric_rows(project_root: Path, analysis_manifest: dict[str, Any]) -> list[MetricRow]:
-    specs: tuple[tuple[str, str, str], ...] = (
-        ("RMSD", "analysis/rmsd/rmsd.dat", "nm"),
-        ("RMSF", "analysis/rmsf/rmsf.dat", "nm"),
-        ("Radius of gyration", "analysis/rg/rg.dat", "nm"),
-        ("H-bonds", "analysis/hbonds/hbonds.dat", "count"),
-        ("SASA", "analysis/sasa/sasa.dat", "nm^2"),
+    specs: tuple[tuple[str, str, str, str], ...] = (
+        ("RMSD", "analysis/rmsd/rmsd.dat", "nm", "rmsd"),
+        ("RMSF", "analysis/rmsf/rmsf.dat", "nm", "rmsf"),
+        ("Radius of gyration", "analysis/rg/rg.dat", "nm", "rg"),
+        ("H-bonds", "analysis/hbonds/hbonds.dat", "count", "hbonds"),
+        ("SASA", "analysis/sasa/sasa.dat", "nm^2", "sasa"),
     )
+
+    # On a biased run the mean of a .dat file is an average over a
+    # distribution the bias flattened, and this table is the first thing a
+    # reader looks at. Where the analysis phase recovered the equilibrium
+    # value, that is the one shown, and where it could not the row says so
+    # rather than presenting a biased average as a measurement.
+    from fastmdxplora.report.reweighted import load_reweighted
+
+    reweighted = load_reweighted(project_root)
+    corrected = {
+        item.get("analysis"): item
+        for item in ((reweighted or {}).get("quantities") or [])
+    }
+
+    def formatted(value: Any) -> str:
+        """A dash where there is no number, rather than a crash or a 'nan'.
+
+        The weighted spread is nan when the weights carry one effective
+        frame, which is a real outcome of a badly converged run and not an
+        error to raise in the middle of building a page.
+        """
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return "—"
+        if number != number:
+            return "—"
+        return _format_metric_value(number)
+
     rows: list[MetricRow] = []
-    for label, rel, unit in specs:
+    for label, rel, unit, name in specs:
         values = _numeric_series(project_root / rel)
         if not values:
             continue
+        item = corrected.get(name)
+        if item is not None:
+            rows.append(
+                MetricRow(
+                    metric=f"{label} (reweighted)",
+                    average=formatted(item.get("reweighted_mean")),
+                    stddev=formatted(item.get("reweighted_std")),
+                    unit=unit,
+                )
+            )
+            continue
         rows.append(
             MetricRow(
-                metric=label,
+                metric=f"{label} (biased ensemble)" if reweighted else label,
                 average=_format_metric_value(_mean(values)),
                 stddev=_format_metric_value(_stddev(values)),
                 unit=unit,
+            )
+        )
+
+    if reweighted:
+        rows.append(
+            MetricRow(
+                metric="Effective frames after reweighting",
+                average=formatted(reweighted.get("effective_sample_size")),
+                stddev="—",
+                unit=f"of {reweighted.get('n_frames')}",
             )
         )
 
