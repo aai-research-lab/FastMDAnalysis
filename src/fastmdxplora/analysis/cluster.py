@@ -121,6 +121,9 @@ class Cluster(Analysis):
     """
 
     name = "cluster"
+    #: Populations are weighted counts, so a biased run's cluster occupancies
+    #: are recoverable. Which clusters exist is not: see the base class.
+    reweightable_populations = True
     description = "Conformational clustering"
     default_selection = "name CA"
 

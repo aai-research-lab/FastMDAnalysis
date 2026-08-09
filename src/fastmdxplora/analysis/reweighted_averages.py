@@ -380,6 +380,61 @@ def frame_series(result: Any, spec: tuple[str | None, str],
     return series
 
 
+def frame_labels(result: Any, n_frames: int) -> dict[str, np.ndarray]:
+    """Per-frame categorical labels an analysis reported, keyed by method.
+
+    Clustering returns a mapping of method name to labels because it runs
+    several and they disagree in useful ways; a single array is accepted too
+    so this does not assume that shape.
+    """
+    data = getattr(result, "data", result)
+    if data is None:
+        return {}
+
+    candidates: dict[str, Any]
+    if isinstance(data, dict):
+        candidates = data
+    else:
+        candidates = {"": data}
+
+    labels: dict[str, np.ndarray] = {}
+    for method, values in candidates.items():
+        try:
+            array = np.asarray(values).ravel()
+        except (TypeError, ValueError):
+            continue
+        if array.size != n_frames or array.ndim != 1:
+            continue
+        # Labels, not measurements: a float column would make every frame its
+        # own category and produce a table with one row per frame.
+        if not np.issubdtype(array.dtype, np.integer):
+            continue
+        labels[str(method)] = array
+    return labels
+
+
+def populations(labels: np.ndarray, weights: Weights) -> list[dict[str, Any]]:
+    """How often each state was really visited, against how often it appeared.
+
+    A population is the mean of an indicator, so it reweights exactly as any
+    other average does -- and it is the quantity a bias distorts most, since
+    escaping a well is what the bias is for.
+    """
+    rows: list[dict[str, Any]] = []
+    for value in np.unique(labels):
+        indicator = (labels == value).astype(float)
+        raw = float(np.mean(indicator))
+        corrected = weighted_mean(indicator, weights)
+        rows.append({
+            "label": int(value),
+            "raw_fraction": raw,
+            "reweighted_fraction": corrected,
+            "shift_percent": (
+                100.0 * (corrected - raw) / raw if raw > 0 else float("nan")),
+        })
+    return rows
+
+
 # ---------------------------------------------------------------------------
 # The pass itself
 # ---------------------------------------------------------------------------
@@ -426,7 +481,26 @@ def reweight_results(
                 100.0 * (corrected - raw) / raw if raw != 0 else float("nan")),
         })
 
-    if not quantities:
+    occupancies: list[dict[str, Any]] = []
+    for name, result in results.items():
+        if getattr(result, "status", None) != "ok":
+            continue
+        if not getattr(registry.get(name), "reweightable_populations", False):
+            continue
+        for method, labels in frame_labels(result, n_frames).items():
+            rows = populations(labels, weights)
+            if len(rows) < 2:
+                # One state is not a population: nothing was distinguished,
+                # and a table saying it was visited all of the time before and
+                # after reweighting tells a reader nothing.
+                continue
+            occupancies.append({
+                "analysis": name,
+                "method": method,
+                "states": rows,
+            })
+
+    if not quantities and not occupancies:
         logger.debug("Bias found but no analysis reported a per-frame scalar.")
         return None
 
@@ -465,6 +539,12 @@ def reweight_results(
         "settled": weights.settled,
         "provenance": provenance,
         "quantities": quantities,
+        "populations": occupancies,
+        "populations_caveat": (
+            "The clustering was performed on the biased frames, so the "
+            "states themselves are shaped by where the bias sent the system. "
+            "Reweighting corrects how often each was visited, not which "
+            "states were found."),
         "warnings": warnings,
         "method": (
             "Each frame is weighted by exp((V - c(t))/RT), where V is the "
@@ -481,7 +561,11 @@ def reweight_results(
     (directory / "reweighted_averages.json").write_text(
         json.dumps(record, indent=2), encoding="utf-8")
     _write_table(record, directory / "reweighted_averages.dat")
-    _plot(record, directory / "reweighted_averages.png")
+    # A figure of how far each average moved needs averages to have moved.
+    # A run whose only reweightable result is a clustering has none, and an
+    # empty axes reads as a plot that failed rather than one not called for.
+    if quantities:
+        _plot(record, directory / "reweighted_averages.png")
     return record
 
 

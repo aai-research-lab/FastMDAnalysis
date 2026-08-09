@@ -367,3 +367,112 @@ class TestTheDeclarationsAreWiredUp:
     def test_an_analysis_without_one_defaults_to_none(self) -> None:
         from fastmdxplora.analysis.cluster import Cluster
         assert getattr(Cluster, "reweightable", None) is None
+
+
+class _Populations:
+    reweightable = None
+    reweightable_populations = True
+
+
+class TestPopulationsAreCounts:
+    """A population is the mean of an indicator, so it reweights exactly as
+    any other average does -- and it is the quantity a bias distorts most,
+    since escaping a well is what the bias is for."""
+
+    def test_a_known_population_is_recovered(self) -> None:
+        """The two-state case with the answer known independently, asked at
+        the level a clustering reports it."""
+        from fastmdxplora.analysis.reweight import (
+            KB_KJ_PER_MOL_K, weights_from_bias)
+        from fastmdxplora.analysis.reweighted_averages import populations
+
+        rng = np.random.default_rng(1)
+        n = 4000
+        # What metadynamics samples once the bias has levelled the states.
+        in_b = rng.random(n) < 0.5
+        labels = in_b.astype(int)
+        kT = KB_KJ_PER_MOL_K * 300.0
+        bias = np.where(labels == 0, kT * np.log(0.8 / 0.2), 0.0)
+        weights = weights_from_bias(bias, temperature_K=300.0)
+
+        rows = {row["label"]: row for row in populations(labels, weights)}
+        assert rows[0]["raw_fraction"] == pytest.approx(0.5, abs=0.03)
+        assert rows[0]["reweighted_fraction"] == pytest.approx(0.8, abs=0.03)
+        assert rows[1]["reweighted_fraction"] == pytest.approx(0.2, abs=0.03)
+
+    def test_the_populations_still_sum_to_one(self) -> None:
+        from fastmdxplora.analysis.reweight import weights_from_bias
+        from fastmdxplora.analysis.reweighted_averages import populations
+
+        rng = np.random.default_rng(2)
+        labels = rng.integers(0, 4, 500)
+        weights = weights_from_bias(rng.normal(0, 5, 500), temperature_K=300.0)
+        rows = populations(labels, weights)
+        assert sum(r["reweighted_fraction"] for r in rows) == pytest.approx(1.0)
+
+    def test_an_unbiased_run_leaves_them_alone(self) -> None:
+        from fastmdxplora.analysis.reweight import weights_from_bias
+        from fastmdxplora.analysis.reweighted_averages import populations
+
+        labels = np.array([0, 0, 0, 1, 1, 1, 1, 1, 1, 1])
+        weights = weights_from_bias(np.zeros(10), temperature_K=300.0)
+        rows = {r["label"]: r for r in populations(labels, weights)}
+        assert rows[0]["reweighted_fraction"] == pytest.approx(0.3)
+        assert rows[1]["reweighted_fraction"] == pytest.approx(0.7)
+
+
+class TestOnlyLabelsBecomePopulations:
+    def test_a_mapping_of_methods_is_read(self) -> None:
+        from fastmdxplora.analysis.reweighted_averages import frame_labels
+
+        labels = frame_labels(
+            _Result({"kmeans": np.zeros(8, int),
+                     "hierarchical": np.ones(8, int)}), 8)
+        assert set(labels) == {"kmeans", "hierarchical"}
+
+    def test_a_float_series_is_not_a_set_of_states(self) -> None:
+        """RMSD per frame is a measurement. Treated as labels it would make
+        every frame its own state and produce a row for each."""
+        from fastmdxplora.analysis.reweighted_averages import frame_labels
+
+        assert frame_labels(_Result(np.linspace(0.0, 1.0, 20)), 20) == {}
+
+    def test_labels_of_the_wrong_length_are_refused(self) -> None:
+        from fastmdxplora.analysis.reweighted_averages import frame_labels
+
+        assert frame_labels(_Result({"kmeans": np.zeros(5, int)}), 20) == {}
+
+    def test_a_single_state_is_not_a_population(self, tmp_path: Path) -> None:
+        """Nothing was distinguished, and a table saying one state was
+        visited all of the time before and after tells a reader nothing."""
+        analysis = _write_run(tmp_path)
+        times = np.linspace(1.0, 200.0, 40)
+        record = reweight_results(
+            {"cluster": _Result({"kmeans": np.zeros(40, int)})},
+            {"cluster": _Populations()},
+            n_frames=40, frame_times_ps=times, output_dir=analysis)
+        assert record is None
+
+    def test_populations_alone_still_produce_a_record(
+            self, tmp_path: Path) -> None:
+        """A run whose only reweightable result is a clustering has no means
+        to plot, and an empty figure would read as one that failed."""
+        analysis = _write_run(tmp_path)
+        times = np.linspace(1.0, 200.0, 60)
+        labels = (np.sin(times / 7.0) > 0).astype(int)
+        record = reweight_results(
+            {"cluster": _Result({"kmeans": labels})},
+            {"cluster": _Populations()},
+            n_frames=60, frame_times_ps=times, output_dir=analysis)
+        assert record is not None
+        assert record["quantities"] == []
+        assert len(record["populations"][0]["states"]) == 2
+        assert not (analysis / "reweighted" / "reweighted_averages.png").exists()
+
+    def test_the_clustering_declares_itself(self) -> None:
+        from fastmdxplora.analysis.cluster import Cluster
+        assert Cluster.reweightable_populations is True
+
+    def test_a_measurement_analysis_does_not(self) -> None:
+        from fastmdxplora.analysis.rmsd import RMSD
+        assert RMSD.reweightable_populations is False

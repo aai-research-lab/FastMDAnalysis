@@ -133,6 +133,18 @@ class Analysis(ABC):
     #: and the report says so rather than guessing.
     reweightable: tuple[str | None, str] | None = None
 
+    #: Whether ``compute()`` returns per-frame categorical labels, either as
+    #: an array or as a mapping of method name to array. A population is a
+    #: weighted count of an indicator, so it reweights exactly as a mean
+    #: does, and how often a state is visited is the thing a biased run
+    #: distorts most.
+    #:
+    #: What this does not correct is which states exist. The clustering was
+    #: performed on the biased frames, so the groupings themselves are shaped
+    #: by where the bias sent the system; reweighting says how often each was
+    #: really visited, not that the right ones were found.
+    reweightable_populations: bool = False
+
     #: Human-readable description used in figure titles.
     description: str = ""
 

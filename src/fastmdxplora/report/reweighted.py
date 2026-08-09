@@ -45,7 +45,11 @@ def load_reweighted(project_root: Path) -> dict[str, Any] | None:
         record = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    if not isinstance(record, dict) or not record.get("quantities"):
+    if not isinstance(record, dict):
+        return None
+    # A run whose only reweightable result is a clustering has
+    # populations and no means, and is still worth a section.
+    if not record.get("quantities") and not record.get("populations"):
         return None
     return record
 
@@ -91,6 +95,17 @@ def reweighted_line(record: dict[str, Any] | None, analysis: str) -> str | None:
             f" ({_signed(item.get('shift_percent'))})."
         )
     return None
+
+
+def _fraction(value: Any) -> str:
+    """A population as a percentage, which is how occupancies are read."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    if number != number:
+        return "—"
+    return f"{100.0 * number:.1f}%"
 
 
 def _percent(value: Any) -> str:
@@ -175,11 +190,40 @@ def reweighted_section(project_root: Path,
             lines.append(f"- _{warning}_")
         lines.append("")
 
+    occupancies = record.get("populations") or []
+    if occupancies:
+        lines.append("#### State populations after reweighting")
+        lines.append("")
+        lines.append(
+            "How often each conformational state was really visited. A "
+            "population is a weighted count, so it corrects exactly as a "
+            "mean does — and it is the quantity a bias distorts most, since "
+            "escaping a well is what the bias is for.")
+        lines.append("")
+        for entry in occupancies:
+            method = entry.get("method") or ""
+            heading = (f"{entry.get('analysis', 'cluster')} — {method}"
+                       if method else str(entry.get("analysis", "cluster")))
+            lines.append(f"**{heading}**")
+            lines.append("")
+            lines.append("| State | Reweighted | Biased trajectory | Change |")
+            lines.append("| --- | --- | --- | --- |")
+            for state in entry.get("states") or []:
+                lines.append(
+                    f"| {state.get('label')} "
+                    f"| {_fraction(state.get('reweighted_fraction'))} "
+                    f"| {_fraction(state.get('raw_fraction'))} "
+                    f"| {_percent(state.get('shift_percent'))} |")
+            lines.append("")
+        caveat = record.get("populations_caveat")
+        if caveat:
+            lines.append(f"_{caveat}_")
+            lines.append("")
+
     # Said plainly rather than left to be inferred from the table's absence.
     lines.append(
-        "_Analyses whose result is not one value per frame — the clustering "
-        "and the dimensionality reduction — are not reweighted, and the "
-        "populations and projections they report are those of the biased "
+        "_The dimensionality reduction is not reweighted: a projection is "
+        "not an average, and the embedding it produces is one of the biased "
         "ensemble._")
     lines.append("")
     return "\n".join(lines)

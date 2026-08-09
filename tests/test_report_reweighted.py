@@ -97,11 +97,11 @@ class TestTheSampleSizeTravelsWithTheNumber:
 
 
 class TestItSaysWhatWasNotCorrected:
-    def test_the_unreweighted_analyses_are_named(self, tmp_path: Path) -> None:
-        """Their absence from the table would otherwise read as an oversight
-        rather than a limit."""
+    def test_the_unreweighted_analysis_is_named(self, tmp_path: Path) -> None:
+        """Its absence from the table would otherwise read as an oversight
+        rather than a limit. A projection is not an average."""
         text = reweighted_section(_project(tmp_path, _record()))
-        assert "clustering" in text and "dimensionality reduction" in text
+        assert "dimensionality reduction is not reweighted" in text
 
     def test_an_unsettled_bias_is_marked(self, tmp_path: Path) -> None:
         text = reweighted_section(_project(tmp_path, _record(settled=False)))
@@ -242,3 +242,59 @@ class TestTheDashboardTableIsCorrectedToo:
         rows = _metric_rows(self._dashboard_project(tmp_path, record), {})
         rmsd = next(r for r in rows if r.metric.startswith("RMSD"))
         assert rmsd.stddev == "—"
+
+
+def _with_populations(**overrides):
+    return _record(populations=[{
+        "analysis": "cluster", "method": "kmeans",
+        "states": [
+            {"label": 0, "raw_fraction": 0.46,
+             "reweighted_fraction": 0.110, "shift_percent": -76.1},
+            {"label": 1, "raw_fraction": 0.54,
+             "reweighted_fraction": 0.890, "shift_percent": 64.9},
+        ],
+    }], populations_caveat=(
+        "The clustering was performed on the biased frames, so the states "
+        "themselves are shaped by where the bias sent the system."),
+        **overrides)
+
+
+class TestPopulationsAreReported:
+    def test_the_occupancies_appear_as_percentages(self, tmp_path: Path) -> None:
+        text = reweighted_section(_project(tmp_path, _with_populations()))
+        assert "State populations after reweighting" in text
+        assert "11.0%" in text and "89.0%" in text
+
+    def test_the_reweighted_column_still_leads(self, tmp_path: Path) -> None:
+        text = reweighted_section(_project(tmp_path, _with_populations()))
+        header = next(line for line in text.splitlines()
+                      if line.startswith("| State"))
+        assert header.index("Reweighted") < header.index("Biased")
+
+    def test_the_biased_occupancies_stay_visible(self, tmp_path: Path) -> None:
+        text = reweighted_section(_project(tmp_path, _with_populations()))
+        assert "46.0%" in text and "54.0%" in text
+
+    def test_what_reweighting_does_not_fix_is_said(self, tmp_path: Path) -> None:
+        """Reweighting corrects how often a state was visited, not which
+        states were found. The clustering ran on the biased frames."""
+        text = reweighted_section(_project(tmp_path, _with_populations()))
+        assert "performed on the biased frames" in text
+
+    def test_the_method_is_named(self, tmp_path: Path) -> None:
+        """Clustering runs several methods and they disagree usefully, so a
+        table that did not say which one produced it would be unreadable."""
+        text = reweighted_section(_project(tmp_path, _with_populations()))
+        assert "kmeans" in text
+
+    def test_a_run_with_only_populations_still_gets_a_section(
+            self, tmp_path: Path) -> None:
+        record = _with_populations(quantities=[])
+        assert load_reweighted(_project(tmp_path, record)) is not None
+        assert "State populations" in reweighted_section(
+            _project(tmp_path, record))
+
+    def test_a_run_without_them_says_nothing_about_them(
+            self, tmp_path: Path) -> None:
+        text = reweighted_section(_project(tmp_path, _record()))
+        assert "State populations" not in text
