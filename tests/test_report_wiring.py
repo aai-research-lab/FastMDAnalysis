@@ -2416,3 +2416,66 @@ class TestReproducibilitySaysWhatItReproduces:
         block = source[source.index("What rerunning") - 200:]
         assert "phase_context.setup_present" in source[:source.index("What rerunning")]
 
+
+
+class TestABiasedTrajectorySaysWhatItIs:
+    """The restraint case said this well and the three enhanced-sampling
+    methods said nothing at all -- the cases where biasing is the entire
+    point of the run. Ten analyses of a metadynamics trajectory were
+    reported beside the free energy with no distinction, and a reader would
+    take a mean RMSD over them as a measurement of the system.
+
+    The three are not alike, and one caveat covering all of them would be
+    wrong about two."""
+
+    def _protocol(self, tmp_path=None, **simulation) -> str:
+        import tempfile
+        from pathlib import Path
+
+        from fastmdxplora.report.methods import methods_paragraphs
+
+        return methods_paragraphs(
+            Path(tmp_path or tempfile.mkdtemp()),
+            {"ph": 7.4},
+            {"nvt_steps": 1000, "npt_steps": 0, "production_steps": 4000,
+             "timestep_fs": 2.0, **simulation},
+        )
+
+    def test_metadynamics_says_the_weights_exist(self) -> None:
+        """A known bias on a known coordinate: exp(V/RT) recovers the
+        unbiased ensemble, so the honest note says so."""
+        text = self._protocol(metadynamics={"collective_variable": "torsion"})
+        assert "not a Boltzmann ensemble" in text
+        assert "reweighted" in text
+        assert "recoverable" in text
+
+    def test_umbrella_says_the_windows_do_not_combine(self) -> None:
+        """Each is a separate biased simulation. What combines them is the
+        free energy, not an average of any quantity across them."""
+        text = self._protocol(umbrella={"centre": 0.7})
+        assert "one window" in text
+        assert "not\ncomparable between windows" in text or (
+            "not comparable between windows" in text)
+        assert "potential of mean force" in text
+
+    def test_steered_says_no_reweighting_exists(self) -> None:
+        """Not an equilibrium ensemble at all, so there are no weights to
+        recover -- unlike metadynamics, where there are."""
+        text = self._protocol(steered={"to": 0.95})
+        assert "not an equilibrium ensemble" in text
+        assert "no reweighting" in text
+
+    def test_an_unbiased_run_says_none_of_it(self) -> None:
+        text = self._protocol()
+        for phrase in ("Boltzmann", "one window", "steered pull"):
+            assert phrase not in text
+
+    def test_the_three_notes_differ(self) -> None:
+        """One caveat covering all three would be wrong about two of them."""
+        metad = self._protocol(metadynamics={"collective_variable": "torsion"})
+        umbrella = self._protocol(umbrella={"centre": 0.7})
+        steered = self._protocol(steered={"to": 0.95})
+
+        assert "reweighted" in metad and "reweighted" not in steered
+        assert "potential of mean force" in umbrella
+        assert "no reweighting" in steered and "no reweighting" not in metad

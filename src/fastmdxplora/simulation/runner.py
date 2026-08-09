@@ -629,6 +629,7 @@ def _run_md_stage_with_live_metrics(
     telemetry_interval: int,
     trajectory_interval_steps: int | None = None,
     on_step_progress: Callable[..., None] | None = None,
+    on_fraction: Callable[[float], None] | None = None,
 ) -> int:
     """Run an MD stage in chunks so live telemetry can sample real state.
 
@@ -675,6 +676,10 @@ def _run_md_stage_with_live_metrics(
         # telemetry is on -- which is the default. So production, the stage
         # that takes the hours, was the one stage with no progress shown:
         # "Production: 1,000,000 steps" and then fifty minutes of silence.
+        # Anything that changes through a stage changes here: the restraint
+        # ladder steps as equilibration runs rather than at its boundaries.
+        if on_fraction is not None:
+            on_fraction((int(n_steps) - remaining) / max(1, int(n_steps)))
         if on_step_progress is not None:
             done = int(n_steps) - remaining
             elapsed = _time.monotonic() - started
@@ -1190,6 +1195,37 @@ def run_simulation(
         # where the solvent is finding its arrangement and the solute should
         # not be moving while it does.
         _hold_at(0.0)
+
+        # The ladder was sampled at two points -- once before NVT and once
+        # before NPT -- so a four-rung ladder reached 1000 and 100 and never
+        # 500 or 0. With `npt_steps: 0` the second sat inside a branch that
+        # did not run, so the restraint held at full strength for the whole
+        # of equilibration and dropped to zero at production: the release all
+        # at once that the ladder exists to prevent, from a setting the user
+        # had written out in four steps.
+        #
+        # Equilibration is one span whether or not a barostat runs in part of
+        # it, so the fraction is measured across both stages together.
+        _equilibration_steps = plan["nvt_steps"] + plan["npt_steps"]
+
+        def _ladder_over(stage_steps: int, already_done: int):
+            """Step the restraints as a stage runs, or nothing to do."""
+            if not restraint_parameters or _equilibration_steps <= 0:
+                return None
+            last_reported: list[float] = []
+
+            def _hook(fraction_of_stage: float) -> None:
+                through = (already_done + fraction_of_stage * stage_steps) / (
+                    _equilibration_steps)
+                strength = _hold_at(min(1.0, through))
+                if not last_reported or last_reported[-1] != strength:
+                    last_reported.append(strength)
+                    logger.info(
+                        "Restraints now %g kJ/mol/nm^2 (%.0f%% through "
+                        "equilibration).", strength, 100.0 * through)
+
+            return _hook
+
         _attach_state_reporter(
             omm, simulation, energy_csv,
             interval=state_interval_steps,
@@ -1216,6 +1252,7 @@ def run_simulation(
                 timestep_fs=timestep_fs,
                 telemetry_interval=telemetry_interval,
                 on_step_progress=_bar,
+                on_fraction=_ladder_over(plan["nvt_steps"], 0),
             )
         else:
             _run_md_stage(
@@ -1242,10 +1279,10 @@ def run_simulation(
                 telemetry.mark_stage("nvt", "completed", status="running", current_step=current_step)
                 telemetry.event("NVT completed")
 
-        # Halfway through equilibration, so the second half of the schedule
-        # runs under the barostat. Releasing entirely before the box has
-        # equilibrated puts the solute into a volume that is still changing.
-        _hold_at(0.5)
+        # No boundary sample here any more: the ladder steps continuously
+        # across equilibration, so setting it to the halfway value at the
+        # start of NPT would jump it backwards or forwards depending on how
+        # the two stages are divided.
 
         # ---- Stage 3: NPT equilibration -------------------------------
         # Add the barostat and reinitialize the context so the system picks up
@@ -1275,6 +1312,8 @@ def run_simulation(
                     timestep_fs=timestep_fs,
                     telemetry_interval=telemetry_interval,
                     on_step_progress=_bar,
+                    on_fraction=_ladder_over(
+                        plan["npt_steps"], plan["nvt_steps"]),
                 )
             else:
                 _run_md_stage(

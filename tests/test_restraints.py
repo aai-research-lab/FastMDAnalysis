@@ -489,3 +489,72 @@ class TestTheRunnerReleasesThemInStages:
                 nvt_steps=10, npt_steps=10, production_steps=10,
                 platform="CPU", minimize=False, random_seed=11,
                 restrain="resname NOTHING")
+
+
+class TestTheLadderStepsAcrossEquilibration:
+    """It was sampled at two points -- once before NVT and once before NPT --
+    so a four-rung ladder reached 1000 and 100 and never 500 or 0. With
+    `npt_steps: 0` the second sat inside a branch that did not run, so the
+    restraint held at full strength for the whole of equilibration and
+    dropped to zero at production: the release all at once that the ladder
+    exists to prevent, from a setting the user had written out in four
+    steps."""
+
+    def _reached(self, nvt: int, npt: int, ladder=(1000.0, 500.0, 100.0, 0.0)):
+        """Every strength the ladder would set, given a stage division."""
+        from fastmdxplora.simulation.restraints import ReleaseSchedule
+
+        schedule = ReleaseSchedule(steps=tuple(ladder))
+        equilibration = nvt + npt
+        seen: list[float] = []
+        for offset, steps in ((0, nvt), (nvt, npt)):
+            if steps <= 0:
+                continue
+            # As the chunked stage reports it: once per chunk.
+            for chunk in range(20):
+                through = (offset + (chunk / 20) * steps) / equilibration
+                strength = schedule.force_at(min(1.0, through))
+                if not seen or seen[-1] != strength:
+                    seen.append(strength)
+        return seen
+
+    def test_every_rung_is_reached(self) -> None:
+        assert self._reached(2000, 2000) == [1000.0, 500.0, 100.0, 0.0]
+
+    def test_without_npt_too(self) -> None:
+        """The case that failed: the second sample sat in a branch that did
+        not run, and the ladder never moved."""
+        assert self._reached(4000, 0) == [1000.0, 500.0, 100.0, 0.0]
+
+    def test_a_two_rung_ladder_is_honoured(self) -> None:
+        assert self._reached(4000, 0, ladder=(500.0, 0.0)) == [500.0, 0.0]
+
+    def test_it_ends_released(self) -> None:
+        """Whatever the division, equilibration finishes at the last rung --
+        which the schema requires to be zero."""
+        for nvt, npt in ((4000, 0), (2000, 2000), (500, 3500)):
+            assert self._reached(nvt, npt)[-1] == 0.0
+
+    def test_the_stage_reports_how_far_through_it_is(self) -> None:
+        import inspect
+
+        from fastmdxplora.simulation.runner import (
+            _run_md_stage_with_live_metrics,
+        )
+
+        assert "on_fraction" in inspect.signature(
+            _run_md_stage_with_live_metrics).parameters
+        body = inspect.getsource(_run_md_stage_with_live_metrics)
+        loop = body.index("while remaining > 0:")
+        assert body.index("on_fraction(") > loop, (
+            "the ladder has to step inside the loop, or it steps once")
+
+    def test_both_stages_drive_it(self) -> None:
+        import inspect
+
+        from fastmdxplora.simulation import runner
+
+        source = inspect.getsource(runner)
+        assert source.count("on_fraction=_ladder_over(") == 2
+        # And the boundary sample that jumped it is gone.
+        assert "_hold_at(0.5)" not in source

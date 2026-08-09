@@ -335,6 +335,52 @@ def methods_paragraphs(
                     "They were released before production, which ran "
                     "unrestrained."
                 )
+        # A biased production run, and what can be recovered from it.
+        #
+        # The restraint case above says this well and the three enhanced
+        # sampling methods said nothing at all -- the cases where biasing is
+        # the entire point of the run. Ten analyses of the trajectory were
+        # reported beside the free energy with no distinction between them,
+        # and a reader would take a mean RMSD over a metadynamics run as a
+        # measurement of the system.
+        #
+        # The three are not alike, and one caveat covering all of them would
+        # be wrong about two. Metadynamics deposits a known bias on a known
+        # coordinate, so the unbiased ensemble is recoverable by weighting
+        # each frame by exp(V/RT). An umbrella window is a separate biased
+        # simulation whose analyses describe a peptide held where it was put;
+        # what combines them is the free energy, not an average over windows.
+        # A steered pull is not an equilibrium ensemble at all, so no
+        # weighting exists.
+        for block, paragraph in (
+            ("metadynamics",
+             "Production was biased by metadynamics, so the trajectory is not "
+             "a Boltzmann ensemble: a state the bias filled early is visited "
+             "more often than equilibrium would give, and one filled late "
+             "less. The free energy surface accounts for this. Trajectory "
+             "analyses reported alongside it do not unless they say they "
+             "were reweighted, and the weights are recoverable from the "
+             "deposited bias."),
+            ("umbrella",
+             "This run is one window of an umbrella study, held at its own "
+             "position on the coordinate by a harmonic restraint. Its "
+             "trajectory analyses describe a system held there and are not "
+             "measurements of the unrestrained system; they are also not "
+             "comparable between windows, which differ because the "
+             "restraints differ. What combines the windows is the potential "
+             "of mean force, computed from their overlapping distributions "
+             "-- not an average of any quantity across them."),
+            ("steered",
+             "Production was a steered pull, which is not an equilibrium "
+             "ensemble: the system was dragged along the coordinate rather "
+             "than sampling it. Trajectory analyses describe the pulling, "
+             "and no reweighting recovers an equilibrium average from a "
+             "single non-equilibrium trajectory. The work is reported as a "
+             "pathway rather than a free energy for the same reason."),
+        ):
+            if _get(sim, block):
+                protocol.append(paragraph)
+
         stages = []
         if nvt:
             stages.append(f"{_steps_to_ns(nvt, timestep)} in the NVT ensemble")
