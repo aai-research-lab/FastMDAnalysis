@@ -118,6 +118,21 @@ class Analysis(ABC):
     #: only makes sense on a subset of atoms (e.g. RMSF on CA atoms).
     default_selection: str | None = None
 
+    #: The per-frame scalar whose ensemble average means something, as
+    #: ``(column, label)``. ``column`` names a column when ``compute()``
+    #: returns a DataFrame and is ``None`` when it returns a bare per-frame
+    #: array. ``None`` for the attribute itself -- the default -- means no
+    #: weighted average of this analysis is offered.
+    #:
+    #: On a metadynamics run the trajectory is not a Boltzmann ensemble, so
+    #: every mean reported from it is an average over a distribution the bias
+    #: flattened on purpose. Declaring this lets that mean be recomputed
+    #: against the deposited bias and reported beside the raw one. Analyses
+    #: whose result is not one number per frame leave it unset: reweighting a
+    #: clustering or a projection is a harder question than a weighted mean,
+    #: and the report says so rather than guessing.
+    reweightable: tuple[str | None, str] | None = None
+
     #: Human-readable description used in figure titles.
     description: str = ""
 

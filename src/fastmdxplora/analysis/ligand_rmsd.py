@@ -54,6 +54,7 @@ class LigandRMSD(Analysis):
 
     name = "ligand_rmsd"
     time_series = True
+    reweightable = (None, "Ligand RMSD (nm)")
     description = "Ligand pose RMSD (after protein alignment)"
     requires_ligand = True
     # Measurement atoms are the ligand, resolved from ligand_resname; this

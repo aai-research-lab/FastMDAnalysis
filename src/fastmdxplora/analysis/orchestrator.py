@@ -307,8 +307,60 @@ class AnalysisOrchestrator:
             logger.debug("--> running analysis '%s'", name)
             self.results[name] = analysis.run(self.traj)
 
+        self._reweight()
         self._write_manifest()
         return dict(self.results)
+
+    def _reweight(self) -> None:
+        """Correct the averages of a biased run, where a correction exists.
+
+        Runs after the analyses rather than as one of them because it reads
+        what they produced, and an analysis that depends on its siblings
+        having already run would depend on the order they were registered in.
+
+        A failure here must not lose the analyses: they are computed, on
+        disk, and correct as biased-ensemble averages, which is what the
+        methods text already calls them.
+        """
+        from fastmdxplora.analysis.reweighted_averages import reweight_results
+
+        try:
+            record = reweight_results(
+                self.results,
+                _REGISTRY,
+                n_frames=int(self.traj.n_frames),
+                frame_times_ps=getattr(self.traj, "time", []),
+                output_dir=self.output_dir,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Reweighting failed")
+            self.results["reweighted"] = AnalysisResult(
+                name="reweighted",
+                status="error",
+                message=(
+                    f"The bias could not be undone: {exc}. The averages above "
+                    "stand as averages over the biased ensemble."),
+            )
+            return
+
+        if record is None:
+            return
+
+        directory = self.output_dir / "reweighted"
+        self.results["reweighted"] = AnalysisResult(
+            name="reweighted",
+            status="ok",
+            data=record,
+            output_dir=directory,
+            data_path=directory / "reweighted_averages.dat",
+            figure_path=directory / "reweighted_averages.png",
+            artifacts=[directory / "reweighted_averages.json"],
+            message=(
+                f"{len(record['quantities'])} averages reweighted against the "
+                f"deposited bias, on "
+                f"{record['effective_sample_size']:.0f} effective frames of "
+                f"{record['n_frames']}."),
+        )
 
     # Convenience aliases for the standard names
     def analyze(

@@ -91,6 +91,7 @@ class QValue(Analysis):
 
     name = "qvalue"
     time_series = True
+    reweightable = (None, "Fraction of native contacts")
     description = "Native contact fraction (Q)"
     default_selection = None
 

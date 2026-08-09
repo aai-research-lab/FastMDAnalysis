@@ -1,0 +1,548 @@
+"""Reporting a biased run's analyses as the unbiased averages they are not.
+
+Sixteen analyses run on the production trajectory and each reports a mean. On
+a metadynamics run every one of those means is an average over a distribution
+the bias deliberately flattened, and reported without qualification it reads
+as a measurement of the system. The report already says so in its methods.
+This computes the correction it points at.
+
+Only metadynamics gets weights, and the other two biased methods are left
+alone deliberately rather than overlooked. An umbrella window is a separate
+simulation held where it was put; what combines the windows is the potential
+of mean force, not a weighted average across them. A steered pull is not an
+equilibrium ensemble at all, so there is no set of weights that turns it into
+one. Both are stated in the methods text and neither is fixable here.
+
+What comes out is both numbers side by side -- the raw average over the
+biased frames and the reweighted one -- with the effective sample size that
+says how much the second rests on. A reweighted mean over a thousand frames
+whose weight sits in five of them is a mean over five, and quoting it without
+that number is the failure mode this is built to avoid.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+from fastmdxplora.analysis.plotting import new_figure, save_figure
+from fastmdxplora.analysis.reweight import (
+    KB_KJ_PER_MOL_K,
+    Weights,
+    bias_at_each_frame,
+    weighted_mean,
+    weighted_standard_deviation,
+    weights_from_bias,
+)
+from fastmdxplora.utils.logging import get_logger
+
+logger = get_logger("analysis.reweighted")
+
+#: Below this many effective frames a reweighted average is reported with a
+#: warning attached. The number is not a threshold for correctness -- the
+#: estimate is what it is -- but for whether it carries enough frames to be
+#: worth reading, and fifty is where a mean stops being dominated by a
+#: handful of them.
+USABLE_EFFECTIVE_FRAMES = 50.0
+
+#: If the run reached equilibrium temperature somewhere other than 300 K and
+#: nothing recorded it, the weights would be silently wrong by the ratio of
+#: the temperatures. Falling back is still better than refusing, but it is
+#: written into the record so it is not mistaken for a reading.
+FALLBACK_TEMPERATURE_K = 300.0
+
+
+# ---------------------------------------------------------------------------
+# Reading what PLUMED left behind
+# ---------------------------------------------------------------------------
+def read_colvar(path: str | Path) -> dict[str, np.ndarray]:
+    """Read a PLUMED COLVAR file by its declared field names.
+
+    The header names the columns, and reading by name rather than position
+    matters here: a metadynamics COLVAR is ``time, cv, metad.bias`` but a
+    steered one is ``time, cv, pull.work, pull.bias``, and column two means
+    something different in each.
+    """
+    text = Path(path).read_text(encoding="utf-8")
+    fields: list[str] = []
+    rows: list[list[float]] = []
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            # "#! FIELDS time cv metad.bias"
+            parts = stripped.lstrip("#!").split()
+            if parts and parts[0] == "FIELDS":
+                fields = parts[1:]
+            continue
+        try:
+            rows.append([float(value) for value in stripped.split()])
+        except ValueError:
+            continue
+
+    if not rows:
+        return {}
+
+    width = min(len(row) for row in rows)
+    table = np.array([row[:width] for row in rows], dtype=float)
+    if not fields or len(fields) < width:
+        fields = [f"column_{index}" for index in range(width)]
+    return {name: table[:, index] for index, name in enumerate(fields[:width])}
+
+
+def _run_directory(output_dir: Path) -> list[Path]:
+    """Directories a run's simulation outputs might sit under.
+
+    The analysis output directory is ``<run>/analysis``, so the simulation
+    files are one level up and then into ``simulation/``. Both the nested and
+    flat layouts are checked because the umbrella windows use the other one.
+    """
+    here = Path(output_dir)
+    candidates: list[Path] = []
+    for parent in (here, here.parent, here.parent.parent):
+        candidates.extend((parent / "simulation", parent))
+    return candidates
+
+
+def _find(output_dir: Path, filename: str) -> Path | None:
+    for directory in _run_directory(output_dir):
+        candidate = directory / filename
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _temperature(output_dir: Path) -> tuple[float, bool]:
+    """The production temperature, and whether it was actually found."""
+    path = _find(output_dir, "simulation_parameters.json")
+    if path is not None:
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            record = {}
+        for holder in (record, record.get("plan") or {},
+                       record.get("parameters") or {}):
+            if isinstance(holder, dict) and holder.get("temperature_K"):
+                return float(holder["temperature_K"]), True
+    return FALLBACK_TEMPERATURE_K, False
+
+
+# ---------------------------------------------------------------------------
+# The time-dependent offset, without which the weights measure the clock
+# ---------------------------------------------------------------------------
+#: How many points the offset is evaluated at before being interpolated onto
+#: the frames. c(t) is smooth in time -- it tracks the filling of the surface,
+#: not the motion of the system -- so a couple of hundred is ample, and
+#: evaluating it per frame would cost a great deal for no change in the answer.
+C_OF_T_CHECKPOINTS = 200
+
+#: Points across the collective variable for the two integrals below.
+C_OF_T_GRID_POINTS = 320
+
+
+def c_of_t(hills: Any, times_ps: np.ndarray, temperature_K: float) -> np.ndarray:
+    """The offset that makes a running bias usable for reweighting.
+
+    The bias grows as hills accumulate, so exp(V(s,t)/RT) grows with time
+    wherever the system happens to be. Weighting by it alone therefore ranks
+    frames by when they were written: on a four-nanosecond well-tempered run
+    the last fifth of the frames carried the entire weight, and a reweighted
+    average over five hundred frames rested on seven. That is not a bias that
+    has not settled -- it happens to a fully converged run -- and no warning
+    about convergence covers it.
+
+    Tiwary and Parrinello's c(t) is the term that removes it: the free-energy
+    offset of the biased ensemble at time t, so that V - c(t) measures where
+    the system is on the coordinate rather than how late it is in the run.
+    For a well-tempered run with bias factor y,
+
+        c(t) = RT ln [ int ds e^{(y/(y-1)) V(s,t)/RT}
+                       / int ds e^{(1/(y-1)) V(s,t)/RT} ]
+
+    and the y -> infinity limit of that, which is the ratio to a flat
+    integral, is the form for a run that was not tempered.
+    """
+    kT = KB_KJ_PER_MOL_K * float(temperature_K)
+    order = np.argsort(hills.time_ps)
+    hill_times = np.asarray(hills.time_ps, dtype=float)[order]
+    centres = np.asarray(hills.centre, dtype=float)[order]
+    sigmas = np.asarray(hills.sigma, dtype=float)[order]
+    heights = np.asarray(hills.height, dtype=float)[order]
+
+    span = 3.0 * float(np.max(sigmas))
+    grid = np.linspace(float(np.min(centres)) - span,
+                       float(np.max(centres)) + span,
+                       C_OF_T_GRID_POINTS)
+
+    checkpoints = np.linspace(float(np.min(times_ps)),
+                              float(np.max(times_ps)),
+                              min(C_OF_T_CHECKPOINTS, max(2, times_ps.size)))
+    upto = np.searchsorted(hill_times, checkpoints, side="right")
+
+    factor = float(hills.bias_factor)
+    if factor > 1.0:
+        scale_numerator = factor / (factor - 1.0)
+        scale_denominator = 1.0 / (factor - 1.0)
+    else:
+        # Not tempered: the bias converges on -F directly, and the
+        # denominator becomes the flat integral over the grid.
+        scale_numerator, scale_denominator = 1.0, 0.0
+
+    def log_integral(values: np.ndarray) -> float:
+        """log sum exp, shifted so a bias of 100 kJ/mol does not overflow."""
+        peak = float(np.max(values))
+        return float(np.log(np.sum(np.exp(values - peak))) + peak)
+
+    # Accumulated in place rather than as a hills-by-grid matrix: a long run
+    # deposits a hundred thousand hills, and that matrix would be gigabytes.
+    bias = np.zeros_like(grid)
+    offsets = np.empty(checkpoints.size, dtype=float)
+    cursor = 0
+    for index, stop in enumerate(upto):
+        if stop > cursor:
+            block = slice(cursor, stop)
+            bias += np.sum(
+                heights[block, None] * np.exp(
+                    -((grid[None, :] - centres[block, None]) ** 2)
+                    / (2.0 * sigmas[block, None] ** 2)),
+                axis=0)
+            cursor = int(stop)
+        offsets[index] = kT * (
+            log_integral(scale_numerator * bias / kT)
+            - log_integral(scale_denominator * bias / kT))
+
+    return np.interp(np.asarray(times_ps, dtype=float), checkpoints, offsets)
+
+
+# ---------------------------------------------------------------------------
+# The weights for a run
+# ---------------------------------------------------------------------------
+def weights_for_run(
+    output_dir: Path,
+    frame_times_ps: Any,
+) -> tuple[Weights | None, dict[str, Any]]:
+    """Per-frame weights undoing the metadynamics bias, where one was applied.
+
+    Returns ``(None, provenance)`` for any run that was not biased by
+    metadynamics -- plain MD, a steered pull, an umbrella window -- because
+    none of those has a set of weights that recovers an equilibrium average.
+
+    The bias each frame felt is rebuilt from the hills deposited before it,
+    using that frame's own value of the collective variable interpolated from
+    COLVAR. Interpolating the variable rather than PLUMED's bias column is
+    deliberate: the variable is a smooth physical coordinate, while the bias
+    is a sum of narrow Gaussians that interpolation would badly misstate
+    between rows.
+    """
+    from fastmdxplora.simulation.metad_surface import read_hills
+
+    provenance: dict[str, Any] = {"applies": False, "reason": None}
+
+    hills_path = _find(output_dir, "HILLS")
+    if hills_path is None:
+        provenance["reason"] = (
+            "No HILLS beside this run, so no bias was deposited on the "
+            "trajectory and its averages are already equilibrium averages.")
+        return None, provenance
+
+    colvar_path = _find(output_dir, "COLVAR")
+    if colvar_path is None:
+        provenance["reason"] = (
+            "Hills were deposited but no COLVAR records where the run went, "
+            "so the bias each frame felt cannot be worked out. The averages "
+            "below are over the biased ensemble.")
+        return None, provenance
+
+    try:
+        hills = read_hills(hills_path)
+    except (OSError, ValueError) as exc:
+        provenance["reason"] = f"The hills could not be read: {exc}"
+        return None, provenance
+
+    colvar = read_colvar(colvar_path)
+    cv_name = next((name for name in colvar
+                    if name not in ("time",) and not name.endswith("bias")),
+                   None)
+    if cv_name is None or "time" not in colvar:
+        provenance["reason"] = (
+            "COLVAR holds no collective variable column, so the frames "
+            "cannot be placed on the coordinate the bias acted along.")
+        return None, provenance
+
+    times = np.asarray(frame_times_ps, dtype=float)
+    if times.size == 0:
+        provenance["reason"] = "The trajectory holds no frames to weight."
+        return None, provenance
+
+    # Frames written outside the recorded window would extrapolate; numpy
+    # clamps to the end values instead, which is the right behaviour for the
+    # one or two frames that can fall outside by a single stride.
+    frame_cv = np.interp(times, colvar["time"], colvar[cv_name])
+
+    felt = bias_at_each_frame(
+        hills.time_ps, hills.centre, hills.sigma, hills.height,
+        frame_times_ps=times, frame_values=frame_cv)
+
+    temperature, measured = _temperature(output_dir)
+
+    # Without this the weights rank frames by when they were written rather
+    # than by where the system was, and the average collapses onto the last
+    # few. See `c_of_t`.
+    offset = c_of_t(hills, times, temperature)
+    corrected = felt - offset
+
+    # Whether the surface settled is already judged by the simulation phase,
+    # and judging it a second time here by a different rule would let a run
+    # be converged in the report and provisional in the analyses.
+    settled = False
+    surface = _find(output_dir, "metadynamics_surface.json")
+    if surface is not None:
+        try:
+            record = json.loads(surface.read_text(encoding="utf-8"))
+            settled = not bool(record.get("provisional", True))
+        except (OSError, json.JSONDecodeError):
+            settled = False
+
+    weights = weights_from_bias(
+        corrected, temperature_K=temperature, settled=settled)
+
+    # PLUMED computed the same quantity as it went. Comparing against it is
+    # the only independent check available on this reconstruction, and a
+    # disagreement means the frames have been placed on the wrong coordinate.
+    agreement: float | None = None
+    bias_column = next((name for name in colvar if name.endswith("bias")), None)
+    if bias_column is not None and colvar[bias_column].size > 1:
+        ours = bias_at_each_frame(
+            hills.time_ps, hills.centre, hills.sigma, hills.height,
+            frame_times_ps=colvar["time"], frame_values=colvar[cv_name])
+        theirs = colvar[bias_column]
+        spread = float(np.max(theirs) - np.min(theirs))
+        if spread > 0:
+            agreement = float(np.max(np.abs(ours - theirs)) / spread)
+
+    provenance.update({
+        "applies": True,
+        "reason": None,
+        "hills": len(hills),
+        "bias_factor": hills.bias_factor,
+        "collective_variable": cv_name,
+        "temperature_K": temperature,
+        "temperature_from_record": measured,
+        "settled": settled,
+        "estimator": "Tiwary-Parrinello c(t)",
+        "c_of_t_range_kjmol": [float(np.min(offset)), float(np.max(offset))],
+        "effective_sample_size": weights.effective_sample_size,
+        "usable_fraction": weights.usable_fraction,
+        "note": weights.note,
+        "largest_disagreement_with_plumed": agreement,
+    })
+    return weights, provenance
+
+
+# ---------------------------------------------------------------------------
+# Pulling a per-frame series out of a finished analysis
+# ---------------------------------------------------------------------------
+def frame_series(result: Any, spec: tuple[str | None, str],
+                 n_frames: int) -> np.ndarray | None:
+    """The per-frame scalar an analysis reported, or ``None`` if it has none.
+
+    The length check is the point. SASA in per-residue mode returns a row per
+    residue per frame, and averaging that against per-frame weights would
+    line the two up by position and produce a number that is not wrong so
+    much as meaningless.
+    """
+    column, _ = spec
+    data = getattr(result, "data", result)
+    if data is None:
+        return None
+
+    if isinstance(data, pd.DataFrame):
+        if column is None or column not in data.columns:
+            return None
+        series = data[column].to_numpy(dtype=float)
+    else:
+        array = np.asarray(data, dtype=float)
+        if array.ndim == 2:
+            # A breakdown table whose first column is the total.
+            array = array[:, 0]
+        elif array.ndim != 1:
+            return None
+        series = array
+
+    if series.size != n_frames or not np.all(np.isfinite(series)):
+        return None
+    return series
+
+
+# ---------------------------------------------------------------------------
+# The pass itself
+# ---------------------------------------------------------------------------
+def reweight_results(
+    results: dict[str, Any],
+    registry: dict[str, type],
+    *,
+    n_frames: int,
+    frame_times_ps: Any,
+    output_dir: Path,
+) -> dict[str, Any] | None:
+    """Recompute every reweightable average against the metadynamics bias.
+
+    Returns the record written to disk, or ``None`` where no bias applies and
+    there is nothing to correct.
+    """
+    weights, provenance = weights_for_run(Path(output_dir), frame_times_ps)
+    if weights is None:
+        logger.debug("No reweighting: %s", provenance.get("reason"))
+        return None
+
+    quantities: list[dict[str, Any]] = []
+    for name, result in results.items():
+        if getattr(result, "status", None) != "ok":
+            continue
+        spec = getattr(registry.get(name), "reweightable", None)
+        if not spec:
+            continue
+        series = frame_series(result, spec, n_frames)
+        if series is None:
+            continue
+
+        raw = float(np.mean(series))
+        corrected = weighted_mean(series, weights)
+        quantities.append({
+            "analysis": name,
+            "label": spec[1],
+            "raw_mean": raw,
+            "raw_std": float(np.std(series, ddof=1)) if series.size > 1 else float("nan"),
+            "reweighted_mean": corrected,
+            "reweighted_std": weighted_standard_deviation(series, weights),
+            # The number a reader wants: how far the bias moved this.
+            "shift_percent": (
+                100.0 * (corrected - raw) / raw if raw != 0 else float("nan")),
+        })
+
+    if not quantities:
+        logger.debug("Bias found but no analysis reported a per-frame scalar.")
+        return None
+
+    warnings: list[str] = []
+    if weights.effective_sample_size < USABLE_EFFECTIVE_FRAMES:
+        warnings.append(
+            f"The weights concentrate into {weights.effective_sample_size:.0f} "
+            f"effective frames of {n_frames}. These reweighted averages rest "
+            "on that many, and the spreads beside them are correspondingly "
+            "wide; a longer run is what fixes it.")
+    if not weights.settled:
+        warnings.append(
+            "The bias had not settled when the run ended, so these averages "
+            "are approximate. The c(t) offset is applied and corrects the "
+            "growth of the bias with time, but it is computed from a surface "
+            "that is still filling, and a shape that is still moving cannot "
+            "give an exact offset. They are worth reading and not worth "
+            "quoting to three figures.")
+    if not provenance.get("temperature_from_record"):
+        warnings.append(
+            f"No production temperature was recorded, so the weights assume "
+            f"{FALLBACK_TEMPERATURE_K:g} K. A run at another temperature "
+            "would need these recomputed.")
+    disagreement = provenance.get("largest_disagreement_with_plumed")
+    if disagreement is not None and disagreement > 0.05:
+        warnings.append(
+            f"The reconstructed bias differs from the one PLUMED recorded by "
+            f"up to {100 * disagreement:.0f}% of its range, which suggests "
+            "the frames and the collective variable have not been lined up "
+            "correctly. Treat these as provisional.")
+
+    record = {
+        "n_frames": int(n_frames),
+        "effective_sample_size": weights.effective_sample_size,
+        "usable_fraction": weights.usable_fraction,
+        "settled": weights.settled,
+        "provenance": provenance,
+        "quantities": quantities,
+        "warnings": warnings,
+        "method": (
+            "Each frame is weighted by exp((V - c(t))/RT), where V is the "
+            "bias from the hills deposited before that frame, evaluated at "
+            "that frame's value of the collective variable, and c(t) is the "
+            "Tiwary-Parrinello offset. Subtracting c(t) is what makes the "
+            "weight depend on where the system was rather than on how late "
+            "in the run the frame was written. This recovers the Boltzmann "
+            "ensemble for both standard and well-tempered metadynamics."),
+    }
+
+    directory = Path(output_dir) / "reweighted"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "reweighted_averages.json").write_text(
+        json.dumps(record, indent=2), encoding="utf-8")
+    _write_table(record, directory / "reweighted_averages.dat")
+    _plot(record, directory / "reweighted_averages.png")
+    return record
+
+
+def _write_table(record: dict[str, Any], path: Path) -> None:
+    lines = [
+        "# Averages over a metadynamics trajectory, before and after "
+        "reweighting.",
+        f"# effective_sample_size {record['effective_sample_size']:.1f} "
+        f"of {record['n_frames']} frames",
+    ]
+    if not record["settled"]:
+        lines.append("# provisional: the bias had not settled")
+    lines.append("# analysis raw_mean raw_std reweighted_mean "
+                 "reweighted_std shift_percent")
+    for item in record["quantities"]:
+        lines.append(
+            f"{item['analysis']} {item['raw_mean']:.6g} {item['raw_std']:.6g} "
+            f"{item['reweighted_mean']:.6g} {item['reweighted_std']:.6g} "
+            f"{item['shift_percent']:.3f}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _plot(record: dict[str, Any], path: Path) -> None:
+    """How far the bias moved each reported average, as a percentage.
+
+    Percentages rather than the values themselves because RMSD in nanometres
+    and a hydrogen bond count share no axis, and normalising them onto one
+    would invent a scale. The absolute numbers are in the table beside this.
+    """
+    quantities = record["quantities"]
+    labels = [item["label"] for item in quantities]
+    shifts = [item["shift_percent"] for item in quantities]
+
+    fig, ax = new_figure(
+        figsize=(7.0, 0.6 * len(labels) + 2.2),
+        title="Effect of reweighting the metadynamics bias",
+        xlabel="Change from the biased average (%)",
+    )
+    positions = np.arange(len(labels))
+    ax.barh(positions, shifts,
+            color=["#c0504d" if abs(s) > 5 else "#4f81bd" for s in shifts])
+    ax.axvline(0.0, color="#444444", linewidth=1.0)
+    ax.set_yticks(positions)
+    ax.set_yticklabels(labels)
+    ax.invert_yaxis()
+
+    for position, item in zip(positions, quantities):
+        ax.annotate(
+            f"{item['raw_mean']:.3g} → {item['reweighted_mean']:.3g}",
+            xy=(item["shift_percent"], position),
+            xytext=(4 if item["shift_percent"] >= 0 else -4, 0),
+            textcoords="offset points", va="center",
+            ha="left" if item["shift_percent"] >= 0 else "right",
+            fontsize=8, color="#333333")
+
+    ess = record["effective_sample_size"]
+    caption = (f"{ess:.0f} effective frames of {record['n_frames']}")
+    if not record["settled"]:
+        caption += " — provisional, the bias had not settled"
+    ax.set_xlabel(f"Change from the biased average (%)\n{caption}")
+
+    margin = max([abs(s) for s in shifts] + [1.0]) * 0.45
+    ax.set_xlim(min(shifts + [0.0]) - margin, max(shifts + [0.0]) + margin)
+    save_figure(fig, path)

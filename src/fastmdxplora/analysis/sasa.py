@@ -156,6 +156,7 @@ class SASA(Analysis):
 
     name = "sasa"
     time_series = True
+    reweightable = ("sasa_nm2", "SASA (nm²)")
     description = "Solvent-accessible surface area"
     default_selection = None
 

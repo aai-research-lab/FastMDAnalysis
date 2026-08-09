@@ -74,6 +74,7 @@ class Rg(Analysis):
 
     name = "rg"
     time_series = True
+    reweightable = (None, "Radius of gyration (nm)")
     description = "Radius of gyration"
     default_selection = None  # use all atoms by default
 

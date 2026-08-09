@@ -103,6 +103,7 @@ class HBonds(Analysis):
 
     name = "hbonds"
     time_series = True
+    reweightable = ("n_hbonds", "Hydrogen bonds")
     description = "Hydrogen bonds"
     default_selection = None  # MDTraj selects donors/acceptors automatically
 

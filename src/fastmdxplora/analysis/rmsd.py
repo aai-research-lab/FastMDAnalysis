@@ -73,6 +73,7 @@ class RMSD(Analysis):
 
     name = "rmsd"
     time_series = True
+    reweightable = (None, "RMSD (nm)")
     description = "Root-mean-square deviation"
     default_selection = "name CA"
 
