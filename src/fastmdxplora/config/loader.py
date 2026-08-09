@@ -193,6 +193,61 @@ def _validate_phase_list(value: Any, *, field_name: str) -> None:
         )
 
 
+def _split_on_commas(value: Any) -> Any:
+    """A comma-separated list written where a list was expected.
+
+    `--include setup,simulation` and `--analyses rmsd,rmsf` are how most
+    command-line tools take a list, and argparse takes these as one string.
+    No phase or analysis name contains a comma, so there is nothing ambiguous
+    to resolve: the alternative is refusing a spelling whose meaning is plain,
+    which is a puzzle rather than a safeguard.
+    """
+    items = [value] if isinstance(value, str) else value
+    if not isinstance(items, list):
+        return value
+    if not any(isinstance(item, str) and "," in item for item in items):
+        return value
+
+    out: list[Any] = []
+    for item in items:
+        if isinstance(item, str) and "," in item:
+            out.extend(part.strip() for part in item.split(",") if part.strip())
+        else:
+            out.append(item)
+    return out
+
+
+def normalise_config(data: dict[str, Any]) -> dict[str, Any]:
+    """Settle spellings that have one meaning, before anything is checked.
+
+    Two of these, both found by writing a config by hand and having it
+    refused. Neither is a judgement about what the author meant; each is a
+    single unambiguous reading that the validator was rejecting for its shape.
+    """
+    # A phase block present but empty. `analysis:` with nothing under it means
+    # "run the analysis phase with its defaults" -- which is exactly what
+    # leaving the key out entirely does, so refusing one and accepting the
+    # other made two spellings of the same intent behave differently. An
+    # option set to null is already read as "use the default"; a block is the
+    # same statement one level up. A block of the wrong *type* -- a number, a
+    # list -- is still a real mistake and still refused.
+    for phase in PHASE_KEYS:
+        if phase in data and data[phase] is None:
+            data[phase] = {}
+
+    for field in ("include", "exclude"):
+        if field in data:
+            data[field] = _split_on_commas(data[field])
+
+    analysis = data.get("analysis")
+    if isinstance(analysis, dict):
+        for field in ("include", "exclude"):
+            if field in analysis:
+                analysis[field] = _split_on_commas(analysis[field])
+
+    return data
+
+
 def validate_config(data: dict[str, Any], *, require_systems: bool = False) -> None:
     """Strictly validate a parsed config dict against the schema.
 
@@ -212,6 +267,10 @@ def validate_config(data: dict[str, Any], *, require_systems: bool = False) -> N
         mismatches, mutually-exclusive include/exclude, a missing
         ``systems`` list (when required), or a malformed execution block.
     """
+    # Spellings with one meaning are settled first, so the checks below judge
+    # what the author meant rather than how they typed it.
+    normalise_config(data)
+
     # Top-level keys: scalar fields + phase block names
     for key in data:
         if key not in TOP_LEVEL_KEYS:

@@ -175,6 +175,17 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   system is a PDB identifier, not a file.
 
 ### Fixed
+- **Two config spellings with one meaning were refused.** A phase block
+  present but empty -- `analysis:` with only a comment under it -- parsed as
+  null and was rejected, while leaving the key out entirely was accepted:
+  two spellings of the same intent behaving differently, when an option set to
+  null is already read as "use the default". And `--include setup,simulation`
+  reached the validator as a single string, because argparse takes a
+  comma-separated list as one item. No phase or analysis name contains a
+  comma, so neither reading is ambiguous. Both are now settled before
+  validation, and a block of the wrong type -- a number, a list -- is still
+  refused, because that is a real mistake rather than a spelling.
+
 - **Metadynamics did not run at all.** The collective-variable plan was bound
   to the name the stage plan already used, so the next line to subscript it
   raised `'MetadynamicsPlan' object is not subscriptable`. The feature failed
