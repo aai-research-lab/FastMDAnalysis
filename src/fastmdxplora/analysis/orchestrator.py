@@ -389,7 +389,20 @@ class AnalysisOrchestrator:
             if traj is None:
                 return True
             separation = int(getattr(cls, "min_seq_separation", 4) or 4)
-            return traj.n_residues > separation
+
+            # The solute's residues, not the box's. A solvated tripeptide has
+            # 529 residues counting water, so counting them all let the gate
+            # through and the analysis then sliced to the solute and found
+            # three -- the exact number the gate was meant to catch. The
+            # analysis's own comment says as much: it slices first because a
+            # solvated system has thousands of water residues.
+            try:
+                protein = traj.topology.select("protein")
+                residues = (traj.atom_slice(protein).n_residues
+                            if len(protein) else traj.n_residues)
+            except Exception:  # noqa: BLE001 - a selection this cannot make
+                residues = traj.n_residues
+            return residues > separation
 
         def _steered_ok(name: str) -> bool:
             """A pull's record exists only where a steered run produced one."""

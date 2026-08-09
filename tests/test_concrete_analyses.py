@@ -2731,7 +2731,16 @@ class TestAPeptideTooShortToFoldIsNotAFailure:
     water here" was a failed phase rather than a question that did not
     apply."""
 
-    def _peptide(self, residues: int):
+    def _peptide(self, residues: int, waters: int = 0):
+        """A peptide, optionally solvated.
+
+        Solvated by default in the tests that matter, because that is where
+        the first version of this gate failed: it counted the box's residues
+        rather than the solute's, so a tripeptide in 526 waters looked like
+        a 529-residue protein and the analysis was planned. It then sliced to
+        the solute, found three, and raised -- the exact number the gate
+        existed to catch.
+        """
         import mdtraj as md
         import numpy as np
 
@@ -2744,14 +2753,19 @@ class TestAPeptideTooShortToFoldIsNotAFailure:
                 ("C", md.element.carbon), ("O", md.element.oxygen),
             ):
                 top.add_atom(name, element, residue)
-        xyz = np.random.default_rng(0).normal(
-            scale=0.3, size=(2, residues * 4, 3))
+        if waters:
+            solvent = top.add_chain()
+            for _ in range(waters):
+                residue = top.add_residue("HOH", solvent)
+                top.add_atom("O", md.element.oxygen, residue)
+        atoms = residues * 4 + waters
+        xyz = np.random.default_rng(0).normal(scale=0.5, size=(2, atoms, 3))
         return md.Trajectory(xyz, top)
 
-    def _planned(self, tmp_path, residues: int):
+    def _planned(self, tmp_path, residues: int, waters: int = 0):
         from fastmdxplora.analysis.orchestrator import AnalysisOrchestrator
 
-        trajectory = self._peptide(residues)
+        trajectory = self._peptide(residues, waters)
         trajectory.save_pdb(str(tmp_path / "t.pdb"))
         trajectory.save_dcd(str(tmp_path / "t.dcd"))
         orchestrator = AnalysisOrchestrator(
@@ -2792,3 +2806,47 @@ class TestAPeptideTooShortToFoldIsNotAFailure:
 
         source = inspect.getsource(orchestrator)
         assert 'getattr(cls, "min_seq_separation", 4)' in source
+
+
+    def test_a_solvated_tripeptide_is_still_too_short(self, tmp_path) -> None:
+        """The case that got through: 3 protein residues in 526 waters is
+        529 residues by the box's count, and the gate read that as a protein
+        long enough to fold."""
+        assert "qvalue" not in self._planned(tmp_path, 3, waters=526)
+
+    def test_a_solvated_protein_still_runs_it(self, tmp_path) -> None:
+        """And the water must not count against it either."""
+        assert "qvalue" in self._planned(tmp_path, 12, waters=500)
+
+    def test_the_gate_counts_the_solute(self) -> None:
+        import inspect
+
+        from fastmdxplora.analysis import orchestrator
+
+        source = inspect.getsource(orchestrator)
+        assert 'select("protein")' in source
+
+    def test_water_does_not_make_a_tripeptide_long_enough(self, tmp_path) -> None:
+        """The gate counted residues in the box. A solvated tripeptide has
+        529 of them, three of which are peptide and the rest water: the gate
+        saw 529, let qvalue through, and qvalue sliced to its own selection
+        and failed on three. The analysis restricts to the solute before
+        enumerating pairs, and the gate has to ask the same question."""
+        assert "qvalue" not in self._planned(tmp_path, 3, waters=526)
+
+    def test_a_solvated_protein_still_runs_it(self, tmp_path) -> None:
+        assert "qvalue" in self._planned(tmp_path, 12, waters=500)
+
+    def test_the_gate_counts_the_solute_not_the_box(self) -> None:
+        """Asserted on behaviour rather than on a spelling: the first version
+        of this demanded `residue.is_protein` and the implementation used
+        `topology.select("protein")`, so a correct gate failed a test about
+        how it was written."""
+        assert "qvalue" not in self._planned_for(3, waters=526)
+        assert "qvalue" in self._planned_for(12, waters=500)
+
+    def _planned_for(self, residues: int, waters: int = 0):
+        import tempfile
+        from pathlib import Path
+
+        return self._planned(Path(tempfile.mkdtemp()), residues, waters)
