@@ -89,6 +89,93 @@ def _setup_outputs_present(setup_dir: Path) -> tuple[Path | None, Path | None, P
     return system_xml, state_xml, topology
 
 
+def _write_steered_work(output_dir: Path, params: dict, presenter: Any) -> str | None:
+    """Summarise the work done by a pull, beside the run.
+
+    Umbrella sampling goes from a config block to a curve or a refusal, and
+    metadynamics to a surface or a refusal. A steered run ended with PLUMED's
+    COLVAR on disk and nothing reading it -- and the work is the one number
+    this method produces, the number its own documentation says is reported
+    "so the claim can be judged". Left in a column of a PLUMED file, it is
+    not reported; it is available.
+
+    The work is not a free energy and this says so, because the distinction
+    is the whole point: a fast pull does work against the solvent and the
+    strain of the molecule as well as against the interactions of interest,
+    and none of that dissipated work cancels. The rate is recorded beside the
+    number so the two can be read together.
+    """
+    import json
+
+    import numpy as np
+
+    colvar = output_dir / "COLVAR"
+    if not colvar.is_file():
+        return None
+
+    try:
+        columns = np.loadtxt(colvar, comments="#")
+    except (OSError, ValueError):
+        return None
+    if columns.ndim != 2 or columns.shape[1] < 2 or not len(columns):
+        return None
+
+    # PRINT ARG=cv,pull.work,pull.bias, so time, cv, work, bias.
+    coordinate = columns[:, 1]
+    work = columns[:, 2] if columns.shape[1] > 2 else None
+    if work is None:
+        return None
+
+    spec = params.get("steered") or {}
+    timestep_fs = float(params.get("timestep_fs") or 2.0)
+    rate = None
+    try:
+        from fastmdxplora.simulation.steered import plan_steered
+
+        topology = output_dir / "topology.pdb"
+        if topology.is_file():
+            import mdtraj as md
+
+            plan = plan_steered(dict(spec), md.load(str(topology)).topology)
+            rate = plan.rate_per_ns(timestep_fs)
+    except Exception:  # noqa: BLE001 - the rate is a courtesy, not the result
+        rate = None
+
+    record = {
+        "work_kjmol": float(work[-1]),
+        "work_is_not_a_free_energy": (
+            "The work done by a pull depends on how fast the anchor moves. A "
+            "fast pull does work against the solvent and against the strain "
+            "of the molecule as well as against the interactions being "
+            "measured, and that dissipated work does not cancel -- so a "
+            "single pull overestimates a barrier. Jarzynski's equality "
+            "recovers a free energy from many pulls, and its average is "
+            "dominated by rare low-work trajectories, so it needs many more "
+            "than feels reasonable. One pull gives a pathway."
+        ),
+        "pull_rate_per_ns": rate,
+        "from": float(coordinate[0]),
+        "to": float(coordinate[-1]),
+        "requested_to": spec.get("to"),
+        "samples": int(len(work)),
+        "trajectory": {
+            "coordinate": [float(x) for x in coordinate],
+            "work_kjmol": [float(x) for x in work],
+        },
+    }
+    written = output_dir / "steered_work.json"
+    written.write_text(json.dumps(record, indent=2), encoding="utf-8")
+
+    if presenter:
+        rate_text = (f" at {rate:.3g} per ns" if rate else "")
+        presenter.step(
+            f"Pulled to {coordinate[-1]:.3g}{rate_text}: "
+            f"{float(work[-1]):.1f} kJ/mol of work, which is a pathway rather "
+            "than a free energy"
+        )
+    return "steered_work.json"
+
+
 def _write_metadynamics_surface(output_dir: Path, presenter: Any) -> str | None:
     """Build the free energy surface beside the run, or record why not.
 
@@ -348,6 +435,14 @@ def run(
         # config block to a curve or a refusal; this went to a pair of files.
         if params.get("metadynamics"):
             written = _write_metadynamics_surface(output_dir, presenter)
+            if written is not None:
+                artifacts.append(written)
+
+        # And a steered run, for the same reason: it ended with COLVAR on
+        # disk and nothing reading it, so the work -- the one number this
+        # method produces -- was available rather than reported.
+        if params.get("steered"):
+            written = _write_steered_work(output_dir, params, presenter)
             if written is not None:
                 artifacts.append(written)
 

@@ -342,6 +342,22 @@ class AnalysisOrchestrator:
             cls = _REGISTRY[name]
             return has_ligand or not getattr(cls, "requires_ligand", False)
 
+        def _umbrella_ok(name: str) -> bool:
+            """An umbrella result exists only where an umbrella study ran.
+
+            The free energy along the coordinate is what such a study is for,
+            and it belongs with the analyses rather than as a JSON file
+            nothing reads. But there is nothing to draw for an ordinary run,
+            and an analysis that fails on every unbiased trajectory would
+            turn a missing study into a failed phase.
+            """
+            cls = _REGISTRY[name]
+            if not getattr(cls, "requires_umbrella", False):
+                return True
+            here = Path(self.output_dir)
+            return any((parent / "pmf.json").is_file()
+                       for parent in (here, here.parent, here.parent.parent))
+
         def _water_ok(name: str) -> bool:
             """Likewise for water. An analysis of where water sits has nothing
             to say about a system with none -- an implicit-solvent run, or a
@@ -374,11 +390,13 @@ class AnalysisOrchestrator:
             return [
                 n for n in all_names
                 if n not in exclude and _ligand_ok(n) and _water_ok(n)
+                and _umbrella_ok(n)
             ]
 
         # Default plan: everything except ligand-only analyses when there is
         # no ligand. With a ligand, the ligand analyses run automatically.
-        return [n for n in all_names if _ligand_ok(n) and _water_ok(n)]
+        return [n for n in all_names
+                if _ligand_ok(n) and _water_ok(n) and _umbrella_ok(n)]
 
     def _merge_options(
         self,

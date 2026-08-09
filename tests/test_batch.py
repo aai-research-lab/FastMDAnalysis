@@ -1041,3 +1041,117 @@ class TestSelectionsAreCheckedAgainstWhateverWillBeSimulated:
             "selection_a": "resid 0 and name CA",
             "selection_b": "resid 99 and name CA",
         }})
+
+
+class TestEachMethodIsCheckedByItsOwnPlanner:
+    """The pre-flight check ran every block through `plan_from_config`, which
+    is metadynamics' planner and requires `sigma` -- the width of a hill. An
+    umbrella study has no hills and no sigma, so a valid umbrella config was
+    refused for lacking a setting the method does not have, after its shared
+    system had already been built.
+
+    The selection-resolving code is shared between the methods. The
+    validation around it is not."""
+
+    def _topology(self, tmp_path):
+        import mdtraj as md
+
+        path = tmp_path / "topology.pdb"
+        lines, serial = [], 1
+        for index, name in enumerate(("ALA", "GLY", "ALA")):
+            for atom in ("N", "CA", "C", "O"):
+                lines.append(
+                    f"ATOM  {serial:>5} {atom:^4} {name:>3} A{index + 1:>4}    "
+                    f"{index * 1.5:>8.3f}{0.0:>8.3f}{0.0:>8.3f}  1.00  0.00")
+                serial += 1
+        path.write_text("\n".join(lines) + "\nEND\n", encoding="utf-8")
+        return path
+
+    def _umbrella(self, **overrides):
+        block = {
+            "collective_variable": "distance",
+            "selection_a": "resid 0 and name CA",
+            "selection_b": "resid 2 and name CA",
+            "from": 0.6, "to": 1.0, "n_windows": 5,
+            "force_constant": 2000.0,
+        }
+        block.update(overrides)
+        return {"umbrella": block}
+
+    def test_a_valid_umbrella_block_is_accepted(self, tmp_path) -> None:
+        """It has no `sigma` and does not need one."""
+        from fastmdxplora.batch.explorer import _check_selections_against
+
+        self._topology(tmp_path)
+        _check_selections_against(tmp_path, self._umbrella())
+
+    def test_an_empty_selection_is_still_caught(self, tmp_path) -> None:
+        """Which is what the check exists for: `resid 9` on a tripeptide cost
+        a full preparation and three failed windows to discover."""
+        from fastmdxplora.batch.explorer import _check_selections_against
+
+        self._topology(tmp_path)
+        with pytest.raises(ValueError) as caught:
+            _check_selections_against(
+                tmp_path, self._umbrella(selection_b="resid 9 and name CA"))
+        assert "matched no atoms" in str(caught.value)
+
+    def test_umbrella_windows_are_checked_too(self, tmp_path) -> None:
+        """Two checks catching different things: the coordinate through the
+        shared layer, the windows through umbrella's own planner."""
+        from fastmdxplora.batch.explorer import _check_selections_against
+
+        self._topology(tmp_path)
+        with pytest.raises(ValueError):
+            # One window is not an umbrella study.
+            _check_selections_against(tmp_path, self._umbrella(n_windows=1))
+
+    def test_a_metadynamics_block_still_needs_its_sigma(self, tmp_path) -> None:
+        """The requirement is real for the method that has hills."""
+        from fastmdxplora.batch.explorer import _check_selections_against
+
+        self._topology(tmp_path)
+        with pytest.raises(ValueError) as caught:
+            _check_selections_against(tmp_path, {"metadynamics": {
+                "collective_variable": "distance",
+                "selection_a": "resid 0 and name CA",
+                "selection_b": "resid 2 and name CA",
+            }})
+        assert "sigma" in str(caught.value)
+
+    def test_an_expanded_window_is_not_a_study(self, tmp_path) -> None:
+        """By the time the check runs, the block has been expanded: each
+        window carries the single `centre` it sits at, and `from`, `to` and
+        `n_windows` are gone. Asking the study's planner to validate a
+        window's spec reported `from` as missing from a config that had it --
+        a refusal for the absence of a key expansion had consumed on
+        purpose."""
+        from fastmdxplora.batch.explorer import _check_selections_against
+        from fastmdxplora.simulation.umbrella import expand_umbrella
+
+        self._topology(tmp_path)
+        study = self._umbrella()["umbrella"]
+        expanded = expand_umbrella({
+            "systems": [{"id": "t", "system": "x.pdb"}],
+            "simulation": {"umbrella": dict(study)},
+        })["systems"][0]["simulation"]["umbrella"]
+
+        assert "centre" in expanded and "from" not in expanded
+        _check_selections_against(tmp_path, {"umbrella": expanded})
+
+    def test_a_selection_is_checked_in_a_window_too(self, tmp_path) -> None:
+        """The coordinate applies to both shapes; only the window planning
+        does not."""
+        from fastmdxplora.batch.explorer import _check_selections_against
+        from fastmdxplora.simulation.umbrella import expand_umbrella
+
+        self._topology(tmp_path)
+        study = self._umbrella(selection_b="resid 9 and name CA")["umbrella"]
+        expanded = expand_umbrella({
+            "systems": [{"id": "t", "system": "x.pdb"}],
+            "simulation": {"umbrella": dict(study)},
+        })["systems"][0]["simulation"]["umbrella"]
+
+        with pytest.raises(ValueError) as caught:
+            _check_selections_against(tmp_path, {"umbrella": expanded})
+        assert "matched no atoms" in str(caught.value)

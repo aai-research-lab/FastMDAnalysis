@@ -105,6 +105,7 @@ and the settings it used.
 | `pl_contacts` | how much of the protein the ligand touches, with a per-residue fingerprint |
 | `pl_hbonds` | hydrogen bonds between them |
 | `pl_interactions` | what holds the ligand: eight interaction types, each against a published criterion |
+| `pmf` | the free energy along an umbrella study's coordinate, drawn from the windows it stitched. Runs where such a study produced one, and reads its result rather than recomputing it |
 
 `water_sites` finds the waters that are part of a binding site rather than
 passing through — a water wedged between a ligand and a backbone carbonyl,

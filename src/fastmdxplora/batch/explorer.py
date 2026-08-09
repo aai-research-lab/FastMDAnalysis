@@ -103,6 +103,43 @@ def _first_error_phase_message(phases: list[Any]) -> str:
     return ""
 
 
+#: Umbrella's own settings, which the collective-variable layer does not take.
+_UMBRELLA_ONLY = frozenset({
+    "centres", "centers", "centre", "from", "to", "n_windows",
+    "force_constant", "minimum_overlap", "minimum_samples",
+    "equilibration_steps", "index",
+})
+
+
+def _resolve_umbrella_selections(spec: dict[str, Any], topology: Any) -> None:
+    """Resolve an umbrella block's coordinate, and check its windows.
+
+    Two checks, because they catch different things. `plan_windows` reads the
+    positions and the force constant. The selections go through the shared
+    collective-variable layer, which is where a selection matching no atoms
+    is caught -- and that layer belongs to metadynamics, so it asks for a
+    `sigma` an umbrella study has no use for. Steered MD had the same problem
+    and answered it by supplying one and ignoring it; the same answer serves
+    here rather than a second copy of the resolver.
+    """
+    from fastmdxplora.simulation.metadynamics import plan_from_config
+    from fastmdxplora.simulation.umbrella import plan_windows
+
+    # The windows, only where the study's own spec is still intact. By the
+    # time this runs the block has been expanded: each window carries the
+    # single `centre` it sits at, and `from`, `to` and `n_windows` are gone.
+    # Asking the study's planner to validate a window's spec reported `from`
+    # as missing from a config that had it -- a refusal for the absence of a
+    # key that expansion had consumed on purpose.
+    if any(key in spec for key in ("centres", "centers", "from", "n_windows")):
+        plan_windows(spec)
+
+    coordinate = {k: v for k, v in spec.items() if k not in _UMBRELLA_ONLY}
+    coordinate.setdefault("sigma", 0.05)
+    coordinate.setdefault("unbounded", True)
+    plan_from_config(coordinate, topology)
+
+
 def _check_selections_against(prepared: Path, spec: dict[str, Any]) -> None:
     """Resolve a biasing block's selections before any window is launched.
 
@@ -117,20 +154,41 @@ def _check_selections_against(prepared: Path, spec: dict[str, Any]) -> None:
     Silent where it cannot tell: a selection this cannot resolve is not
     thereby wrong, and refusing on that basis would be worse than the wait.
     """
-    block = spec.get("umbrella") or spec.get("metadynamics")
-    if not isinstance(block, dict):
+    # Each method's own planner, not one for both. `plan_from_config` is
+    # metadynamics', and it requires `sigma` -- the width of a hill. An
+    # umbrella study has no hills and no sigma, so checking one through that
+    # planner refused a valid config for lacking a setting the method does
+    # not have. The selection-resolving code is shared between the methods;
+    # the validation around it is not.
+    planners = []
+    if isinstance(spec.get("umbrella"), dict):
+        umbrella = dict(spec["umbrella"])
+        planners.append(
+            lambda: _resolve_umbrella_selections(umbrella, _mdtop()))
+    if isinstance(spec.get("metadynamics"), dict):
+        from fastmdxplora.simulation.metadynamics import plan_from_config
+
+        metadynamics = dict(spec["metadynamics"])
+        planners.append(lambda: plan_from_config(metadynamics, _mdtop()))
+    if isinstance(spec.get("steered"), dict):
+        from fastmdxplora.simulation.steered import plan_steered
+
+        steered = dict(spec["steered"])
+        planners.append(lambda: plan_steered(steered, _mdtop()))
+    if not planners:
         return
     topology = prepared / "topology.pdb"
     if not topology.is_file():
         return
 
-    try:
+    def _mdtop():
         import mdtraj as md
 
-        from fastmdxplora.simulation.metadynamics import plan_from_config
+        return md.load(str(topology)).topology
 
-        mdtop = md.load(str(topology)).topology
-        plan_from_config(dict(block), mdtop)
+    try:
+        for planner in planners:
+            planner()
     except ValueError as exc:
         raise ValueError(
             f"{exc}\n\nFound before any window ran, by resolving the "
@@ -701,14 +759,66 @@ class BatchExplorer:
         destination = Path(self.output_dir) / "pmf.json"
         destination.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
-        presenter = getattr(self, "_presenter", None) or getattr(self, "presenter", None)
-        if presenter is not None:
-            if payload.get("refused"):
-                presenter.step(
-                    "No free energy: " + payload["refused"].split(".")[0],
-                    status="warn")
-            else:
-                presenter.step(f"Wrote {destination.name}")
+        # Cleared before anything is drawn, so a refusal cannot leave the
+        # previous run's figure in place. `--force` clears the run
+        # directories and not this one, so a study that refused where the
+        # last one succeeded kept a plot from a different set of windows --
+        # and the comparison report beside it linked to that plot as though
+        # it were this study's result.
+        self._clear_previous_drawing()
+        drawn = None if payload.get("refused") else self._draw_pmf(destination)
+
+        # Printed rather than sent to a presenter this class does not have.
+        # The `getattr` chain here looked for `_presenter` and `presenter`,
+        # and a BatchExplorer has neither, so the free energy -- the result
+        # the whole study exists for -- was computed, written and drawn in
+        # silence while the comparison of the windows' restrained
+        # trajectories announced itself on the line below.
+        if payload.get("refused"):
+            print("Free energy:    not computed -- "
+                  + payload["refused"].split(".")[0])
+        else:
+            drawn_note = f", drawn in {drawn.parent.name}/" if drawn else ""
+            print(f"Free energy:    {destination}{drawn_note}")
+
+    def _clear_previous_drawing(self) -> None:
+        """Remove a figure from an earlier study of this directory.
+
+        A stale plot is worse than no plot: it is the previous answer,
+        presented as this one.
+        """
+        import shutil
+
+        drawn = Path(self.output_dir) / "free_energy"
+        if drawn.is_dir():
+            shutil.rmtree(drawn, ignore_errors=True)
+
+    def _draw_pmf(self, pmf_json: Path) -> Path | None:
+        """Draw the study's free energy, beside the study.
+
+        The PMF belongs to the study rather than to any window, and putting
+        the drawing in the per-run analysis phase left it undrawn: each
+        window analysed itself before the last one finished, so no window
+        found a result to draw, and by the time one existed no analysis
+        phase remained. The windows had each produced ten figures of their
+        own restrained trajectory, and the one result the study existed for
+        had none.
+
+        Best effort, like the comparison report beside it: a study whose
+        windows all succeeded must not fail here.
+        """
+        try:
+            from fastmdxplora.analysis.pmf import PMF
+
+            analysis = PMF(output_dir=Path(self.output_dir) / "free_energy")
+            result = analysis.run(None)
+            return getattr(result, "figure_path", None)
+        except Exception as exc:  # noqa: BLE001 -- never break the study
+            logger.warning(
+                "The free energy was computed and written to %s but could "
+                "not be drawn (%s). The numbers are unaffected.",
+                pmf_json.name, exc)
+            return None
 
     def _maybe_build_comparison(self) -> None:
         """Build the cross-run comparison report (best-effort).

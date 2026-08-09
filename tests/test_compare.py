@@ -287,3 +287,149 @@ report:
         # config-driven object hasn't run yet -> no output_dir known
         with pytest.raises(ValueError, match="output directory"):
             fmdx.compare()
+
+
+class TestAnUmbrellaStudyIsOneExperiment:
+    """Five windows are one experiment sampled in pieces, not five
+    experiments. Each is held at a different position by a spring, so a
+    table of their mean RMSD and radius of gyration is a table of the
+    restraint schedule -- on a stretched tripeptide the radius rose
+    monotonically with window index, 0.334 to 0.369, and the report
+    presented that as five runs disagreeing."""
+
+    def _study(self, tmp_path, *, with_free_energy: bool, refused=None):
+        import json
+
+        (tmp_path / "comparison").mkdir()
+        if with_free_energy or refused:
+            (tmp_path / "pmf.json").write_text(
+                json.dumps({"pmf": {}, "refused": refused}), encoding="utf-8")
+        if with_free_energy:
+            drawn = tmp_path / "free_energy" / "pmf"
+            drawn.mkdir(parents=True)
+            (drawn / "pmf.png").write_bytes(b"")
+        return tmp_path / "comparison" / "comparison_report.md"
+
+    def test_the_free_energy_is_found_beside_the_comparison(
+        self, tmp_path
+    ) -> None:
+        from fastmdxplora.batch.compare import _umbrella_result
+
+        md = self._study(tmp_path, with_free_energy=True)
+        drawn, refused = _umbrella_result(md)
+        assert refused is None
+        assert drawn is not None and drawn.name == "pmf.png"
+
+    def test_an_ordinary_sweep_gets_no_preamble(self, tmp_path) -> None:
+        """Several systems compared against each other really are several
+        experiments, and the overlays are the point there."""
+        from fastmdxplora.batch.compare import _umbrella_result
+
+        md = self._study(tmp_path, with_free_energy=False)
+        assert _umbrella_result(md) is None
+
+    def test_the_result_comes_before_the_comparison(self, tmp_path) -> None:
+        """A reader who takes the table at face value has been misled by the
+        time they reach any caveat below it."""
+        from fastmdxplora.batch.compare import (
+            _umbrella_result,
+            _umbrella_preamble,
+        )
+
+        md = self._study(tmp_path, with_free_energy=True)
+        preamble = _umbrella_preamble(*_umbrella_result(md))
+        text = "\n".join(preamble)
+
+        assert text.index("Free energy") < text.index("overlays")
+        assert "one experiment sampled in pieces" in text
+
+    def test_the_link_resolves_from_the_comparison_directory(
+        self, tmp_path
+    ) -> None:
+        from fastmdxplora.batch.compare import (
+            _umbrella_result,
+            _umbrella_preamble,
+        )
+
+        md = self._study(tmp_path, with_free_energy=True)
+        preamble = "\n".join(_umbrella_preamble(*_umbrella_result(md)))
+        assert "(../free_energy/pmf/pmf.png)" in preamble
+
+    def test_it_says_why_the_windows_differ(self, tmp_path) -> None:
+        """Not a disagreement between runs: a quantity that varies with the
+        coordinate varies across windows by construction."""
+        from fastmdxplora.batch.compare import (
+            _umbrella_result,
+            _umbrella_preamble,
+        )
+
+        md = self._study(tmp_path, with_free_energy=True)
+        text = "\n".join(_umbrella_preamble(*_umbrella_result(md)))
+        assert "restraints differ" in text
+        assert "not a measurement of the system" in text
+
+
+    def test_a_refused_study_shows_no_plot(self, tmp_path) -> None:
+        """A stale figure is worse than none: it is the previous study's
+        answer, presented as this one. `--force` clears the run directories
+        and not the drawing, so a study that refused where the last one
+        succeeded kept a plot from a different set of windows -- and the
+        report linked to it."""
+        from fastmdxplora.batch.compare import (
+            _umbrella_preamble,
+            _umbrella_result,
+        )
+
+        md = self._study(
+            tmp_path, with_free_energy=True,
+            refused="Adjacent windows do not overlap: windows 1 and 2.")
+        drawn, refused = _umbrella_result(md)
+
+        assert drawn is None, "a refused study must not offer a figure"
+        assert refused
+        text = "\n".join(_umbrella_preamble(drawn, refused))
+        assert "pmf.png" not in text
+        assert "No free energy was computed" in text
+
+    def test_it_adds_no_remedy_of_its_own(self, tmp_path) -> None:
+        """A generic one here contradicted the refusal it followed. The
+        refusal said four of five windows had slid off their restraints, so
+        a stiffer spring was wanted; the paragraph beneath it advised a
+        softer one, which makes that failure worse. Whatever computed the
+        failure knows which failure it was."""
+        from fastmdxplora.batch.compare import (
+            _umbrella_preamble,
+            _umbrella_result,
+        )
+
+        diagnosis = (
+            "Adjacent windows do not overlap. Windows slid off their "
+            "restraints; hold them harder with a larger force_constant.")
+        md = self._study(tmp_path, with_free_energy=False, refused=diagnosis)
+        text = "\n".join(_umbrella_preamble(*_umbrella_result(md)))
+
+        assert diagnosis in text
+        assert "soften the restraint" not in text
+        assert "Move them closer" not in text
+
+    def test_the_refusal_is_carried_whole(self, tmp_path) -> None:
+        """Including the part that names which windows and by how much."""
+        from fastmdxplora.batch.compare import (
+            _umbrella_preamble,
+            _umbrella_result,
+        )
+
+        diagnosis = ("windows 1 and 2 (at 0.7 and 0.8) share 1.9%. "
+                     "Recombination stitches histograms together.")
+        md = self._study(tmp_path, with_free_energy=False, refused=diagnosis)
+        text = "\n".join(_umbrella_preamble(*_umbrella_result(md)))
+        assert "1.9%" in text and "windows 1 and 2" in text
+
+    def test_the_drawing_is_cleared_before_a_study_draws(self) -> None:
+        import inspect
+
+        from fastmdxplora.batch import explorer
+
+        source = inspect.getsource(explorer.BatchExplorer._maybe_build_pmf)
+        assert "_clear_previous_drawing()" in source
+        assert source.index("_clear_previous_drawing") < source.index("_draw_pmf")

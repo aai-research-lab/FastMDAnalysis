@@ -63,6 +63,7 @@ from fastmdxplora.analysis.orchestrator import (
 # Concrete analyses register themselves at import time. Each module
 # imported below adds its class to the registry. The order determines the
 # canonical execution order when ``include`` / ``exclude`` are not passed.
+from fastmdxplora.analysis import pmf as _pmf  # noqa: F401, E402
 from fastmdxplora.analysis import rmsd as _rmsd  # noqa: F401, E402
 from fastmdxplora.analysis import rmsf as _rmsf  # noqa: F401, E402
 from fastmdxplora.analysis import rg as _rg  # noqa: F401, E402

@@ -639,9 +639,26 @@ class TestNobodyCountsTheAnalysesTwice:
         described = PHASE_SCHEMAS["analysis"].get("include").help
         assert "all ten" not in described
         assert "ten always" in described
-        assert len(available_analyses()) == 16, (
-            "the help splits the registry ten / water sites / five "
-            "ligand-aware; say the new split there too")
+
+        # The split, not the total. Ten unconditional, water sites where
+        # there is water, five where there is a ligand, and the potential of
+        # mean force where an umbrella study produced one -- so the registry
+        # is those groups and nothing else. Counting to a number instead
+        # meant the test failed on any addition and said only that the
+        # number had moved, when what needs updating is the sentence.
+        from fastmdxplora.analysis.orchestrator import _REGISTRY
+
+        conditional = {
+            name for name, cls in _REGISTRY.items()
+            if getattr(cls, "requires_ligand", False)
+            or getattr(cls, "requires_water", False)
+            or getattr(cls, "requires_umbrella", False)
+        }
+        assert len(available_analyses()) - len(conditional) == 10, (
+            "the help says ten analyses run unconditionally; if that has "
+            "changed, say the new split there too")
+        assert "where there is a ligand" in described
+        assert "umbrella" in described
 
     def test_the_readme_does_not_count_them_either(self) -> None:
         import pathlib

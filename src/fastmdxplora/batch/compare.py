@@ -335,6 +335,70 @@ def build_comparison_report(batch_output_dir: str | Path) -> Path | None:
     return cmp_dir
 
 
+def _umbrella_result(md_path: Path) -> tuple[Path | None, str | None] | None:
+    """The study's free energy, and why there is none where there is none.
+
+    Read from `pmf.json` rather than inferred from a figure being present.
+    Checking only for the file meant a study that refused -- windows too far
+    apart to overlap -- kept the previous run's plot and the report showed it
+    as this study's result. A refusal and a figure are different outcomes,
+    and only one of them has a picture.
+
+    Returns `None` where these runs are not an umbrella study at all.
+    """
+    study = md_path.parent.parent
+    record_path = study / "pmf.json"
+    if not record_path.is_file():
+        return None
+    try:
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    refused = record.get("refused")
+    if refused:
+        return None, str(refused)
+    drawn = study / "free_energy" / "pmf" / "pmf.png"
+    return (drawn if drawn.is_file() else None), None
+
+
+def _umbrella_preamble(
+    free_energy: Path | None, refused: str | None = None
+) -> list[str]:
+    """What the study measured, ahead of what its windows happened to do."""
+    lines = [
+        "## Free energy",
+        "",
+        "These runs are the windows of an umbrella study: one experiment "
+        "sampled in pieces, each piece held at a different position along "
+        "the coordinate by a spring. The result is the free energy, not the "
+        "comparison that follows it.",
+        "",
+    ]
+    if refused:
+        # The refusal and nothing after it. A generic remedy was added here
+        # -- "move them closer or soften the restraint" -- and the refusal
+        # it followed said the opposite: four of five windows had slid off
+        # their restraints, so a softer one makes the gap worse. The module
+        # that computed the failure knows which failure it was; a sentence
+        # written without that knowledge can only guess, and a guess printed
+        # beside a diagnosis reads as though it carried equal weight.
+        lines += ["**No free energy was computed for this study.** " + refused, ""]
+    elif free_energy is not None:
+        relative = Path("..") / free_energy.relative_to(
+            free_energy.parent.parent.parent)
+        lines += [f"![Potential of mean force]({relative.as_posix()})", ""]
+    return lines + [
+        "The overlays and the table below describe each window\'s own "
+        "restrained trajectory. They differ from one another because the "
+        "restraints differ, which is the method working rather than a "
+        "disagreement between runs -- a quantity that varies with the "
+        "coordinate will vary across windows by construction, and its mean "
+        "over a restrained window is not a measurement of the system.",
+        "",
+    ]
+
+
 def _write_markdown(
     md_path: Path,
     manifest: dict[str, Any],
@@ -349,6 +413,19 @@ def _write_markdown(
     lines: list[str] = []
     lines.append("# Cross-run comparison report")
     lines.append("")
+
+    # An umbrella study is one experiment sampled in pieces, not several
+    # experiments. Its windows differ because each is held at a different
+    # position by a spring, so a table of their mean RMSD and radius of
+    # gyration is a table of the restraint schedule: on a stretched
+    # tripeptide the radius rose monotonically with window index, 0.334 to
+    # 0.369, and the report presented that as five runs disagreeing. Said
+    # first, because a reader who takes the table at face value has been
+    # misled by the time they reach any caveat below it.
+    umbrella = _umbrella_result(md_path)
+    if umbrella is not None:
+        lines.extend(_umbrella_preamble(*umbrella))
+
     n = len(runs)
     sweep = manifest.get("sweep") or {}
     if sweep:
