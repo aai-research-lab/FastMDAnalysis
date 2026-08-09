@@ -65,17 +65,18 @@ fastmdx info
 | **A protein with a ligand** | The ligand is found, its chemistry resolved, its protonation settled in the binding site. Eight interaction types against published criteria tell you what *holds* it, not just what it touches. |
 | **A membrane protein** | Embedded in one of seven bilayers, with the orientation checked rather than assumed and pressure coupling that suits a lipid system. |
 | **Free energy along a coordinate** | Umbrella sampling, metadynamics and steered MD from a named collective variable — eight of them — without writing PLUMED input. Each says what its output is and is not: a surface if the bias converged, a pathway and the work along it, a potential of mean force if the windows overlap. |
-| **A trajectory from another engine** | Skip the simulation and analyse what you already have, from anything MDTraj reads. |
+| **A trajectory from another engine** | Skip the simulation and analyse what you already have — GROMACS `.xtc` and `.trr`, Amber `.nc`, NAMD and CHARMM `.dcd`, LAMMPS `.lammpstrj`, or `.pdb`, `.cif` and `.h5` that carry their own topology. |
 | **Many systems at once** | Mutants against wild type, a sweep across a setting, runs pinned one per GPU, and a comparison report across all of them. |
-| **Water that stays** | The positions a water holds through a run, and whether one molecule sat there or a hundred passed through — which are different findings about a binding site. |
 
-And where a structure does not say enough — an ambiguous ligand charge, a
-protein pointed the wrong way for a membrane — FastMDXplora stops and names
-what it could not decide, rather than returning a number that looks fine.
+**It refuses rather than guesses.** An ambiguous ligand charge, or a protein
+pointed the wrong way into a membrane, stops the run and gets named. A
+metadynamics run that crossed its barrier once when you asked for four gets no
+free energy surface. Averages from a biased trajectory are corrected back to
+equilibrium where the bias allows it, and labelled where it does not.
 
-Every step says *why* it is happening while it happens, with a citation where
-there is one worth following, so a first simulation produces a trajectory you
-can defend rather than one you merely have.
+Every step says why it is happening, and cites the paper worth reading. What
+comes out is something you can defend — or is marked clearly as something you
+cannot.
 
 ## Documentation
 

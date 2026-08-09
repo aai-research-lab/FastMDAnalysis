@@ -8,6 +8,13 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Added
+- **The README says what a biased run's averages mean.** The front page
+  listed the three enhanced sampling methods and what each output is and is
+  not, and stopped there -- so the most distinctive thing the analyses now do,
+  correcting those averages back to the ensemble somebody actually wanted, was
+  not on it. The closing paragraph now names the harder case too: a run that
+  does not support the thing it was for is told so in those terms.
+
 - **The reweighting is documented.** What the analysis phase writes to
   `analysis/reweighted/`, the estimator it uses and why it carries the c(t)
   offset, which analyses are corrected and which are not, and why an umbrella
