@@ -211,7 +211,7 @@ def describe_all() -> dict[str, tuple[OptionDoc, ...]]:
     An analysis renamed for consistency keeps its old name registered, because
     a rename that breaks a config somebody has kept costs more than the
     consistency it buys. But an alias should be usable rather than offered:
-    listing both would put sixteen entries in a form for fifteen analyses and
+    listing both would put an extra entry in the form for every alias and
     leave somebody wondering how the two differ.
 
     A registered name that is not the class's own name is an alias.

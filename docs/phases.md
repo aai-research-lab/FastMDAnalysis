@@ -46,14 +46,20 @@ name. Those are covered in [Beyond a box of water](simulations.md), along with
 what the phase says when a run fails.
 
 **Writes** `production.dcd`, `energy.csv`, `checkpoint.chk`,
-`simulation_parameters.json`.
+`simulation_parameters.json`. A biased run also writes the PLUMED input it
+generated -- `metadynamics.plumed`, `steered.plumed` or `umbrella.plumed` --
+PLUMED's own `COLVAR` and, for metadynamics, `HILLS`; and the result the
+method exists to produce, as `metadynamics_surface.json`, `pmf.json` or
+`steered_work.json`. Those three are what the `metad_surface`, `pmf` and
+`steered_work` analyses read.
 
 ---
 
 ## analysis
 
-Measures the trajectory. Fifteen analyses, each writing its data, its figure,
-and the settings it used.
+Measures the trajectory. Sixteen analyses of the system, each writing its
+data, its figure, and the settings it used, and three more that read the
+result of a biased run where there was one.
 
 **Shape and size**
 
@@ -105,9 +111,6 @@ and the settings it used.
 | `pl_contacts` | how much of the protein the ligand touches, with a per-residue fingerprint |
 | `pl_hbonds` | hydrogen bonds between them |
 | `pl_interactions` | what holds the ligand: eight interaction types, each against a published criterion |
-| `pmf` | the free energy along an umbrella study's coordinate, drawn from the windows it stitched. Runs where such a study produced one, and reads its result rather than recomputing it |
-| `metad_surface` | the free energy surface a metadynamics run filled, drawn from its hills. Runs where such a run produced one, and draws a provisional surface as readily as a settled one, saying which it is |
-| `steered_work` | the work done by a steered pull, against the coordinate. The curve rather than the total, because a pull that accumulated work smoothly met resistance all the way and one that accumulated it in a step snapped past something -- and the total is the same either way. A pathway, not a free energy |
 
 `water_sites` finds the waters that are part of a binding site rather than
 passing through — a water wedged between a ligand and a backbone carbonyl,
@@ -126,9 +129,24 @@ FastMDXplora rejects such a cluster and says so, but the fix is a narrower
 `site_selection`: a ligand, a pocket, or a handful of residues. That is a
 limit of the method rather than a threshold to tune.
 
-The protein-ligand four run automatically when a ligand is present. See
+The five ligand analyses run automatically when a ligand is present. See
 [Protein-ligand interactions](interactions.md) for what `pl_interactions`
 measures and why some of it is refused.
+
+**Enhanced sampling**
+
+These three do not measure the trajectory. They read what a biased run itself
+produced, and each runs only where such a run produced it -- so none of them
+appears after an ordinary simulation, and none of them needs a ligand.
+
+| | |
+|---|---|
+| `pmf` | the free energy along an umbrella study's coordinate, drawn from the windows it stitched. Reads the study's result rather than recomputing it |
+| `metad_surface` | the free energy surface a metadynamics run filled, drawn from its hills. Draws a provisional surface as readily as a settled one, saying which it is |
+| `steered_work` | the work done by a steered pull, against the coordinate. The curve rather than the total, because a pull that accumulated work smoothly met resistance all the way and one that accumulated it in a step snapped past something -- and the total is the same either way. A pathway, not a free energy |
+
+What each of the three methods is for, and what its output is and is not, is
+in [Beyond a box of water](simulations.md).
 
 ### What the measures actually compute
 

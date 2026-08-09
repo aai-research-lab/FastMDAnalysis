@@ -8,6 +8,39 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Added
+- **Each enhanced-sampling method reports the result it exists to produce.**
+  A metadynamics run wrote its free energy surface to JSON and stopped there:
+  no figure, no entry in the analysis manifest, no mention in the report.
+  Sixteen analyses of the trajectory each produced a curve and a plot, and the
+  one result the run was for did not. The same gap held for an umbrella
+  study's potential of mean force and a steered pull's work.
+
+  There are now three analyses -- `pmf`, `metad_surface` and `steered_work` --
+  each reading what the biased run itself recorded rather than recomputing it,
+  each drawing it, and each running only where such a run produced one. They
+  are not analyses of the trajectory and do not need a ligand.
+
+- **A biased trajectory says what it is.** The methods section described
+  restraints well and said nothing at all about the three methods where
+  biasing is the entire point. Ten analyses were reported beside the free
+  energy with no distinction between them, and a reader would take a mean
+  RMSD over a metadynamics run as a measurement of the system.
+
+  The three are not alike, and one caveat covering all of them would be wrong
+  about two. Metadynamics deposits a known bias, so the unbiased ensemble is
+  recoverable by weighting. An umbrella window describes a system held where
+  it was put, and what combines the windows is the free energy rather than an
+  average across them. A steered pull is not an equilibrium ensemble at all.
+  Each now gets the paragraph that is true of it.
+
+- **The restraint ladder steps across equilibration rather than at its
+  boundaries.** The strength was sampled at two points, before NVT and before
+  NPT, so a four-rung ladder reached the first and third rungs and never the
+  others. With `npt_steps: 0` the second sample sat inside a branch that never
+  ran, and the restraint held at full strength through all of equilibration
+  and dropped to zero at production -- the release all at once that a ladder
+  exists to prevent, from a setting the user had written out in four steps.
+
 - **The GUI cites the software.** The report, the slides and `fastmdx info`
   all print the citation and the GUI printed none, which made the interface
   the documentation sends a new user to first the one that never said how to
@@ -142,6 +175,45 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   system is a PDB identifier, not a file.
 
 ### Fixed
+- **Metadynamics did not run at all.** The collective-variable plan was bound
+  to the name the stage plan already used, so the next line to subscript it
+  raised `'MetadynamicsPlan' object is not subscriptable`. The feature failed
+  on the first line of use. Thirty-eight tests covered the module and
+  twenty-three the surface; none of them ran the runner, which is where the
+  two names met. A test now runs it.
+
+- **A steered pull's work record was lost to a race.** PLUMED buffers its
+  output and writes on teardown, and the record was built at the end of the
+  simulation phase -- before the force was finalised. `COLVAR` existed, held
+  no rows, and the record was silently not written; run by hand afterwards on
+  the same file it worked. The pull now flushes as it goes.
+
+- **A metadynamics refusal was cut mid-sentence.** Clipped at 160 characters,
+  it lost the clause saying the output is still a usable snapshot of the
+  filling. This is the one message whose only job is to explain why there is
+  no surface, and a refusal that runs long is a refusal with something to say.
+
+- **The surface's drift was judged where it means least.** Convergence was
+  assessed over the whole grid, including regions far above the minimum that
+  are visited rarely and move by several kJ/mol however long the run. Drift is
+  now judged within 20 kJ/mol of the minimum, with the whole-grid figure still
+  reported beside it.
+
+- **A solvated tripeptide passed the fold gate.** The check counted every
+  residue in the box -- 529 for a tripeptide in water -- so a chain far too
+  short to have a fold was let through, and the Q-value analysis then sliced
+  to the solute, found three residues, and failed. It counts the solute's
+  residues now, and skips rather than errors.
+
+- **Documentation that had gone stale without anything noticing.** The
+  collective variables were listed as five in three places when there are
+  eight, and the README said eight, so the two contradicted each other. The
+  analysis count had outlived three additions. `pmf`, `metad_surface` and
+  `steered_work` were filed under "Protein and ligand together", where a row
+  lands if it is appended to the end of the file, implying they need a ligand.
+  Each claim was true when written. They are now checked by tests, because a
+  count is exactly the kind of thing that goes wrong quietly.
+
 - **A page watching a run said every phase was "Not run".** It showed that
   run's energy, its temperature and its speed in ns/day above a table
   reporting nothing had happened. The table reads the manifest, and the

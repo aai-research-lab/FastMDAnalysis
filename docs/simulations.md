@@ -160,8 +160,10 @@ simulation:
       upper: 2.5          # nm; see "Bounding where the ligand goes" below
 ```
 
-Five are available: `ligand_rmsd`, `ligand_distance`, `distance`, `torsion`
-and `radius_of_gyration`. The block becomes PLUMED input, written to
+Eight are available: `ligand_rmsd`, `ligand_distance`, `distance`, `angle`,
+`torsion`, `radius_of_gyration`, `coordination` and `membrane_depth`. The last
+measures how deep a group sits in a bilayer, and is the one to reach for on a
+membrane system. The block becomes PLUMED input, written to
 `metadynamics.plumed` beside the results, and the existing PLUMED integration
 runs it. Anything more elaborate is still written by hand and passed as
 `plumed`, as before -- this is a shorter path to the common case, not a
@@ -265,7 +267,7 @@ simulation:
     steps: 5000000     # over which the anchor travels
 ```
 
-The same five variables metadynamics offers, resolved the same way.
+The same eight variables metadynamics offers, resolved the same way.
 
 **This gives a pathway and the work done along it, not a free energy.** The
 work depends on how fast you pull: drag a ligand out in a nanosecond and most
@@ -400,7 +402,7 @@ two cannot be told apart, and the message says so rather than choosing.
 
 ### What PLUMED is still needed for
 
-This covers one-dimensional well-tempered metadynamics on five variables, with
+This covers one-dimensional well-tempered metadynamics on eight variables, with
 walls or a funnel. Beyond that, write PLUMED input and pass it as `plumed`:
 
 - **two or more collective variables** — a 2D free energy surface

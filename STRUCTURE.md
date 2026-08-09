@@ -8,6 +8,9 @@ FastMDXplora/
 │       ├── _version.py            # Written by setuptools-scm (not committed)
 │       ├── orchestrator.py        # FastMDXplora project-level orchestrator
 │       ├── dependencies.py        # Optional-backend detection (OpenMM, PDBFixer, …)
+│       ├── statistics.py          # Statistical inefficiency: how many independent samples a mean rests on
+│       ├── provenance.py          # Which code a run was made from
+│       ├── explain.py             # The prose the CLI prints beside each step
 │       ├── cli/
 │       │   ├── __init__.py
 │       │   └── main.py            # `fastmdx` entry point (explore/xplore/setup/simulate/
@@ -17,11 +20,22 @@ FastMDXplora/
 │       │   ├── prepare.py         # Modeller assembly, ligand merge, clash checks
 │       │   ├── pdbfix.py          # PDBFixer wrapper
 │       │   ├── forcefields.py     # Named force-field selector
-│       │   └── ligand.py          # OpenFF small-molecule parameterization
+│       │   ├── ligand.py          # OpenFF small-molecule parameterization
+│       │   ├── heterogens.py      # What to keep from the entry, and why
+│       │   ├── ccd.py             # Chemical Component Dictionary lookups
+│       │   ├── protonation.py     # Protonation states at the run's pH
+│       │   ├── membrane.py        # Bilayer construction
+│       │   └── membrane_fit.py    # Orienting the protein in the bilayer, checked not assumed
 │       ├── simulation/
 │       │   ├── pipeline.py        # Phase driver
 │       │   ├── runner.py          # minimize → NVT → NPT → production, reporters, platforms
-│       │   └── plumed.py          # PLUMED enhanced sampling on the production stage
+│       │   ├── plumed.py          # PLUMED enhanced sampling on the production stage
+│       │   ├── metadynamics.py    # Collective variables and PLUMED input, shared by all three methods
+│       │   ├── metad_surface.py   # Free energy surface from the hills, and whether it settled
+│       │   ├── umbrella.py        # Window planning, and the PMF stitched from them
+│       │   ├── steered.py         # A pull along a coordinate, and the work done
+│       │   ├── restraints.py      # Positional restraints and the release ladder
+│       │   └── diagnose.py        # What a failed simulation can be told from its state
 │       ├── analysis/
 │       │   ├── orchestrator.py    # Analysis-phase orchestrator + auto-detection
 │       │   ├── analyze.py         # Top-level analyze() entry point
@@ -29,8 +43,13 @@ FastMDXplora/
 │       │   ├── loading.py         # Trajectory/topology loading, scope and selection
 │       │   ├── plotting.py        # Shared figure style
 │       │   ├── rmsd.py rmsf.py rg.py qvalue.py sasa.py ss.py
-│       │   ├── hbonds.py dihedrals.py cluster.py dimred.py
-│       │   └── contacts.py ligand_rmsd.py ligand_rmsf.py pl_hbonds.py   # protein-ligand
+│       │   ├── hbonds.py dihedrals.py cluster.py dimred.py water_sites.py
+│       │   ├── contacts.py ligand_rmsd.py ligand_rmsf.py pl_hbonds.py   # protein-ligand
+│       │   ├── pl_interactions.py interactions.py ligand_chemistry.py   # what holds the ligand
+│       │   ├── pmf.py metad_surface.py steered_work.py   # the result of a biased run
+│       │   ├── reweight.py         # Weights that undo a known bias
+│       │   ├── reweighted_averages.py  # Those weights applied to the analyses
+│       │   └── describe.py        # What each analysis is, for the GUI and the docs
 │       ├── report/
 │       │   ├── run.py             # Top-level report() entry point
 │       │   ├── document.py        # Structured Markdown report
@@ -38,6 +57,10 @@ FastMDXplora/
 │       │   ├── summary_figure.py  # Single-figure run summary
 │       │   ├── region_highlights.py  # Per-region annotations for the report
 │       │   ├── context.py         # Shared report context
+│       │   ├── methods.py         # The methods section, including what a biased run is not
+│       │   ├── convergence.py     # Whether the run had settled by the time it was measured
+│       │   ├── reweighted.py      # Equilibrium averages recovered from a biased run
+│       │   ├── pdf.py             # Markdown → PDF
 │       │   └── bundle.py          # Self-contained .zip project archive
 │       ├── gui/                   # All user-interface code: server, views, assets
 │       │   ├── exploration.py     # Study builder, config export, run control

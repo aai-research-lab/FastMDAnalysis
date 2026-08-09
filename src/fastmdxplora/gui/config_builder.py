@@ -147,7 +147,7 @@ def _analysis_option_defaults(names: Any) -> dict[str, dict[str, Any]]:
             )
             for option in options
             # Settings every analysis shares are recorded once, on the phase,
-            # rather than repeated under each of fourteen analyses.
+            # rather than repeated under each analysis.
             if option.owner != "Analysis" and option.default is not None
         }
         if block:
