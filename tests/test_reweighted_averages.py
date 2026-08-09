@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from types import SimpleNamespace
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -42,10 +44,18 @@ def _write_run(directory: Path, *, n_hills: int = 200, settled: bool = True,
     centres = np.sin(times / 7.0)
     sigma, height = 0.2, 1.2
 
+    # PLUMED does not store the height it deposited. For a well-tempered run
+    # it stores that height times y/(y-1), so that summing HILLS gives the
+    # free energy. A fixture that stored the deposited height would be easier
+    # to write and would not be a metadynamics run: the real file is where
+    # the 11.1% error lived, so the fixture has to have it too.
+    bias_factor = 10.0
+    stored = height * bias_factor / (bias_factor - 1.0)
+
     simulation.joinpath("HILLS").write_text(
         "#! FIELDS time cv sigma_cv height biasf\n"
         + "\n".join(
-            f"{t:.4f} {c:.6f} {sigma:.4f} {height:.4f} 10.0"
+            f"{t:.4f} {c:.6f} {sigma:.4f} {stored:.6f} {bias_factor:g}"
             for t, c in zip(times, centres))
         + "\n", encoding="utf-8")
 
@@ -73,10 +83,15 @@ def _write_run(directory: Path, *, n_hills: int = 200, settled: bool = True,
 
 
 def _bias_from_hills(hill_times, centres, sigma, height, at_times, at_values):
-    """The bias felt, computed independently of the code under test."""
+    """The bias felt, computed independently of the code under test.
+
+    Strictly before, not up to and including: PLUMED prints the bias for a
+    step before depositing that step's hill. A fixture using `<=` would be
+    easier to write and would encode the error this exists to catch.
+    """
     out = np.zeros(at_times.size)
     for index, (t, value) in enumerate(zip(at_times, at_values)):
-        laid = hill_times <= t
+        laid = hill_times < t
         out[index] = np.sum(
             height * np.exp(-((value - centres[laid]) ** 2) / (2 * sigma ** 2)))
     return out
@@ -114,7 +129,11 @@ class TestItReadsWhatPlumedWrote:
         analysis = _write_run(tmp_path)
         _, provenance = weights_for_run(analysis, np.arange(1.0, 200.0, 4.0))
         assert provenance["applies"] is True
-        assert provenance["largest_disagreement_with_plumed"] < 1e-6
+        # The fixture writes heights to six decimals, so agreement is
+        # limited by the file format rather than by the reconstruction.
+        # A real run should sit far below the 0.01 this is checked
+        # against elsewhere; 11% is what a convention error looks like.
+        assert provenance["largest_disagreement_with_plumed"] < 1e-5
 
 
 class TestAnUnbiasedRunIsLeftAlone:
@@ -562,3 +581,144 @@ class TestABiasedRunThatCannotBeCorrectedStillSaysSo:
             n_frames=50, frame_times_ps=times, output_dir=analysis)
         assert record.get("applies", True) is not False
         assert record["quantities"]
+
+
+class TestTheWellTemperedHeightConventionIsUndone:
+    """PLUMED does not store the height it deposited.
+
+    For a well-tempered run it stores that height multiplied by y/(y-1), so
+    that summing HILLS gives the free energy directly. `metad_surface` relies
+    on exactly that and must keep it. Reconstructing the *bias* needs it
+    undone, and not undoing it overstated the bias by 11.1% at a bias factor
+    of 10 -- caught by comparing against PLUMED's own record of the same
+    quantity on a real run, where every unit test still passed.
+    """
+
+    def test_the_stored_height_is_scaled_back(self) -> None:
+        """A run asked for 1.2 kJ/mol, PLUMED logged 1.2, and HILLS row one
+        held 1.333. The deposited height is the one the run asked for."""
+        from fastmdxplora.analysis.reweighted_averages import deposited_heights
+
+        hills = SimpleNamespace(height=np.array([1.3333, 0.163]),
+                                bias_factor=10.0)
+        assert deposited_heights(hills)[0] == pytest.approx(1.2, abs=1e-3)
+
+    @pytest.mark.parametrize("factor", [2.0, 5.0, 10.0, 15.0])
+    def test_the_factor_is_the_bias_factor(self, factor: float) -> None:
+        from fastmdxplora.analysis.reweighted_averages import deposited_heights
+
+        hills = SimpleNamespace(height=np.array([1.0]), bias_factor=factor)
+        assert deposited_heights(hills)[0] == pytest.approx(
+            (factor - 1.0) / factor)
+
+    @pytest.mark.parametrize("factor", [1.0, 0.0, None])
+    def test_an_untempered_run_stores_what_it_deposited(self, factor) -> None:
+        from fastmdxplora.analysis.reweighted_averages import deposited_heights
+
+        hills = SimpleNamespace(height=np.array([1.2, 1.2]),
+                                bias_factor=factor)
+        assert deposited_heights(hills).tolist() == [1.2, 1.2]
+
+    def test_the_bias_is_smaller_than_the_stored_sum(self, tmp_path: Path) -> None:
+        """The whole point: summing HILLS as written overstates the bias."""
+        from fastmdxplora.analysis.reweighted_averages import (
+            deposited_heights, weights_for_run)
+        from fastmdxplora.simulation.metad_surface import read_hills
+
+        analysis = _write_run(tmp_path)
+        hills = read_hills(analysis.parent / "simulation" / "HILLS")
+        assert np.all(deposited_heights(hills) < np.asarray(hills.height))
+
+        weights, provenance = weights_for_run(
+            analysis, np.linspace(1.0, 200.0, 40))
+        assert weights is not None
+        assert provenance["largest_disagreement_with_plumed"] is not None
+
+    def test_the_surface_still_uses_the_stored_heights(self) -> None:
+        """The same numbers are correct there. Summing the stored heights is
+        what gives the free energy, which is why the convention exists."""
+        from pathlib import Path as _P
+        import fastmdxplora.simulation.metad_surface as surface
+
+        source = _P(surface.__file__).read_text(encoding="utf-8")
+        assert "deposited_heights" not in source
+
+
+class TestTheCollectiveVariableIsNamed:
+    def test_the_configured_name_beats_plumeds_label(self, tmp_path: Path) -> None:
+        """PLUMED's column is called `cv`, which tells a reader nothing."""
+        analysis = _write_run(tmp_path)
+        (analysis.parent / "simulation" / "simulation_parameters.json").write_text(
+            json.dumps({"temperature_K": 300.0,
+                        "metadynamics": {
+                            "collective_variable": "radius_of_gyration"}}),
+            encoding="utf-8")
+        _, provenance = weights_for_run(analysis, np.linspace(1.0, 200.0, 40))
+        assert provenance["collective_variable"] == "radius_of_gyration"
+        assert provenance["colvar_column"] == "cv"
+
+    def test_without_a_config_the_label_is_kept(self, tmp_path: Path) -> None:
+        analysis = _write_run(tmp_path)
+        _, provenance = weights_for_run(analysis, np.linspace(1.0, 200.0, 40))
+        assert provenance["collective_variable"] == "cv"
+
+
+class TestAHillIsNotFeltAtTheInstantItIsLaid:
+    """PLUMED prints the bias for a step before depositing that step's hill.
+
+    HILLS and COLVAR usually share a stride, so counting the hill as already
+    felt is wrong on every row. On a real 1L2Y run it put the reconstruction
+    out by 1.200 kJ/mol -- exactly the configured hill height, which is what
+    made it identifiable once the larger height-convention error was removed.
+    """
+
+    def test_a_frame_at_a_deposition_time_does_not_feel_that_hill(self) -> None:
+        from fastmdxplora.analysis.reweighted_averages import before_deposition
+        from fastmdxplora.analysis.reweight import bias_at_each_frame
+
+        times = np.arange(1.0, 11.0)
+        hills = SimpleNamespace(
+            time_ps=times, centre=np.zeros(10), sigma=np.full(10, 0.3),
+            height=np.ones(10), bias_factor=1.0)
+
+        felt = bias_at_each_frame(
+            hills.time_ps, hills.centre, hills.sigma, hills.height,
+            frame_times_ps=before_deposition(hills, np.array([5.0])),
+            frame_values=np.array([0.0]))
+        # Hills at 1..4 are laid; the one at 5.0 is not yet felt.
+        assert felt[0] == pytest.approx(4.0, abs=1e-6)
+
+    def test_the_first_frame_feels_nothing(self) -> None:
+        from fastmdxplora.analysis.reweighted_averages import before_deposition
+        from fastmdxplora.analysis.reweight import bias_at_each_frame
+
+        times = np.arange(1.0, 11.0)
+        hills = SimpleNamespace(
+            time_ps=times, centre=np.zeros(10), sigma=np.full(10, 0.3),
+            height=np.ones(10), bias_factor=1.0)
+        felt = bias_at_each_frame(
+            hills.time_ps, hills.centre, hills.sigma, hills.height,
+            frame_times_ps=before_deposition(hills, np.array([1.0])),
+            frame_values=np.array([0.0]))
+        assert felt[0] == 0.0
+
+    def test_the_nudge_is_far_smaller_than_the_interval(self) -> None:
+        """It must clear the boundary without reaching the previous hill."""
+        from fastmdxplora.analysis.reweighted_averages import before_deposition
+
+        hills = SimpleNamespace(time_ps=np.arange(0.0, 100.0, 2.0))
+        moved = before_deposition(hills, np.array([50.0]))
+        assert 0.0 < 50.0 - moved[0] < 1.0
+
+    def test_a_single_hill_is_left_alone(self) -> None:
+        """No interval to measure, and nothing to be wrong about."""
+        from fastmdxplora.analysis.reweighted_averages import before_deposition
+
+        hills = SimpleNamespace(time_ps=np.array([1.0]))
+        assert before_deposition(hills, np.array([5.0]))[0] == 5.0
+
+    def test_no_frames_is_not_an_error(self) -> None:
+        from fastmdxplora.analysis.reweighted_averages import before_deposition
+
+        hills = SimpleNamespace(time_ps=np.arange(10.0))
+        assert before_deposition(hills, np.array([])).size == 0

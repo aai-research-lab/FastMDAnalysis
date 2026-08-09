@@ -184,6 +184,38 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   system is a PDB identifier, not a file.
 
 ### Fixed
+- **The reconstructed bias was 11.1% too large on every well-tempered run.**
+  PLUMED does not store the height it deposited. For a well-tempered run it
+  stores that height multiplied by y/(y-1), so that summing HILLS gives the
+  free energy directly -- which is the convention the free energy surface
+  relies on and which stays. Reconstructing the *bias* needs it undone, and it
+  was not: a run asking for 1.2 kJ/mol had 1.333 in HILLS, and every bias
+  summed from that file was too large by the same ninth.
+
+  It does not cancel. Both V and c(t) scale by the same factor, so their
+  difference scales too, and the weights go as exp((V - c(t))/RT) -- a scaled
+  exponent is an effective-temperature error, which sharpens the weights,
+  understates the effective sample size and biases every average resting on
+  them. Found by comparing against PLUMED's own record of the same quantity on
+  a real 1L2Y run, which disagreed by 11.5% of the bias range while every unit
+  test passed, because the test fixture wrote HILLS the convenient way rather
+  than the way PLUMED writes it. The fixture now writes what PLUMED writes.
+
+- **A hill was felt at the instant it was laid.** PLUMED prints the bias for
+  a step before depositing that step's hill, and HILLS and COLVAR usually
+  share a stride, so counting the hill as already felt was wrong on every
+  row. On a real run it left the reconstruction out by 1.200 kJ/mol against
+  PLUMED's own record -- exactly the configured hill height, which is what
+  identified it once the larger height-convention error was removed. The
+  frames and the c(t) checkpoints now take the same boundary, and the test
+  fixture computes its reference bias the way PLUMED reports it rather than
+  the way that was easier to write.
+
+- **The collective variable was recorded as `cv`.** That is PLUMED's label for
+  the column, not the name of what was biased, and it is what the provenance
+  record carried. The configured name is used where it can be found, with the
+  label kept beside it.
+
 - **A run did not record its own box.** The setup record kept the atom count
   -- added because a methods section has to state it and it was only ever
   logged -- and not the periodic cell, which a methods section states for the

@@ -161,12 +161,79 @@ NOT_REWEIGHTABLE = {
 }
 
 
+def _configured_cv(output_dir: Path) -> str | None:
+    """What the run was told to bias, as opposed to what PLUMED labelled it."""
+    path = _find(output_dir, "simulation_parameters.json")
+    if path is None:
+        return None
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    for holder in (record, record.get("plan") or {},
+                   record.get("parameters") or {}):
+        if not isinstance(holder, dict):
+            continue
+        metad = holder.get("metadynamics")
+        if isinstance(metad, dict) and metad.get("collective_variable"):
+            return str(metad["collective_variable"])
+    return None
+
+
+def before_deposition(hills: Any, times_ps: Any) -> np.ndarray:
+    """Frame times nudged so a hill laid *at* time t is not felt at time t.
+
+    PLUMED prints the bias for a step before depositing that step's hill, and
+    HILLS and COLVAR usually share a stride, so counting a hill as felt at its
+    own deposition time is wrong on every row. On a real run it put the
+    reconstruction out by 1.200 kJ/mol against PLUMED's own record -- exactly
+    one hill at the configured height, which is what made it identifiable.
+
+    The nudge is a small fraction of the deposition interval, which is the
+    smallest time difference that matters here, so it moves each frame off the
+    boundary without moving it past the previous hill.
+    """
+    times = np.asarray(times_ps, dtype=float)
+    deposition = np.asarray(hills.time_ps, dtype=float)
+    if times.size == 0 or deposition.size < 2:
+        return times
+    gaps = np.diff(np.sort(deposition))
+    interval = float(np.min(gaps[gaps > 0])) if np.any(gaps > 0) else 0.0
+    return times - 1e-6 * interval
+
+
 def biasing_method(output_dir: Path) -> str | None:
     """Which method biased this run, from what it left on disk."""
     for method, marker in METHOD_MARKERS:
         if _find(output_dir, marker) is not None:
             return method
     return None
+
+
+def deposited_heights(hills: Any) -> np.ndarray:
+    """The heights actually added to the bias, from what HILLS records.
+
+    For a well-tempered run PLUMED does not store the height it deposited. It
+    stores that height multiplied by y/(y-1), where y is the bias factor, so
+    that summing the file gives the free energy directly -- which is the
+    convention `metad_surface` relies on and must keep.
+
+    Reconstructing the *bias* needs it undone. Summing the stored heights
+    overstates the bias by y/(y-1): 11.1% at a bias factor of 10, which is
+    what a real run showed against PLUMED's own record of the same quantity.
+    That error does not cancel between V and c(t) -- both scale by the same
+    factor, so their difference scales too, and since the weights go as
+    exp((V - c(t))/RT) a scaled exponent is an effective-temperature error.
+    It sharpens the weights, understates the effective sample size, and
+    biases every average that rests on them.
+
+    A run that was not tempered stores what it deposited, and needs nothing.
+    """
+    heights = np.asarray(hills.height, dtype=float)
+    factor = float(getattr(hills, "bias_factor", 1.0) or 1.0)
+    if factor <= 1.0:
+        return heights
+    return heights * (factor - 1.0) / factor
 
 
 # ---------------------------------------------------------------------------
@@ -209,7 +276,7 @@ def c_of_t(hills: Any, times_ps: np.ndarray, temperature_K: float) -> np.ndarray
     hill_times = np.asarray(hills.time_ps, dtype=float)[order]
     centres = np.asarray(hills.centre, dtype=float)[order]
     sigmas = np.asarray(hills.sigma, dtype=float)[order]
-    heights = np.asarray(hills.height, dtype=float)[order]
+    heights = deposited_heights(hills)[order]
 
     span = 3.0 * float(np.max(sigmas))
     grid = np.linspace(float(np.min(centres)) - span,
@@ -219,7 +286,9 @@ def c_of_t(hills: Any, times_ps: np.ndarray, temperature_K: float) -> np.ndarray
     checkpoints = np.linspace(float(np.min(times_ps)),
                               float(np.max(times_ps)),
                               min(C_OF_T_CHECKPOINTS, max(2, times_ps.size)))
-    upto = np.searchsorted(hill_times, checkpoints, side="right")
+    # Same boundary as the frames: a hill is not felt at the instant it
+    # is laid. See `before_deposition`.
+    upto = np.searchsorted(hill_times, checkpoints, side="left")
 
     factor = float(hills.bias_factor)
     if factor > 1.0:
@@ -321,9 +390,10 @@ def weights_for_run(
     # one or two frames that can fall outside by a single stride.
     frame_cv = np.interp(times, colvar["time"], colvar[cv_name])
 
+    heights = deposited_heights(hills)
     felt = bias_at_each_frame(
-        hills.time_ps, hills.centre, hills.sigma, hills.height,
-        frame_times_ps=times, frame_values=frame_cv)
+        hills.time_ps, hills.centre, hills.sigma, heights,
+        frame_times_ps=before_deposition(hills, times), frame_values=frame_cv)
 
     temperature, measured = _temperature(output_dir)
 
@@ -355,8 +425,9 @@ def weights_for_run(
     bias_column = next((name for name in colvar if name.endswith("bias")), None)
     if bias_column is not None and colvar[bias_column].size > 1:
         ours = bias_at_each_frame(
-            hills.time_ps, hills.centre, hills.sigma, hills.height,
-            frame_times_ps=colvar["time"], frame_values=colvar[cv_name])
+            hills.time_ps, hills.centre, hills.sigma, heights,
+            frame_times_ps=before_deposition(hills, colvar["time"]),
+            frame_values=colvar[cv_name])
         theirs = colvar[bias_column]
         spread = float(np.max(theirs) - np.min(theirs))
         if spread > 0:
@@ -367,7 +438,11 @@ def weights_for_run(
         "reason": None,
         "hills": len(hills),
         "bias_factor": hills.bias_factor,
-        "collective_variable": cv_name,
+        # PLUMED's column label is whatever the script called it -- "cv" --
+        # which tells a reader nothing about what was biased. The configured
+        # name is kept where it can be found, with the label beside it.
+        "collective_variable": _configured_cv(output_dir) or cv_name,
+        "colvar_column": cv_name,
         "temperature_K": temperature,
         "temperature_from_record": measured,
         "settled": settled,
