@@ -175,6 +175,25 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   system is a PDB identifier, not a file.
 
 ### Fixed
+- **A run did not record its own box.** The setup record kept the atom count
+  -- added because a methods section has to state it and it was only ever
+  logged -- and not the periodic cell, which a methods section states for the
+  same reason. Diagnosing a failed run meant reading CRYST1 out of
+  `solvated.pdb` by hand to find out whether the box had ever been big enough
+  for the cutoff. It now records the vectors, the perpendicular widths, the
+  volume and the largest cutoff the box can carry. The widths matter rather
+  than the edge lengths: for a rhombic dodecahedron the smallest width is the
+  edge over root two, so reading the edge alone overstates the room by 40%.
+
+- **The line announcing a bias said it was happening, not that it would.**
+  All three methods print where their PLUMED script is written, which is
+  before minimisation, in the present tense -- "Metadynamics biasing
+  radius_of_gyration". Biasing is added just before production and
+  equilibration runs unbiased, correctly, but the log read as though the bias
+  were live from the first step. It sent the diagnosis of a real failed run
+  off after the bias for a while when equilibration was the only thing that
+  had run. All three now say which stage they apply to.
+
 - **A NaN raised by the integrator never reached the diagnosis written for
   it.** The module that reads a failed state -- which atoms went non-finite,
   what residues they belong to, and what that points at -- was wired only to

@@ -1010,7 +1010,8 @@ def run_simulation(
             window.plumed_lines(cv_lines(cv_plan, str(topology_path))),
             encoding="utf-8")
         logger.info(
-            "Umbrella window %d: holding %s at %g with k=%g.",
+            "Umbrella window %d prepared: production holds %s at %g with "
+            "k=%g. The restraint applies to production only.",
             window.index, cv_plan.collective_variable, window.centre,
             window.force_constant)
         plumed = {"enabled": True, "script": str(script_path)}
@@ -1046,8 +1047,9 @@ def run_simulation(
 
         rate = steered_plan.rate_per_ns(timestep_fs)
         logger.info(
-            "Steering %s to %g over %s steps%s. This gives a pathway and the "
-            "work done along it, not a free energy.",
+            "Steered pull prepared: production steers %s to %g over %s "
+            "steps%s. This gives a pathway and the work done along it, not a "
+            "free energy.",
             steered_plan.cv.collective_variable, steered_plan.to_value,
             f"{steered_plan.steps:,}",
             f" ({rate:.3g} per ns)" if rate is not None else "",
@@ -1080,7 +1082,8 @@ def run_simulation(
         script_path.parent.mkdir(parents=True, exist_ok=True)
         script_path.write_text(script, encoding="utf-8")
         logger.info(
-            "Metadynamics biasing %s. %s",
+            "Metadynamics prepared on %s. %s The bias is applied to "
+            "production only; minimisation and equilibration run unbiased.",
             bias_plan.collective_variable,
             "Well-tempered." if bias_plan.bias_factor > 1 else
             "Not well-tempered: the bias will not settle and the surface "

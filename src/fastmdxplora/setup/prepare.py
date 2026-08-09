@@ -683,8 +683,61 @@ def prepare_system(
         # this was the only place that knew -- it was logged to the terminal
         # and then discarded, so the report had to call it unrecorded.
         "n_atoms_solvated": n_atoms_solvated,
+        # And the box, for exactly the same reason. A methods section states
+        # the periodic cell, and diagnosing a failed run means asking whether
+        # the box was ever big enough for the cutoff -- a question that had to
+        # be answered by reading CRYST1 out of solvated.pdb by hand, because
+        # nothing recorded it. The perpendicular widths are what the minimum
+        # image convention constrains, and for a dodecahedron they are shorter
+        # than the edge lengths, so both are kept.
+        "box": _box_record(modeller),
     }
 
+
+def _box_record(modeller: Any) -> dict[str, Any] | None:
+    """The periodic cell, in the terms the cutoff is actually judged against.
+
+    ``box_vectors`` are what OpenMM holds. ``perpendicular_widths_nm`` are the
+    diagonal components, which is the quantity the minimum image convention
+    limits: a cutoff has to be at most half the smallest of them. For a
+    rhombic dodecahedron the smallest is the edge divided by root two, so
+    reading the edge alone overstates the room available by 40%.
+    """
+    try:
+        vectors = modeller.topology.getPeriodicBoxVectors()
+        if vectors is None:
+            return None
+        # OpenMM is present in any real setup, and asking it for nanometres is
+        # the only way to be sure of the units. Where it is absent the vectors
+        # are already plain numbers, and reading them is better than recording
+        # nothing -- but the conversion is never skipped when it is available,
+        # because a box recorded in the wrong units is worse than no box.
+        try:
+            from openmm import unit  # noqa: PLC0415 -- optional backend
+
+            nanometre = unit.nanometer
+        except ImportError:
+            nanometre = None
+
+        rows = [
+            [float(component.value_in_unit(nanometre))
+             if nanometre is not None else float(component)
+             for component in vector]
+            for vector in vectors
+        ]
+    except Exception:  # noqa: BLE001 -- a box that cannot be read is not a
+        # reason to fail a setup that otherwise succeeded.
+        return None
+
+    widths = [rows[i][i] for i in range(3)]
+    volume = widths[0] * widths[1] * widths[2]
+    return {
+        "vectors_nm": rows,
+        "perpendicular_widths_nm": widths,
+        "smallest_width_nm": min(widths),
+        "volume_nm3": volume,
+        "largest_usable_cutoff_nm": 0.5 * min(widths),
+    }
 
 def _normalize_ligands(
     ligand: str | Path | list[str | Path] | None,

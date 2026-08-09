@@ -338,13 +338,18 @@ class TestPrepareSystem:
         assert (out / "topology.pdb").exists()
         assert (out / "system.xml").exists()
         assert (out / "state.xml").exists()
-        # The files. Preparation also reports the system size, which the
-        # methods section has to state and which was previously only logged --
-        # it is not an artifact, so it is checked separately below.
+        # The files. Preparation also reports things the methods section has
+        # to state and that were previously only logged -- the system size and
+        # the box -- which are provenance rather than artifacts. Splitting on
+        # what a value *is* rather than naming each exception keeps this from
+        # needing an edit every time the record learns something new.
         assert artifacts["n_atoms_solvated"] == 42
-        assert {k for k, v in artifacts.items() if k != "n_atoms_solvated"} == {
+        paths = {k for k, v in artifacts.items()
+                 if isinstance(v, (str, Path))}
+        assert paths == {
             "solvated_pdb", "topology_pdb", "system_xml", "state_xml"
         }
+        assert "box" in artifacts
 
 
 # ===========================================================================
