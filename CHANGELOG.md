@@ -175,6 +175,22 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   system is a PDB identifier, not a file.
 
 ### Fixed
+- **A NaN raised by the integrator never reached the diagnosis written for
+  it.** The module that reads a failed state -- which atoms went non-finite,
+  what residues they belong to, and what that points at -- was wired only to
+  the check that runs at a stage boundary. OpenMM detects a non-finite
+  coordinate during integration and throws, so that check never ran, and the
+  common way a simulation dies fell through to the generic list of settings to
+  try that the diagnosis exists to replace. A real 1L2Y run hit it after
+  eighteen minutes and was told to lower the timestep, lower the temperature,
+  raise the friction or turn off NPT, without anything knowing which applied.
+
+  Both `step()` sites now recover the state from the context, which survives
+  the exception and still holds the coordinates that went wrong. OpenMM's own
+  message is kept beside the diagnosis rather than replaced by it: it says
+  what the integrator noticed and links to its FAQ, while the diagnosis says
+  which atoms it happened to.
+
 - **An umbrella window and a steered pull reported their averages as though
   the run had been ordinary.** Metadynamics gained a reweighted column and an
   effective sample size beside every mean; the other two biased methods gained

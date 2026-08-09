@@ -496,8 +496,13 @@ def _validation_error(stage: str, detail: str, *, topology: Any = None,
         try:
             from fastmdxplora.simulation.diagnose import diagnose_failure
 
+            # OpenMM's own words are kept beside the diagnosis rather than
+            # replaced by it. They say what the integrator noticed, which is
+            # searchable and links to its FAQ; the diagnosis says which atoms
+            # it happened to. Neither substitutes for the other.
             return RuntimeError(
-                diagnose_failure(topology, positions, stage=stage).as_text())
+                f"{diagnose_failure(topology, positions, stage=stage).as_text()}"
+                f"\n\nOpenMM reported: {detail}.")
         except Exception:  # noqa: BLE001 - a diagnosis that fails is not the
             # failure worth reporting; fall through to the general message.
             pass
@@ -567,6 +572,30 @@ def _validate_state_finite(omm: dict, simulation: Any, *, stage: str) -> None:
             topology=simulation.topology, positions=positions)
 
 
+def _state_for_diagnosis(simulation: Any) -> tuple[Any, Any]:
+    """The positions a failed step left behind, where they can be read.
+
+    OpenMM detects a non-finite coordinate during integration and throws, so
+    the stage-boundary check that would have read the state never runs -- and
+    that is the common way a simulation dies, not the rare one. The context
+    survives the exception and still holds the positions that went wrong,
+    which are the whole evidence: which atoms, and what they belong to,
+    separates a bad ligand parameter from a packing problem from an
+    integration failure, and the remedies differ.
+    """
+    try:
+        state = simulation.context.getState(getPositions=True)
+        try:
+            positions = state.getPositions(asNumpy=True)
+        except TypeError:
+            positions = state.getPositions()
+        return simulation.topology, positions
+    except Exception:  # noqa: BLE001 - a state that cannot be read is not
+        # the failure worth reporting; the caller falls back to the general
+        # message rather than losing the original error.
+        return None, None
+
+
 def _run_md_stage(
     simulation: Any,
     *,
@@ -598,8 +627,10 @@ def _run_md_stage(
         try:
             simulation.step(this)
         except Exception as exc:  # noqa: BLE001
+            failed_topology, failed_positions = _state_for_diagnosis(simulation)
             raise _validation_error(
-                label, f"OpenMM integration failed ({exc})") from exc
+                label, f"OpenMM integration failed ({exc})",
+                topology=failed_topology, positions=failed_positions) from exc
         done += this
         if on_step_progress is not None:
             elapsed = _time.monotonic() - started
@@ -649,7 +680,10 @@ def _run_md_stage_with_live_metrics(
         try:
             simulation.step(chunk)
         except Exception as exc:  # noqa: BLE001
-            raise _validation_error(label, f"OpenMM integration failed ({exc})") from exc
+            failed_topology, failed_positions = _state_for_diagnosis(simulation)
+            raise _validation_error(
+                label, f"OpenMM integration failed ({exc})",
+                topology=failed_topology, positions=failed_positions) from exc
         current_step += chunk
         remaining -= chunk
         # Frames written so far, from steps actually run. The count used to
