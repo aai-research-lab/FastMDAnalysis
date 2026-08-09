@@ -176,7 +176,51 @@ against another tool:
   configuring around.
 
 **Writes** `analysis/<name>/` per analysis, each with `<name>.dat`,
-`<name>.png`, `<name>.svg` and `options.json`.
+`<name>.png`, `<name>.svg` and `options.json`. On a biased run it also writes
+`analysis/reweighted/`, which holds `reweighted_averages.json` and, where
+there were averages to correct, a `.dat` table and a figure. It has no
+`options.json` because it is not an analysis with options: it is a pass over
+the ones that already ran.
+
+### Averages on a biased run
+
+A metadynamics trajectory is not a Boltzmann ensemble. The bias flattened it
+on purpose, so a mean over its frames is an average over a distribution nobody
+wanted, and reported without qualification it reads as a measurement of the
+system.
+
+Where the bias is known it can be undone. Each frame is weighted by
+`exp((V - c(t))/RT)`, with `V` the bias that frame was actually sampled under
+-- the hills laid down before it, not the fully deposited surface -- and
+`c(t)` the Tiwary-Parrinello offset. Both details matter. Weighting by the
+final surface inflates early frames, which were sampled under almost no bias
+at all. And without `c(t)` the weights rank frames by *when they were
+written* rather than by where the system was, because the bias grows as hills
+accumulate: on a converged well-tempered test run, the last fifth of the
+frames carried the entire weight and an average over five hundred rested on
+seven of them.
+
+The corrected value is reported first and the biased one beside it, so the
+size of the correction stays visible, and the **effective sample size** is
+printed with it rather than in a footnote. A reweighted mean over a thousand
+frames whose weight sits in five of them is a mean over five, and there is no
+arrangement of a document in which that should be readable without the five.
+
+Analyses reporting one value per frame are corrected -- RMSD, radius of
+gyration, hydrogen bonds, SASA, the fraction of native contacts, ligand RMSD
+-- along with cluster populations, which are weighted counts. What reweighting does not fix is
+which clusters exist: the clustering ran on the biased frames, so the states
+themselves are shaped by where the bias sent the system. The dimensionality
+reduction is not corrected at all, because a projection is not an average.
+
+The other two methods get no correction, and this is a property of the
+methods rather than a gap. An umbrella window is a system held where it was
+put; its averages describe it there, they are not comparable between windows,
+and what combines the windows is the potential of mean force. A steered pull
+is not an equilibrium ensemble at all. For both, the averages are still
+reported -- they describe what the run did -- and are labelled as being of a
+biased ensemble wherever they appear, including in the dashboard's metrics
+table.
 
 ---
 

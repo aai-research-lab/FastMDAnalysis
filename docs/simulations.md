@@ -209,6 +209,15 @@ The collective variable and the bias are written to `COLVAR` every deposition,
 because a run whose convergence cannot be checked has not measured a free
 energy.
 
+### What the analyses do with it
+
+Every analysis still runs on a metadynamics trajectory, and every mean they
+report is an average over the flattened ensemble rather than the real one. The
+analysis phase corrects the ones a weighted average is meaningful for and
+labels the rest; see [Averages on a biased
+run](phases.md#averages-on-a-biased-run) for what is corrected, what is not,
+and why an umbrella window and a steered pull cannot be.
+
 ### Bounding where the ligand goes
 
 A run biasing a ligand's distance will, given time, push the ligand out into
@@ -406,7 +415,10 @@ This covers one-dimensional well-tempered metadynamics on eight variables, with
 walls or a funnel. Beyond that, write PLUMED input and pass it as `plumed`:
 
 - **two or more collective variables** — a 2D free energy surface
-- **reweighting** to a variable that was not biased
+- **reweighting to a variable that was not biased** — averages over the
+  biased run are corrected automatically (see
+  [Averages on a biased run](phases.md#averages-on-a-biased-run)), but
+  projecting the free energy onto a *different* coordinate is PLUMED's job
 - **multiple walkers**, path collective variables, and the rest of PLUMED
 
 The two mechanisms are the same underneath; the block is a shorter way to

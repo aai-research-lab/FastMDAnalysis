@@ -8,6 +8,15 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Added
+- **The reweighting is documented.** What the analysis phase writes to
+  `analysis/reweighted/`, the estimator it uses and why it carries the c(t)
+  offset, which analyses are corrected and which are not, and why an umbrella
+  window and a steered pull cannot be. The two details that are easy to get
+  wrong are stated rather than left implicit: weighting by the final surface
+  inflates early frames, and without c(t) the weights rank frames by when they
+  were written instead of by where the system was. Pinned by tests, so an
+  analysis that gains a correction and does not gain a sentence fails.
+
 - **Each enhanced-sampling method reports the result it exists to produce.**
   A metadynamics run wrote its free energy surface to JSON and stopped there:
   no figure, no entry in the analysis manifest, no mention in the report.

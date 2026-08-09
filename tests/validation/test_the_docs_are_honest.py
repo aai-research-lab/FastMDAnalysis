@@ -120,3 +120,54 @@ class TestTheCountsInTheReadmeHold:
         text = (DOCS / "simulations.md").read_text(encoding="utf-8")
         for lipid in LIPIDS:
             assert lipid in text, f"{lipid} is offered and never documented"
+
+
+class TestTheReweightingIsDescribedAsBuilt:
+    """The estimator and its limits are claims about the code, and the code
+    can check the ones that are structural."""
+
+    @staticmethod
+    def _section() -> str:
+        """The section with its line wrapping flattened.
+
+        Prose wraps where the column runs out, so "radius of gyration" spans
+        a newline. A test that fails when a paragraph is rewrapped is a test
+        that gets deleted rather than fixed."""
+        import re
+        text = (DOCS / "phases.md").read_text(encoding="utf-8")
+        start = text.index("### Averages on a biased run")
+        return re.sub(r"\s+", " ", text[start:text.index("## report", start)])
+
+    def test_the_estimator_is_named_with_its_offset(self) -> None:
+        """Without c(t) the weights rank frames by when they were written.
+        Documenting exp(V/RT) alone would describe a different estimator."""
+        section = self._section()
+        assert "c(t)" in section
+        assert "Tiwary" in section
+
+    def test_every_reweighted_analysis_is_named(self) -> None:
+        import re
+        section = self._section().lower()
+        for name, cls in _REGISTRY.items():
+            if not getattr(cls, "reweightable", None):
+                continue
+            label = cls.reweightable[1].split(" (")[0].lower()
+            assert label in section, (
+                f"{name} is reweighted and the docs never say so")
+
+    def test_what_is_not_corrected_is_said(self) -> None:
+        section = self._section()
+        assert "dimensionality reduction is not corrected" in section
+        # Populations are corrected; which clusters exist is not.
+        assert "which clusters exist" in section
+
+    def test_the_two_methods_without_weights_are_explained(self) -> None:
+        section = self._section()
+        assert "umbrella window" in section.lower()
+        assert "steered pull" in section.lower()
+        assert "potential of mean force" in section
+
+    def test_the_output_directory_is_documented(self) -> None:
+        text = (DOCS / "phases.md").read_text(encoding="utf-8")
+        assert "analysis/reweighted/" in text
+        assert "reweighted_averages.json" in text
