@@ -64,6 +64,8 @@ from fastmdxplora.analysis.orchestrator import (
 # imported below adds its class to the registry. The order determines the
 # canonical execution order when ``include`` / ``exclude`` are not passed.
 from fastmdxplora.analysis import pmf as _pmf  # noqa: F401, E402
+from fastmdxplora.analysis import metad_surface as _metad_surface  # noqa: F401, E402
+from fastmdxplora.analysis import steered_work as _steered_work  # noqa: F401, E402
 from fastmdxplora.analysis import rmsd as _rmsd  # noqa: F401, E402
 from fastmdxplora.analysis import rmsf as _rmsf  # noqa: F401, E402
 from fastmdxplora.analysis import rg as _rg  # noqa: F401, E402

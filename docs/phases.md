@@ -106,6 +106,8 @@ and the settings it used.
 | `pl_hbonds` | hydrogen bonds between them |
 | `pl_interactions` | what holds the ligand: eight interaction types, each against a published criterion |
 | `pmf` | the free energy along an umbrella study's coordinate, drawn from the windows it stitched. Runs where such a study produced one, and reads its result rather than recomputing it |
+| `metad_surface` | the free energy surface a metadynamics run filled, drawn from its hills. Runs where such a run produced one, and draws a provisional surface as readily as a settled one, saying which it is |
+| `steered_work` | the work done by a steered pull, against the coordinate. The curve rather than the total, because a pull that accumulated work smoothly met resistance all the way and one that accumulated it in a step snapped past something -- and the total is the same either way. A pathway, not a free energy |
 
 `water_sites` finds the waters that are part of a binding site rather than
 passing through — a water wedged between a ligand and a backbone carbonyl,

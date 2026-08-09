@@ -77,6 +77,18 @@ class QValue(Analysis):
     ``qvalue.png`` — Time series of Q vs. frame/time.
     """
 
+    #: The shortest chain this can say anything about.
+    #:
+    #: Q measures how much of a fold is intact, from contacts between
+    #: residues far enough apart in sequence to probe tertiary structure. A
+    #: chain shorter than `min_seq_separation + 1` residues has no such pair,
+    #: and no fold for them to describe. Raising there recorded a failed
+    #: analysis for a peptide that simply has no tertiary structure -- the
+    #: same category error `requires_water` exists to avoid, where "there is
+    #: no water here" was a failed phase rather than a question that did not
+    #: apply.
+    requires_tertiary_structure = True
+
     name = "qvalue"
     time_series = True
     description = "Native contact fraction (Q)"

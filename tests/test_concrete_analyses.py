@@ -2719,3 +2719,76 @@ class TestASelectionThatIsNotProtein:
                   / "pl_interactions.py").read_text(encoding="utf-8")
         assert "residues_not_examined_for_charge_or_rings" in source
         assert "residues_not_covered" in source
+
+
+class TestAPeptideTooShortToFoldIsNotAFailure:
+    """Q measures how much of a fold is intact, from contacts between
+    residues far enough apart in sequence to probe tertiary structure. A
+    tripeptide has no such pair, and the analysis raised -- recording a
+    failed analysis for a peptide that simply has no tertiary structure.
+
+    The same category error `requires_water` exists to avoid: "there is no
+    water here" was a failed phase rather than a question that did not
+    apply."""
+
+    def _peptide(self, residues: int):
+        import mdtraj as md
+        import numpy as np
+
+        top = md.Topology()
+        chain = top.add_chain()
+        for _ in range(residues):
+            residue = top.add_residue("ALA", chain)
+            for name, element in (
+                ("N", md.element.nitrogen), ("CA", md.element.carbon),
+                ("C", md.element.carbon), ("O", md.element.oxygen),
+            ):
+                top.add_atom(name, element, residue)
+        xyz = np.random.default_rng(0).normal(
+            scale=0.3, size=(2, residues * 4, 3))
+        return md.Trajectory(xyz, top)
+
+    def _planned(self, tmp_path, residues: int):
+        from fastmdxplora.analysis.orchestrator import AnalysisOrchestrator
+
+        trajectory = self._peptide(residues)
+        trajectory.save_pdb(str(tmp_path / "t.pdb"))
+        trajectory.save_dcd(str(tmp_path / "t.dcd"))
+        orchestrator = AnalysisOrchestrator(
+            trajectory=str(tmp_path / "t.dcd"),
+            topology=str(tmp_path / "t.pdb"),
+            output_dir=str(tmp_path / "analysis"))
+        return orchestrator._build_plan(None, None)
+
+    def test_a_tripeptide_does_not_run_it(self, tmp_path) -> None:
+        assert "qvalue" not in self._planned(tmp_path, 3)
+
+    def test_nor_does_a_chain_exactly_as_long_as_the_separation(
+        self, tmp_path
+    ) -> None:
+        """Four residues, separation four: the pair would be a residue with
+        itself."""
+        assert "qvalue" not in self._planned(tmp_path, 4)
+
+    def test_the_shortest_chain_that_has_a_pair_does(self, tmp_path) -> None:
+        assert "qvalue" in self._planned(tmp_path, 5)
+
+    def test_a_protein_does(self, tmp_path) -> None:
+        assert "qvalue" in self._planned(tmp_path, 12)
+
+    def test_it_is_declared_rather_than_inferred(self) -> None:
+        """So the gate reads the analysis's own requirement rather than
+        hard-coding which analyses are about folds."""
+        from fastmdxplora.analysis.qvalue import QValue
+
+        assert QValue.requires_tertiary_structure is True
+
+    def test_the_gate_uses_the_analysis_own_separation(self) -> None:
+        """A user who sets `min_seq_separation: 10` needs eleven residues,
+        not five."""
+        import inspect
+
+        from fastmdxplora.analysis import orchestrator
+
+        source = inspect.getsource(orchestrator)
+        assert 'getattr(cls, "min_seq_separation", 4)' in source

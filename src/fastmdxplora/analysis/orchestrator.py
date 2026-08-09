@@ -358,6 +358,50 @@ class AnalysisOrchestrator:
             return any((parent / "pmf.json").is_file()
                        for parent in (here, here.parent, here.parent.parent))
 
+        def _metadynamics_ok(name: str) -> bool:
+            """A surface exists only where a metadynamics run produced one.
+
+            Read from the record beside the run rather than from the config,
+            so a study that asked for metadynamics and refused a surface is
+            told apart from one that never ran it.
+            """
+            cls = _REGISTRY[name]
+            if not getattr(cls, "requires_metadynamics", False):
+                return True
+            here = Path(self.output_dir)
+            return any(
+                (parent / "metadynamics_surface.json").is_file()
+                or (parent / "simulation" / "metadynamics_surface.json").is_file()
+                for parent in (here, here.parent))
+
+        def _fold_ok(name: str) -> bool:
+            """A fold analysis needs a chain long enough to have one.
+
+            Q reports the fraction of native tertiary contacts retained, and
+            a tripeptide has no residue pair far enough apart in sequence to
+            make one. Reported as an error, that read as an analysis that
+            broke rather than one that did not apply.
+            """
+            cls = _REGISTRY[name]
+            if not getattr(cls, "requires_tertiary_structure", False):
+                return True
+            traj = getattr(self, "traj", None)
+            if traj is None:
+                return True
+            separation = int(getattr(cls, "min_seq_separation", 4) or 4)
+            return traj.n_residues > separation
+
+        def _steered_ok(name: str) -> bool:
+            """A pull's record exists only where a steered run produced one."""
+            cls = _REGISTRY[name]
+            if not getattr(cls, "requires_steered", False):
+                return True
+            here = Path(self.output_dir)
+            return any(
+                (parent / "steered_work.json").is_file()
+                or (parent / "simulation" / "steered_work.json").is_file()
+                for parent in (here, here.parent))
+
         def _water_ok(name: str) -> bool:
             """Likewise for water. An analysis of where water sits has nothing
             to say about a system with none -- an implicit-solvent run, or a
@@ -390,13 +434,16 @@ class AnalysisOrchestrator:
             return [
                 n for n in all_names
                 if n not in exclude and _ligand_ok(n) and _water_ok(n)
-                and _umbrella_ok(n)
+                and _umbrella_ok(n) and _metadynamics_ok(n)
+                and _steered_ok(n) and _fold_ok(n)
             ]
 
         # Default plan: everything except ligand-only analyses when there is
         # no ligand. With a ligand, the ligand analyses run automatically.
         return [n for n in all_names
-                if _ligand_ok(n) and _water_ok(n) and _umbrella_ok(n)]
+                if _ligand_ok(n) and _water_ok(n) and _umbrella_ok(n)
+                and _metadynamics_ok(n) and _steered_ok(n)
+                and _fold_ok(n)]
 
     def _merge_options(
         self,

@@ -49,6 +49,10 @@ ANALYSIS_NAMES = (
     # Reads the umbrella study's result rather than the trajectory, and runs
     # only where such a study produced one.
     "pmf",
+    # Reads the metadynamics run's own surface, where one was produced.
+    "metad_surface",
+    # Reads the pull's own record, where a steered run produced one.
+    "steered_work",
 )
 
 
@@ -536,10 +540,13 @@ ANALYSIS = PhaseSchema(
               example="simulation/topology.pdb"),
         Field("include", list, None,
               "Subset of analyses to run. Default: every analysis the "
-              "system supports -- ten always, water sites where the "
+              "system supports -- nine always, the fraction of native "
+              "contacts where the chain is long enough to have a fold, "
+              "water sites where the "
               "trajectory has water, five more where there is a ligand, and "
               "the potential of mean force where an umbrella study produced "
-              "one. "
+              "one, the free energy surface where a metadynamics run "
+              "did, and the work done where a pull was steered. "
               "Mutually exclusive with `exclude`.",
               choices=ANALYSIS_NAMES,
               example=["rmsd", "rmsf", "rg", "cluster"]),

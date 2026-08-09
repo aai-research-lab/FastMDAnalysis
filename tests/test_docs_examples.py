@@ -638,7 +638,7 @@ class TestNobodyCountsTheAnalysesTwice:
 
         described = PHASE_SCHEMAS["analysis"].get("include").help
         assert "all ten" not in described
-        assert "ten always" in described
+        assert "nine always" in described
 
         # The split, not the total. Ten unconditional, water sites where
         # there is water, five where there is a ligand, and the potential of
@@ -648,14 +648,18 @@ class TestNobodyCountsTheAnalysesTwice:
         # number had moved, when what needs updating is the sentence.
         from fastmdxplora.analysis.orchestrator import _REGISTRY
 
+        # Derived rather than listed. Naming each gate meant a new one --
+        # `requires_metadynamics` -- was silently not counted, and the test
+        # failed saying the total had moved rather than that a condition had
+        # been added.
         conditional = {
             name for name, cls in _REGISTRY.items()
-            if getattr(cls, "requires_ligand", False)
-            or getattr(cls, "requires_water", False)
-            or getattr(cls, "requires_umbrella", False)
+            if any(getattr(cls, attribute, False)
+                   for attribute in dir(cls)
+                   if attribute.startswith("requires_"))
         }
-        assert len(available_analyses()) - len(conditional) == 10, (
-            "the help says ten analyses run unconditionally; if that has "
+        assert len(available_analyses()) - len(conditional) == 9, (
+            "the help says nine analyses run unconditionally; if that has "
             "changed, say the new split there too")
         assert "where there is a ligand" in described
         assert "umbrella" in described
