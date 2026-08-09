@@ -257,29 +257,43 @@ class TestAPullThatWroteNoRecordSaysWhy:
     for a function written to fix exactly that: a result available rather
     than reported."""
 
-    def test_a_missing_colvar_is_explained(self, tmp_path, caplog) -> None:
-        import logging
+    def _explanations(self, tmp_path, monkeypatch) -> list[str]:
+        """What the writer said, captured at the logger it uses.
 
+        `caplog` sees nothing here: the project attaches its own handler and
+        the records do not propagate to the root logger pytest hooks into.
+        The messages reach the terminal and not the fixture, so a test built
+        on `caplog` passes where logging is unconfigured and fails inside the
+        project -- which is precisely backwards.
+        """
+        from fastmdxplora.simulation import pipeline
+
+        said: list[str] = []
+        monkeypatch.setattr(
+            pipeline.logger, "info",
+            lambda message, *args, **kwargs: said.append(
+                message % args if args else message))
+        return said
+
+    def test_a_missing_colvar_is_explained(self, tmp_path, monkeypatch) -> None:
         from fastmdxplora.simulation.pipeline import _write_steered_work
 
-        with caplog.at_level(logging.INFO):
-            assert _write_steered_work(tmp_path, {"steered": {}}, None) is None
-        assert "no COLVAR" in caplog.text
+        said = self._explanations(tmp_path, monkeypatch)
+        assert _write_steered_work(tmp_path, {"steered": {}}, None) is None
+        assert any("no COLVAR" in line for line in said), said
 
     def test_a_colvar_without_the_work_column_is_explained(
-        self, tmp_path, caplog
+        self, tmp_path, monkeypatch
     ) -> None:
         """PLUMED prints what the script asked for. A script without
         `pull.work` produces a file that looks fine and holds no work."""
-        import logging
-
         from fastmdxplora.simulation.pipeline import _write_steered_work
 
         (tmp_path / "COLVAR").write_text(
             "#! FIELDS time cv\n 1.0 0.7\n", encoding="utf-8")
-        with caplog.at_level(logging.INFO):
-            assert _write_steered_work(tmp_path, {"steered": {}}, None) is None
-        assert "column" in caplog.text
+        said = self._explanations(tmp_path, monkeypatch)
+        assert _write_steered_work(tmp_path, {"steered": {}}, None) is None
+        assert any("column" in line for line in said), said
 
     def test_a_single_row_is_a_short_pull_not_an_absent_one(
         self, tmp_path
