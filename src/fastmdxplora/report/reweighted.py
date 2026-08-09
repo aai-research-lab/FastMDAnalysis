@@ -47,9 +47,11 @@ def load_reweighted(project_root: Path) -> dict[str, Any] | None:
         return None
     if not isinstance(record, dict):
         return None
-    # A run whose only reweightable result is a clustering has
-    # populations and no means, and is still worth a section.
-    if not record.get("quantities") and not record.get("populations"):
+    # A run whose only reweightable result is a clustering has populations
+    # and no means. A biased run that cannot be reweighted at all has
+    # neither, and is the case that most needs saying.
+    if (not record.get("quantities") and not record.get("populations")
+            and record.get("applies", True)):
         return None
     return record
 
@@ -136,6 +138,19 @@ def reweighted_section(project_root: Path,
         record = load_reweighted(project_root)
     if not record:
         return ""
+
+    # A biased run whose bias cannot be undone. There is no corrected number
+    # to lead with, so what leads is the fact that these are not measurements
+    # of the unbiased system -- which is the more important of the two things
+    # this section exists to say.
+    if not record.get("applies", True):
+        return "\n".join([
+            "### These averages are of a biased ensemble", "",
+            record.get("reason", ""), "",
+            "They are reported because they describe what the run did, and "
+            "they are labelled because reported plainly they would read as "
+            "measurements of the system.", "",
+        ])
 
     ess = record.get("effective_sample_size")
     frames = record.get("n_frames")

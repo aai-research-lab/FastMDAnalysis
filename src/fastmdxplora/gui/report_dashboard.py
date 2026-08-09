@@ -530,7 +530,7 @@ def _metric_rows(project_root: Path, analysis_manifest: dict[str, Any]) -> list[
             )
         )
 
-    if reweighted:
+    if reweighted and reweighted.get("applies", True):
         rows.append(
             MetricRow(
                 metric="Effective frames after reweighting",

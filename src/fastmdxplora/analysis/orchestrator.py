@@ -347,6 +347,22 @@ class AnalysisOrchestrator:
             return
 
         directory = self.output_dir / "reweighted"
+        if not record.get("applies", True):
+            # A biased run with no correction available. There is a record
+            # because the averages need labelling, but no table and no figure.
+            self.results["reweighted"] = AnalysisResult(
+                name="reweighted",
+                status="ok",
+                data=record,
+                output_dir=directory,
+                artifacts=[directory / "reweighted_averages.json"],
+                message=(
+                    f"The bias from {record['biasing_method']} cannot be "
+                    "undone, so the averages above are of the biased "
+                    "ensemble and are labelled as such."),
+            )
+            return
+
         self.results["reweighted"] = AnalysisResult(
             name="reweighted",
             status="ok",

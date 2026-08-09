@@ -298,3 +298,55 @@ class TestPopulationsAreReported:
             self, tmp_path: Path) -> None:
         text = reweighted_section(_project(tmp_path, _record()))
         assert "State populations" not in text
+
+
+class TestAnUncorrectableBiasIsLabelledNotHidden:
+    @staticmethod
+    def _record_not_applicable(method: str = "steered"):
+        return {
+            "n_frames": 500, "applies": False, "biasing_method": method,
+            "reason": ("Production was a steered pull, which is not an "
+                       "equilibrium ensemble."),
+            "quantities": [], "populations": [], "warnings": [],
+        }
+
+    def test_the_record_is_loaded_even_with_no_numbers_in_it(
+            self, tmp_path: Path) -> None:
+        record = self._record_not_applicable()
+        assert load_reweighted(_project(tmp_path, record)) is not None
+
+    def test_the_section_leads_with_what_they_are_not(
+            self, tmp_path: Path) -> None:
+        text = reweighted_section(_project(tmp_path,
+                                           self._record_not_applicable()))
+        assert "biased ensemble" in text
+        assert "not an equilibrium ensemble" in text
+
+    def test_no_reweighted_column_is_offered(self, tmp_path: Path) -> None:
+        """A corrected column here would be the same numbers under a heading
+        claiming they had been corrected."""
+        text = reweighted_section(_project(tmp_path,
+                                           self._record_not_applicable()))
+        assert "Reweighted (equilibrium)" not in text
+        assert "effective frames" not in text
+
+    def test_no_per_analysis_line_claims_a_correction(self) -> None:
+        assert reweighted_line(self._record_not_applicable(), "rmsd") is None
+
+    def test_the_dashboard_labels_every_metric_biased(
+            self, tmp_path: Path) -> None:
+        from fastmdxplora.gui.report_dashboard import _metric_rows
+
+        root = TestTheDashboardTableIsCorrectedToo._dashboard_project(
+            tmp_path, self._record_not_applicable("umbrella"))
+        rows = _metric_rows(root, {})
+        named = [r.metric for r in rows if r.metric.startswith(("RMSD", "RMSF"))]
+        assert all("biased ensemble" in n for n in named), named
+
+    def test_no_effective_frame_row_is_shown(self, tmp_path: Path) -> None:
+        """Nothing was reweighted, so there is no effective count."""
+        from fastmdxplora.gui.report_dashboard import _metric_rows
+
+        root = TestTheDashboardTableIsCorrectedToo._dashboard_project(
+            tmp_path, self._record_not_applicable())
+        assert not any("Effective frames" in r.metric for r in _metric_rows(root, {}))

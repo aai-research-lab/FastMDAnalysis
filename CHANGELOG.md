@@ -175,6 +175,21 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   system is a PDB identifier, not a file.
 
 ### Fixed
+- **An umbrella window and a steered pull reported their averages as though
+  the run had been ordinary.** Metadynamics gained a reweighted column and an
+  effective sample size beside every mean; the other two biased methods gained
+  nothing, so their dashboard rows read `RMSD` exactly as a plain simulation's
+  would. That is the worse case rather than the milder one: a window is held
+  where it was put and a pull is not an equilibrium ensemble at all, so unlike
+  metadynamics there is no corrected number to set beside the raw one.
+
+  The analysis phase now records that a run was biased even where it cannot
+  undo the bias, naming the method from the PLUMED script it wrote. The report
+  leads with what the averages are not, the dashboard labels every metric as
+  being of a biased ensemble, and neither invents a corrected column -- which
+  would be the same numbers under a heading claiming otherwise. The wording is
+  the methods section's own, so the two cannot drift apart.
+
 - **Two config spellings with one meaning were refused.** A phase block
   present but empty -- `analysis:` with only a comment under it -- parsed as
   null and was rejected, while leaving the key out entirely was accepted:

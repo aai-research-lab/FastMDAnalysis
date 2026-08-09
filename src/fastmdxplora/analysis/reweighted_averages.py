@@ -133,6 +133,42 @@ def _temperature(output_dir: Path) -> tuple[float, bool]:
     return FALLBACK_TEMPERATURE_K, False
 
 
+#: What each method leaves beside the run. The script is written under the
+#: method's own name, so it says which bias was applied even where the result
+#: file is missing because the run stopped early.
+METHOD_MARKERS = (
+    ("umbrella", "umbrella.plumed"),
+    ("steered", "steered.plumed"),
+    ("metadynamics", "metadynamics.plumed"),
+)
+
+#: Why no set of weights recovers an equilibrium average from these two. Both
+#: are stated in the report's methods text; these are the same claims, put
+#: where the numbers are.
+NOT_REWEIGHTABLE = {
+    "umbrella": (
+        "This run is one window of an umbrella study, held at its own position "
+        "on the coordinate by a harmonic restraint. Its averages describe a "
+        "system held there and are not measurements of the unrestrained "
+        "system, nor comparable between windows, which differ because the "
+        "restraints differ. What combines the windows is the potential of "
+        "mean force, not an average of any quantity across them."),
+    "steered": (
+        "Production was a steered pull, which is not an equilibrium ensemble: "
+        "the system was dragged along the coordinate rather than sampling it. "
+        "These averages describe the pulling, and no reweighting recovers an "
+        "equilibrium average from a single non-equilibrium trajectory."),
+}
+
+
+def biasing_method(output_dir: Path) -> str | None:
+    """Which method biased this run, from what it left on disk."""
+    for method, marker in METHOD_MARKERS:
+        if _find(output_dir, marker) is not None:
+            return method
+    return None
+
+
 # ---------------------------------------------------------------------------
 # The time-dependent offset, without which the weights measure the clock
 # ---------------------------------------------------------------------------
@@ -453,8 +489,33 @@ def reweight_results(
     """
     weights, provenance = weights_for_run(Path(output_dir), frame_times_ps)
     if weights is None:
-        logger.debug("No reweighting: %s", provenance.get("reason"))
-        return None
+        method = biasing_method(Path(output_dir))
+        if method is None or method not in NOT_REWEIGHTABLE:
+            # Either an ordinary run, whose averages are already equilibrium
+            # averages, or metadynamics whose bias could not be read -- and
+            # `weights_for_run` has already said why in the log.
+            logger.debug("No reweighting: %s", provenance.get("reason"))
+            return None
+
+        # A biased run whose bias cannot be undone. Writing nothing left its
+        # averages looking exactly like an ordinary run's in the report and
+        # in the dashboard, which is the failure this whole pass exists to
+        # prevent -- and worse here than for metadynamics, because there is
+        # no corrected number to put beside them.
+        record = {
+            "n_frames": int(n_frames),
+            "applies": False,
+            "biasing_method": method,
+            "reason": NOT_REWEIGHTABLE[method],
+            "quantities": [],
+            "populations": [],
+            "warnings": [],
+        }
+        directory = Path(output_dir) / "reweighted"
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "reweighted_averages.json").write_text(
+            json.dumps(record, indent=2), encoding="utf-8")
+        return record
 
     quantities: list[dict[str, Any]] = []
     for name, result in results.items():

@@ -476,3 +476,89 @@ class TestOnlyLabelsBecomePopulations:
     def test_a_measurement_analysis_does_not(self) -> None:
         from fastmdxplora.analysis.rmsd import RMSD
         assert RMSD.reweightable_populations is False
+
+
+class TestABiasedRunThatCannotBeCorrectedStillSaysSo:
+    """Umbrella and steered runs have no weights that recover an equilibrium
+    average. Writing nothing left their averages looking exactly like an
+    ordinary run's -- which is worse than the metadynamics case, not better,
+    because there is no corrected number to put beside them."""
+
+    @staticmethod
+    def _method_run(tmp_path: Path, script: str) -> Path:
+        simulation = tmp_path / "simulation"
+        simulation.mkdir(parents=True, exist_ok=True)
+        (simulation / script).write_text("# PLUMED\n", encoding="utf-8")
+        (simulation / "COLVAR").write_text(
+            "#! FIELDS time cv\n0.0 1.0\n1.0 1.1\n", encoding="utf-8")
+        analysis = tmp_path / "analysis"
+        analysis.mkdir(parents=True, exist_ok=True)
+        return analysis
+
+    @pytest.mark.parametrize("script,method", [
+        ("umbrella.plumed", "umbrella"),
+        ("steered.plumed", "steered"),
+    ])
+    def test_the_method_is_recognised_and_recorded(
+            self, tmp_path: Path, script: str, method: str) -> None:
+        analysis = self._method_run(tmp_path, script)
+        record = reweight_results(
+            {"rmsd": _Result(np.linspace(0.1, 0.4, 20))},
+            {"rmsd": _Cls((None, "RMSD (nm)"))},
+            n_frames=20, frame_times_ps=np.arange(20.0), output_dir=analysis)
+
+        assert record is not None
+        assert record["applies"] is False
+        assert record["biasing_method"] == method
+        assert (analysis / "reweighted" / "reweighted_averages.json").is_file()
+
+    def test_no_table_and_no_figure_are_invented(self, tmp_path: Path) -> None:
+        """There is nothing to correct, so a corrected column would be a
+        column of the same numbers under a heading claiming otherwise."""
+        analysis = self._method_run(tmp_path, "steered.plumed")
+        record = reweight_results(
+            {"rmsd": _Result(np.linspace(0.1, 0.4, 20))},
+            {"rmsd": _Cls((None, "RMSD (nm)"))},
+            n_frames=20, frame_times_ps=np.arange(20.0), output_dir=analysis)
+
+        assert record["quantities"] == []
+        assert not (analysis / "reweighted" / "reweighted_averages.png").exists()
+
+    def test_the_reason_is_the_one_the_methods_text_gives(
+            self, tmp_path: Path) -> None:
+        """Two statements of the same claim that could drift apart is worse
+        than one, so these say the same thing the report already says."""
+        analysis = self._method_run(tmp_path, "umbrella.plumed")
+        record = reweight_results(
+            {"rmsd": _Result(np.linspace(0.1, 0.4, 20))},
+            {"rmsd": _Cls((None, "RMSD (nm)"))},
+            n_frames=20, frame_times_ps=np.arange(20.0), output_dir=analysis)
+        assert "potential of mean force" in record["reason"]
+        assert "not measurements of the unrestrained" in record["reason"]
+
+    def test_an_ordinary_run_is_still_left_entirely_alone(
+            self, tmp_path: Path) -> None:
+        """No marker, no bias, nothing to label: a record here would imply
+        the averages had needed one."""
+        analysis = tmp_path / "analysis"
+        analysis.mkdir(parents=True)
+        record = reweight_results(
+            {"rmsd": _Result(np.linspace(0.1, 0.4, 20))},
+            {"rmsd": _Cls((None, "RMSD (nm)"))},
+            n_frames=20, frame_times_ps=np.arange(20.0), output_dir=analysis)
+        assert record is None
+        assert not (analysis / "reweighted").exists()
+
+    def test_metadynamics_is_not_caught_by_this_path(
+            self, tmp_path: Path) -> None:
+        """It has weights, and must still take the reweighting route."""
+        analysis = _write_run(tmp_path)
+        (analysis.parent / "simulation" / "metadynamics.plumed").write_text(
+            "# PLUMED\n", encoding="utf-8")
+        times = np.linspace(1.0, 200.0, 50)
+        record = reweight_results(
+            {"rmsd": _Result(np.sin(times / 7.0) + 2.0)},
+            {"rmsd": _Cls((None, "RMSD (nm)"))},
+            n_frames=50, frame_times_ps=times, output_dir=analysis)
+        assert record.get("applies", True) is not False
+        assert record["quantities"]
