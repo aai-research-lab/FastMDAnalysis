@@ -217,7 +217,19 @@ def _write_metadynamics_surface(output_dir: Path, presenter: Any) -> str | None:
         sampled = np.array(values) if values else None
 
     try:
-        outcome = compute_surface(hills, sampled)
+        # A torsion is a circle, and the Gaussians have to be summed the
+        # short way round. Read from the resolved script rather than passed
+        # in, because that is PLUMED's own statement of what the variable is
+        # and it sits beside the hills it produced. Without this the barrier
+        # came out at 60.7 kJ/mol on a run whose periodic value was 30.
+        script = output_dir / "plumed.dat"
+        periodic = False
+        if script.is_file():
+            text = script.read_text(encoding="utf-8").upper()
+            periodic = any(
+                f"{action}\n" in text or f"{action} " in text
+                for action in ("TORSION", "ANGLE"))
+        outcome = compute_surface(hills, sampled, periodic=periodic)
     except ValueError as exc:
         outcome = {"surface": None, "grid": None, "refused": str(exc)}
 

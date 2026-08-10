@@ -196,6 +196,7 @@ def compute_surface(
     *,
     points: int = 200,
     minimum_recrossings: int = MINIMUM_RECROSSINGS,
+    periodic: bool = False,
 ) -> dict[str, Any]:
     """A free energy surface, or a refusal saying what the run cannot support.
 
@@ -220,9 +221,16 @@ def compute_surface(
             ),
         }
 
-    grid = np.linspace(lowest, highest, points)
-    surface = surface_from_hills(hills, grid)
-    earlier = surface_from_hills(hills, grid, upto=int(len(hills) * 0.75))
+    if periodic:
+        # The whole turn. A grid bounded by where hills happened to land
+        # stops short of the arc they wrap around, and the coordinate does
+        # not stop there.
+        grid = np.linspace(-np.pi, np.pi, points)
+    else:
+        grid = np.linspace(lowest, highest, points)
+    surface = surface_from_hills(hills, grid, periodic=periodic)
+    earlier = surface_from_hills(
+        hills, grid, upto=int(len(hills) * 0.75), periodic=periodic)
 
     # Judged where the surface means something, not everywhere on the grid.
     #
