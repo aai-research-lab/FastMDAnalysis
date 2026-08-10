@@ -86,7 +86,23 @@ class PMF(Analysis):
         self._overlaps = record.get("overlaps") or []
         self._refused = record.get("refused")
         self._unsampled = int(record.get("unsampled_bins") or 0)
-        return {"coordinate": coordinate, "free_energy_kjmol": energy}
+
+        # The barrier and the minima, said rather than left to whoever opens
+        # the file. Computing them by hand is how the curve gets misread: the
+        # grid spans wherever the coordinate went and the windows covered a
+        # part of it, so a minimum taken across the whole grid references a
+        # region nothing visited.
+        summary = record.get("summary")
+        if not summary:
+            from fastmdxplora.simulation.umbrella import describe_pmf
+
+            covered = record.get("covered")
+            summary = describe_pmf(
+                coordinate, energy,
+                tuple(covered) if covered else None)
+        self._summary = summary
+        return {"coordinate": coordinate, "free_energy_kjmol": energy,
+                "summary": summary}
 
     def plot(self, result: dict[str, Any], ax: plt.Axes) -> None:
         coordinate = result["coordinate"]

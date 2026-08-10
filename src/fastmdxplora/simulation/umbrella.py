@@ -512,6 +512,86 @@ def windows_with_too_little_sampling(
     return thin
 
 
+#: Collective variables that come back to where they started. A window study
+#: on one of these has no ends: the arc between the last centre and the first
+#: is as real as any other, and leaving it bare is a gap rather than a
+#: boundary.
+PERIODIC_VARIABLES = frozenset({"torsion", "angle"})
+
+
+def warn_if_a_circle_is_left_open(plan: "UmbrellaPlan") -> str | None:
+    """Say when a periodic coordinate has been tiled only part of the way.
+
+    A real study placed nine windows from -30 to 165 degrees of a torsion and
+    read as though it had measured a barrier. It had measured one of the two
+    barriers between its minima; the other, through the 195 degrees nobody
+    put a window on, was simply absent -- and the free energy grid spanned
+    the whole circle regardless, because the coordinate goes there whether or
+    not a window is holding it.
+    """
+    variable = getattr(plan, "collective_variable", None)
+    if variable not in PERIODIC_VARIABLES or len(plan.windows) < 2:
+        return None
+    centres = sorted(w.centre for w in plan.windows)
+    covered = centres[-1] - centres[0]
+    gap = 2.0 * np.pi - covered
+    if gap <= 0:
+        return None
+    spacing = covered / (len(centres) - 1)
+    if gap <= 1.5 * spacing:
+        # Closed to within a window's spacing: the circle is tiled.
+        return None
+    return (
+        f"The windows cover {np.degrees(covered):.0f} degrees of a "
+        f"{variable}, leaving {np.degrees(gap):.0f} degrees with no window "
+        "on it. A periodic coordinate has no ends, so that arc is a gap and "
+        "not a boundary: the free energy across it is not measured, and the "
+        "barrier between the minima either side of it is unknown. Tile the "
+        "full turn, or read the result as the one path it covers.")
+
+
+def describe_pmf(coordinate: Any, energy: Any,
+                 covered: tuple[float, float] | None = None) -> dict[str, Any]:
+    """The numbers a reader wants from a curve, computed once, here.
+
+    Reading these by hand is how the curve gets misread. The grid spans
+    wherever the coordinate went; the windows covered a part of it, and the
+    rest comes back as gaps. Taking a minimum across the whole grid picks a
+    reference in a region no window visited -- a real study looked to have a
+    164 kJ/mol barrier that way, against 11 measured where the windows
+    actually were.
+    """
+    coordinate = np.asarray(coordinate, dtype=float)
+    energy = np.asarray([np.nan if v is None else float(v) for v in energy],
+                        dtype=float)
+    if coordinate.size == 0 or not np.any(np.isfinite(energy)):
+        return {"barrier_kjmol": None, "covered": None, "minima": []}
+
+    inside = np.isfinite(energy)
+    if covered is not None:
+        inside &= (coordinate >= covered[0]) & (coordinate <= covered[1])
+    if not np.any(inside):
+        return {"barrier_kjmol": None, "covered": None, "minima": []}
+
+    where, values = coordinate[inside], energy[inside]
+    values = values - float(np.min(values))
+    top = int(np.argmax(values))
+
+    # A minimum is a bin lower than both its neighbours. Endpoints are left
+    # out: the profile does not stop there, the windows do.
+    minima = [
+        {"coordinate": float(where[i]), "free_energy_kjmol": float(values[i])}
+        for i in range(1, values.size - 1)
+        if values[i] < values[i - 1] and values[i] < values[i + 1]
+    ]
+    return {
+        "barrier_kjmol": float(values[top]),
+        "barrier_at": float(where[top]),
+        "covered": [float(where.min()), float(where.max())],
+        "minima": sorted(minima, key=lambda m: m["free_energy_kjmol"]),
+    }
+
+
 def compute_pmf(
     samples: dict[int, np.ndarray],
     plan: UmbrellaPlan,
@@ -713,8 +793,17 @@ def compute_pmf(
             unsampled, len(pmf),
         )
 
+    # The range the windows actually covered, stated rather than left to be
+    # worked out from the overlaps. Without it a reader takes a minimum over
+    # the whole grid, which on a periodic coordinate reaches round into an
+    # arc no window was placed on.
+    window_centres = [w.centre for w in ordered]
+    covered = (min(window_centres), max(window_centres))
+
     return {
         "pmf": {"coordinate": centres.tolist(), "free_energy_kjmol": free_energy},
+        "covered": [float(covered[0]), float(covered[1])],
+        "summary": describe_pmf(centres, free_energy, covered),
         "unsampled_bins": unsampled,
         "overlaps": overlaps,
         "refused": None,
