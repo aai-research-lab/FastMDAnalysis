@@ -9,10 +9,20 @@ is in it: designing a run, starting it, watching it happen, and reading the
 results.
 
 The GUI is not a cut-down version of the command line. It offers **every
-setting the software has** — all 159 analysis options across 15 analyses, and
-every phase setting — because it is built from the same declaration the CLI
-and the config file are built from. Anything you can do in a config file you
-can do here, and anything you set here you can take away as a config file.
+setting the software has** — all 200 analysis options across 19 analyses, and
+all 100 phase and top-level settings — because the form is generated from the
+same declaration the CLI and the config file are built from, rather than
+written by hand. Adding a setting to the schema puts a control in the GUI;
+nothing has to be kept in step.
+
+So any system FastMDXplora can study can be built here: a protein on its own,
+a protein with a ligand, a membrane protein, an umbrella or metadynamics or
+steered study, a trajectory from another engine, or a sweep across many
+systems at once. And any config file it can run, the GUI can write. Anything
+you can do in a config file you can do here, and anything you set here you can
+take away as a config file — checked by the same validator before you see it,
+so a configuration that would fail on a cluster fails in the GUI instead,
+while you are still looking at the form that produced it.
 
 ---
 

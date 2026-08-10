@@ -31,6 +31,32 @@ class TestAPreparationPointsAtTheStudy:
         assert SHARED_SETUP_DIRECTORY == "shared_setup"
 
 
+class TestTheSeparatorStyleSurvives:
+    """The first version split the path with `pathlib` and rebuilt it, which
+    normalises the separators: a Windows caller who wrote `../runs/study` was
+    handed back `..\\runs\\study`. A correct path, and not the one they typed
+    -- and three tests failed on Windows CI while passing everywhere else.
+
+    The answer is a prefix of what was given, so it is trimmed off the text
+    rather than reconstructed.
+    """
+
+    def test_forward_slashes_stay_forward(self) -> None:
+        assert "\\" not in _worth_watching("../runs/study/shared_setup")
+
+    def test_a_windows_path_is_recognised_anywhere(self) -> None:
+        """`os.path.split` on POSIX does not treat a backslash as a
+        separator, so a platform-dependent split would leave this untouched
+        when the tests run on Linux and handle it on Windows."""
+        assert _worth_watching(r"..\runs\study\shared_setup") == r"..\runs\study"
+
+    def test_a_drive_letter_survives(self) -> None:
+        assert _worth_watching(r"C:\runs\study\shared_setup") == r"C:\runs\study"
+
+    def test_a_windows_path_keeps_its_separators(self) -> None:
+        assert "/" not in _worth_watching(r"..\runs\study\shared_setup")
+
+
 class TestEverythingElseIsLeftAlone:
     @pytest.mark.parametrize("path", [
         "../runs/study",

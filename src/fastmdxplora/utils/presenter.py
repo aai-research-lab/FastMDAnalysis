@@ -72,12 +72,23 @@ def _worth_watching(output: str) -> str:
     study, where it is the study above: that is where the windows appear, and
     by the time the command is typed the preparation has finished.
     """
-    from pathlib import Path as _Path
-
-    path = _Path(str(output))
-    if path.name == SHARED_SETUP_DIRECTORY and str(path.parent) not in ("", "."):
-        return str(path.parent)
-    return str(output)
+    # Trimmed off the text rather than rebuilt from a `Path`. Rebuilding
+    # normalises the separators, so a caller who wrote `../runs/study` on
+    # Windows was handed back `..\\runs\\study` -- a correct path, and not the
+    # one they typed. What is wanted here is the string they will recognise.
+    text = str(output)
+    trimmed = text.rstrip("/\\")
+    # Both separators, whichever platform is running. `os.path.split` on
+    # POSIX does not treat a backslash as one, so a Windows path handed to a
+    # test on Linux would go unrecognised -- and the reverse was how this was
+    # found: the run directory came back with its separators swapped.
+    cut = max(trimmed.rfind("/"), trimmed.rfind("\\"))
+    if cut <= 0:
+        return text
+    head, tail = trimmed[:cut], trimmed[cut + 1:]
+    if tail == SHARED_SETUP_DIRECTORY and head not in ("", "."):
+        return head
+    return text
 
 
 def _ansi_supported(stream: IO) -> bool:

@@ -19,6 +19,15 @@ A tab opens. Type `1L2Y`, press **Run**, and watch a protein fold. Everything
 FastMDXplora does is on that page: designing a run, starting it, watching the
 molecule move, reading the results.
 
+Not a dashboard attached to a command-line tool. The form is generated from
+the same schema the CLI validates against, so every system FastMDXplora can
+study can be built in the browser -- a protein, a protein and its ligand, a
+membrane protein, an umbrella or metadynamics or steered study, a trajectory
+from another engine, a sweep across many systems -- and every setting is
+reachable. What it hands back is a config file, and `fastmdx explore --config`
+runs those same bytes anywhere. Decide the study where it is comfortable to
+think; run it where the compute is.
+
 If you would rather use a terminal:
 
 ```bash
@@ -27,6 +36,21 @@ fastmdx explore --system 1L2Y --output runs/trpcage
 
 [Your first run](getting_started.md) takes either route from nothing to a
 finished report in about ten minutes.
+
+## The config is the study
+
+Both routes above are building the same thing. A FastMDXplora config describes
+a study completely -- the system, its preparation, the simulation, what is
+measured, how it is reported -- and the four phases run themselves from it.
+The [GUI](gui.md), the [command line](cli_reference.md) and the
+[Python API](api.md) each build one and each run all four phases; a config can
+also be written by hand, since the YAML is short. Every run writes
+`resolved_config.yml` with every setting filled in, so a study can be repeated
+from what it left behind rather than from what somebody remembers typing.
+
+The GUI is worth using even for a command-line or Python workflow: it is the
+one place where every setting is visible, explained, and checked before you
+leave the page. See [Configuration](configuration.md).
 
 ## Finding your way around
 

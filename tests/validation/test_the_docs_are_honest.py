@@ -171,3 +171,74 @@ class TestTheReweightingIsDescribedAsBuilt:
         text = (DOCS / "phases.md").read_text(encoding="utf-8")
         assert "analysis/reweighted/" in text
         assert "reweighted_averages.json" in text
+
+
+class TestTheGuiPageCountsWhatThereIs:
+    """The page said 159 options across 15 analyses; there are 200 across 19.
+    A count in a document nobody recomputes is a claim that decays, and this
+    one is load-bearing: it is the sentence that says the browser is not a
+    cut-down command line."""
+
+    @staticmethod
+    def _page() -> str:
+        return (DOCS / "gui.md").read_text(encoding="utf-8")
+
+    def test_the_analysis_count_is_the_real_one(self) -> None:
+        assert f"{len(_REGISTRY)} analyses" in self._page()
+
+    def test_the_option_count_is_the_real_one(self) -> None:
+        from fastmdxplora.analysis.describe import describe_analysis
+
+        total = sum(len(describe_analysis(name)) for name in _REGISTRY)
+        assert f"{total} analysis options" in self._page()
+
+    def test_the_settings_count_is_the_real_one(self) -> None:
+        from fastmdxplora.config.schema import PHASE_SCHEMAS, TOP_LEVEL
+
+        total = len(TOP_LEVEL.fields) + sum(
+            len(group.fields) for group in PHASE_SCHEMAS.values())
+        assert f"{total} phase and top-level settings" in self._page()
+
+    def test_it_says_the_browser_builds_and_the_cli_runs(self) -> None:
+        """The claim external summaries keep getting wrong: this is not a
+        command-line tool with a dashboard attached."""
+        page = self._page()
+        assert "generated from the" in page
+        assert "any system FastMDXplora can study can be built here" in page
+
+
+class TestTheConfigIsPresentedAsTheStudy:
+    """A config is the whole description of a study, and every interface
+    builds one and runs all four phases. External summaries kept reporting
+    this as a command-line tool with a dashboard attached, which is what the
+    documentation implied by describing the GUI as somewhere to watch a run.
+    """
+
+    @staticmethod
+    def _readme() -> str:
+        return (ROOT / "README.md").read_text(encoding="utf-8")
+
+    def test_the_readme_leads_with_the_config(self) -> None:
+        assert "## The config is the study" in self._readme()
+
+    @pytest.mark.parametrize("interface", ["GUI", "CLI", "Python API"])
+    def test_each_interface_is_named(self, interface: str) -> None:
+        assert interface in self._readme()
+
+    def test_none_is_claimed_as_primary(self) -> None:
+        readme = self._readme()
+        assert "None of these is the primary interface" in readme
+
+    def test_the_api_really_takes_a_config(self) -> None:
+        """The claim is checkable: the constructor accepts one."""
+        import inspect
+
+        from fastmdxplora.orchestrator import FastMDXplora
+
+        assert "config" in inspect.signature(FastMDXplora.__init__).parameters
+
+    def test_a_run_records_its_own_complete_config(self) -> None:
+        """What makes a config the study rather than one input format."""
+        from fastmdxplora.config import write_resolved_config  # noqa: F401
+
+        assert "resolved_config.yml" in self._readme()

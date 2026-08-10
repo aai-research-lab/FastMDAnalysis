@@ -42,11 +42,19 @@ Run all four phases, or any one on its own — `fastmdx setup`, `simulate`,
 `analyze`, `report`. Each records what it did, so a run can be picked up,
 repeated or explained afterwards.
 
-Or open the GUI and watch it happen:
+Or do the whole thing in the GUI:
 
 ```bash
 fastmdx gui
 ```
+
+The GUI is not a viewer bolted onto a command-line tool. Its form is generated
+from the same schema the CLI validates against, so every one of the hundred
+settings is reachable, every system FastMDXplora can study can be built there,
+and nothing can be configured in one interface and not the other. What it hands
+back is a config file — checked by the same validator before you ever see it —
+and `fastmdx explore --config` runs those same bytes on a laptop or a cluster.
+Build the study where it is convenient to think; run it where the compute is.
 
 ## Install
 
@@ -77,6 +85,41 @@ equilibrium where the bias allows it, and labelled where it does not.
 Every step says why it is happening, and cites the paper worth reading. What
 comes out is something you can defend — or is marked clearly as something you
 cannot.
+
+## The config is the study
+
+A FastMDXplora config is the whole description of a molecular dynamics study:
+the system, how it is prepared, how it is simulated, what is measured, and how
+it is written up. Capture that, and the four phases — setup, simulation,
+analysis, report — run themselves.
+
+```yaml
+systems:
+  - system: 181L
+simulation:
+  duration_ns: 100
+```
+
+That is a complete study. Everything unnamed takes a documented default, and
+every run writes `resolved_config.yml` with defaults, file and command line
+merged, so the exact study can be run again by anyone holding that one file.
+
+**Three ways to build a config**, and each of them also runs all four phases:
+
+| | |
+|---|---|
+| **The GUI** | `fastmdx gui`. A form generated from the schema, so every system and every setting is reachable. Worth using even for a command-line or Python workflow: build the study where the options are visible and explained, then take the file away. |
+| **The CLI** | `fastmdx explore --config study.yml`, or `fastmdx init-config` for a commented template, or a flag for any setting. |
+| **The Python API** | `FastMDXplora(config="study.yml").explore()`, or the same blocks passed as options. |
+
+A fourth way is to write the YAML by hand, which is short and readable enough
+that people do.
+
+None of these is the primary interface and none is a subset of another. The
+form, the flags and the API are generated from one declaration of what the
+software can do, so a study you can express in one you can express in all of
+them. A study designed on a laptop in the GUI runs unchanged on a cluster from
+the command line, because what travels between them is the config.
 
 ## Documentation
 

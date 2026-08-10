@@ -27,6 +27,10 @@ the [installation guide](installation.md).
 
 ## The quickest route: the GUI
 
+The browser is a full interface, not a viewer: it builds any system
+FastMDXplora supports and writes any config file the command line accepts,
+from a form generated out of the same schema the CLI validates against.
+
 ```bash
 fastmdx gui
 ```
