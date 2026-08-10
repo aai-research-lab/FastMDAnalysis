@@ -739,7 +739,9 @@ def _build_parser() -> argparse.ArgumentParser:
         )
         _common_input_args(ep)
         ep.add_argument(
+            "--force-overwrite",
             "--force",
+            dest="force",
             action="store_true",
             help=(
                 "Run into an output directory that already holds results, "
@@ -855,7 +857,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Write a short starter template with only the essentials.",
     )
     ic.add_argument(
+        "--force-overwrite",
         "--force",
+        dest="force",
         action="store_true",
         help="Overwrite the output file if it already exists.",
     )

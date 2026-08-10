@@ -897,7 +897,9 @@ class TestAParallelStudySaysWhatItIsDoing:
         line = _progress_line(running=3, done=2, queued=2, total=7,
                               seconds=745)
         assert "3 running" in line
-        assert "2/7 finished" in line
+        # "finished" became "done" when the sentence became a bar; the
+        # question the line answers did not change.
+        assert "2/7 done" in line
         assert "2 queued" in line
         assert "12m25s" in line
 

@@ -76,11 +76,49 @@ def _elapsed(seconds: float) -> str:
     return f"{minutes}m{seconds:02d}s"
 
 
+#: How wide the bar is drawn. Narrow enough to leave room for the counts on
+#: an eighty-column terminal.
+_BAR_WIDTH = 28
+
+
 def _progress_line(*, running: int, done: int, queued: int, total: int,
                    seconds: float) -> str:
-    """What is happening, for a terminal that would otherwise show nothing."""
-    return (f"       {running} running, {done}/{total} finished, "
-            f"{queued} queued -- {_elapsed(seconds)} elapsed")
+    """What is happening, for a terminal that would otherwise show nothing.
+
+    A bar rather than a sentence. A study of nine windows on a laptop prints
+    one of these a minute for an hour, and sixty lines saying almost the same
+    thing bury the ones that matter -- the windows finishing, and anything
+    that went wrong. The stage runners already draw a bar for the steps
+    inside a run; this is the same thing for the runs inside a study.
+    """
+    filled = int(round(_BAR_WIDTH * done / total)) if total else 0
+    bar = "━" * filled + "─" * (_BAR_WIDTH - filled)
+    percent = (100.0 * done / total) if total else 0.0
+    return (f"    {bar} {percent:5.1f}%  {done}/{total} done, "
+            f"{running} running, {queued} queued  {_elapsed(seconds)}")
+
+
+def _is_a_terminal() -> bool:
+    """Whether stdout is somewhere a redrawn line means anything."""
+    import sys
+
+    stream = sys.stdout
+    if not hasattr(stream, "isatty"):
+        return False
+    try:
+        return bool(stream.isatty())
+    except Exception:  # noqa: BLE001 - a stream that cannot say is not one.
+        return False
+
+
+def _clear_progress_line() -> None:
+    """Wipe the bar before an event is printed over it.
+
+    A finished window prints its own line, and without this it would land on
+    top of a bar that ends with no newline.
+    """
+    if _is_a_terminal():
+        print("\r" + " " * 78 + "\r", end="", flush=True)
 
 
 def _a_prepared_system_is_there(setup_dir: Path) -> bool:
@@ -994,10 +1032,17 @@ class BatchExplorer:
                     return_when=FIRST_COMPLETED)
                 if finished:
                     return next(iter(finished))
-                print(_progress_line(
+                # Redrawn in place where there is a terminal to redraw on.
+                # Piped to a file, a carriage return makes one endless line,
+                # so there the heartbeat is written out as before -- a log is
+                # read after the fact and wants the history.
+                line = _progress_line(
                     running=len(pending), done=done, total=n,
-                    queued=n - next_index, seconds=time.monotonic() - began),
-                    flush=True)
+                    queued=n - next_index, seconds=time.monotonic() - began)
+                if _is_a_terminal():
+                    print("\r" + line, end="", flush=True)
+                else:
+                    print(line, flush=True)
 
         pool = ProcessPoolExecutor(max_workers=n_workers)
         try:
@@ -1019,6 +1064,7 @@ class BatchExplorer:
                         error_type=type(exc).__name__,
                     )
                 mark = "✓" if result.status == "ok" else "✗"
+                _clear_progress_line()
                 print(f"[{done}/{n}] {mark} {spec.run_id}")
                 if result.status == "error":
                     print(f"      {_why_it_failed(result)}")
@@ -1065,6 +1111,7 @@ class BatchExplorer:
                             error_type=type(exc).__name__,
                         )
                     mark = "✓" if result.status == "ok" else "✗"
+                    _clear_progress_line()
                     print(f"[{done}/{n}] {mark} {spec.run_id}")
                     results.append(result)
 
