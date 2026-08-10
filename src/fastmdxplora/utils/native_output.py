@@ -38,9 +38,16 @@ _LIBC = _load_libc()
 
 @contextlib.contextmanager
 def suppress_native_output(
-    *, stdout: bool = True, stderr: bool = True
+    *, stdout: bool = True, stderr: bool = True, into: "os.PathLike | str | None" = None
 ) -> Iterator[None]:
-    """Redirect OS-level stdout/stderr to ``os.devnull`` for the block.
+    """Redirect OS-level stdout/stderr away from the terminal for the block.
+
+    With ``into``, the output is written to that file rather than discarded.
+    PLUMED prints forty lines of setup at the moment its force is added --
+    which atoms the collective variable is built from, the hill width, the
+    pace, the bias factor, the temperature it inferred. That is provenance,
+    and the wrong thing to do with it is either leave it scrolling past a
+    progress bar or throw it away; it belongs in a file beside the run.
 
     Operates on the file descriptors themselves (``os.dup2``), so it
     catches output written by C extensions that bypass Python's stream
@@ -90,9 +97,13 @@ def suppress_native_output(
     try:
         _flush_all()
         try:
-            devnull_fd = os.open(os.devnull, os.O_WRONLY)
+            devnull_fd = os.open(
+                os.devnull if into is None else os.fspath(into),
+                os.O_WRONLY | (0 if into is None
+                               else os.O_CREAT | os.O_APPEND))
         except OSError:
-            # Can't even open devnull — give up quietly.
+            # Can't open the destination — give up quietly rather than
+            # losing the run over where a log line went.
             yield
             return
         for fd in fds:

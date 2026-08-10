@@ -139,8 +139,8 @@ def add_plumed_force(
     # Save the resolved script alongside the run for reproducibility.
     resolved = output_dir / "plumed.dat"
     resolved.write_text(script, encoding="utf-8")
-    logger.info(
-        "PLUMED enabled: biasing force added; resolved script -> %s",
-        resolved.as_posix(),
-    )
+    # Said by the caller, not here. This runs inside a block that redirects
+    # the file descriptors to catch PLUMED's own forty lines of setup, and a
+    # message logged in there goes into the capture file with them -- so the
+    # one line saying the bias was attached would vanish from the terminal.
     return force

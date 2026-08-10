@@ -224,9 +224,21 @@ def select_platform(
         # the user sees the real error if their chosen platform is broken.
         if auto and not _platform_usable(platform, name, props):
             continue
+        # What was applied, not what was asked for. `Precision` is a property
+        # of the GPU platforms; the CPU platform has only `Threads` and
+        # `DeterministicForces`, so a run there is single precision whatever
+        # was requested. Reporting the request made the banner say
+        # "CPU (precision=mixed)", and the diagnosis printed after a
+        # non-finite coordinate suggests `--simulate-precision double` --
+        # which on CPU changes nothing at all, so somebody chasing an
+        # unstable run would try it and learn nothing.
+        applied = props.get("Precision")
         logger.info(
-            "Selected OpenMM platform: %s (precision=%s%s)",
-            name, precision,
+            "Selected OpenMM platform: %s (%s%s)",
+            name,
+            f"precision={applied}" if applied
+            else f"{precision} precision requested; this platform has no such "
+                 "setting",
             f", device={device_index}" if device_index is not None else "",
         )
         return platform, props, name
@@ -486,7 +498,8 @@ def _value_in_unit(quantity: Any, unit_value: Any) -> Any:
 
 
 def _validation_error(stage: str, detail: str, *, topology: Any = None,
-                      positions: Any = None) -> RuntimeError:
+                      positions: Any = None, platform: str | None = None
+                      ) -> RuntimeError:
     """Say what failed, reading the state where one is available.
 
     The remedies this used to list -- lower the timestep, lower the
@@ -504,7 +517,7 @@ def _validation_error(stage: str, detail: str, *, topology: Any = None,
             # searchable and links to its FAQ; the diagnosis says which atoms
             # it happened to. Neither substitutes for the other.
             return RuntimeError(
-                f"{diagnose_failure(topology, positions, stage=stage).as_text()}"
+                f"{diagnose_failure(topology, positions, stage=stage, platform=platform).as_text()}"
                 f"\n\nOpenMM reported: {detail}.")
         except Exception:  # noqa: BLE001 - a diagnosis that fails is not the
             # failure worth reporting; fall through to the general message.
@@ -522,6 +535,13 @@ def _validation_error(stage: str, detail: str, *, topology: Any = None,
 def _validate_state_finite(omm: dict, simulation: Any, *, stage: str) -> None:
     """Validate finite positions and potential energy at a stage boundary."""
     unit = omm["unit"]
+    # Asked of the context rather than threaded down, because the context is
+    # the thing that knows, and the advice that follows depends on it: on
+    # CPU there is no `Precision` property to change.
+    try:
+        running_on = simulation.context.getPlatform().getName()
+    except Exception:  # noqa: BLE001 - a platform that will not say its name
+        running_on = None
     try:
         state = simulation.context.getState(
             getPositions=True,
@@ -556,7 +576,8 @@ def _validate_state_finite(omm: dict, simulation: Any, *, stage: str) -> None:
         # packing problem from an integration failure. The remedies differ.
         raise _validation_error(
             stage, "positions contain NaN or Inf",
-            topology=simulation.topology, positions=positions)
+            topology=simulation.topology, positions=positions,
+            platform=running_on)
 
     try:
         energy = state.getPotentialEnergy()
@@ -572,7 +593,8 @@ def _validate_state_finite(omm: dict, simulation: Any, *, stage: str) -> None:
     if not all(math.isfinite(x) for x in energy_numbers):
         raise _validation_error(
             stage, "potential energy is NaN or Inf",
-            topology=simulation.topology, positions=positions)
+            topology=simulation.topology, positions=positions,
+            platform=running_on)
 
 
 def _warn_density_was_never_equilibrated(
@@ -1503,9 +1525,28 @@ def run_simulation(
         # the standard protocol equilibrates unbiased and biases production.
         if plumed:
             from fastmdxplora.simulation.plumed import add_plumed_force
-            plumed_force = add_plumed_force(omm, system, plumed, Path(output_dir))
+            from fastmdxplora.utils.native_output import suppress_native_output
+
+            # PLUMED prints its whole setup at the moment the context takes
+            # the force: which atoms the variable is built from, the hill
+            # width, the pace, the bias factor, the temperature it inferred.
+            # Forty lines, written from C++ straight to the file descriptor,
+            # arriving in the middle of a progress bar. It is provenance and
+            # worth keeping, so it goes to a file beside the run rather than
+            # to the terminal or to nowhere.
+            plumed_log = Path(output_dir) / "plumed.log"
+            with suppress_native_output(into=plumed_log):
+                plumed_force = add_plumed_force(
+                    omm, system, plumed, Path(output_dir))
+                if plumed_force is not None:
+                    simulation.context.reinitialize(preserveState=True)
             if plumed_force is not None:
-                simulation.context.reinitialize(preserveState=True)
+                logger.info(
+                    "PLUMED enabled: biasing force added; resolved script "
+                    "-> %s", (Path(output_dir) / "plumed.dat").as_posix())
+            if plumed_log.is_file():
+                logger.info("PLUMED's own setup log -> %s",
+                            plumed_log.as_posix())
         _attach_dcd_reporter(
             omm, simulation, traj_path, interval=trajectory_interval_steps
         )

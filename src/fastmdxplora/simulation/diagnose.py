@@ -88,7 +88,8 @@ _STANDARD_RESIDUES = frozenset({
 })
 
 
-def diagnose_failure(topology: Any, positions: Any, *, stage: str) -> Diagnosis:
+def diagnose_failure(topology: Any, positions: Any, *, stage: str,
+                     platform: str | None = None) -> Diagnosis:
     """Read a failed state and say what it points at."""
     import numpy as np
 
@@ -196,8 +197,14 @@ def diagnose_failure(topology: Any, positions: Any, *, stage: str) -> Diagnosis:
             "Halve the timestep: --simulate-timestep-fs 1.0",
             "Raise the friction so the thermostat holds harder: "
             "--simulate-friction-per-ps 5.0",
-            "Run in double precision: --simulate-precision double",
         ]
+        # `Precision` is a property of the GPU platforms only -- the CPU
+        # platform offers `Threads` and `DeterministicForces` and nothing
+        # else -- so on CPU this advice costs somebody a run and teaches
+        # them nothing. Offered where it can be taken.
+        if (platform or "").upper() != "CPU":
+            advice.append(
+                "Run in double precision: --simulate-precision double")
     else:
         cause = (
             "The affected atoms do not fall into a pattern that points "

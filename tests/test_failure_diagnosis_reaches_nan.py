@@ -63,7 +63,14 @@ class TestTheMessageCarriesBoth:
     def test_the_state_is_handed_over(self, monkeypatch) -> None:
         seen = {}
 
-        def _fake(topology, positions, *, stage):
+        # `**rest` because the real one grew a `platform` argument -- the
+        # advice it offers depends on which platform is running, since there
+        # is no `Precision` property to change on CPU. A double that refuses
+        # an argument the real function takes raises TypeError inside a
+        # `try`, and the caller falls through to its generic message: the
+        # diagnosis silently stops being reached, which is exactly the fault
+        # this file exists to catch.
+        def _fake(topology, positions, *, stage, **rest):
             seen["topology"], seen["stage"] = topology, stage
             return types.SimpleNamespace(
                 as_text=lambda: f"The simulation became unstable during {stage}. TRP")
@@ -81,7 +88,8 @@ class TestTheMessageCarriesBoth:
         import fastmdxplora.simulation.diagnose as d
         monkeypatch.setattr(
             d, "diagnose_failure",
-            lambda t, p, *, stage: types.SimpleNamespace(as_text=lambda: "DIAG"))
+            lambda t, p, *, stage, **rest: types.SimpleNamespace(
+                as_text=lambda: "DIAG"))
         err = _validation_error("NPT equilibration", "Particle coordinate is NaN",
                                 topology=_topology(), positions=_positions())
         assert "DIAG" in str(err)
