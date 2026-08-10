@@ -4014,7 +4014,12 @@ class TestTheBannerSaysHowToWatchTheRun:
         from fastmdxplora.utils import presenter
 
         source = inspect.getsource(presenter)
-        assert 'kv("Watch", f"fastmdx gui --output {output}"' in source
+        # The path goes through `_worth_watching` now, so that a study's
+        # shared preparation points at the study rather than at a directory
+        # that will not change again. What this test is for -- that the
+        # command is named at all -- is unchanged.
+        assert 'kv("Watch", f"fastmdx gui --output {_worth_watching(output)}"' \
+            in source
 
     def test_and_the_address_where_one_is(self) -> None:
         """A bare URL printed for a server nobody started points at nothing."""

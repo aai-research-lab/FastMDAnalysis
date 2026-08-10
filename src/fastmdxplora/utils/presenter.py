@@ -57,6 +57,29 @@ _C = {
 }
 
 
+#: Where a study prepares the one system all its windows share. The banner
+#: has to know the name because a preparation reports the directory it writes
+#: to, which is accurate and useless to watch: it is a second of setup,
+#: finished before anybody could type the command, and the windows that follow
+#: it are written somewhere else entirely.
+SHARED_SETUP_DIRECTORY = "shared_setup"
+
+
+def _worth_watching(output: str) -> str:
+    """The directory somebody watching this run should actually open.
+
+    A run's own directory, except for the shared preparation of an umbrella
+    study, where it is the study above: that is where the windows appear, and
+    by the time the command is typed the preparation has finished.
+    """
+    from pathlib import Path as _Path
+
+    path = _Path(str(output))
+    if path.name == SHARED_SETUP_DIRECTORY and str(path.parent) not in ("", "."):
+        return str(path.parent)
+    return str(output)
+
+
 def _ansi_supported(stream: IO) -> bool:
     """Return True iff we should emit ANSI escapes on this stream."""
     if os.getenv("NO_COLOR"):
@@ -798,7 +821,7 @@ class SessionPresenter:
         if dashboard_enabled:
             kv("Watch", dashboard_link, "green")
         else:
-            kv("Watch", f"fastmdx gui --output {output}", "green")
+            kv("Watch", f"fastmdx gui --output {_worth_watching(output)}", "green")
         # Only the phases this run includes. Announcing a million production
         # steps for a run that only analyses a trajectory is not a small
         # inaccuracy: it is the log saying the run did something it did not.
