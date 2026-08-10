@@ -1293,7 +1293,7 @@ _ARTIFACT_LABELS = {
     "simulation/topology.pdb": ("Simulated system, solvated", "simulation"),
     "simulation/state_final.xml": ("Final state: positions, velocities, box", "simulation"),
     "simulation/state_minimized.xml": ("State after minimisation", "simulation"),
-    "simulation/checkpoint.chk": ("Checkpoint: resume the run from here", "simulation"),
+    "simulation/checkpoint.chk": ("Checkpoint: positions and velocities, for recovery by hand", "simulation"),
     "simulation/energy.csv": ("Energy log written by OpenMM", "simulation"),
     "simulation/playback.pdb": ("Trajectory prepared for the viewer", "record"),
     "simulation/simulation.log": ("Simulation log", "record"),

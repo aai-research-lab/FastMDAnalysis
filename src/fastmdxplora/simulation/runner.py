@@ -427,9 +427,28 @@ def _attach_checkpoint_reporter(
 ) -> Any:
     """Attach a binary CheckpointReporter for crash recovery / restart.
 
-    OpenMM writes a portable ``.chk`` file every ``interval`` steps; the
-    latest checkpoint can be loaded to resume a run from where it left
-    off. Skipped cleanly when ``interval <= 0``.
+    OpenMM writes a portable ``.chk`` file every ``interval`` steps.
+
+    There is no ``--resume`` in this software, and the checkpoint alone is not
+    enough to add one safely. The positions and velocities come back; the
+    biasing state does not.
+
+    PLUMED does not re-read ``HILLS`` unless its script says ``RESTART``, and
+    no script here does. A metadynamics run resumed without it would begin
+    again from zero bias with the system sitting in a well it had already
+    filled, and produce a free energy surface that is wrong without saying
+    so. A steered pull is worse: the moving restraint is placed by absolute
+    step number, so resuming mid-pull puts the anchor somewhere the protein
+    is not.
+
+    Resuming is straightforward only for unbiased runs and for umbrella
+    windows, whose restraint does not depend on time. Doing it properly means
+    emitting ``RESTART`` where it applies, refusing where it does not, and
+    recording in the manifest that a run resumed and from where -- because a
+    trajectory assembled from two pieces is not the same object as one that
+    ran through, and the analyses read that provenance.
+
+    Skipped cleanly when ``interval <= 0``.
     """
     if interval <= 0:
         return None

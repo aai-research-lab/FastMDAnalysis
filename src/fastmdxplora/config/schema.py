@@ -429,8 +429,10 @@ SIMULATION = PhaseSchema(
         Field("state_interval_steps", int, 1000,
               "Energy/state reporter interval in steps."),
         Field("checkpoint_interval_steps", int, 10000,
-              "Binary checkpoint (.chk) interval in steps, for restart / "
-              "crash recovery. 0 disables checkpointing."),
+              "Binary checkpoint (.chk) interval in steps. Written for "
+              "recovery by hand with OpenMM's loadCheckpoint; this software "
+              "has no resume of its own yet -- see the note in the runner "
+              "for why that is more than a missing flag. 0 disables it."),
         Field("live_telemetry", bool, True,
               "Write live_status.json, live_metrics.csv, and live_events.log "
               "for the local live dashboard. Also writes a live-frame PDB so "
