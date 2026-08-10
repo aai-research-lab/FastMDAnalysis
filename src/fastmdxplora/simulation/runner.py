@@ -449,10 +449,13 @@ def _run_minimize(
     tolerance_kjmol_per_nm: float,
     max_iterations: int,
     on_progress: Callable[[str], None] | None = None,
+    on_explain: Callable[[str | None], None] | None = None,
 ) -> None:
     unit = omm["unit"]
     if on_progress:
         on_progress("Minimizing energy...")
+        if on_explain:
+            on_explain("minimize")
     simulation.minimizeEnergy(
         tolerance=tolerance_kjmol_per_nm * unit.kilojoules_per_mole / unit.nanometer,
         maxIterations=int(max_iterations),
@@ -641,12 +644,32 @@ def _state_for_diagnosis(simulation: Any) -> tuple[Any, Any]:
         return None, None
 
 
+#: The explanation that belongs to each stage, keyed by the label the stage
+#: announces itself under. A mapping rather than an argument threaded through
+#: both stage runners, because the two of them announce in one place each and
+#: the label is already there.
+_STAGE_EXPLANATIONS: dict[str, str] = {
+    "NVT equilibration": "nvt",
+    "NPT equilibration": "npt",
+    "Production": "production",
+}
+
+
+def _explanation_for(label: str) -> str | None:
+    """Which explanation a stage's label calls for, if any."""
+    for prefix, key in _STAGE_EXPLANATIONS.items():
+        if label.startswith(prefix):
+            return key
+    return None
+
+
 def _run_md_stage(
     simulation: Any,
     *,
     n_steps: int,
     label: str,
     on_progress: Callable[[str], None] | None = None,
+    on_explain: Callable[[str | None], None] | None = None,
     on_step_progress: Callable[..., None] | None = None,
     timestep_fs: float | None = None,
 ) -> None:
@@ -655,6 +678,8 @@ def _run_md_stage(
         return
     if on_progress:
         on_progress(f"{label}: {n_steps:,} steps")
+    if on_explain:
+        on_explain(_explanation_for(label))
 
     # Stepped in chunks so the run can say how far through it is. A single
     # blocking call to step() printed the count and then nothing until the
@@ -699,6 +724,7 @@ def _run_md_stage_with_live_metrics(
     n_steps: int,
     label: str,
     on_progress: Callable[[str], None] | None,
+    on_explain: Callable[[str | None], None] | None = None,
     current_step: int,
     total_steps: int,
     timestep_fs: float,
@@ -717,6 +743,8 @@ def _run_md_stage_with_live_metrics(
         return current_step
     if on_progress:
         on_progress(f"{label}: {n_steps:,} steps")
+    if on_explain:
+        on_explain(_explanation_for(label))
     remaining = int(n_steps)
     interval = max(1, int(telemetry_interval or DEFAULT_STATE_INTERVAL_STEPS))
     started = _time.monotonic()
@@ -895,6 +923,7 @@ def run_simulation(
     telemetry_interval: int = DEFAULT_STATE_INTERVAL_STEPS,
     # Hooks
     on_progress: Callable[[str], None] | None = None,
+    on_explain: Callable[[str | None], None] | None = None,
     on_step_progress: Callable[..., None] | None = None,
     # Enhanced sampling
     plumed: dict[str, Any] | None = None,
@@ -1236,6 +1265,7 @@ def run_simulation(
                 tolerance_kjmol_per_nm=minimize_tolerance_kjmol_per_nm,
                 max_iterations=minimize_max_iterations,
                 on_progress=_log_step,
+                on_explain=on_explain,
             )
             _validate_state_finite(omm, simulation, stage="minimization")
             if random_seed is None:
@@ -1329,6 +1359,7 @@ def run_simulation(
                 n_steps=plan["nvt_steps"],
                 label="NVT equilibration",
                 on_progress=_log_step,
+                on_explain=on_explain,
                 current_step=current_step,
                 total_steps=total_planned_steps,
                 timestep_fs=timestep_fs,
@@ -1342,6 +1373,7 @@ def run_simulation(
                 n_steps=plan["nvt_steps"],
                 label="NVT equilibration",
                 on_progress=_log_step,
+                on_explain=on_explain,
                 on_step_progress=_bar,
                 timestep_fs=timestep_fs,
             )
@@ -1383,6 +1415,9 @@ def run_simulation(
             # is depends on the system -- but it should not be silent.
             _warn_density_was_never_equilibrated(
                 simulation, system, temperature_K=temperature_K)
+            # The measured number, then why it is a number worth reading.
+            if on_explain:
+                on_explain("ensemble_choice")
 
         if plan["npt_steps"] > 0:
             _add_barostat(
@@ -1404,6 +1439,7 @@ def run_simulation(
                     n_steps=plan["npt_steps"],
                     label="NPT equilibration",
                     on_progress=_log_step,
+                on_explain=on_explain,
                     current_step=current_step,
                     total_steps=total_planned_steps,
                     timestep_fs=timestep_fs,
@@ -1418,6 +1454,7 @@ def run_simulation(
                     n_steps=plan["npt_steps"],
                     label="NPT equilibration",
                     on_progress=_log_step,
+                on_explain=on_explain,
                     on_step_progress=_bar,
                     timestep_fs=timestep_fs,
                 )
@@ -1495,6 +1532,7 @@ def run_simulation(
                 n_steps=plan["production_steps"],
                 label="Production",
                 on_progress=_log_step,
+                on_explain=on_explain,
                 current_step=current_step,
                 total_steps=total_planned_steps,
                 timestep_fs=timestep_fs,
@@ -1508,6 +1546,7 @@ def run_simulation(
                 n_steps=plan["production_steps"],
                 label="Production",
                 on_progress=_log_step,
+                on_explain=on_explain,
                 on_step_progress=_bar,
                 timestep_fs=timestep_fs,
             )

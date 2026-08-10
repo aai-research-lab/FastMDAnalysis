@@ -959,16 +959,30 @@ class SessionPresenter:
         icon, color = self._STATUS_ICON.get(status, ("·", "muted"))
         self._write(f"  {self._c(icon, color)} {message}")
 
-        if explain and self.explain:
-            from fastmdxplora.explain import explain as _lookup
+        self.explanation(explain)
 
-            entry = _lookup(explain)
-            if entry is not None:
-                self._write("")
-                self._write(self._c(entry.as_text(), "muted"))
-                self._write("")
+    def explanation(self, key: str | None) -> None:
+        """Print the explanation named by ``key``, if explanations are on.
 
-    def info(self, message: str) -> None:
+        Separate from :meth:`step` because the simulation phase announces its
+        stages through :meth:`info` -- no status icon, because "NVT
+        equilibration: 250,000 steps" is not a thing that succeeded or failed
+        -- and those stages are exactly where the reasons are worth having.
+        The entries for minimisation, NVT, NPT and the ensemble existed and
+        had nowhere to be printed from.
+        """
+        if not key or not self.explain or self.quiet:
+            return
+        from fastmdxplora.explain import explain as _lookup
+
+        entry = _lookup(key)
+        if entry is None:
+            return
+        self._write("")
+        self._write(self._c(entry.as_text(), "muted"))
+        self._write("")
+
+    def info(self, message: str, *, explain: str | None = None) -> None:
         """Print a plain indented message (no status icon).
 
         Useful for things like ``"Loading trajectory... 10000 frames"``
@@ -977,6 +991,7 @@ class SessionPresenter:
         if self.quiet:
             return
         self._write(f"  {message}")
+        self.explanation(explain)
 
     def analysis_table_row(
         self,

@@ -360,6 +360,19 @@ def run(
             if presenter:
                 presenter.info(msg)
 
+        def _explain(key: str | None) -> None:
+            """Print the reason a stage exists, beside the stage.
+
+            `explain.py` says a pipeline that does all this silently
+            "teaches nothing". That held for setup, which explains its
+            protonation and its solvation, and not here -- the entries for
+            minimisation, NVT, NPT and production existed and were never
+            reached, because the runner announces through a callback that
+            carried a message and nothing else.
+            """
+            if presenter and key:
+                presenter.explanation(key)
+
         def _bar(label, done, total, rate, seconds_left) -> None:
             """Drive the terminal's progress bar during a stage.
 
@@ -406,6 +419,7 @@ def run(
             live_telemetry=bool(params["live_telemetry"]),
             telemetry_interval=int(params["telemetry_interval"]),
             on_progress=_progress,
+            on_explain=_explain,
             on_step_progress=_bar,
             plumed=params.get("plumed"),
             metadynamics=params.get("metadynamics"),

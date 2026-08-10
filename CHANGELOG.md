@@ -8,6 +8,16 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Added
+- **The simulation phase now says why each stage exists.** `explain.py` opens
+  by saying a pipeline that does all this silently "teaches nothing", and that
+  held for setup and not for simulation: the entries for minimisation, NVT,
+  NPT, production and the ensemble were written, and none of them could be
+  reached. The runner announces through a callback carrying a message and
+  nothing else, and the presenter could print an explanation from `step` but
+  not from `info`, which is what stages use. Both ends existed and were not
+  joined. A real run explained its protonation and its solvation, then went
+  quiet for the twenty minutes in which the ensemble is chosen.
+
 - **What NVT and NPT are for, and what choosing one does to production.**
   Both steps had an explanation and neither had a reference. They now cite
   the LiveCoMS best-practices guide and the Monte Carlo barostat OpenMM
