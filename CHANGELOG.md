@@ -8,6 +8,27 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Added
+- **A study reads its own curve.** `pmf.json` carried a free energy and left
+  the reading of it to whoever opened the file, which is how it got misread.
+  The grid spans wherever the coordinate went, the windows covered a part of
+  it, and a minimum taken across the whole grid references a region nothing
+  visited -- a real study looked to have a 164 kJ/mol barrier that way,
+  against 11 measured where the windows actually were. It now records the
+  covered range and a summary: the barrier, where it sits, and every minimum
+  sorted by depth. The `pmf` analysis reports them instead of only drawing a
+  line.
+
+- **A closed turn measures itself.** The two ends of a full period are the
+  same place, so their free energies must agree. They arrive there from
+  different windows through a chain of joins and nothing forces them to, which
+  makes the difference a measurement rather than a fault: it is what the
+  study's statistics are worth. Reported, not constrained -- forcing the ends
+  together would make the number zero and take the information with it. A
+  well-sampled synthetic profile closes to nothing on its own; a real study of
+  0.2 ns windows closed to 2 kJ/mol, which is that study's uncertainty stated
+  honestly. A partial turn carries `None` rather than zero, because "this was
+  never a circle" and "this closed perfectly" are opposite claims.
+
 - **The simulation phase now says why each stage exists.** `explain.py` opens
   by saying a pipeline that does all this silently "teaches nothing", and that
   held for setup and not for simulation: the entries for minimisation, NVT,
@@ -215,6 +236,73 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   system is a PDB identifier, not a file.
 
 ### Fixed
+- **A torsion study that covered the whole turn returned a ramp.** The bias
+  on a window was `0.5 * k * (x - centre)**2`, a straight-line subtraction. On
+  a circle that is wrong at the wrap: a sample at +170 degrees is ten degrees
+  from a window held at -180, not three hundred and fifty. The code charged it
+  933 kJ/mol instead of 0.76 -- a Boltzmann weight wrong by a factor of
+  10^162 -- so that window's free energy was pushed up and every join after it
+  inherited the error.
+
+  Twelve windows tiling a full turn of alanine dipeptide's psi returned a
+  monotonic slide of 180 kJ/mol with no minimum anywhere in it, and every
+  check passed: twelve runs finished, no unsampled bins, every overlap above
+  the threshold, no refusal. A tool that refuses when it cannot support a
+  claim produced a confident wrong one. Corrected, the same windows give two
+  minima at -15 and 159 degrees and two barriers between them, 10.4 kJ/mol one
+  way round and 23.7 the other.
+
+  The scope is worth stating precisely: a study confined to part of the turn
+  is unaffected. The nine-window study before this one kept its windows away
+  from the wrap and gave 11.0 kJ/mol before the fix and 11.5 after -- the
+  difference being the periodic distance now applied throughout, where
+  subtraction had been merely close. It also found the easier of the two
+  barriers by luck of which arc it happened to cover.
+
+- **Asking for workers did not ask for parallelism.** `mode` defaulted to
+  sequential and `workers` was read separately, so `workers: 3` ran the runs
+  one at a time and said nothing about it. Nobody sets a worker count wanting
+  one at a time, and nobody lists GPUs to leave all but one idle. `mode`
+  written out still wins.
+
+- **Parallel workers competed for the whole machine.** OpenMM's CPU platform
+  takes every core it can see, and a pool of workers each doing that
+  oversubscribes by the worker count -- so `workers` could not be used well on
+  CPU at all. Each worker is now given `cores // workers` threads, set in the
+  worker process because the libraries underneath read it once at import.
+
+- **Capping groups were stripped as heterogens.** ACE, NME and the rest
+  terminate a chain and are part of the molecule. Removing them is right for
+  buffer and cryoprotectant and wrong here: it left a bare alanine wearing
+  atoms from its caps, and the run failed with "no template found for ALA",
+  naming the residue that survived rather than the two that did not.
+
+- **A rotation was fitted to one point.** RMSD and RMSF align on `name CA`,
+  and a molecule with one alpha carbon has no superposition. MDTraj's C
+  extension printed "UNCONVERGED ROTATION MATRIX. RETURNING IDENTITY" once per
+  frame -- thousands of lines in a window's log -- and returned distances
+  measured against no alignment at all, which look like results. Both now
+  declare a minimum of three atoms and are skipped below it, the way a chain
+  too short to have a fold already is.
+
+- **`--force` did not say what it would force.** It is `--force-overwrite`
+  now, with the old spelling kept as an alias so existing scripts still work.
+  Three refusals still named the old one, which is worse than either name
+  alone: it sends a reader to look for something the help no longer lists.
+  A test scans for stragglers, because a rename is exactly the change that
+  leaves messages behind.
+
+- **A study printed a sentence a minute for an hour.** Nine windows on a
+  laptop produced sixty near-identical heartbeat lines, burying the ones that
+  mattered -- the windows finishing, and anything that went wrong. It draws a
+  bar instead, redrawn in place where there is a terminal to redraw on and
+  written out in full where the output is a file.
+
+- **The banner said to watch a directory that would not change again.** An
+  umbrella study prepares one system every window shares, and the preparation
+  announced where it writes: accurate, and a second of setup finished before
+  anybody could type the command. It points at the study now.
+
 - **The NPT explanation gave one number where the effect is not one number.**
   It said solvation packs a box "roughly ten per cent short of water", from
   two runs that happened to sit at the same padding. Measured against OpenMM
