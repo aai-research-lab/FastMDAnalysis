@@ -236,6 +236,28 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   system is a PDB identifier, not a file.
 
 ### Fixed
+- **Every force field got the same cutoff, and two of the four were wrong for
+  it.** The default was 1.0 nm with switching from 0.9, applied to all of
+  them. CHARMM36 is developed at 1.2 nm with switching from 1.0, so it was run
+  0.2 nm short with the switch in the wrong place; the AMBER force fields are
+  developed with hard truncation and were being switched, which moves a run
+  away from the parameterisation rather than towards it.
+
+  This is not a preference. A force field is fitted with a particular
+  treatment of the truncation and the effects of that truncation are
+  compensated in its other parameters, so the scheme belongs to the force
+  field rather than beside it -- and CHARMM36 at AMBER's cutoff is a different
+  force field from the one that was validated. Each registry entry now carries
+  its own, an explicit `nonbonded_cutoff_nm` or `switch_distance_nm` still
+  wins, and the run says which scheme it used and why.
+
+  What OpenMM applies is the potential-based switching function; CHARMM's is
+  force-based, and the toolkit does not have it. Lee et al. say so directly in
+  the CHARMM-GUI Input Generator paper and prescribe this protocol for OpenMM
+  regardless, having tested a range of cutoff schemes against CHARMM's own
+  results. Naming it "CHARMM's switching" would claim a function that is not
+  there.
+
 - **A torsion study that covered the whole turn returned a ramp.** The bias
   on a window was `0.5 * k * (x - centre)**2`, a straight-line subtraction. On
   a circle that is wrong at the wrap: a sample at +170 degrees is ten degrees

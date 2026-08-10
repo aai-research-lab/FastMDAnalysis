@@ -58,6 +58,17 @@ class ForceFieldChoice:
     supports_ligand: bool
     small_molecule_forcefield: str | None
     description: str
+    #: The Lennard-Jones cutoff this force field was developed with, in nm,
+    #: and the distance at which to begin switching -- or ``None`` to truncate
+    #: at the cutoff with no switch.
+    #:
+    #: Not a preference. A force field is fitted with a particular treatment
+    #: of the truncation, and the effects of that truncation are compensated
+    #: in the other parameters, so a cutoff scheme is part of the force field
+    #: rather than a setting beside it. AMBER is developed with hard
+    #: truncation near 0.8-1.0 nm and must not be run with a switch. CHARMM36
+    #: is developed at 1.2 nm with switching from 1.0.
+    nonbonded: tuple[float, float | None] = (1.0, None)
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +87,11 @@ _REGISTRY: dict[str, ForceFieldChoice] = {
         supports_ligand=False,
         small_molecule_forcefield=None,
         description="CHARMM36 protein force field with CHARMM-style water.",
+        # Lee et al., CHARMM-GUI Input Generator, J Chem Theory Comput 2016:
+        # OpenMM offers only the potential-based switch, not CHARMM's
+        # force-based one, and this is the protocol they tested against
+        # CHARMM's own results for each program.
+        nonbonded=(1.2, 1.0),
     ),
     "amber14": ForceFieldChoice(
         name="amber14",
@@ -162,3 +178,63 @@ def resolve_forcefield(name: str | None) -> ForceFieldChoice:
             f"list of OpenMM XML filenames instead.)"
         )
     return choice
+
+#: What the schema hands over when nobody chose. A value equal to this is
+#: taken as "not chosen" so the force field's own scheme can apply; a value
+#: different from it was typed by somebody and is left alone.
+SCHEMA_CUTOFF_DEFAULT_NM = 1.0
+
+
+def nonbonded_scheme(
+    name: str,
+    *,
+    cutoff_nm: float | None,
+    use_switching_function: bool,
+    switch_distance_nm: float | None,
+) -> tuple[float, bool, float | None, str | None]:
+    """The cutoff, the switch, and a sentence if either was decided here.
+
+    A force field is fitted with a particular treatment of the truncation and
+    the rest of its parameters compensate for it, so the scheme belongs to the
+    force field rather than beside it. AMBER is developed with hard truncation
+    and should not be switched at all; CHARMM36 is developed at 1.2 nm with
+    switching from 1.0, and OpenMM offers the potential-based switch rather
+    than CHARMM's force-based one -- close enough to be the protocol
+    CHARMM-GUI prescribes for OpenMM, and not the same function.
+
+    An explicit setting always wins. What this decides is what happens when
+    nobody chose, which until now was one cutoff and one switch for every
+    force field: the wrong distance for CHARMM36 and a switch AMBER should
+    never have had.
+    """
+    choice = _REGISTRY.get(str(name).lower())
+    if choice is None:
+        return (cutoff_nm or SCHEMA_CUTOFF_DEFAULT_NM,
+                use_switching_function, switch_distance_nm, None)
+
+    wanted_cutoff, wanted_switch = choice.nonbonded
+    chosen = (cutoff_nm is not None
+              and abs(float(cutoff_nm) - SCHEMA_CUTOFF_DEFAULT_NM) > 1e-9)
+
+    cutoff = float(cutoff_nm) if chosen else wanted_cutoff
+    if switch_distance_nm is not None:
+        # Somebody named the switch; the cutoff scheme is theirs to set.
+        return cutoff, use_switching_function, switch_distance_nm, None
+
+    switching = wanted_switch is not None
+    said = None
+    if not chosen:
+        if switching:
+            said = (
+                f"{choice.name} is developed at {wanted_cutoff:g} nm with "
+                f"switching from {wanted_switch:g} nm, so that is what this "
+                "run uses. OpenMM offers the potential-based switch rather "
+                "than CHARMM's force-based one; it is the protocol CHARMM-GUI "
+                "prescribes for OpenMM, and it is not the same function.")
+        else:
+            said = (
+                f"{choice.name} is developed with hard truncation at "
+                f"{wanted_cutoff:g} nm and no switching function, so none is "
+                "applied. A switch here would move the run away from the "
+                "parameterisation rather than towards it.")
+    return cutoff, switching, wanted_switch, said

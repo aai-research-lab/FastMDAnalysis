@@ -30,6 +30,19 @@ SDF, from the Chemical Component Dictionary, or inferred from coordinates —
 and which route succeeded is recorded, because an interaction computed from
 inferred bond orders is a weaker claim than one from chemistry that was known.
 
+The nonbonded cutoff comes from the force field rather than from a single
+default, because a force field is fitted with a particular treatment of the
+truncation and its other parameters compensate for that. CHARMM36 is developed
+at 1.2 nm with switching from 1.0; the AMBER force fields are developed with
+hard truncation near 1.0 and are not switched at all, since switching them
+moves a run away from the parameterisation rather than towards it. Setting
+`nonbonded_cutoff_nm` or `switch_distance_nm` overrides this, and the run says
+which it used.
+
+OpenMM offers the potential-based switching function and not CHARMM's
+force-based one. That is the protocol CHARMM-GUI prescribes for OpenMM, having
+tested it against CHARMM's own results, and it is not the same function.
+
 **Writes** `prepared.pdb`, `solvated.pdb`, `system.xml`, `state.xml`,
 `setup_parameters.json`, and an SDF per ligand.
 

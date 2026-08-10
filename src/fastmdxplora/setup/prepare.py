@@ -41,6 +41,7 @@ from typing import Any
 
 from fastmdxplora.setup.forcefields import (
     available_forcefields,
+    nonbonded_scheme,
     resolve_forcefield,
 )
 from fastmdxplora.setup.ligand import load_ligand
@@ -348,6 +349,22 @@ def prepare_system(
         force_field = list(ff_choice.xmls)
         if water_model is None:
             water_model = ff_choice.water_model
+
+        # A force field is fitted with a particular treatment of the
+        # truncation, so the cutoff scheme belongs to it rather than beside
+        # it. One cutoff and one switch for every force field meant the wrong
+        # distance for CHARMM36 and a switch AMBER should never have had.
+        # An explicit setting wins; this decides what happens when nobody
+        # chose. Resolved here because the padding check below needs the
+        # cutoff this run will actually use.
+        (nonbonded_cutoff_nm, use_switching_function,
+         switch_distance_nm, said) = nonbonded_scheme(
+            ff_choice.name,
+            cutoff_nm=nonbonded_cutoff_nm,
+            use_switching_function=use_switching_function,
+            switch_distance_nm=switch_distance_nm)
+        if said:
+            logger.info("%s", said)
 
     # Normalize the ligand argument to a list; several ligands, cofactors, or
     # copies of one component may be parameterized together.
