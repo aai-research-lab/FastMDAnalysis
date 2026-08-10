@@ -741,7 +741,13 @@ class BatchExplorer:
                 directories[int(block["index"])] = self._run_output_dir(spec)
 
         try:
-            samples = collect_samples(directories)
+            # The plan's fraction, not the function's default: a study
+            # that asked to discard a third and quietly got a fifth
+            # would report the third in `pmf.json` and have used the
+            # other number to build the histograms.
+            samples = collect_samples(
+                directories,
+                equilibration_fraction=plan.equilibration_fraction)
         except FileNotFoundError as exc:
             # Some window did not produce sampling. Recorded rather than
             # raised: the runs that did work are still on disk and worth

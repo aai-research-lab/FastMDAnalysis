@@ -79,6 +79,13 @@ class UmbrellaPlan:
     #: window begins away from where it will settle, and counting that
     #: approach as sampling biases the histogram towards where it started.
     equilibration_steps: int = 0
+    #: The fraction of each window's sampling discarded before its histogram
+    #: is built. A window begins away from where it will settle and the
+    #: approach is not sampling, so some must go; how much is a judgement
+    #: about how long a window takes to settle, which depends on the barrier
+    #: and the force constant, so it belongs to whoever is making the claim
+    #: rather than to this file. A fifth is a common choice and the default.
+    equilibration_fraction: float = 0.2
     #: How much two neighbours must share before their free energies can be
     #: placed relative to one another. Three per cent is enough to stitch and
     #: thin: on a real study, pairs at seven per cent passed while a reader
@@ -102,6 +109,7 @@ class UmbrellaPlan:
             "force_constant": (self.windows[0].force_constant
                                if self.windows else None),
             "equilibration_steps": self.equilibration_steps,
+            "equilibration_fraction": self.equilibration_fraction,
             "minimum_overlap": self.minimum_overlap,
             "minimum_samples": self.minimum_samples,
         }
@@ -112,7 +120,8 @@ class UmbrellaPlan:
 #: which is a loud failure in a test rather than a quiet one in a study.
 _UMBRELLA_OWN_KEYS: frozenset[str] = frozenset({
     "force_constant", "centres", "centers", "from", "to", "n_windows",
-    "equilibration_steps", "minimum_overlap", "minimum_samples",
+    "equilibration_steps", "equilibration_fraction",
+    "minimum_overlap", "minimum_samples",
     # Written by the expansion onto each window, and read back from it.
     "centre", "index",
 })
@@ -155,6 +164,29 @@ def check_umbrella_keys(spec: dict[str, Any]) -> None:
         f"Unknown umbrella setting{'s' if len(unknown) > 1 else ''}: {named}. "
         "Accepted: " + ", ".join(sorted(accepted - {"centre", "index"})) + "."
     )
+
+
+def _checked_fraction(value: Any) -> float:
+    """The discard fraction, refused where it would not leave a histogram.
+
+    At one, a window keeps nothing and the free energy has no evidence behind
+    it. At zero it keeps the approach to its centre, which is not sampling of
+    the restrained ensemble and pulls the histogram towards where the window
+    started. Both are refused here rather than where the free energy comes
+    out empty, because by then the study has already run.
+    """
+    try:
+        fraction = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"equilibration_fraction must be a number, got {value!r}.") from None
+    if not 0.0 < fraction < 1.0:
+        raise ValueError(
+            f"equilibration_fraction is {fraction:g}; it must be above 0 and "
+            "below 1. A window begins away from where it settles, so some of "
+            "it has to be discarded, and discarding all of it leaves no "
+            "histogram to place.")
+    return fraction
 
 
 def plan_windows(spec: dict[str, Any]) -> UmbrellaPlan:
@@ -210,6 +242,8 @@ def plan_windows(spec: dict[str, Any]) -> UmbrellaPlan:
                       for i, c in enumerate(centres)),
         collective_variable=variable,
         equilibration_steps=int(spec.get("equilibration_steps", 0)),
+        equilibration_fraction=_checked_fraction(
+            spec.get("equilibration_fraction", 0.2)),
         minimum_overlap=float(spec.get("minimum_overlap", 0.03)),
         minimum_samples=int(spec.get("minimum_samples", 200)),
     )
@@ -286,6 +320,7 @@ def plan_from_expanded(config: dict[str, Any]) -> UmbrellaPlan | None:
     windows = []
     variable = ""
     equilibration = 0
+    fraction = 0.2
     minimum = 0.03
     fewest = 200
     for entry in systems:
@@ -295,6 +330,8 @@ def plan_from_expanded(config: dict[str, Any]) -> UmbrellaPlan | None:
             continue
         variable = str(block.get("collective_variable", variable))
         equilibration = int(block.get("equilibration_steps", equilibration))
+        fraction = _checked_fraction(
+            block.get("equilibration_fraction", fraction))
         minimum = float(block.get("minimum_overlap", minimum))
         fewest = int(block.get("minimum_samples", fewest))
         windows.append(Window(
@@ -308,6 +345,7 @@ def plan_from_expanded(config: dict[str, Any]) -> UmbrellaPlan | None:
         windows=tuple(sorted(windows, key=lambda w: w.index)),
         collective_variable=variable,
         equilibration_steps=equilibration,
+        equilibration_fraction=fraction,
         minimum_overlap=minimum,
         minimum_samples=fewest,
     )
