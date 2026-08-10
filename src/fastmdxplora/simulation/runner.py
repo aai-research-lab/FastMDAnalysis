@@ -572,6 +572,51 @@ def _validate_state_finite(omm: dict, simulation: Any, *, stage: str) -> None:
             topology=simulation.topology, positions=positions)
 
 
+def _warn_density_was_never_equilibrated(
+        simulation: Any, system: Any, *, temperature_K: float) -> None:
+    """Say what density a run without a barostat is actually simulating at.
+
+    The number is already measured every reporting interval and written to
+    `energy.csv`, where nobody looks until something has gone wrong. Said once
+    at the point the choice takes effect, it is a fact about the run rather
+    than a forensic exercise.
+    """
+    try:
+        # OpenMM is present in any real run. Where it is not, the quantities
+        # still carry `value_in_unit` and the arithmetic is the same, so the
+        # import is not allowed to decide whether the number gets reported.
+        try:
+            from openmm import unit  # noqa: PLC0415 -- optional backend
+
+            volume_unit, mass_unit = unit.nanometer ** 3, unit.dalton
+        except ImportError:
+            volume_unit = mass_unit = None
+
+        state = simulation.context.getState()
+        # Coerced here so that anything which is not a number -- an unusual
+        # state, a stub -- takes the same quiet path as a state that could
+        # not be read at all, rather than raising further down.
+        volume = float(
+            state.getPeriodicBoxVolume().value_in_unit(volume_unit))
+        mass = float(sum(
+            system.getParticleMass(i).value_in_unit(mass_unit)
+            for i in range(system.getNumParticles())))
+    except Exception:  # noqa: BLE001 -- a missing number is not a reason to
+        # stop a run that is otherwise fine.
+        return
+
+    if volume <= 0:
+        return
+    # 1 Da / nm^3 = 1.66054 g/mL.
+    density = mass / volume * 1.66054e-3
+    logger.warning(
+        "No NPT stage, so the density is whatever solvation produced and "
+        "stays there: %.3f g/mL. Liquid water is near 1.0, and a box below "
+        "that has voids in it. Add `npt_steps` to let a barostat correct it, "
+        "or accept that the run is not at the density of water.",
+        density)
+
+
 def _state_for_diagnosis(simulation: Any) -> tuple[Any, Any]:
     """The positions a failed step left behind, where they can be read.
 
@@ -1324,6 +1369,21 @@ def run_simulation(
         # ---- Stage 3: NPT equilibration -------------------------------
         # Add the barostat and reinitialize the context so the system picks up
         # the new force. Production then continues in NPT.
+        # Phrased against the same comparison the branch below uses,
+        # so a plan that answers one answers both.
+        if not plan["npt_steps"] > 0:
+            # Solvation packs a box that is not at the density of water. A
+            # real run measured 0.92 g/mL and held it there for every step,
+            # because the barostat is the only thing that fixes it: the same
+            # system under NPT contracted by 11% by volume to reach 1.03.
+            # An under-dense box has voids, water accelerates into them, and
+            # that is a plausible route to the integration failures seen on
+            # exactly these runs. Reported rather than corrected, because
+            # skipping NPT is a legitimate choice and how far off the density
+            # is depends on the system -- but it should not be silent.
+            _warn_density_was_never_equilibrated(
+                simulation, system, temperature_K=temperature_K)
+
         if plan["npt_steps"] > 0:
             _add_barostat(
                 omm, system,
