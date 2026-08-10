@@ -550,6 +550,36 @@ def warn_if_a_circle_is_left_open(plan: "UmbrellaPlan") -> str | None:
         "full turn, or read the result as the one path it covers.")
 
 
+def closure_gap(coordinate: Any, energy: Any) -> float | None:
+    """How far a periodic profile misses meeting itself, in kJ/mol.
+
+    The two ends of a full turn are the same place, so their free energies
+    must be equal. They are computed from different windows by a chain of
+    joins, and nothing in the arithmetic forces them to agree -- which makes
+    the difference between them a measurement rather than a defect: it is
+    what the study's own statistics are worth.
+
+    Not forced to zero. A constraint would make the number vanish and take
+    the information with it. On a well-sampled synthetic profile this comes
+    out at zero on its own; on a real study of 0.2 ns windows it came out at
+    2 kJ/mol, which is the honest size of that study's uncertainty.
+    """
+    coordinate = np.asarray(coordinate, dtype=float)
+    energy = np.asarray([np.nan if v is None else float(v) for v in energy],
+                        dtype=float)
+    finite = np.isfinite(energy)
+    if finite.sum() < 2:
+        return None
+
+    where, values = coordinate[finite], energy[finite]
+    # Only when the profile spans the turn: two ends a long way short of
+    # meeting are not failing to close, they are simply not a circle.
+    span = float(where[-1] - where[0])
+    if span < 2.0 * np.pi - (where[1] - where[0]) * 2.0:
+        return None
+    return abs(float(values[-1] - values[0]))
+
+
 def describe_pmf(coordinate: Any, energy: Any,
                  covered: tuple[float, float] | None = None) -> dict[str, Any]:
     """The numbers a reader wants from a curve, computed once, here.
@@ -589,6 +619,8 @@ def describe_pmf(coordinate: Any, energy: Any,
         "barrier_at": float(where[top]),
         "covered": [float(where.min()), float(where.max())],
         "minima": sorted(minima, key=lambda m: m["free_energy_kjmol"]),
+        # None where the profile is not a closed turn.
+        "closure_gap_kjmol": closure_gap(coordinate, energy),
     }
 
 
