@@ -624,7 +624,7 @@ class BatchExplorer:
                 "These output directories already hold results:\n  "
                 f"{listed}\n"
                 "Choose another output directory, delete these, or pass "
-                "--force to overwrite them."
+                "--force-overwrite to overwrite them."
             )
 
     def _run_output_dir(self, spec: RunSpec) -> Path:

@@ -743,7 +743,7 @@ class FastMDXplora:
         raise FileExistsError(
             f"{self.output_dir} already holds output from "
             f"{', '.join(occupied)}. Choose another --output directory, "
-            f"delete this one, or pass --force to overwrite it."
+            f"delete this one, or pass --force-overwrite to overwrite it."
         )
 
     def _merge_options(

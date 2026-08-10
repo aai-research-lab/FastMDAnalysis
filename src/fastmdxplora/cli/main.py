@@ -1415,7 +1415,7 @@ def _cmd_init_config(args: argparse.Namespace) -> int:
     out_path = Path(args.config_output)
     if out_path.exists() and not args.force:
         print(
-            f"fastmdx: {out_path} already exists. Use --force to overwrite, "
+            f"fastmdx: {out_path} already exists. Use --force-overwrite, "
             f"or -o to choose a different path.",
             file=sys.stderr,
         )
