@@ -163,6 +163,92 @@ def surface_from_hills(
     return surface - float(np.min(surface))
 
 
+def basins(coordinate: np.ndarray, surface: np.ndarray,
+           periodic: bool = False) -> tuple[float, float] | None:
+    """The two deepest minima, which are the states a crossing goes between.
+
+    Returns ``None`` where there is only one, because a coordinate with a
+    single basin has nothing to cross to and a count of crossings would be a
+    count of nothing.
+    """
+    finite = np.isfinite(surface)
+    if finite.sum() < 3:
+        return None
+    where, values = coordinate[finite], surface[finite]
+
+    if periodic and values.size > 2 and abs(
+            (where[-1] - where[0]) - 2.0 * np.pi) < 1e-6:
+        # A grid spanning -pi to pi inclusive names the same place twice, so
+        # the wrap-around neighbour of the first point is the second to last,
+        # not the last. Dropping the duplicate is simpler than special-casing
+        # every comparison that follows.
+        where, values = where[:-1], values[:-1]
+
+    interior = [
+        i for i in range(1, values.size - 1)
+        if values[i] < values[i - 1] and values[i] < values[i + 1]
+    ]
+    if periodic and values.size > 2:
+        # The ends are neighbours, so a minimum can sit across the join.
+        if values[0] < values[1] and values[0] < values[-1]:
+            interior.append(0)
+        if values[-1] < values[-2] and values[-1] < values[0]:
+            interior.append(values.size - 1)
+    if len(interior) < 2:
+        return None
+
+    interior.sort(key=lambda i: values[i])
+    return float(where[interior[0]]), float(where[interior[1]])
+
+
+def transitions(values: np.ndarray, *, between: tuple[float, float],
+                periodic: bool = False) -> int:
+    """How many times the variable travelled from one basin to the other.
+
+    Counted by which minimum each frame is nearer to, measured the short way
+    round where the coordinate is a circle, with a frame counted as arrived
+    only once it is within a quarter of the separation. A run rattling
+    between them does not accumulate crossings it did not make.
+
+    The band used to be placed a quarter of the way in from the extremes of
+    the hill range, which is a statement about the grid rather than about the
+    system. On a full turn that put the thresholds at -90 and +90 degrees,
+    and a real study whose minima sat at -17 and 155 had one of them inside
+    the dead band: the count was of excursions past an arbitrary line.
+    """
+    if values.size == 0:
+        return 0
+
+    def separation(a, b):
+        d = np.asarray(a, dtype=float) - b
+        if periodic:
+            d = np.remainder(d + np.pi, 2.0 * np.pi) - np.pi
+        return np.abs(d)
+
+    first, second = between
+    apart = float(separation(first, second))
+    if apart <= 0:
+        return 0
+    close_enough = 0.25 * apart
+
+    to_first = separation(values, first)
+    to_second = separation(values, second)
+
+    crossings = 0
+    side: str | None = None
+    for near_first, near_second in zip(to_first, to_second):
+        if near_first <= close_enough:
+            here = "first"
+        elif near_second <= close_enough:
+            here = "second"
+        else:
+            continue
+        if side is not None and here != side:
+            crossings += 1
+        side = here
+    return crossings
+
+
 def recrossings(values: np.ndarray, *, low: float, high: float) -> int:
     """How many times the variable travelled from one side to the other.
 
@@ -257,17 +343,28 @@ def compute_surface(
     last = float(np.mean(hills.height[-max(1, len(hills) // 20):]))
     settled = last <= SETTLED_HEIGHT_FRACTION * first if first > 0 else False
 
+    # Between the two deepest basins, which are the states a crossing goes
+    # between. Falls back to a band placed a quarter in from the extremes of
+    # the hill range where the surface has only one minimum -- there is
+    # nothing to cross to, and the older measure at least says whether the
+    # coordinate moved.
     span = highest - lowest
-    # Named, because the record quotes them: the band a crossing has to span.
     low_edge = lowest + 0.25 * span
     high_edge = highest - 0.25 * span
+    two_basins = basins(grid, surface, periodic=periodic)
+
     crossed: int | None = None
     if colvar_values is not None and colvar_values.size:
-        crossed = recrossings(
-            np.asarray(colvar_values, dtype=float),
-            low=low_edge, high=high_edge)
+        sampled = np.asarray(colvar_values, dtype=float)
+        if two_basins is not None:
+            crossed = transitions(
+                sampled, between=two_basins, periodic=periodic)
+        else:
+            crossed = recrossings(sampled, low=low_edge, high=high_edge)
 
     evidence: dict[str, Any] = {
+        "basins": (None if two_basins is None
+                   else [float(x) for x in two_basins]),
         "hills": len(hills),
         "bias_factor": hills.bias_factor,
         "first_hill_height_kjmol": first,
@@ -283,11 +380,19 @@ def compute_surface(
         # has reached the far side. Anyone comparing their own count against
         # this one, and not knowing that, would draw the wrong conclusion
         # about their sampling.
+        # It has to say which measure was used, because the two answer
+        # different questions and the number alone does not distinguish them.
         "recrossings_definition": (
-            f"transitions between the regions below {low_edge:.3g} and above "
-            f"{high_edge:.3g}, counted once the far region is reached rather "
-            "than at every crossing of a threshold, so a coordinate jittering "
-            "on top of a barrier does not accumulate crossings it never made"
+            (f"travel between the basins at {two_basins[0]:.3g} and "
+             f"{two_basins[1]:.3g}, a frame counted as arrived once it is "
+             "within a quarter of their separation, so a coordinate "
+             "rattling between them does not accumulate crossings it never "
+             "made")
+            if two_basins is not None else
+            (f"transitions between the regions below {low_edge:.3g} and "
+             f"above {high_edge:.3g} -- the surface has only one minimum, so "
+             "there is no second basin to travel to and this says whether "
+             "the coordinate moved rather than whether it changed state")
         ),
         "barrier_kjmol": float(np.max(surface)),
     }

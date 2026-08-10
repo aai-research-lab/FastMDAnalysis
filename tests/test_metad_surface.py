@@ -275,6 +275,9 @@ class TestARunThatDoesNotSupportASurface:
         assert set(result["evidence"]) == {
             "hills", "bias_factor", "first_hill_height_kjmol",
             "last_hill_height_kjmol", "drift_kjmol", "recrossings",
+            # Where the two states are, because the count is of travel
+            # between them and a reader cannot check it otherwise.
+            "basins",
             # What "recrossings" counts, because the word is ambiguous and
             # the two readings differed by 60% on a real run.
             "recrossings_definition",
