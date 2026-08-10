@@ -133,20 +133,55 @@ EXPLANATIONS: dict[str, Explanation] = {
     ),
     "nvt": Explanation(
         why=(
-            "The system starts at zero temperature with the atoms sitting "
-            "still. NVT brings it to the temperature you asked for while the "
-            "volume is held fixed, which lets the water find its arrangement "
-            "without the box changing size at the same time. Two things "
-            "equilibrating at once is harder to diagnose when it goes wrong."
+            "N, V and T are what is held fixed: the number of atoms, the "
+            "volume of the box, and the temperature. The system starts at "
+            "zero temperature with the atoms sitting still, and this brings "
+            "it to the temperature you asked for while the box stays the "
+            "size solvation made it. Temperature first and density second, "
+            "because two things equilibrating at once is harder to diagnose "
+            "when it goes wrong."
+        ),
+        reference=(
+            "Braun et al., Best Practices for Foundations in Molecular "
+            "Simulations, LiveCoMS 2019 (doi:10.33011/livecoms.1.1.5957)"
         ),
     ),
     "npt": Explanation(
         why=(
-            "Now the box is allowed to change size, so the system settles to "
-            "the density real water has at this temperature and pressure. "
-            "Skipping this leaves the system at whatever density the "
-            "solvation happened to produce, which is usually a little wrong "
-            "and shows up in everything measured afterwards."
+            "P replaces V: the box is now free to change size, and settles "
+            "to the density real water has at this temperature and pressure. "
+            "This is not a formality. Solvation leaves a gap around the "
+            "solute, and in a small box that gap is a large share of the "
+            "volume: measured here, a solute at 1.0 to 1.2 nm of padding "
+            "packs near 0.90 g/mL against water's 1.0, while the same "
+            "solvation at 2.0 nm reaches 0.96. Only a barostat closes it. A "
+            "box that short has voids in it, which is wrong for anything you "
+            "measure and a route to the run falling over. How far off your "
+            "own box is gets reported rather than assumed."
+        ),
+        reference=(
+            "Aqvist et al., Molecular dynamics simulations of water and "
+            "biomolecules with a Monte Carlo constant pressure algorithm, "
+            "Chem Phys Lett 2004 (doi:10.1016/j.cplett.2003.12.039)"
+        ),
+    ),
+    "ensemble_choice": Explanation(
+        why=(
+            "Which ensemble production runs in is a choice, and the usual "
+            "one is NPT: it matches the constant-pressure conditions an "
+            "experiment is done under, and the box is free to respond if the "
+            "system changes shape. NVT production is also legitimate -- it "
+            "is cheaper, and it removes volume fluctuation from anything "
+            "sensitive to it -- but only at a density you know is right, and "
+            "the way you learn that is to run NPT first and take the average "
+            "box size from it. Going straight to NVT is not the same choice: "
+            "it fixes the box at whatever solvation produced and simulates "
+            "there for every step, which is the one option nobody intends."
+        ),
+        reference=(
+            "Braun et al., Best Practices for Foundations in Molecular "
+            "Simulations, LiveCoMS 2019, Fig. 'Suggested equilibration "
+            "workflow' (doi:10.33011/livecoms.1.1.5957)"
         ),
     ),
     "membrane_barostat": Explanation(

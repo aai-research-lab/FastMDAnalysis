@@ -601,9 +601,11 @@ class TestTheDocumentationQuotesWhatTheSoftwareSays:
 
         page = (pathlib.Path(__file__).resolve().parents[1]
                 / "docs" / "getting_started.md").read_text(encoding="utf-8")
-        assert f"{len(EXPLANATIONS)}" in page or "Fifteen" in page
-        assert len(EXPLANATIONS) == 15, (
-            "the page says fifteen; say the new number there too")
+        words = {14: "Fourteen", 15: "Fifteen", 16: "Sixteen",
+                 17: "Seventeen", 18: "Eighteen"}
+        assert words[len(EXPLANATIONS)] in page, (
+            f"there are {len(EXPLANATIONS)} explanations; the page says "
+            "otherwise. Say the new number there too.")
 
     def test_the_variables_the_page_tabulates_are_the_variables_there_are(
         self

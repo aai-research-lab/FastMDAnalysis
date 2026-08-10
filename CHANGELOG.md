@@ -8,6 +8,20 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Added
+- **What NVT and NPT are for, and what choosing one does to production.**
+  Both steps had an explanation and neither had a reference. They now cite
+  the LiveCoMS best-practices guide and the Monte Carlo barostat OpenMM
+  actually uses, and the NPT text carries the measured number rather than
+  calling the error "usually a little wrong": solvation packs a box about ten
+  per cent short of water, and only a barostat corrects it.
+
+  A third explanation covers the question neither answered -- why you would
+  run only one. NVT production is legitimate at a density you know is right,
+  and the way you learn that density is to run NPT first and take the average
+  box size from it. Going straight to NVT is a different thing entirely: it
+  fixes the box at whatever solvation produced. That is the arrangement two
+  runs here used, at 0.92 g/mL, and it is the one nobody intends.
+
 - **The README says what a biased run's averages mean.** The front page
   listed the three enhanced sampling methods and what each output is and is
   not, and stopped there -- so the most distinctive thing the analyses now do,
@@ -191,6 +205,16 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   system is a PDB identifier, not a file.
 
 ### Fixed
+- **The NPT explanation gave one number where the effect is not one number.**
+  It said solvation packs a box "roughly ten per cent short of water", from
+  two runs that happened to sit at the same padding. Measured against OpenMM
+  directly across box sizes, with and without a solute: pure water packs at
+  0.96 to 0.99 whatever the size, a solute at 1.0 to 1.2 nm of padding brings
+  it to about 0.90, and the same solvation at 2.0 nm reaches 0.96. The gap is
+  the vacuum shell left around the solute, and it matters in proportion to
+  how small the box is -- so it is described that way now, and the run
+  reports its own number rather than a claim standing in for it.
+
 - **The reconstructed bias was 11.1% too large on every well-tempered run.**
   PLUMED does not store the height it deposited. For a well-tempered run it
   stores that height multiplied by y/(y-1), so that summing HILLS gives the
