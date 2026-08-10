@@ -40,6 +40,49 @@ _UNREMARKABLE_RESIDUES = frozenset({
 })
 
 
+#: Residues that terminate a chain rather than sit beside it. They are not
+#: standard amino acids, so PDBFixer's heterogen removal takes them -- which
+#: is right for a buffer molecule and wrong for these: an acetyl and an
+#: N-methylamide are what give a short peptide proper backbone neighbours
+#: instead of charged termini, and removing them leaves atoms behind that
+#: match no template. A real run on alanine dipeptide lost both caps and
+#: failed with "no template found for ALA", which names the residue that
+#: survived rather than the two that did not.
+CAPPING_GROUPS = frozenset({"ACE", "NME", "NHE", "NH2", "FOR", "NMA"})
+
+
+def _protect_capping_groups(topology):
+    """Make PDBFixer treat capping groups as part of the chain.
+
+    `removeHeterogens` keeps whatever is in its standard-residue list, which
+    is a plain module-level list. Extending it for the duration of the call is
+    contained and reversible, and it says what it means: these are polymer,
+    not contaminant.
+    """
+    import contextlib
+
+    @contextlib.contextmanager
+    def _guard():
+        present = {r.name.upper() for r in topology.residues()} & CAPPING_GROUPS
+        if not present:
+            yield frozenset()
+            return
+        try:
+            from pdbfixer import pdbfixer as _pf  # noqa: PLC0415
+        except ImportError:
+            yield frozenset()
+            return
+        original = list(_pf.proteinResidues)
+        _pf.proteinResidues.extend(
+            name for name in sorted(present) if name not in original)
+        try:
+            yield frozenset(present)
+        finally:
+            _pf.proteinResidues[:] = original
+
+    return _guard()
+
+
 def _heterogen_residue_counts(topology) -> dict[str, int]:
     """Count non-water, non-ion heterogen residues about to be discarded."""
     counts: dict[str, int] = {}
@@ -256,7 +299,14 @@ def fix_pdb_with_pdbfixer(
     fixer = PDBFixer(filename=str(inp))
     if not keep_heterogens:
         removed = _heterogen_residue_counts(fixer.topology)
-        fixer.removeHeterogens(keepWater=keep_water)
+        with _protect_capping_groups(fixer.topology) as caps:
+            fixer.removeHeterogens(keepWater=keep_water)
+        if caps:
+            logger.info(
+                "Kept %s: capping groups terminate the chain and are part of "
+                "the molecule, not heterogens.", ", ".join(sorted(caps)))
+        removed = {n: c for n, c in removed.items()
+                   if n.upper() not in CAPPING_GROUPS}
         kept = {name.upper() for name in reinstated}
         # Components the caller has already reasoned about and reported on.
         # Warning that a buffer molecule "was removed, and might be the ligand

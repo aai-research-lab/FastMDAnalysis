@@ -469,9 +469,17 @@ class BatchExplorer:
 
         # Execution settings
         execution = raw.get("execution") or {}
-        self.mode = execution.get("mode", "sequential")
         self.workers = execution.get("workers")
         self.devices = execution.get("devices")
+        # Asking for workers or devices is asking to run in parallel. The two
+        # were read independently, so `workers: 3` on its own scheduled the
+        # runs one at a time and said nothing about it -- and a study of nine
+        # windows took three times as long as it was told to. Nobody sets a
+        # worker count wanting one at a time, and nobody lists GPUs to leave
+        # all but one idle. `mode` written out still wins, so a config that
+        # asks for both a worker count and sequential gets sequential.
+        self.mode = execution.get("mode") or (
+            "parallel" if (self.workers or self.devices) else "sequential")
         # Umbrella windows are one measurement, not several systems. A
         # campaign should carry on when one system fails -- the others are
         # still results. A free energy cannot be computed at all if a window
