@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from fastmdxplora.gui.ligand_detection import (
-    AMINO_ACID_RESNAMES,
+    POLYMER_RESNAMES,
     ION_RESNAMES,
     WATER_RESNAMES,
     detect_ligands,
@@ -132,7 +132,7 @@ def _count_structure_cached(
                     ion_atoms += 1
                     ion_residue_keys.add(key)
                     continue
-                if resname in AMINO_ACID_RESNAMES:
+                if resname in POLYMER_RESNAMES:
                     protein_atoms += 1
                     protein_chains.add(chain_id)
                     protein_residue_keys.add(key)
@@ -197,7 +197,7 @@ def ligand_atom_counts(path: str | Path) -> dict[str, int]:
                 if (
                     resname in WATER_RESNAMES
                     or resname in ION_RESNAMES
-                    or resname in AMINO_ACID_RESNAMES
+                    or resname in POLYMER_RESNAMES
                 ):
                     continue
                 counts[resname] += 1

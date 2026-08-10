@@ -37,6 +37,19 @@ AMINO_ACID_RESNAMES = frozenset({
     "MSE", "SEC", "PYL",
 })
 
+#: Capping groups. Chemically they are not amino acids, and by the PDB's
+#: reckoning they are heterogens -- but they terminate a chain and belong to
+#: the polymer, so counting them out of the protein counts them in as
+#: something else. Alanine dipeptide reported one protein residue, ten protein
+#: atoms, and two ligands, when the molecule is three residues of twenty-two
+#: atoms and has no ligand at all. Worse than a miscount: a cap surfaced as a
+#: ligand invites a study of the contacts between a residue and its own
+#: backbone terminus.
+CAPPING_RESNAMES = frozenset({"ACE", "NME", "NHE", "NH2", "FOR", "NMA"})
+
+#: What counts as the polymer, for deciding what is left over.
+POLYMER_RESNAMES = AMINO_ACID_RESNAMES | CAPPING_RESNAMES
+
 # Legacy private alias kept for backwards compatibility within the package.
 _AMINO_ACID_RESNAMES = AMINO_ACID_RESNAMES
 
@@ -107,7 +120,7 @@ def detect_ligands(
         if rn not in explicit_set:
             if rn in WATER_RESNAMES or rn in ION_RESNAMES:
                 continue
-            if rn in _AMINO_ACID_RESNAMES:
+            if rn in POLYMER_RESNAMES:
                 continue
         is_cofactor = rn in COMMON_COFACTORS and rn not in explicit_set
         if is_cofactor:
