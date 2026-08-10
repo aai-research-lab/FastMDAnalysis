@@ -145,6 +145,17 @@ class Analysis(ABC):
     #: really visited, not that the right ones were found.
     reweightable_populations: bool = False
 
+    #: How many atoms this analysis's selection must match before a rigid
+    #: body superposition onto it is defined. Three is the minimum for a
+    #: rotation; below that there is no unique answer.
+    #:
+    #: Alanine dipeptide has one CA, which is the default selection for RMSD
+    #: and RMSF, and MDTraj responded by printing "UNCONVERGED ROTATION
+    #: MATRIX. RETURNING IDENTITY" once per frame from its C extension and
+    #: returning distances measured against no alignment at all. Thousands of
+    #: lines of it, and a column of numbers that looked like results.
+    min_atoms_to_align: int = 0
+
     #: Human-readable description used in figure titles.
     description: str = ""
 

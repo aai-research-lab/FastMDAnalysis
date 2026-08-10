@@ -472,6 +472,36 @@ class AnalysisOrchestrator:
                 residues = traj.n_residues
             return residues > separation
 
+        def _alignable(name: str) -> bool:
+            """A superposition needs three atoms to be defined.
+
+            Alanine dipeptide has one CA, which is what RMSD and RMSF align
+            on by default. MDTraj printed "UNCONVERGED ROTATION MATRIX.
+            RETURNING IDENTITY" once per frame from its C extension -- so a
+            window's log filled with thousands of lines of it -- and returned
+            distances measured against no alignment at all, which look like
+            results and are not.
+
+            Reported as inapplicable rather than attempted, in the same way a
+            chain too short to have a fold is: the analysis did not break, it
+            does not apply to a molecule this small.
+            """
+            cls = _REGISTRY[name]
+            needed = int(getattr(cls, "min_atoms_to_align", 0) or 0)
+            if needed <= 0:
+                return True
+            traj = getattr(self, "traj", None)
+            if traj is None:
+                return True
+            selection = getattr(cls, "default_selection", None)
+            if not selection:
+                return True
+            try:
+                matched = len(traj.topology.select(selection))
+            except Exception:  # noqa: BLE001 - a selection this cannot make
+                return True
+            return matched >= needed
+
         def _steered_ok(name: str) -> bool:
             """A pull's record exists only where a steered run produced one."""
             cls = _REGISTRY[name]
@@ -517,6 +547,7 @@ class AnalysisOrchestrator:
                 if n not in exclude and _ligand_ok(n) and _water_ok(n)
                 and _umbrella_ok(n) and _metadynamics_ok(n)
                 and _steered_ok(n) and _fold_ok(n)
+                and _alignable(n)
             ]
 
         # Default plan: everything except ligand-only analyses when there is
@@ -524,7 +555,7 @@ class AnalysisOrchestrator:
         return [n for n in all_names
                 if _ligand_ok(n) and _water_ok(n) and _umbrella_ok(n)
                 and _metadynamics_ok(n) and _steered_ok(n)
-                and _fold_ok(n)]
+                and _fold_ok(n) and _alignable(n)]
 
     def _merge_options(
         self,

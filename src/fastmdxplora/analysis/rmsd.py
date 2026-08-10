@@ -76,6 +76,8 @@ class RMSD(Analysis):
     reweightable = (None, "RMSD (nm)")
     description = "Root-mean-square deviation"
     default_selection = "name CA"
+    #: A superposition needs three atoms to be defined.
+    min_atoms_to_align = 3
 
     def __init__(
         self,

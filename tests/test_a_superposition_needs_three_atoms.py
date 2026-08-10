@@ -1,0 +1,91 @@
+"""A rotation cannot be fitted to one point.
+
+RMSD and RMSF align on `name CA` by default. Alanine dipeptide has one CA, so
+MDTraj's C extension printed "UNCONVERGED ROTATION MATRIX. RETURNING IDENTITY"
+once per frame -- a window's log filled with thousands of lines of it -- and
+returned distances measured against no alignment at all. Those are not large
+errors; they are a column of numbers that looks like results.
+
+Reported as inapplicable rather than attempted, the way a chain too short to
+have a fold already is.
+"""
+
+from __future__ import annotations
+
+import tempfile
+from pathlib import Path
+
+import mdtraj as md
+import numpy as np
+import pytest
+
+from fastmdxplora.analysis.base import Analysis
+from fastmdxplora.analysis.rmsd import RMSD
+from fastmdxplora.analysis.rmsf import RMSF
+
+
+def _trajectory(n_ca: int) -> md.Trajectory:
+    """A trajectory whose protein carries `n_ca` alpha carbons."""
+    top = md.Topology()
+    chain = top.add_chain()
+    for _ in range(n_ca):
+        residue = top.add_residue("ALA", chain)
+        for name, element in (("N", md.element.nitrogen),
+                              ("CA", md.element.carbon),
+                              ("C", md.element.carbon),
+                              ("O", md.element.oxygen)):
+            top.add_atom(name, element, residue)
+    xyz = np.random.default_rng(0).random((3, top.n_atoms, 3)).astype(np.float32)
+    return md.Trajectory(xyz, top)
+
+
+class TestTheThresholdIsDeclared:
+    def test_the_superposing_analyses_ask_for_three(self) -> None:
+        assert RMSD.min_atoms_to_align == 3
+        assert RMSF.min_atoms_to_align == 3
+
+    def test_analyses_that_do_not_align_ask_for_nothing(self) -> None:
+        """The gate must not exclude an analysis that never superposes."""
+        from fastmdxplora.analysis.rg import Rg
+
+        assert Analysis.min_atoms_to_align == 0
+        assert getattr(Rg, "min_atoms_to_align", 0) == 0
+
+
+class TestAMoleculeTooSmallToAlignIsSkipped:
+    @staticmethod
+    def _plan(traj: md.Trajectory) -> list[str]:
+        from fastmdxplora.analysis.orchestrator import AnalysisOrchestrator
+
+        orchestrator = AnalysisOrchestrator.__new__(AnalysisOrchestrator)
+        orchestrator.traj = traj
+        orchestrator.ligand_resname = None
+        # A directory that holds nothing, so the method-gated analyses find
+        # no biased run beside them and leave themselves out.
+        orchestrator.output_dir = Path(tempfile.mkdtemp())
+        return orchestrator._build_plan(None, None)
+
+    def test_one_alpha_carbon_leaves_them_out(self) -> None:
+        """Alanine dipeptide is the real case: one CA, and the aligner
+        silently gave up on every frame."""
+        plan = self._plan(_trajectory(1))
+        assert "rmsd" not in plan and "rmsf" not in plan
+
+    def test_two_are_still_not_enough(self) -> None:
+        """Two points fix an axis and leave a rotation about it free."""
+        plan = self._plan(_trajectory(2))
+        assert "rmsd" not in plan and "rmsf" not in plan
+
+    def test_three_are(self) -> None:
+        plan = self._plan(_trajectory(3))
+        assert "rmsd" in plan and "rmsf" in plan
+
+    def test_a_real_protein_is_untouched(self) -> None:
+        plan = self._plan(_trajectory(20))
+        assert "rmsd" in plan and "rmsf" in plan
+
+    def test_the_analyses_that_do_not_align_still_run(self) -> None:
+        """A molecule too small to superpose still has a radius of gyration
+        and hydrogen bonds; the gate is about alignment, not about size."""
+        plan = self._plan(_trajectory(1))
+        assert "rg" in plan

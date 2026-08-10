@@ -78,6 +78,8 @@ class RMSF(Analysis):
     name = "rmsf"
     description = "Root-mean-square fluctuation"
     default_selection = "name CA"
+    #: A superposition needs three atoms to be defined.
+    min_atoms_to_align = 3
 
     def __init__(
         self,
