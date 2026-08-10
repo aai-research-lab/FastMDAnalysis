@@ -457,7 +457,9 @@ class TestTheThreeAddedVariables:
 
         plan = plan_steered({
             "collective_variable": "membrane_depth",
-            "ligand_resname": "BNZ", "to": 2.5},
+            # Zero is the bilayer midplane here -- a real depth, not an
+            # absent one -- which is why a pull has to say where it starts.
+            "ligand_resname": "BNZ", "from": 0.0, "to": 2.5},
             self._membrane_topology())
         assert "sep.z" in build_steered_script(plan)
 

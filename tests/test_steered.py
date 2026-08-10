@@ -33,6 +33,10 @@ def _plan(**extra):
         "collective_variable": "ligand_distance",
         "ligand_resname": "BNZ",
         "site_selection": "resid 1 to 3 and name CA",
+        # A pull has to say where it starts. Omitting it used to give a
+        # literal AT0=0 in the PLUMED script, so the tests below were
+        # exercising a plan no real run should produce.
+        "from": 0.4,
         "to": 3.0,
     }, **extra), _topology())
 
@@ -66,9 +70,53 @@ class TestWhatItClaims:
         assert plan.rate_per_ns(2.0) == pytest.approx(2.6, rel=0.01)
 
     def test_a_rate_needs_a_starting_value(self) -> None:
-        """Without one the anchor starts wherever the system is, and how far
-        it travels is not known in advance."""
-        assert _plan(steps=500000).rate_per_ns(2.0) is None
+        """A plan built without one cannot say how far the anchor travels.
+        `plan_steered` refuses to make such a plan at all now, so this holds
+        the arithmetic rather than the policy."""
+        from fastmdxplora.simulation.steered import SteeredPlan
+
+        plan = SteeredPlan(cv=_plan().cv, to_value=3.0, from_value=None,
+                           steps=500000)
+        assert plan.rate_per_ns(2.0) is None
+
+
+class TestAPullSaysWhereItStarts:
+    """PLUMED's moving restraint travels between two given anchors. With no
+    `from`, the script wrote a literal AT0=0 -- which is a real position for
+    most coordinates, not an absence of one.
+
+    A real pull on the radius of gyration of a folded protein began with the
+    anchor at 0 nm against a system at 0.71 nm, so a 2000 kJ/mol/nm^2
+    restraint spent the first half of the run hauling the protein towards a
+    collapsed state. The work came out at -194 kJ/mol before returning to
+    +8.7, and the +8.7 was reported as the work done by the pull.
+    """
+
+    def test_a_plan_without_one_is_refused(self) -> None:
+        from fastmdxplora.simulation.steered import plan_steered
+
+        with pytest.raises(ValueError, match="needs `from`"):
+            plan_steered({"collective_variable": "ligand_distance",
+                          "ligand_resname": "BNZ",
+                          "site_selection": "resid 1 to 3 and name CA",
+                          "to": 3.0}, _topology())
+
+    def test_it_is_refused_before_the_run_not_after_equilibration(self) -> None:
+        """The script is written once production begins. Refusing there
+        would cost the whole of NVT before saying so."""
+        from pathlib import Path as _P
+        import fastmdxplora.simulation.steered as steered
+
+        source = _P(steered.__file__).read_text(encoding="utf-8")
+        assert source.index("needs `from`") < source.index(
+            "def build_steered_script")
+
+    def test_the_anchor_is_written_where_it_was_asked_for(self) -> None:
+        from fastmdxplora.simulation.steered import build_steered_script
+
+        script = build_steered_script(_plan(**{"from": 0.4, "to": 3.0}))
+        assert "AT0=0.4" in script
+        assert "AT0=0 " not in script
 
 
 class TestTheScriptItWrites:
@@ -342,6 +390,7 @@ class TestThePullFlushesAsItGoes:
             "collective_variable": "distance",
             "selection_a": "resid 0 and name CA",
             "selection_b": "resid 2 and name CA",
+            "from": 0.5,
             "to": 0.95,
             "steps": 1000,
         }, trajectory.topology)

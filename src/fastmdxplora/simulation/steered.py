@@ -105,7 +105,7 @@ def plan_steered(
             "to steer."
         )
 
-    # The same five variables metadynamics offers, resolved the same way,
+    # The same eight variables metadynamics offers, resolved the same way,
     # with the same refusals. A steered run does not need a hill width, so
     # sigma is supplied and ignored rather than demanded of the user.
     cv_spec = {k: v for k, v in spec.items()
@@ -118,6 +118,19 @@ def plan_steered(
     steps = int(spec.get("steps", 500000))
     if steps <= 0:
         raise ValueError("Steered MD needs a positive number of `steps`.")
+
+    # Refused here rather than where the script is written, because the
+    # script is written after equilibration has already run: a missing
+    # starting anchor should cost a config error, not four minutes of NVT.
+    if spec.get("from") is None:
+        raise ValueError(
+            "A steered pull needs `from`: the value of the collective "
+            f"variable ({cv.collective_variable}) where the run starts. "
+            "PLUMED's moving restraint travels between two given anchors and "
+            "there is no sensible default for the first -- zero is a real "
+            "position for most coordinates, and anchoring there drags the "
+            "system towards it before the pull begins. Measure the variable "
+            "in the structure being simulated and set `from` to it.")
 
     return SteeredPlan(
         cv=cv,
@@ -151,14 +164,27 @@ def build_steered_script(plan: SteeredPlan,
     # variable added there did not arrive here.
     lines.extend(cv_lines(plan.cv, reference_pdb))
     lines.append("")
-    # A moving restraint: the anchor starts where the system is (or where you
-    # say) and arrives at the destination on the last step.
-    start = ("" if plan.from_value is None
-             else f"AT0={plan.from_value:g} STEP0=0 "
-                  f"KAPPA0={plan.force_constant:g} ")
+    # A moving restraint travels from AT0 to AT1, and PLUMED has no way to
+    # say "start wherever the system is" -- AT0 has to be a number. This
+    # wrote a literal zero when `from` was not given, which is only harmless
+    # for a coordinate whose natural value is zero and is nothing like
+    # harmless otherwise: a real pull on the radius of gyration of a folded
+    # protein began with the anchor at 0 nm against a system at 0.71 nm, so
+    # a 2000 kJ/mol/nm^2 restraint spent the first half of the run hauling
+    # the protein towards a collapsed state and the work came out negative.
+    # Refused rather than guessed, because the guess was silent.
+    if plan.from_value is None:
+        raise ValueError(
+            "A steered pull needs `from`: the value of the collective "
+            "variable where the run starts. PLUMED's moving restraint has to "
+            "be given a starting anchor, and there is no sensible default -- "
+            "zero is a real position for most coordinates, and anchoring "
+            "there drags the system towards it before the pull begins. "
+            "Measure the variable in the structure being simulated and set "
+            "`from` to it.")
     lines.append(
         "pull: MOVINGRESTRAINT ARG=cv "
-        + (start or f"AT0=0 STEP0=0 KAPPA0={plan.force_constant:g} ")
+        f"AT0={plan.from_value:g} STEP0=0 KAPPA0={plan.force_constant:g} "
         + f"AT1={plan.to_value:g} STEP1={plan.steps:d} "
         f"KAPPA1={plan.force_constant:g}"
     )
