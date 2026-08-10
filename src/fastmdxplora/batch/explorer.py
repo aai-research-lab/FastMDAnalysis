@@ -121,6 +121,38 @@ def _clear_progress_line() -> None:
         print("\r" + " " * 78 + "\r", end="", flush=True)
 
 
+def _give_this_worker_its_share(threads: int) -> None:
+    """Cap the threads one parallel run may take, in the worker that runs it.
+
+    OpenMM's CPU platform takes every core it can see, and a pool of workers
+    each doing that does not divide the machine between them -- it has them
+    fight over it. Six runs on eight cores oversubscribe by six times, and
+    the study finishes slower than three would have.
+
+    Set in the worker process rather than passed down through the runner,
+    because it is a property of being one of several on a machine and not of
+    the simulation, and because the libraries below read it once at import.
+    """
+    import os
+
+    for variable in ("OPENMM_CPU_THREADS", "OMP_NUM_THREADS",
+                     "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+                     "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
+        os.environ[variable] = str(threads)
+
+
+def _threads_for_each(n_workers: int) -> int:
+    """The cores each worker may use, so together they fill the machine once.
+
+    At least one: a worker with no threads runs nothing, and a study with
+    more workers than cores is a scheduling choice rather than an error.
+    """
+    import os
+
+    cores = os.cpu_count() or 1
+    return max(1, cores // max(1, n_workers))
+
+
 def _a_prepared_system_is_there(setup_dir: Path) -> bool:
     """Whether the three files a simulation starts from are on disk.
 
@@ -1044,7 +1076,14 @@ class BatchExplorer:
                 else:
                     print(line, flush=True)
 
-        pool = ProcessPoolExecutor(max_workers=n_workers)
+        threads_each = _threads_for_each(n_workers)
+        print(f"Each worker takes up to {threads_each} thread(s) of "
+              f"{os.cpu_count() or 1}; without that they compete for all of "
+              "them.", flush=True)
+        pool = ProcessPoolExecutor(
+            max_workers=n_workers,
+            initializer=_give_this_worker_its_share,
+            initargs=(threads_each,))
         try:
             for _ in range(min(n_workers, n)):
                 submit_next(pool)

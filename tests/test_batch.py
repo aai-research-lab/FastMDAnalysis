@@ -123,8 +123,16 @@ def _fake_worker_factory(*, fail_values: set[int], write_analysis: bool = False,
 class _ImmediateProcessPoolExecutor:
     """Synchronous ProcessPoolExecutor stand-in for deterministic scheduler tests."""
 
-    def __init__(self, max_workers):
+    def __init__(self, max_workers, initializer=None, initargs=()):
+        # A real ProcessPoolExecutor takes an initializer, and the study uses
+        # one to give each worker its share of the machine's cores. A double
+        # that refuses the argument reports the caller as broken. Recorded
+        # rather than run: this executor works in the test process, and
+        # setting thread-count environment variables there would leak into
+        # every test after it.
         self.max_workers = max_workers
+        self.initializer = initializer
+        self.initargs = initargs
 
     def submit(self, fn, *args, **kwargs):
         # A real Executor.submit forwards keyword arguments; this stood in for
