@@ -63,8 +63,21 @@ def _classify_input(system: str | None) -> str:
         raise ValueError("setup phase requires a system input")
 
     p = Path(system)
-    if p.exists() and p.suffix.lower() in {".pdb", ".cif", ".pdbx"}:
-        return "pdb_file"
+    structure_suffixes = {".pdb", ".cif", ".pdbx"}
+    if p.suffix.lower() in structure_suffixes:
+        if p.exists():
+            return "pdb_file"
+        # Named a structure file and there is none. Falling through to the
+        # message below told the author to supply a .pdb, which is what they
+        # had just supplied -- so a path typed one directory off read as a
+        # complaint about the file type. The path is relative to where the
+        # command was run, not to the config that names it, and saying so is
+        # most of the fix.
+        raise FileNotFoundError(
+            f"No structure at {system!r}. The path is read from where "
+            f"fastmdx was run ({Path.cwd()}), not from the config file that "
+            "names it, so a config beside a structure still needs the path "
+            "written from the working directory.")
     if len(system) == 4 and system.isalnum():
         return "pdb_id"
     if system.isalpha():
