@@ -126,6 +126,11 @@ class Cluster(Analysis):
     reweightable_populations = True
     description = "Conformational clustering"
     default_selection = "name CA"
+    #: A superposition needs three atoms to be defined. Without this,
+    #: MDTraj returns identity rotations and the frames are compared
+    #: unaligned -- a real run clustered a capped alanine and found one
+    #: distinct cluster where five were asked for, and reported ok.
+    min_atoms_to_align = 3
 
     def __init__(
         self,

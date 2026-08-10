@@ -15,6 +15,8 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+import inspect
+
 import mdtraj as md
 import numpy as np
 import pytest
@@ -43,6 +45,39 @@ class TestTheThresholdIsDeclared:
     def test_the_superposing_analyses_ask_for_three(self) -> None:
         assert RMSD.min_atoms_to_align == 3
         assert RMSF.min_atoms_to_align == 3
+
+    def test_every_analysis_that_superposes_is_covered(self) -> None:
+        """The first version gated `rmsd` and `rmsf` -- the two being looked
+        at -- and left `cluster` and `dimred`, which align the same way. A
+        real run then clustered a capped alanine on identity rotations, found
+        one distinct cluster where five were asked for, and reported ok.
+
+        Asked of the source rather than listed by hand, so an analysis that
+        starts superposing later cannot quietly join them.
+        """
+        from pathlib import Path as _Path
+
+        from fastmdxplora.analysis.orchestrator import _REGISTRY
+
+        # The ligand analyses are left out, and not because they are safe.
+        # Their `default_selection` is None -- what they align on is resolved
+        # at run time from the ligand's residue name -- so the gate, which
+        # runs at plan time against a static selection, cannot evaluate them.
+        # Setting a threshold on them would be inert and would read as
+        # coverage. Gating a dynamic selection needs the check moved to where
+        # the selection is resolved, which is its own change.
+        resolved_at_run_time = {"ligand_rmsd", "ligand_rmsf"}
+
+        missing = []
+        for name, cls in _REGISTRY.items():
+            if name in resolved_at_run_time:
+                continue
+            source = _Path(inspect.getfile(cls)).read_text(encoding="utf-8")
+            superposes = (".superpose(" in source
+                          or "_superposed_coordinates(" in source)
+            if superposes and int(getattr(cls, "min_atoms_to_align", 0)) < 3:
+                missing.append(name)
+        assert not missing, f"these superpose and are not gated: {missing}"
 
     def test_analyses_that_do_not_align_ask_for_nothing(self) -> None:
         """The gate must not exclude an analysis that never superposes."""
