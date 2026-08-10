@@ -592,6 +592,29 @@ def describe_pmf(coordinate: Any, energy: Any,
     }
 
 
+def displacement(values: Any, centre: float, periodic: bool) -> np.ndarray:
+    """How far each value sits from a window's centre.
+
+    On a straight coordinate that is a subtraction. On a circle it is not: a
+    torsion sample at +170 degrees is ten degrees from a window held at -180,
+    not three hundred and fifty, and charging it the restraint energy for
+    three hundred and fifty is charging it 933 kJ/mol instead of 0.76. The
+    weight that follows is wrong by a factor of 10^162, the window's free
+    energy is pushed up, and every join after it inherits the error.
+
+    A real study found this: twelve windows tiling a full turn returned a
+    monotonic ramp of 180 kJ/mol with no minimum in it, while every check
+    passed -- twelve runs, no unsampled bins, every overlap above the
+    threshold. The nine-window study before it covered only part of the turn,
+    kept its windows away from the wrap, and looked entirely reasonable.
+    """
+    difference = np.asarray(values, dtype=float) - float(centre)
+    if not periodic:
+        return difference
+    # Onto (-pi, pi]: the shorter way round is the real distance.
+    return np.remainder(difference + np.pi, 2.0 * np.pi) - np.pi
+
+
 def compute_pmf(
     samples: dict[int, np.ndarray],
     plan: UmbrellaPlan,
@@ -739,8 +762,12 @@ def compute_pmf(
     counts = np.array([np.histogram(samples[w.index], bins=edges)[0]
                        for w in ordered], dtype=float)
     n_per_window = counts.sum(axis=1)
+    # A torsion is a circle, and the distance to a window's centre has to be
+    # measured the short way round. See `displacement`.
+    periodic = getattr(plan, "collective_variable", None) in PERIODIC_VARIABLES
     bias = np.array([
-        0.5 * w.force_constant * (centres - w.centre) ** 2 for w in ordered
+        0.5 * w.force_constant * displacement(centres, w.centre, periodic) ** 2
+        for w in ordered
     ])
 
     free_energies = np.zeros(len(ordered))
