@@ -249,7 +249,34 @@ C_OF_T_CHECKPOINTS = 200
 C_OF_T_GRID_POINTS = 320
 
 
-def c_of_t(hills: Any, times_ps: np.ndarray, temperature_K: float) -> np.ndarray:
+def felt_bias(hills: Any, heights: np.ndarray, *, times: Any, values: Any,
+              periodic: bool) -> np.ndarray:
+    """The bias each frame felt, measured the short way round on a circle.
+
+    A frame at -175 degrees is fifteen degrees from a hill at +170, not three
+    hundred and forty-five, and summed straight it feels none of that hill --
+    so its weight ignores the bias that was actually there.
+
+    Done by summing the plain calculation over the coordinate's periodic
+    images rather than by teaching the weighting maths about circles. A
+    periodic Gaussian is the sum over images, so this is not an approximation
+    of the right answer, it is the right answer; and with a hill width of a
+    fifth of a radian the next image sits eighteen widths away and contributes
+    1e-70, so one image either side is the whole of it. `reweight.py` holds
+    generic weighting arithmetic and PLUMED's conventions belong here.
+    """
+    frames = np.asarray(values, dtype=float)
+    shifts = (-2.0 * np.pi, 0.0, 2.0 * np.pi) if periodic else (0.0,)
+    total = np.zeros(frames.size, dtype=float)
+    for shift in shifts:
+        total += bias_at_each_frame(
+            hills.time_ps, hills.centre, hills.sigma, heights,
+            frame_times_ps=times, frame_values=frames + shift)
+    return total
+
+
+def c_of_t(hills: Any, times_ps: np.ndarray, temperature_K: float,
+           periodic: bool = False) -> np.ndarray:
     """The offset that makes a running bias usable for reweighting.
 
     The bias grows as hills accumulate, so exp(V(s,t)/RT) grows with time
@@ -278,10 +305,16 @@ def c_of_t(hills: Any, times_ps: np.ndarray, temperature_K: float) -> np.ndarray
     sigmas = np.asarray(hills.sigma, dtype=float)[order]
     heights = deposited_heights(hills)[order]
 
-    span = 3.0 * float(np.max(sigmas))
-    grid = np.linspace(float(np.min(centres)) - span,
-                       float(np.max(centres)) + span,
-                       C_OF_T_GRID_POINTS)
+    if periodic:
+        # The whole turn. c(t) integrates over the coordinate's domain, and
+        # for a circle that is all of it -- a grid bounded by where hills
+        # happened to land would leave out the arc they wrap around.
+        grid = np.linspace(-np.pi, np.pi, C_OF_T_GRID_POINTS)
+    else:
+        span = 3.0 * float(np.max(sigmas))
+        grid = np.linspace(float(np.min(centres)) - span,
+                           float(np.max(centres)) + span,
+                           C_OF_T_GRID_POINTS)
 
     checkpoints = np.linspace(float(np.min(times_ps)),
                               float(np.max(times_ps)),
@@ -312,10 +345,13 @@ def c_of_t(hills: Any, times_ps: np.ndarray, temperature_K: float) -> np.ndarray
     for index, stop in enumerate(upto):
         if stop > cursor:
             block = slice(cursor, stop)
+            separation = grid[None, :] - centres[block, None]
+            if periodic:
+                separation = np.remainder(
+                    separation + np.pi, 2.0 * np.pi) - np.pi
             bias += np.sum(
                 heights[block, None] * np.exp(
-                    -((grid[None, :] - centres[block, None]) ** 2)
-                    / (2.0 * sigmas[block, None] ** 2)),
+                    -(separation ** 2) / (2.0 * sigmas[block, None] ** 2)),
                 axis=0)
             cursor = int(stop)
         offsets[index] = kT * (
@@ -390,17 +426,26 @@ def weights_for_run(
     # one or two frames that can fall outside by a single stride.
     frame_cv = np.interp(times, colvar["time"], colvar[cv_name])
 
+    # A torsion is a circle, and every Gaussian sum below has to measure the
+    # separation the short way round: a frame at -175 degrees is 15 degrees
+    # from a hill at +170, not 345. Decided from the configured name before
+    # anything is summed, because both the felt bias and the offset need it.
+    from fastmdxplora.simulation.umbrella import PERIODIC_VARIABLES
+
+    variable = _configured_cv(output_dir) or cv_name
+    periodic = variable in PERIODIC_VARIABLES
+
     heights = deposited_heights(hills)
-    felt = bias_at_each_frame(
-        hills.time_ps, hills.centre, hills.sigma, heights,
-        frame_times_ps=before_deposition(hills, times), frame_values=frame_cv)
+    felt = felt_bias(
+        hills, heights, times=before_deposition(hills, times),
+        values=frame_cv, periodic=periodic)
 
     temperature, measured = _temperature(output_dir)
 
     # Without this the weights rank frames by when they were written rather
     # than by where the system was, and the average collapses onto the last
     # few. See `c_of_t`.
-    offset = c_of_t(hills, times, temperature)
+    offset = c_of_t(hills, times, temperature, periodic=periodic)
     corrected = felt - offset
 
     # Whether the surface settled is already judged by the simulation phase,
@@ -424,10 +469,10 @@ def weights_for_run(
     agreement: float | None = None
     bias_column = next((name for name in colvar if name.endswith("bias")), None)
     if bias_column is not None and colvar[bias_column].size > 1:
-        ours = bias_at_each_frame(
-            hills.time_ps, hills.centre, hills.sigma, heights,
-            frame_times_ps=before_deposition(hills, colvar["time"]),
-            frame_values=colvar[cv_name])
+        ours = felt_bias(
+            hills, heights,
+            times=before_deposition(hills, colvar["time"]),
+            values=colvar[cv_name], periodic=periodic)
         theirs = colvar[bias_column]
         spread = float(np.max(theirs) - np.min(theirs))
         if spread > 0:
@@ -441,7 +486,8 @@ def weights_for_run(
         # PLUMED's column label is whatever the script called it -- "cv" --
         # which tells a reader nothing about what was biased. The configured
         # name is kept where it can be found, with the label beside it.
-        "collective_variable": _configured_cv(output_dir) or cv_name,
+        "collective_variable": variable,
+        "periodic": periodic,
         "colvar_column": cv_name,
         "temperature_K": temperature,
         "temperature_from_record": measured,

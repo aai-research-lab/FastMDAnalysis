@@ -120,7 +120,8 @@ def read_hills(path: str | Path) -> Hills:
 
 
 def surface_from_hills(
-    hills: Hills, grid: np.ndarray, *, upto: int | None = None
+    hills: Hills, grid: np.ndarray, *, upto: int | None = None,
+    periodic: bool = False,
 ) -> np.ndarray:
     """The free energy on ``grid``, from the first ``upto`` hills.
 
@@ -138,9 +139,16 @@ def surface_from_hills(
     sigmas = hills.sigma[:stop, None]
     heights = hills.height[:stop, None]
 
+    # On a circle the separation is measured the short way round. A hill
+    # deposited at +170 degrees is 15 degrees from a grid point at -175, not
+    # 345: computed straight, it contributes nothing there, and the surface
+    # grows an artificial wall exactly where the coordinate is continuous.
+    separation = grid[None, :] - centres
+    if periodic:
+        separation = np.remainder(separation + np.pi, 2.0 * np.pi) - np.pi
+
     bias = np.sum(
-        heights * np.exp(-((grid[None, :] - centres) ** 2)
-                         / (2.0 * sigmas ** 2)),
+        heights * np.exp(-(separation ** 2) / (2.0 * sigmas ** 2)),
         axis=0,
     )
 
