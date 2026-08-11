@@ -138,6 +138,57 @@ def _import_openmm() -> dict:
 # ---------------------------------------------------------------------------
 # Platform selection
 # ---------------------------------------------------------------------------
+def _say_what_is_available(omm: dict, wanted: "list[str]") -> None:
+    """Name the platforms OpenMM found, and why a wanted one is missing.
+
+    A platform that is not registered is skipped silently, and the silence is
+    expensive. On a cluster with two GPUs, OpenMM offered `Reference` alone
+    and reported no load failures -- because with `OPENMM_PLUGIN_DIR` unset it
+    had not looked, so there was nothing to fail. A run would have finished,
+    correct and about a hundred times slower, with nothing anywhere saying
+    why.
+
+    `getPluginLoadFailures` holds the answer whenever the directory is right
+    and a library still would not load: on that machine, once the path was
+    set, it said `libcuda.so.1: cannot open shared object file`, which is the
+    whole diagnosis in one line.
+    """
+    mm = omm.get("openmm")
+    if mm is None:
+        return
+    try:
+        found = [mm.Platform.getPlatform(i).getName()
+                 for i in range(mm.Platform.getNumPlatforms())]
+    except Exception:  # noqa: BLE001 - a toolkit that will not enumerate
+        return
+
+    logger.info("OpenMM platforms available: %s", ", ".join(found) or "none")
+
+    missing = [name for name in wanted if name not in found]
+    if not missing:
+        return
+
+    try:
+        failures = [str(f) for f in mm.Platform.getPluginLoadFailures()]
+    except Exception:  # noqa: BLE001
+        failures = []
+
+    if failures:
+        for failure in failures:
+            logger.info("  a plugin did not load: %s", failure)
+    elif "CPU" in missing:
+        # Nothing failed and the CPU platform is absent, which means nothing
+        # was attempted: the plugin directory is wrong or unset. Worth saying,
+        # because the fallback that follows is the slow one.
+        logger.info(
+            "  no %s, and no plugin reported a failure, which means "
+            "none was tried. OpenMM loads its platforms from a directory "
+            "fixed at build time; where that path does not exist -- a "
+            "relocated or shared installation -- set OPENMM_PLUGIN_DIR to "
+            "the `lib/plugins` beside the OpenMM library.",
+            ", ".join(missing))
+
+
 def select_platform(
     omm: dict,
     requested: str = "auto",
@@ -210,6 +261,8 @@ def select_platform(
                 "trying next candidate.", name, exc,
             )
             return False
+
+    _say_what_is_available(omm, candidates)
 
     for name in candidates:
         try:
