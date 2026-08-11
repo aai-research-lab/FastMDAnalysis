@@ -8,6 +8,22 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Added
+- **The config is the study, said where somebody looks.** The README and the
+  documentation index now lead with it: one file describes a study completely,
+  and the GUI, the command line and the Python API each build one and each run
+  all four phases. None is the primary interface and none is a subset -- they
+  are generated from a single declaration, which 53 parity tests already
+  enforced and nothing stated. The GUI page also understated itself: 159
+  options across 15 analyses, when there are 200 across 19, and no mention of
+  the 100 phase settings at all.
+
+- **PLUMED's setup is kept beside the run.** Forty lines -- which atoms the
+  collective variable is built from, the hill width, the pace, the bias
+  factor -- written from C++ straight to the file descriptor, arriving in the
+  middle of a progress bar. It goes to `simulation/plumed.log`: it is the only
+  independent statement of what PLUMED actually did, and reading `TORSION
+  between atoms 7 9 15 17` in it is how a psi selection was confirmed correct.
+
 - **A study reads its own curve.** `pmf.json` carried a free energy and left
   the reading of it to whoever opened the file, which is how it got misread.
   The grid spans wherever the coordinate went, the windows covered a part of
@@ -236,6 +252,42 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   system is a PDB identifier, not a file.
 
 ### Fixed
+- **The reported free energy surface was summed the long way round.** The
+  periodic separation was added to `surface_from_hills` and the only two
+  places that call it were left on the default, so the number every run
+  reported came from the arithmetic that had just been fixed. A converged
+  10 ns metadynamics run on alanine dipeptide's psi reported 60.7 kJ/mol; the
+  same hills give 25.8. Every report, dashboard, slide deck and bundle
+  downstream carried the wrong figure, and the analysis phase does not
+  recompute it -- it reads what the simulation phase wrote, so re-running
+  analysis reproduced the error with a fresh timestamp.
+
+- **A recrossing was counted past a line rather than between states.** The
+  thresholds sat a quarter of the way in from the extremes of the hill range,
+  which describes the grid and not the system. On a full turn that put them at
+  -90 and +90 degrees, and a run whose minima were at -17 and 155 had one of
+  them inside the dead band. The count is now travel between the two deepest
+  basins, each frame assigned to the nearer one measured the short way round.
+  The same run: 925 became 349, against a threshold of 4.
+
+- **Two more analyses fitted a rotation to one point.** `cluster` and `dimred`
+  superpose on `name CA` exactly as `rmsd` and `rmsf` do, and were not gated
+  when those were. A capped alanine was clustered on identity rotations,
+  sklearn found one distinct cluster where five were asked for, and the run
+  reported `ok`. The test now asks the source which analyses superpose rather
+  than trusting a list.
+
+- **`precision` was reported as applied when the platform has no such
+  setting.** OpenMM's CPU platform offers `Threads` and `DeterministicForces`
+  and nothing else. The banner now says what was applied, and the diagnosis
+  after a non-finite coordinate no longer suggests double precision there.
+
+- **A path was handed back with its separators changed.** The directory the
+  banner suggests watching was split with `pathlib` and rebuilt, which
+  normalises separators, so a Windows caller who wrote `../runs/study` was
+  given a correct path that was not the one they typed. Found by Windows CI,
+  on a function three green macOS runs had passed.
+
 - **Every force field got the same cutoff, and two of the four were wrong for
   it.** The default was 1.0 nm with switching from 0.9, applied to all of
   them. CHARMM36 is developed at 1.2 nm with switching from 1.0, so it was run
