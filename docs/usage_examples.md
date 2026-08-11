@@ -130,6 +130,94 @@ fastmdx explore --config unbinding.yml
 
 ---
 
+## Umbrella sampling
+
+A study, not a run: the range is divided into windows, each held at its own
+value of the coordinate, and the free energy is stitched from the overlap
+between them. It expands into one run per window and goes through the batch
+machinery, so the windows can run in parallel.
+
+```yaml
+# psi.yml
+output: runs/psi
+systems:
+  - system: peptide.pdb
+simulation:
+  duration_ns: 5
+  umbrella:
+    collective_variable: torsion
+    selection: "resid 1 and name N CA C or (resid 2 and name N)"
+    from: -3.1416          # radians
+    to: 2.6180
+    n_windows: 12
+    force_constant: 50.0
+execution:
+  mode: parallel
+  workers: 4
+```
+
+Two things decide whether this produces anything. **The windows have to
+overlap**: the width each one samples is `sqrt(kT/k)`, and neighbours further
+apart than about twice that share too little for the stitching to join them.
+The study reports every overlap and refuses below a threshold rather than
+returning a curve nobody should read.
+
+**A torsion is a circle.** Windows covering part of a turn measure one of the
+two paths between the states and say nothing about the other — which may be
+the higher. The example above tiles the full turn, from -pi to +2.618 radians
+at 30-degree spacing, so the last window's neighbour is the first.
+
+```bash
+fastmdx explore --config psi.yml
+```
+
+The free energy lands in `pmf.json` with the barrier, the minima, the range
+the windows covered, and — on a closed turn — how far the profile misses
+meeting itself, which is what that study's statistics are worth.
+
+---
+
+## Steered molecular dynamics
+
+Pulling along a coordinate at constant velocity and recording the work. Used
+to force a transition that will not happen on its own, and to estimate a free
+energy from the work through Jarzynski's equality across repeats.
+
+```yaml
+# pull.yml
+output: runs/pull
+systems:
+  - system: 1UBQ
+simulation:
+  duration_ns: 2
+  steered:
+    collective_variable: radius_of_gyration
+    from: 0.71             # where the coordinate starts
+    to: 1.20               # where to pull it
+    force_constant: 1000.0
+```
+
+`from` has to be the value the coordinate actually has at the start. It is
+refused rather than guessed, because a pull that begins somewhere the molecule
+is not spends its first half hauling the system to the anchor and reports work
+that means nothing.
+
+Measure it before writing the config:
+
+```bash
+fastmdx analyze --trajectory equilibrated.dcd --topology system.pdb --include rg
+```
+
+```bash
+fastmdx explore --config pull.yml
+```
+
+The work profile lands in the analysis directory. On a correct pull it starts
+at zero and increases; work that goes negative early is the anchor being in
+the wrong place.
+
+---
+
 ## Analysing a trajectory you already have
 
 No simulation, from any engine that writes a format MDTraj reads:

@@ -273,6 +273,12 @@ def test_every_fastmdx_flag_the_docs_name_exists() -> None:
         "--input-list", "--output-root", "--continue-on-error", "--no-cache-dir",
         "--force-reinstall", "--dry-run", "--editable", "--user", "--prefix",
         "--version", "--help", "--extra-index-url", "--index-url",
+        # Installing where there is no network, and submitting to a
+        # scheduler: pip's, venv's and SBATCH's, named on lines that also
+        # mention fastmdx.
+        "--no-index", "--find-links", "--only-binary", "--python-version",
+        "--platform", "--system-site-packages", "--job-name", "--gres",
+        "--cpus-per-task", "--time", "--nv",
     }
 
     missing = {}

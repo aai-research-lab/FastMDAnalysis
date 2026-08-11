@@ -101,6 +101,7 @@ interactions
 cli_reference
 configuration
 usage_examples
+remote
 ```
 
 ```{toctree}

@@ -242,3 +242,62 @@ class TestTheConfigIsPresentedAsTheStudy:
         from fastmdxplora.config import write_resolved_config  # noqa: F401
 
         assert "resolved_config.yml" in self._readme()
+
+
+class TestEveryMethodIsShownAndNotJustOne:
+    """Metadynamics had a worked example and umbrella sampling and steered
+    dynamics did not, so two of the three things this software exists for
+    were documented only as settings in a reference table."""
+
+    @staticmethod
+    def _examples() -> str:
+        return (DOCS / "usage_examples.md").read_text(encoding="utf-8")
+
+    def test_each_of_the_three_has_a_section(self) -> None:
+        page = self._examples()
+        for heading in ("## Metadynamics", "## Umbrella sampling",
+                        "## Steered molecular dynamics"):
+            assert heading in page
+
+    def test_the_umbrella_example_says_windows_must_overlap(self) -> None:
+        """The one thing that decides whether a study produces anything."""
+        assert "sqrt(kT/k)" in self._examples()
+
+    def test_it_warns_that_a_torsion_is_a_circle(self) -> None:
+        """Windows covering part of a turn measure one of the two paths and
+        say nothing about the other, which may be the higher."""
+        page = self._examples()
+        assert "a circle" in page and "tiles the full turn" in page
+
+    def test_the_steered_example_says_where_a_pull_starts(self) -> None:
+        page = self._examples()
+        assert "refused rather than guessed" in page
+
+
+class TestThereIsSomewhereElseToRun:
+    """A laptop is where a study is designed and rarely where it should run.
+    The documentation had one rsync line about that."""
+
+    @staticmethod
+    def _page() -> str:
+        return (DOCS / "remote.md").read_text(encoding="utf-8")
+
+    def test_the_page_exists_and_is_in_the_index(self) -> None:
+        assert self._page()
+        assert "remote" in (DOCS / "index.md").read_text(encoding="utf-8")
+
+    def test_it_covers_installing_without_a_network(self) -> None:
+        page = self._page()
+        assert "--no-index" in page
+        assert "--system-site-packages" in page
+
+    def test_it_says_how_to_tell_the_gpu_is_being_used(self) -> None:
+        """A run on the Reference platform finishes and is correct, so
+        nothing else will say it took a hundred times longer than it should."""
+        page = self._page()
+        assert "Reference" in page and "OPENMM_PLUGIN_DIR" in page
+
+    def test_it_covers_structures_offline(self) -> None:
+        """A four-character identifier is fetched from RCSB, which needs a
+        network that a cluster may not have."""
+        assert "files.rcsb.org" in self._page()
