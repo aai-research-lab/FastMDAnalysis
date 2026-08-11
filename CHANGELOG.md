@@ -7,6 +7,31 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [2.5.0] — 2026-08-10
+
+**Recompute any metadynamics or umbrella result on a torsion or an angle.**
+Separations on a periodic coordinate are now measured the short way round, in
+the umbrella window stitching, the free energy surface, the bias each frame
+felt, and the offset that corrects for it. Results on a distance or a radius
+of gyration are unaffected, as are torsion studies confined to part of a turn.
+
+Metadynamics recrossings are counted as travel between the two deepest basins
+rather than past a fixed threshold, and the record names the basins.
+
+The nonbonded cutoff comes from the force field: CHARMM36 at 1.2 nm with
+switching from 1.0, AMBER hard-truncated at 1.0 with no switch. An explicit
+setting still wins.
+
+`workers` implies parallel execution and each worker takes a share of the
+machine's cores. Capping groups survive setup and count as polymer.
+`--force-overwrite` replaces `--force`, which still works. Analyses that
+superpose are skipped where fewer than three atoms match. PLUMED's setup goes
+to `simulation/plumed.log`. A study prints a progress bar.
+
+Documentation leads with the config: one file describes a study, and the GUI,
+the CLI and the Python API each build one and each run all four phases.
+
+
 ### Added
 - **The config is the study, said where somebody looks.** The README and the
   documentation index now lead with it: one file describes a study completely,
