@@ -244,6 +244,99 @@ def _import_openmm():
         ) from exc
 
 
+#: Metals that sit in a protein site rather than in the solvent, and whose
+#: coordination a non-bonded force field does not hold. Sodium, potassium and
+#: chloride are left out: they are the salt, they are meant to move, and a
+#: warning about them would be noise.
+STRUCTURAL_METALS = frozenset({
+    "ZN", "MG", "CA", "MN", "FE", "FE2", "CO", "NI", "CU", "CU1", "CD", "HG",
+})
+
+#: How close a metal has to be to a protein nitrogen, oxygen or sulfur to be
+#: in a site rather than passing through. Generous: Zn-N is near 2.0 A and
+#: Ca-O near 2.4.
+COORDINATION_CUTOFF_NM = 0.30
+
+
+def _warn_metals_are_not_held(topology: Any, positions: Any) -> str | None:
+    """Say when a metal is in a protein site the force field will not keep it in.
+
+    Standard force fields treat a metal ion as a point charge with
+    Lennard-Jones terms and nothing else. A carboxylate cage is deep enough to
+    hold a divalent ion that way; a histidine-ligated zinc is not. So the ion
+    leaves, slowly, and nothing else in a run reports it: the fold is intact,
+    the RMSD is flat, the radius of gyration does not move, and the active
+    site the study was about has quietly rearranged.
+
+    Measured on thermolysin over 20 ns: all four calciums held their
+    carboxylate sites to within 0.1 A from first frame to last, and the
+    catalytic zinc lost His142 in the first production frame and never
+    recovered it -- ending on a different set of residues from the one the
+    crystal structure has.
+
+    Not a refusal. Non-bonded metals are the right choice for many questions,
+    including anything away from the site. It is a refusal to be silent.
+    """
+    try:
+        import numpy as _np
+    except ImportError:  # pragma: no cover - numpy is a hard dependency
+        return None
+
+    try:
+        residues = list(topology.residues())
+        # OpenMM hands back a Quantity of Vec3, so the unit is stripped from
+        # the whole array rather than per component: `float()` on a Vec3
+        # raises, and a broad except turned that into permanent silence.
+        try:
+            from openmm import unit as _unit  # noqa: PLC0415
+
+            bare = positions.value_in_unit(_unit.nanometer)
+        except Exception:  # noqa: BLE001 - already plain numbers
+            bare = positions
+        coordinates = _np.asarray([[float(c) for c in xyz] for xyz in bare],
+                                  dtype=float)
+    except Exception:  # noqa: BLE001 - a topology that will not walk
+        return None
+
+    metals, donors = [], []
+    for residue in residues:
+        name = residue.name.upper()
+        for atom in residue.atoms():
+            if name in STRUCTURAL_METALS and len(list(residue.atoms())) == 1:
+                metals.append((name, atom.index))
+            elif (name not in ("HOH", "WAT", "NA", "CL", "K")
+                  and getattr(atom.element, "symbol", "") in ("N", "O", "S")):
+                donors.append(atom.index)
+
+    if not metals or not donors:
+        return None
+
+    donor_xyz = coordinates[donors]
+    in_a_site = []
+    for name, index in metals:
+        separation = _np.linalg.norm(donor_xyz - coordinates[index], axis=1)
+        if _np.any(separation <= COORDINATION_CUTOFF_NM):
+            in_a_site.append(name)
+
+    if not in_a_site:
+        return None
+
+    from collections import Counter
+
+    counted = ", ".join(f"{n}x{c}" if c > 1 else n
+                        for n, c in sorted(Counter(in_a_site).items()))
+    return (
+        f"{counted} sit in protein sites, and this force field holds them "
+        "there with charge and Lennard-Jones terms alone. That is enough for "
+        "a carboxylate cage and often not for a metal held by histidines: it "
+        "can drift out of its site over a run, while the fold stays intact "
+        "and nothing else reports it. If the site is what the study is "
+        "about, restrain the metal to its ligands, use a bonded or "
+        "dummy-atom model for it, and check the coordination at the end "
+        "against the structure it started from."
+    )
+
+
 def prepare_system(
     prepared_pdb: str | Path,
     output_dir: str | Path,
@@ -577,6 +670,11 @@ def prepare_system(
 
         n_atoms_solvated = modeller.topology.getNumAtoms()
         logger.info("Solvated system: %d atoms", n_atoms_solvated)
+
+        said = _warn_metals_are_not_held(
+            modeller.topology, modeller.positions)
+        if said:
+            logger.warning("%s", said)
 
     # ----- 4. Parameterize: build the OpenMM System -----
     method_map = {
