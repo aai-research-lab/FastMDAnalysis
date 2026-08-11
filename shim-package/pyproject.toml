@@ -1,10 +1,14 @@
 [build-system]
-requires = ["setuptools>=64"]
+requires = ["setuptools>=64", "setuptools_scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "fastmdx"
-version = "2.5.0"
+# From the git tag, like the package it aliases. Hardcoded, it could only
+# ever disagree -- and the only thing that noticed was a guard in the publish
+# workflow, which fires after the tag has been pushed and the release has
+# already failed.
+dynamic = ["version"]
 description = "Alias for FastMDXplora; installs the canonical 'fastmdxplora' package."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -33,3 +37,8 @@ Repository = "https://github.com/aai-research-lab/FastMDXplora"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools_scm]
+# The tag lives in the repository above this directory.
+root = ".."
+fallback_version = "0.0.0"
