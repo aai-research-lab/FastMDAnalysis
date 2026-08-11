@@ -1,6 +1,6 @@
 # Installation
 
-## The short version
+## Recommended: conda-forge
 
 ```bash
 conda create -n fastmdxplora -c conda-forge fastmdxplora

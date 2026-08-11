@@ -301,3 +301,49 @@ class TestThereIsSomewhereElseToRun:
         """A four-character identifier is fetched from RCSB, which needs a
         network that a cluster may not have."""
         assert "files.rcsb.org" in self._page()
+
+
+class TestTheDocumentationIsShapedLikeTheSoftware:
+    """Three things the structure was saying wrongly.
+
+    The recommended installation was headed "The short version", which reads
+    as the hurried option rather than the one to take -- and conda-forge is
+    not a preference here: two dependencies have no PyPI distribution at all.
+
+    The Config sat among the things that drive it, when it is the thing they
+    all produce. And the Python API was filed under "Reference", which makes
+    it look like an appendix rather than one of the three interfaces.
+    """
+
+    @staticmethod
+    def _index() -> str:
+        return (DOCS / "index.md").read_text(encoding="utf-8")
+
+    def test_the_recommendation_is_headed_as_one(self) -> None:
+        page = (DOCS / "installation.md").read_text(encoding="utf-8")
+        assert "## Recommended: conda-forge" in page
+        assert "## The short version" not in page
+
+    def test_the_config_has_its_own_section(self) -> None:
+        assert ":caption: The Config" in self._index()
+
+    def test_the_three_interfaces_are_listed_together(self) -> None:
+        """None of them is primary, so none is filed apart from the others."""
+        index = self._index()
+        rest = index[index.index(":caption: Interfaces"):]
+        block = rest[:rest.index(chr(96) * 3)]
+        for page in ("gui", "cli_reference", "api"):
+            assert page in block
+
+    def test_the_config_page_is_titled_as_the_thing(self) -> None:
+        """Not "Configuration", and not a YAML file: YAML is the format it is
+        written in, which is not what it is."""
+        page = (DOCS / "configuration.md").read_text(encoding="utf-8")
+        assert page.startswith("# The Config")
+        assert "format rather than the thing" in page
+
+    def test_nothing_calls_it_a_yaml_file(self) -> None:
+        pages = [ROOT / "README.md"] + sorted(DOCS.glob("*.md"))
+        named = [p.name for p in pages
+                 if p.is_file() and "YAML file" in p.read_text(encoding="utf-8")]
+        assert not named, f"these name the format where they mean the Config: {named}"

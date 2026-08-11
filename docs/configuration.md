@@ -1,7 +1,12 @@
-# Configuration
+# The Config
 
-Everything a run does can go in one YAML file, and the same file drives the
-command line, the Python API and the [GUI](gui.md).
+A FastMDXplora Config is the whole description of a study: the system, how it
+is prepared, how it is simulated, what is measured, and how it is written up.
+Capture that and the four phases run themselves.
+
+It is written as YAML, which is the format rather than the thing. The same
+Config drives the [GUI](gui.md), the [command line](cli_reference.md) and the
+[Python API](api.md), and each of them can produce one.
 
 ```bash
 fastmdx init-config study.yml     # a commented template

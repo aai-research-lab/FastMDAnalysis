@@ -75,7 +75,6 @@ leave the page. See [Configuration](configuration.md).
 
 installation
 getting_started
-gui
 phases
 ```
 
@@ -96,19 +95,26 @@ interactions
 
 ```{toctree}
 :maxdepth: 2
-:caption: Driving it
+:caption: The Config
 
-cli_reference
 configuration
 usage_examples
-remote
 ```
 
 ```{toctree}
 :maxdepth: 2
-:caption: Reference
+:caption: Interfaces
 
+gui
+cli_reference
 api
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: Running it elsewhere
+
+remote
 ```
 
 ```{toctree}
