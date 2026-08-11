@@ -33,6 +33,17 @@ the CLI and the Python API each build one and each run all four phases.
 
 
 ### Added
+- **A metal in a protein site says the force field will not hold it there.**
+  Standard force fields treat a metal ion as a point charge with
+  Lennard-Jones terms and nothing else. That is enough for a carboxylate cage
+  and often not for a metal held by histidines, so the ion drifts out of its
+  site while the fold stays intact, the RMSD stays flat, and nothing else in
+  the run reports it. Measured on thermolysin over 20 ns: all four calciums
+  held their sites to within a tenth of an Angstrom, and the catalytic zinc
+  lost His142 in the first production frame and never recovered it. Setup now
+  measures which metals are actually coordinated -- rather than assuming from
+  the residue name -- and names them, with the remedies. Salt stays silent.
+
 - **The config is the study, said where somebody looks.** The README and the
   documentation index now lead with it: one file describes a study completely,
   and the GUI, the command line and the Python API each build one and each run
