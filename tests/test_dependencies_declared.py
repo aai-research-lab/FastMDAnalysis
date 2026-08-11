@@ -200,18 +200,22 @@ def test_the_alias_package_carries_the_released_version() -> None:
     if not shim.is_file():  # pragma: no cover - the alias is optional
         return
 
-    written = re.search(r'^version = "([^"]+)"', shim.read_text(encoding="utf-8"),
-                        re.M)
-    assert written, "the alias declares no version"
+    text = shim.read_text(encoding="utf-8")
 
-    changelog = (repo / "CHANGELOG.md").read_text(encoding="utf-8")
-    released = re.search(r"^## \[(\d+\.\d+\.\d+)\]", changelog, re.M)
-    assert released, "the changelog names no released version"
-
-    assert written.group(1) == released.group(1), (
-        f"the alias says {written.group(1)} and the changelog's latest "
-        f"release is {released.group(1)}. Bump shim-package/pyproject.toml "
-        "before tagging, or the release workflow will refuse the tag."
+    # It takes the tag now, like the package it aliases, so there is no
+    # written version left to drift. What is worth checking is that the
+    # wiring is there: a literal creeping back in is the fault this test was
+    # written for, and it would be silent until a release refused a tag.
+    written = re.search(r'^version = "([^"]+)"', text, re.M)
+    assert written is None, (
+        f"the alias has gone back to a written version ({written.group(1)}). "
+        "It derives from the git tag; a literal beside a derived one drifts, "
+        "and the release workflow is where that gets noticed."
+    )
+    assert 'dynamic = ["version"]' in text
+    assert "[tool.setuptools_scm]" in text
+    assert 'root = ".."' in text, (
+        "the tag lives in the repository above this directory"
     )
 
 
