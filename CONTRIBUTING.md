@@ -21,8 +21,34 @@ pip install -e ".[dev]"
 # Verify the install
 fastmdx --version
 fastmdx info
+
+# Verify it is *this* install: the path should be inside the checkout
+python -c "import fastmdxplora; print(fastmdxplora.__file__)"
+
 pytest
 ```
+
+### If you install a released version into the same environment
+
+Don't, unless you mean to. `pip install -U fastmdxplora` replaces an editable
+install with an ordinary one, reports success, and says nothing about what it
+displaced. Every `pytest` after that imports from `site-packages`, so the code
+in your tree is no longer the code under test.
+
+The symptom is not one you would connect to the cause. Tests fail with
+`AttributeError` on methods that are visibly present in the file you are
+reading, and the search goes to the code, which is fine. An hour has gone into
+this once already.
+
+`tests/test_the_tests_run_against_this_checkout.py` now fails first and says
+so. To get back:
+
+```bash
+pip install -e ".[dev]"
+```
+
+To compare against a release without disturbing the checkout, use a separate
+environment for it.
 
 ## Development workflow
 

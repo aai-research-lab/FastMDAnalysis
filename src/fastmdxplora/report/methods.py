@@ -184,9 +184,41 @@ def methods_paragraphs(
             else f"`{source}`"
         )
 
+        # Setup now records what the structure was, and this sentence is the
+        # reason it is worth recording: a methods section saying coordinates
+        # came from `prepped.pdb` states a filename on somebody's laptop.
+        # Where the file's own header names the entry it began as, that is
+        # the checkable version of the same sentence.
+        structure = (recorded or {}).get("structure") if isinstance(recorded, dict) else None
+        structure = structure if isinstance(structure, dict) else {}
+        entry = structure.get("entry")
+        when = str(structure.get("retrieved_at") or "")[:10]
+
+        if form == "pdb_id" and when:
+            # Deposited entries are revised, so the identifier alone does not
+            # say which coordinates were used.
+            origin += f", retrieved {when}"
+        elif form != "pdb_id" and entry:
+            # Attributed to the header, not asserted: a prepared structure
+            # keeps the header of the entry it began as, which is what makes
+            # this useful and also what stops it being a claim of identity.
+            deposited = structure.get("deposited")
+            origin += (
+                f", whose header identifies it as Protein Data Bank entry "
+                f"{entry}"
+            )
+            origin += f" (deposited {deposited})" if deposited else ""
+
         preparation = [
             f"Starting coordinates were taken from {origin}."
         ]
+        digest = structure.get("sha256")
+        if digest:
+            preparation.append(
+                f"The file itself is recorded in the setup manifest by its "
+                f"SHA-256 digest ({digest[:12]}), which identifies it "
+                f"independently of the path it was read from."
+            )
         ph = _get(setup, "ph")
         if ph is not None:
             preparation.append(

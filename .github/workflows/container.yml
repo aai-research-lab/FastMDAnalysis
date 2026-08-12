@@ -46,20 +46,43 @@ jobs:
           # has to have caught up -- not PyPI. That takes longer: the bot
           # opens a version-bump pull request, its CI builds, somebody
           # merges. An hour is normal and it can be a day if the recipe needs
-          # a change, so this waits a while and then says plainly that the
-          # image was not built rather than building the wrong one.
+          # a change.
+          #
+          # Which is the argument for a short wait rather than a long one. A
+          # poll only pays where the feedstock is nearly ready anyway; where
+          # it is not, an hour of waiting buys the same failure as ten
+          # minutes and spends fifty minutes of runner time getting there.
+          # Nobody is watching this log for the answer either -- the bot
+          # mails you when the pull request opens.
           VER="${{ steps.version.outputs.value }}"
           API="https://api.anaconda.org/package/conda-forge/fastmdxplora"
-          for attempt in $(seq 1 60); do
+          ATTEMPTS=10
+          for attempt in $(seq 1 "$ATTEMPTS"); do
             if curl -sf "$API" | grep -q "\"$VER\""; then
               echo "fastmdxplora $VER is on conda-forge"
               exit 0
             fi
-            echo "not there yet (attempt $attempt of 60); waiting a minute"
-            sleep 60
+            if [ "$attempt" -lt "$ATTEMPTS" ]; then
+              echo "not there yet (attempt $attempt of $ATTEMPTS); waiting a minute"
+              sleep 60
+            fi
           done
-          echo "fastmdxplora $VER did not reach conda-forge within an hour." >&2
-          echo "Re-run this workflow by hand once the feedstock has it." >&2
+          # Said on the run's summary page as well as in the log. A red cross
+          # is where somebody arrives; the log is where this would otherwise
+          # sit, under the waiting.
+          {
+            echo "### Image not built"
+            echo
+            echo "\`fastmdxplora $VER\` had not reached conda-forge ten minutes after"
+            echo "this ran. That is normal rather than wrong: the feedstock bot opens"
+            echo "a version-bump pull request and somebody merges it, which usually"
+            echo "takes longer than that."
+            echo
+            echo "Nothing is broken and nothing needs changing. Re-run this workflow"
+            echo "by hand once the feedstock has it:"
+            echo "<https://github.com/conda-forge/fastmdxplora-feedstock/pulls>"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::fastmdxplora $VER is not on conda-forge yet -- re-run this workflow once the feedstock has merged"
           exit 1
 
       - name: Install Apptainer

@@ -29,12 +29,19 @@ honest rather than decorative.
 
 from __future__ import annotations
 
+import hashlib
 import subprocess
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-__all__ = ["source_checkout", "source_provenance"]
+__all__ = [
+    "source_checkout",
+    "source_provenance",
+    "structure_provenance",
+    "described_structure",
+]
 
 #: Long enough to be unambiguous in any real repository, short enough to read.
 _SHORT = 12
@@ -115,4 +122,134 @@ def described(record: dict[str, Any] | None) -> str | None:
         line += "the code that ran)"
     elif record["dirty"] is None:
         line += " (whether the tree was modified could not be determined)"
+    return line
+
+
+# ---------------------------------------------------------------------------
+# Which structure a run was made from, which is a different question from
+# which code it was made from and was being answered by the same word.
+# ---------------------------------------------------------------------------
+
+#: The header is the first record of a PDB file and the first block of a CIF.
+#: Bounded so the cost does not follow the size of the structure.
+_HEADER_SCAN = 4096
+
+_CHUNK = 1 << 20
+
+
+def structure_provenance(given: str, form: str, path: Path | str) -> dict[str, Any] | None:
+    """Which structure a run was made from, past the point the path says.
+
+    The manifest recorded the string somebody typed -- ``4hhb_cleaned.pdb``,
+    ``../prep/final.pdb`` -- and nothing else. That is an answer for about a
+    week. The file gets moved, the directory tidied, a second copy made under
+    a name that sorts better, and the run no longer says which structure it
+    used. The report is built from the same field, so a methods section ends
+    up stating that coordinates came from a filename, which is not something
+    a reader can check.
+
+    Three things make it checkable, none of which costs anything beside a run
+    of any length:
+
+    **The digest**, which names the bytes whatever became of the path. Two
+    runs agree or they do not, and a file edited since stops matching the run
+    that used it.
+
+    **The entry the file names itself.** A local structure is usually a
+    deposited one that has been through a preparation step, and it keeps the
+    header saying which. That answers "which entry" in exactly the case where
+    the path has stopped answering it.
+
+    **When**, because deposited entries are revised. A run made before a
+    revision used different coordinates from one made after it, and neither
+    the identifier nor the filename records which side of it a run falls on.
+
+    Returns None where there is no file to describe -- a sequence input, or a
+    fetch that failed -- because a record of nothing is worse than no record.
+    """
+    file_path = Path(path)
+    try:
+        digest = hashlib.sha256()
+        head = b""
+        size = 0
+        with file_path.open("rb") as fh:
+            while chunk := fh.read(_CHUNK):
+                if len(head) < _HEADER_SCAN:
+                    head += chunk[: _HEADER_SCAN - len(head)]
+                digest.update(chunk)
+                size += len(chunk)
+    except OSError:
+        return None
+
+    record: dict[str, Any] = {
+        "form": form,
+        "given": str(given),
+        "retrieved_at": datetime.now(timezone.utc).isoformat(),
+        "bytes": size,
+        "sha256": digest.hexdigest(),
+    }
+
+    if form == "pdb_id":
+        record["url"] = (
+            f"https://files.rcsb.org/download/{str(given).strip().upper()}.pdb"
+        )
+    else:
+        # The absolute path, because the given one is resolved against a
+        # working directory nobody records and which is not where the run is
+        # read from later.
+        source = Path(given).expanduser()
+        try:
+            record["path"] = str(source.resolve())
+            record["modified_at"] = datetime.fromtimestamp(
+                source.stat().st_mtime, timezone.utc
+            ).isoformat()
+        except OSError:  # pragma: no cover -- copied, then moved mid-run
+            pass
+
+    record.update(_entry_named_in(head))
+    return record
+
+
+def _entry_named_in(head: bytes) -> dict[str, str]:
+    """What the file says it is: the entry, and when it was deposited.
+
+    Only what the formats fix the position of is read. This is the file's own
+    word rather than a fact about it -- an edited structure keeps the header
+    of the entry it began as, and one built by hand may carry a header that
+    was never true -- so it is recorded as a claim and the digest is what
+    settles identity.
+    """
+    for raw in head.splitlines():
+        line = raw.decode("ascii", "replace")
+        if line.startswith("HEADER"):
+            found: dict[str, str] = {}
+            # The format fixes the columns: 63-66 the ID code, 51-59 the
+            # deposition date. Padded-out headers are common, so both are
+            # taken only where something is there.
+            entry = line[62:66].strip()
+            deposited = line[50:59].strip()
+            if entry:
+                found["entry"] = entry.upper()
+            if deposited:
+                found["deposited"] = deposited
+            return found
+        if line.startswith("_entry.id"):  # mmCIF
+            parts = line.split(None, 1)
+            if len(parts) == 2 and parts[1].strip():
+                return {"entry": parts[1].strip().strip("'\"").upper()}
+    return {}
+
+
+def described_structure(record: dict[str, Any] | None) -> str | None:
+    """One line a person can read, or None where there is nothing to say."""
+    if not record:
+        return None
+    if record.get("form") == "pdb_id":
+        line = f"PDB entry {record.get('given', '').upper()}"
+    else:
+        line = record.get("path") or record.get("given") or "a local file"
+        if record.get("entry"):
+            line += f", whose header names entry {record['entry']}"
+    if record.get("sha256"):
+        line += f" (sha256 {record['sha256'][:12]})"
     return line

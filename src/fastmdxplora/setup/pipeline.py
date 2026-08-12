@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastmdxplora.dependencies import dependency_error_message, missing_dependencies
 from fastmdxplora.config.schema import SETUP
+from fastmdxplora.provenance import structure_provenance
 from fastmdxplora.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -707,10 +708,22 @@ def run(
     presenter = getattr(orchestrator, "_presenter", None)
     artifacts: list[str] = []
     notes: list[str] = []
+    # Set before anything can fail, so the manifest records "no structure"
+    # rather than whatever the attribute happens not to be. A sequence input
+    # and a fetch that never landed both end here, and both are honest.
+    orchestrator._structure_provenance = None
 
     # ---- Stage 1: resolve input ----------------------------------------
     try:
         input_pdb = _resolve_input(orchestrator.system, input_form, setup_dir)
+
+        # Recorded here rather than at the manifest, because this is the last
+        # moment the file is the one that arrived: chain selection rewrites
+        # it, and the question being answered is where the structure came
+        # from, not what this run then did to it.
+        orchestrator._structure_provenance = structure_provenance(
+            orchestrator.system, input_form, input_pdb)
+
         if params.get("chains"):
             input_pdb = _select_chains(
                 input_pdb, params["chains"], presenter=presenter)
@@ -919,6 +932,23 @@ def run(
         _write_manifest(setup_dir, orchestrator, input_form, params, artifacts, notes)
         artifacts.append("setup_parameters.json")
         return artifacts
+    except Exception as exc:  # noqa: BLE001 -- template mismatches, box guards
+        # The same rule stage 1 states: the manifest is written first, so
+        # whatever was learned before the failure survives for diagnosis,
+        # and then the failure is raised.
+        #
+        # Only the ImportError branch above did this, so a run that resolved
+        # its structure and then failed in preparation -- a residue no
+        # template matches, a cutoff too big for its box -- left an output
+        # directory with no manifest at all. The record lost is exactly the
+        # one diagnosis wants: which structure arrived, by digest and entry,
+        # for the failures where "which structure was this" is the first
+        # question. The two machines differed on this for a week -- one had
+        # OpenMM and lost the manifest, one lacked it and kept it -- which is
+        # what it looks like when only the graceful branch writes the record.
+        notes.append(f"preparation failed: {exc}")
+        _write_manifest(setup_dir, orchestrator, input_form, params, artifacts, notes)
+        raise
 
     # ---- Stage 4: Manifest --------------------------------------------
     _write_manifest(setup_dir, orchestrator, input_form, params, artifacts, notes,
@@ -996,6 +1026,9 @@ def _write_manifest(
         "input": {
             "system": orchestrator.system,
             "form": input_form,
+            # Which structure, past the point the string above still says.
+            # Absent for a sequence, and for a fetch that never landed.
+            "structure": getattr(orchestrator, "_structure_provenance", None),
         },
         "parameters": params,
         # How big the system ended up. A methods section has to state it, and
