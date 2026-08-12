@@ -7,6 +7,43 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [2.5.1] — 2026-08-12
+
+Everything a run tells you, told earlier and told better.
+
+Five things worth knowing before a run starts now appear while the settings
+are still choices, in the GUI beside the control they concern and in the run
+before its first phase: a metal this force field will not hold in its site, a
+box too small for the cutoff, a switching function the force field does not
+want, a ligand with no chemistry, a density that will never be equilibrated.
+
+A ligand supplied as a file is placed where the structure has it, not where
+the file's own coordinates lie. An ideal component from the Chemical Component
+Dictionary carries the chemistry a PDB cannot express and an arbitrary pose;
+using that pose put a benzene seventeen Angstroms from the cavity it belonged
+in, and the run succeeded. The same component appearing more than once -- a
+cofactor in each half of a dimer -- takes successive copies rather than
+declining.
+
+A run lists the platforms OpenMM found and, where one is missing, what is
+known about why. An installation whose plugin directory has moved offers only
+the Reference platform and reports no failures, because it never looked: the
+run is correct and about a hundred times slower, and nothing says so.
+
+The nonbonded cutoff comes from the force field. CHARMM36 is developed at
+1.2 nm with switching from 1.0; the AMBER force fields are developed with hard
+truncation and are not switched at all.
+
+Six messages that named a problem and stopped now say what to do about it: a
+fetch with no route to the internet, a ligand's chemistry that cannot be
+looked up, `ligand` given a residue name, `--include` used twice, an analysis
+name no analysis has, and a structure that is not there.
+
+An image carrying the whole stack -- including the OpenFF toolkit, which is
+not on PyPI -- is attached to each release, for machines that cannot reach
+conda-forge.
+
+
 ## [2.5.0] — 2026-08-10
 
 **Recompute any metadynamics or umbrella result on a torsion or an angle.**
