@@ -22,9 +22,10 @@ From: mambaorg/micromamba:1.5.8
 
         apptainer exec --nv fastmdx.sif fastmdx explore --config study.yml
 
-    `--nv` passes the GPU through. Without it the run falls back to the CPU
-    platform, which it will say, and which is a hundred times slower on the
-    Reference platform if the plugins are also missing. Check the banner.
+    `--nv` passes the GPU through, and it is not optional for a GPU run: it
+    is what puts the host's driver inside, and without it the CUDA plugin is
+    there and cannot load. The run says which platform it selected and why
+    the others were unavailable. Check the banner.
 
     The image carries its own OpenMM, so OPENMM_PLUGIN_DIR is set inside and
     the host's does not apply.
@@ -64,14 +65,26 @@ import openff.toolkit, openmmforcefields  # noqa: F401
 import fastmdxplora  # noqa: F401
 from openmmplumed import PlumedForce  # noqa: F401
 
+import pathlib
+
 platforms = [openmm.Platform.getPlatform(i).getName()
              for i in range(openmm.Platform.getNumPlatforms())]
 print("platforms:", platforms)
 assert "CPU" in platforms, platforms
-assert "CUDA" in platforms, (
-    "no CUDA platform: the image would run on CPU wherever it was taken. "
-    f"found {platforms}, load failures: "
-    f"{list(openmm.Platform.getPluginLoadFailures())}")
+
+# The CUDA *library*, not the CUDA *platform*. A build machine has no GPU and
+# therefore no libcuda.so.1, so the plugin cannot load here however correct
+# the image is -- asking whether the platform registers can only ever answer
+# no, and asserting it fails every build. What is checkable at build time is
+# that the plugin was installed; the driver arrives at run time, from the
+# host, through `--nv`.
+plugins = pathlib.Path(openmm.version.openmm_library_path) / "plugins"
+built = sorted(p.name for p in plugins.glob("libOpenMMCUDA*"))
+assert built, (
+    f"no CUDA plugin in {plugins}: this image would run on the CPU wherever "
+    "it was taken. Contents: "
+    f"{sorted(q.name for q in plugins.glob('*'))}")
+print("cuda plugin:", ", ".join(built))
 print("openmm", openmm.version.version)
 print("fastmdxplora", getattr(fastmdxplora, "__version__", "unknown"))
 CHECK

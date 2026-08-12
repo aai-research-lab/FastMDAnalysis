@@ -60,13 +60,26 @@ class TestItRefusesToShipAnImageThatWillNotWork:
             self, definition: str) -> None:
         assert "import openff.toolkit" in definition
 
-    def test_the_build_asserts_a_cuda_platform(self, definition: str) -> None:
+    def test_the_build_asserts_the_cuda_plugin_is_installed(
+            self, definition: str) -> None:
         """An image that silently lacks CUDA runs everywhere it is taken, on
-        the CPU, and nothing says why it is slow."""
-        assert 'assert "CUDA" in platforms' in definition
+        the CPU, and nothing says why it is slow.
+
+        The plugin, not the platform. A build machine has no GPU and so no
+        libcuda.so.1, so the plugin cannot load there however correct the
+        image is -- the first version of this asserted the platform and
+        failed every build, on an image that was fine. What is checkable at
+        build time is that the plugin was installed; the driver arrives at
+        run time from the host.
+        """
+        assert 'glob("libOpenMMCUDA*")' in definition
+        assert 'assert "CUDA" in platforms' not in definition
 
     def test_a_failure_says_what_was_found(self, definition: str) -> None:
-        assert "getPluginLoadFailures" in definition
+        """Listing the plugin directory, so a build that fails says what is
+        in the image rather than only what is not."""
+        assert "Contents: " in definition
+        assert "plugins.glob('*')" in definition
 
 
 class TestItBringsItsOwnPlugins:
