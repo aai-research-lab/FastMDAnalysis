@@ -107,6 +107,18 @@ whole system at once means the integration, and the remedies differ. Nothing
 is retried automatically: a run that exploded because its ligand is wrong will
 explode again more slowly at half the timestep.
 
+**The log keeps what happened, including the attempts that failed.**
+`fastmdxplora.log` in the run directory is appended to rather than replaced,
+so a second attempt does not erase the first -- which is usually the one
+saying why the second was needed. Each invocation is separated by a banner
+naming the time and the version that made it, so a directory re-run over weeks
+reads as a sequence rather than a wall.
+
+That is worth knowing when a directory has been re-run with
+`--force-overwrite`: the other artefacts were replaced and the log was not, so
+it describes runs whose outputs are no longer there. The banners are what tell
+you which part of it is about the files you are looking at.
+
 ---
 
 ## Several runs at once

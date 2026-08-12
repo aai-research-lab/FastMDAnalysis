@@ -161,6 +161,36 @@ def _is_owned_handler(handler: logging.Handler, kind: str | None = None) -> bool
     return kind is None or getattr(handler, _KIND_ATTR, None) == kind
 
 
+def _mark_a_new_run(path: str | Path) -> None:
+    """Write a line saying a new invocation starts here.
+
+    Plain text rather than a log record: it is a separator in the file, not
+    something a handler should format, and it has to appear whatever level
+    the run is logging at.
+    """
+    from datetime import datetime
+
+    try:
+        version = _package_version()
+    except Exception:  # noqa: BLE001 - a version that cannot be read
+        version = "unknown"
+    stamp = datetime.now().astimezone().isoformat(timespec="seconds")
+    try:
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(
+                f"\n{'=' * 78}\n"
+                f"=== new run  {stamp}  fastmdxplora {version}\n"
+                f"{'=' * 78}\n")
+    except OSError:  # pragma: no cover - a log that cannot be written to
+        pass
+
+
+def _package_version() -> str:
+    from importlib.metadata import version
+
+    return version("fastmdxplora")
+
+
 def _find_owned_handler(
     logger: logging.Logger,
     kind: str,
@@ -268,7 +298,21 @@ def attach_file_logger(
             pass
         _file_handler = None
 
+    # Appended, not truncated. A run directory is the record of what
+    # happened in it, and a second attempt that overwrote the first would
+    # erase the evidence of why the first was made -- which is exactly what
+    # somebody reading the log is looking for. A failed run that named a
+    # wrong CUDA version, followed by the corrected one, belongs in the same
+    # file in that order.
+    #
+    # What appending needs and did not have is a mark saying where one
+    # invocation ends and the next begins. Without it the second run's first
+    # line follows the first run's traceback with nothing between them, and
+    # reading backwards there is no way to tell how far back "this run" goes.
+    existing = Path(path).exists() and Path(path).stat().st_size > 0
     handler = logging.FileHandler(path, mode="a", encoding="utf-8")
+    if existing:
+        _mark_a_new_run(path)
 
     # File logs are audit-oriented: when an explicit style is supplied
     # (the typical case from the project orchestrator), respect it and
