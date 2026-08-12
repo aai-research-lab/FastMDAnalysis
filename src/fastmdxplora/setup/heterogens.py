@@ -190,6 +190,29 @@ class Decision:
     def count(self) -> int:
         return len(self.instances)
 
+    @property
+    def is_monatomic(self) -> bool:
+        """One atom, so there is no chemistry to look up.
+
+        Bond orders, formal charges and aromaticity are what a PDB cannot
+        express and what an SDF supplies. A lone ion has none of them: a force
+        field carries its parameters directly, and asking somebody to fetch
+        `ZN_ideal.sdf` asks for a file describing bonds that do not exist.
+
+        Decided from the structure rather than from a list of names, because
+        a list would need every ion anybody simulates and would be wrong for
+        whichever was missing.
+        """
+        if not self.instances:
+            return False
+        if not all(len(i.atoms) == 1 for i in self.instances):
+            return False
+        # One atom is not enough on its own: a lone carbon is a ligand
+        # somebody wrote badly, not an ion, and treating it as one would keep
+        # a broken component silently. The element has to be one that occurs
+        # as a monatomic ion, which is what a force field has parameters for.
+        return self.resname.strip().upper() in ION_NAMES
+
 
 class AmbiguousStructureError(RuntimeError):
     """The structure does not determine what should be simulated.

@@ -492,7 +492,24 @@ def _auto_ligands(params: dict, input_pdb, setup_dir, entry_id: str | None) -> l
 
     decisions = resolve(input_pdb, keep_water=bool(params.get("keep_water")))
     logger.info("Heterogen decisions:\n%s", summarize(decisions))
-    wanted = [d for d in decisions if d.action is Action.SIMULATE]
+    simulate = [d for d in decisions if d.action is Action.SIMULATE]
+
+    # A lone ion is kept and needs nothing fetched. Bond orders, formal
+    # charges and aromaticity are what an SDF supplies and what a PDB cannot
+    # express; a monatomic component has none of them, and the protein force
+    # field carries its parameters directly. Asking for `ZN_ideal.sdf` asks
+    # for a file describing bonds that do not exist -- and 4INS, which is
+    # insulin with two structural zincs, could not be prepared at all.
+    ions = [d for d in simulate if d.is_monatomic]
+    if ions:
+        logger.info(
+            "Keeping %s as %s: a lone ion has no chemistry to retrieve, and "
+            "the force field carries its parameters.",
+            ", ".join(f"{d.resname} x{d.count}" if d.count > 1 else d.resname
+                      for d in ions),
+            "ions" if len(ions) > 1 or ions[0].count > 1 else "an ion")
+
+    wanted = [d for d in simulate if not d.is_monatomic]
     if not wanted:
         return []
 
