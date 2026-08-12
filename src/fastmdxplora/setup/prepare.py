@@ -44,7 +44,7 @@ from fastmdxplora.setup.forcefields import (
     nonbonded_scheme,
     resolve_forcefield,
 )
-from fastmdxplora.setup.ligand import load_ligand
+from fastmdxplora.setup.ligand import load_ligand, pose_from_structure
 from fastmdxplora.utils.logging import get_logger
 
 logger = get_logger("setup.prepare")
@@ -504,10 +504,25 @@ def prepare_system(
         )
         names = _resolve_ligand_names(ligands, ligand_name)
         charges = _resolve_ligand_charges(ligands, ligand_net_charge)
-        ligand_mols = [
-            load_ligand(path, name=name, net_charge=charge)
-            for path, name, charge in zip(ligands, names, charges)
-        ]
+        ligand_mols = []
+        for path, name, charge in zip(ligands, names, charges):
+            molecule = load_ligand(path, name=name, net_charge=charge)
+            # The chemistry comes from the supplied file and the pose from
+            # the structure, where the structure has this residue. An ideal
+            # SDF carries bond orders and an arbitrary geometry; using its
+            # coordinates puts the ligand wherever that geometry lies, which
+            # on a real complex was seventeen Angstroms from the site.
+            # The structure as it arrived, not the prepared one: PDBFixer
+            # has removed the heterogens by the time that is written, so the
+            # ligand's crystallographic coordinates are only in the input.
+            original = Path(output_dir) / "input.pdb"
+            if original.is_file():
+                molecule, said = pose_from_structure(molecule, original, name)
+            else:
+                molecule, said = molecule, None
+            if said:
+                logger.info("%s", said)
+            ligand_mols.append(molecule)
         ff, system_generator = _build_ligand_forcefield(
             force_field, sm_ff, ligand_mols,
         )

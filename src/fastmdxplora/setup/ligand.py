@@ -79,6 +79,104 @@ def _import_openff() -> Any:
     return Molecule
 
 
+def pose_from_structure(molecule: Any, structure: str | Path,
+                        resname: str) -> tuple[Any, str | None]:
+    """Decide which file says where the ligand is.
+
+    There are two ways a person arrives with a protein and a ligand, and they
+    want opposite things from the same pair of files.
+
+    **The ligand is in the structure.** A complex from the PDB has the ligand
+    at its crystallographic coordinates and no chemistry: a PDB cannot express
+    bond orders, formal charges or aromaticity, which is exactly what a force
+    field needs. So the author supplies those separately -- an SDF or MOL2,
+    often the ideal component from the Chemical Component Dictionary. That
+    file's *coordinates* are idealised and mean nothing here. **The structure
+    wins**, and this replaces them.
+
+    Getting that backwards is not a small error. On T4 lysozyme with benzene,
+    the ideal component sat seventeen Angstroms from the cavity it was
+    supposed to occupy. Setup succeeded, the clash check passed -- seventeen
+    Angstroms is not a clash -- and the run was of a benzene floating in
+    solvent rather than a benzene in a binding site. Everything looked right.
+
+    **The ligand is not in the structure.** An apo protein, and a pose from
+    docking or built by hand. Here the supplied file is the only thing that
+    knows where the ligand goes, and its coordinates are the author's answer.
+    **The file wins**, and this leaves it alone.
+
+    The two are told apart by looking: if the structure holds a residue of
+    this name with a matching count of heavy atoms, it is the first case. If
+    it does not, it is the second. Nothing has to be declared, because the
+    files already say which situation it is -- and in the second case the
+    author is responsible for the pose being a bound one, which no amount of
+    checking here can establish.
+
+    Returns the molecule and a sentence about what happened, or ``None``
+    where the structure has no such residue and the SDF's own coordinates
+    stand -- which is right when the ligand is being placed deliberately
+    rather than read from a complex.
+    """
+    import numpy as _np
+
+    try:
+        import mdtraj as _md  # noqa: PLC0415
+
+        frame = _md.load(str(structure))
+    except Exception as exc:  # noqa: BLE001 - a structure that will not read
+        return molecule, (
+            f"could not read {Path(structure).name} for the ligand's pose "
+            f"({type(exc).__name__}), so the file's own coordinates stand")
+
+    wanted = resname.strip().upper()
+    indices = [atom.index for atom in frame.topology.atoms
+               if atom.residue.name.strip().upper() == wanted]
+    if not indices:
+        return molecule, None
+
+    # Heavy atoms only: a crystal structure has no hydrogens, and the SDF
+    # has them. Matching on count is what tells us the two are the same
+    # molecule rather than something that merely shares a residue name.
+    heavy = [i for i, atom in enumerate(molecule.atoms)
+             if atom.atomic_number > 1]
+    if len(indices) != len(heavy):
+        return molecule, (
+            f"{wanted} in {Path(structure).name} has {len(indices)} atoms and "
+            f"the supplied file has {len(heavy)} heavy atoms, so they are not "
+            "the same molecule and the file's own coordinates stand")
+
+    positions = _np.array(molecule.conformers[0].m_as("nanometer")
+                          if molecule.conformers else None, dtype=float)
+    if positions is None or positions.size == 0:
+        return molecule, "the supplied file carries no coordinates to replace"
+
+    # The crystallographic positions, in the order the SDF's heavy atoms
+    # come in. Both orders come from the same component definition, so they
+    # correspond; a mismatch shows up as a geometry the clash check refuses.
+    moved = positions.copy()
+    moved[heavy] = frame.xyz[0][indices]
+
+    # Hydrogens keep their offset from the heavy atom they were built on, so
+    # the molecule stays intact rather than having its hydrogens left behind.
+    shift = moved[heavy[0]] - positions[heavy[0]]
+    for index, atom in enumerate(molecule.atoms):
+        if atom.atomic_number <= 1:
+            moved[index] = positions[index] + shift
+
+    # Wrapped the way the molecule's own conformer is wrapped, rather than
+    # by importing the units package: this function is then testable
+    # wherever the arithmetic is, and the toolkit is conda-forge-only.
+    existing = molecule.conformers[0]
+    try:
+        molecule._conformers = [type(existing)(moved, "nanometer")]
+    except Exception:  # noqa: BLE001 - a wrapper that takes only the values
+        molecule._conformers = [type(existing)(moved)]
+    return molecule, (
+        f"placed {wanted} at its coordinates in {Path(structure).name} rather "
+        "than the supplied file's, which carries the chemistry and an "
+        "arbitrary pose")
+
+
 def load_ligand(
     ligand_file: str | Path,
     *,

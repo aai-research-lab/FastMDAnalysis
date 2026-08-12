@@ -39,8 +39,43 @@ looks its chemistry up, settles its protonation in the binding site, and
 discards crystallisation additives. The analysis phase adds the
 protein-ligand measures automatically.
 
-If the structure's ligand is not in the Chemical Component Dictionary, supply
-its chemistry:
+That route needs the network: the chemistry is looked up by identifier, and a
+local file carries no entry to look it up in. Where the lookup is not
+available -- an offline machine, or a ligand the dictionary does not have --
+supply the chemistry as a file.
+
+**Which leaves two situations, and they want opposite things from the same
+pair of files.**
+
+### The ligand is in the structure
+
+A complex has the ligand at its crystallographic coordinates and no chemistry.
+The supplied file provides the bond orders, formal charges and aromaticity a
+PDB cannot express; its coordinates are usually idealised and mean nothing
+here.
+
+**The structure wins.** The ligand is placed where the complex has it, and the
+run says so. The ligand name has to match the residue name in the structure,
+because that is what identifies which component to take the coordinates from.
+
+Getting this backwards is not a small error. An ideal benzene sat seventeen
+Angstroms from the cavity it belonged in: setup succeeded, the clash check
+passed -- seventeen Angstroms is not a clash -- and the run was of a benzene
+floating in solvent. Nothing looked wrong.
+
+### The ligand is not in the structure
+
+An apo protein, and a pose from docking or built by hand. **The file wins**,
+because it is the only thing that knows where the ligand goes. Its coordinates
+have to be a bound pose: nothing here can establish that, and a pose that is
+wrong will simulate perfectly well.
+
+Nothing has to be declared to choose between the two. If the structure holds a
+residue of that name with a matching count of heavy atoms, its coordinates are
+used; if it does not, the file's are. The files already say which situation it
+is.
+
+In either case, supply the chemistry like this:
 
 ```bash
 fastmdx explore --system complex.pdb \
