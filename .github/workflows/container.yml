@@ -15,6 +15,10 @@ on:
         description: "FastMDXplora version to build into the image"
         required: false
         default: ""
+      cuda_version:
+        description: "CUDA to build against; must be one the target driver supports"
+        required: false
+        default: "12.6"
 
 jobs:
   build:
@@ -71,9 +75,13 @@ jobs:
       - name: Build
         env:
           FASTMDX_VERSION: ${{ steps.version.outputs.value }}
+          CUDA_VERSION: ${{ github.event.inputs.cuda_version || '12.6' }}
         run: |
           sed -i "s/FASTMDX_VERSION:-2.5.0/FASTMDX_VERSION:-$FASTMDX_VERSION/" \
             container/fastmdx.def
+          sed -i "s/CUDA_VERSION:-12.6/CUDA_VERSION:-$CUDA_VERSION/" \
+            container/fastmdx.def
+          echo "building against CUDA $CUDA_VERSION"
           apptainer build --fakeroot \
             fastmdx-${FASTMDX_VERSION}.sif container/fastmdx.def
 

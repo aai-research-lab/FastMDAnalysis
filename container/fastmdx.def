@@ -45,8 +45,17 @@ From: mambaorg/micromamba:1.5.8
     # a conda-installed numpy with a wheel, which is how these images break.
     # It also meant a hand-written package list here, which could drift from
     # the one the package actually declares.
+    # `cuda-version` is conda-forge's handle on which CUDA every package in
+    # the solve is built against, and it has to be told: left free, the
+    # solver takes the newest, and an image built against CUDA 13 will not
+    # run on a driver that supports 12. That failure is
+    # CUDA_ERROR_UNSUPPORTED_PTX_VERSION, raised when the first kernel loads
+    # -- after setup has succeeded, so the run gets as far as looking like it
+    # works. Pinned low rather than high: a newer driver runs an older build,
+    # and the reverse is what fails.
     micromamba install -y -n base -c conda-forge \
         "fastmdxplora=${FASTMDX_VERSION:-2.5.0}" \
+        "cuda-version=${CUDA_VERSION:-12.6}" \
         openff-toolkit \
         openmmforcefields \
         openmm-plumed \

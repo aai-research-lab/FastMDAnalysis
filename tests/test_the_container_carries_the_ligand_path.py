@@ -129,3 +129,28 @@ class TestTheDocumentationSaysWhyItExists:
     def test_it_says_to_pass_the_gpu_through(self) -> None:
         page = (ROOT / "docs" / "remote.md").read_text(encoding="utf-8")
         assert "--nv" in page
+
+
+class TestItIsBuiltAgainstACudaAnyDriverCanRun:
+    """An image built against a newer CUDA than the target's driver supports
+    fails at the first kernel with CUDA_ERROR_UNSUPPORTED_PTX_VERSION -- after
+    setup has succeeded, so the run gets as far as looking like it works.
+
+    Left unpinned the solver takes the newest: the first image built here came
+    with CUDA 13.3 and would not run on driver 565, which supports 12.
+    """
+
+    def test_the_cuda_version_is_pinned(self, definition: str) -> None:
+        assert "cuda-version=" in definition
+
+    def test_it_is_pinned_low_rather_than_high(self, definition: str) -> None:
+        """A driver newer than the build runs it; older does not. So the
+        floor is what matters, and 13 is not a floor."""
+        assert "CUDA_VERSION:-12" in definition
+
+    def test_a_site_can_choose_another(self, definition: str,
+                                       workflow: str) -> None:
+        """Somewhere on an older driver needs to rebuild without editing the
+        definition."""
+        assert "${CUDA_VERSION:-" in definition
+        assert "cuda_version" in workflow
