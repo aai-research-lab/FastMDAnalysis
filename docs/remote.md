@@ -95,21 +95,75 @@ pip install --no-index --find-links=wheels fastmdxplora python-pptx
 
 `--system-site-packages` is what keeps the expensive half.
 
-**If there is no site environment**, build a container on a machine that has
-a network and copy the one file across. Apptainer is on most clusters:
+### Where wheels are not enough
+
+The route above installs FastMDXplora and its pure-Python dependencies. It
+does not reach the ligand path: **the OpenFF toolkit and openmmforcefields are
+distributed through conda-forge only**, are not on PyPI, and no arrangement of
+wheels will fetch them. A machine without them prepares proteins perfectly
+well and refuses the moment a ligand needs parameterising.
+
+There are two ways round it.
+
+**Install from conda-forge into the environment you have.** Where the machine
+can reach conda-forge, or where somebody with the rights to the site
+environment can, this is the whole fix and it is one command:
 
 ```bash
-# where there is a network, targeting the cluster's architecture
-docker buildx build --platform linux/amd64 -t fastmdx .
-docker save fastmdx -o fastmdx.tar
+conda install -c conda-forge fastmdxplora
+```
 
-# on the cluster
-apptainer build fastmdx.sif docker-archive://fastmdx.tar
+FastMDXplora declares what it needs, so this brings the stack with it rather
+than leaving you to assemble it. Into an existing environment that already has
+OpenMM, the solver reconciles the two; where it cannot, it says so rather than
+breaking what is there.
+
+Where the machine cannot reach conda-forge but you can reach it somewhere
+else, the packages can be carried:
+
+```bash
+# where there is a network, for the target's platform
+conda create -p /tmp/for-transfer --download-only \
+    -c conda-forge --platform linux-64 fastmdxplora
+tar czf conda-packages.tgz -C /tmp/for-transfer .
+
+# on the target
+conda install --offline -c file:///path/to/unpacked fastmdxplora
+```
+
+The solve happens on the machine with the network, so it has to be told the
+target's platform and Python version. That is the brittle part, and it is why
+the second way exists.
+
+**Take an image.** One attached to each release, built from
+`container/fastmdx.def` and carrying the whole stack -- OpenMM with CUDA and
+PLUMED, MDTraj, PDBFixer, the OpenFF toolkit, and FastMDXplora itself, all
+resolved by one solver so the versions are the ones the packaging chose.
+Download it where there is a network, copy the one file across, and:
+
+```bash
 apptainer exec --nv fastmdx.sif fastmdx explore --config study.yml
 ```
 
-`--nv` passes the GPU through. Without it the container runs on CPU and says
-so, which is the right failure but a slow one to discover.
+`--nv` passes the GPU through. Without it the run falls back to the CPU
+platform -- which it will say, and which is worth reading rather than
+discovering from the timing.
+
+The image carries its own OpenMM, so `OPENMM_PLUGIN_DIR` is set inside it and
+whatever the host has does not apply.
+
+Building it yourself needs a machine that is x86-64 Linux **and** has a
+network, which a laptop usually is not and a cluster usually does not. The
+image installs FastMDXplora from conda-forge, so the release has to have
+reached the feedstock -- an hour or so after a tag, sometimes longer:
+
+```bash
+apptainer build --fakeroot fastmdx.sif container/fastmdx.def
+```
+
+The definition ends by asserting that the CUDA platform and the ligand path
+are both present, so a build that would have produced an image quietly
+lacking them fails instead.
 
 ---
 

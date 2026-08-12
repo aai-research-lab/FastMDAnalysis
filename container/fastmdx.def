@@ -1,0 +1,99 @@
+Bootstrap: docker
+From: mambaorg/micromamba:1.5.8
+
+%labels
+    Description  FastMDXplora with the whole stack it needs, for machines
+                 that cannot reach conda-forge.
+    Upstream     https://github.com/aai-research-lab/FastMDXplora
+
+%help
+    FastMDXplora, built for a machine with no network.
+
+    The reason this exists: the ligand path needs the OpenFF toolkit and
+    openmmforcefields, and neither is on PyPI -- they are distributed through
+    conda-forge only, so no arrangement of wheels reaches them. Installing
+    FastMDXplora on top of a site environment works for everything else and
+    stops there.
+
+    Everything in here comes from conda-forge in one solve, so the versions
+    are the ones the packaging chose rather than a set assembled by hand.
+
+    Run it:
+
+        apptainer exec --nv fastmdx.sif fastmdx explore --config study.yml
+
+    `--nv` passes the GPU through. Without it the run falls back to the CPU
+    platform, which it will say, and which is a hundred times slower on the
+    Reference platform if the plugins are also missing. Check the banner.
+
+    The image carries its own OpenMM, so OPENMM_PLUGIN_DIR is set inside and
+    the host's does not apply.
+
+%post
+    set -eux
+
+    # One package, one solver. FastMDXplora declares what it needs, so
+    # conda-forge brings the whole stack -- OpenMM, PLUMED, MDTraj, PDBFixer,
+    # the OpenFF toolkit -- and the versions are mutually consistent because
+    # one solver chose them all.
+    #
+    # An earlier version of this file installed the stack with conda and then
+    # FastMDXplora with pip on top. That re-resolves its dependencies against
+    # what conda has already put there, and pip does not read conda's
+    # metadata properly: it can decide something needs upgrading and replace
+    # a conda-installed numpy with a wheel, which is how these images break.
+    # It also meant a hand-written package list here, which could drift from
+    # the one the package actually declares.
+    micromamba install -y -n base -c conda-forge \
+        "fastmdxplora=${FASTMDX_VERSION:-2.5.0}" \
+        openff-toolkit \
+        openmmforcefields \
+        openmm-plumed \
+        weasyprint
+
+    micromamba clean --all --yes
+
+    # Fail the build rather than ship an image that cannot do the thing it
+    # exists for. A container that silently lacks the ligand path would be
+    # worse than no container: it would take a run to discover.
+    /opt/conda/bin/python - <<'CHECK'
+import openmm
+from openmm import app  # noqa: F401
+import mdtraj, pdbfixer  # noqa: F401
+import openff.toolkit, openmmforcefields  # noqa: F401
+import fastmdxplora  # noqa: F401
+from openmmplumed import PlumedForce  # noqa: F401
+
+platforms = [openmm.Platform.getPlatform(i).getName()
+             for i in range(openmm.Platform.getNumPlatforms())]
+print("platforms:", platforms)
+assert "CPU" in platforms, platforms
+assert "CUDA" in platforms, (
+    "no CUDA platform: the image would run on CPU wherever it was taken. "
+    f"found {platforms}, load failures: "
+    f"{list(openmm.Platform.getPluginLoadFailures())}")
+print("openmm", openmm.version.version)
+print("fastmdxplora", getattr(fastmdxplora, "__version__", "unknown"))
+CHECK
+
+%environment
+    export PATH=/opt/conda/bin:$PATH
+    # The image's own plugins, not the host's. A machine with a site OpenMM
+    # will have OPENMM_PLUGIN_DIR set to a path that does not exist in here.
+    export OPENMM_PLUGIN_DIR=/opt/conda/lib/plugins
+
+%runscript
+    exec fastmdx "$@"
+
+%test
+    # Run at build time and by `apptainer test`. Imports only: a GPU is not
+    # available on a build runner, so anything needing one belongs in the
+    # first real run rather than here.
+    /opt/conda/bin/python -c "
+import openmm, mdtraj, pdbfixer, fastmdxplora
+import openff.toolkit, openmmforcefields
+from openmmplumed import PlumedForce
+print('fastmdxplora', fastmdxplora.__version__ if hasattr(fastmdxplora, '__version__') else '')
+print('openmm', openmm.version.version)
+print('the ligand path is present')
+"

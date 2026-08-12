@@ -1,0 +1,100 @@
+name: Container
+
+# Built here because the machines that need this image cannot reach
+# conda-forge to build it themselves, and building it on a laptop means
+# building for the wrong architecture. A runner is x86-64 Linux with a
+# network, which is exactly what a cluster is and exactly what a laptop is
+# not.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "FastMDXplora version to build into the image"
+        required: false
+        default: ""
+
+jobs:
+  build:
+    name: Build the Apptainer image
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decide which version goes in
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VER="${{ github.event.inputs.version }}"
+          else
+            VER="${GITHUB_REF_NAME#v}"
+          fi
+          echo "value=$VER" >> "$GITHUB_OUTPUT"
+          echo "building fastmdxplora $VER"
+
+      - name: Wait for the release to reach conda-forge
+        run: |
+          # The image installs from conda-forge, so it is the feedstock that
+          # has to have caught up -- not PyPI. That takes longer: the bot
+          # opens a version-bump pull request, its CI builds, somebody
+          # merges. An hour is normal and it can be a day if the recipe needs
+          # a change, so this waits a while and then says plainly that the
+          # image was not built rather than building the wrong one.
+          VER="${{ steps.version.outputs.value }}"
+          API="https://api.anaconda.org/package/conda-forge/fastmdxplora"
+          for attempt in $(seq 1 60); do
+            if curl -sf "$API" | grep -q "\"$VER\""; then
+              echo "fastmdxplora $VER is on conda-forge"
+              exit 0
+            fi
+            echo "not there yet (attempt $attempt of 60); waiting a minute"
+            sleep 60
+          done
+          echo "fastmdxplora $VER did not reach conda-forge within an hour." >&2
+          echo "Re-run this workflow by hand once the feedstock has it." >&2
+          exit 1
+
+      - name: Install Apptainer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            software-properties-common
+          sudo add-apt-repository -y ppa:apptainer/ppa
+          sudo apt-get update
+          sudo apt-get install -y apptainer
+          apptainer --version
+
+      - name: Build
+        env:
+          FASTMDX_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          sed -i "s/FASTMDX_VERSION:-2.5.0/FASTMDX_VERSION:-$FASTMDX_VERSION/" \
+            container/fastmdx.def
+          apptainer build --fakeroot \
+            fastmdx-${FASTMDX_VERSION}.sif container/fastmdx.def
+
+      - name: Say what is in it
+        env:
+          FASTMDX_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          apptainer test fastmdx-${FASTMDX_VERSION}.sif
+          ls -lh fastmdx-${FASTMDX_VERSION}.sif
+
+      - name: Attach it to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: fastmdx-${{ steps.version.outputs.value }}.sif
+          fail_on_unmatched_files: true
+
+      - name: Or keep it as an artifact
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: fastmdx-${{ steps.version.outputs.value }}-sif
+          path: fastmdx-${{ steps.version.outputs.value }}.sif
+          retention-days: 14

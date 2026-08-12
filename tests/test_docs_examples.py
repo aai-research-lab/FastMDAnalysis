@@ -278,7 +278,8 @@ def test_every_fastmdx_flag_the_docs_name_exists() -> None:
         # mention fastmdx.
         "--no-index", "--find-links", "--only-binary", "--python-version",
         "--platform", "--system-site-packages", "--job-name", "--gres",
-        "--cpus-per-task", "--time", "--nv",
+        "--cpus-per-task", "--time", "--nv", "--fakeroot",
+        "--download-only", "--offline",
     }
 
     missing = {}
