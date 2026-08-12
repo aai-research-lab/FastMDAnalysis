@@ -505,6 +505,11 @@ def prepare_system(
         names = _resolve_ligand_names(ligands, ligand_name)
         charges = _resolve_ligand_charges(ligands, ligand_net_charge)
         ligand_mols = []
+        # Two copies of one component are separate residues, and each
+        # supplied file takes the next rather than all at once.
+        from collections import Counter as _Counter
+
+        placed = _Counter()
         for path, name, charge in zip(ligands, names, charges):
             molecule = load_ligand(path, name=name, net_charge=charge)
             # The chemistry comes from the supplied file and the pose from
@@ -517,9 +522,11 @@ def prepare_system(
             # ligand's crystallographic coordinates are only in the input.
             original = Path(output_dir) / "input.pdb"
             if original.is_file():
-                molecule, said = pose_from_structure(molecule, original, name)
+                molecule, said = pose_from_structure(
+                    molecule, original, name, copy=placed[name])
             else:
                 molecule, said = molecule, None
+            placed[name] += 1
             if said:
                 logger.info("%s", said)
             ligand_mols.append(molecule)

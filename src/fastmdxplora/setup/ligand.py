@@ -79,8 +79,8 @@ def _import_openff() -> Any:
     return Molecule
 
 
-def pose_from_structure(molecule: Any, structure: str | Path,
-                        resname: str) -> tuple[Any, str | None]:
+def pose_from_structure(molecule: Any, structure: str | Path, resname: str,
+                        *, copy: int = 0) -> tuple[Any, str | None]:
     """Decide which file says where the ligand is.
 
     There are two ways a person arrives with a protein and a ligand, and they
@@ -128,11 +128,23 @@ def pose_from_structure(molecule: Any, structure: str | Path,
             f"could not read {Path(structure).name} for the ligand's pose "
             f"({type(exc).__name__}), so the file's own coordinates stand")
 
+    # By residue, not by name across the structure. A component can appear
+    # more than once -- two copies of a substrate, a cofactor in each half of
+    # a dimer -- and collecting every atom that shares the name gathers all
+    # of them into one molecule's worth of coordinates. `copy` says which.
     wanted = resname.strip().upper()
-    indices = [atom.index for atom in frame.topology.atoms
-               if atom.residue.name.strip().upper() == wanted]
-    if not indices:
+    matches = [residue for residue in frame.topology.residues
+               if residue.name.strip().upper() == wanted]
+    if not matches:
         return molecule, None
+    if copy >= len(matches):
+        return molecule, (
+            f"{Path(structure).name} holds {len(matches)} copies of {wanted} "
+            f"and this is copy {copy + 1}, so there is none left to place it "
+            "at and the file's own coordinates stand")
+
+    residue = matches[copy]
+    indices = [atom.index for atom in residue.atoms]
 
     # Heavy atoms only: a crystal structure has no hydrogens, and the SDF
     # has them. Matching on count is what tells us the two are the same
@@ -171,10 +183,12 @@ def pose_from_structure(molecule: Any, structure: str | Path,
         molecule._conformers = [type(existing)(moved, "nanometer")]
     except Exception:  # noqa: BLE001 - a wrapper that takes only the values
         molecule._conformers = [type(existing)(moved)]
+    which = (f" (copy {copy + 1} of {len(matches)})" if len(matches) > 1
+             else "")
     return molecule, (
-        f"placed {wanted} at its coordinates in {Path(structure).name} rather "
-        "than the supplied file's, which carries the chemistry and an "
-        "arbitrary pose")
+        f"placed {wanted}{which} at its coordinates in "
+        f"{Path(structure).name} rather than the supplied file's, which "
+        "carries the chemistry and an arbitrary pose")
 
 
 def load_ligand(
