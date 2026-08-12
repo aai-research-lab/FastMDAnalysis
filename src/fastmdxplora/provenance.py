@@ -199,7 +199,15 @@ def structure_provenance(given: str, form: str, path: Path | str) -> dict[str, A
         # read from later.
         source = Path(given).expanduser()
         try:
-            record["path"] = str(source.resolve())
+            resolved = source.resolve()
+            if not resolved.is_absolute():
+                # Windows before Python 3.10 hands a path that does not
+                # exist back from resolve() unchanged -- still relative
+                # (bpo-38671). A relative path in this field is exactly the
+                # rot the field exists to prevent: it is an answer only from
+                # the directory nobody recorded.
+                resolved = Path.cwd() / resolved
+            record["path"] = str(resolved)
             record["modified_at"] = datetime.fromtimestamp(
                 source.stat().st_mtime, timezone.utc
             ).isoformat()
