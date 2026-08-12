@@ -146,7 +146,11 @@ class TestThePreparationUsesTheOriginal:
 
         source = Path(prepare.__file__).read_text(encoding="utf-8")
         assert 'Path(output_dir) / "input.pdb"' in source
-        assert "pose_from_structure(molecule, original, name)" in source
+        # The call gained a `copy` argument when the same component
+        # appearing twice became placeable, so this checks the
+        # arguments rather than the exact call text.
+        assert "pose_from_structure(" in source
+        assert "original, name" in source
 
 
 class TestBothSituationsAreDocumented:
