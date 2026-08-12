@@ -139,3 +139,91 @@ class TestItIsShapedToBeShownBesideTheSetting:
     def test_they_can_be_read_as_one_sentence(self) -> None:
         said = Advisory("x", "A.", "B.", "C.")
         assert said.as_text() == "A. B. C."
+
+
+class TestARunSaysThemToo:
+    """The GUI is not where a cluster user is. They run `fastmdx explore` and
+    walk away, so advice they must remember to ask for is advice they will
+    not see -- and a separate `check` subcommand is exactly that. The run
+    says them itself, before the expensive part.
+    """
+
+    @staticmethod
+    def _structure(tmp_path, entries):
+        lines = []
+        for index, (atom, residue) in enumerate(entries, 1):
+            lines.append(
+                f"HETATM{index:5d}  {atom:<3s} {residue:>3s} A{900 + index:4d}    "
+                f"{index * 2:8.3f}{0.0:8.3f}{0.0:8.3f}  1.00  0.00")
+        path = tmp_path / "system.pdb"
+        path.write_text("\n".join(lines) + "\nEND\n", encoding="utf-8")
+        return path
+
+    def _run(self, tmp_path, entries, options, caplog):
+        import logging
+
+        from fastmdxplora.orchestrator import FastMDXplora
+
+        app = FastMDXplora.__new__(FastMDXplora)
+        app.system = str(self._structure(tmp_path, entries))
+        with caplog.at_level(logging.WARNING):
+            app._say_what_is_worth_knowing(options)
+        return caplog.text
+
+    def test_a_metal_is_named_before_the_run(self, tmp_path, caplog) -> None:
+        said = self._run(tmp_path, [("NE2", "HIS"), ("ZN", "ZN")], {}, caplog)
+        assert "ZN" in said and "drift out of its site" in said
+
+    def test_salt_alone_says_nothing(self, tmp_path, caplog) -> None:
+        said = self._run(tmp_path, [("NE2", "HIS"), ("NA", "NA")], {}, caplog)
+        assert "drift out of its site" not in said
+
+    def test_a_setting_is_read_from_the_options(self, tmp_path, caplog) -> None:
+        said = self._run(tmp_path, [("NE2", "HIS")],
+                         {"simulation": {"npt_steps": 0}}, caplog)
+        assert "density solvation gave it" in said
+
+    def test_it_runs_before_the_first_phase(self) -> None:
+        """After setup would be after the point of saying it."""
+        from pathlib import Path
+        import fastmdxplora.orchestrator as orchestrator
+
+        source = Path(orchestrator.__file__).read_text(encoding="utf-8")
+        assert (source.index("_say_what_is_worth_knowing(merged_options)")
+                < source.index("for phase in plan:"))
+
+    def test_a_structure_that_will_not_read_is_not_an_error(
+            self, tmp_path, caplog) -> None:
+        import logging
+
+        from fastmdxplora.orchestrator import FastMDXplora
+
+        broken = tmp_path / "system.pdb"
+        broken.write_text("not a structure\n", encoding="utf-8")
+        app = FastMDXplora.__new__(FastMDXplora)
+        app.system = str(broken)
+        with caplog.at_level(logging.WARNING):
+            app._say_what_is_worth_knowing({})
+
+    def test_no_structure_at_all_is_not_an_error(self, caplog) -> None:
+        from fastmdxplora.orchestrator import FastMDXplora
+
+        app = FastMDXplora.__new__(FastMDXplora)
+        app.system = None
+        app._say_what_is_worth_knowing({"simulation": {"npt_steps": 0}})
+
+
+class TestTheStructureReportNamesItsIons:
+    def test_which_ions_not_only_how_many(self, tmp_path) -> None:
+        """A count cannot tell a structural zinc from added salt, and that
+        distinction is what decides whether the metal advisory applies."""
+        from fastmdxplora.gui.structure_info import count_structure
+
+        path = tmp_path / "s.pdb"
+        path.write_text(
+            "HETATM    1  ZN   ZN A 901       1.000   0.000   0.000  1.00  0.00\n"
+            "HETATM    2  NA   NA A 902       5.000   0.000   0.000  1.00  0.00\n"
+            "END\n", encoding="utf-8")
+        got = count_structure(path)
+        assert got["ion_resnames"] == ["NA", "ZN"]
+        assert got["ions"] == 2

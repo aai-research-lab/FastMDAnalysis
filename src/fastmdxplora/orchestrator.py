@@ -342,6 +342,12 @@ class FastMDXplora:
 
         # Plan goes to file/audit; the presenter shows headers visually.
         logger.debug("Plan: %s", " -> ".join(plan))
+
+        # Before the expensive part, not after. The setup phase says these
+        # things too, and by then the person who would have changed
+        # something has walked away -- on a cluster, gone home. Said here
+        # they are still choices.
+        self._say_what_is_worth_knowing(merged_options)
         for phase in plan:
             self._mark_dashboard_phase_start(
                 dashboard_writer, phase, merged_options.get(phase, {})
@@ -758,6 +764,47 @@ class FastMDXplora:
                     )
                 merged[phase].update(opts)
         return merged
+
+    def _say_what_is_worth_knowing(self, options: dict[str, Any]) -> None:
+        """Warn about what this run will do, while it can still be changed.
+
+        Not a refusal, and nothing here stops a run: every case describes
+        something that runs perfectly well and produces a result worth
+        doubting. A validator answers "will this run", which is a different
+        question and already answered elsewhere.
+
+        The structure is read as text -- a couple of milliseconds, no OpenMM
+        -- so this costs nothing beside a run of any length.
+        """
+        try:
+            from fastmdxplora.advisories import advise
+            from fastmdxplora.gui.structure_info import count_structure
+        except ImportError:  # pragma: no cover - a trimmed install
+            return
+
+        settings: dict[str, Any] = {}
+        for phase in ("setup", "simulation"):
+            block = options.get(phase)
+            if isinstance(block, dict):
+                settings.update(block)
+
+        structure: dict[str, Any] = {}
+        source = getattr(self, "system", None)
+        if source:
+            candidate = Path(str(source))
+            if candidate.is_file():
+                try:
+                    structure = dict(count_structure(candidate))
+                except Exception:  # noqa: BLE001 - a structure that will not read
+                    structure = {}
+
+        try:
+            found = advise(structure, settings)
+        except Exception:  # noqa: BLE001 - advice must never stop a run
+            return
+
+        for said in found:
+            logger.warning("%s %s %s", said.summary, said.detail, said.remedy)
 
     def _run_phase(self, phase: str, kwargs: dict[str, Any]) -> PhaseResult:
         phase_dir = self._phase_dirs[phase]

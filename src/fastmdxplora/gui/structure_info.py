@@ -167,6 +167,10 @@ def _count_structure_cached(
         "protein_residues": len(protein_residue_keys),
         "water_residues": len(water_residue_keys),
         "ions": len(ion_residue_keys),
+        # Which ones, not only how many. A count cannot tell a structural
+        # zinc from added salt, and that distinction decides whether a run
+        # is going to hold its metal in place.
+        "ion_resnames": sorted({key[1] for key in ion_residue_keys}),
         "ligand_residues_total": len(ligand_info["instances"]),
         "ligand_resnames": ligand_info["resnames"],
         "ligand_instances": ligand_info["instances"],
