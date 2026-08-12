@@ -279,7 +279,11 @@ def test_ligand_and_structure_edge_paths(tmp_path: Path) -> None:
     assert _count_structure_cached(str(tmp_path), 0, 0)["reason"].startswith("read-error")
 
     fake_path = SimpleNamespace(is_file=lambda: True, stat=lambda: (_ for _ in ()).throw(OSError("stat")), as_posix=lambda: "fake")
-    with patch("fastmdxplora.gui.structure_info.Path", return_value=fake_path):
+    # `structure_info` moved out of the gui package -- it reads a file as
+    # text and the orchestrator needs it before any interface exists. The
+    # old path re-exports the function, so patching a name there no
+    # longer reaches the module the function actually lives in.
+    with patch("fastmdxplora.structure_info.Path", return_value=fake_path):
         assert count_structure(structure)["reason"].startswith("stat-error")
     with patch.object(Path, "open", side_effect=OSError("read")):
         assert ligand_atom_counts(structure) == {}

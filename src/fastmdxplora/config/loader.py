@@ -364,6 +364,42 @@ def validate_config(data: dict[str, Any], *, require_systems: bool = False) -> N
             "The 'analysis' block sets both 'include' and 'exclude'; "
             "they are mutually exclusive."
         )
+    if isinstance(analysis, dict):
+        _check_analysis_names(analysis)
+
+
+def _check_analysis_names(analysis: dict[str, Any]) -> None:
+    """Refuse a name no analysis has.
+
+    A misspelling was accepted and then quietly dropped: `contacts` for
+    `pl_contacts` validated, ran nothing, and produced a report missing the
+    measurement the config asked for. A config that cannot do what it says is
+    a config to refuse, and the nearest name is usually the intended one.
+    """
+    try:
+        import fastmdxplora.analysis.analyze  # noqa: F401,PLC0415
+        from fastmdxplora.analysis.orchestrator import _REGISTRY  # noqa: PLC0415
+    except ImportError:  # pragma: no cover - a trimmed install
+        return
+
+    known = set(_REGISTRY)
+    for key in ("include", "exclude"):
+        names = analysis.get(key)
+        if not isinstance(names, (list, tuple)):
+            continue
+        for name in names:
+            if str(name) in known:
+                continue
+            import difflib  # noqa: PLC0415
+
+            near = difflib.get_close_matches(str(name), sorted(known), n=3,
+                                             cutoff=0.5)
+            suggestion = (f" Did you mean {', '.join(near)}?" if near else "")
+            raise ConfigError(
+                f"No analysis is called {str(name)!r}, so "
+                f"analysis.{key} asks for something that cannot run."
+                f"{suggestion} The full list is: {', '.join(sorted(known))}."
+            )
 
 
 # ---------------------------------------------------------------------------

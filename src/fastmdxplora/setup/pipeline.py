@@ -102,7 +102,23 @@ def _fetch_pdb_from_rcsb(pdb_id: str, dest: Path) -> Path:
     url = f"https://files.rcsb.org/download/{pdb_id.upper()}.pdb"
     logger.info("Fetching PDB from RCSB: %s", url)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    urllib.request.urlretrieve(url, dest)  # noqa: S310 -- trusted URL
+    try:
+        urllib.request.urlretrieve(url, dest)  # noqa: S310 -- trusted URL
+    except OSError as exc:
+        # A machine with no route out raises this as `[Errno -3] Temporary
+        # failure in name resolution`, which is Python's words for a
+        # situation the reader can act on and cannot act on from that
+        # sentence. Clusters are commonly airgapped and this is the first
+        # thing a run does there, so it is worth saying plainly.
+        raise ValueError(
+            f"Could not fetch {pdb_id.upper()} from RCSB: {exc}.\n\n"
+            "Where the machine has no route to the internet -- a cluster "
+            "compute node, commonly -- fetch the structure somewhere that "
+            "does and pass the file:\n\n"
+            f"    curl -O {url}\n\n"
+            "then name it in place of the identifier. The path is read from "
+            "where fastmdx was run."
+        ) from exc
     return dest
 
 
@@ -489,7 +505,12 @@ def _auto_ligands(params: dict, input_pdb, setup_dir, entry_id: str | None) -> l
             f"heterogens: auto identified components to simulate ({names}), but "
             "their chemistry can only be retrieved for a structure given by PDB "
             "identifier: a local file carries no entry to look them up in. "
-            "Supply the ligands as SDF or MOL2 files instead."
+            "Supply the ligands as SDF or MOL2 files instead. The "
+            "dictionary's own entry for each is a file:\n\n"
+            "    curl -O https://files.rcsb.org/ligands/download/XXX_ideal.sdf"
+            "\n\n"
+            "with XXX the component code. Its coordinates are idealised and "
+            "do not matter: the ligand is placed where this structure has it."
         )
 
     # A ligand needs a force field that can parameterize small molecules. The

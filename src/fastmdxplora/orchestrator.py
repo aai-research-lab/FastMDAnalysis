@@ -778,7 +778,7 @@ class FastMDXplora:
         """
         try:
             from fastmdxplora.advisories import advise
-            from fastmdxplora.gui.structure_info import count_structure
+            from fastmdxplora.structure_info import count_structure
         except ImportError:  # pragma: no cover - a trimmed install
             return
 

@@ -87,18 +87,22 @@ class TestACommaSeparatedListIsAList:
             validate_config({"systems": [{"system": "1UBQ"}],
                              "include": ["setup,simulatoin"]})
 
-    def test_an_unknown_analysis_survives_splitting_to_be_refused_later(
+    def test_an_unknown_analysis_survives_splitting_and_is_refused(
             self) -> None:
-        """Analysis names are checked by the orchestrator when it builds the
-        plan, not here. What matters is that splitting hands the typo on
-        intact rather than swallowing it."""
+        """Splitting hands the typo on intact rather than swallowing it, and
+        validation then refuses it by name.
+
+        This used to be left to the orchestrator, which dropped an unknown
+        name silently: a config asking for `contacts` rather than
+        `pl_contacts` validated, ran, and produced a report missing the
+        measurement it asked for. Refusing here means the split is still
+        checkable -- the error names the typo, not the string it came from.
+        """
         data = {"systems": [{"system": "1UBQ"}],
                 "analysis": {"include": ["rmsd,vibes"]}}
-        validate_config(data)
+        with pytest.raises(ConfigError, match="'vibes'"):
+            validate_config(data)
         assert data["analysis"]["include"] == ["rmsd", "vibes"]
-
-        from fastmdxplora.analysis.orchestrator import AnalysisOrchestrator
-        assert "vibes" not in getattr(AnalysisOrchestrator, "_REGISTRY", {})
 
 
 class TestNormalisingChangesNothingElse:

@@ -681,6 +681,24 @@ def _common_input_args(p: argparse.ArgumentParser) -> None:
     )
 
 
+class _Accumulate(argparse.Action):
+    """Add to what is there rather than replacing it.
+
+    With `nargs="+"` argparse replaces on a second use, so `--include
+    analysis --include report` runs report alone -- half the request dropped,
+    and nothing said. Both spellings work now: repeated flags and a single
+    flag with several values mean the same thing, which is what somebody
+    typing either of them intends.
+    """
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        current = list(getattr(namespace, self.dest, None) or [])
+        for value in values if isinstance(values, list) else [values]:
+            if value not in current:
+                current.append(value)
+        setattr(namespace, self.dest, current)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="fastmdx",
@@ -751,12 +769,14 @@ def _build_parser() -> argparse.ArgumentParser:
         ep.add_argument(
             "--include",
             nargs="+",
+            action=_Accumulate,
             metavar="PHASE",
             help="Subset of phases to run: setup, simulation, analysis, report.",
         )
         ep.add_argument(
             "--exclude",
             nargs="+",
+            action=_Accumulate,
             metavar="PHASE",
             help="Phases to skip (mutually exclusive with --include).",
         )

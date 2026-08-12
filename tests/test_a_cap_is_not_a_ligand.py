@@ -98,7 +98,10 @@ class TestTheTwoConsumersAgree:
         """Two ideas of what the polymer is would drift, and the drift would
         show up as a residue counted out of the protein and in as a ligand --
         which is the bug this file is about."""
-        import fastmdxplora.gui.structure_info as info
+        # The module that holds the code, not the re-export left behind in
+        # the gui package when it moved: reading the shim finds neither name
+        # and passes for the wrong reason.
+        import fastmdxplora.structure_info as info
 
         source = Path(info.__file__).read_text(encoding="utf-8")
         assert "POLYMER_RESNAMES" in source

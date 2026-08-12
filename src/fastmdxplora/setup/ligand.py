@@ -224,6 +224,25 @@ def load_ligand(
     """
     path = Path(ligand_file).expanduser().resolve()
     if not path.exists():
+        # A residue name here is a common mistake, and the bare "file not
+        # found" sends somebody looking for a file they never meant to make.
+        # `ligand:` takes chemistry from outside; naming a component that is
+        # already in the structure is `heterogens: auto`.
+        given = str(ligand_file).strip()
+        if given.isalnum() and 1 <= len(given) <= 3 and not Path(given).suffix:
+            raise LigandError(
+                f"No file at {path}. {given.upper()!r} looks like a residue "
+                "name rather than a path.\n\n"
+                "`ligand` takes an SDF or MOL2 file, for chemistry supplied "
+                "from outside the structure. To use a component the "
+                "structure already holds, set `heterogens: auto` instead, "
+                "which identifies it and looks its chemistry up.\n\n"
+                "Where that lookup is not available -- an offline machine, "
+                "or a structure given as a local file -- fetch the entry and "
+                "pass the path:\n\n"
+                f"    curl -O https://files.rcsb.org/ligands/download/"
+                f"{given.upper()}_ideal.sdf"
+            )
         raise LigandError(f"Ligand file not found: {path}")
     detect_ligand_format(path)
 

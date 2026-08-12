@@ -34,14 +34,14 @@ from fastmdxplora.gui.exploration import (
     exploration_defaults,
     validate_exploration_payload,
 )
-from fastmdxplora.gui.ligand_detection import detect_ligands, normalise_ligand_resname
+from fastmdxplora.ligand_detection import detect_ligands, normalise_ligand_resname
 from fastmdxplora.gui.live_frames import live_frame_exists, read_live_frame_index
 from fastmdxplora.gui.protein_preview import (
     find_structure,
     find_system,
     protein_preview_payload,
 )
-from fastmdxplora.gui.structure_info import (
+from fastmdxplora.structure_info import (
     _MAX_PDB_BYTES_FOR_SYSTEM_SCAN,
     count_structure,
     ligand_atom_counts,
