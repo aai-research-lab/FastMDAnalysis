@@ -1017,6 +1017,21 @@ def _display_structure_bytes(target: Path) -> bytes:
         return target.read_bytes()
 
 
+def _settings_for_advice(config: DashboardConfig) -> dict[str, Any]:
+    """The settings an advisory reads, flattened out of the config.
+
+    Only what is set: an advisory about a value nobody has chosen would fire
+    on an empty form, which is where people are least able to act on it.
+    """
+    resolved = getattr(config, "resolved", None) or {}
+    flat: dict[str, Any] = {}
+    for phase in ("setup", "simulation"):
+        block = resolved.get(phase)
+        if isinstance(block, dict):
+            flat.update(block)
+    return flat
+
+
 def _structure_info_payload(
     root: Path, config: DashboardConfig
 ) -> dict[str, Any]:
@@ -1043,6 +1058,18 @@ def _structure_info_payload(
         )
     info["atoms_by_resname"] = ligand_atom_counts(structure_path)
     info["explicit_ligand"] = config.ligand_resname
+
+    # What is worth knowing before the run, beside the settings rather than
+    # in the log afterwards. A metal that this force field will not hold in
+    # its site is a thing to say while somebody is still choosing, not once
+    # they have stopped watching.
+    from fastmdxplora.advisories import advise
+
+    info["advisories"] = [
+        {"setting": a.setting, "summary": a.summary,
+         "detail": a.detail, "remedy": a.remedy}
+        for a in advise(info, _settings_for_advice(config))
+    ]
     try:
         info["structure_path"] = structure_path.relative_to(root).as_posix()
     except ValueError:
