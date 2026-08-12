@@ -31,7 +31,12 @@ jobs:
       - name: Verify fastmdx alias version matches the release tag
         run: |
           TAG="${GITHUB_REF_NAME#v}"
-          VER=$(python -c "import tomllib; print(tomllib.load(open('shim-package/pyproject.toml','rb'))['project']['version'])")
+          # From the built wheel, not from pyproject.toml. The alias takes
+          # its version from the git tag now, so there is no literal there to
+          # read -- and the thing worth checking was always what was built
+          # rather than what was written down.
+          VER=$(ls shim-package/dist/fastmdx-*.whl \
+                | head -1 | sed -E 's|.*/fastmdx-([^-]+)-.*|\1|')
           echo "fastmdx version: $VER (tag: $TAG)"
           if [ "$TAG" != "$VER" ]; then
             echo "::error::fastmdx alias version ($VER) does not match release tag ($TAG). Bump shim-package/pyproject.toml before tagging."
