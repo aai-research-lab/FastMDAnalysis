@@ -404,6 +404,103 @@
       input = document.createElement("input");
       input.type = "checkbox";
       input.checked = Boolean(field.default);
+    } else if (field.control === "script") {
+      // One script with an on-switch. The engine reads the config's one
+      // `script` string either way -- a single line naming a file that
+      // exists is read from disk, anything else is the script itself -- so
+      // the page offers both: a path, found with the same Browse control
+      // the trajectory and structure fields use, or the text written here.
+      input = document.createElement("div");
+      input.className = "builder-script";
+
+      const onRow = document.createElement("label");
+      onRow.className = "chip-toggle";
+      const on = document.createElement("input");
+      on.type = "checkbox";
+      onRow.appendChild(on);
+      onRow.appendChild(document.createTextNode("Enabled"));
+      input.appendChild(onRow);
+
+      // The picker attaches itself to anything marked data-picks once
+      // renderSettings() calls attachAll(), so the Browse button needs no
+      // wiring here -- only a name for the picker to fill.
+      const path = document.createElement("input");
+      path.type = "text";
+      // Derived, not written: a setting named in this file is a list to
+      // keep in step by hand, and the picker's kind for a script field is
+      // the field's own name -- the KINDS table on the server is keyed to
+      // agree.
+      path.id = "builder-" + field.name + "-path";
+      path.dataset.picks = field.name;
+      path.placeholder = "path to a PLUMED .dat file on this machine";
+      input.appendChild(path);
+
+      const script = document.createElement("textarea");
+      script.rows = 8;
+      script.spellcheck = false;
+      script.className = "builder-mapping";
+      script.placeholder =
+        "or the PLUMED input written here,\n" +
+        "exactly as it would appear in the .dat file";
+      input.appendChild(script);
+
+      const note = document.createElement("span");
+      note.className = "builder-card-note";
+      input.appendChild(note);
+
+      const tell = () => {
+        // Both slots feed the one `script` key, so the rule is stated
+        // where it applies rather than discovered from the config: text
+        // written here wins, because somebody who loaded a file and then
+        // edited the text meant the edits.
+        note.textContent =
+          script.value.trim() && path.value.trim()
+            ? "The script written here is what the config carries; " +
+              "clear it to use the file path instead."
+            : "";
+      };
+
+      let hadContent = false;
+      const settle = () => {
+        const has = Boolean(script.value.trim() || path.value.trim());
+        // The first content to arrive turns the switch on -- a script
+        // somebody just chose was chosen to run -- but only on the
+        // empty-to-filled step, so a box deliberately unticked over a
+        // staged script stays unticked through further edits.
+        if (has && !hadContent && !on.checked) on.checked = true;
+        hadContent = has;
+        tell();
+      };
+      path.addEventListener("change", settle);
+      script.addEventListener("change", settle);
+
+      input.readValue = () => {
+        const text = script.value;
+        const file = path.value.trim();
+        // Content is the decision; the switch only modifies it. A ticked
+        // box over two empty slots writes nothing, because an on-switch
+        // with no script attached is not a study anybody described.
+        if (!text.trim() && !file) return null;
+        return { enabled: on.checked, script: text.trim() ? text : file };
+      };
+      input.writeValue = (value) => {
+        if (!value || typeof value !== "object") return;
+        on.checked = Boolean(value.enabled);
+        const carried = typeof value.script === "string" ? value.script : "";
+        // Restored with the same reading the engine gives the config: a
+        // newline means the script itself, one line means a path. A
+        // one-line inline script lands in the path box, where it still
+        // round-trips into the same `script` string.
+        if (carried.includes("\n")) {
+          script.value = carried;
+          path.value = "";
+        } else {
+          path.value = carried;
+          script.value = "";
+        }
+        hadContent = Boolean(carried.trim());
+        tell();
+      };
     } else if (field.control === "mapping") {
       // Umbrella, steered and metadynamics are blocks of several settings,
       // not one value. A single-line box could not hold one, and what was

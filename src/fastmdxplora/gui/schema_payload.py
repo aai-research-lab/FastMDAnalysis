@@ -40,6 +40,14 @@ _CONTROL_FOR_TYPE = {
 
 
 def _control(field: Any) -> str:
+    if field.name == "plumed":
+        # One script with an on-switch, not a mapping of settings. Drawn as
+        # a mapping it asked for `script: |` with block-scalar indentation
+        # around a working .dat file -- YAML inside a box, where one stray
+        # tab changes a PLUMED input -- and the setting that exists to name
+        # a file on the machine that runs was the one path in the form
+        # without the Browse control every other path has.
+        return "script"
     if field.choices:
         # A list of choices is not a choice. `include` and `exclude` take
         # several analyses, and offered as a single select the form could

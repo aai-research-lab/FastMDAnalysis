@@ -530,9 +530,11 @@ SIMULATION = PhaseSchema(
                        "selection": "protein and name CA", "sigma": 0.02,
                        "height_kjmol": 1.2, "pace_steps": 500}),
         Field("plumed", dict, None,
-              "Optional PLUMED enhanced-sampling config: a dict with "
-              "`enabled` (bool) and `script` (inline PLUMED text or a path "
-              "to a .dat file). Requires the openmm-plumed package."),
+              "Optional PLUMED enhanced sampling: `enabled` turns it on, "
+              "and `script` is the PLUMED input -- the script text itself, "
+              "which then travels inside the config, or a path to a .dat "
+              "file on the machine that runs the study. Requires the "
+              "openmm-plumed package."),
     ),
 )
 

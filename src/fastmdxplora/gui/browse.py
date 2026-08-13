@@ -34,6 +34,11 @@ KINDS: dict[str, tuple[str, ...]] = {
     "trajectory": TRAJECTORY_SUFFIXES,
     "structure": TOPOLOGY_SUFFIXES,
     "config": (".yml", ".yaml"),
+    # PLUMED input is conventionally named plumed.dat; .plumed is what this
+    # package itself writes next to a run (umbrella.plumed and its kin), so
+    # a script produced by one study can be picked up by the next. A file
+    # named anything else can still be typed into the box.
+    "plumed": (".dat", ".plumed"),
 }
 
 #: Enough to scan by eye. A folder with more subdirectories than this is

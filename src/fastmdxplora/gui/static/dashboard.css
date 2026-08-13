@@ -2153,6 +2153,19 @@ body.state-ready .loading-screen {
     overflow-x: auto;
 }
 
+/* A script with an on-switch: the switch, a path the picker can fill, and a
+   place to write the script itself, stacked in the order a person decides
+   them. The path is set in the same hand as the script because both end up
+   as the config's one `script` string. */
+.builder-script {
+    display: grid;
+    gap: 8px;
+}
+.builder-script input[type="text"] {
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: .82rem;
+}
+
 /* A named group of settings. Thirty-seven controls in one grid is a list to
    read rather than a form to fill in, so each group says what it is about and
    the grid under it holds only those. */
