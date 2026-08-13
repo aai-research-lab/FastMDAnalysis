@@ -25,6 +25,13 @@ jobs:
     name: Build the Apptainer image
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    # The default token in this repository is read-only, which publish.yml
+    # already knew -- its jobs request id-token for trusted publishing. This
+    # job attaches an asset to a release, and that is a contents write. The
+    # v2.5.2 build learned it the hard way: the image built, the conda gate
+    # passed, and delivery was refused with a 403 at the very last step.
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
