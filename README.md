@@ -60,11 +60,15 @@ Build the study where it is convenient to think; run it where the compute is.
 ## Install
 
 ```bash
-conda install -c conda-forge fastmdxplora
-fastmdx info
+conda create -n fastmdxplora -c conda-forge fastmdxplora
+conda activate fastmdxplora
 ```
 
-`fastmdx info` lists every backend and how to get anything missing.
+`fastmdx info` lists every backend and how to get anything missing:
+
+```bash
+fastmdx info
+```
 
 ## What you can study
 
