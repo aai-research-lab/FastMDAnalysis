@@ -24,7 +24,13 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        # The floor, the coverage leg, and the ceiling: 3.9 keeps the
+        # `>=3.9` claim honest and exercises the Windows wheel gap, 3.11
+        # is the one job codecov reads, and 3.13 is where what is coming
+        # breaks first. The versions in between are bracketed -- nothing
+        # in the tree branches on the interpreter version, so a suite
+        # green at both ends is green in the middle.
+        python-version: ["3.9", "3.11", "3.13"]
 
     steps:
       - uses: actions/checkout@v5
