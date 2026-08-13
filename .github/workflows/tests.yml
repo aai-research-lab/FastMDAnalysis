@@ -6,9 +6,20 @@ on:
   pull_request:
     branches: [main]
 
+# A push superseding another cancels its run. Fifteen jobs per push against
+# a twenty-job account ceiling meant an afternoon of pushes queued for hours
+# behind runs whose commits were already history -- and the one hand-canceled
+# run read as a mystery failure until the workflow was read closely.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
+    # A hung leg otherwise holds a runner for the six-hour default, which
+    # during a pileup is a fifth of the account's whole capacity.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -24,6 +35,11 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
+          # The [test] and [md] wheels together are hundreds of megabytes --
+          # rdkit, OpenMM, mdtraj -- and fifteen jobs re-downloaded all of
+          # it on every push.
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Install package and test dependencies
         # bash on every OS. Windows steps default to pwsh, where
@@ -47,8 +63,21 @@ jobs:
           python -m pip install -e ".[md]" || echo "::notice::the [md] extra has no wheels here; physics-dependent tests will skip"
 
       - name: Run tests
+        # bash for the same pwsh reason as the install step above.
+        #
+        # Coverage is measured where it is uploaded and nowhere else. The
+        # tracer taxes every line of every test, and fourteen of the fifteen
+        # term-missing tables were written into logs nobody reads while the
+        # upload step below only ever sends the ubuntu-3.11 file. The other
+        # legs exist to prove the suite passes there, and they prove it
+        # faster untraced.
+        shell: bash
         run: |
-          pytest --cov=fastmdxplora --cov-report=term-missing --cov-report=xml
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ] && [ "${{ matrix.python-version }}" = "3.11" ]; then
+            pytest --cov=fastmdxplora --cov-report=term-missing --cov-report=xml
+          else
+            pytest
+          fi
 
       - name: CLI smoke test
         shell: bash
