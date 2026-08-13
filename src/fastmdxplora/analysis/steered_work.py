@@ -1,20 +1,24 @@
 """The work done by a steered pull.
 
-Written to `steered_work.json` and stopped there: no figure, no entry in the
-analysis manifest, no mention in the report -- the same gap the umbrella
-study and the metadynamics surface had.
-
-The curve matters more here than the single number does. A pull that
-accumulates work smoothly has met resistance all the way; one that
-accumulates it in a step has snapped past something, and the total is the
-same in both cases. Reporting only the total hides which happened.
+The cumulative work done on the system as the anchor moves, drawn against
+the pulled distance. The shape of the curve matters more than the total: a
+pull that accumulates work smoothly has met resistance all the way, while
+one that accumulates it in a step has snapped past something -- an unbinding
+event, a broken contact -- and the total is the same in both cases, so the
+total alone hides which happened. Only a steered run records a pull to read;
+elsewhere this has nothing to say, and says so.
 
 What this is not is a free energy. The work depends on how fast the anchor
-moved, and a fast pull does work against the solvent and the strain of the
-molecule as well as against the interactions being measured. Jarzynski's
-equality recovers a free energy from many pulls, and its average is
-dominated by rare low-work trajectories, so it needs many more than feels
-reasonable. One pull gives a pathway, and the figure says so.
+moved -- a fast pull works against solvent and strain as well as the
+interactions being measured. Jarzynski's equality recovers a free energy
+from *many* pulls, and its average is dominated by rare low-work
+trajectories, so it needs many more than feels reasonable. One pull gives a
+pathway, and the figure says so.
+
+(Why this analysis exists at all: the work was once written to
+`steered_work.json` and stopped there -- no figure, no manifest entry, no
+mention in the report -- the same gap the umbrella study and the
+metadynamics surface had.)
 """
 
 from __future__ import annotations

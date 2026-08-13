@@ -1,18 +1,23 @@
 """The free energy surface from a metadynamics run.
 
-Written to `metadynamics_surface.json` and stopped there: no figure, no entry
-in the analysis manifest, no mention in the report. Ten analyses of the
-trajectory each produced a curve and a plot, and the one result the run
-existed to produce did not -- the same gap the umbrella study had.
+The free energy over the chosen collective variable, reconstructed from the
+bias the run deposited. Read it like a landscape: basins are the states the
+system visits, and the walls between them are the barriers, in kJ/mol. The
+surface arrives with its own convergence evidence -- basin transitions
+counted, drift measured -- and a run whose bias has not settled still gets
+its picture, drawn and clearly labelled provisional, with a note beside it
+saying exactly what is missing. Only a metadynamics run deposits a bias to
+read; elsewhere this has nothing to say, and says so.
 
-Provisional surfaces are drawn too, and said to be provisional. A run whose
-bias has not settled still describes the landscape it has filled so far, and
-the refusal beside it explains what is missing; withholding the picture as
-well leaves a reader with a sentence where they could have had both.
+The frames themselves are not averaged: a metadynamics trajectory is
+deliberately not a Boltzmann ensemble -- that is the point of the method --
+so the surface comes from the hills the simulation phase recorded, and this
+reads that record rather than trying to recompute it, which would invite two
+answers to the same question.
 
-The trajectory of a metadynamics run is not a Boltzmann ensemble -- that is
-the point of the method -- so this reads what the simulation phase computed
-from the hills rather than analysing the frames.
+(Why this analysis exists at all: the surface was once written to
+`metadynamics_surface.json` and stopped there -- no figure, no manifest
+entry, no mention in the report -- the same gap the umbrella study had.)
 """
 
 from __future__ import annotations

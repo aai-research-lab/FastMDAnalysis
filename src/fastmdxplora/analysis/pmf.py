@@ -1,18 +1,23 @@
 """The potential of mean force from an umbrella study.
 
-FastMDXplora's claim is an end-to-end study, and for an umbrella run the free
-energy along the coordinate is the study. It was written to `pmf.json` and
-stopped there: no figure, no entry in the analysis manifest, no mention in the
-report. Sixteen analyses of a trajectory each produced a curve and a plot, and
-the one result the run existed to produce did not.
+The free energy along the pulled coordinate, assembled from the umbrella
+windows. Minima are the states the system prefers; the height between two
+minima is the cost of crossing, in kJ/mol, and is the number an umbrella
+study is run to obtain. Windows must overlap for the profile to mean
+anything: where they do not, the gap is reported as a gap rather than
+bridged, and bins nobody sampled stay blank in the drawing rather than
+becoming zeroes that would read as a spurious minimum. Only an umbrella
+study has windows to read; on any other run this has nothing to say, and
+says so.
 
 This reads what the simulation phase already computed rather than recomputing
-it. The stitching is delicate -- windows have to overlap, and where they do not
-the gap is reported rather than bridged -- and doing it twice would invite two
-answers to the same question.
+it -- the stitching is delicate, and doing it twice would invite two answers
+to the same question.
 
-Bins nobody sampled arrive as `null` and stay as gaps in the drawing rather
-than becoming zeroes, which would read as a minimum where there is no data.
+(Why this analysis exists at all: for an umbrella run the free energy along
+the coordinate *is* the study, and it was once written to `pmf.json` and
+stopped there -- no figure, no manifest entry, no mention in the report,
+while sixteen lesser curves each got all three.)
 """
 
 from __future__ import annotations
