@@ -26,6 +26,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install package and test dependencies
+        # bash on every OS. Windows steps default to pwsh, where
+        # `pip ... || echo ...` prints the fallback and STILL fails the step:
+        # echo is a cmdlet, it does not reset $LASTEXITCODE, and the runner
+        # exits with whatever that still holds -- pip's 1. The notice and the
+        # red cross arrived together, which is how this line got here.
+        shell: bash
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[test]"

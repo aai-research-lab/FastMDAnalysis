@@ -799,7 +799,8 @@
       );
     }
     const can = ready();
-    ["run-start-button", "run-download"].forEach((id) => {
+    ["run-start-button", "run-download", "run-copy-command",
+     "run-download-script"].forEach((id) => {
       const button = el(id);
       if (button) button.disabled = !can;
     });
@@ -842,6 +843,51 @@
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
     link.download = "fastmdxplora.yml";
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
+
+  /* The same study, in its other two languages. A form that can only hand
+   * back a file leaves the command and the script to be written by hand,
+   * which is where a flag gets the wrong prefix and the run that follows is
+   * not the study the form described. Both come from the server, derived
+   * from the same schema the form was drawn from. */
+  async function copyCommand() {
+    const built = await fetchConfig();
+    if (!built.ok) {
+      text(el("run-note"), built.error);
+      return;
+    }
+    if (!built.command) {
+      text(el("run-note"),
+           "This study cannot be said as one command; use the config file.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(built.command);
+      text(el("run-note"), "Command copied.");
+    } catch (refused) {
+      // A page served over plain HTTP -- an SSH tunnel, commonly -- has no
+      // clipboard access. The command is shown instead, still selectable.
+      const box = el("run-config-preview");
+      if (box) {
+        box.textContent = built.command;
+        box.hidden = false;
+      }
+      text(el("run-note"), "Clipboard unavailable here; command shown below.");
+    }
+  }
+
+  async function downloadScript() {
+    const built = await fetchConfig();
+    if (!built.ok) {
+      text(el("run-note"), built.error);
+      return;
+    }
+    const blob = new Blob([built.script], { type: "text/x-python" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "fastmdxplora_study.py";
     link.click();
     URL.revokeObjectURL(link.href);
   }
@@ -1101,6 +1147,10 @@
     if (preview) preview.addEventListener("click", showConfig);
     const downloadButton = el("run-download");
     if (downloadButton) downloadButton.addEventListener("click", download);
+    const commandButton = el("run-copy-command");
+    if (commandButton) commandButton.addEventListener("click", copyCommand);
+    const scriptButton = el("run-download-script");
+    if (scriptButton) scriptButton.addEventListener("click", downloadScript);
     const startButton = el("run-start-button");
     if (startButton) startButton.addEventListener("click", start);
     const reset = el("run-reset");

@@ -299,10 +299,42 @@ def config_yaml(state: dict[str, Any], *, full: bool = False) -> dict[str, Any]:
         "#     fastmdx explore --config this-file.yml\n"
         "#\n"
     )
+
+    # The same study in its other two languages, so nobody translates a form
+    # into flags by hand -- which is where a prefix goes wrong and the run
+    # that follows is not the study the form described. A study the command
+    # line cannot say (rare; a many-system batch) keeps this file as its
+    # only command form and says so.
+    from fastmdxplora.config.languages import (
+        UntranslatableSetting,
+        cli_command,
+        python_script,
+    )
+
+    # Translated from the *decided* settings, not the full restatement: a
+    # full config names every default on purpose so the file is complete,
+    # but a command's defaults come free by omission -- and the nested
+    # per-analysis options a full file carries have no flags at all. The two
+    # forms describe the same run; the short one is the one a person types.
+    decided = config if not full else build_config(state, full=False)
+    try:
+        command = cli_command(decided)
+        header += (
+            "# Or, without this file:\n"
+            "#\n"
+            f"#     {command}\n"
+            "#\n"
+        )
+    except UntranslatableSetting as why:
+        command = None
+        header += f"# ({why})\n#\n"
+
     body = yaml.safe_dump(config, sort_keys=False, default_flow_style=False)
     return {
         "ok": True,
         "error": None,
+        "command": command,
+        "script": python_script(decided),
         "yaml": header + body,
         "settings_changed": sum(
             len(v) for k, v in config.items() if isinstance(v, dict)

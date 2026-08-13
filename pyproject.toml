@@ -68,7 +68,11 @@ pdf = [
 ]
 md = [
     "pdbfixer",
-    "openmm>=8.0",
+    # pdbfixer 1.12 itself requires >=8.2, so stating >=8.0 here was a floor
+    # below the real one -- and on a platform with no OpenMM wheel at all,
+    # pip reports the pair as a "conflict", which buries the actual problem
+    # (no distribution) under a spurious one (the ranges).
+    "openmm>=8.2",
 ]
 ligand = [
     # openff-toolkit is deliberately absent, and this extra is smaller than
