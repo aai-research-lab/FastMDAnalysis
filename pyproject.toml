@@ -119,6 +119,10 @@ test = [
     # exercised. Forty tests skipped silently; a skip is invisible in a
     # green run.
     "rdkit>=2023.3",
+    # Same reasoning, same wheel situation: PROPKA is pure Python on PyPI,
+    # and without it every protonation-settling test skips where coverage is
+    # measured.
+    "propka>=3.5",
 ]
 docs = [
     "sphinx>=7.0",
@@ -129,6 +133,7 @@ dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "rdkit>=2023.3",
+    "propka>=3.5",
     "ruff>=0.5.0",
     "python-pptx>=0.6.21",
 ]

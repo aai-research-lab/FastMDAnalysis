@@ -29,6 +29,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[test]"
+          # The physics too, where this platform has wheels for it. Without
+          # OpenMM the suite quietly skips everything that touches it -- 24
+          # membrane tests among them -- and for three rounds "low coverage"
+          # has meant "the tests existed and the dependency was silently
+          # absent where coverage was measured". OpenMM ships no cp39
+          # Windows wheel, so this is best-effort rather than required: a
+          # job that cannot install it skips those tests, which the suite
+          # already does gracefully, and coverage is merged across jobs so
+          # the physics lines are counted from the platforms that run them.
+          python -m pip install -e ".[md]" || echo "::notice::the [md] extra has no wheels here; physics-dependent tests will skip"
 
       - name: Run tests
         run: |
