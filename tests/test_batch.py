@@ -123,7 +123,8 @@ def _fake_worker_factory(*, fail_values: set[int], write_analysis: bool = False,
 class _ImmediateProcessPoolExecutor:
     """Synchronous ProcessPoolExecutor stand-in for deterministic scheduler tests."""
 
-    def __init__(self, max_workers, initializer=None, initargs=()):
+    def __init__(self, max_workers, mp_context=None, initializer=None,
+                 initargs=()):
         # A real ProcessPoolExecutor takes an initializer, and the study uses
         # one to give each worker its share of the machine's cores. A double
         # that refuses the argument reports the caller as broken. Recorded

@@ -115,6 +115,9 @@ all = [
 test = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    # The suite may fail; it may not hang. A per-test ceiling turns a wall
+    # into a named red test with every thread's stack attached.
+    "pytest-timeout>=2.1",
     # Unlike the rest of the ligand extra, RDKit has a PyPI wheel -- the
     # openff-toolkit is what keeps that extra off PyPI, not this. Without it
     # here, every chemistry-dependent test skips on CI, and the interaction
@@ -136,6 +139,7 @@ docs = [
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    "pytest-timeout>=2.1",
     "rdkit>=2023.3",
     "propka>=3.5",
     "ruff>=0.5.0",

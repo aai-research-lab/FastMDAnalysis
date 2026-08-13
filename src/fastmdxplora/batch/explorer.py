@@ -39,6 +39,7 @@ from concurrent.futures import (
     ProcessPoolExecutor,
     wait as wait_for_any,
 )
+from multiprocessing import get_context
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -1082,6 +1083,20 @@ class BatchExplorer:
               "them.", flush=True)
         pool = ProcessPoolExecutor(
             max_workers=n_workers,
+            # Spawn, on every platform. Linux's default is still fork, and a
+            # forked worker inherits the parent as it stood -- including the
+            # thread pools numpy, mdtraj and OpenMM had started, whose
+            # threads do not survive the fork but whose locks do. Three CI
+            # runs in a row walled silently at the first parallel test, six
+            # hours each until a job timeout existed, beginning the day
+            # OpenMM landed in CI -- and never on a one-core machine, where
+            # those pools are never spun up, which is why it would not
+            # reproduce locally. macOS and Windows have spawned all along;
+            # this makes Linux match them, and it is where Python itself
+            # goes in 3.14. Spawn is also what makes the initializer below
+            # honest: the thread-cap variables are read once at import, and
+            # only a fresh interpreter imports after they are set.
+            mp_context=get_context("spawn"),
             initializer=_give_this_worker_its_share,
             initargs=(threads_each,))
         try:
