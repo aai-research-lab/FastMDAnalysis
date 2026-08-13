@@ -4,16 +4,16 @@
 
 **Molecular dynamics from a PDB code to a finished study — in one command.**
 
-[![DOI](https://img.shields.io/badge/DOI-10.1002%2Fjcc.70350-blue)](https://doi.org/10.1002/jcc.70350)
-[![PyPI](https://img.shields.io/pypi/v/fastmdxplora?label=pypi)](https://pypi.org/project/fastmdxplora/)
-[![conda-forge](https://img.shields.io/conda/vn/conda-forge/fastmdxplora?label=conda-forge&color=44A833)](https://anaconda.org/conda-forge/fastmdxplora)
+[![DOI](https://img.shields.io/badge/DOI-10.1002%2Fjcc.70350-blue?labelColor=black)](https://doi.org/10.1002/jcc.70350)
+[![PyPI](https://img.shields.io/pypi/v/fastmdxplora?label=pypi&labelColor=black)](https://pypi.org/project/fastmdxplora/)
+[![conda-forge](https://img.shields.io/conda/vn/conda-forge/fastmdxplora?label=conda-forge&color=44A833&labelColor=black)](https://anaconda.org/conda-forge/fastmdxplora)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/fastmdxplora?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/fastmdxplora)
-[![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://pypi.org/project/fastmdxplora/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python](https://img.shields.io/badge/python-3.9%2B-blue?labelColor=black)](https://pypi.org/project/fastmdxplora/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?labelColor=black)](https://opensource.org/licenses/MIT)
 
-[![Tests](https://github.com/aai-research-lab/FastMDXplora/actions/workflows/tests.yml/badge.svg)](https://github.com/aai-research-lab/FastMDXplora/actions/workflows/tests.yml)
-[![codecov](https://codecov.io/gh/aai-research-lab/FastMDXplora/branch/main/graph/badge.svg)](https://codecov.io/gh/aai-research-lab/FastMDXplora)
-[![Docs](https://img.shields.io/readthedocs/fastmdxplora?label=docs)](https://fastmdxplora.readthedocs.io)
+[![Tests](https://img.shields.io/github/actions/workflow/status/aai-research-lab/FastMDXplora/tests.yml?branch=main&label=tests&labelColor=black)](https://github.com/aai-research-lab/FastMDXplora/actions/workflows/tests.yml)
+[![codecov](https://img.shields.io/codecov/c/github/aai-research-lab/FastMDXplora/main?labelColor=black)](https://codecov.io/gh/aai-research-lab/FastMDXplora)
+[![Docs](https://img.shields.io/readthedocs/fastmdxplora?label=docs&labelColor=black)](https://fastmdxplora.readthedocs.io)
 [![conda downloads](https://img.shields.io/conda/dn/conda-forge/fastmdxplora?label=conda%20downloads&color=44A833)](https://anaconda.org/conda-forge/fastmdxplora)
 [![OpenMM](https://img.shields.io/badge/engine-OpenMM-orange)](https://openmm.org)
 
