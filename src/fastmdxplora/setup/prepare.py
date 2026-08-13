@@ -44,7 +44,7 @@ from fastmdxplora.setup.forcefields import (
     nonbonded_scheme,
     resolve_forcefield,
 )
-from fastmdxplora.setup.ligand import load_ligand, pose_from_structure
+from fastmdxplora.setup.ligand import load_ligand, pose_by_policy
 from fastmdxplora.utils.logging import get_logger
 
 logger = get_logger("setup.prepare")
@@ -348,6 +348,7 @@ def prepare_system(
     ligand_forcefield: str | None = None,
     ligand_name: str = "LIG",
     ligand_net_charge: int | None = None,
+    ligand_pose: str = "auto",
     check_ligand_clashes: bool = True,
     ligand_clash_threshold_nm: float = 0.15,
     solvent_padding_nm: float = DEFAULT_PADDING_NM,
@@ -521,9 +522,12 @@ def prepare_system(
             # has removed the heterogens by the time that is written, so the
             # ligand's crystallographic coordinates are only in the input.
             original = Path(output_dir) / "input.pdb"
-            if original.is_file():
-                molecule, said = pose_from_structure(
-                    molecule, original, name, copy=placed[name])
+            if original.is_file() or ligand_pose == "file":
+                # `file` needs no structure to consult, so an absent
+                # input.pdb does not turn a deliberate pose into silence.
+                molecule, said = pose_by_policy(
+                    molecule, original, name, policy=ligand_pose,
+                    copy=placed[name])
             else:
                 molecule, said = molecule, None
             placed[name] += 1

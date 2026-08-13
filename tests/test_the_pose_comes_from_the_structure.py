@@ -147,9 +147,11 @@ class TestThePreparationUsesTheOriginal:
         source = Path(prepare.__file__).read_text(encoding="utf-8")
         assert 'Path(output_dir) / "input.pdb"' in source
         # The call gained a `copy` argument when the same component
-        # appearing twice became placeable, so this checks the
-        # arguments rather than the exact call text.
-        assert "pose_from_structure(" in source
+        # appearing twice became placeable, and then became pose_by_policy
+        # when the pose became choosable -- the policy wraps the same
+        # mechanism, so reading the input is still what happens. This checks
+        # the arguments rather than the exact call text.
+        assert "pose_by_policy(" in source
         assert "original, name" in source
 
 

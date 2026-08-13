@@ -111,6 +111,14 @@ all = [
 test = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    # Unlike the rest of the ligand extra, RDKit has a PyPI wheel -- the
+    # openff-toolkit is what keeps that extra off PyPI, not this. Without it
+    # here, every chemistry-dependent test skips on CI, and the interaction
+    # rules -- the code that tells a report what holds a ligand -- read as
+    # covered at 85% while their geometric criteria had never once been
+    # exercised. Forty tests skipped silently; a skip is invisible in a
+    # green run.
+    "rdkit>=2023.3",
 ]
 docs = [
     "sphinx>=7.0",
@@ -120,6 +128,7 @@ docs = [
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    "rdkit>=2023.3",
     "ruff>=0.5.0",
     "python-pptx>=0.6.21",
 ]

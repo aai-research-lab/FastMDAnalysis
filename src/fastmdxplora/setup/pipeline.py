@@ -865,6 +865,7 @@ def run(
                 else str(params["ligand_name"])
             ),
             ligand_net_charge=params["ligand_net_charge"],
+            ligand_pose=str(params.get("ligand_pose", "auto")),
             check_ligand_clashes=bool(params["check_ligand_clashes"]),
             ligand_clash_threshold_nm=float(params["ligand_clash_threshold_nm"]),
             solvent_padding_nm=float(params["solvent_padding_nm"]),

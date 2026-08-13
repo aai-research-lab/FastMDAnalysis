@@ -79,8 +79,49 @@ def _import_openff() -> Any:
     return Molecule
 
 
+POSE_POLICIES = ("auto", "structure", "file")
+
+
+def pose_by_policy(molecule: Any, structure: str | Path, resname: str,
+                   *, policy: str = "auto",
+                   copy: int = 0) -> tuple[Any, str | None]:
+    """Apply the pose the config asked for, or the one the files imply.
+
+    ``auto`` is :func:`pose_from_structure` deciding by looking, and is the
+    default because the files usually do say. The other two exist for the
+    cases where what the author wants is not what the files imply, and both
+    were discovered by a run that wanted them:
+
+    ``file`` keeps the supplied file's coordinates even where the structure
+    holds the residue. That is an unbound start on a complex -- the T4
+    lysozyme control began life as a bug that did exactly this, and turned
+    out to be the known-negative the contact analyses needed. A control
+    should be a choice rather than an accident.
+
+    ``structure`` requires the structure's pose, so every quiet fall-back to
+    the file's arbitrary geometry -- a residue name that matches nothing, an
+    atom count that does not -- becomes a refusal. On a bound run those
+    fallbacks are the seventeen-Angstroms failure returning silently.
+    """
+    chosen = str(policy).strip().lower()
+    if chosen not in POSE_POLICIES:
+        raise LigandError(
+            f"ligand_pose: unknown policy {policy!r}; expected one of "
+            f"{', '.join(POSE_POLICIES)}. `auto` takes the pose from the "
+            "structure where it holds the residue and from the file where "
+            "it does not; `structure` and `file` insist on one side.")
+    if chosen == "file":
+        return molecule, (
+            f"the supplied file's pose stands for {resname} by request "
+            "(ligand_pose: file), whether or not the structure holds it")
+    return pose_from_structure(
+        molecule, structure, resname, copy=copy,
+        required=(chosen == "structure"))
+
+
 def pose_from_structure(molecule: Any, structure: str | Path, resname: str,
-                        *, copy: int = 0) -> tuple[Any, str | None]:
+                        *, copy: int = 0,
+                        required: bool = False) -> tuple[Any, str | None]:
     """Decide which file says where the ligand is.
 
     There are two ways a person arrives with a protein and a ligand, and they
@@ -116,7 +157,19 @@ def pose_from_structure(molecule: Any, structure: str | Path, resname: str,
     where the structure has no such residue and the SDF's own coordinates
     stand -- which is right when the ligand is being placed deliberately
     rather than read from a complex.
+
+    With ``required=True`` every one of those fallbacks refuses instead of
+    standing, with the same sentence it would have logged. On the T4 system
+    the silent version of each was a run of benzene floating in solvent that
+    looked in every respect like a run of benzene in a binding site.
     """
+
+    def _stand(reason: str) -> tuple[Any, str]:
+        if required:
+            raise LigandError(
+                f"ligand_pose: structure was asked for, but {reason}.")
+        return molecule, reason
+
     import numpy as _np
 
     try:
@@ -124,7 +177,7 @@ def pose_from_structure(molecule: Any, structure: str | Path, resname: str,
 
         frame = _md.load(str(structure))
     except Exception as exc:  # noqa: BLE001 - a structure that will not read
-        return molecule, (
+        return _stand(
             f"could not read {Path(structure).name} for the ligand's pose "
             f"({type(exc).__name__}), so the file's own coordinates stand")
 
@@ -136,9 +189,17 @@ def pose_from_structure(molecule: Any, structure: str | Path, resname: str,
     matches = [residue for residue in frame.topology.residues
                if residue.name.strip().upper() == wanted]
     if not matches:
+        if required:
+            raise LigandError(
+                f"ligand_pose: structure was asked for, but "
+                f"{Path(structure).name} holds no residue named {wanted}, so "
+                "there is no pose in the structure to take. Where the pose is "
+                "meant to come from the supplied file -- an apo protein and a "
+                "docked or deliberately unbound ligand -- say so with "
+                "ligand_pose: file.")
         return molecule, None
     if copy >= len(matches):
-        return molecule, (
+        return _stand(
             f"{Path(structure).name} holds {len(matches)} copies of {wanted} "
             f"and this is copy {copy + 1}, so there is none left to place it "
             "at and the file's own coordinates stand")
@@ -152,7 +213,7 @@ def pose_from_structure(molecule: Any, structure: str | Path, resname: str,
     heavy = [i for i, atom in enumerate(molecule.atoms)
              if atom.atomic_number > 1]
     if len(indices) != len(heavy):
-        return molecule, (
+        return _stand(
             f"{wanted} in {Path(structure).name} has {len(indices)} atoms and "
             f"the supplied file has {len(heavy)} heavy atoms, so they are not "
             "the same molecule and the file's own coordinates stand")
@@ -160,7 +221,7 @@ def pose_from_structure(molecule: Any, structure: str | Path, resname: str,
     positions = _np.array(molecule.conformers[0].m_as("nanometer")
                           if molecule.conformers else None, dtype=float)
     if positions is None or positions.size == 0:
-        return molecule, "the supplied file carries no coordinates to replace"
+        return _stand("the supplied file carries no coordinates to replace")
 
     # The crystallographic positions, in the order the SDF's heavy atoms
     # come in. Both orders come from the same component definition, so they

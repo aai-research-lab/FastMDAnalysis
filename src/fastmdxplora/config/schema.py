@@ -262,6 +262,16 @@ SETUP = PhaseSchema(
               "Residue/molecule name assigned to the ligand."),
         Field("ligand_net_charge", int, None,
               "Ligand formal net charge. Default: inferred from the SDF."),
+        Field("ligand_pose", str, "auto",
+              "Where the ligand's starting coordinates come from. `auto` "
+              "takes the pose from the structure where it holds the residue "
+              "and from the supplied file where it does not. `structure` "
+              "requires the structure's pose, refusing instead of quietly "
+              "falling back to the file's arbitrary geometry. `file` keeps "
+              "the supplied file's coordinates even on a complex -- a "
+              "deliberately unbound start, e.g. as a known-negative control "
+              "for the contact analyses. The clash check still applies.",
+              example="file"),
         Field("check_ligand_clashes", bool, True,
               "Fail setup if the ligand pose severely overlaps the protein "
               "(the provided coordinates must be a feasible bound pose)."),
@@ -682,7 +692,8 @@ SETTING_GROUPS: dict[str, tuple[tuple[str, str, tuple[str, ...]], ...]] = {
         ("The ligand",
          "Found and parameterised, or named if the structure is ambiguous.",
          ("ligand", "ligand_name", "ligand_forcefield", "ligand_net_charge",
-          "check_ligand_clashes", "ligand_clash_threshold_nm")),
+          "ligand_pose", "check_ligand_clashes",
+          "ligand_clash_threshold_nm")),
         ("The membrane",
          "A bilayer to embed in, and whether the orientation is trusted.",
          ("membrane", "membrane_orient", "membrane_orientation_checked")),
