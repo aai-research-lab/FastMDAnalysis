@@ -27,7 +27,7 @@ the [installation guide](installation.md).
 
 ## The quickest route: the GUI
 
-The browser is a full interface, not a viewer: it builds any system
+The GUI is a full interface, not a viewer: it builds any system
 FastMDXplora supports and writes any config file the command line accepts,
 from a form generated out of the same schema the CLI validates against.
 
@@ -128,8 +128,7 @@ parameters, solvation, minimisation, NVT, NPT, which ensemble production runs
 in, restraints, membranes and their barostat, metadynamics, interactions and
 convergence. Each
 says *why* rather than repeating what the step already said, and a reference
-carries authors and a year or is absent — inventing one to look thorough would
-be worse than having none.
+carries authors and a year, or is absent.
 
 On by default. To turn them off:
 

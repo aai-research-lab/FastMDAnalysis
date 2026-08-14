@@ -31,8 +31,7 @@ class Explanation:
     """Why a step happens, and where to read more."""
 
     why: str
-    #: A citation worth following. Not every step has one, and inventing a
-    #: reference to look thorough would be worse than having none.
+    #: A citation worth following, when one exists.
     reference: str | None = None
 
     def as_text(self, width: int = 74) -> str:
