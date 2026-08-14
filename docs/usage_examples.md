@@ -75,6 +75,14 @@ residue of that name with a matching count of heavy atoms, its coordinates are
 used; if it does not, the file's are. The files already say which situation it
 is.
 
+The choice can also be pinned, as `setup.ligand_pose`. `structure` refuses the
+fallback — a complex whose ligand is somehow absent becomes an error rather
+than a benzene floating in solvent — and `file` makes the supplied pose stand
+whether or not the structure holds one, which is how a deliberately unbound
+run — a negative control — differs from a bound study by a line of
+configuration instead of an accident of coordinates. Either way the run states
+which pose stood and why.
+
 In either case, supply the chemistry like this:
 
 ```bash
@@ -358,10 +366,11 @@ it off. The campaign above produces one under `comparison/`.
 
 ## Reproducing a run exactly
 
-Every run writes the config it used. To repeat one:
+Every run writes the config it used, with every setting filled in, as
+`resolved_config.yml`. To repeat one:
 
 ```bash
-fastmdx explore --config runs/original/config.yml --output runs/repeat
+fastmdx explore --config runs/original/resolved_config.yml --output runs/repeat
 ```
 
 For bit-for-bit reproducibility, fix the seed — without one, velocities differ

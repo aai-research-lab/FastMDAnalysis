@@ -422,7 +422,10 @@ walls or a funnel. Beyond that, write PLUMED input and pass it as `plumed`:
 - **multiple walkers**, path collective variables, and the rest of PLUMED
 
 The two mechanisms are the same underneath; the block is a shorter way to
-describe the common case.
+describe the common case. `plumed` takes the script text itself or a path to
+a `.dat` file, and the GUI gives it a control of its own rather than a YAML
+box: an on-switch, a Browse for the file, and a place to write the input
+directly.
 
 ## When a run fails
 

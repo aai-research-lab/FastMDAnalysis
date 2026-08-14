@@ -137,10 +137,11 @@ only, which is how you vary a single setting across a campaign.
 
 ## Reproducing a run
 
-Every run writes the config it used to `config.yml` in its output directory:
+Every run writes the config it used to `resolved_config.yml` in its output
+directory, with every setting filled in — including the defaults it took:
 
 ```bash
-fastmdx explore --config runs/original/config.yml --output runs/repeat
+fastmdx explore --config runs/original/resolved_config.yml --output runs/repeat
 ```
 
 For a trajectory that repeats exactly, fix the seed — without one, velocities

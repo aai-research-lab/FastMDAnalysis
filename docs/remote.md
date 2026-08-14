@@ -139,7 +139,17 @@ the second way exists.
 `container/fastmdx.def` and carrying the whole stack -- OpenMM with CUDA and
 PLUMED, MDTraj, PDBFixer, the OpenFF toolkit, and FastMDXplora itself, all
 resolved by one solver so the versions are the ones the packaging chose.
-Download it where there is a network, copy the one file across, and:
+Each release attaches it as `fastmdx-<version>.sif`, about 1.3 GB:
+
+```bash
+curl -LO https://github.com/aai-research-lab/FastMDXplora/releases/download/v2.5.2/fastmdx-2.5.2.sif
+apptainer test fastmdx-2.5.2.sif
+```
+
+(Substitute the version you mean.) `apptainer test` runs the check built into
+the image — the version, the simulation stack, the ligand path — so a
+truncated copy announces itself before a queue does. Copy the one file across,
+and:
 
 ```bash
 apptainer exec --nv fastmdx.sif fastmdx explore --config study.yml
@@ -184,6 +194,19 @@ systems:
 The path is read from where `fastmdx` was run, not from the config that names
 it.
 
+A ligand needs the same treatment. With a local structure there is no entry to
+look its chemistry up in, so the run is refused with the fetch to run
+elsewhere. Fetch the component's ideal SDF where there is a network —
+
+```bash
+curl -O https://files.rcsb.org/ligands/download/BNZ_ideal.sdf
+```
+
+— and pass it as `setup.ligand`. The file supplies the bonds and aromaticity a
+PDB cannot express; where the pose comes from is `ligand_pose`'s decision, and
+[the worked example](usage_examples.md#a-protein-with-a-ligand) covers both
+directions.
+
 ---
 
 ## Making sure the GPU is being used
@@ -216,6 +239,9 @@ is known about why. Two answers come up often:
   `libcuda.so.1: cannot open shared object file`, which means the NVIDIA
   driver is not present. Correct on a head node with no GPU, and the reason
   to be on a compute node.
+- **The other vendor's plugins declining to load** — HIP libraries on an
+  NVIDIA machine, CUDA on an AMD one — reported at INFO and harmless: the
+  build carries both backends, and the one your hardware cannot use says so.
 - **Nothing found and nothing failed**, which means nothing was tried. OpenMM
   loads its platforms from a directory fixed when it was built, and a
   relocated or shared installation moves it. Set `OPENMM_PLUGIN_DIR` to the

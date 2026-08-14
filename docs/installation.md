@@ -119,3 +119,5 @@ whatever is already there is usually slower than starting clean.
 
 - [Your first run](getting_started.md)
 - [The FastMDXplora GUI](gui.md)
+- [Running somewhere else](remote.md) — clusters, containers, and machines
+  with no network

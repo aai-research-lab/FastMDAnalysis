@@ -315,12 +315,12 @@ runs/study/
 ├── simulation/     the trajectory, the energy log, the settings used
 ├── analysis/       one directory per measure
 ├── report/         the written report, slides, dashboard, bundle
-├── config.yml      the configuration this run used
-└── manifest.json   every phase, artifact and parameter
+├── resolved_config.yml   every setting filled in, defaults included
+└── manifest.json         every phase, artifact and parameter
 ```
 
-`manifest.json` is the record of the whole run. `config.yml` is what you would
-give `fastmdx explore --config` to do it again.
+`manifest.json` is the record of the whole run. `resolved_config.yml` is what
+you would give `fastmdx explore --config` to do it again.
 
 Where FastMDXplora was run from a source checkout rather than an install, the
 manifest also records the **commit**, and whether the working tree had

@@ -61,13 +61,32 @@ exactly as it appears in a config file. An example of the right shape sits in
 the box until you type. These used to be single-line fields, which meant the
 GUI was the one interface where enhanced sampling could not be set up.
 
+`plumed` is the exception, because it is one script with an on-switch rather
+than a mapping of settings, and writing a working `.dat` file inside YAML
+block-scalar indentation is where a stray tab changes a PLUMED input. It gets
+a control of its own: the switch, a path with the same **Browse** button every
+other path field has, and a place to write the PLUMED input directly, exactly
+as it would appear in the file. Text written there wins over a path — the rule
+is stated on the control the moment both are filled — and the first content to
+arrive turns the switch on.
+
 ### Taking the config with you
 
-Two buttons at the bottom of the page:
+Four buttons at the bottom of the page:
 
 - **Download config** writes the YAML for exactly what is on screen. Take it
   to a cluster and `fastmdx explore --config study.yml` runs the same thing.
+- **Copy the command** puts the equivalent `fastmdx explore` invocation on the
+  clipboard — only the settings that differ from their defaults, so it stays
+  readable. A study the command line cannot express — a sweep, a PLUMED
+  script — is refused by name rather than translated with pieces missing,
+  and the config file stays its language.
+- **Download a script** writes the same study as a runnable Python file, the
+  shape the [API page](api.md) documents.
 - **Run** starts it here.
+
+One study, three languages, all from the same declaration — and round-trip
+tests hold the command to reparsing into the same configuration it came from.
 
 And in the other direction: choose *A config I already have* and the GUI will
 **check it** — syntax and settings, without running anything — **run it

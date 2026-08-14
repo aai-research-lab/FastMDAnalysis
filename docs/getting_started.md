@@ -80,6 +80,7 @@ runs/trpcage/
 ├── simulation/     production.dcd, energy.csv, and the settings used
 ├── analysis/       one directory per measure: data, figure, and its options
 ├── report/         report.md, report.pdf, slides.pptx, dashboard.html
+├── resolved_config.yml   every setting this run used, defaults included
 └── manifest.json   every phase, every artifact, every parameter
 ```
 

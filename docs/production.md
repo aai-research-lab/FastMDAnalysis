@@ -99,7 +99,10 @@ reliable than choosing a number in advance.
 ## When it stops early
 
 Every run writes checkpoints. If it dies, the checkpoint is in the simulation
-directory and the manifest records how far it got.
+directory and the manifest records how far it got. Nothing yet resumes from
+it — the runner records why that is not a one-line feature — so recovery today
+is at phase boundaries: a finished setup or trajectory is reused rather than
+redone, and `--include` picks up from the phase that stopped.
 
 If it became unstable rather than being killed, the message says which atoms
 went wrong and what that points at — a ligand alone means its parameters, the
