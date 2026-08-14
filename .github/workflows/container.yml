@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "FastMDXplora version to build into the image"
+        description: "Experiments only: build this version as a 14-day artifact. To ship a .sif to a release, leave this empty and use release_tag."
         required: false
         default: ""
       cuda_version:
@@ -20,7 +20,7 @@ on:
         required: false
         default: "12.6"
       release_tag:
-        description: "Attach to this existing tag's release (e.g. v2.5.2), building from the tag's own source. Empty parks an artifact instead."
+        description: "The shipping box: attach the image to this existing tag's release (e.g. v2.5.2), building from the tag's own source. The first 2.5.2 delivery attempt went into `version` instead and parked 1.26 GB as an expiring artifact."
         required: false
         default: ""
 
