@@ -39,23 +39,11 @@ parameterises the benzene bound in its cavity, runs the dynamics, analyses the
 trajectory, works out which residues hold the ligand in place, and writes the
 whole study up as a PDF.
 
-Run all four phases, or any one on its own — `fastmdx setup`, `simulate`,
-`analyze`, `report`. Each records what it did, so a run can be picked up,
-repeated or explained afterwards.
-
-Or do the whole thing in the GUI:
+Or configure the whole MD study in the GUI:
 
 ```bash
 fastmdx gui
 ```
-
-The GUI is not a viewer bolted onto a command-line tool. Its form is generated
-from the same schema the CLI validates against, so every one of the hundred
-settings is reachable, every system FastMDXplora can study can be built there,
-and nothing can be configured in one interface and not the other. What it hands
-back is a config file — checked by the same validator before you ever see it —
-and `fastmdx explore --config` runs those same bytes on a laptop or a cluster.
-Build the study where it is convenient to think; run it where the compute is.
 
 ## Install
 
@@ -81,15 +69,12 @@ fastmdx info
 | **A trajectory from another engine** | Skip the simulation and analyse what you already have — GROMACS `.xtc` and `.trr`, Amber `.nc`, NAMD and CHARMM `.dcd`, LAMMPS `.lammpstrj`, or `.pdb`, `.cif` and `.h5` that carry their own topology. |
 | **Many systems at once** | Mutants against wild type, a sweep across a setting, runs pinned one per GPU, and a comparison report across all of them. |
 
-**It refuses rather than guesses.** An ambiguous ligand charge, or a protein
-pointed the wrong way into a membrane, stops the run and gets named. A
-metadynamics run that crossed its barrier once when you asked for four gets no
-free energy surface. Averages from a biased trajectory are corrected back to
-equilibrium where the bias allows it, and labelled where it does not.
-
-Every step says why it is happening, and cites the paper worth reading. What
-comes out is something you can defend — or is marked clearly as something you
-cannot.
+**It refuses rather than guesses.** An ambiguous ligand charge, a protein
+backwards in its membrane, a free-energy surface that never converged — each
+stops the run and is named, not papered over. Biased averages are corrected
+to equilibrium where the bias allows and labelled where it does not. Every
+step explains itself and cites the paper worth reading. What comes out, you
+can defend; what you cannot is marked.
 
 ## The config is the study
 
@@ -117,14 +102,10 @@ merged, so the exact study can be run again by anyone holding that one file.
 | **The CLI** | `fastmdx explore --config study.yml`, or `fastmdx init-config` for a commented template, or a flag for any setting. |
 | **The Python API** | `FastMDXplora(config="study.yml").explore()`, or the same blocks passed as options. |
 
-A fourth way is to write the YAML by hand, which is short and readable enough
-that people do.
-
-None of these is the primary interface and none is a subset of another. The
-form, the flags and the API are generated from one declaration of what the
-software can do, so a study you can express in one you can express in all of
-them. A study designed on a laptop in the GUI runs unchanged on a cluster from
-the command line, because what travels between them is the config.
+None of these is the primary interface and none is a subset of another —
+form, flags and API are generated from one declaration — and a study designed
+in the GUI on a laptop runs unchanged on a cluster, because what travels is
+the config.
 
 ## Documentation
 
