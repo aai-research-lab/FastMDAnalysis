@@ -71,6 +71,24 @@ class TestReadingAMutation:
 
 
 class TestApplyingOne:
+    """These need the engine; the parsing tests above deliberately do not.
+
+    Reading a mutation and checking it against a structure is arithmetic
+    and string handling, so it runs on every leg of the matrix. Applying
+    one needs PDBFixer, which is in the `[md]` extra and is not installed
+    on the floor leg. Skipped by name rather than by the import failing at
+    call time, so the skip appears in the report: an analysis that reads
+    as tested while its tests quietly skip is the defect this project has
+    now found three times.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _needs_the_engine(self):
+        pytest.importorskip(
+            "pdbfixer", reason="applying a mutation requires the [md] extra")
+        pytest.importorskip(
+            "openmm", reason="applying a mutation requires the [md] extra")
+
     def test_the_residue_is_replaced(self, structure, tmp_path):
         out = tmp_path / "out.pdb"
         fix_pdb_with_pdbfixer(str(structure), str(out), mutations=["L2A"])
