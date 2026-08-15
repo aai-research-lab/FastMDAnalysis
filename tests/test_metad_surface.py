@@ -551,3 +551,203 @@ class TestARefusedRunStillHandsBackWhatItHas:
                       np.full(50, 1.0), GAMMA)
         result = compute_surface(_written(tmp_path, still), np.full(50, 0.3))
         assert result["surface"] is None
+
+
+class TestASurfaceOverTwoVariablesIsJudgedOneAtATime:
+    """The claim a two-dimensional surface has to survive.
+
+    A run can fill one coordinate thoroughly while the other never leaves
+    a single well. A verdict on the surface as a whole either passes it,
+    hiding the stuck coordinate, or fails it, burying the good one. So the
+    gates run on the free energy along each variable with the other
+    integrated out, and a refusal names the dimension it is about.
+    """
+
+    @staticmethod
+    def _write(path, centres, sigmas, heights, biasf=10.0):
+        with open(path, "w") as fh:
+            fh.write("#! FIELDS time cv1 cv2 sigma_cv1 sigma_cv2 height biasf\n")
+            for t, (c1, c2), (s1, s2), h in zip(
+                    range(len(heights)), centres, sigmas, heights):
+                fh.write(f"{t * 0.5:.3f} {c1:.5f} {c2:.5f} {s1:.4f} "
+                         f"{s2:.4f} {h:.6f} {biasf:.1f}\n")
+
+    @staticmethod
+    def _heights(n):
+        import numpy as np
+        return 1.2 * np.exp(-np.linspace(0, 3.5, n))
+
+    def _two_basin(self, rng, n, centre=1.0, noise=0.25):
+        import numpy as np
+        return (np.where(rng.rand(n) < 0.5, -centre, centre)
+                + rng.normal(scale=noise, size=n))
+
+    def test_the_header_says_how_many_variables_there_are(self, tmp_path):
+        """Read by position, a two-variable file gives a sigma as a height.
+
+        The layout puts the height in column six where a one-variable file
+        has the bias factor, so every hill's weight would be wrong and the
+        surface would come out scaled by a number nobody chose.
+        """
+        import numpy as np
+
+        from fastmdxplora.simulation.metad_surface import read_hills
+
+        rng = np.random.RandomState(0)
+        n = 200
+        heights = self._heights(n)
+        path = tmp_path / "HILLS"
+        self._write(path,
+                    np.column_stack([self._two_basin(rng, n),
+                                     self._two_basin(rng, n)]),
+                    np.tile([0.2, 0.2], (n, 1)), heights)
+
+        hills = read_hills(path)
+        assert hills.n_dims == 2
+        assert hills.centre.shape == (n, 2)
+        assert np.isclose(hills.height[0], heights[0])
+        assert hills.bias_factor == 10.0
+
+    def test_a_one_variable_file_still_reads_as_it_did(self, tmp_path):
+        import numpy as np
+
+        from fastmdxplora.simulation.metad_surface import read_hills
+
+        path = tmp_path / "HILLS"
+        path.write_text(
+            "#! FIELDS time cv sigma_cv height biasf\n"
+            "0.0 0.5 0.2 1.2 10.0\n"
+            "0.5 0.6 0.2 1.1 10.0\n", encoding="utf-8")
+        hills = read_hills(path)
+        assert hills.n_dims == 1
+        assert hills.centre.ndim == 1
+        assert np.allclose(hills.height, [1.2, 1.1])
+
+    def test_a_stuck_dimension_is_refused_by_name(self, tmp_path):
+        import numpy as np
+
+        from fastmdxplora.simulation.metad_surface import compute_surface_2d
+
+        rng = np.random.RandomState(0)
+        n = 1200
+        explored = self._two_basin(rng, n)
+        stuck = 0.5 + rng.normal(scale=0.05, size=n)
+        path = tmp_path / "HILLS"
+        self._write(path, np.column_stack([explored, stuck]),
+                    np.tile([0.2, 0.1], (n, 1)), self._heights(n))
+
+        out = compute_surface_2d(
+            path, np.column_stack([explored, stuck]),
+            points=60, names=("phi", "dist"))
+
+        assert out["refused"] is not None
+        assert "dist" in out["refused"]
+        assert "phi" not in out["refused"], (
+            "the good dimension must not be impeached by the bad one")
+
+    def test_a_narrow_well_does_not_pass_by_being_reproducible(self, tmp_path):
+        """The case a drift check cannot catch.
+
+        A coordinate that never moved gives the same narrow well from three
+        quarters of the hills and from all of them, so it looks converged
+        precisely because nothing happened. The exploration width is what
+        separates that from a landscape.
+        """
+        import numpy as np
+
+        from fastmdxplora.simulation.metad_surface import compute_surface_2d
+
+        rng = np.random.RandomState(0)
+        n = 1200
+        explored = self._two_basin(rng, n)
+        stuck = 0.5 + rng.normal(scale=0.05, size=n)
+        path = tmp_path / "HILLS"
+        self._write(path, np.column_stack([explored, stuck]),
+                    np.tile([0.2, 0.1], (n, 1)), self._heights(n))
+
+        out = compute_surface_2d(
+            path, np.column_stack([explored, stuck]),
+            points=60, names=("phi", "dist"))
+        records = {r["name"]: r for r in out["evidence"]["per_dimension"]}
+
+        assert records["dist"]["drift_kjmol"] < 2.5, (
+            "the stuck well is reproducible, which is the point")
+        assert records["dist"]["explored_in_hill_widths"] < 6.0
+        assert records["phi"]["explored_in_hill_widths"] > 6.0
+
+    def test_a_run_that_explored_both_is_accepted(self, tmp_path):
+        import numpy as np
+
+        from fastmdxplora.simulation.metad_surface import compute_surface_2d
+
+        rng = np.random.RandomState(0)
+        n = 1200
+        a = self._two_basin(rng, n)
+        b = self._two_basin(rng, n, centre=0.8, noise=0.2)
+        path = tmp_path / "HILLS"
+        self._write(path, np.column_stack([a, b]),
+                    np.tile([0.2, 0.2], (n, 1)), self._heights(n))
+
+        out = compute_surface_2d(
+            path, np.column_stack([a, b]), points=60, names=("phi", "psi"))
+        assert out["refused"] is None
+        assert out["surface"].shape == (60, 60)
+
+    def test_the_marginal_keeps_the_width_of_a_valley(self):
+        """Integrating, not minimising.
+
+        A broad shallow channel and a narrow deep one have the same floor,
+        so the projection people usually draw cannot tell them apart. The
+        free energy along a coordinate is about how much room there is,
+        which is what integrating the populations measures.
+        """
+        import numpy as np
+
+        from fastmdxplora.simulation.metad_surface import marginal_profile
+
+        y = np.linspace(-3, 3, 201)
+        surface = np.vstack([
+            0.5 * y ** 2,   # at x = 0, a broad channel
+            8.0 * y ** 2,   # at x = 1, a narrow one
+        ])
+        # The floors are identical, so the minimum along y cannot tell the
+        # two columns apart: a projection reports them as equal.
+        assert np.isclose(surface[0].min(), surface[1].min())
+        assert np.allclose(surface.min(axis=1), [0.0, 0.0])
+
+        profile = marginal_profile(surface, axis=0)
+        # Integrating does tell them apart, and in the right direction: the
+        # broad channel holds more population, so its free energy is lower.
+        assert profile[0] < profile[1]
+        assert profile[1] - profile[0] > 1.0
+
+    def test_a_coordinate_that_never_moved_is_refused_outright(self, tmp_path):
+        import numpy as np
+
+        from fastmdxplora.simulation.metad_surface import compute_surface_2d
+
+        rng = np.random.RandomState(0)
+        n = 300
+        moving = self._two_basin(rng, n)
+        frozen = np.full(n, 0.4)
+        path = tmp_path / "HILLS"
+        self._write(path, np.column_stack([moving, frozen]),
+                    np.tile([0.2, 0.2], (n, 1)), self._heights(n))
+
+        out = compute_surface_2d(
+            path, np.column_stack([moving, frozen]),
+            points=40, names=("phi", "frozen"))
+        assert out["surface"] is None
+        assert "frozen" in out["refused"]
+
+    def test_one_variable_is_not_this_function_s_job(self, tmp_path):
+        import pytest
+
+        from fastmdxplora.simulation.metad_surface import compute_surface_2d
+
+        path = tmp_path / "HILLS"
+        path.write_text(
+            "#! FIELDS time cv sigma_cv height biasf\n"
+            "0.0 0.5 0.2 1.2 10.0\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="compute_surface"):
+            compute_surface_2d(path)

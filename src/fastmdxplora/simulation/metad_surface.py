@@ -40,9 +40,16 @@ __all__ = [
     "Hills",
     "read_hills",
     "surface_from_hills",
+    "surface_from_hills_nd",
+    "marginal_profile",
     "recrossings",
     "compute_surface",
+    "compute_surface_2d",
 ]
+
+#: Boltzmann's constant in kJ/(mol K), for turning a surface back into the
+#: populations it came from when a dimension is integrated out.
+KB_KJMOL = 0.008314462618
 
 #: Below this, a barrier has been seen too few times to be a measurement
 #: rather than an anecdote. A judgement, like the overlap an umbrella study
@@ -68,6 +75,17 @@ SETTLED_DRIFT_KJMOL = 2.5
 #: than trusted point by point.
 DRIFT_CEILING_KJMOL = 20.0
 
+#: How far a coordinate must travel, in hill widths, before the run counts
+#: as having explored it. A bias built from Gaussians of width sigma cannot
+#: resolve anything narrower than sigma, so a variable that moved only a few
+#: hill widths has been biased across a region no wider than the bias
+#: itself, and the surface along it is the shape of the deposition rather
+#: than of the landscape. This catches the case a drift check cannot: a
+#: narrow well is perfectly reproducible between three quarters of the
+#: hills and all of them, so it looks converged precisely because nothing
+#: happened.
+MINIMUM_EXPLORED_HILL_WIDTHS = 6.0
+
 
 @dataclass(frozen=True)
 class Hills:
@@ -82,24 +100,51 @@ class Hills:
     bias_factor: float
 
     def __len__(self) -> int:
-        return int(self.centre.size)
+        return int(self.centre.shape[0])
+
+    @property
+    def n_dims(self) -> int:
+        """How many collective variables were biased."""
+        return 1 if self.centre.ndim == 1 else int(self.centre.shape[1])
+
+    def column(self, dim: int) -> np.ndarray:
+        """The centres along one variable, whatever the dimensionality."""
+        return self.centre if self.centre.ndim == 1 else self.centre[:, dim]
+
+    def sigma_column(self, dim: int) -> np.ndarray:
+        return self.sigma if self.sigma.ndim == 1 else self.sigma[:, dim]
 
 
 def read_hills(path: str | Path) -> Hills:
-    """Read a PLUMED HILLS file for a one-dimensional collective variable.
+    """Read a PLUMED HILLS file, in as many variables as it holds.
 
-    The columns are time, the variable, sigma, height and the bias factor.
-    Comment lines carry the field names and are skipped: this reads by
-    position, which is what PLUMED guarantees for a single variable.
+    PLUMED writes a ``#! FIELDS`` header naming every column, and that
+    header is what makes the file readable for more than one variable: the
+    layout is time, then one centre per variable, then one sigma per
+    variable, then height and the bias factor, so a two-variable file has
+    the height in column six where a one-variable file has the bias factor.
+    Reading by position, which is what this did, silently takes a sigma for
+    a height on any run that biases two things.
+
+    The sigma columns are found by name, so the count of variables comes
+    from the file rather than from an assumption about it. A file with no
+    header is read by position as one variable, which is what such a file
+    used to be.
     """
+    fields: list[str] = []
     rows: list[list[float]] = []
     for line in Path(path).read_text(encoding="utf-8").splitlines():
-        if not line.strip() or line.lstrip().startswith("#"):
+        stripped = line.strip()
+        if stripped.startswith("#") and "FIELDS" in stripped:
+            after = stripped.split("FIELDS", 1)[1].split()
+            fields = [name for name in after]
             continue
-        parts = line.split()
+        if not stripped or stripped.startswith("#"):
+            continue
+        parts = stripped.split()
         if len(parts) < 4:
             continue
-        rows.append([float(value) for value in parts[:5]])
+        rows.append([float(value) for value in parts])
 
     if not rows:
         raise ValueError(
@@ -108,13 +153,45 @@ def read_hills(path: str | Path) -> Hills:
             "build from it."
         )
 
-    table = np.array(rows, dtype=float)
-    factor = float(table[0, 4]) if table.shape[1] > 4 else 1.0
+    width = min(len(row) for row in rows)
+    table = np.array([row[:width] for row in rows], dtype=float)
+
+    sigma_at = [i for i, name in enumerate(fields[:width])
+                if name.startswith("sigma")]
+    if not sigma_at:
+        # No header, or none this recognises: the historical layout.
+        factor = float(table[0, 4]) if width > 4 else 1.0
+        return Hills(
+            time_ps=table[:, 0],
+            centre=table[:, 1],
+            sigma=table[:, 2],
+            height=table[:, 3],
+            bias_factor=factor,
+        )
+
+    n_dims = len(sigma_at)
+    first_sigma = sigma_at[0]
+    centre_at = list(range(1, first_sigma))
+    if len(centre_at) != n_dims:
+        raise ValueError(
+            f"{path} names {len(centre_at)} value columns and {n_dims} "
+            "sigma columns, which is not a layout this can read. PLUMED "
+            "writes one sigma per biased variable."
+        )
+    height_at = first_sigma + n_dims
+    factor_at = height_at + 1
+    factor = (float(table[0, factor_at])
+              if width > factor_at else 1.0)
+
+    def squeeze(columns: list[int]) -> np.ndarray:
+        block = table[:, columns]
+        return block[:, 0] if len(columns) == 1 else block
+
     return Hills(
         time_ps=table[:, 0],
-        centre=table[:, 1],
-        sigma=table[:, 2],
-        height=table[:, 3],
+        centre=squeeze(centre_at),
+        sigma=squeeze(sigma_at),
+        height=table[:, height_at],
         bias_factor=factor,
     )
 
@@ -247,6 +324,88 @@ def transitions(values: np.ndarray, *, between: tuple[float, float],
             crossings += 1
         side = here
     return crossings
+
+
+def surface_from_hills_nd(
+    hills: Hills,
+    axes: "tuple[np.ndarray, ...]",
+    *,
+    upto: int | None = None,
+    periodic: "tuple[bool, ...] | None" = None,
+    chunk: int = 512,
+) -> np.ndarray:
+    """The free energy on a grid of two or more variables.
+
+    The same arithmetic as the one-dimensional case, with the Gaussian a
+    product over dimensions. Summed in chunks of hills because the direct
+    form allocates one number per hill per grid point: a 200 by 200 grid
+    and ten thousand hills is four hundred million floats, which is several
+    gigabytes for an intermediate nobody reads.
+
+    Periodicity is per dimension. A run biasing a torsion against a
+    distance is periodic in one and not the other, and treating either the
+    way the other wants gives a surface that is wrong at one edge.
+    """
+    stop = len(hills) if upto is None else int(upto)
+    n_dims = hills.n_dims
+    if len(axes) != n_dims:
+        raise ValueError(
+            f"The hills hold {n_dims} variables and {len(axes)} axes were "
+            "given. A surface needs one axis per biased variable."
+        )
+    wrap = tuple(periodic or (False,) * n_dims)
+
+    mesh = np.meshgrid(*axes, indexing="ij")
+    shape = mesh[0].shape
+    points = np.column_stack([m.ravel() for m in mesh])
+
+    bias = np.zeros(points.shape[0], dtype=float)
+    centres = hills.centre[:stop]
+    sigmas = hills.sigma[:stop]
+    heights = hills.height[:stop]
+    if centres.ndim == 1:
+        centres = centres[:, None]
+        sigmas = sigmas[:, None]
+
+    for start in range(0, stop, chunk):
+        block = slice(start, min(start + chunk, stop))
+        exponent = np.zeros((points.shape[0], centres[block].shape[0]))
+        for dim in range(n_dims):
+            delta = points[:, dim][:, None] - centres[block][:, dim][None, :]
+            if wrap[dim]:
+                # The short way round, as in one dimension.
+                delta = (delta + np.pi) % (2.0 * np.pi) - np.pi
+            exponent += (delta ** 2) / (2.0 * sigmas[block][:, dim][None, :] ** 2)
+        bias += (heights[block][None, :] * np.exp(-exponent)).sum(axis=1)
+
+    if hills.bias_factor > 1.0:
+        free = -bias * (hills.bias_factor / (hills.bias_factor - 1.0))
+    else:
+        free = -bias
+    free = free.reshape(shape)
+    return free - float(np.min(free))
+
+
+def marginal_profile(
+    surface: np.ndarray, axis: int, *, temperature_K: float = 300.0
+) -> np.ndarray:
+    """The free energy along one variable, with the others integrated out.
+
+    Not the minimum along the other coordinate, which is the projection
+    people usually draw: that reports the bottom of the valley rather than
+    how much room there is in it, so a broad shallow channel and a narrow
+    deep one come out alike. Integrating the populations keeps the width,
+    which is what the free energy along a single coordinate means.
+    """
+    kt = KB_KJMOL * float(temperature_K)
+    other = tuple(i for i in range(surface.ndim) if i != axis)
+    weights = np.exp(-(surface - float(np.min(surface))) / kt).sum(axis=other)
+    with np.errstate(divide="ignore"):
+        profile = -kt * np.log(weights)
+    finite = profile[np.isfinite(profile)]
+    if finite.size == 0:
+        return np.zeros_like(profile)
+    return profile - float(np.min(finite))
 
 
 def recrossings(values: np.ndarray, *, low: float, high: float) -> int:
@@ -457,4 +616,190 @@ def compute_surface(
         "grid": grid,
         "evidence": evidence,
         "refused": None,
+    }
+
+
+def compute_surface_2d(
+    hills_path: str | Path,
+    colvar_values: "np.ndarray | None" = None,
+    *,
+    points: int = 80,
+    minimum_recrossings: int = MINIMUM_RECROSSINGS,
+    periodic: "tuple[bool, bool]" = (False, False),
+    temperature_K: float = 300.0,
+    names: "tuple[str, str]" = ("cv1", "cv2"),
+) -> dict[str, Any]:
+    """A two-dimensional surface, judged one dimension at a time.
+
+    The gates are the one-dimensional ones, applied to the free energy
+    along each variable with the other integrated out. That is the whole
+    point of doing it this way: a run can fill a torsion thoroughly while
+    the distance it was also biasing never left one basin, and a verdict
+    on the surface as a whole reports either a pass that hides the second
+    coordinate or a failure that buries the first. The refusal, when there
+    is one, names the dimension.
+
+    ``colvar_values`` is the trajectory of both variables, shape
+    (frames, 2). Without it no recrossing count can be made in either
+    dimension, and that is said rather than skipped.
+
+    The default grid is coarser than the one-dimensional default because
+    the cost is the square of it: 80 by 80 is 6,400 points where 200 by 200
+    is 40,000, and the second resolves nothing a metadynamics surface
+    supports.
+    """
+    hills = read_hills(hills_path)
+    if hills.n_dims != 2:
+        raise ValueError(
+            f"{hills_path} holds {hills.n_dims} biased variable(s), and this "
+            "builds a surface over exactly two. A one-variable run is "
+            "`compute_surface`."
+        )
+
+    axes: list[np.ndarray] = []
+    for dim in range(2):
+        centres = hills.column(dim)
+        low, high = float(np.min(centres)), float(np.max(centres))
+        if high <= low:
+            return {
+                "surface": None,
+                "axes": None,
+                "refused": (
+                    f"Every hill was deposited at the same value of "
+                    f"{names[dim]}, so the run explored nothing along it. "
+                    "There is no surface across a coordinate that did not "
+                    "move, and the other coordinate cannot make up for it."
+                ),
+            }
+        if periodic[dim]:
+            axes.append(np.linspace(-np.pi, np.pi, points))
+        else:
+            axes.append(np.linspace(low, high, points))
+
+    grid = tuple(axes)
+    surface = surface_from_hills_nd(hills, grid, periodic=periodic)
+    earlier = surface_from_hills_nd(
+        hills, grid, upto=int(len(hills) * 0.75), periodic=periodic)
+
+    first = float(np.mean(hills.height[:max(1, len(hills) // 20)]))
+    last = float(np.mean(hills.height[-max(1, len(hills) // 20):]))
+    settled = last <= SETTLED_HEIGHT_FRACTION * first if first > 0 else False
+
+    sampled = (None if colvar_values is None
+               else np.asarray(colvar_values, dtype=float))
+    if sampled is not None and sampled.ndim != 2:
+        raise ValueError(
+            "colvar_values for a two-variable run is one column per "
+            f"variable, and an array of shape {sampled.shape} is not that."
+        )
+
+    per_dimension: list[dict[str, Any]] = []
+    reasons: list[str] = []
+    for dim in range(2):
+        profile = marginal_profile(surface, dim, temperature_K=temperature_K)
+        profile_earlier = marginal_profile(
+            earlier, dim, temperature_K=temperature_K)
+
+        # Judged where the profile means something, as in one dimension.
+        judged = profile <= DRIFT_CEILING_KJMOL
+        if not judged.any():
+            judged = np.ones_like(profile, dtype=bool)
+        drift = float(np.max(np.abs(profile - profile_earlier)[judged]))
+
+        two_basins = basins(grid[dim], profile, periodic=periodic[dim])
+        crossed: int | None = None
+        if sampled is not None and sampled.shape[0]:
+            values = sampled[:, dim]
+            if two_basins is not None:
+                crossed = transitions(
+                    values, between=two_basins, periodic=periodic[dim])
+            elif True:
+                low, high = float(np.min(centres)), float(np.max(centres))
+                span = high - low
+                crossed = recrossings(
+                    values, low=low + 0.25 * span, high=high - 0.25 * span)
+
+        centres = hills.column(dim)
+        travelled = float(np.max(centres) - np.min(centres))
+        typical_width = float(np.median(hills.sigma_column(dim)))
+        in_widths = (travelled / typical_width
+                     if typical_width > 0 else float("inf"))
+
+        record = {
+            "name": names[dim],
+            "periodic": bool(periodic[dim]),
+            "hill_range": [float(np.min(centres)), float(np.max(centres))],
+            "explored_in_hill_widths": in_widths,
+            "basins": (None if two_basins is None
+                       else [float(x) for x in two_basins]),
+            "drift_kjmol": drift,
+            "recrossings": crossed,
+            "barrier_kjmol": float(np.max(profile)),
+            "marginal": "the other variable integrated out, not minimised over",
+            "recrossings_definition": (
+                (f"travel between the basins at {two_basins[0]:.3g} and "
+                 f"{two_basins[1]:.3g}")
+                if two_basins is not None else
+                ("movement across the middle of the explored range -- the "
+                 "marginal has one minimum, so this says whether the "
+                 "coordinate moved, not whether it changed state, and it "
+                 "is not evidence that a barrier was crossed")),
+        }
+        per_dimension.append(record)
+
+        if in_widths < MINIMUM_EXPLORED_HILL_WIDTHS:
+            reasons.append(
+                f"along {names[dim]} the hills span {in_widths:.1f} hill "
+                f"widths, under the {MINIMUM_EXPLORED_HILL_WIDTHS:g} a "
+                "coordinate has to travel before the surface across it is "
+                "the landscape rather than the shape of the bias"
+            )
+        if two_basins is None:
+            reasons.append(
+                f"along {names[dim]} the surface has a single minimum, so "
+                "there is no second state to cross to and no barrier along "
+                "it has been measured"
+            )
+        if drift > SETTLED_DRIFT_KJMOL:
+            reasons.append(
+                f"along {names[dim]} the surface is still moving: "
+                f"{drift:.1f} kJ/mol between three quarters of the hills and "
+                f"all of them, against {SETTLED_DRIFT_KJMOL} allowed"
+            )
+        if crossed is None:
+            reasons.append(
+                f"along {names[dim]} no trajectory of the variable was given, "
+                "so whether the system ever came back is unknown"
+            )
+        elif two_basins is not None and crossed < minimum_recrossings:
+            reasons.append(
+                f"along {names[dim]} the system crossed {crossed} time(s), "
+                f"against {minimum_recrossings} needed for a barrier to be a "
+                "measurement rather than an anecdote"
+            )
+
+    if not settled:
+        reasons.append(
+            f"the hills have not flattened: the last are {last:.3g} kJ/mol "
+            f"against {first:.3g} at the start, and a bias still growing is "
+            "a snapshot of a filling process rather than a landscape"
+        )
+
+    evidence = {
+        "hills": len(hills),
+        "bias_factor": hills.bias_factor,
+        "first_hill_height_kjmol": first,
+        "last_hill_height_kjmol": last,
+        "temperature_K": float(temperature_K),
+        "per_dimension": per_dimension,
+        "barrier_kjmol": float(np.max(surface)),
+    }
+
+    return {
+        "surface": surface,
+        "axes": [axis.tolist() for axis in grid],
+        "evidence": evidence,
+        "refused": (None if not reasons else
+                    "This surface is not a measurement: " + "; ".join(reasons)
+                    + "."),
     }
