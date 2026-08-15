@@ -513,6 +513,28 @@ class AnalysisOrchestrator:
                 or (parent / "simulation" / "steered_work.json").is_file()
                 for parent in (here, here.parent))
 
+        def _amide_ok(name: str) -> bool:
+            """An N--H order parameter needs the H.
+
+            A structure prepared without hydrogens has no amide vector to
+            measure, and neither does a united-atom model. Refusing at
+            compute time turned "this system has no hydrogens" into a
+            failed analysis rather than one the system does not pose a
+            question for, which is the same category error the water gate
+            above exists to avoid.
+            """
+            cls = _REGISTRY[name]
+            if not getattr(cls, "requires_amide_hydrogens", False):
+                return True
+            traj = getattr(self, "traj", None)
+            if traj is None:
+                return True
+            from fastmdxplora.analysis.order_parameters import amide_pairs
+            try:
+                return bool(amide_pairs(traj.topology))
+            except Exception:
+                return False
+
         def _water_ok(name: str) -> bool:
             """Likewise for water. An analysis of where water sits has nothing
             to say about a system with none -- an implicit-solvent run, or a
@@ -545,6 +567,7 @@ class AnalysisOrchestrator:
             return [
                 n for n in all_names
                 if n not in exclude and _ligand_ok(n) and _water_ok(n)
+                and _amide_ok(n)
                 and _umbrella_ok(n) and _metadynamics_ok(n)
                 and _steered_ok(n) and _fold_ok(n)
                 and _alignable(n)
@@ -553,7 +576,8 @@ class AnalysisOrchestrator:
         # Default plan: everything except ligand-only analyses when there is
         # no ligand. With a ligand, the ligand analyses run automatically.
         return [n for n in all_names
-                if _ligand_ok(n) and _water_ok(n) and _umbrella_ok(n)
+                if _ligand_ok(n) and _water_ok(n) and _amide_ok(n)
+                and _umbrella_ok(n)
                 and _metadynamics_ok(n) and _steered_ok(n)
                 and _fold_ok(n) and _alignable(n)]
 
