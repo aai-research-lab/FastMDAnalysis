@@ -199,22 +199,31 @@ def _write_metadynamics_surface(output_dir: Path, presenter: Any) -> str | None:
 
     import numpy as np
 
-    from fastmdxplora.simulation.metad_surface import compute_surface
+    from fastmdxplora.simulation.metad_surface import (
+        compute_surface, compute_surface_2d, read_hills)
 
     hills = output_dir / "HILLS"
     if not hills.is_file():
         return None
 
+    try:
+        n_dims = read_hills(hills).n_dims
+    except ValueError:
+        n_dims = 1
+
     colvar = output_dir / "COLVAR"
     sampled = None
     if colvar.is_file():
-        values = [
-            float(line.split()[1])
+        rows = [
+            line.split()
             for line in colvar.read_text(encoding="utf-8").splitlines()
             if line.strip() and not line.lstrip().startswith("#")
-            and len(line.split()) > 1
         ]
-        sampled = np.array(values) if values else None
+        # One column per biased variable, in the order PRINT wrote them.
+        wide = [row[1:1 + n_dims] for row in rows if len(row) > n_dims]
+        if wide:
+            block = np.array(wide, dtype=float)
+            sampled = block[:, 0] if n_dims == 1 else block
 
     try:
         # A torsion is a circle, and the Gaussians have to be summed the
@@ -223,13 +232,29 @@ def _write_metadynamics_surface(output_dir: Path, presenter: Any) -> str | None:
         # and it sits beside the hills it produced. Without this the barrier
         # came out at 60.7 kJ/mol on a run whose periodic value was 30.
         script = output_dir / "plumed.dat"
-        periodic = False
-        if script.is_file():
-            text = script.read_text(encoding="utf-8").upper()
+        text = (script.read_text(encoding="utf-8").upper()
+                if script.is_file() else "")
+        circular = ("TORSION", "ANGLE")
+        if n_dims == 1:
             periodic = any(
                 f"{action}\n" in text or f"{action} " in text
-                for action in ("TORSION", "ANGLE"))
-        outcome = compute_surface(hills, sampled, periodic=periodic)
+                for action in circular)
+            outcome = compute_surface(hills, sampled, periodic=periodic)
+        else:
+            # Per variable, from its own definition line. A run biasing a
+            # torsion against a distance is periodic in one and not the
+            # other, and a single flag for both wraps the distance around
+            # a circle it does not live on.
+            import re
+
+            actions = dict(re.findall(
+                r"^\s*(CV\d+)\s*:\s*(\w+)", text, re.MULTILINE))
+            per_dim = tuple(
+                actions.get(f"CV{i + 1}", "") in circular
+                for i in range(n_dims))
+            names = tuple(f"cv{i + 1}" for i in range(n_dims))
+            outcome = compute_surface_2d(
+                hills, sampled, periodic=per_dim, names=names)
     except ValueError as exc:
         outcome = {"surface": None, "grid": None, "refused": str(exc)}
 
@@ -240,10 +265,18 @@ def _write_metadynamics_surface(output_dir: Path, presenter: Any) -> str | None:
         # worth quoting.
         "provisional": bool(outcome.get("provisional")),
         "evidence": outcome.get("evidence"),
+        "dimensions": n_dims,
         "grid": (None if outcome.get("grid") is None
                  else [float(x) for x in outcome["grid"]]),
-        "free_energy_kjmol": (None if outcome.get("surface") is None
-                              else [float(x) for x in outcome["surface"]]),
+        # Two axes and a grid of values, where a one-variable run writes one
+        # axis and a list. Named separately so a reader of the file does not
+        # have to infer the shape from the length.
+        "axes": outcome.get("axes"),
+        "free_energy_kjmol": (
+            None if outcome.get("surface") is None
+            else ([float(x) for x in outcome["surface"]] if n_dims == 1
+                  else [[float(x) for x in row] for row in outcome["surface"]])
+        ),
     }
     written = output_dir / "metadynamics_surface.json"
     written.write_text(json.dumps(record, indent=2), encoding="utf-8")

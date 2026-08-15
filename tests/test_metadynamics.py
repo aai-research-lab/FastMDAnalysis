@@ -219,7 +219,12 @@ class TestItReachesTheRunner:
 
         source = inspect.getsource(runner.run_simulation)
         block = source[source.index("if metadynamics:"):]
-        assert 'plumed = {"enabled": True' in block[:2000]
+        # The whole block rather than its first two thousand characters:
+        # the window was an arbitrary bound that failed the moment the
+        # block grew a branch for two variables, which is a change to the
+        # length of the code and not to what this test is about. The string
+        # appears once after the slice, so the assertion is still specific.
+        assert block.count('plumed = {"enabled": True') == 1
 
 
 class TestBoundingWhereTheLigandGoes:

@@ -751,3 +751,93 @@ class TestASurfaceOverTwoVariablesIsJudgedOneAtATime:
             "0.0 0.5 0.2 1.2 10.0\n", encoding="utf-8")
         with pytest.raises(ValueError, match="compute_surface"):
             compute_surface_2d(path)
+
+
+class TestTheRunWritesATwoVariableSurface:
+    """The pipeline has to notice the file has two columns of variable.
+
+    Reading column one and calling the one-dimensional path would produce
+    a surface along the first variable and silently discard the second,
+    which is worse than failing: the run completes and the record claims a
+    coordinate that was never reconstructed.
+    """
+
+    @staticmethod
+    def _run_dir(tmp_path, *, second_is_torsion=False):
+        import numpy as np
+
+        rng = np.random.RandomState(0)
+        n = 1200
+        heights = 1.2 * np.exp(-np.linspace(0, 3.5, n))
+        a = (np.where(rng.rand(n) < 0.5, -1.0, 1.0)
+             + rng.normal(scale=0.25, size=n))
+        b = (np.where(rng.rand(n) < 0.5, -0.8, 0.8)
+             + rng.normal(scale=0.2, size=n))
+
+        with open(tmp_path / "HILLS", "w") as fh:
+            fh.write("#! FIELDS time cv1 cv2 sigma_cv1 sigma_cv2 "
+                     "height biasf\n")
+            for t, (c1, c2), h in zip(
+                    range(n), np.column_stack([a, b]), heights):
+                fh.write(f"{t * 0.5:.3f} {c1:.5f} {c2:.5f} 0.2000 0.2000 "
+                         f"{h:.6f} 10.0\n")
+        with open(tmp_path / "COLVAR", "w") as fh:
+            fh.write("#! FIELDS time cv1 cv2 metad.bias\n")
+            for t, (c1, c2) in zip(range(n), np.column_stack([a, b])):
+                fh.write(f"{t * 0.5:.3f} {c1:.5f} {c2:.5f} 0.0\n")
+        second = "TORSION ATOMS=5,6,7,8" if second_is_torsion \
+            else "DISTANCE ATOMS=5,6"
+        (tmp_path / "plumed.dat").write_text(
+            f"cv1: TORSION ATOMS=1,2,3,4\ncv2: {second}\n"
+            "metad: METAD ARG=cv1,cv2 SIGMA=0.2,0.2 FILE=HILLS\n",
+            encoding="utf-8")
+        return tmp_path
+
+    def test_it_writes_a_grid_not_a_line(self, tmp_path):
+        import json
+
+        from fastmdxplora.simulation.pipeline import (
+            _write_metadynamics_surface)
+
+        _write_metadynamics_surface(self._run_dir(tmp_path), None)
+        record = json.loads(
+            (tmp_path / "metadynamics_surface.json").read_text())
+
+        assert record["dimensions"] == 2
+        assert len(record["axes"]) == 2
+        assert len(record["free_energy_kjmol"]) == len(record["axes"][0])
+        assert len(record["free_energy_kjmol"][0]) == len(record["axes"][1])
+
+    def test_periodicity_is_read_per_variable(self, tmp_path):
+        """A torsion against a distance is circular in one dimension only.
+
+        One flag for both wraps the distance around a circle it does not
+        live on, and the surface comes out wrong at that edge.
+        """
+        import json
+
+        from fastmdxplora.simulation.pipeline import (
+            _write_metadynamics_surface)
+
+        _write_metadynamics_surface(self._run_dir(tmp_path), None)
+        record = json.loads(
+            (tmp_path / "metadynamics_surface.json").read_text())
+        dims = record["evidence"]["per_dimension"]
+
+        assert dims[0]["periodic"] is True
+        assert dims[1]["periodic"] is False
+
+    def test_both_columns_of_the_trajectory_are_used(self, tmp_path):
+        import json
+
+        from fastmdxplora.simulation.pipeline import (
+            _write_metadynamics_surface)
+
+        _write_metadynamics_surface(self._run_dir(tmp_path), None)
+        record = json.loads(
+            (tmp_path / "metadynamics_surface.json").read_text())
+
+        # A recrossing count in each dimension is only possible if the
+        # trajectory of each variable reached the gate.
+        for dim in record["evidence"]["per_dimension"]:
+            assert dim["recrossings"] is not None and dim["recrossings"] > 0

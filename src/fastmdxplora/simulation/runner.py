@@ -1231,8 +1231,17 @@ def run_simulation(
         # checking a result should be able to read it.
         from fastmdxplora.simulation.metadynamics import (
             build_plumed_script,
+            build_plumed_script_pair,
             plan_from_config,
+            plan_pair_from_config,
         )
+
+        # Variables that are defined against a reference structure. Passing
+        # the reference only for ligand_rmsd left `q` raising "no reference
+        # structure was given" the first time anyone ran it from a config,
+        # because the set of native contacts is fixed by that structure the
+        # same way a reference RMSD is.
+        needs_reference = {"ligand_rmsd", "q"}
 
         # `bias_plan`, not `plan`: `plan` is the stage plan -- a dict of step
         # counts that the rest of this function subscripts. Rebinding it to a
@@ -1241,19 +1250,34 @@ def run_simulation(
         # failed on the first line of use. Thirty-eight tests cover the module
         # and twenty-three the surface; none of them runs the runner, which is
         # where the two names met.
-        bias_plan = plan_from_config(
-            metadynamics, topology, temperature_K=temperature_K)
-        script = build_plumed_script(
-            bias_plan, reference_pdb=str(topology_path)
-            if bias_plan.collective_variable == "ligand_rmsd" else None)
+        if metadynamics.get("variables"):
+            bias_plan = plan_pair_from_config(
+                metadynamics, topology, temperature_K=temperature_K)
+            biased = bias_plan.collective_variables
+            reference = (str(topology_path)
+                         if needs_reference & set(biased) else None)
+            script = build_plumed_script_pair(
+                bias_plan, reference_pdb=reference)
+            described = " and ".join(biased)
+            bias_factor = bias_plan.first.bias_factor
+        else:
+            bias_plan = plan_from_config(
+                metadynamics, topology, temperature_K=temperature_K)
+            reference = (str(topology_path)
+                         if bias_plan.collective_variable in needs_reference
+                         else None)
+            script = build_plumed_script(bias_plan, reference_pdb=reference)
+            described = bias_plan.collective_variable
+            bias_factor = bias_plan.bias_factor
+
         script_path = Path(output_dir) / "metadynamics.plumed"
         script_path.parent.mkdir(parents=True, exist_ok=True)
         script_path.write_text(script, encoding="utf-8")
         logger.info(
             "Metadynamics prepared on %s. %s The bias is applied to "
             "production only; minimisation and equilibration run unbiased.",
-            bias_plan.collective_variable,
-            "Well-tempered." if bias_plan.bias_factor > 1 else
+            described,
+            "Well-tempered." if bias_factor > 1 else
             "Not well-tempered: the bias will not settle and the surface "
             "will not converge.",
         )
