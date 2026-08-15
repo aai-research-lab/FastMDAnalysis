@@ -696,10 +696,44 @@ class BatchExplorer:
         # Only write a batch manifest when there's actually a batch.
         if not self.is_single:
             self._write_batch_manifest()
+            self._maybe_aggregate_members()
             self._maybe_build_comparison()
             self._maybe_build_pmf()
             self._print_summary()
         return list(self.results)
+
+    # ------------------------------------------------------------------
+    def _maybe_aggregate_members(self) -> None:
+        """One table across the members, written beside the manifest.
+
+        Separate from the comparison report, which overlays series. This
+        collects what each member concluded -- its settled means and the
+        error it claimed for them -- and, for a seed sweep, sets those
+        errors against the spread the replicas actually show. That
+        comparison is the only check a reported uncertainty gets.
+        """
+        import json as _json
+
+        from fastmdxplora.batch.aggregate import aggregate_members
+
+        try:
+            summary = aggregate_members(self.output_dir)
+        except Exception as exc:  # noqa: BLE001 - a summary must not
+            # take the campaign down with it: every member's own results
+            # are already on disk and are the thing worth keeping.
+            logger.warning("Could not aggregate members: %s", exc)
+            return
+
+        destination = Path(self.output_dir) / "members.json"
+        destination.write_text(
+            _json.dumps(summary, indent=2), encoding="utf-8")
+
+        if summary.get("refused"):
+            return
+        for name, entry in summary.get("analyses", {}).items():
+            note = entry.get("calibration")
+            if note and "too tight" in note:
+                logger.warning("%s: %s", name, note)
 
     # ------------------------------------------------------------------
     def _maybe_prepare_once(self, include, exclude) -> Path | None:
