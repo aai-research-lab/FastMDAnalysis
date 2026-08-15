@@ -46,6 +46,11 @@ ANALYSIS_NAMES = (
     "rmsd", "rmsf", "rg", "hbonds", "ss", "sasa", "dihedrals", "qvalue",
     "cluster", "dimred", "water_sites", "ligand_rmsd", "ligand_rmsf",
     "pl_contacts", "pl_hbonds", "pl_interactions",
+    # Measured against experiment rather than against the trajectory alone:
+    # the first is what NMR relaxation reports, the second what a crystal's
+    # B-factors imply. Each runs only where the system supplies what it
+    # needs -- amide hydrogens, and a deposited file that has B-factors.
+    "order_parameters", "bfactor_comparison",
     # Reads the umbrella study's result rather than the trajectory, and runs
     # only where such a study produced one.
     "pmf",

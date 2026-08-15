@@ -113,6 +113,11 @@ class BFactorComparison(Analysis):
     the RMSF implied by the deposited B-factor.
     """
 
+    #: As for every analysis that superposes: three atoms is the fewest
+    #: that define a frame, and declaring it lets the orchestrator leave
+    #: this out of a molecule too small rather than run it to failure.
+    min_atoms_to_align = 3
+
     #: Only where a deposited structure with real B-factors was found. A
     #: run built from a generated or minimised coordinate file poses no
     #: question here rather than failing to answer one.
@@ -176,7 +181,14 @@ class BFactorComparison(Analysis):
             )
 
         aligned = traj.superpose(traj, frame=0, atom_indices=align_idx)
-        alpha = traj.topology.select("name CA and protein")
+        # Alpha carbons within the scope selection: comparing a chain the
+        # study excluded would report a correlation over residues it was
+        # not asked about.
+        scope = set(int(i) for i in self.select_atoms(traj))
+        alpha = np.array([
+            int(i) for i in traj.topology.select("name CA and protein")
+            if int(i) in scope
+        ], dtype=int)
         if len(alpha) == 0:
             raise ValueError(
                 "No alpha carbons in the selection, so there is no "

@@ -68,7 +68,8 @@ AMIDE_H_NAMES = ("H", "HN")
 HALVES_TOLERANCE = 0.02
 
 
-def amide_pairs(topology: md.Topology) -> list[tuple[int, int, int]]:
+def amide_pairs(topology: md.Topology,
+                atom_indices: Any = None) -> list[tuple[int, int, int]]:
     """Backbone N and its amide hydrogen, per residue that has one.
 
     Returns (nitrogen index, hydrogen index, residue index).
@@ -80,6 +81,8 @@ def amide_pairs(topology: md.Topology) -> list[tuple[int, int, int]]:
     charged amino group whose hydrogens are not the amide proton the
     measurement is about.
     """
+    eligible = (None if atom_indices is None
+                else {int(i) for i in atom_indices})
     pairs: list[tuple[int, int, int]] = []
     for residue in topology.residues:
         if residue.name == "PRO":
@@ -93,8 +96,12 @@ def amide_pairs(topology: md.Topology) -> list[tuple[int, int, int]]:
                 nitrogen = atom.index
             elif atom.name in AMIDE_H_NAMES:
                 hydrogen = atom.index
-        if nitrogen is not None and hydrogen is not None:
-            pairs.append((nitrogen, hydrogen, residue.index))
+        if nitrogen is None or hydrogen is None:
+            continue
+        if eligible is not None and not (
+                nitrogen in eligible and hydrogen in eligible):
+            continue
+        pairs.append((nitrogen, hydrogen, residue.index))
     return pairs
 
 
@@ -152,6 +159,12 @@ class OrderParameters(Analysis):
     ``order_parameters.png`` -- S^2 against residue number.
     """
 
+    #: Superposition needs a frame to define, and three atoms is the
+    #: fewest that define one. Declared rather than only checked, because
+    #: the orchestrator reads it at plan time and leaves the analysis out
+    #: of a molecule too small to align, instead of running it to failure.
+    min_atoms_to_align = 3
+
     #: A system without amide hydrogens poses no question here, rather
     #: than posing one this fails to answer. See the water gate in the
     #: orchestrator for the category this belongs to.
@@ -183,7 +196,11 @@ class OrderParameters(Analysis):
         )
 
     def compute(self, traj: md.Trajectory) -> np.ndarray:
-        pairs = amide_pairs(traj.topology)
+        # The scope selection restricts which amides are measured, which is
+        # how a study asks for one chain of several. The alignment set is a
+        # separate choice, because what is measured and what the frame is
+        # defined by are different questions.
+        pairs = amide_pairs(traj.topology, self.select_atoms(traj))
         if not pairs:
             raise ValueError(
                 "No backbone amide N--H pairs were found, so there are no "
