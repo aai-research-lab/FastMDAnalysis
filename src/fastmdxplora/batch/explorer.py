@@ -834,12 +834,30 @@ class BatchExplorer:
             payload = {"pmf": None, "refused": str(exc),
                        "plan": plan.as_record()}
         else:
-            payload = compute_pmf(
-                samples, plan,
-                temperature_K=float(
-                    ((self._raw or {}).get("simulation") or {})
-                    .get("temperature_K", 300.0)))
+            temperature = float(
+                ((self._raw or {}).get("simulation") or {})
+                .get("temperature_K", 300.0))
+            payload = compute_pmf(samples, plan, temperature_K=temperature)
             payload["plan"] = plan.as_record()
+
+            # A binding free energy only where there is a free energy to
+            # take it from. The overlap and sampling gates decide that, and
+            # this sits behind them rather than beside them: a number
+            # integrated over a curve stitched across a gap would be the
+            # most quotable thing the study produced and the least
+            # supported. Attempted only for a ligand-distance coordinate,
+            # since the standard-state correction is about the volume a
+            # ligand gives up and means nothing along a torsion.
+            if payload.get("pmf") and plan.collective_variable in (
+                    "ligand_distance", "distance"):
+                from fastmdxplora.simulation.binding import (
+                    binding_free_energy)
+
+                payload["binding"] = binding_free_energy(
+                    payload["pmf"]["coordinate"],
+                    payload["pmf"]["free_energy_kjmol"],
+                    temperature_K=temperature,
+                )
 
         destination = Path(self.output_dir) / "pmf.json"
         destination.write_text(json.dumps(payload, indent=2), encoding="utf-8")
