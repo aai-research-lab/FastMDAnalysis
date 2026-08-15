@@ -673,17 +673,38 @@ class TestQValueFollowsThePaperItCites:
 
     @staticmethod
     def _reference_q(traj, cutoff=0.45, beta=50.0, lam=1.8, sep=4):
-        """The formula as published, written out independently."""
-        pairs = np.column_stack(np.triu_indices(traj.n_residues, k=sep))
-        distances, _ = md.compute_contacts(
-            traj, contacts=pairs, scheme="closest-heavy")
-        native = distances[0] < cutoff
-        r0 = distances[0][native]
-        return (
-            1.0 / (1.0 + np.exp(beta * (distances[:, native] - lam * r0)))
-        ).mean(axis=1)
+        """The formula as published, written out independently.
+
+        S is over pairs of heavy atoms, which is the part that was wrong
+        here for as long as this test agreed with the code: the earlier
+        version of both counted one closest-heavy distance per residue
+        pair, so the test restated the implementation's choice rather than
+        the paper's and could not see the difference. On this fixture the
+        two readings stand 0.263 apart at their worst frame.
+        """
+        from itertools import combinations
+
+        heavy = traj.topology.select_atom_indices("heavy")
+        pairs = np.array([
+            (i, j) for (i, j) in combinations(heavy, 2)
+            if abs(traj.topology.atom(i).residue.index
+                   - traj.topology.atom(j).residue.index) >= sep
+        ])
+        d0 = md.compute_distances(traj[0], pairs)[0]
+        native = pairs[d0 < cutoff]
+        r0 = md.compute_distances(traj[0], native)[0]
+        r = md.compute_distances(traj, native)
+        return (1.0 / (1.0 + np.exp(beta * (r - lam * r0)))).mean(axis=1)
 
     def test_it_matches_the_published_formula(self) -> None:
+        """Against the enumeration MDTraj's own documentation publishes.
+
+        The reference builds S by enumerating every heavy-atom combination
+        and discarding what falls outside the cutoff; the implementation
+        reaches the same set through a neighbour search, because on a real
+        protein the enumeration holds millions of pairs to keep thousands.
+        Agreement here is what makes the two interchangeable.
+        """
         from fastmdxplora.analysis.qvalue import QValue
 
         traj = self._hairpin()
@@ -692,6 +713,20 @@ class TestQValueFollowsThePaperItCites:
             self._reference_q(traj),
             atol=1e-6,
         )
+
+    def test_the_residue_reading_is_available_and_is_not_the_paper_s(self) -> None:
+        """Both measures are defensible; only one is comparable with the
+        literature, so the coarser one has to be asked for by name."""
+        from fastmdxplora.analysis.qvalue import QValue
+
+        traj = self._hairpin()
+        published = QValue(selection="all").compute(traj)
+        residue = QValue(
+            selection="all", scheme="residue-closest-heavy").compute(traj)
+
+        assert np.abs(published - residue).max() > 0.2
+        assert QValue().scheme == "heavy-atom-pairs"
+        assert QValue().options["scheme"] == "heavy-atom-pairs"
 
     def test_a_contact_is_judged_against_its_own_native_distance(self) -> None:
         """Not against one number shared by every pair.
@@ -704,15 +739,17 @@ class TestQValueFollowsThePaperItCites:
         """
         from fastmdxplora.analysis.qvalue import QValue
 
+        analysis = QValue(selection="all")
         traj = self._hairpin()
-        q = QValue(selection="all").compute(traj)
+        q = analysis.compute(traj)
 
-        # The same trajectory, scored by the threshold this used to apply.
-        pairs = np.column_stack(np.triu_indices(traj.n_residues, k=4))
-        distances, _ = md.compute_contacts(
-            traj, contacts=pairs, scheme="closest-heavy")
-        native = distances[0] < 0.45
-        threshold = (distances[:, native] < 0.45).sum(axis=1) / native.sum()
+        # The same contacts, scored by the threshold this used to apply.
+        # Scoring the same S is the point: comparing a switching function on
+        # atom pairs against a threshold on residue pairs would confound two
+        # differences and demonstrate neither.
+        pair_idx, _ = analysis._native_atom_pairs(traj, 0)
+        d = md.compute_distances(traj, pair_idx)
+        threshold = (d < 0.45).sum(axis=1) / len(pair_idx)
 
         # Both read as folded at the reference. The switching function sits a
         # little under 1 even there, which is inherent to it: a contact at its
@@ -720,11 +757,14 @@ class TestQValueFollowsThePaperItCites:
         # smooth, so it never quite saturates.
         assert q[0] > 0.99 and threshold[0] == 1.0
 
-        # The difference is in how the fold comes apart. The threshold reaches
-        # zero while contacts are still within lambda of where they started.
-        assert threshold[-1] == 0.0
-        assert q[-1] > 0.25, "the paper's measure still sees the fold"
-        assert q[-1] > threshold[-1] + 0.25
+        # The difference is in how the fold comes apart. Take the first frame
+        # at which the threshold declares every native contact broken, and
+        # ask what the paper's measure reads there.
+        gone = int(np.argmax(threshold == 0.0))
+        assert threshold[gone] == 0.0
+        assert q[gone] > 0.4, (
+            "the threshold calls the fold entirely gone while the paper's "
+            "measure still finds most of it")
 
     def test_the_defaults_are_the_paper_s(self) -> None:
         from fastmdxplora.analysis.qvalue import QValue

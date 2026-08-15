@@ -59,3 +59,13 @@ private_reports/
 # data, and `git add -A` during a run would commit a directory being written to.
 runs/
 run/
+
+# Release artifacts that live beside a working copy rather than in it.
+# A container image is 1.26 GB and GitHub refuses any file over 100 MB, so
+# `git add -A` in a directory where one has been downloaded produces a
+# commit that cannot be pushed and has to be unwound. Ignoring them here
+# costs nothing: they are attached to releases, not tracked in the tree.
+*.sif
+*.tgz
+*.tar.gz
+*.whl
