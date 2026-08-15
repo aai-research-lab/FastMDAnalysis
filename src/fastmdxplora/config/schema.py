@@ -196,6 +196,22 @@ SETUP = PhaseSchema(
               "saying so.",
               choices=("auto", "drop", "keep"),
               example="drop"),
+        Field("mutations", list, None,
+              "Point substitutions to make before anything else, written "
+              "either as L99A or as LEU-99-ALA. The original residue is "
+              "checked against the structure and setup stops where it does "
+              "not match, because a mutation written against one "
+              "construct's numbering would otherwise silently replace "
+              "whatever sits at that position. The replacement side chain "
+              "is placed geometrically rather than modelled, so a mutant "
+              "needs its equilibration watched more closely than a "
+              "deposited structure does.",
+              example=["L99A"]),
+        Field("mutation_chain", str, None,
+              "Which chain the mutations apply to. The first chain when "
+              "not given, which is what a single-chain structure means; "
+              "name it explicitly for anything else.",
+              example="A"),
         Field("protonation_margin", float, 1.0,
               "How close a ligand's pKa may come to the pH before setup stops "
               "rather than pick a charge state. The default is about the "
@@ -695,7 +711,8 @@ SETTING_GROUPS: dict[str, tuple[tuple[str, str, tuple[str, ...]], ...]] = {
          "What is kept, what is repaired, and how it is protonated.",
          ("ph", "protonation_margin", "heterogens", "keep_heterogens",
           "keep_water", "replace_nonstandard_residues",
-          "chains", "build_missing_termini", "fixed_pdb")),
+          "chains", "build_missing_termini", "fixed_pdb",
+          "mutations", "mutation_chain")),
         ("The ligand",
          "Found and parameterised, or named if the structure is ambiguous.",
          ("ligand", "ligand_name", "ligand_forcefield", "ligand_net_charge",

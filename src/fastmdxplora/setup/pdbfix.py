@@ -227,11 +227,101 @@ def _drop_terminal_extensions(fixer, *, build_termini: bool = False) -> None:
     fixer.missingResidues = kept
 
 
+#: One-letter to three-letter, for reading the convention people write
+#: mutations in. PDBFixer wants three letters "to avoid possible
+#: ambiguities", which is the same reason this refuses anything it cannot
+#: place in the table rather than guessing.
+ONE_TO_THREE = {
+    "A": "ALA", "R": "ARG", "N": "ASN", "D": "ASP", "C": "CYS",
+    "Q": "GLN", "E": "GLU", "G": "GLY", "H": "HIS", "I": "ILE",
+    "L": "LEU", "K": "LYS", "M": "MET", "F": "PHE", "P": "PRO",
+    "S": "SER", "T": "THR", "W": "TRP", "Y": "TYR", "V": "VAL",
+}
+
+
+def parse_mutation(text: str) -> tuple[str, int, str]:
+    """Read a mutation, in either convention, as (from, number, to).
+
+    Biochemistry writes ``L99A``; PDBFixer wants ``LEU-99-ALA``. Both are
+    accepted, because the first is what appears in every paper about the
+    cavity this was written for and the second is what the library
+    underneath needs.
+    """
+    cleaned = text.strip().upper()
+    if "-" in cleaned:
+        parts = cleaned.split("-")
+        if len(parts) != 3 or not parts[1].isdigit():
+            raise ValueError(
+                f"{text!r} is not a mutation. The long form is "
+                "ORIGINAL-NUMBER-NEW, as in LEU-99-ALA."
+            )
+        return parts[0], int(parts[1]), parts[2]
+
+    if len(cleaned) < 3 or not cleaned[0].isalpha() \
+            or not cleaned[-1].isalpha():
+        raise ValueError(
+            f"{text!r} is not a mutation. The short form is a one-letter "
+            "original, a residue number and a one-letter replacement, as in "
+            "L99A."
+        )
+    digits = cleaned[1:-1]
+    if not digits.isdigit():
+        raise ValueError(
+            f"{text!r} is not a mutation: {digits!r} is not a residue number."
+        )
+    for letter in (cleaned[0], cleaned[-1]):
+        if letter not in ONE_TO_THREE:
+            raise ValueError(
+                f"{text!r} names {letter!r}, which is not one of the twenty "
+                "amino acids. Write the three-letter form if the residue is "
+                "nonstandard."
+            )
+    return ONE_TO_THREE[cleaned[0]], int(digits), ONE_TO_THREE[cleaned[-1]]
+
+
+def _check_mutation_matches(topology, chain_id: str,
+                            original: str, number: int, text: str) -> None:
+    """That the residue being replaced is the one the study named.
+
+    PDBFixer applies what it is told. A study asking for L99A against a
+    structure numbered from a different construct would mutate whatever
+    sits at 99, quietly, and every result afterwards would describe a
+    protein nobody meant to simulate. The residue number is the part most
+    likely to be wrong, because it travels between constructs and
+    depositions while the name does not.
+    """
+    for chain in topology.chains():
+        if str(chain.id) != str(chain_id):
+            continue
+        for residue in chain.residues():
+            if int(residue.id) == number:
+                if residue.name.upper() != original:
+                    raise ValueError(
+                        f"{text} asks to replace {original} at {number} of "
+                        f"chain {chain_id}, but that position holds "
+                        f"{residue.name}. Either the numbering differs from "
+                        "the one the mutation was written against, or the "
+                        "mutation names the wrong residue; applying it "
+                        "either way would simulate a protein nobody chose."
+                    )
+                return
+        raise ValueError(
+            f"{text} names residue {number} of chain {chain_id}, which this "
+            "structure does not contain."
+        )
+    raise ValueError(
+        f"{text} names chain {chain_id!r}, which this structure does not "
+        "contain."
+    )
+
+
 def fix_pdb_with_pdbfixer(
     input_pdb: str,
     output_pdb: str,
     *,
     ph: float = 7.0,
+    mutations: "tuple[str, ...] | list[str]" = (),
+    mutation_chain: str | None = None,
     build_missing_termini: bool = False,
     keep_heterogens: bool = False,
     keep_water: bool = False,
@@ -297,6 +387,38 @@ def fix_pdb_with_pdbfixer(
     logger.info("Fixing PDB with PDBFixer: %s (pH=%s)", inp, ph)
 
     fixer = PDBFixer(filename=str(inp))
+
+    # Before anything is removed or rebuilt, because a mutation is stated
+    # against the deposited numbering and removeHeterogens can renumber
+    # nothing but findMissingResidues can rebuild into the gap a mutation
+    # was meant to sit in.
+    if mutations:
+        chain_id = mutation_chain
+        if chain_id is None:
+            first = next(iter(fixer.topology.chains()), None)
+            if first is None:
+                raise ValueError(
+                    "A mutation was asked for and the structure has no "
+                    "chains to apply it to."
+                )
+            chain_id = str(first.id)
+
+        applied = []
+        for text in mutations:
+            original, number, replacement = parse_mutation(str(text))
+            _check_mutation_matches(
+                fixer.topology, chain_id, original, number, str(text))
+            applied.append(f"{original}-{number}-{replacement}")
+
+        logger.info(
+            "Mutating chain %s: %s. The replacement side chain is placed "
+            "geometrically, not modelled: PDBFixer's own documentation says "
+            "it cannot guarantee a good model, so equilibration is doing "
+            "more work here than it does for a deposited structure.",
+            chain_id, ", ".join(applied),
+        )
+        fixer.applyMutations(applied, chain_id)
+
     if not keep_heterogens:
         removed = _heterogen_residue_counts(fixer.topology)
         with _protect_capping_groups(fixer.topology) as caps:

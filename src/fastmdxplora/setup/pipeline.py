@@ -823,6 +823,8 @@ def run(
                 explained=tuple(params.get("_explained_heterogens", ())),
                 replace_nonstandard=bool(params["replace_nonstandard_residues"]),
                 build_missing_termini=bool(params.get("build_missing_termini", False)),
+                mutations=tuple(params.get("mutations") or ()),
+                mutation_chain=params.get("mutation_chain"),
             )
             artifacts.append("prepared.pdb")
             if presenter:
