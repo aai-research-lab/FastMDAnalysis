@@ -57,6 +57,83 @@ from fastmdxplora.analysis.base import Analysis
 from fastmdxplora.analysis.orchestrator import register_analysis
 
 
+def native_contact_pairs(
+    traj: md.Trajectory,
+    *,
+    ref: int = 0,
+    cutoff: float = 0.45,
+    min_seq_separation: int = 4,
+    atom_indices: Any = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """The published S: heavy-atom pairs in contact in the reference frame.
+
+    Returns the pairs in ``traj``'s own atom indexing, together with the
+    distance each pair had in the reference.
+
+    This is module-level rather than a method because two callers need the
+    same answer: the analysis that reports Q, and the collective variable
+    that biases it. A CV built from a separately written contact set would
+    bias one quantity and report another, and the disagreement would look
+    like a sampling problem rather than a definition problem.
+
+    Built from a neighbour search rather than from every pair of heavy
+    atoms. The reference implementation enumerates all combinations and
+    then discards those beyond the cutoff, which on a real protein means
+    holding millions of pairs to keep some thousands; only pairs already
+    within the cutoff can be native contacts, so the search asks for those
+    directly and the enumeration never happens.
+    """
+    top = traj.topology
+    # A separation no pair of residues in this chain can satisfy is a
+    # configuration error, not an unfolded reference, and the two have to
+    # be told apart: returning nothing for both would answer "there is no
+    # fold here" to a question that was never asked properly.
+    if traj.n_residues <= min_seq_separation:
+        raise ValueError(
+            f"No residue pairs satisfy min_seq_separation="
+            f"{min_seq_separation} in a trajectory with "
+            f"{traj.n_residues} residues."
+        )
+
+    eligible = (set(int(i) for i in atom_indices)
+                if atom_indices is not None else None)
+    heavy = np.array(
+        [a.index for a in top.atoms
+         if a.element.symbol != "H"
+         and (eligible is None or a.index in eligible)],
+        dtype=int,
+    )
+    if len(heavy) < 2:
+        return np.empty((0, 2), dtype=int), np.empty(0)
+
+    residue_of = np.array(
+        [top.atom(int(i)).residue.index for i in heavy], dtype=int)
+    frame = traj[ref]
+
+    pairs: list[tuple[int, int]] = []
+    # compute_neighbors works one query set at a time; asking per atom keeps
+    # the memory flat and is fast enough for a single frame.
+    for pos, atom in enumerate(heavy):
+        candidates = heavy[pos + 1:]
+        if len(candidates) == 0:
+            break
+        far_enough = (
+            np.abs(residue_of[pos + 1:] - residue_of[pos])
+            >= min_seq_separation
+        )
+        candidates = candidates[far_enough]
+        if len(candidates) == 0:
+            continue
+        probe = np.column_stack([np.full(len(candidates), atom), candidates])
+        within = md.compute_distances(frame, probe)[0] < cutoff
+        pairs.extend((int(atom), int(other)) for other in candidates[within])
+
+    if not pairs:
+        return np.empty((0, 2), dtype=int), np.empty(0)
+    pair_idx = np.array(pairs, dtype=int)
+    return pair_idx, md.compute_distances(frame, pair_idx)[0]
+
+
 class QValue(Analysis):
     """Fraction of native contacts retained per frame.
 
@@ -152,68 +229,13 @@ class QValue(Analysis):
     def _native_atom_pairs(
         self, traj: md.Trajectory, ref: int
     ) -> tuple[np.ndarray, np.ndarray]:
-        """The published S: heavy-atom pairs in contact in the reference.
-
-        Built from a neighbour search rather than from every pair of heavy
-        atoms. The reference implementation enumerates all combinations and
-        then discards those beyond the cutoff, which on a real protein means
-        holding millions of pairs to keep some thousands; only pairs already
-        within the cutoff can be native contacts, so the search asks for
-        those directly and the enumeration never happens.
-        """
-        top = traj.topology
-        # A separation no pair of residues in this chain can satisfy is a
-        # configuration error, not an unfolded reference, and the two have
-        # to be told apart: returning NaN for both would answer "there is no
-        # fold here" to a question that was never asked properly. The
-        # residue-pair path has always raised here; the atom-pair path must
-        # too, or the same mistake changes its diagnosis with the scheme.
-        if traj.n_residues <= self.min_seq_separation:
-            raise ValueError(
-                f"No residue pairs satisfy "
-                f"min_seq_separation={self.min_seq_separation} in a "
-                f"trajectory with {traj.n_residues} residues."
-            )
-
-        heavy = np.array(
-            [a.index for a in top.atoms if a.element.symbol != "H"],
-            dtype=int,
+        """This analysis's S, from the shared definition."""
+        return native_contact_pairs(
+            traj,
+            ref=ref,
+            cutoff=self.cutoff,
+            min_seq_separation=self.min_seq_separation,
         )
-        if len(heavy) < 2:
-            return np.empty((0, 2), dtype=int), np.empty(0)
-
-        residue_of = np.array(
-            [top.atom(int(i)).residue.index for i in heavy], dtype=int)
-        frame = traj[ref]
-
-        pairs: list[tuple[int, int]] = []
-        # compute_neighbors works one query set at a time; asking per atom
-        # keeps the memory flat and is fast enough for a single frame.
-        for pos, atom in enumerate(heavy):
-            candidates = heavy[pos + 1:]
-            if len(candidates) == 0:
-                break
-            far_enough = (
-                np.abs(residue_of[pos + 1:] - residue_of[pos])
-                >= self.min_seq_separation
-            )
-            candidates = candidates[far_enough]
-            if len(candidates) == 0:
-                continue
-            probe = np.column_stack(
-                [np.full(len(candidates), atom), candidates])
-            d = md.compute_distances(frame, probe)[0]
-            within = d < self.cutoff
-            pairs.extend(
-                (int(atom), int(other))
-                for other in candidates[within]
-            )
-
-        if not pairs:
-            return np.empty((0, 2), dtype=int), np.empty(0)
-        pair_idx = np.array(pairs, dtype=int)
-        r0 = md.compute_distances(frame, pair_idx)[0]
-        return pair_idx, r0
 
     def compute(self, traj: md.Trajectory) -> np.ndarray:
         """Compute Q per frame.

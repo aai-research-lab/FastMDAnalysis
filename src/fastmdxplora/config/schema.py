@@ -518,7 +518,7 @@ SIMULATION = PhaseSchema(
               "Metadynamics from a named collective variable, without "
               "writing PLUMED input. A block with `collective_variable` "
               "(distance, angle, torsion, radius_of_gyration, coordination, "
-              "membrane_depth, ligand_distance or ligand_rmsd), the "
+              "membrane_depth, q, ligand_distance or ligand_rmsd), the "
               "selections it needs, and `sigma` -- "
               "the hill width, roughly the size of the fluctuations within a "
               "single state. Well-tempered by default, because plain "

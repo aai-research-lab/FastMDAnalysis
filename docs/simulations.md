@@ -160,10 +160,15 @@ simulation:
       upper: 2.5          # nm; see "Bounding where the ligand goes" below
 ```
 
-Eight are available: `ligand_rmsd`, `ligand_distance`, `distance`, `angle`,
-`torsion`, `radius_of_gyration`, `coordination` and `membrane_depth`. The last
-measures how deep a group sits in a bilayer, and is the one to reach for on a
-membrane system. The block becomes PLUMED input, written to
+Nine are available: `ligand_rmsd`, `ligand_distance`, `distance`, `angle`,
+`torsion`, `radius_of_gyration`, `coordination`, `membrane_depth` and `q`.
+`membrane_depth` measures how deep a group sits in a bilayer, and is the one to
+reach for on a membrane system. `q` is the fraction of a reference structure's
+native contacts, the standard folding coordinate, and it needs a reference
+structure the way `ligand_rmsd` does: the set of contacts is fixed by that
+structure. It is biased over exactly the contacts the `qvalue` analysis
+measures, so the coordinate a surface is drawn along is the one the run
+reports. The block becomes PLUMED input, written to
 `metadynamics.plumed` beside the results, and the existing PLUMED integration
 runs it. Anything more elaborate is still written by hand and passed as
 `plumed`, as before -- this is a shorter path to the common case, not a
@@ -190,6 +195,7 @@ So each variable states what it does **not** separate:
 | `angle` | a hinge open from a hinge closed | the two ways of reaching the same angle — an angle has no sign, and a torsion does |
 | `coordination` | bound from unbound, without breaking when the ligand rotates | one close contact from several distant ones, which is the price of that robustness |
 | `membrane_depth` | how deeply something sits in a bilayer, measured against the bilayer's own centre | the two leaflets, unless the sign is kept, or headgroups from passage through them |
+| `q` | folded from unfolded, through hundreds of contacts at once rather than one distance | two structures keeping the same contacts in a different arrangement, and anything the reference does not contain — a contact formed only when unfolded is invisible to it |
 
 `coordination` is the second most used variable after `distance`, and
 `membrane_depth` is measured against the bilayer's own centre rather than a

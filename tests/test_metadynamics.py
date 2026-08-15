@@ -444,10 +444,16 @@ class TestTheThreeAddedVariables:
                 "collective_variable": "angle",
                 "selection": "resid 0", "sigma": 0.2}, _topology())
 
-    def test_all_eight_say_what_they_do_not_separate(self) -> None:
+    def test_every_variable_says_what_it_does_not_separate(self) -> None:
+        """The count is asserted so that adding one is a decision.
+
+        A variable that arrives without saying what it fails to
+        distinguish is the failure mode of the method shipped as a
+        feature, so the check is on every entry rather than on new ones.
+        """
         from fastmdxplora.simulation.metadynamics import COLLECTIVE_VARIABLES
 
-        assert len(COLLECTIVE_VARIABLES) == 8
+        assert len(COLLECTIVE_VARIABLES) == 9
         for name, description in COLLECTIVE_VARIABLES.items():
             assert "oes not" in description, name
 
@@ -527,3 +533,174 @@ class TestTheStagePlanSurvivesTheBiasPlan:
         # assignment from a *_from_config factory may bind the bare name.
         for match in re.finditer(r"^\s+plan = (\w+)\(", source, re.M):
             assert not match.group(1).endswith("_from_config"), match.group(0)
+
+
+class TestQBiasesTheSameThingItReports:
+    """The CV and the analysis have to share one definition of S.
+
+    A collective variable built from its own contact set would bias one
+    quantity while every reported Q described another, and a free energy
+    would come out along a coordinate no number in the run corresponds to.
+    That disagreement reads as a sampling problem, which is the expensive
+    way to discover it, so these tests check the emitted PLUMED against
+    the analysis rather than against a copy of the formula.
+    """
+
+    @staticmethod
+    def _hairpin(n_frames: int = 60, peel: float = 0.5, noise: float = 0.01):
+        import mdtraj as md
+        import numpy as np
+
+        rng = np.random.RandomState(3)
+        top = md.Topology()
+        chain = top.add_chain()
+        for i in range(14):
+            res = top.add_residue("ALA", chain, resSeq=i + 1)
+            top.add_atom("CA", md.element.carbon, res)
+            top.add_atom("CB", md.element.carbon, res)
+        pos = []
+        for i in range(7):
+            pos += [[i * 0.38, 0.0, 0.0], [i * 0.38, 0.15, 0.0]]
+        for i in range(7):
+            pos += [[(6 - i) * 0.38, 0.42, 0.0], [(6 - i) * 0.38, 0.27, 0.0]]
+        xyz = np.tile(np.array(pos)[None], (n_frames, 1, 1))
+        xyz[:, 14:, 1] += np.linspace(0.0, peel, n_frames)[:, None]
+        xyz += rng.normal(scale=noise, size=xyz.shape)
+        return md.Trajectory(xyz=xyz.astype(np.float32), topology=top)
+
+    @staticmethod
+    def _parse(script: str):
+        import re
+
+        import numpy as np
+
+        rows = re.findall(
+            r"ATOMS\d+=(\d+),(\d+)\s+SWITCH\d+=\{Q R_0=\S+ BETA=(\S+) "
+            r"LAMBDA=(\S+) REF=(\S+)\}\s+WEIGHT\d+=(\S+)",
+            script,
+        )
+        assert rows, "no Q contacts found in the emitted script"
+        return (
+            np.array([[int(r[0]) - 1, int(r[1]) - 1] for r in rows]),
+            np.array([float(r[2]) for r in rows]),
+            np.array([float(r[3]) for r in rows]),
+            np.array([float(r[4]) for r in rows]),
+            np.array([float(r[5]) for r in rows]),
+        )
+
+    def _script(self, tmp_path, traj, **spec):
+        from fastmdxplora.simulation.metadynamics import (
+            build_plumed_script, plan_from_config)
+
+        reference = tmp_path / "ref.pdb"
+        traj[0].save_pdb(str(reference))
+        plan = plan_from_config(
+            {"collective_variable": "q", "selection": "all",
+             "sigma": 0.02, **spec},
+            traj.topology,
+        )
+        return plan, build_plumed_script(plan, reference_pdb=str(reference))
+
+    def test_the_emitted_cv_computes_the_analysis_s_q(self, tmp_path) -> None:
+        import mdtraj as md
+        import numpy as np
+
+        from fastmdxplora.analysis.qvalue import QValue
+
+        traj = self._hairpin()
+        _, script = self._script(tmp_path, traj)
+        pairs, beta, lam, r0, weight = self._parse(script)
+
+        # Evaluate what the script says, from the script's own numbers.
+        r = md.compute_distances(traj, pairs)
+        from_script = (
+            weight * (1.0 / (1.0 + np.exp(beta * (r - lam * r0))))
+        ).sum(axis=1)
+
+        # The residual is the reference file's own precision, not the
+        # translation's: PLUMED takes r0 from a PDB, which stores
+        # coordinates to three decimals in Angstroms, so every REF carries
+        # about 1e-4 nm no matter how it is formatted here.
+        assert np.allclose(
+            from_script, QValue(selection="all").compute(traj), atol=2e-4)
+
+    def test_the_weights_make_it_a_fraction(self, tmp_path) -> None:
+        import numpy as np
+
+        traj = self._hairpin()
+        _, script = self._script(tmp_path, traj)
+        *_, weight = self._parse(script)
+        # PLUMED sums weight*s(r); the weights are what turn a count of
+        # contacts into the fraction the name promises.
+        assert np.isclose(weight.sum(), 1.0)
+        assert "  SUM" in script.splitlines()
+
+    def test_it_uses_plumed_s_own_q_switching_function(self, tmp_path) -> None:
+        """Rather than a hand-written CUSTOM sigmoid.
+
+        PLUMED implements this switching function natively and cites the
+        same paper for it, so writing the arithmetic out again would add a
+        second place for the definition to drift.
+        """
+        traj = self._hairpin()
+        _, script = self._script(tmp_path, traj)
+        assert "SWITCH1={Q " in script
+        assert "BETA=50" in script and "LAMBDA=1.8" in script
+
+    def test_atom_numbering_is_plumed_s(self, tmp_path) -> None:
+        """PLUMED counts atoms from one, mdtraj from zero.
+
+        An off-by-one here biases a contact between neighbouring atoms and
+        the run still completes.
+        """
+        import numpy as np
+
+        from fastmdxplora.analysis.qvalue import native_contact_pairs
+
+        traj = self._hairpin()
+        _, script = self._script(tmp_path, traj)
+        pairs, *_ = self._parse(script)
+        expected, _ = native_contact_pairs(traj, ref=0)
+        assert np.array_equal(np.sort(pairs, axis=0), np.sort(expected, axis=0))
+
+    def test_q_without_a_reference_structure_is_refused(self, tmp_path) -> None:
+        import pytest
+
+        from fastmdxplora.simulation.metadynamics import (
+            build_plumed_script, plan_from_config)
+
+        traj = self._hairpin()
+        plan = plan_from_config(
+            {"collective_variable": "q", "selection": "all", "sigma": 0.02},
+            traj.topology,
+        )
+        with pytest.raises(ValueError, match="reference structure"):
+            build_plumed_script(plan, reference_pdb=None)
+
+    def test_a_reference_with_no_contacts_is_refused(self, tmp_path) -> None:
+        """A fraction of nothing is not a coordinate.
+
+        An extended reference has no native contacts, so S is empty and
+        every frame would read the same value: PLUMED would run, deposit
+        hills on a constant, and converge on a surface of one point.
+        """
+        import mdtraj as md
+        import numpy as np
+        import pytest
+
+        traj = self._hairpin()
+        extended = traj[:1]
+        xyz = np.zeros_like(extended.xyz)
+        xyz[0, :, 0] = np.arange(extended.n_atoms) * 2.0
+        stretched = md.Trajectory(xyz=xyz, topology=extended.topology)
+
+        with pytest.raises(ValueError, match="no native contacts"):
+            self._script(tmp_path, stretched)
+
+    def test_the_record_states_the_criteria(self, tmp_path) -> None:
+        traj = self._hairpin()
+        plan, _ = self._script(tmp_path, traj)
+        criteria = plan.as_record()["q_criteria"]
+        assert criteria["cutoff_nm"] == 0.45
+        assert criteria["lambda"] == 1.8
+        assert criteria["min_seq_separation"] == 4

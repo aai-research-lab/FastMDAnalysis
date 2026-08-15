@@ -95,6 +95,18 @@ COLLECTIVE_VARIABLES: dict[str, str] = {
         "has no sign -- a torsion does, and is the right variable where "
         "which way round matters."
     ),
+    "q": (
+        "the fraction of the reference structure's native contacts that are "
+        "still formed, in the sense of Best, Hummer & Eaton (PNAS 2013). The "
+        "standard folding coordinate: it separates folded from unfolded "
+        "through hundreds of contacts at once rather than one distance, so "
+        "it does not mistake a compact wrong structure for the native one "
+        "the way a radius of gyration does. Does not separate two structures "
+        "that keep the same contacts in different arrangements, and says "
+        "nothing about anything the reference does not contain -- a contact "
+        "formed only in the unfolded state is invisible to it, because S is "
+        "fixed by the reference and never grows."
+    ),
     "distance": (
         "the distance between two atom selections, by their centres. The "
         "general case of the ligand distance above. Does not separate two "
@@ -196,6 +208,14 @@ class MetadynamicsPlan:
     #: half-way point rather than a cutoff. 0.3 nm counts a hydrogen bond or
     #: a close contact; 0.5 counts a coordination shell.
     coordination_r0: float = 0.3
+    #: Q's contact criteria, carried so the record says what was biased.
+    #: These are the paper's values; `q_lambda` is how far a contact may
+    #: stretch, as a multiple of the distance it had natively, before it
+    #: stops counting.
+    q_cutoff: float = 0.45
+    q_beta: float = 50.0
+    q_lambda: float = 1.8
+    q_min_seq_separation: int = 4
 
     def as_record(self) -> dict[str, Any]:
         return {
@@ -208,6 +228,14 @@ class MetadynamicsPlan:
             "bias_factor": self.bias_factor,
             "well_tempered": self.bias_factor > 1.0,
             "n_atoms_biased": {k: len(v) for k, v in self.atoms.items()},
+            **({"q_criteria": {
+                "cutoff_nm": self.q_cutoff,
+                "beta_per_nm": self.q_beta,
+                "lambda": self.q_lambda,
+                "min_seq_separation": self.q_min_seq_separation,
+                "contact_count": "stated in the generated PLUMED input, "
+                                 "which is kept beside the run",
+            }} if self.collective_variable == "q" else {}),
             "walls": self.walls.as_record() if self.walls else None,
             "funnel": self.funnel.as_record() if self.funnel else None,
         }
@@ -466,8 +494,15 @@ def plan_from_config(
             "`unbounded: true`."
         )
 
+    if variable == "q":
+        atoms["group"] = select(str(spec.get("selection", "protein")), "Q")
+
     return MetadynamicsPlan(
         collective_variable=variable,
+        q_cutoff=float(spec.get("q_cutoff", 0.45)),
+        q_beta=float(spec.get("q_beta", 50.0)),
+        q_lambda=float(spec.get("q_lambda", 1.8)),
+        q_min_seq_separation=int(spec.get("q_min_seq_separation", 4)),
         walls=walls,
         funnel=funnel,
         atoms=atoms,
@@ -478,6 +513,64 @@ def plan_from_config(
         temperature_K=float(temperature_K),
         coordination_r0=float(spec.get("coordination_r0", 0.3)),
     )
+
+
+def _q_contact_lines(plan: "MetadynamicsPlan",
+                     reference_pdb: str) -> list[str]:
+    """PLUMED for Q, over the same contacts the analysis measures.
+
+    The contact set comes from `analysis.qvalue.native_contact_pairs`, which
+    is also what the Q analysis uses. Biasing one set of contacts while
+    reporting another would produce a free energy along a coordinate no
+    reported number corresponds to, and the disagreement would read as a
+    sampling problem rather than a definition problem.
+
+    PLUMED implements this switching function natively as `Q`, citing the
+    same paper. Its `R_0` is not a contact distance here: for the Q form it
+    only sets where the function is guaranteed to reach one, and PLUMED's
+    own documentation says to leave it small, so the value below is a
+    tenth of an Angstrom rather than anything physical. `WEIGHT` is 1/|S|
+    on every contact, which is what makes the SUM a fraction rather than a
+    count.
+    """
+    import mdtraj as md
+
+    from fastmdxplora.analysis.qvalue import native_contact_pairs
+
+    reference = md.load(reference_pdb)
+    pairs, r0 = native_contact_pairs(
+        reference,
+        ref=0,
+        cutoff=plan.q_cutoff,
+        min_seq_separation=plan.q_min_seq_separation,
+        atom_indices=plan.atoms.get("group"),
+    )
+    if len(pairs) == 0:
+        raise ValueError(
+            f"The reference structure {reference_pdb} has no native contacts "
+            f"under the criteria in force (cutoff {plan.q_cutoff} nm, "
+            f"sequence separation {plan.q_min_seq_separation}), so Q would "
+            "be a fraction of nothing. An extended or unfolded reference "
+            "does this, and so does a selection that matched one region."
+        )
+
+    weight = 1.0 / len(pairs)
+    lines = [
+        f"# Q over {len(pairs)} native contacts taken from {reference_pdb}.",
+        "# Best, Hummer & Eaton, PNAS 2013, 110, 17874.",
+        "cv: CONTACTMAP ...",
+    ]
+    for n, ((i, j), d0) in enumerate(zip(pairs, r0), start=1):
+        # PLUMED counts atoms from one; mdtraj counts from zero.
+        lines.append(
+            f"  ATOMS{n}={int(i) + 1},{int(j) + 1} "
+            f"SWITCH{n}={{Q R_0=0.01 BETA={plan.q_beta:g} "
+            f"LAMBDA={plan.q_lambda:g} REF={d0:.5f}}} "
+            f"WEIGHT{n}={weight:.8g}"
+        )
+    lines.append("  SUM")
+    lines.append("...")
+    return lines
 
 
 def cv_lines(plan: "MetadynamicsPlan",
@@ -521,6 +614,15 @@ def cv_lines(plan: "MetadynamicsPlan",
         lines.append(f"mem: COM ATOMS={_plumed_list(plan.atoms['bilayer'])}")
         lines.append("sep: DISTANCE ATOMS=mem,mol COMPONENTS")
         lines.append("cv: CUSTOM ARG=sep.z FUNC=z VAR=z PERIODIC=NO")
+    elif variable == "q":
+        if not reference_pdb:
+            raise ValueError(
+                "q is the fraction of a reference structure's native "
+                "contacts, and no reference structure was given. S is fixed "
+                "by that structure, so without one there is no set of "
+                "contacts and nothing to bias."
+            )
+        lines.extend(_q_contact_lines(plan, reference_pdb))
     elif variable == "angle":
         lines.append(f"cv: ANGLE ATOMS={_plumed_list(plan.atoms['angle'])}")
     elif variable == "torsion":
