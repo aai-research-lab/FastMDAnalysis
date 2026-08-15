@@ -221,6 +221,14 @@ class ProteinLigandInteractions(Analysis):
         }
         self._occupancies = occupancies
 
+        # The exact residue-level table, taken while the per-frame masks are
+        # still in hand. Written beside the pair table rather than replacing
+        # it: the pairs say which atoms touch, and this says how often the
+        # residue does, and neither can be derived from the other.
+        self._by_residue = summary.residue_occupancies(
+            found, traj.n_frames,
+            lambda index: str(traj.topology.atom(index).residue))
+
         if not occupancies:
             return pd.DataFrame(columns=[
                 "kind", "ligand_atom", "protein_atom", "residue",
@@ -235,6 +243,25 @@ class ProteinLigandInteractions(Analysis):
             rows.append(record)
         frame = pd.DataFrame(rows)
         return frame.rename(columns={"fraction": "occupancy"})
+
+    def save_data(self, result: "pd.DataFrame", path: Path) -> Path:
+        """The pair table, and the exact residue table beside it.
+
+        A residue's occupancy is the union of its pairs' frames, which the
+        pair table cannot express: read from it, a residue touched through
+        eight atoms is somewhere between the largest single pair and the
+        sum of them all. The union is knowable at the point the contacts
+        are counted, so it is written rather than left to be estimated.
+        """
+        written = super().save_data(result, path)
+
+        rows = getattr(self, "_by_residue", None)
+        if rows:
+            import pandas as _pd
+
+            beside = Path(path).with_name("pl_interactions_by_residue.dat")
+            _pd.DataFrame(rows).to_csv(beside, index=False)
+        return written
 
     def _run_directory(self) -> Path | None:
         """The run this analysis belongs to, if it is one of ours.

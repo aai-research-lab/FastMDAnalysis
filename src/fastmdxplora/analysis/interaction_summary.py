@@ -32,7 +32,8 @@ from typing import Any
 
 import numpy as np
 
-__all__ = ["Occupancy", "occupancies", "binding_modes", "mode_transitions"]
+__all__ = ["Occupancy", "occupancies", "residue_occupancies",
+           "binding_modes", "mode_transitions"]
 
 
 #: Below this many independent observations, a fraction is a count wearing a
@@ -135,6 +136,65 @@ def occupancies(contacts: Any, n_frames: int) -> list[Occupancy]:
     ]
     found.sort(key=lambda o: (-o.frames_present, o.kind))
     return found
+
+
+def residue_occupancies(
+    contacts: Any, n_frames: int, label_of: Any
+) -> list[dict[str, Any]]:
+    """Exact per-residue occupancy: the union of its pairs' frames.
+
+    A residue usually touches a ligand through several atom pairs, and how
+    often *the residue* is in contact is the number of frames in which any
+    of them is. That is a union, and a union cannot be recovered from a
+    table of per-pair occupancies: pairs that fire in the same frames give
+    the maximum, pairs that never coincide give the sum, and any real case
+    lies between. Exported as a bracket, comparing this software's numbers
+    against another tool's meant comparing an interval against a point, and
+    residues touched through many atoms carried intervals wide enough to
+    swallow the difference under test.
+
+    The masks that answer it exist while the contacts are being counted and
+    were being discarded there. This keeps them long enough to take the
+    union, so a residue occupancy leaves this software as a number rather
+    than a range.
+
+    ``label_of`` maps a protein atom index to the residue label it belongs
+    to.
+    """
+    if n_frames <= 0:
+        return []
+
+    seen: dict[tuple[str, str], np.ndarray] = {}
+    pairs: dict[tuple[str, str], int] = {}
+    for contact in contacts:
+        key = (str(label_of(contact.protein_atom)), contact.kind)
+        if key not in seen:
+            seen[key] = np.zeros(n_frames, dtype=bool)
+            pairs[key] = 0
+        seen[key][contact.frame] = True
+
+    # Counted separately, because a pair contributes to the count whether or
+    # not it added a frame the union did not already have.
+    distinct: dict[tuple[str, str], set] = {}
+    for contact in contacts:
+        key = (str(label_of(contact.protein_atom)), contact.kind)
+        distinct.setdefault(key, set()).add(
+            (contact.ligand_atom, contact.protein_atom))
+
+    rows = [
+        {
+            "residue": residue,
+            "kind": kind,
+            "frames_present": int(present.sum()),
+            "frames_total": int(n_frames),
+            "occupancy": float(present.sum()) / float(n_frames),
+            "episodes": _episodes(present),
+            "atom_pairs": len(distinct.get((residue, kind), ())),
+        }
+        for (residue, kind), present in seen.items()
+    ]
+    rows.sort(key=lambda r: (-r["frames_present"], r["residue"], r["kind"]))
+    return rows
 
 
 def binding_modes(
