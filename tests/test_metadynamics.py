@@ -483,8 +483,12 @@ def test_one_translation_serves_every_method_that_biases() -> None:
 
     from fastmdxplora.simulation import metadynamics, steered, umbrella
 
+    # The sentinel is the action and its first keyword rather than the
+    # label: labels became suffixable when a run could bias two variables
+    # at once, so `cv: COORDINATION` no longer appears anywhere while the
+    # translation it stands for has not moved.
     definitions = sum(
-        inspect.getsource(module).count("cv: COORDINATION")
+        inspect.getsource(module).count(": COORDINATION GROUPA=")
         for module in (metadynamics, steered, umbrella)
     )
     assert definitions == 1, (
@@ -704,3 +708,131 @@ class TestQBiasesTheSameThingItReports:
         assert criteria["cutoff_nm"] == 0.45
         assert criteria["lambda"] == 1.8
         assert criteria["min_seq_separation"] == 4
+
+
+class TestTwoVariablesUnderOneDeposition:
+    """Biasing two coordinates is one METAD, not two runs.
+
+    The hazard is labels. Every variable's translation emits helper
+    definitions -- `lig` and `site` for a ligand distance, `a` and `b` for
+    a generic one -- and two variables of the same kind would define them
+    twice. PLUMED takes the second definition, so the run biases one
+    coordinate twice and reports a surface across two, which is a failure
+    that completes successfully.
+    """
+
+    @staticmethod
+    def _topology():
+        import mdtraj as md
+
+        top = md.Topology()
+        chain = top.add_chain()
+        for i in range(8):
+            res = top.add_residue("ALA", chain, resSeq=i + 1)
+            for name in ("N", "CA", "C", "O", "CB"):
+                top.add_atom(name, md.element.carbon, res)
+        return top
+
+    @staticmethod
+    def _labels(script):
+        out = []
+        for line in script.splitlines():
+            if not line or line.startswith("#") or ":" not in line:
+                continue
+            head = line.split(":")[0].strip()
+            if head and " " not in head:
+                out.append(head)
+        return out
+
+    def test_two_variables_of_the_same_kind_keep_their_own_labels(self):
+        from fastmdxplora.simulation.metadynamics import (
+            build_plumed_script_pair, plan_pair_from_config)
+
+        pair = plan_pair_from_config({"variables": [
+            {"collective_variable": "distance", "selection_a": "resid 0",
+             "selection_b": "resid 1", "sigma": 0.05},
+            {"collective_variable": "distance", "selection_a": "resid 2",
+             "selection_b": "resid 3", "sigma": 0.05},
+        ]}, self._topology())
+        labels = self._labels(build_plumed_script_pair(pair))
+
+        assert len(labels) == len(set(labels)), (
+            "two definitions share a label, so PLUMED would keep one")
+        assert {"a1", "b1", "a2", "b2", "cv1", "cv2"} <= set(labels)
+
+    def test_one_deposition_over_both(self):
+        from fastmdxplora.simulation.metadynamics import (
+            build_plumed_script_pair, plan_pair_from_config)
+
+        pair = plan_pair_from_config({"variables": [
+            {"collective_variable": "torsion", "selection": "index 1 2 3 4",
+             "sigma": 0.35},
+            {"collective_variable": "torsion", "selection": "index 5 6 7 8",
+             "sigma": 0.30},
+        ]}, self._topology())
+        script = build_plumed_script_pair(pair)
+
+        # One METAD, both arguments, one sigma each: two METAD lines would
+        # be two one-dimensional runs sharing a trajectory.
+        assert script.count("METAD") == 1
+        assert "ARG=cv1,cv2" in script
+        assert "SIGMA=0.35,0.3 " in script
+        assert "PRINT ARG=cv1,cv2,metad.bias" in script
+
+    def test_a_single_variable_script_is_unchanged(self):
+        """The suffix defaults to empty, so nothing already written moves."""
+        from fastmdxplora.simulation.metadynamics import (
+            build_plumed_script, plan_from_config)
+
+        script = build_plumed_script(plan_from_config(
+            {"collective_variable": "torsion", "selection": "index 1 2 3 4",
+             "sigma": 0.35}, self._topology()))
+        assert "cv: TORSION" in script
+        assert "ARG=cv " in script
+
+    def test_walls_belong_to_the_variable_that_asked_for_them(self):
+        from fastmdxplora.simulation.metadynamics import (
+            build_plumed_script_pair, plan_pair_from_config)
+
+        pair = plan_pair_from_config({"variables": [
+            {"collective_variable": "distance", "selection_a": "resid 0",
+             "selection_b": "resid 1", "sigma": 0.05,
+             "walls": {"upper": 2.5}},
+            {"collective_variable": "torsion", "selection": "index 5 6 7 8",
+             "sigma": 0.35},
+        ]}, self._topology())
+        script = build_plumed_script_pair(pair)
+
+        assert "UPPER_WALLS ARG=cv1" in script
+        assert "ARG=cv2" not in script.split("UPPER_WALLS")[1].split("\n")[0]
+
+    def test_three_variables_are_refused(self):
+        import pytest
+
+        from fastmdxplora.simulation.metadynamics import plan_pair_from_config
+
+        with pytest.raises(ValueError, match="exactly two"):
+            plan_pair_from_config({"variables": [
+                {"collective_variable": "torsion",
+                 "selection": "index 1 2 3 4", "sigma": 0.35},
+                {"collective_variable": "torsion",
+                 "selection": "index 5 6 7 8", "sigma": 0.35},
+                {"collective_variable": "torsion",
+                 "selection": "index 9 10 11 12", "sigma": 0.35},
+            ]}, self._topology())
+
+    def test_the_record_names_both_and_says_the_hills_are_shared(self):
+        from fastmdxplora.simulation.metadynamics import plan_pair_from_config
+
+        pair = plan_pair_from_config({"variables": [
+            {"collective_variable": "torsion", "selection": "index 1 2 3 4",
+             "sigma": 0.35},
+            {"collective_variable": "radius_of_gyration",
+             "selection": "all", "sigma": 0.05},
+        ]}, self._topology())
+        record = pair.as_record()
+
+        assert record["collective_variables"] == [
+            "torsion", "radius_of_gyration"]
+        assert len(record["dimensions"]) == 2
+        assert "one METAD" in record["shared_deposition"]

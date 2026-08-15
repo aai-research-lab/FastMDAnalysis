@@ -35,6 +35,9 @@ from typing import Any
 __all__ = [
     "COLLECTIVE_VARIABLES",
     "MetadynamicsPlan",
+    "MetadynamicsPair",
+    "plan_pair_from_config",
+    "build_plumed_script_pair",
     "Walls",
     "Funnel",
     "build_plumed_script",
@@ -516,7 +519,8 @@ def plan_from_config(
 
 
 def _q_contact_lines(plan: "MetadynamicsPlan",
-                     reference_pdb: str) -> list[str]:
+                     reference_pdb: str,
+                     *, label: str = "cv") -> list[str]:
     """PLUMED for Q, over the same contacts the analysis measures.
 
     The contact set comes from `analysis.qvalue.native_contact_pairs`, which
@@ -558,7 +562,7 @@ def _q_contact_lines(plan: "MetadynamicsPlan",
     lines = [
         f"# Q over {len(pairs)} native contacts taken from {reference_pdb}.",
         "# Best, Hummer & Eaton, PNAS 2013, 110, 17874.",
-        "cv: CONTACTMAP ...",
+        f"{label}: CONTACTMAP ...",
     ]
     for n, ((i, j), d0) in enumerate(zip(pairs, r0), start=1):
         # PLUMED counts atoms from one; mdtraj counts from zero.
@@ -574,7 +578,8 @@ def _q_contact_lines(plan: "MetadynamicsPlan",
 
 
 def cv_lines(plan: "MetadynamicsPlan",
-             reference_pdb: str | None = None) -> list[str]:
+             reference_pdb: str | None = None,
+             *, suffix: str = "") -> list[str]:
     """The PLUMED that defines ``cv`` for a plan's collective variable.
 
     One function, because steered MD needs the same translation and had a
@@ -585,35 +590,56 @@ def cv_lines(plan: "MetadynamicsPlan",
     """
     variable = plan.collective_variable
     lines: list[str] = []
+
+    # Two variables biased in one run each need their own labels, or the
+    # second definition of `lig` silently replaces the first and PLUMED
+    # biases one coordinate twice. The default suffix is empty, so a
+    # single-variable script is unchanged.
+    def label(name: str) -> str:
+        return f"{name}{suffix}"
+
+    cv = label("cv")
     if variable == "ligand_rmsd":
         if not reference_pdb:
             raise ValueError(
                 "ligand_rmsd is measured against a reference structure, and "
                 "none was given."
             )
-        lines.append(f"cv: RMSD REFERENCE={reference_pdb} TYPE=OPTIMAL")
+        lines.append(f"{cv}: RMSD REFERENCE={reference_pdb} TYPE=OPTIMAL")
     elif variable == "ligand_distance":
-        lines.append(f"lig: COM ATOMS={_plumed_list(plan.atoms['ligand'])}")
-        lines.append(f"site: COM ATOMS={_plumed_list(plan.atoms['site'])}")
-        lines.append("cv: DISTANCE ATOMS=lig,site")
+        lines.append(f"{label('lig')}: COM "
+                     f"ATOMS={_plumed_list(plan.atoms['ligand'])}")
+        lines.append(f"{label('site')}: COM "
+                     f"ATOMS={_plumed_list(plan.atoms['site'])}")
+        lines.append(f"{cv}: DISTANCE "
+                     f"ATOMS={label('lig')},{label('site')}")
     elif variable == "distance":
-        lines.append(f"a: COM ATOMS={_plumed_list(plan.atoms['selection_a'])}")
-        lines.append(f"b: COM ATOMS={_plumed_list(plan.atoms['selection_b'])}")
-        lines.append("cv: DISTANCE ATOMS=a,b")
+        lines.append(f"{label('a')}: COM "
+                     f"ATOMS={_plumed_list(plan.atoms['selection_a'])}")
+        lines.append(f"{label('b')}: COM "
+                     f"ATOMS={_plumed_list(plan.atoms['selection_b'])}")
+        lines.append(f"{cv}: DISTANCE ATOMS={label('a')},{label('b')}")
     elif variable == "coordination":
-        lines.append(f"ga: GROUP ATOMS={_plumed_list(plan.atoms['selection_a'])}")
-        lines.append(f"gb: GROUP ATOMS={_plumed_list(plan.atoms['selection_b'])}")
+        lines.append(f"{label('ga')}: GROUP "
+                     f"ATOMS={_plumed_list(plan.atoms['selection_a'])}")
+        lines.append(f"{label('gb')}: GROUP "
+                     f"ATOMS={_plumed_list(plan.atoms['selection_b'])}")
         # A switching function rather than a hard cutoff: a step function has
         # an infinite derivative at the cutoff, and a bias needs a force.
         lines.append(
-            f"cv: COORDINATION GROUPA=ga GROUPB=gb "
+            f"{cv}: COORDINATION GROUPA={label('ga')} "
+            f"GROUPB={label('gb')} "
             f"R_0={plan.coordination_r0:g} NN=6 MM=12")
     elif variable == "membrane_depth":
-        lines.append(f"mol: COM ATOMS={_plumed_list(plan.atoms['molecule'])}")
+        lines.append(f"{label('mol')}: COM "
+                     f"ATOMS={_plumed_list(plan.atoms['molecule'])}")
         # Against the bilayer's own centre, which moves with it.
-        lines.append(f"mem: COM ATOMS={_plumed_list(plan.atoms['bilayer'])}")
-        lines.append("sep: DISTANCE ATOMS=mem,mol COMPONENTS")
-        lines.append("cv: CUSTOM ARG=sep.z FUNC=z VAR=z PERIODIC=NO")
+        lines.append(f"{label('mem')}: COM "
+                     f"ATOMS={_plumed_list(plan.atoms['bilayer'])}")
+        lines.append(f"{label('sep')}: DISTANCE "
+                     f"ATOMS={label('mem')},{label('mol')} COMPONENTS")
+        lines.append(f"{cv}: CUSTOM ARG={label('sep')}.z "
+                     "FUNC=z VAR=z PERIODIC=NO")
     elif variable == "q":
         if not reference_pdb:
             raise ValueError(
@@ -622,13 +648,16 @@ def cv_lines(plan: "MetadynamicsPlan",
                 "by that structure, so without one there is no set of "
                 "contacts and nothing to bias."
             )
-        lines.extend(_q_contact_lines(plan, reference_pdb))
+        lines.extend(_q_contact_lines(plan, reference_pdb, label=cv))
     elif variable == "angle":
-        lines.append(f"cv: ANGLE ATOMS={_plumed_list(plan.atoms['angle'])}")
+        lines.append(f"{cv}: ANGLE "
+                     f"ATOMS={_plumed_list(plan.atoms['angle'])}")
     elif variable == "torsion":
-        lines.append(f"cv: TORSION ATOMS={_plumed_list(plan.atoms['torsion'])}")
+        lines.append(f"{cv}: TORSION "
+                     f"ATOMS={_plumed_list(plan.atoms['torsion'])}")
     else:
-        lines.append(f"cv: GYRATION ATOMS={_plumed_list(plan.atoms['group'])}")
+        lines.append(f"{cv}: GYRATION "
+                     f"ATOMS={_plumed_list(plan.atoms['group'])}")
 
     return lines
 
@@ -705,3 +734,146 @@ def build_plumed_script(plan: MetadynamicsPlan, reference_pdb: str | None = None
     lines.append(
         f"PRINT ARG=cv,metad.bias STRIDE={plan.pace_steps:d} FILE=COLVAR")
     return "\n".join(lines) + "\n"
+
+
+@dataclass(frozen=True)
+class MetadynamicsPair:
+    """Two collective variables biased by one deposition.
+
+    Held as two ordinary plans rather than as a plan that grew a second of
+    everything. Each variable keeps its own selections, its own sigma and
+    its own walls, and the translation to PLUMED is the same function
+    called twice with different labels, so a variable added for the
+    one-dimensional case arrives here having done nothing.
+
+    The hills are shared: one METAD over both arguments, which is what
+    makes the surface two-dimensional rather than two surfaces.
+    """
+
+    first: MetadynamicsPlan
+    second: MetadynamicsPlan
+
+    @property
+    def plans(self) -> tuple[MetadynamicsPlan, MetadynamicsPlan]:
+        return (self.first, self.second)
+
+    @property
+    def collective_variables(self) -> tuple[str, str]:
+        return (self.first.collective_variable,
+                self.second.collective_variable)
+
+    def as_record(self) -> dict[str, Any]:
+        return {
+            "collective_variables": list(self.collective_variables),
+            "dimensions": [plan.as_record() for plan in self.plans],
+            "height_kjmol": self.first.height_kjmol,
+            "pace_steps": self.first.pace_steps,
+            "bias_factor": self.first.bias_factor,
+            "well_tempered": self.first.bias_factor > 1.0,
+            "shared_deposition": (
+                "one METAD over both variables, so the hills describe the "
+                "surface across them rather than two profiles"),
+        }
+
+
+def plan_pair_from_config(
+    spec: dict[str, Any],
+    topology: Any,
+    *,
+    temperature_K: float = 300.0,
+    ligand_resname: str | None = None,
+) -> MetadynamicsPair:
+    """Read a metadynamics block that names two variables.
+
+    The block carries a `variables` list of exactly two entries, each in
+    the same shape a one-variable block takes. Deposition settings given at
+    the top level apply to both, because they describe the hills and there
+    is only one set of those.
+    """
+    entries = spec.get("variables")
+    if not isinstance(entries, list) or len(entries) != 2:
+        raise ValueError(
+            "A two-variable metadynamics block needs `variables` holding "
+            "exactly two entries, each shaped like a one-variable block. "
+            f"This one has {0 if entries is None else len(entries)}. "
+            "Three or more variables is a study whose surface cannot be "
+            "read off a page, and this does not generate it."
+        )
+
+    shared = {key: spec[key] for key in
+              ("height_kjmol", "pace_steps", "bias_factor")
+              if key in spec}
+
+    plans = []
+    for entry in entries:
+        merged = {**shared, **entry}
+        plans.append(plan_from_config(
+            merged, topology,
+            temperature_K=temperature_K,
+            ligand_resname=ligand_resname,
+        ))
+
+    for plan in plans:
+        if plan.funnel:
+            raise ValueError(
+                "A funnel restraint is built around one ligand coordinate "
+                "and the axis it leaves along, and this generates it as a "
+                "wall on that one coordinate. Combining it with a second "
+                "biased variable is a study design worth stating "
+                "explicitly rather than inferring, so it is refused here: "
+                "bias the funnel coordinate alone, or write the PLUMED "
+                "input directly."
+            )
+
+    return MetadynamicsPair(first=plans[0], second=plans[1])
+
+
+def build_plumed_script_pair(
+    pair: MetadynamicsPair, reference_pdb: str | None = None
+) -> str:
+    """The PLUMED input for two variables under one deposition."""
+    first, second = pair.plans
+    lines = [
+        "# Generated by FastMDXplora from two named collective variables.",
+        f"# Biasing: {first.collective_variable} -- "
+        f"{COLLECTIVE_VARIABLES[first.collective_variable]}",
+        f"# Biasing: {second.collective_variable} -- "
+        f"{COLLECTIVE_VARIABLES[second.collective_variable]}",
+        "",
+    ]
+
+    lines.extend(cv_lines(first, reference_pdb, suffix="1"))
+    lines.append("")
+    lines.extend(cv_lines(second, reference_pdb, suffix="2"))
+    lines.append("")
+    lines.append(
+        "metad: METAD ARG=cv1,cv2 "
+        f"SIGMA={first.sigma:g},{second.sigma:g} "
+        f"HEIGHT={first.height_kjmol:g} "
+        f"PACE={first.pace_steps:d} "
+        f"BIASFACTOR={first.bias_factor:g} "
+        f"TEMP={first.temperature_K:g} "
+        "FILE=HILLS"
+    )
+
+    for plan, arg in zip(pair.plans, ("cv1", "cv2")):
+        if not plan.walls:
+            continue
+        lines.append("")
+        if plan.walls.upper is not None:
+            lines.append(
+                f"uwall_{arg}: UPPER_WALLS ARG={arg} "
+                f"AT={plan.walls.upper:g} KAPPA={plan.walls.kappa:g}")
+        if plan.walls.lower is not None:
+            lines.append(
+                f"lwall_{arg}: LOWER_WALLS ARG={arg} "
+                f"AT={plan.walls.lower:g} KAPPA={plan.walls.kappa:g}")
+
+    lines.append("")
+    # Both variables and the bias, every deposition. The surface is judged
+    # one dimension at a time, and that needs the trajectory of each.
+    lines.append(
+        "PRINT ARG=cv1,cv2,metad.bias STRIDE="
+        f"{first.pace_steps:d} FILE=COLVAR")
+    lines.append("")
+    return "\n".join(lines)
