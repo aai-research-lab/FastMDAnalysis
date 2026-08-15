@@ -200,17 +200,39 @@ class TestARestraintActuallyHolds:
         return simulation, heavy, parameters
 
     @staticmethod
-    def _drift(simulation, heavy, steps=1500):
+    def _drift(simulation, heavy, steps=1500, samples=12):
+        """How far the structure moved, with thermal vibration averaged out.
+
+        Comparing two instantaneous snapshots measures mostly vibration,
+        which a positional restraint does not remove: it removes drift.
+        Over three picoseconds both arms are dominated by that vibration,
+        so the ratio between them sits near a half whatever the restraint
+        is doing, and a threshold placed there decides on noise. This
+        failed on one CI platform at 0.52 against a required 0.5, having
+        passed everywhere else, which is a test measuring the wrong
+        quantity rather than a restraint that stopped working.
+
+        Averaging blocks of samples cancels the vibration and leaves the
+        drift, which is the thing under test.
+        """
         import numpy as np
         import openmm.unit as unit
 
-        start = simulation.context.getState(
-            getPositions=True).getPositions(asNumpy=True)
-        simulation.step(steps)
-        end = simulation.context.getState(
-            getPositions=True).getPositions(asNumpy=True)
-        moved = np.linalg.norm(
-            (end[heavy] - start[heavy]).value_in_unit(unit.nanometer), axis=1)
+        def positions():
+            state = simulation.context.getState(getPositions=True)
+            return state.getPositions(asNumpy=True)[heavy].value_in_unit(
+                unit.nanometer)
+
+        every = max(1, steps // samples)
+        collected = []
+        for _ in range(samples):
+            simulation.step(every)
+            collected.append(positions())
+
+        block = max(2, samples // 3)
+        early = np.mean(collected[:block], axis=0)
+        late = np.mean(collected[-block:], axis=0)
+        moved = np.linalg.norm(late - early, axis=1)
         return float(np.sqrt((moved ** 2).mean()))
 
     @pytest.mark.slow
@@ -234,6 +256,11 @@ class TestARestraintActuallyHolds:
         assert math.isfinite(restrained), (
             f"the restrained run did not survive (drift {restrained})")
 
+        # The threshold is unchanged; what it is applied to is not. On the
+        # averaged drift the restrained arm runs at about a third of the
+        # free one (0.023 nm against 0.073 nm when this was written), so
+        # the factor of two now has margin rather than sitting on top of
+        # the number it judges.
         assert restrained < unrestrained / 2, (
             "a restrained structure should move markedly less than a free "
             f"one: {restrained:.3f} nm restrained, {unrestrained:.3f} nm free"
