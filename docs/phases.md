@@ -70,7 +70,7 @@ method exists to produce, as `metadynamics_surface.json`, `pmf.json` or
 
 ## analysis
 
-Measures the trajectory. Seventeen analyses of the system, each writing its
+Measures the trajectory. Eighteen analyses of the system, each writing its
 data, its figure, and the settings it used, and three more that read the
 result of a biased run where there was one.
 
@@ -89,6 +89,7 @@ result of a biased run where there was one.
 |---|---|
 | `rmsf` | per-atom or per-residue fluctuation about the mean |
 | `order_parameters` | backbone N--H order parameters, the quantity NMR relaxation measures |
+| `bfactor_comparison` | per-residue fluctuation against the deposited structure's B-factors |
 | `dihedrals` | backbone phi, psi and omega, with the Ramachandran plot |
 
 **Conformations**

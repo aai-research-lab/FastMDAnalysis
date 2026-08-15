@@ -535,6 +535,31 @@ class AnalysisOrchestrator:
             except Exception:
                 return False
 
+        def _bfactor_ok(name: str) -> bool:
+            """A comparison against B-factors needs a file that has them.
+
+            A study started from a generated or minimised coordinate file
+            writes zeros in that column, and a correlation against zeros is
+            not a comparison. Same category as the water and amide gates:
+            the system poses no question rather than failing to answer one.
+            """
+            cls = _REGISTRY[name]
+            if not getattr(cls, "requires_crystallographic_bfactors", False):
+                return True
+            from fastmdxplora.analysis.bfactor_comparison import (
+                has_crystallographic_bfactors)
+            here = Path(getattr(self, "output_dir", ".") or ".")
+            for parent in (here, here.parent, here.parent.parent):
+                for candidate in (
+                    parent / "setup" / "input.pdb",
+                    parent / "setup" / "structure.pdb",
+                    parent / "input.pdb",
+                ):
+                    if candidate.is_file() and has_crystallographic_bfactors(
+                            candidate):
+                        return True
+            return False
+
         def _water_ok(name: str) -> bool:
             """Likewise for water. An analysis of where water sits has nothing
             to say about a system with none -- an implicit-solvent run, or a
@@ -567,7 +592,7 @@ class AnalysisOrchestrator:
             return [
                 n for n in all_names
                 if n not in exclude and _ligand_ok(n) and _water_ok(n)
-                and _amide_ok(n)
+                and _amide_ok(n) and _bfactor_ok(n)
                 and _umbrella_ok(n) and _metadynamics_ok(n)
                 and _steered_ok(n) and _fold_ok(n)
                 and _alignable(n)
@@ -577,7 +602,7 @@ class AnalysisOrchestrator:
         # no ligand. With a ligand, the ligand analyses run automatically.
         return [n for n in all_names
                 if _ligand_ok(n) and _water_ok(n) and _amide_ok(n)
-                and _umbrella_ok(n)
+                and _bfactor_ok(n) and _umbrella_ok(n)
                 and _metadynamics_ok(n) and _steered_ok(n)
                 and _fold_ok(n) and _alignable(n)]
 

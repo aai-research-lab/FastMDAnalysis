@@ -2110,8 +2110,12 @@ class TestASettingShowsWhatItWillDo:
             # These depend on the ligand rather than on a choice: its residue
             # name, its charge, and a file stating its chemistry are facts
             # about the molecule, not settings with a sensible default.
+            # `structure` is the same kind of thing one level out: the file
+            # a study started from is a fact about the study, and there is
+            # no path that would be a sensible default. Absent, it is
+            # discovered from the run directory.
             and o.name not in {"ligand_resname", "ligand_net_charge",
-                               "ligand_chemistry"}
+                               "ligand_chemistry", "structure"}
         }
         assert not silent, f"these cannot say what they would do: {sorted(silent)}"
 
