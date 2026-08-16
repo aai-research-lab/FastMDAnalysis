@@ -158,7 +158,15 @@ class SASA(Analysis):
     time_series = True
     reweightable = ("sasa_nm2", "SASA (nm²)")
     description = "Solvent-accessible surface area"
-    default_selection = None
+    #: A surface accessible to solvent, computed with the solvent present,
+    #: is occluded by the very water whose access it measures: the number
+    #: is not large and slow to reach, it is wrong. A run through the
+    #: orchestrator never met this because the scope selection resolves to
+    #: the solute, but a direct call from a notebook did, and paid for it
+    #: twice -- on a small test with 1,500 waters the whole system took 5.9
+    #: times as long as the protein alone, and a solvated box carries ten
+    #: times that many.
+    default_selection = "protein"
 
     def __init__(
         self,

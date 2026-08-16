@@ -259,3 +259,64 @@ class TestABoxBigEnoughForItsCutoff:
         modeller = _Modeller(box_per_padding=0.0)
         self._solvate(modeller, cutoff=0.9, padding=1.0)
         assert modeller.attempts == [1.0]
+
+
+class TestSurfaceAreaIsOfTheSolute:
+    """Solvent-accessible area computed with the solvent present is wrong.
+
+    The probe stands for a solvent molecule, so including the actual water
+    occludes the surface whose accessibility is being measured. The
+    orchestrator's scope selection resolves to the solute and never met
+    this; a direct call did, and paid for it in both senses.
+    """
+
+    @staticmethod
+    def _solvated(n_water=800, seed=0):
+        import mdtraj as md
+        import numpy as np
+
+        rng = np.random.default_rng(seed)
+        top = md.Topology()
+        chain = top.add_chain()
+        positions = []
+        for i in range(40):
+            res = top.add_residue("ALA", chain, resSeq=i + 1)
+            for k, (name, element) in enumerate((
+                    ("N", md.element.nitrogen), ("CA", md.element.carbon),
+                    ("C", md.element.carbon), ("O", md.element.oxygen))):
+                top.add_atom(name, element, res)
+                positions.append([i * 0.38, 0.12 * k, 0.0])
+        water = top.add_chain()
+        for i in range(n_water):
+            res = top.add_residue("HOH", water, resSeq=i + 1)
+            top.add_atom("O", md.element.oxygen, res)
+            positions.append(list(rng.random(3) * 6.0 - np.array([0, 3, 3])))
+        xyz = np.tile(np.array(positions)[None], (3, 1, 1))
+        xyz = xyz + rng.normal(scale=0.002, size=xyz.shape)
+        return md.Trajectory(xyz.astype("float32"), top)
+
+    def test_the_default_leaves_the_solvent_out(self):
+        from fastmdxplora.analysis.sasa import SASA
+
+        assert SASA().selection == "protein"
+
+    def test_the_solvent_would_occlude_the_surface(self):
+        """Not merely slower: a different and smaller number.
+
+        With water in the system the protein's own atoms are buried by it,
+        so the area reported is not the one anyone means by SASA.
+        """
+        import numpy as np
+
+        from fastmdxplora.analysis.sasa import SASA
+
+        traj = self._solvated()
+        protein_only = SASA(selection="protein").compute(traj)
+        everything = SASA(selection="all").compute(traj)
+
+        solute_area = float(np.mean(protein_only["sasa_nm2"]))
+        whole_area = float(np.mean(everything["sasa_nm2"]))
+        assert solute_area > 0
+        assert not np.isclose(solute_area, whole_area, rtol=0.05), (
+            "including the solvent must change the answer, or this test "
+            "is not testing anything")
