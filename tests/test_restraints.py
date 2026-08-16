@@ -200,20 +200,13 @@ class TestARestraintActuallyHolds:
         return simulation, heavy, parameters
 
     @staticmethod
-    def _drift(simulation, heavy, steps=1500, samples=12):
-        """How far the structure moved, with thermal vibration averaged out.
+    def _drift(simulation, heavy, steps=600):
+        """How far the structure moved over one window.
 
-        Comparing two instantaneous snapshots measures mostly vibration,
-        which a positional restraint does not remove: it removes drift.
-        Over three picoseconds both arms are dominated by that vibration,
-        so the ratio between them sits near a half whatever the restraint
-        is doing, and a threshold placed there decides on noise. This
-        failed on one CI platform at 0.52 against a required 0.5, having
-        passed everywhere else, which is a test measuring the wrong
-        quantity rather than a restraint that stopped working.
-
-        Averaging blocks of samples cancels the vibration and leaves the
-        drift, which is the thing under test.
+        Enough for a before-and-after comparison within one simulation,
+        where both halves share every condition except the restraint being
+        released between them. Comparing two *separate* simulations this
+        way is what the test below stopped doing, and why.
         """
         import numpy as np
         import openmm.unit as unit
@@ -223,47 +216,84 @@ class TestARestraintActuallyHolds:
             return state.getPositions(asNumpy=True)[heavy].value_in_unit(
                 unit.nanometer)
 
-        every = max(1, steps // samples)
-        collected = []
-        for _ in range(samples):
-            simulation.step(every)
-            collected.append(positions())
+        start = positions()
+        simulation.step(steps)
+        moved = positions() - start
+        return float(np.sqrt((moved ** 2).sum(axis=1).mean()))
 
-        block = max(2, samples // 3)
-        early = np.mean(collected[:block], axis=0)
-        late = np.mean(collected[-block:], axis=0)
-        moved = np.linalg.norm(late - early, axis=1)
-        return float(np.sqrt((moved ** 2).mean()))
+    @staticmethod
+    def _displacement(simulation, heavy, *, blocks=6, per_block=1000):
+        """How far the structure has moved from where it started, over time.
+
+        Measured against the starting structure rather than between two
+        snapshots, because that is what a positional restraint controls:
+        it holds atoms near a reference, and says nothing about the
+        thermal motion around it.
+
+        Returned as a series, because the distinguishing property is a
+        trend and not a value. Free diffusion is unbounded and keeps
+        growing; a harmonic restraint is bounded and plateaus at its own
+        amplitude. Two earlier versions of this test compared single
+        numbers at 3 ps, where both arms are still relaxing out of
+        minimisation and the ratio between them is a transient: one read
+        0.52 against a threshold of 0.5 on a CI platform having passed
+        everywhere else, and its replacement read 0.32 locally and 0.55
+        on the same platform. The trend does not have that problem.
+        """
+        import numpy as np
+        import openmm.unit as unit
+
+        def positions():
+            state = simulation.context.getState(getPositions=True)
+            return state.getPositions(asNumpy=True)[heavy].value_in_unit(
+                unit.nanometer)
+
+        start = positions()
+        series = []
+        for _ in range(blocks):
+            simulation.step(per_block)
+            moved = positions() - start
+            series.append(
+                float(np.sqrt((moved ** 2).sum(axis=1).mean())))
+        return series
 
     @pytest.mark.slow
     def test_restrained_atoms_move_less(self) -> None:
         pytest.importorskip("openmm", reason="requires the [md] extra")
-
 
         import math
 
         free, heavy, _ = self._system(restrained=False)
         held, _heavy, _params = self._system(restrained=True)
 
-        unrestrained = self._drift(free, heavy)
-        restrained = self._drift(held, heavy)
+        unrestrained = self._displacement(free, heavy)
+        restrained = self._displacement(held, heavy)
 
-        # Said before the comparison, because a control that blew up makes the
-        # ratio meaningless in the direction that looks like a pass.
-        assert math.isfinite(unrestrained) and unrestrained > 0, (
+        # Said before the comparison, because a control that blew up makes
+        # the ratio meaningless in the direction that looks like a pass.
+        assert all(math.isfinite(x) for x in unrestrained), (
             "the unrestrained control did not run: there is nothing to "
-            f"compare against (drift {unrestrained})")
-        assert math.isfinite(restrained), (
-            f"the restrained run did not survive (drift {restrained})")
+            f"compare against ({unrestrained})")
+        assert all(math.isfinite(x) for x in restrained), (
+            f"the restrained run did not survive ({restrained})")
 
-        # The threshold is unchanged; what it is applied to is not. On the
-        # averaged drift the restrained arm runs at about a third of the
-        # free one (0.023 nm against 0.073 nm when this was written), so
-        # the factor of two now has margin rather than sitting on top of
-        # the number it judges.
-        assert restrained < unrestrained / 2, (
+        # The physics, stated as the thing that separates the two arms:
+        # unbounded against bounded. Free diffusion grows over the run;
+        # a harmonic well does not, whatever its amplitude happens to be.
+        assert unrestrained[-1] > unrestrained[0], (
+            "a free structure should keep moving away from where it "
+            f"started: {unrestrained}")
+        assert restrained[-1] < 2.0 * restrained[0], (
+            "a restrained structure should settle at an amplitude rather "
+            f"than keep travelling: {restrained}")
+
+        # And the magnitude, with room. Measured at the end of the run,
+        # where the two have separated: about 0.12 when this was written,
+        # against the 0.5 asked for here.
+        assert restrained[-1] < unrestrained[-1] / 2, (
             "a restrained structure should move markedly less than a free "
-            f"one: {restrained:.3f} nm restrained, {unrestrained:.3f} nm free"
+            f"one: {restrained[-1]:.3f} nm restrained, "
+            f"{unrestrained[-1]:.3f} nm free"
         )
 
     @pytest.mark.slow
