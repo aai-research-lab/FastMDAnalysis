@@ -64,7 +64,10 @@ leave the page. See [Configuration](configuration.md).
   restraints, membranes, and enhanced sampling — umbrella, steered and
   metadynamics; [Production and GPUs](production.md)
   for long runs.
-- **Reading results?** [Protein-ligand interactions](interactions.md).
+- **Reading results?** [Reading the results](results.md) for what a run
+  leaves behind and what makes a number one;
+  [Protein-ligand interactions](interactions.md) for the measure that
+  carries the most criteria.
 - **Looking for a flag or a setting?** [CLI reference](cli_reference.md),
   [Configuration](configuration.md), or `fastmdx explore --help`, which is
   generated and therefore never out of date.
@@ -90,6 +93,7 @@ production
 :maxdepth: 2
 :caption: Reading the results
 
+results
 interactions
 ```
 

@@ -81,10 +81,10 @@ determined, salt bridges and π-cation interactions — which are claims about
 charge — are not reported, and the reason is recorded. The rest continues: a
 ligand whose charge is unknown still has hydrogen bonds.
 
-**A topology without bonds is refused outright.** Hydrogen bonds cannot be
-found without knowing which hydrogen belongs to which donor, and a trajectory
-loaded from a bare DCD may carry none. FastMDXplora stops with the count of
-orphan hydrogens and what to do about it.
+**A topology without bonds is refused outright**, for the reason and with the
+message given in [Protein-ligand interactions](interactions.md#some-measurements-are-refused).
+What belongs here is why that refusal is the right behaviour rather than a
+gap.
 
 That defect was present in FastMDAnalysis v1, in PLIP and in ProLIF: all three
 return an answer where the honest response is that the question cannot be

@@ -102,6 +102,9 @@ Or open the lot in the GUI:
 fastmdx gui --output runs/trpcage
 ```
 
+[Reading the results](results.md) is the full map: which record answers which
+question, and how a measure says whether its number is one.
+
 ---
 
 ## It says why, while it happens
@@ -206,6 +209,8 @@ the report says how much.
 ## Where next
 
 - [The FastMDXplora GUI](gui.md) — everything it can do
+- [Reading the results](results.md) — what a run leaves, and what each number
+  is worth
 - [The four phases](phases.md) — what each phase does and what every measure computes
 - [Beyond a box of water](simulations.md) — restraints, membranes, metadynamics
 - [Worked examples](usage_examples.md) — recipes for common studies

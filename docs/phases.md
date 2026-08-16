@@ -372,27 +372,7 @@ it.
 
 ## What a run leaves behind
 
-```
-runs/study/
-├── setup/          prepared and solvated structures, the system, what was decided
-├── simulation/     the trajectory, the energy log, the settings used
-├── analysis/       one directory per measure
-├── report/         the written report, slides, dashboard, bundle
-├── resolved_config.yml   every setting filled in, defaults included
-└── manifest.json         every phase, artifact and parameter
-```
-
-`manifest.json` is the record of the whole run. `resolved_config.yml` is what
-you would give `fastmdx explore --config` to do it again.
-
-Where FastMDXplora was run from a source checkout rather than an install, the
-manifest also records the **commit**, and whether the working tree had
-uncommitted changes. The version string alone is not enough there: it is
-written when the package is installed, so an editable install carries whatever
-it was at that moment. A study of ours came back stamped `2.3.0` for a run that
-used a feature `2.3.0` did not have. The commit says what the version cannot,
-and the dirty flag says when the commit does not describe the code either.
-
-An installed copy records nothing under `source` — there is no checkout to
-ask, and the version is the whole answer because the distribution was built
-from a tag.
+A run directory, with the four phases' outputs beside the two records that
+say what was asked for and what happened. The map, what to open first, and
+how to tell a measurement from a number the run could not support are in
+[Reading the results](results.md).
