@@ -907,7 +907,12 @@ def _infer_system_from_output(output_dir: str | None) -> str | None:
     if system:
         return str(system)
 
-    topology = root / "simulation" / "topology.pdb"
+    # The topology beside the trajectory where one was written: with
+    # `save_selection` leaving the solvent out by default, the prepared
+    # system's topology describes more atoms than the trajectory holds.
+    _saved = root / "simulation" / "trajectory_topology.pdb"
+    topology = (_saved if _saved.is_file()
+                else root / "simulation" / "topology.pdb")
     if topology.exists():
         return str(topology)
     return None

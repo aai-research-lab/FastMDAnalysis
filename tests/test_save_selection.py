@@ -174,3 +174,72 @@ class TestTheStudyIsToldWhatItLost:
         field = PHASE_SCHEMAS["simulation"].get("save_selection")
         assert field.default == "not water"
         assert "water-site analysis" in field.help
+
+
+class TestEverythingThatReadsTheTrajectoryAgrees:
+    """Writing the matching topology is half the job.
+
+    A subset trajectory read against the prepared system's topology is an
+    atom-count mismatch, which stops the analysis phase outright -- and
+    where the counts happen to agree it is worse, because it lines the
+    wrong atoms up with the wrong names. Every reader has to prefer the
+    file that describes what was written.
+    """
+
+    @staticmethod
+    def _run(tmp_path, *, subset: bool):
+        sim = tmp_path / "simulation"
+        sim.mkdir(parents=True, exist_ok=True)
+        (sim / "topology.pdb").write_text("ATOM\n", encoding="utf-8")
+        (sim / "production.dcd").write_bytes(b"")
+        if subset:
+            (sim / "trajectory_topology.pdb").write_text(
+                "ATOM\n", encoding="utf-8")
+        return tmp_path
+
+    def test_the_analysis_phase_prefers_the_matching_topology(self, tmp_path):
+        import inspect
+
+        from fastmdxplora.analysis import analyze
+
+        source = inspect.getsource(analyze)
+        assert "trajectory_topology.pdb" in source, (
+            "the analysis phase must prefer the topology written beside "
+            "the trajectory")
+        # And fall back where no subset was saved.
+        assert "topology.pdb" in source
+
+    def test_the_playback_prefers_it_too(self):
+        import inspect
+
+        from fastmdxplora.gui import trajectory_playback
+
+        assert "trajectory_topology.pdb" in inspect.getsource(
+            trajectory_playback)
+
+    def test_every_known_reader_prefers_it(self):
+        """Named rather than found by scanning.
+
+        A first version of this checked the source for any file mentioning
+        both `production.dcd` and `topology.pdb`, which flagged a docstring
+        example, the module that writes the file, and the setup path that
+        reads its own input. A check with three false positives out of four
+        is one that gets deleted rather than fixed, so the readers are
+        listed and a new one joins this list.
+        """
+        import inspect
+        from pathlib import Path
+
+        from fastmdxplora.analysis import analyze
+        from fastmdxplora.cli import main as cli_main
+        from fastmdxplora.gui import trajectory_playback
+        from fastmdxplora.validation import cross_tool
+
+        # Read from disk rather than through `inspect.getsource`, which
+        # answers out of `linecache` and returned a stale copy of a module
+        # edited in the same session.
+        for module in (analyze, cli_main, trajectory_playback, cross_tool):
+            source = Path(inspect.getfile(module)).read_text(encoding="utf-8")
+            assert "trajectory_topology.pdb" in source, (
+                f"{module.__name__} reads a trajectory without preferring "
+                "the topology written beside it")

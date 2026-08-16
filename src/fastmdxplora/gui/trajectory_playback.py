@@ -94,7 +94,13 @@ def _playback_info_unlocked(
         "completed", "complete", "ok", "success", "succeeded"
     }
 
-    topology_path = sim_dir / "topology.pdb"
+    # As in the analysis phase: the trajectory may hold a subset of the
+    # system, and the topology beside it is the one that describes what was
+    # actually written. Playing a solute-only trajectory against the full
+    # topology does not render the solvent; it fails to load at all.
+    _saved_topology = sim_dir / "trajectory_topology.pdb"
+    topology_path = (_saved_topology if _saved_topology.is_file()
+                     else sim_dir / "topology.pdb")
     dcd_path = sim_dir / "production.dcd"
 
     # During a live run use lightweight snapshots.  This allows play/pause and

@@ -185,6 +185,10 @@ def find_artifact(run_dir: Path, manifest: dict, *needles: str) -> Path | None:
 
 
 def trajectory_and_topology(run_dir: Path, manifest: dict) -> tuple[Path, Path]:
+    # A run whose trajectory holds a subset writes the matching topology
+    # beside it; taking the prepared system's instead is an atom-count
+    # mismatch, and this reads runs ferried from a cluster where that
+    # failure arrives far from its cause.
     # The trajectory holds the solvated system, so the topology must be the
     # solvated one -- topology.pdb -- or MDAnalysis refuses on atom count.
     traj = (find_artifact(run_dir, manifest, ".dcd")
@@ -198,10 +202,22 @@ def trajectory_and_topology(run_dir: Path, manifest: dict) -> tuple[Path, Path]:
             traj = conventional
             print("[fallback] trajectory taken from the conventional layout")
     if not top:
-        conventional = run_dir / "setup" / "topology.pdb"
-        if conventional.exists():
-            top = conventional
-            print("[fallback] topology taken from the conventional layout")
+        # The topology beside the trajectory first, then the prepared
+        # system's. A run whose `save_selection` left the solvent out
+        # writes trajectory_topology.pdb, and reading its trajectory
+        # against setup's topology is an atom-count mismatch that
+        # MDAnalysis refuses -- far from its cause, on a run ferried from
+        # a cluster.
+        for conventional, note in (
+            (run_dir / "simulation" / "trajectory_topology.pdb",
+             "topology taken from the one saved with the trajectory"),
+            (run_dir / "setup" / "topology.pdb",
+             "topology taken from the conventional layout"),
+        ):
+            if conventional.exists():
+                top = conventional
+                print(f"[fallback] {note}")
+                break
     if not traj or not top:
         sys.exit(f"could not locate trajectory/topology "
                  f"(traj={traj}, top={top}); inspect manifest.json")
