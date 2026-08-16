@@ -51,6 +51,8 @@ ANALYSIS_NAMES = (
     # B-factors imply. Each runs only where the system supplies what it
     # needs -- amide hydrogens, and a deposited file that has B-factors.
     "order_parameters", "bfactor_comparison",
+    # Reads the state record the simulation wrote, where there is one.
+    "thermodynamics",
     # Reads the umbrella study's result rather than the trajectory, and runs
     # only where such a study produced one.
     "pmf",

@@ -80,6 +80,9 @@ from fastmdxplora.analysis import (  # noqa: F401, E402
 from fastmdxplora.analysis import (  # noqa: F401, E402
     bfactor_comparison as _bfactor_comparison,
 )
+from fastmdxplora.analysis import (  # noqa: F401, E402
+    thermodynamics as _thermodynamics,
+)
 from fastmdxplora.analysis import cluster as _cluster  # noqa: F401, E402
 from fastmdxplora.analysis import dimred as _dimred  # noqa: F401, E402
 # Needs an explicitly solvated system, so it is not ligand-gated -- a water

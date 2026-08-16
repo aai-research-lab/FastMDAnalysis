@@ -2115,7 +2115,7 @@ class TestASettingShowsWhatItWillDo:
             # no path that would be a sensible default. Absent, it is
             # discovered from the run directory.
             and o.name not in {"ligand_resname", "ligand_net_charge",
-                               "ligand_chemistry", "structure"}
+                               "ligand_chemistry", "structure", "state_csv"}
         }
         assert not silent, f"these cannot say what they would do: {sorted(silent)}"
 

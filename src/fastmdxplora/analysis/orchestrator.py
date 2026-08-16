@@ -535,6 +535,26 @@ class AnalysisOrchestrator:
             except Exception:
                 return False
 
+        def _state_ok(name: str) -> bool:
+            """Thermodynamics needs the state record, which only our own
+            simulation phase writes. A trajectory imported from elsewhere
+            brings coordinates and not the ensemble they came from, and
+            that is a question it does not pose rather than one this fails
+            to answer."""
+            cls = _REGISTRY[name]
+            if not getattr(cls, "requires_state_record", False):
+                return True
+            here = Path(getattr(self, "output_dir", ".") or ".")
+            for parent in (here, here.parent, here.parent.parent):
+                for candidate in (
+                    parent / "simulation" / "state_data.csv",
+                    parent / "state_data.csv",
+                    parent / "simulation" / "production_state.csv",
+                ):
+                    if candidate.is_file():
+                        return True
+            return False
+
         def _bfactor_ok(name: str) -> bool:
             """A comparison against B-factors needs a file that has them.
 
@@ -592,7 +612,7 @@ class AnalysisOrchestrator:
             return [
                 n for n in all_names
                 if n not in exclude and _ligand_ok(n) and _water_ok(n)
-                and _amide_ok(n) and _bfactor_ok(n)
+                and _amide_ok(n) and _bfactor_ok(n) and _state_ok(n)
                 and _umbrella_ok(n) and _metadynamics_ok(n)
                 and _steered_ok(n) and _fold_ok(n)
                 and _alignable(n)
@@ -602,7 +622,7 @@ class AnalysisOrchestrator:
         # no ligand. With a ligand, the ligand analyses run automatically.
         return [n for n in all_names
                 if _ligand_ok(n) and _water_ok(n) and _amide_ok(n)
-                and _bfactor_ok(n) and _umbrella_ok(n)
+                and _bfactor_ok(n) and _state_ok(n) and _umbrella_ok(n)
                 and _metadynamics_ok(n) and _steered_ok(n)
                 and _fold_ok(n) and _alignable(n)]
 
