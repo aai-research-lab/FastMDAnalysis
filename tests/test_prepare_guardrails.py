@@ -121,6 +121,45 @@ class TestAMisspelledConstraint:
         assert "HBonds" in str(raised.value)
 
 
+class _CapturedLog:
+    """Records from one logger, whatever it does about propagation.
+
+    `caplog` attaches to the root logger, and the package sets
+    `propagate = False` on `fastmdx` as soon as anything configures
+    logging. Run on its own this test passed because nothing had; run
+    after a test that had, the record never reached root and the
+    assertion failed on one CI leg only. Attaching to the logger that
+    emits removes the ordering from the question.
+    """
+
+    def __init__(self, name: str, level: int) -> None:
+        import logging
+
+        self._logger = logging.getLogger(name)
+        self._level = level
+        self.records: list[str] = []
+
+    def __enter__(self):
+        import logging
+
+        captured = self
+
+        class _Handler(logging.Handler):
+            def emit(self, record):
+                captured.records.append(record.getMessage())
+
+        self._handler = _Handler(level=self._level)
+        self._previous = self._logger.level
+        self._logger.setLevel(self._level)
+        self._logger.addHandler(self._handler)
+        return self
+
+    def __exit__(self, *exc):
+        self._logger.removeHandler(self._handler)
+        self._logger.setLevel(self._previous)
+        return False
+
+
 class _Quantity:
     def __init__(self, value: float) -> None:
         self._value = value
@@ -197,7 +236,7 @@ class TestABoxBigEnoughForItsCutoff:
         self._solvate(modeller, cutoff=5.0, padding=1.0, method="NoCutoff")
         assert modeller.attempts == [1.0]
 
-    def test_it_stops_rather_than_growing_without_limit(self, caplog):
+    def test_it_stops_rather_than_growing_without_limit(self):
         """And says what it tried.
 
         Silent, it advised raising the padding without mentioning that a
@@ -207,12 +246,14 @@ class TestABoxBigEnoughForItsCutoff:
         import logging
 
         modeller = _Modeller(box_per_padding=0.2)
-        with caplog.at_level(logging.INFO):
+        with _CapturedLog("fastmdx.setup.prepare", logging.INFO) as log:
             self._solvate(modeller, cutoff=5.0, padding=1.0,
                           most_it_may_grow_nm=0.5)
 
-        assert len(modeller.attempts) <= 3
-        assert any("Stopping at" in r.message for r in caplog.records)
+        # It stopped after one attempt rather than using all three.
+        assert len(modeller.attempts) == 1
+        assert any("Stopping at" in message for message in log.records), (
+            f"nothing said why it stopped; recorded: {log.records}")
 
     def test_a_box_of_no_size_is_not_a_box_to_pad(self):
         modeller = _Modeller(box_per_padding=0.0)
