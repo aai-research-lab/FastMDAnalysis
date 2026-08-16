@@ -30,6 +30,32 @@ SDF, from the Chemical Component Dictionary, or inferred from coordinates —
 and which route succeeded is recorded, because an interaction computed from
 inferred bond orders is a weaker claim than one from chemistry that was known.
 
+**A chemistry file sets the protonation state.** The file is what gets
+parameterised, so the form it is drawn in is the form that is simulated. An
+ideal SDF from the Chemical Component Dictionary draws amidines and
+carboxylates neutral, which is not their state at physiological pH, and a
+study that meant the charged form needs a file in that form. Stating
+`ligand_net_charge` checks the file rather than overriding it: where the two
+disagree setup stops, because a number cannot change the atoms.
+
+**Point mutations** are applied before anything is repaired or removed,
+written as `L99A` or as `LEU-99-ALA`:
+
+```yaml
+setup:
+  mutations: [L99A]
+  mutation_chain: A     # the first chain when not given
+```
+
+The original residue is checked against the structure and setup stops where
+it does not match. Numbering travels badly — the same protein appears in the
+literature with the construct's numbering, the deposition's, and the mature
+sequence's — so a mutation written against the wrong one would otherwise
+replace whatever sits at that position and every result afterwards would
+describe a protein nobody chose. The replacement side chain is placed
+geometrically rather than modelled, so a mutant's equilibration is doing more
+work than a deposited structure's.
+
 The nonbonded cutoff comes from the force field rather than from a single
 default, because a force field is fitted with a particular treatment of the
 truncation and its other parameters compensate for that. CHARMM36 is developed

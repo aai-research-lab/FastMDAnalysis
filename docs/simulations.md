@@ -415,12 +415,48 @@ A short run puts windows away from their centres too -- a restraint needs time
 to pull a system to where it is held -- so where the sampling is also thin the
 two cannot be told apart, and the message says so rather than choosing.
 
+### Two variables at once
+
+A `variables` list of exactly two entries biases both under one deposition,
+which is what makes the result a surface rather than two profiles. Each entry
+takes the same keys a single-variable block does:
+
+```yaml
+metadynamics:
+  variables:
+    - collective_variable: torsion
+      selection: "index 4 6 8 14"
+      sigma: 0.35
+    - collective_variable: torsion
+      selection: "index 6 8 14 16"
+      sigma: 0.35
+  height_kjmol: 1.2
+  pace_steps: 500
+```
+
+Deposition settings given at the top level apply to both, because they
+describe the hills and there is only one set of those. Each variable keeps
+its own selections, its own `sigma` and its own walls.
+
+The surface is judged one dimension at a time, on the free energy along each
+variable with the other integrated out. That is the point of doing it that
+way: a run can fill a torsion thoroughly while the distance it was also
+biasing never left one basin, and a single verdict would either pass it,
+hiding the stuck coordinate, or fail it, burying the good one. A refusal
+names the dimension it is about.
+
+Periodicity is per variable too. A torsion biased against a distance is
+circular in one and not the other, and it is read from each variable's own
+definition rather than from a single flag.
+
 ### What PLUMED is still needed for
 
-This covers one-dimensional well-tempered metadynamics on eight variables, with
-walls or a funnel. Beyond that, write PLUMED input and pass it as `plumed`:
+This covers well-tempered metadynamics on one or two of the nine variables,
+with walls or a funnel. Beyond that, write PLUMED input and pass it as
+`plumed`:
 
-- **two or more collective variables** — a 2D free energy surface
+- **three or more collective variables** — a surface across three coordinates
+  is not something to read off a page, and this does not generate one
 - **reweighting to a variable that was not biased** — averages over the
   biased run are corrected automatically (see
   [Averages on a biased run](phases.md#averages-on-a-biased-run)), but
