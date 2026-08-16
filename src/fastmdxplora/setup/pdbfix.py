@@ -1,10 +1,20 @@
-"""PDBFixer wrapper.
+"""Turning a deposited structure into one that can be simulated.
 
-PDBFixer wrapper providing
-a single function that takes a raw PDB and produces a clean,
-fully-protonated PDB suitable for solvation and parameterization.
+Takes a raw PDB and produces a clean, fully-protonated one suitable for
+solvation and parameterization. PDBFixer does the repair; what is here is
+the decisions around it, which is most of the work and all of the risk:
+which heterogens are chemistry and which are crystallography, which gaps
+may be rebuilt and which are too long to invent, which terminal
+extensions to drop rather than model, and which point mutations to apply
+and whether the residue named is the one actually there.
 
-The implementation calls PDBFixer's standard sequence:
+Those decisions are why this is not a wrapper. A wrapper calls a library;
+this decides what to do where the library would answer confidently and
+wrongly -- rebuilding a twelve-residue loop as though it were known, or
+replacing whatever sits at residue 99 because a study written against
+another construct's numbering asked for it.
+
+PDBFixer's standard sequence underneath:
 
   1. ``removeHeterogens`` (optional; removes everything that is not a
      standard residue, with an option to retain crystallographic waters)

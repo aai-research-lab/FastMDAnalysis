@@ -20,10 +20,14 @@ Pipeline
 
 Default force fields
 --------------------
-``charmm36.xml`` + ``charmm36/water.xml`` for protein-only systems —
-uses sensible general-purpose defaults giving consistent
-parameterization out of the box. Override via the ``force_field`` and
-``water_model`` options.
+``forcefield: auto``, which resolves to ``amber-openff``:
+``amber14-all.xml`` + ``amber14/tip3p.xml`` with TIP3P water, and
+OpenFF for any small molecule. It is the default because it is the
+ligand-capable choice, so a structure with a bound ligand needs no
+flags. ``charmm36`` is available by name and parameterises no ligand;
+this docstring named it as the default for some time, and it never was.
+Override with ``forcefield`` for a registered name, or with
+``force_field`` and ``water_model`` for raw OpenMM XML.
 
 Outputs
 -------
@@ -382,8 +386,10 @@ def prepare_system(
         Where to write ``solvated.pdb``, ``topology.pdb``, ``system.xml``,
         and ``state.xml``. Parent directories are created.
     force_field : list of str, optional
-        Force-field XML file names recognized by OpenMM. Default is
-        ``["charmm36.xml", "charmm36/water.xml"]``.
+        Force-field XML file names recognized by OpenMM, as an escape
+        hatch for a combination the registry does not name. ``None``, the
+        default, means the resolved ``forcefield`` supplies them; through
+        ``auto`` that is ``["amber14-all.xml", "amber14/tip3p.xml"]``.
         Pass the protein force field plus its accompanying water model.
     water_model : str, optional
         Water model name (``"tip3p"``, ``"tip4pew"``, ``"spce"``, etc.)

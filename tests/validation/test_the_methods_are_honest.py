@@ -102,3 +102,47 @@ class TestTheMethodsAreDistinct:
 
     def test_all_three_methods_are_covered(self) -> None:
         assert set(names()) == {"umbrella", "metadynamics", "steered"}
+
+
+class TestTheDocumentedDefaultsAreTheRealOnes:
+    """A force field named in a docstring reaches a methods section.
+
+    `setup.prepare` said the default was charmm36 for some time, and it
+    never was: `auto` resolves to amber-openff, which is the ligand-capable
+    choice. Nothing checked, because the claim was prose and the value was
+    code, and the two only met in a reader's head.
+    """
+
+    def test_auto_resolves_to_what_the_docstring_says(self) -> None:
+        from fastmdxplora.setup import prepare
+        from fastmdxplora.setup.forcefields import (
+            AUTO_FORCEFIELD,
+            resolve_forcefield,
+        )
+
+        resolved = resolve_forcefield("auto")
+        assert resolved.name == AUTO_FORCEFIELD
+
+        stated = prepare.__doc__
+        assert AUTO_FORCEFIELD in stated, (
+            "the module docstring must name the force field `auto` gives")
+        for xml in resolved.xmls:
+            assert xml in stated, (
+                f"{xml} is what `auto` loads and the docstring does not "
+                "mention it")
+
+    def test_no_docstring_claims_an_unregistered_default(self) -> None:
+        """charmm36 is a choice, not the default, and saying otherwise sends
+        someone to report parameters they did not use."""
+        from fastmdxplora.setup import prepare
+        from fastmdxplora.setup.forcefields import resolve_forcefield
+
+        text = prepare.__doc__ or ""
+        default_xmls = set(resolve_forcefield("auto").xmls)
+        other = set(resolve_forcefield("charmm36").xmls) - default_xmls
+
+        for xml in other:
+            if xml in text:
+                assert "never was" in text or "available by name" in text, (
+                    f"{xml} appears in the docstring without saying it is "
+                    "not the default")
