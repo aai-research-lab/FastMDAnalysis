@@ -466,13 +466,117 @@ def _attach_state_reporter(
     return reporter
 
 
+def resolve_save_selection(topology: Any, selection: str | None
+                           ) -> "tuple[list[int] | None, str]":
+    """Which atoms go into the trajectory, and a sentence about it.
+
+    ``None`` means every atom, which is what OpenMM's own reporter writes
+    and what this did before there was a choice.
+
+    Water dominates a solvated system by a factor of ten or more, so a
+    trajectory that leaves it out is a tenth the size. What it can no
+    longer answer is any question about the water itself, which is why the
+    saved topology is written beside it and the analyses that need solvent
+    say so rather than reporting an empty result.
+    """
+    if selection is None or str(selection).strip().lower() in ("all", "*"):
+        return None, "every atom"
+
+    import mdtraj as md
+
+    try:
+        mdtop = (topology if isinstance(topology, md.Topology)
+                 else md.Topology.from_openmm(topology))
+    except (TypeError, ValueError, AttributeError):
+        # A topology this cannot read is not a reason to fail the run: the
+        # trajectory is still writable, it just holds everything. Said out
+        # loud, because a study that asked for the solvent to be left out
+        # and got it anyway should hear why rather than find out from the
+        # file size.
+        return None, "every atom (the topology could not be read to select)"
+
+    try:
+        kept = [int(i) for i in mdtop.select(str(selection))]
+    except (ValueError, SyntaxError) as exc:
+        # A selection that will not parse is a mistake in the study file,
+        # not a fact about the system, and it is fixable in one edit. That
+        # is worth stopping for, where a valid selection matching nothing
+        # is not.
+        raise ValueError(
+            f"`save_selection` {selection!r} is not a selection this can "
+            f"read: {exc}. It is written in MDTraj's language -- `not "
+            "water`, `protein`, `all` -- and a run will not start on one "
+            "that cannot be parsed, because every frame would be affected."
+        ) from exc
+    if not kept:
+        # Everything, rather than nothing or a refusal. A box of pure water
+        # is a legitimate study -- it is how a water model's density is
+        # checked -- and `not water` selects nothing in one, so a default
+        # that refused would refuse the very study it cannot help with. A
+        # mistyped selection lands here too, which is why the sentence
+        # returned names it.
+        return None, (
+            f"every atom ({selection!r} matched none, so nothing was left "
+            "out)")
+    if len(kept) == mdtop.n_atoms:
+        # Named, rather than reported as though `all` had been asked for.
+        # A selection can parse, be wrong, and still match: `not resname
+        # WAT` on a system whose water is HOH keeps every atom, and a
+        # study that meant to leave the solvent out would otherwise get a
+        # full-size trajectory and a line saying "every atom" with nothing
+        # to suggest the selection had done nothing.
+        return None, f"every atom ({selection!r} excluded none of them)"
+    return kept, (
+        f"{len(kept)} of {mdtop.n_atoms} atoms ({selection})")
+
+
 def _attach_dcd_reporter(
-    omm: dict, simulation: Any, dcd_path: Path, *, interval: int
+    omm: dict, simulation: Any, dcd_path: Path, *, interval: int,
+    atom_subset: "list[int] | None" = None,
 ) -> Any:
     dcd_path.parent.mkdir(parents=True, exist_ok=True)
-    reporter = omm["DCDReporter"](str(dcd_path), interval)
+    if atom_subset is None:
+        reporter = omm["DCDReporter"](str(dcd_path), interval)
+    else:
+        # MDTraj's reporter, because OpenMM's writes every atom and has no
+        # way to be told otherwise. The topology that matches this subset
+        # is written beside it: a trajectory of 2,600 atoms read against a
+        # topology of 30,750 does not fail, it misaligns, and every
+        # measurement afterwards is of the wrong atoms.
+        from mdtraj.reporters import DCDReporter as _SubsetDCDReporter
+
+        reporter = _SubsetDCDReporter(
+            str(dcd_path), interval, atomSubset=atom_subset)
     simulation.reporters.append(reporter)
     return reporter
+
+
+def write_trajectory_topology(
+    topology: Any, positions: Any, path: Path,
+    atom_subset: "list[int] | None",
+) -> Path | None:
+    """The topology that matches what the trajectory actually holds.
+
+    Written only when a subset was saved, because otherwise the setup
+    phase's own topology already describes it and a second copy is a
+    second thing to keep in step.
+    """
+    if atom_subset is None:
+        return None
+
+    import mdtraj as md
+
+    mdtop = (topology if isinstance(topology, md.Topology)
+             else md.Topology.from_openmm(topology))
+    import numpy as _np
+
+    coordinates = _np.asarray(
+        positions.value_in_unit(__import__("openmm").unit.nanometer)
+        if hasattr(positions, "value_in_unit") else positions, dtype=float)
+    frame = md.Trajectory(coordinates[None, ...], mdtop)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frame.atom_slice(atom_subset).save_pdb(str(path))
+    return path
 
 
 def _attach_checkpoint_reporter(
@@ -985,6 +1089,7 @@ def run_simulation(
     state_xml: str | Path,
     topology_pdb: str | Path,
     output_dir: str | Path,
+    save_selection: str | None = "not water",
     # Stage controls
     minimize: bool = True,
     minimize_tolerance_kjmol_per_nm: float = DEFAULT_MINIMIZE_TOLERANCE_KJMOL_PER_NM,
@@ -1643,8 +1748,24 @@ def run_simulation(
             if plumed_log.is_file():
                 logger.info("PLUMED's own setup log -> %s",
                             plumed_log.as_posix())
+        saved_atoms, saved_description = resolve_save_selection(
+            topology, save_selection)
         _attach_dcd_reporter(
-            omm, simulation, traj_path, interval=trajectory_interval_steps
+            omm, simulation, traj_path,
+            interval=trajectory_interval_steps, atom_subset=saved_atoms,
+        )
+        saved_topology = write_trajectory_topology(
+            topology,
+            simulation.context.getState(getPositions=True).getPositions(),
+            output_dir / "trajectory_topology.pdb", saved_atoms,
+        )
+        logger.info(
+            "Saving %s to the trajectory.%s",
+            saved_description,
+            "" if saved_atoms is None else
+            f" The topology that matches it is {saved_topology.name}; the "
+            "full system is still in setup/. Analyses of the solvent "
+            "itself need `save_selection: all`.",
         )
         # Where production begins, so what it produced can be measured from
         # steps actually run rather than from the steps that were planned.

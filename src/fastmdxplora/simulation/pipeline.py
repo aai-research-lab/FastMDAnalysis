@@ -459,6 +459,7 @@ def run(
             precision=str(params["precision"]),
             device_index=params["device_index"],
             trajectory_interval_steps=params["trajectory_interval_steps"],
+            save_selection=params.get("save_selection", "not water"),
             state_interval_steps=int(params["state_interval_steps"]),
             checkpoint_interval_steps=int(params["checkpoint_interval_steps"]),
             live_telemetry=bool(params["live_telemetry"]),

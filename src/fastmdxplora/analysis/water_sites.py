@@ -92,6 +92,19 @@ class WaterSites(Analysis):
     #: refusal there is correct but should not fail the phase.
     requires_water = True
 
+    #: What to do about it, when a run has none. Left out of a planned set
+    #: rather than failed, but a study that asked for water sites and got
+    #: no directory deserves the reason: since `save_selection` defaults to
+    #: leaving the solvent out of the trajectory, the commonest cause is
+    #: not that the run had no water but that it was not saved.
+    absent_because = (
+        "this trajectory holds no water. `simulation.save_selection` "
+        "defaults to `not water`, which is nine tenths of the file and "
+        "nothing this analysis can work without: set it to `all` for a "
+        "study whose subject is the solvent. An implicit-solvent run has "
+        "no water to save."
+    )
+
     def __init__(
         self,
         *,

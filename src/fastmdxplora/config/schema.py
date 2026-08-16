@@ -473,6 +473,17 @@ SIMULATION = PhaseSchema(
               example=1000),
         Field("state_interval_steps", int, 1000,
               "Energy/state reporter interval in steps."),
+        Field("save_selection", str, "not water",
+              "Which atoms go into the trajectory, in MDTraj's selection "
+              "language. The default leaves the solvent out, because water "
+              "is nine tenths of a solvated system and nine tenths of the "
+              "file: a 20 ns run of a small protein is about 740 MB with it "
+              "and under 80 without. The topology matching what was saved "
+              "is written beside the trajectory; the full system stays in "
+              "setup/. Use `all` where the water itself is the subject -- "
+              "the water-site analysis needs it, and says so rather than "
+              "reporting an empty result.",
+              example="all"),
         Field("checkpoint_interval_steps", int, 10000,
               "Binary checkpoint (.chk) interval in steps. Written for "
               "recovery by hand with OpenMM's loadCheckpoint; this software "
@@ -779,9 +790,10 @@ SETTING_GROUPS: dict[str, tuple[tuple[str, str, tuple[str, ...]], ...]] = {
          "The compute platform, and which device.",
          ("platform", "precision", "device_index")),
         ("What gets written",
-         "How often frames, states and checkpoints are saved.",
+         "How often frames, states and checkpoints are saved, and which "
+         "atoms go into them.",
          ("trajectory_interval_steps", "state_interval_steps",
-          "checkpoint_interval_steps")),
+          "checkpoint_interval_steps", "save_selection")),
         ("Watching it run",
          "What the live dashboard shows while the simulation is going.",
          ("live_telemetry", "telemetry_interval", "dashboard_ligand_resname",

@@ -25,6 +25,15 @@ apart:
 | `manifest.json` | **What happened**: every phase, artifact and parameter, plus the input structure's SHA-256, the PDB identifier and deposition date read from the file's own header, and when it was fetched. A report saying "PDB 3PTB" is checkable against the exact bytes that entered the run. |
 | `analysis/<n>/options.json` | **What one measure did**: its selection, every option, the findings, and the format of the file beside it. |
 
+**The trajectory holds the solute, not the box.**
+`simulation.save_selection` defaults to `not water`, because water is nine
+tenths of a solvated system and nine tenths of the file: a 20 ns run of a
+small protein is about 740 MB with it and under 80 without. What is saved
+comes with `trajectory_topology.pdb`, the topology that matches it, and the
+whole system stays in `setup/`. Set it to `all` where the solvent is the
+subject — the water-site analysis needs it and says so rather than
+reporting an empty result.
+
 Where FastMDXplora ran from a source checkout rather than an install, the
 manifest also records the **commit** and whether the working tree was dirty.
 The version string alone is not enough there: it is written when the package
