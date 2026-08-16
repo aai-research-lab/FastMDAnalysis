@@ -206,12 +206,45 @@ against another tool:
 - **Secondary structure** uses MDTraj's DSSP and excludes anything DSSP cannot
   assign, so a ligand does not appear as coil.
 - **Q-value** uses a switching function rather than a hard cutoff, with β and
-  λ exposed.
+  λ exposed. Its contact set S is over *pairs of heavy atoms*, which is the
+  published definition; `scheme: residue-closest-heavy` gives the coarser
+  reading that takes one distance per residue pair instead, and the two are
+  not comparable — on a peeling hairpin they stand 0.26 apart on a scale
+  running zero to one. The `selection` narrows it further: `protein` is the
+  all-atom measure, `backbone` reports the fold's topology and ignores
+  side-chain repacking, and `name CA` is the coarse-grained quantity from
+  Gō-model work, which is a different measure rather than a rounding of the
+  others. All four choices are written to `options.json`, because a Q quoted
+  without them is not one number.
 - **Clustering** seeds k-means at 42 by default. A clustering that survives a
   change of seed is a finding; one that does not is an artefact of where the
   algorithm started, and the seed is a setting so that can be tested.
 - **Contacts and hydrogen bonds** measure across the periodic boundary where
   the trajectory carries a unit cell.
+- **Interaction occupancy per residue** is the union of that residue's atom
+  pairs' frames, written to `pl_interactions_by_residue.dat` beside the pair
+  table. It cannot be recovered from the pair table: pairs firing in the same
+  frames give the largest single pair, pairs that never coincide give their
+  sum, and every real case lies between.
+- **Order parameters** are the Lipari–Szabo S² of each backbone N–H, taken as
+  the closed form of the correlation plateau after superposition. The
+  alignment set is a choice that changes the answer and is recorded. A
+  trajectory too short reports S² *too high* rather than too noisy, because
+  motion it never saw is indistinguishable from rigidity, so the two halves
+  are compared and the values are called an upper bound where they disagree.
+- **B-factor comparison** converts a refined B through B = (8π²/3)⟨u²⟩ and
+  correlates it with the simulated RMSF. It is a correlation and not an
+  accuracy: a B carries static disorder and refinement choices, and the
+  lattice damps loop motion, so B-factors bound amplitudes from below. No
+  regression slope is reported, because the two are not the same measurement.
+- **Thermodynamics** reads the state record the simulation wrote and treats
+  each column as a correlated series. Density is reported only from a
+  constant-pressure run: at fixed volume it is a constant the setup chose,
+  and a mean with an error on it would describe arithmetic.
+- **g(r)** stops at half the smallest box dimension. Past that the
+  minimum-image convention supplies only part of each shell, so the curve
+  falls away for a reason belonging to the box rather than the liquid — and
+  it falls smoothly enough to read as structure.
 - **Secondary structure** uses MDTraj's DSSP only. Version 1 could also shell
   out to an external `mkdssp`; that is not offered here, because a system
   package is a poor dependency for something that already works — and where
