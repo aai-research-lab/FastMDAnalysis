@@ -347,3 +347,58 @@ class TestTheDocumentationIsShapedLikeTheSoftware:
         named = [p.name for p in pages
                  if p.is_file() and "YAML file" in p.read_text(encoding="utf-8")]
         assert not named, f"these name the format where they mean the Config: {named}"
+
+
+class TestTheApiReferenceIsComplete:
+    """A reference that lists most of the code is worse than none.
+
+    It reads as complete, so a reader who does not find something concludes
+    it does not exist rather than that the page is behind. The registry is
+    the source of truth, and the page is checked against it.
+    """
+
+    @staticmethod
+    def _directives() -> set[str]:
+        import re
+        from pathlib import Path
+
+        text = Path("docs/api.md").read_text(encoding="utf-8")
+        return set(re.findall(r"\.\. auto(?:module|class):: ([\w\.]+)", text))
+
+    def test_every_registered_analysis_is_documented(self) -> None:
+        import fastmdxplora.analysis  # noqa: F401
+        from fastmdxplora.analysis.orchestrator import _REGISTRY
+
+        documented = self._directives()
+        missing = sorted(
+            name for name, cls in _REGISTRY.items()
+            if cls.__module__ not in documented
+        )
+        assert not missing, (
+            f"these analyses are registered but absent from the API "
+            f"reference: {missing}")
+
+    def test_every_directive_resolves(self) -> None:
+        """A misspelled target builds an empty section without failing."""
+        import importlib
+
+        unresolved = []
+        for name in sorted(self._directives()):
+            try:
+                importlib.import_module(name)
+            except ImportError:
+                module, _, attribute = name.rpartition(".")
+                try:
+                    assert hasattr(importlib.import_module(module), attribute)
+                except Exception:  # noqa: BLE001
+                    unresolved.append(name)
+        assert not unresolved, (
+            f"the API reference names things that do not exist: {unresolved}")
+
+    def test_the_public_entry_points_are_there(self) -> None:
+        import fastmdxplora
+
+        documented = self._directives()
+        for name in ("FastMDXplora", "AnalysisOrchestrator"):
+            assert name in fastmdxplora.__all__
+            assert f"fastmdxplora.{name}" in documented
