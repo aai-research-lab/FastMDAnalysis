@@ -487,12 +487,18 @@ def resolve_save_selection(topology: Any, selection: str | None
     try:
         mdtop = (topology if isinstance(topology, md.Topology)
                  else md.Topology.from_openmm(topology))
-    except (TypeError, ValueError, AttributeError):
+    except (TypeError, ValueError, AttributeError, ImportError):
         # A topology this cannot read is not a reason to fail the run: the
         # trajectory is still writable, it just holds everything. Said out
         # loud, because a study that asked for the solvent to be left out
         # and got it anyway should hear why rather than find out from the
         # file size.
+        #
+        # ImportError belongs here and was missing. MDTraj raises it, not a
+        # TypeError, when `openmm.app` is absent -- and this function runs
+        # on every simulation path, so the omission failed eight tests on
+        # the one CI leg without the `[md]` extra, none of which were about
+        # saving a subset.
         return None, "every atom (the topology could not be read to select)"
 
     try:

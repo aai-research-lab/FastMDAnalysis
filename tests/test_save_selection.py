@@ -112,6 +112,29 @@ class TestTheCasesThatMustNotRefuse:
         assert kept is None
         assert "could not be read" in described
 
+    def test_a_leg_without_the_openmm_app_layer(self):
+        """The failure that is invisible where OpenMM is installed.
+
+        MDTraj raises ImportError, not TypeError, when `openmm.app` is
+        absent, and this function runs on every simulation path -- so the
+        exception missing from the fallback failed eight tests on the one
+        CI leg without the `[md]` extra, none of them about saving a
+        subset. Forced here, because a machine that has OpenMM cannot
+        reach it by running the code.
+        """
+        from unittest import mock
+
+        import mdtraj as md
+
+        absent = ImportError(
+            "The code at topology.py:430 requires the openmm.app module")
+        with mock.patch.object(
+                md.Topology, "from_openmm", side_effect=absent):
+            kept, described = resolve_save_selection(object(), "not water")
+
+        assert kept is None
+        assert "could not be read" in described
+
     def test_a_selection_that_will_not_parse_does_refuse(self):
         """The one case here that should stop the run.
 
