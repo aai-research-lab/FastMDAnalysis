@@ -1,0 +1,220 @@
+"""Two refusals in preparation, exercised without building a system.
+
+Both were written after a failure that cost time in a way the message
+now prevents: a structure whose rebuilt termini walked off in every
+direction, discovered as a NaN ten minutes into packing lipids; and a
+misspelled option, discovered as a KeyError from inside OpenMM. Neither
+needs a prepared system to reach, which is why they can be tested here
+rather than only on a cluster.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from fastmdxplora.setup.prepare import (
+    _refuse_an_implausible_structure,
+    _resolve_constraints,
+)
+
+
+class _Unit:
+    """Just enough of openmm.unit for these two guards.
+
+    ``nanometer`` is 1.0 rather than a label because the code multiplies a
+    padding by it before handing it to OpenMM, so a sentinel that cannot
+    be multiplied would fail the fixture rather than the function.
+    """
+
+    nanometer = 1.0
+
+
+class _Topology:
+    def __init__(self, n_residues: int) -> None:
+        self._n = n_residues
+
+    def residues(self):
+        return iter(range(self._n))
+
+
+class TestAStructureThatIsNotOneObject:
+    """A folded chain's longest dimension grows as the cube root of its
+    residue count. Something far outside that is not a fold."""
+
+    def test_a_compact_structure_passes(self):
+        positions = np.random.default_rng(0).random((300, 3)) * 3.0
+        assert _refuse_an_implausible_structure(
+            _Topology(100), positions, _Unit) is None
+
+    def test_a_structure_strung_across_the_universe_is_refused(self):
+        """The case that used to surface as a NaN inside addMembrane.
+
+        Ten minutes of lipid packing later, with a message naming none of
+        the cause.
+        """
+        positions = np.zeros((300, 3))
+        positions[-1] = [400.0, 0.0, 0.0]
+
+        with pytest.raises(ValueError, match="far from everything else"):
+            _refuse_an_implausible_structure(_Topology(100), positions, _Unit)
+
+    def test_the_message_names_both_numbers(self):
+        """What it measured and what it expected.
+
+        A refusal that says only "implausible" leaves the reader to guess
+        whether their fibril is the exception.
+        """
+        positions = np.zeros((30, 3))
+        positions[-1] = [500.0, 0.0, 0.0]
+
+        with pytest.raises(ValueError) as raised:
+            _refuse_an_implausible_structure(_Topology(10), positions, _Unit)
+        message = str(raised.value)
+        assert "500 nm across" in message
+        assert "10 residues" in message
+
+    def test_an_elongated_but_real_structure_is_allowed(self):
+        """A coiled coil is long and is still one object.
+
+        The bound is several times the cube-root estimate so that shape
+        passes; a guard that refused it would be refusing real work.
+        """
+        positions = np.zeros((3000, 3))
+        positions[:, 0] = np.linspace(0.0, 30.0, 3000)
+        assert _refuse_an_implausible_structure(
+            _Topology(1000), positions, _Unit) is None
+
+    def test_positions_it_cannot_read_are_left_alone(self):
+        """A guard is not a place to invent a second failure.
+
+        Whatever could not be measured is somebody else's error to
+        report, with the context this function does not have.
+        """
+        assert _refuse_an_implausible_structure(
+            _Topology(10), object(), _Unit) is None
+        assert _refuse_an_implausible_structure(
+            _Topology(0), np.zeros((3, 3)), _Unit) is None
+
+
+class TestAMisspelledConstraint:
+    def test_the_documented_options_resolve(self):
+        omm = {"HBonds": "HBONDS"}
+        assert _resolve_constraints(omm, "hbonds") == "HBONDS"
+        assert _resolve_constraints(omm, "HBonds") == "HBONDS"
+
+    def test_none_means_none(self):
+        assert _resolve_constraints({"HBonds": object()}, None) is None
+        assert _resolve_constraints({"HBonds": object()}, "None") is None
+
+    def test_an_unknown_option_is_refused_by_name(self):
+        """Rather than reaching OpenMM as a KeyError.
+
+        The valid values are listed, because the usual cause is a spelling
+        and the reader needs the spelling rather than a stack trace.
+        """
+        with pytest.raises(ValueError, match="Unknown constraints option"):
+            _resolve_constraints({"HBonds": object()}, "hbond")
+
+        with pytest.raises(ValueError) as raised:
+            _resolve_constraints({"HBonds": object()}, "everything")
+        assert "HBonds" in str(raised.value)
+
+
+class _Quantity:
+    def __init__(self, value: float) -> None:
+        self._value = value
+
+    def value_in_unit(self, _unit) -> float:
+        return self._value
+
+
+class _Modeller:
+    """Enough of a Modeller to watch the padding grow.
+
+    Records what padding each attempt used and reports a box that grows
+    with it, so the loop's arithmetic is observable without solvating
+    anything.
+    """
+
+    def __init__(self, box_per_padding: float = 2.0, offset: float = 0.0):
+        self.attempts: list[float] = []
+        self._per = box_per_padding
+        self._offset = offset
+        self.topology = self
+
+    def deleteWater(self):  # noqa: N802 - OpenMM's spelling
+        """Called between attempts, because the previous shell is stale.
+
+        Recorded rather than ignored: growing the padding without removing
+        the water already placed would solvate the solvent.
+        """
+        self.deleted = getattr(self, "deleted", 0) + 1
+
+    def addSolvent(self, _ff, **kwargs):  # noqa: N802 - OpenMM's spelling
+        padding = kwargs.get("padding")
+        self.attempts.append(float(padding))
+        self._box = self._per * float(padding) + self._offset
+
+    def getPeriodicBoxVectors(self):  # noqa: N802 - OpenMM's spelling
+        size = getattr(self, "_box", 0.0)
+        return [[_Quantity(size if i == j else 0.0) for j in range(3)]
+                for i in range(3)]
+
+
+class TestABoxBigEnoughForItsCutoff:
+    """A periodic cutoff must be at most half the smallest box dimension.
+
+    Below that a particle sees its own image, which is why OpenMM refuses
+    outright: the physics is wrong rather than approximate.
+    """
+
+    def _solvate(self, modeller, *, cutoff, padding, method="PME", **kw):
+        from fastmdxplora.setup.prepare import _solvate_with_room_for_the_cutoff
+
+        _solvate_with_room_for_the_cutoff(
+            modeller, object(), {"padding": padding},
+            nonbonded_cutoff_nm=cutoff, padding_nm=padding,
+            nonbonded_method=method, unit=_Unit, **kw)
+
+    def test_a_box_already_large_enough_is_solvated_once(self):
+        modeller = _Modeller(box_per_padding=4.0)
+        self._solvate(modeller, cutoff=0.9, padding=1.0)
+        assert modeller.attempts == [1.0], "no growing was needed"
+
+    def test_a_box_too_small_grows_and_is_solvated_again(self):
+        modeller = _Modeller(box_per_padding=1.0)
+        self._solvate(modeller, cutoff=0.9, padding=1.0)
+
+        assert len(modeller.attempts) > 1
+        assert modeller.attempts[1] > modeller.attempts[0]
+        assert getattr(modeller, "deleted", 0) >= 1, (
+            "the previous shell must go before a larger box is filled")
+
+    def test_a_non_periodic_method_is_left_alone(self):
+        """Without periodicity there is no image for a particle to see."""
+        modeller = _Modeller(box_per_padding=0.1)
+        self._solvate(modeller, cutoff=5.0, padding=1.0, method="NoCutoff")
+        assert modeller.attempts == [1.0]
+
+    def test_it_stops_rather_than_growing_without_limit(self, caplog):
+        """And says what it tried.
+
+        Silent, it advised raising the padding without mentioning that a
+        larger value had already been attempted and was still short, so
+        the obvious next guess failed the same way.
+        """
+        import logging
+
+        modeller = _Modeller(box_per_padding=0.2)
+        with caplog.at_level(logging.INFO):
+            self._solvate(modeller, cutoff=5.0, padding=1.0,
+                          most_it_may_grow_nm=0.5)
+
+        assert len(modeller.attempts) <= 3
+        assert any("Stopping at" in r.message for r in caplog.records)
+
+    def test_a_box_of_no_size_is_not_a_box_to_pad(self):
+        modeller = _Modeller(box_per_padding=0.0)
+        self._solvate(modeller, cutoff=0.9, padding=1.0)
+        assert modeller.attempts == [1.0]
