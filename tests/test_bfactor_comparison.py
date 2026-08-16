@@ -169,3 +169,44 @@ class TestTheComparisonItself:
         analysis = BFactorComparison(structure=str(path))
         with pytest.raises(ValueError, match="renumbered or renamed"):
             analysis.compute(traj)
+
+
+class TestTheOutputsAndTheDiscovery:
+    """Short mechanical paths, which is why nothing exercised them."""
+
+    def test_it_plots_both_profiles(self, tmp_path):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        amplitudes = np.array([0.02, 0.05, 0.10, 0.04, 0.08, 0.03])
+        b = (amplitudes * 10.0) ** 2 / B_TO_MSF
+        analysis = BFactorComparison(structure=str(_pdb(tmp_path, b)))
+        result = analysis.compute(_traj(amplitudes))
+
+        _fig, ax = plt.subplots()
+        analysis.plot(result, ax)
+        assert len(ax.lines) == 2, "simulated and implied, drawn together"
+        assert ax.get_legend() is not None
+        assert analysis.default_ylabel().startswith("RMSF")
+        assert analysis.default_xlabel() == "Residue"
+        plt.close("all")
+
+    def test_it_discovers_the_structure_beside_a_run(self, tmp_path):
+        """The path a cluster exercises and a laptop does not."""
+        run = tmp_path / "run"
+        (run / "setup").mkdir(parents=True)
+        _pdb(run / "setup", [12.0, 20.0, 35.0, 18.0, 22.0, 30.0])
+        analysis = BFactorComparison()
+        analysis.output_dir = run / "analysis" / "bfactor_comparison"
+        analysis.output_dir.mkdir(parents=True)
+        assert analysis._state_path() if hasattr(
+            analysis, "_state_path") else analysis._structure_path()
+
+    def test_an_alignment_set_too_small_is_refused(self, tmp_path):
+        b = np.array([12.0, 20.0, 35.0, 18.0, 22.0, 30.0])
+        analysis = BFactorComparison(
+            structure=str(_pdb(tmp_path, b)),
+            align_selection="resid 0 and name CA")
+        with pytest.raises(ValueError, match="at least three"):
+            analysis.compute(_traj(np.array([0.02] * 6)))

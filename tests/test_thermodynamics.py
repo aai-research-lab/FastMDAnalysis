@@ -113,3 +113,58 @@ class TestItJoinsTheRegisters:
         rather than accepting it and doing nothing.
         """
         assert Thermodynamics.honours_selection is False
+
+
+class TestTheOutputsItWrites:
+    """A plot that crashes on real data is a failed report phase.
+
+    These paths are short and mechanical, which is exactly why nothing
+    exercised them: they are the ones discovered broken by a run rather
+    than by a test.
+    """
+
+    def test_it_writes_a_table_with_one_row_per_observable(self, tmp_path):
+        analysis = Thermodynamics(state_csv=str(_state(tmp_path)))
+        result = analysis.compute(None)
+        written = analysis.save_data(result, tmp_path / "thermodynamics.dat")
+
+        text = written.read_text(encoding="utf-8")
+        assert "observable" in text.splitlines()[0]
+        assert "temperature" in text
+
+    def test_it_plots_without_a_shared_axis(self, tmp_path):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        analysis = Thermodynamics(state_csv=str(_state(tmp_path)))
+        result = analysis.compute(None)
+        _fig, ax = plt.subplots()
+        analysis.plot(result, ax)
+        assert ax.get_yticklabels()
+        assert "per cent" in analysis.default_xlabel()
+        plt.close("all")
+
+    def test_it_says_so_when_nothing_settled(self, tmp_path):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        analysis = Thermodynamics(state_csv=str(_state(tmp_path)))
+        analysis._labels = []
+        _fig, ax = plt.subplots()
+        analysis.plot(np.empty((0, 4)), ax)
+        assert ax.texts
+        plt.close("all")
+
+    def test_it_discovers_the_record_beside_a_run(self, tmp_path):
+        """The path that fails on a cluster, where nothing is where the
+        laptop put it."""
+        run = tmp_path / "run"
+        (run / "simulation").mkdir(parents=True)
+        _state(run / "simulation")
+        analysis = Thermodynamics()
+        analysis.output_dir = run / "analysis" / "thermodynamics"
+        analysis.output_dir.mkdir(parents=True)
+        assert analysis._state_path() is not None

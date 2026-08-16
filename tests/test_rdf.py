@@ -130,3 +130,31 @@ class TestItJoinsTheRegisters:
 
         bare = md.Trajectory(boxed.xyz, boxed.topology)
         assert "rdf" not in self._plan(bare)
+
+
+class TestTheOutputs:
+    def test_it_plots_against_the_unstructured_line(self):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        analysis = RadialDistribution(
+            selection_a="name CA", selection_b="name O", bin_width=0.05)
+        result = analysis.compute(_gas())
+        _fig, ax = plt.subplots()
+        analysis.plot(result, ax)
+
+        assert ax.lines, "the curve is drawn"
+        assert any(line.get_linestyle() == ":" for line in ax.lines), (
+            "g(r) = 1 is drawn, because it is what the curve means")
+        assert analysis.default_xlabel() == "r (nm)"
+        assert analysis.default_ylabel() == "g(r)"
+        plt.close("all")
+
+    def test_the_first_peak_is_reported(self):
+        analysis = RadialDistribution(
+            selection_a="name CA", selection_b="name O", bin_width=0.05)
+        analysis.compute(_gas())
+        record = analysis.findings["rdf"]
+        assert "first_peak_nm" in record
+        assert record["first_peak_nm"] > 0.15

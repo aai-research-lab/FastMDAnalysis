@@ -220,7 +220,7 @@ def ligand_resname(run_dir: Path) -> str:
     sys.exit("ligand_name not found in resolved_config.yml; pass --ligand")
 
 
-def healed_trajectory(run_dir: Path, traj: Path, top: Path) -> Path:
+def healed_trajectory(run_dir: Path, traj: Path, top: Path) -> Path:  # pragma: no cover - needs ProLIF/MDAnalysis and a finished run
     """Make molecules whole once, with bonds that come from chemistry.
 
     The stored frames carry the protein split across the periodic
@@ -244,7 +244,7 @@ def healed_trajectory(run_dir: Path, traj: Path, top: Path) -> Path:
 
 
 def prolif_occupancy(traj: Path, top: Path, resname: str,
-                     harmonized: bool) -> dict[tuple[str, str], float]:
+                     harmonized: bool) -> dict[tuple[str, str], float]:  # pragma: no cover - needs ProLIF/MDAnalysis and a finished run
     mda, plf = _reference_tools()
     # The OpenMM topology PDB carries no CONECT records, and ProLIF's
     # RDKit conversion needs bonds -- but only on the protein and ligand.
@@ -416,7 +416,7 @@ def _occupancy_from_csv(path: Path) -> dict[tuple[str, str], float]:
     return occ
 
 
-def cmd_interactions(args):
+def cmd_interactions(args):  # pragma: no cover - needs ProLIF/MDAnalysis and a finished run
     run_dir = Path(args.run_dir)
     manifest = load_manifest(run_dir)
     traj, top = trajectory_and_topology(run_dir, manifest)
@@ -457,7 +457,7 @@ def cmd_interactions(args):
                   f"(reported, not judged: criterion differences are findings)")
 
 
-def cmd_observables(args):
+def cmd_observables(args):  # pragma: no cover - needs ProLIF/MDAnalysis and a finished run
     run_dir = Path(args.run_dir)
     manifest = load_manifest(run_dir)
     traj, top = trajectory_and_topology(run_dir, manifest)
@@ -534,7 +534,7 @@ def _numeric_column(path: Path, prefer: str):
     return data[:, names.index(col)]
 
 
-def cmd_negative(args):
+def cmd_negative(args):  # pragma: no cover - needs ProLIF/MDAnalysis and a finished run
     run_dir = Path(args.run_dir)
     manifest = load_manifest(run_dir)
     cavity = {c.strip() for c in args.cavity.split(",")}
@@ -574,7 +574,7 @@ def cmd_negative(args):
           f"{NEGATIVE_OCCUPANCY_MAX_PCT}% in any interaction family")
 
 
-def cmd_probe(args):
+def cmd_probe(args):  # pragma: no cover - needs ProLIF/MDAnalysis and a finished run
     """Dump both tools' evidence for one residue: our pair rows from the
     aggregated table, and ProLIF's per-frame detections over a sample of
     frames. Built for VAL213, useful for any row that escapes its bracket."""
@@ -653,7 +653,7 @@ def cmd_probe(args):
                   "positions sees a different neighbourhood.")
 
 
-def main():
+def main():  # pragma: no cover - needs ProLIF/MDAnalysis and a finished run
     ap = argparse.ArgumentParser(description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
