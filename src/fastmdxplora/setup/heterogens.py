@@ -558,8 +558,10 @@ def _classify_one(
         # glycosylation site: that is the structure answering the question, not
         # withholding it. What follows is settled rather than guessed -- the
         # glycan is a covalent modification, carbohydrate parameters are
-        # required to simulate it, and this pipeline does not assign them, so
-        # the protein is prepared without it. Deglycosylating is the ordinary
+        # required to simulate it, and none of the force fields here supply
+        # them -- the AMBER14 bundle carries protein, nucleic acid and lipid
+        # templates and no sugar ones -- so the protein is prepared without
+        # it. Deglycosylating is the ordinary
         # choice and what a protein-only force field can represent; refusing
         # instead would stop every glycoprotein over a question the deposition
         # already answered.

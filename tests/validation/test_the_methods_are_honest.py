@@ -146,3 +146,37 @@ class TestTheDocumentedDefaultsAreTheRealOnes:
                 assert "never was" in text or "available by name" in text, (
                     f"{xml} appears in the docstring without saying it is "
                     "not the default")
+
+
+class TestTheForceFieldCoversWhatItClaims:
+    """A comment saying the bundle carries glycans sent an answer out that
+    was wrong, and the check costs one import.
+
+    Templates are what decides whether a residue can be parameterised, so
+    they are what is asked, rather than the file's reputation.
+    """
+
+    def test_the_bundle_carries_what_the_registry_says(self) -> None:
+        import pytest
+
+        pytest.importorskip("openmm", reason="requires the [md] extra")
+        from openmm.app import ForceField
+
+        from fastmdxplora.setup.forcefields import resolve_forcefield
+
+        loaded = ForceField(*resolve_forcefield("auto").xmls)
+        templates = set(loaded._templates)
+
+        # What it is chosen for: protein, nucleic acid, lipid.
+        for residue in ("ALA", "DC", "POPC"):
+            assert residue in templates, (
+                f"{residue} has no template, and the registry says this "
+                "bundle covers it")
+
+        # What it is not: sugars. If this ever passes, glycans became
+        # simulable and the heterogen policy that deglycosylates should be
+        # revisited rather than left in place.
+        for sugar in ("NAG", "BMA", "MAN"):
+            assert sugar not in templates, (
+                f"{sugar} now has a template: the deglycosylation policy "
+                "in setup.heterogens was written because it did not")

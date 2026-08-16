@@ -112,11 +112,20 @@ _REGISTRY: dict[str, ForceFieldChoice] = {
     "amber-openff": ForceFieldChoice(
         name="amber-openff",
         # The full AMBER14 bundle rather than the protein file alone: it
-        # carries DNA (OL15), RNA (OL3), lipids, and glycans, so a structure
-        # containing nucleic acid can be prepared at all. With only
-        # protein.ff14SB.xml, a DNA duplex failed with "no template found for
-        # residue DC", which reads as a broken structure rather than a missing
-        # force field.
+        # carries DNA (OL15), RNA (OL3) and lipids, so a structure containing
+        # nucleic acid can be prepared at all. With only protein.ff14SB.xml,
+        # a DNA duplex failed with "no template found for residue DC", which
+        # reads as a broken structure rather than a missing force field.
+        #
+        # It does not carry glycans, and an earlier version of this comment
+        # said it did. Checked rather than assumed: the bundle loads 210
+        # templates, among them ALA, DC and POPC, and none for NAG, BMA or
+        # MAN. GLYCAM would not drop in either, because its residue names are
+        # linkage-specific -- a 1->4 linked beta-GlcNAc is 4YB, not NAG -- so
+        # every sugar would have to be renamed according to where it sits in
+        # the tree, which means reading the tree first. That is the same
+        # problem heme and NAD have: published parameters that do not apply
+        # automatically because deposited names do not match the templates.
         xmls=("amber14-all.xml", "amber14/tip3p.xml"),
         water_model="tip3p",
         supports_ligand=True,
