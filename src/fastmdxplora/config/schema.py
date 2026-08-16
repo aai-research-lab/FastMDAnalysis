@@ -53,6 +53,9 @@ ANALYSIS_NAMES = (
     "order_parameters", "bfactor_comparison",
     # Reads the state record the simulation wrote, where there is one.
     "thermodynamics",
+    # Needs a periodic box to normalise against, so it runs on solvated
+    # systems and leaves itself out of anything built in vacuum.
+    "rdf",
     # Reads the umbrella study's result rather than the trajectory, and runs
     # only where such a study produced one.
     "pmf",

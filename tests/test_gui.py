@@ -2114,8 +2114,12 @@ class TestASettingShowsWhatItWillDo:
             # a study started from is a fact about the study, and there is
             # no path that would be a sensible default. Absent, it is
             # discovered from the run directory.
+            # `r_max` is not a choice left unmade either: it is half the
+            # smallest box dimension, which the system fixes and no literal
+            # can state.
             and o.name not in {"ligand_resname", "ligand_net_charge",
-                               "ligand_chemistry", "structure", "state_csv"}
+                               "ligand_chemistry", "structure", "state_csv",
+                               "r_max"}
         }
         assert not silent, f"these cannot say what they would do: {sorted(silent)}"
 

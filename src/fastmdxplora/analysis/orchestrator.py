@@ -535,6 +535,21 @@ class AnalysisOrchestrator:
             except Exception:
                 return False
 
+        def _box_ok(name: str) -> bool:
+            """A g(r) divides by the bulk density, which needs a volume.
+
+            A trajectory with no unit cell has none, and the curve that
+            comes from assuming one is a histogram wearing the units of a
+            distribution function. Left out rather than run and refused.
+            """
+            cls = _REGISTRY[name]
+            if not getattr(cls, "requires_periodic_box", False):
+                return True
+            traj = getattr(self, "traj", None)
+            if traj is None:
+                return True
+            return getattr(traj, "unitcell_lengths", None) is not None
+
         def _state_ok(name: str) -> bool:
             """Thermodynamics needs the state record, which only our own
             simulation phase writes. A trajectory imported from elsewhere
@@ -613,6 +628,7 @@ class AnalysisOrchestrator:
                 n for n in all_names
                 if n not in exclude and _ligand_ok(n) and _water_ok(n)
                 and _amide_ok(n) and _bfactor_ok(n) and _state_ok(n)
+                and _box_ok(n)
                 and _umbrella_ok(n) and _metadynamics_ok(n)
                 and _steered_ok(n) and _fold_ok(n)
                 and _alignable(n)
@@ -622,7 +638,8 @@ class AnalysisOrchestrator:
         # no ligand. With a ligand, the ligand analyses run automatically.
         return [n for n in all_names
                 if _ligand_ok(n) and _water_ok(n) and _amide_ok(n)
-                and _bfactor_ok(n) and _state_ok(n) and _umbrella_ok(n)
+                and _bfactor_ok(n) and _state_ok(n) and _box_ok(n)
+                and _umbrella_ok(n)
                 and _metadynamics_ok(n) and _steered_ok(n)
                 and _fold_ok(n) and _alignable(n)]
 
