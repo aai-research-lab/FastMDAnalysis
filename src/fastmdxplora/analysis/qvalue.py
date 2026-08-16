@@ -165,6 +165,24 @@ class QValue(Analysis):
         Minimum |i - j| in sequence for a pair to be considered. The
         default 4 excludes local contacts (i±1, i±2, i±3) that don't
         probe the global fold.
+    selection : str, default "protein"
+        Which atoms may form contacts. Hydrogens are excluded from S
+        whatever is selected, because the published definition is over
+        heavy atoms, so the useful choices narrow it further:
+
+        - ``"protein"`` (the default) gives the published measure, every
+          heavy atom of the chain.
+        - ``"backbone"`` reports on the fold's topology alone and is
+          insensitive to side-chain repacking, which is what makes it
+          the choice when the question is whether the chain has changed
+          course rather than whether a core has loosened.
+        - ``"name CA"`` gives the coarse-grained measure familiar from
+          Go-model work. It is a different quantity from the other two
+          and is not comparable with a Q quoted from an all-atom study.
+
+        The choice moves the number as much as the ``scheme`` does, so it
+        belongs in the record with it, and it is written to
+        ``options.json`` for that reason.
     **kwargs
         Standard base-class options.
 
@@ -190,7 +208,13 @@ class QValue(Analysis):
     time_series = True
     reweightable = (None, "Fraction of native contacts")
     description = "Native contact fraction (Q)"
-    default_selection = None
+    #: Q is a statement about a fold, and solvent has none. Left at the
+    #: whole trajectory, S came out of a solvated system as 98% water-water
+    #: pairs on a small test case, and the number reported would have been
+    #: how much of the water's starting arrangement survived. A full run
+    #: passes a scope selection and never saw this; a direct call from a
+    #: notebook is the ordinary way to meet it.
+    default_selection = "protein"
 
     #: The two readings of S, and what each one counts.
     SCHEMES = ("heavy-atom-pairs", "residue-closest-heavy")

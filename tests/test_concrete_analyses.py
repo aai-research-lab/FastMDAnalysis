@@ -714,6 +714,72 @@ class TestQValueFollowsThePaperItCites:
             atol=1e-6,
         )
 
+    def test_solvent_cannot_enter_the_contact_set(self) -> None:
+        """Q is a statement about a fold, and water has none.
+
+        With the selection left at the whole trajectory, S on a solvated
+        system came out overwhelmingly water against water, and the
+        number reported would have been how much of the solvent's
+        starting arrangement survived. A full run passes a scope and
+        never met this; a direct call is the ordinary way to.
+        """
+        from fastmdxplora.analysis.qvalue import QValue, native_contact_pairs
+
+        rng = np.random.RandomState(0)
+        top = md.Topology()
+        chain = top.add_chain()
+        positions = []
+        for i in range(10):
+            res = top.add_residue("ALA", chain, resSeq=i + 1)
+            for name, element in (("N", md.element.nitrogen),
+                                  ("CA", md.element.carbon),
+                                  ("C", md.element.carbon)):
+                top.add_atom(name, element, res)
+                positions.append([i * 0.30 + 0.1 * len(positions) % 3, 0, 0])
+        water = top.add_chain()
+        for i in range(200):
+            res = top.add_residue("HOH", water, resSeq=i + 1)
+            top.add_atom("O", md.element.oxygen, res)
+            positions.append(list(rng.random(3) * 2.0))
+        traj = md.Trajectory(
+            np.tile(np.array(positions)[None], (3, 1, 1)).astype(np.float32),
+            top)
+
+        assert QValue().selection == "protein"
+        analysis = QValue()
+        analysis.compute(traj)
+        selected = analysis.select_atoms(traj)
+        names = {traj.topology.atom(int(i)).residue.name for i in selected}
+        assert "HOH" not in names
+
+        # Without a selection the set is mostly solvent, which is the
+        # thing the default now prevents.
+        unrestricted, _ = native_contact_pairs(traj, ref=0)
+        water_pairs = sum(
+            1 for i, j in unrestricted
+            if traj.topology.atom(int(i)).residue.name == "HOH"
+            and traj.topology.atom(int(j)).residue.name == "HOH")
+        assert water_pairs > len(unrestricted) / 2
+
+    def test_the_selection_chooses_which_contacts_count(self) -> None:
+        """Backbone, alpha carbons and all heavy atoms are three measures.
+
+        They differ as much as the two schemes do, which is why the
+        choice is recorded rather than assumed.
+        """
+        from fastmdxplora.analysis.qvalue import QValue
+
+        traj = self._hairpin()
+        whole = QValue(selection="all").compute(traj)
+        alpha = QValue(selection="name CA").compute(traj)
+
+        assert whole.shape == alpha.shape
+        assert not np.allclose(whole, alpha), (
+            "a coarse-grained Q is a different quantity, not a rounding of "
+            "the all-atom one")
+        assert QValue(selection="name CA").options["scheme"] == (
+            "heavy-atom-pairs")
+
     def test_the_residue_reading_is_available_and_is_not_the_paper_s(self) -> None:
         """Both measures are defensible; only one is comparable with the
         literature, so the coarser one has to be asked for by name."""
