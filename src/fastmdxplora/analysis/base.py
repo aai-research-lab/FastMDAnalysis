@@ -282,13 +282,31 @@ class Analysis(ABC):
         Returns the path actually written.
         """
         path.parent.mkdir(parents=True, exist_ok=True)
+        # Which of the two a `.dat` file is, recorded rather than left to be
+        # discovered. Both extensions are `.dat` because both are this
+        # analysis's data, but one is whitespace with no header and the
+        # other is comma-separated with one, so a reader that guesses wrong
+        # gets a ValueError at best and a column of NaN at worst. Anyone
+        # reaching for a one-liner can read the answer out of options.json
+        # instead of the file.
         if isinstance(result, np.ndarray):
             # %.8e preserves ~8 significant figures — well beyond what
             # MD trajectories ever resolve, and round-trips cleanly through
             # np.loadtxt.
             np.savetxt(path, result, fmt="%.8e")
+            self._data_format = {
+                "layout": "whitespace-delimited, no header",
+                "read_with": "np.loadtxt(path)",
+            }
         elif isinstance(result, pd.DataFrame):
             result.to_csv(path, index=False)
+            self._data_format = {
+                "layout": "comma-separated, one header line",
+                "read_with": (
+                    "pd.read_csv(path), or "
+                    "np.loadtxt(path, delimiter=',', skiprows=1)"),
+                "columns": [str(c) for c in result.columns],
+            }
         else:
             raise NotImplementedError(
                 f"{type(self).__name__}.save_data does not know how to "
@@ -524,6 +542,9 @@ class Analysis(ABC):
             "options": self.options,
             "findings": self.findings,
         }
+        data_format = getattr(self, "_data_format", None)
+        if data_format:
+            manifest["data_format"] = data_format
         path = self.output_dir / "options.json"
         with path.open("w", encoding="utf-8") as fh:
             json.dump(manifest, fh, indent=2)

@@ -109,6 +109,15 @@ umap = [
 # `pip install "fastmdxplora[plumed]"` fail to resolve, the same way the
 # ligand extra did before 2.3.0. It is declared in the conda recipe, which is
 # where it can be had, and the import raises with that instruction.
+# The independent implementations the cross-tool comparison measures
+# agreement against. Deliberately outside `all`: shipping the reference
+# alongside the thing it checks would make the two travel together, and a
+# comparison against a tool that arrives with the software is not the
+# independent check it is presented as.
+validation = [
+    "MDAnalysis>=2.7",
+    "prolif>=2.0",
+]
 all = [
     "fastmdxplora[md,ligand,plumed,amber,umap]",
 ]

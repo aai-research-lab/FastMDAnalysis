@@ -47,6 +47,13 @@ DISTRIBUTION = {
 #: only when the user asks for the feature. These need not be installed.
 OPTIONAL = {
     "umap-learn",      # one of three dimensionality-reduction methods
+    # The cross-tool comparison's references. Absent from the conda recipe
+    # on purpose: a comparison is only independent while the reference is
+    # something the user already had or installed separately, and a run
+    # dependency would put both on every machine and let them drift
+    # together. Reachable as the `validation` extra.
+    "MDAnalysis",
+    "prolif",
 }
 
 #: Imported, and deliberately absent from pyproject.toml because pip cannot

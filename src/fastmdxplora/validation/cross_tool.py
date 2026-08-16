@@ -83,6 +83,29 @@ PROLIF_TO_FAMILY = {
 # Our kind strings normalized into the same families by substring, so the
 # comparison does not depend on exact spelling of e.g.
 # pi_stacking_face_to_face vs pi_stacking.
+
+def _reference_tools():
+    """The tools this measures agreement against, or how to get them.
+
+    Deliberately not dependencies of the package. The point of a
+    cross-tool comparison is that the reference shares no code with what
+    it checks, and shipping it would make the two travel together and
+    drift together. Imported here so the module loads without them and
+    only the comparison itself asks.
+    """
+    try:
+        mda, _ = _reference_tools()
+        import prolif as plf
+    except ImportError as exc:  # pragma: no cover - depends on the env
+        raise ImportError(
+            "The cross-tool comparison needs MDAnalysis and ProLIF, which "
+            "are not dependencies of FastMDXplora: they are the independent "
+            "implementations it measures agreement against. Install them "
+            "with `pip install \"fastmdxplora[validation]\"` or `conda "
+            "install -c conda-forge mdanalysis prolif`."
+        ) from exc
+    return mda, plf
+
 def our_kind_family(kind: str) -> str | None:
     k = kind.lower()
     for needle, family in (("hbond", "hbond"), ("hydrogen", "hbond"),
@@ -222,8 +245,7 @@ def healed_trajectory(run_dir: Path, traj: Path, top: Path) -> Path:
 
 def prolif_occupancy(traj: Path, top: Path, resname: str,
                      harmonized: bool) -> dict[tuple[str, str], float]:
-    import MDAnalysis as mda
-    import prolif as plf
+    mda, plf = _reference_tools()
     # The OpenMM topology PDB carries no CONECT records, and ProLIF's
     # RDKit conversion needs bonds -- but only on the protein and ligand.
     # Guessing over the whole solvated system asks for vdW radii the
@@ -439,7 +461,7 @@ def cmd_observables(args):
     run_dir = Path(args.run_dir)
     manifest = load_manifest(run_dir)
     traj, top = trajectory_and_topology(run_dir, manifest)
-    import MDAnalysis as mda
+    mda, _ = _reference_tools()
     import numpy as np
     from MDAnalysis.analysis import rms
     for name in ("rmsd", "rg"):
@@ -571,8 +593,7 @@ def cmd_probe(args):
     traj, top = trajectory_and_topology(run_dir, manifest)
     traj = healed_trajectory(run_dir, traj, top)
     resname = args.ligand or ligand_resname(run_dir)
-    import MDAnalysis as mda
-    import prolif as plf
+    mda, plf = _reference_tools()
     u = mda.Universe(str(top), str(traj))
     lig = u.select_atoms(f"resname {resname}")
     prot = u.select_atoms("protein")

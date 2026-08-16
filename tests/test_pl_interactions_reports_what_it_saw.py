@@ -170,3 +170,41 @@ class TestOptionsAndEdges:
         analysis = ProteinLigandInteractions(ligand_resname="XYZ")
         with pytest.raises(ValueError, match="XYZ"):
             analysis.compute(_complex())
+
+
+class TestADataFileSaysHowToReadIt:
+    """Both formats are called `.dat`, and a reader cannot tell which.
+
+    Array results are whitespace with no header; frame results are
+    comma-separated with one. A one-liner that guesses wrong gets a
+    ValueError at best and a column of NaN at worst, which is how
+    `pl_contacts.dat` cost an afternoon. The answer is written into the
+    record beside the file rather than left in somebody's notes.
+    """
+
+    def test_a_frame_result_declares_its_header(self, tmp_path):
+        import pandas as pd
+
+        from fastmdxplora.analysis.rmsd import RMSD
+
+        analysis = RMSD(output_dir=tmp_path)
+        analysis.save_data(
+            pd.DataFrame({"frame": [0, 1], "value": [0.1, 0.2]}),
+            tmp_path / "x.dat")
+
+        assert analysis._data_format["layout"].startswith("comma-separated")
+        assert "skiprows=1" in analysis._data_format["read_with"]
+        assert analysis._data_format["columns"] == ["frame", "value"]
+
+    def test_an_array_result_declares_that_it_has_none(self, tmp_path):
+        import numpy as np
+
+        from fastmdxplora.analysis.rmsd import RMSD
+
+        analysis = RMSD(output_dir=tmp_path)
+        analysis.save_data(np.array([[0.0, 0.1], [1.0, 0.2]]),
+                           tmp_path / "y.dat")
+
+        assert analysis._data_format["layout"] == (
+            "whitespace-delimited, no header")
+        assert analysis._data_format["read_with"] == "np.loadtxt(path)"

@@ -287,7 +287,16 @@ SETUP = PhaseSchema(
         Field("ligand_name", str, "LIG",
               "Residue/molecule name assigned to the ligand."),
         Field("ligand_net_charge", int, None,
-              "Ligand formal net charge. Default: inferred from the SDF."),
+              "Ligand formal net charge. Read from the chemistry file's own "
+              "formal charges when not given, and checked against them when "
+              "it is: setup stops where the two disagree, because the file "
+              "is what gets parameterised and a number cannot change the "
+              "atoms in it. Supplying chemistry as a file therefore sets the "
+              "protonation state, and an ideal SDF from the Chemical "
+              "Component Dictionary is drawn in one particular form -- "
+              "amidines and carboxylates in it are neutral, which is not "
+              "their state at physiological pH.",
+              example=1),
         Field("ligand_pose", str, "auto",
               "Where the ligand's starting coordinates come from. `auto` "
               "takes the pose from the structure where it holds the residue "

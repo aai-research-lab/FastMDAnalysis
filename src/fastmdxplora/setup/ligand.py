@@ -330,16 +330,37 @@ def load_ligand(
 
     molecule.name = name
 
-    # Net charge: infer from formal charges unless the user overrides.
+    # Net charge: read from the formal charges the file carries. A stated
+    # `ligand_net_charge` is checked against it rather than substituted for
+    # it, because the number is not what the force field sees: the atoms
+    # are. A file drawn as a neutral amidine parameterises as a neutral
+    # amidine however the configuration labels it, so accepting the label
+    # would produce a run whose charge record and whose chemistry disagree.
+    #
+    # This was a finding before it was a check. A benchmark supplied
+    # benzamidine as the Chemical Component Dictionary's ideal SDF, which
+    # is the neutral form, and the salt bridge that system is known for was
+    # absent from two independent tools. Both were right about the molecule
+    # they were given.
     inferred = _infer_net_charge(molecule)
     if net_charge is not None and inferred is not None and net_charge != inferred:
-        logger.warning(
-            "Ligand %s: user net_charge=%d overrides inferred charge=%d.",
-            name, net_charge, inferred,
+        raise ValueError(
+            f"Ligand {name}: the study states a net charge of {net_charge:+d}, "
+            f"and {path.name} carries formal charges summing to "
+            f"{inferred:+d}. The file is the chemistry -- its protonation "
+            "decides what is parameterised -- so the two cannot both stand. "
+            "Supply a file in the protonation state the study means (for an "
+            "amidine or a carboxylate at physiological pH that is usually "
+            "not the Chemical Component Dictionary's ideal form, which is "
+            "drawn neutral), or drop `ligand_net_charge` and let the file "
+            "speak for itself."
         )
     resolved_charge = net_charge if net_charge is not None else inferred
     logger.info(
-        "Loaded ligand %s from %s (net charge=%s).",
+        "Loaded ligand %s from %s (net charge=%s, taken from the file's own "
+        "formal charges). Supplying chemistry as a file sets the protonation "
+        "state: an ideal SDF is drawn in one particular form, and it is the "
+        "form that will be simulated.",
         name, path.name,
         resolved_charge if resolved_charge is not None else "unknown",
     )
