@@ -499,9 +499,29 @@ class TestTheRunnerReleasesThemInStages:
             restrain="protein and not element H")
 
         assert result.n_production_frames > 0
+
+        # This is the only place a subset trajectory is written by a real
+        # run and then read back. `save_selection` defaults to leaving the
+        # solvent out, so the trajectory holds the solute and the topology
+        # beside it is the one that describes it: loading against the
+        # prepared system's topology, which this test used to do, raises
+        # rather than misaligning, and that is the failure a study would
+        # meet if the two ever came apart.
+        saved_topology = tmp_path / "run" / "trajectory_topology.pdb"
+        assert saved_topology.is_file(), (
+            "a run that saved a subset must write the topology for it")
+
         traj = md.load(str(tmp_path / "run" / "production.dcd"),
-                       top=str(tmp_path / "top.pdb"))
+                       top=str(saved_topology))
         assert traj.n_frames > 0, "a restrained run should produce a trajectory"
+
+        whole = md.load_pdb(str(tmp_path / "top.pdb"))
+        assert traj.n_atoms < whole.n_atoms, (
+            "the point of the default is that the trajectory is smaller "
+            f"({traj.n_atoms} against {whole.n_atoms})")
+        assert not traj.topology.select("water").size, (
+            "the solvent is what was left out")
+        assert traj.topology.select("protein").size == traj.n_atoms
 
     @pytest.mark.slow
     def test_an_impossible_restraint_stops_the_run(self, tmp_path) -> None:
