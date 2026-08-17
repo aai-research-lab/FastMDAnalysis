@@ -299,3 +299,54 @@ class TestTheReferenceToolsResolve:
         assert "_reference_tools()" not in body, (
             "the helper calls itself: it must import, not recurse")
         assert "import MDAnalysis" in body and "import prolif" in body
+
+
+class TestTheExactResidueTableIsPreferred:
+    """A bracket against another tool's point compares different things.
+
+    The pair table can only bound a residue's occupancy from both sides;
+    the union is the quantity. Once a run writes the union, the comparison
+    must read it -- and alphabetically the pair table sorts first, so the
+    preference has to be stated rather than left to the glob.
+    """
+
+    def _run(self, tmp_path, *, with_exact: bool):
+        adir = tmp_path / "analysis" / "pl_interactions"
+        adir.mkdir(parents=True)
+        (adir / "pl_interactions.dat").write_text(
+            "kind,ligand_atom,protein_atom,frames_present,frames_total,"
+            "occupancy,episodes,standard_error,well_sampled,residue\n"
+            + "".join(
+                f"hydrophobic,{3220 + i},2724,400,2000,0.2,50,0.02,True,"
+                "VAL213\n" for i in range(3)),
+            encoding="utf-8")
+        if with_exact:
+            (adir / "pl_interactions_by_residue.dat").write_text(
+                "residue,kind,frames_present,frames_total,occupancy,"
+                "episodes,atom_pairs\n"
+                "VAL213,hydrophobic,900,2000,0.45,120,3\n",
+                encoding="utf-8")
+        (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+        return tmp_path
+
+    def test_the_union_is_read_where_it_exists(self, tmp_path):
+        from fastmdxplora.validation.cross_tool import our_occupancy
+
+        occupancy = our_occupancy(
+            self._run(tmp_path, with_exact=True), {})
+        value = occupancy[("VAL213", "hydrophobic")]
+
+        assert not isinstance(value, tuple), "a union is a number"
+        assert value == pytest.approx(45.0)
+
+    def test_the_bracket_is_the_fallback(self, tmp_path):
+        """A run made before the union was exported still compares."""
+        from fastmdxplora.validation.cross_tool import our_occupancy
+
+        occupancy = our_occupancy(
+            self._run(tmp_path, with_exact=False), {})
+        value = occupancy[("VAL213", "hydrophobic")]
+
+        assert isinstance(value, tuple), (
+            "without the union table the pair rows only bound the answer")
+        assert value[0] == pytest.approx(20.0)

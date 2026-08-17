@@ -312,6 +312,15 @@ def our_occupancy(run_dir: Path, manifest: dict) -> dict[tuple[str, str], float]
     occupancy. Tries the structured JSON first, then the contacts table."""
     adir = run_dir / "analysis" / "pl_interactions"
     candidates = []
+    # The exact residue table first, where the run wrote one. It holds the
+    # union of each residue's atom pairs' frames, which is the quantity
+    # being compared; the pair table beside it can only bound that union
+    # from both sides, and a bracket against another tool's point is a
+    # comparison of different things. Alphabetically the pair table sorts
+    # first, so the order is stated rather than left to the glob.
+    exact = adir / "pl_interactions_by_residue.dat"
+    if exact.is_file():
+        candidates.append(exact)
     if adir.is_dir():
         candidates += sorted(adir.glob("*.json")) + sorted(adir.glob("*.dat")) \
                     + sorted(adir.glob("*.csv"))
@@ -325,12 +334,41 @@ def our_occupancy(run_dir: Path, manifest: dict) -> dict[tuple[str, str], float]
         print(f"[trying] {path.relative_to(run_dir)}")
         if path.suffix == ".json":
             occ = _occupancy_from_records(json.loads(path.read_text()))
+        elif path.name == "pl_interactions_by_residue.dat":
+            occ = _occupancy_from_residue_table(path)
         else:
             occ = _occupancy_from_csv(path)
         if occ:
             return occ
     listing = sorted(p.name for p in adir.iterdir()) if adir.is_dir() else "no directory"
     sys.exit(f"no readable pl_interactions occupancy; analysis dir holds: {listing}")
+
+
+def _occupancy_from_residue_table(path: Path) -> dict[tuple[str, str], float]:
+    """Per-residue occupancy as a number, from the exact union table.
+
+    One row per residue and interaction kind, carrying the frames in which
+    any of that residue's atom pairs was in contact. No bracket: the union
+    was taken while the per-frame masks were still in hand, which is the
+    only place it can be taken at all.
+    """
+    import csv as _csv
+
+    out: dict[tuple[str, str], float] = {}
+    with path.open(encoding="utf-8", newline="") as handle:
+        for row in _csv.DictReader(handle):
+            family = our_kind_family(row.get("kind") or "")
+            residue = residue_label(row.get("residue") or "")
+            if not family or not residue:
+                continue
+            try:
+                out[(residue, family)] = 100.0 * float(row["occupancy"])
+            except (KeyError, TypeError, ValueError):
+                continue
+    if out:
+        print(f"[ours] exact residue table: {len(out)} residue-family "
+              "occupancies, taken as the union of each residue's pairs")
+    return out
 
 
 def _occupancy_from_records(data) -> dict[tuple[str, str], float]:
