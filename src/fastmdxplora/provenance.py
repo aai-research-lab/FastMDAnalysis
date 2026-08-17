@@ -261,3 +261,66 @@ def described_structure(record: dict[str, Any] | None) -> str | None:
     if record.get("sha256"):
         line += f" (sha256 {record['sha256'][:12]})"
     return line
+
+
+#: Packages whose version can change a result rather than merely a message.
+#: Not every dependency: this is the list worth carrying in every manifest,
+#: chosen because each one decides a number. mdtraj measures the contacts,
+#: RDKit perceives the chemistry, OpenMM integrates, PLUMED biases, and the
+#: force-field toolkits assign the parameters.
+RESULT_BEARING_PACKAGES = (
+    "mdtraj",
+    "numpy",
+    "scipy",
+    "openmm",
+    "pdbfixer",
+    "rdkit",
+    "openff.toolkit",
+    "openmmforcefields",
+    "openmmplumed",
+    "propka",
+    "sklearn",
+)
+
+
+def environment_record() -> dict[str, str | None]:
+    """The versions of the packages that decide what a run reports.
+
+    Read from what is already loaded rather than probed in a subprocess.
+    A module that ran is in ``sys.modules``, and its version is therefore
+    the one that produced the numbers -- which is the question a manifest
+    should answer, and a different question from what could be imported if
+    something tried.
+
+    Recorded because a manifest that says only which FastMDXplora ran
+    cannot explain a result that changes. The 3PTB benchmark's interaction
+    table held 292 rows from the release container and 73 when re-analysed
+    on another machine, with identical settings, identical ligand
+    chemistry, and the container's own commit giving the second answer.
+    The difference was environmental and the record could not say which
+    environment, which made a demonstrable discrepancy undiagnosable.
+
+    A package absent from the run is reported as ``None`` rather than
+    omitted, because "this run did not use RDKit" and "this manifest
+    forgot to say" are different statements.
+    """
+    import sys
+
+    versions: dict[str, str | None] = {}
+    for name in RESULT_BEARING_PACKAGES:
+        module = sys.modules.get(name)
+        if module is None:
+            versions[name] = None
+            continue
+        version = getattr(module, "__version__", None)
+        if version is None:
+            # OpenMM keeps it on a submodule; others may not carry one at
+            # all, and "loaded, version unknown" is worth distinguishing
+            # from "not loaded".
+            version = getattr(getattr(module, "version", None),
+                              "version", None)
+        versions[name] = str(version) if version is not None else "loaded"
+
+    versions["python"] = ".".join(str(n) for n in sys.version_info[:3])
+    versions["platform"] = sys.platform
+    return versions

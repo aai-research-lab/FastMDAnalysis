@@ -22,7 +22,7 @@ apart:
 | | |
 |---|---|
 | `resolved_config.yml` | **What was asked for**, with every default filled in. Give it back to `fastmdx explore --config` to do the run again. |
-| `manifest.json` | **What happened**: every phase, artifact and parameter, plus the input structure's SHA-256, the PDB identifier and deposition date read from the file's own header, and when it was fetched. A report saying "PDB 3PTB" is checkable against the exact bytes that entered the run. |
+| `manifest.json` | **What happened**: every phase, artifact and parameter, plus the input structure's SHA-256, the PDB identifier and deposition date read from the file's own header, and when it was fetched. A report saying "PDB 3PTB" is checkable against the exact bytes that entered the run. It also records the stack: the versions of mdtraj, OpenMM, RDKit and the rest that were loaded while the run happened, because those decide numbers and a result that changes between machines cannot be explained without them. |
 | `analysis/<n>/options.json` | **What one measure did**: its selection, every option, the findings, and the format of the file beside it. |
 
 **The trajectory holds the solute, not the box.**

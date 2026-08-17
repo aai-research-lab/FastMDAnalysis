@@ -903,7 +903,10 @@ class FastMDXplora:
         """Write a single JSON manifest summarizing this session."""
         from fastmdxplora import __citation__, __doi__, __version__
 
-        from fastmdxplora.provenance import source_provenance
+        from fastmdxplora.provenance import (
+            environment_record,
+            source_provenance,
+        )
 
         manifest = {
             "tool": "FastMDXplora",
@@ -916,6 +919,10 @@ class FastMDXplora:
             # is the whole answer because the distribution was built from a
             # tag.
             "source": source_provenance(),
+            # The stack that produced the numbers, not merely the one that
+            # could have. Without it a result that changes between machines
+            # can be demonstrated and not explained.
+            "environment": environment_record(),
             "doi": __doi__,
             "citation": __citation__,
             "system": self.system,
