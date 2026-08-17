@@ -128,6 +128,31 @@ repository, with its pre-registered thresholds under test, alongside a
 comparison of one study run in several environments.
 
 
+## [2.5.2] — 2026-08-13
+
+Written after the fact, on 2026-08-16. This release went out without an
+entry, which is how the conda recipe stayed on 2.5.1 through two releases:
+the check that keeps the recipe level compares it against the changelog's
+latest release, and both were equally out of date, so it passed.
+
+The release that made the test suite run the physics it claims to test.
+Optional scientific dependencies were installable and absent from
+continuous integration, so whole families of chemistry and physics tests
+skipped silently while the code read as tested -- the same defect found
+three times over, in rdkit, then propka, then OpenMM itself. They are in
+the test environment now, and the first all-green matrix followed.
+
+Workers start from a clean interpreter rather than a forked one, which is
+what let the spawn-based platforms run the suite at all, and a test that
+hangs is bounded by a timeout rather than by a person noticing.
+
+Documentation caught up with the code across nine files, and the README
+was rewritten to say what the software is for before it says what it has.
+
+Container images are attached to the release rather than parked as build
+artifacts, after a mis-click left a 1.26 GB image expiring in ninety days
+with no way to reach it from the release page.
+
 ## [2.5.1] — 2026-08-12
 
 Everything a run tells you, told earlier and told better.
