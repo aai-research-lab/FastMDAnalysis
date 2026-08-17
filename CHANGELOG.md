@@ -7,6 +7,127 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [2.5.3] — 2026-08-16
+
+Measurements the software can be checked against, and four numbers that
+change.
+
+### Read this before upgrading
+
+**The fraction of native contacts is a different number.** Q's contact set
+S is now over pairs of heavy atoms, which is the definition Best, Hummer
+and Eaton published and the one MDTraj's reference implementation uses.
+It was over residue pairs, taking one closest-heavy distance for each,
+which is a coarser measure and not comparable with a Q quoted anywhere
+else. On a peeling hairpin the two readings stand 0.263 apart on a scale
+that runs zero to one. Any Q recorded before this release is the residue
+reading; `scheme: residue-closest-heavy` still produces it, named so that
+choosing it is deliberate. The defect survived because the test asserting
+the published formula compared against a restatement of the
+implementation's own choice: the code and its test agreed with each other
+and neither agreed with the paper.
+
+**A stated ligand charge is now a check rather than an override.** Where
+`ligand_net_charge` disagrees with the formal charges in the chemistry
+file, setup stops instead of warning and proceeding. The file is what gets
+parameterised, so a configuration claiming +1 over a neutral amidine
+produced a run whose charge record and whose chemistry disagreed. An
+existing study that carried a mismatched charge will now refuse; the fix
+is a file in the protonation state the study means, which for an amidine
+or a carboxylate at physiological pH is not the Chemical Component
+Dictionary's ideal form.
+
+**Trajectories hold the solute.** `simulation.save_selection` defaults to
+`not water`, taking a 20 ns run of a small protein from about 740 MB to
+under 80. The topology that matches what was written is saved beside it as
+`trajectory_topology.pdb`, and every reader prefers it. Anything outside
+this software that loads `production.dcd` against the prepared system's
+topology will now fail on an atom-count mismatch: load the file beside the
+trajectory, or set `save_selection: all`. The water-site analysis needs
+`all` and says so rather than reporting an empty result.
+
+**Solvent-accessible surface area is of the protein.** Computed over the
+whole box it was occluded by the very water whose access it measures,
+which made it both wrong and slow.
+
+### Measured against something outside the trajectory
+
+Backbone N--H order parameters, in the Lipari--Szabo sense, for comparison
+against NMR relaxation. Per-residue fluctuations against a deposited
+structure's B-factors, reported as a correlation and not as an accuracy,
+because a refined B carries static disorder and the lattice damps the loop
+motion a solution trajectory is free to make. Density, energies and
+temperature read back from the state record the simulation already wrote,
+with density reported only from a constant-pressure run. The radial
+distribution between two selections, stopped at half the smallest box
+dimension, past which the minimum-image convention supplies only part of
+each shell and the curve falls away for a reason belonging to the box.
+
+Standard-state binding free energy from a one-dimensional potential of
+mean force, refused where the run never reached bulk: beyond the
+interaction the curve must fall as -2kT ln r, and windows that stopped
+while the ligand was still held give a smooth curve and a plausible number
+that is wrong by however much of the well was left outside.
+
+### Sampling and campaigns
+
+The fraction of native contacts is available as a collective variable as
+well as an analysis, biased over exactly the contacts the analysis
+measures, so the coordinate a surface is drawn along is the one the run
+reports. Free-energy surfaces over two collective variables, judged one
+dimension at a time on the free energy along each with the other
+integrated out: a run can fill a torsion thoroughly while the distance it
+was also biasing never left one basin, and a refusal names the dimension.
+Periodicity is read per variable rather than once for the run.
+
+Point mutations, written as `L99A` or `LEU-99-ALA`, with the original
+residue checked against the structure. Numbering travels badly between
+constructs, and applying a mutation to whatever sits at that position
+produces results describing a protein nobody chose.
+
+Campaign members are collected into one comparison. Where they differ only
+by random seed they are repeats, and the spread of their means is set
+against the error each run estimated for itself; where they differ by
+system or parameter that spread is the result rather than an error, and
+the record says which it decided and why.
+
+### Provenance
+
+The manifest records the versions of the packages that decide a number --
+mdtraj, OpenMM, RDKit and the rest -- read from what was loaded rather
+than probed, because what ran is what produced the numbers. A benchmark's
+interaction table proved to differ between machines with identical
+settings and identical perceived chemistry, and the record could not say
+which environment produced which answer. Demonstrable and undiagnosable is
+the worst combination, and this closes it for runs made from here.
+
+A residue's interaction occupancy is exported as the union of its atom
+pairs' frames, in `pl_interactions_by_residue.dat`. Read from the pair
+table alone that union can only be bounded from both sides, and residues
+touched through many atoms carried intervals wide enough to swallow the
+difference under test.
+
+### Validation, as a measurement
+
+A guardrail corpus that reports both rates: thirteen studies with one
+named defect each and seven ordinary ones where the right answer is
+silence, with the expected response written down before execution.
+Detection thirteen of thirteen; false refusals none of seven. Sensitivity
+alone was never evidence, because a checker that refuses everything scores
+perfectly on it.
+
+Running the corpus found a metadynamics run whose coordinate never left
+one basin passing the recrossing gate on movement within that basin -- on
+a count whose own definition string said it measured whether the
+coordinate moved rather than whether it changed state. The
+two-dimensional path had been given a single-minimum reason and the
+one-dimensional path had not.
+
+The cross-tool comparison used for the benchmark now lives in the
+repository, with its pre-registered thresholds under test, alongside a
+comparison of one study run in several environments.
+
+
 ## [2.5.1] — 2026-08-12
 
 Everything a run tells you, told earlier and told better.
@@ -1759,7 +1880,7 @@ the `fastmdx` CLI.
 - **Cross-run comparison report**: after a multi-run study, a `comparison/` report is built automatically at the batch root — per-frame **overlays** (RMSD, Rg, Q-value, total SASA across all runs on one axes), **trend** plots of each run's summary scalar against the swept parameter, a `comparison_summary.csv`, and a written `comparison_report.md` with a quantitative takeaway per property. Degrades gracefully (errored runs / missing analyses skipped); disable with `report: { comparison: false }`; (re)build via `FastMDXplora(...).compare()` (optionally `compare(output_dir=…)` for a batch that finished earlier)
 - **Dry-run / plan-only mode**: `fastmdx explore --config … --dry-run` (or `explore(dry_run=True)`) prints every run, its system, swept values, target output directory, and the phases that would execute — then exits without running anything or writing to disk
 - **Uniform return shape**: `FastMDXplora.explore()` always returns a `list[RunResult]` — a single study is a list of one, a sweep is a list of many. Each `RunResult` carries `run_id`, `system`, `status`, `output_dir`, `sweep_values`, and its per-phase `PhaseResult` list in `.phases` (with a `.phase(name)` lookup helper). The single user-facing entry point is always `FastMDXplora`; the batch machinery underneath is private
-- **Reproducibility manifest** (`manifest.json`) written at the project root summarizing phases executed, parameters, software versions, and DOI
+- **Reproducibility manifest** (`manifest.json`) written at the project root summarizing phases executed, parameters, and DOI. (It recorded this software's own version and not the versions of the libraries underneath, which is what 2.5.3 corrects.)
 - **Datasets namespace** (`fastmdxplora.datasets`) with a TrpCage placeholder
 - **CI**: matrix tests on ubuntu/macos/windows × Python 3.9–3.12 (GitHub Actions)
 - **PyPI**: dual-name publishing — `fastmdxplora` is the primary package, `fastmdx` is a thin alias that depends on it
