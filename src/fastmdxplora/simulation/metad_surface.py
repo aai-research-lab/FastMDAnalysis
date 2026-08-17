@@ -580,6 +580,19 @@ def compute_surface(
             "there is no way to tell whether the system crossed the barriers "
             "more than once"
         )
+    elif two_basins is None:
+        # One minimum means there is no second state to cross to, so the
+        # count above is movement within a single well and not evidence of
+        # anything. Its own definition string has always said so; the gate
+        # did not read it, and a run whose coordinate merely rattled passed
+        # on 43 crossings of the middle of its own range. The
+        # two-dimensional path was given this reason and the
+        # one-dimensional one was not.
+        reasons.append(
+            "the surface has a single minimum, so there is no second state "
+            "to cross to and no barrier along this coordinate has been "
+            "measured -- what was counted is movement within one well"
+        )
     elif crossed < minimum_recrossings:
         reasons.append(
             f"the system crossed between the ends of the range {crossed} "

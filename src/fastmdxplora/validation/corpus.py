@@ -384,6 +384,192 @@ def _density_at_constant_volume() -> Any:
     return analysis.findings["thermodynamics"]
 
 
+
+def _hills(centres, heights, sigma=0.2, biasf=10.0):
+    """A one-variable HILLS file, written where a test can read it."""
+    import tempfile
+    from pathlib import Path
+
+    path = Path(tempfile.mkdtemp()) / "HILLS"
+    with path.open("w") as fh:
+        fh.write("#! FIELDS time cv sigma_cv height biasf\n")
+        for t, (c, h) in enumerate(zip(centres, heights)):
+            fh.write(f"{t * 0.5:.3f} {c:.5f} {sigma:.4f} {h:.6f} "
+                     f"{biasf:.1f}\n")
+    return path
+
+
+def _metadynamics_without_a_recrossing():
+    np = _numpy()
+    from fastmdxplora.simulation.metad_surface import compute_surface
+
+    n = 600
+    rng = np.random.RandomState(0)
+    # The bias fills one basin and the system never leaves it.
+    centres = 1.0 + rng.normal(scale=0.15, size=n)
+    return compute_surface(
+        _hills(centres, 1.2 * np.exp(-np.linspace(0, 3.5, n))),
+        centres, points=60)
+
+
+def _metadynamics_that_crossed_and_settled():
+    np = _numpy()
+    from fastmdxplora.simulation.metad_surface import compute_surface
+
+    n = 1200
+    rng = np.random.RandomState(0)
+    centres = (np.where(rng.rand(n) < 0.5, -1.0, 1.0)
+               + rng.normal(scale=0.25, size=n))
+    return compute_surface(
+        _hills(centres, 1.2 * np.exp(-np.linspace(0, 3.5, n))),
+        centres, points=60)
+
+
+def _a_torsion_read_as_a_straight_line():
+    """The same hills, told the coordinate does not wrap.
+
+    A rotamer either side of the +/-180 boundary is then two states an
+    infinite distance apart, and the barrier between them is invented.
+    """
+    np = _numpy()
+    from fastmdxplora.simulation.metad_surface import compute_surface
+
+    n = 1200
+    rng = np.random.RandomState(1)
+    centres = (np.where(rng.rand(n) < 0.5, -3.0, 3.0)
+               + rng.normal(scale=0.2, size=n))
+    straight = compute_surface(
+        _hills(centres, 1.2 * np.exp(-np.linspace(0, 3.5, n))),
+        centres, points=60, periodic=False)
+    circular = compute_surface(
+        _hills(centres, 1.2 * np.exp(-np.linspace(0, 3.5, n))),
+        centres, points=60, periodic=True)
+    straight_barrier = (straight.get("evidence") or {}).get("barrier_kjmol")
+    circular_barrier = (circular.get("evidence") or {}).get("barrier_kjmol")
+    if (straight_barrier is not None and circular_barrier is not None
+            and straight_barrier > 1.5 * circular_barrier):
+        return {"refused": (
+            f"Read as a straight line the barrier is "
+            f"{straight_barrier:.1f} kJ/mol; read as the circle it is, "
+            f"{circular_barrier:.1f}. The difference is the boundary, not "
+            "the physics.")}
+    return {"barrier_kjmol": straight_barrier}
+
+
+def _a_run_too_short_for_its_own_correlation():
+    np = _numpy()
+    from fastmdxplora.statistics import summarise
+
+    # A slow drift: each half is internally consistent, the halves differ.
+    series = np.linspace(0.0, 1.0, 400) + np.random.RandomState(0).normal(
+        scale=0.01, size=400)
+    settled, reason = summarise(series)
+    return {"mean": None if settled is None else settled.mean,
+            "not_a_measurement": reason}
+
+
+def _a_run_long_against_its_correlation():
+    np = _numpy()
+    from fastmdxplora.statistics import summarise
+
+    rng = np.random.RandomState(0)
+    series = 0.3 + rng.normal(scale=0.01, size=4000)
+    settled, reason = summarise(series)
+    return {"mean": None if settled is None else settled.mean,
+            "not_a_measurement": reason}
+
+
+def _a_box_too_small_for_its_cutoff():
+    from fastmdxplora.setup.prepare import (
+        _solvate_with_room_for_the_cutoff)
+
+    class _Q:
+        def __init__(self, v): self._v = v
+        def value_in_unit(self, _u): return self._v
+
+    class _Unit:
+        nanometer = 1.0
+
+    class _Modeller:
+        def __init__(self): self.attempts = []
+        topology = property(lambda self: self)
+        def deleteWater(self): pass
+        def addSolvent(self, _ff, **kw):
+            self.attempts.append(float(kw["padding"]))
+            self._box = 0.2 * float(kw["padding"])
+        def getPeriodicBoxVectors(self):
+            b = getattr(self, "_box", 0.0)
+            return [[_Q(b if i == j else 0.0) for j in range(3)]
+                    for i in range(3)]
+
+    modeller = _Modeller()
+    _solvate_with_room_for_the_cutoff(
+        modeller, object(), {"padding": 1.0}, nonbonded_cutoff_nm=5.0,
+        padding_nm=1.0, nonbonded_method="PME", unit=_Unit,
+        most_it_may_grow_nm=0.5)
+    # It stopped rather than growing without limit, which is the guardrail.
+    return {"capped": (
+        f"stopped after {len(modeller.attempts)} attempt(s) rather than "
+        "growing the box without limit")} if len(
+            modeller.attempts) == 1 else {"attempts": modeller.attempts}
+
+
+def _a_box_that_already_fits():
+    from fastmdxplora.setup.prepare import (
+        _solvate_with_room_for_the_cutoff)
+
+    class _Q:
+        def __init__(self, v): self._v = v
+        def value_in_unit(self, _u): return self._v
+
+    class _Unit:
+        nanometer = 1.0
+
+    class _Modeller:
+        def __init__(self): self.attempts = []
+        topology = property(lambda self: self)
+        def deleteWater(self): pass
+        def addSolvent(self, _ff, **kw):
+            self.attempts.append(float(kw["padding"]))
+            self._box = 4.0 * float(kw["padding"])
+        def getPeriodicBoxVectors(self):
+            b = getattr(self, "_box", 0.0)
+            return [[_Q(b if i == j else 0.0) for j in range(3)]
+                    for i in range(3)]
+
+    modeller = _Modeller()
+    _solvate_with_room_for_the_cutoff(
+        modeller, object(), {"padding": 1.0}, nonbonded_cutoff_nm=0.9,
+        padding_nm=1.0, nonbonded_method="PME", unit=_Unit)
+    return {"attempts": modeller.attempts}
+
+
+def _a_selection_that_would_save_nothing():
+    from fastmdxplora.simulation.runner import resolve_save_selection
+
+    import mdtraj as md
+
+    top = md.Topology()
+    chain = top.add_chain()
+    for i in range(4):
+        res = top.add_residue("HOH", chain, resSeq=i + 1)
+        top.add_atom("O", md.element.oxygen, res)
+    _kept, described = resolve_save_selection(top, "not water")
+    return {"capped": described}
+
+
+def _a_malformed_save_selection():
+    from fastmdxplora.simulation.runner import resolve_save_selection
+
+    import mdtraj as md
+
+    top = md.Topology()
+    chain = top.add_chain()
+    res = top.add_residue("ALA", chain, resSeq=1)
+    top.add_atom("CA", md.element.carbon, res)
+    return resolve_save_selection(top, "protien")
+
+
 #: Studies with one named thing wrong. The expected answer was written
 #: before any of them was run.
 DEFECTS: list[Case] = [
@@ -424,6 +610,31 @@ DEFECTS: list[Case] = [
          "the density is a constant the setup fixed, so a mean with an "
          "error on it would describe arithmetic",
          mentioning="constant the setup fixed"),
+    Case("metadynamics stopped before any recrossing",
+         _metadynamics_without_a_recrossing, "refused",
+         "a barrier the system never crossed is the shape of the bias, "
+         "not of the landscape",
+         mentioning="cross"),
+    Case("a run too short for its own correlation time",
+         _a_run_too_short_for_its_own_correlation, "qualified",
+         "the effective sample count is an upper bound, and the error bar "
+         "printed from it is too tight",
+         mentioning="not long"),
+    Case("a box smaller than twice the cutoff",
+         _a_box_too_small_for_its_cutoff, "qualified",
+         "growing the padding without limit to reach an impossible cutoff "
+         "would solvate forever, so it stops and says what it tried",
+         mentioning="stopped"),
+    Case("a save selection that would keep nothing",
+         _a_selection_that_would_save_nothing, "qualified",
+         "a box of pure water is a legitimate study, so `not water` "
+         "matching none of it saves everything and names itself",
+         mentioning="matched none"),
+    Case("a save selection that will not parse",
+         _a_malformed_save_selection, "refused",
+         "a mistake in the study file, fixable in one edit, that would "
+         "otherwise affect every frame",
+         mentioning="not a selection"),
 ]
 
 #: Ordinary studies, where nothing should fire. This is the half that makes
@@ -442,4 +653,15 @@ CLEAN: list[Case] = [
     Case("mutation named against the residue that is there",
          _mutation_that_matches, "proceeded",
          "the structure holds what the mutation says it holds"),
+    Case("metadynamics that crossed and settled",
+         _metadynamics_that_crossed_and_settled, "proceeded",
+         "the system visited both basins repeatedly and the hills "
+         "flattened"),
+    Case("a run long against its correlation time",
+         _a_run_long_against_its_correlation, "proceeded",
+         "the halves agree, so the effective sample count means what it "
+         "says"),
+    Case("a box that already fits its cutoff",
+         _a_box_that_already_fits, "proceeded",
+         "no growing was needed, so nothing is reported about it"),
 ]
