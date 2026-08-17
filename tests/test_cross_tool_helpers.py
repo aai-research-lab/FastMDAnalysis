@@ -253,3 +253,49 @@ class TestFindingTheLigand:
 
         with pytest.raises(SystemExit, match="--ligand"):
             ligand_resname(tmp_path)
+
+
+class TestTheReferenceToolsResolve:
+    """The one thing the source-text checks cannot see.
+
+    Every other test here reads the module and asserts a string is
+    present. A helper that calls itself instead of importing satisfies all
+    of them: the words are there, the imports are there, the pragma is
+    there. It fails only when something calls it, which nothing in the
+    suite did, because the commands that call it need ProLIF and a
+    finished run.
+
+    Shipped that way, and found by running the comparison on real data:
+    992 frames of recursion instead of a trajectory.
+    """
+
+    def test_it_returns_the_two_tools(self):
+        pytest.importorskip("MDAnalysis", reason="the [validation] extra")
+        pytest.importorskip("prolif", reason="the [validation] extra")
+
+        from fastmdxplora.validation.cross_tool import _reference_tools
+
+        mda, plf = _reference_tools()
+        assert mda.__name__ == "MDAnalysis"
+        assert plf.__name__ == "prolif"
+
+    def test_it_does_not_call_itself(self):
+        """Asked directly, because the failure mode is a recursion that
+        looks like a correct implementation in every static reading."""
+        import inspect
+        from pathlib import Path
+
+        from fastmdxplora.validation import cross_tool
+
+        # From disk: `inspect.getsource` answers out of `linecache` and
+        # returns a stale copy of a module edited in the same session,
+        # which made this fail against a file that was already correct.
+        text = Path(inspect.getfile(cross_tool)).read_text(encoding="utf-8")
+        start = text.index("def _reference_tools(")
+        whole = text[start:text.index("\ndef ", start + 1)]
+        # Past the signature, which names the function and would match.
+        body = whole[whole.index("\n"):]
+
+        assert "_reference_tools()" not in body, (
+            "the helper calls itself: it must import, not recurse")
+        assert "import MDAnalysis" in body and "import prolif" in body

@@ -94,7 +94,7 @@ def _reference_tools():
     only the comparison itself asks.
     """
     try:
-        mda, _ = _reference_tools()
+        import MDAnalysis as mda
         import prolif as plf
     except ImportError as exc:  # pragma: no cover - depends on the env
         raise ImportError(
