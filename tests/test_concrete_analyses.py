@@ -619,14 +619,20 @@ class TestClusteringComparesShapeNotPlacement:
         """So eps means the same thing in both, and the two are comparable."""
         from fastmdxplora.analysis.cluster import _superposed_coordinates
 
+        from fastmdxplora.analysis.base import superposed
+
         traj = _hinge_traj()
         atom_idx = np.arange(traj.n_atoms)
-        # superpose() aligns in place, so the trajectory now holds the frames
-        # the returned points were built from. Aligning it a second time to
-        # compare against would measure something else.
+        # Aligning no longer rotates the caller's trajectory, so the frames
+        # the points were built from have to be obtained the same way the
+        # function obtains them rather than read back out of `traj`. The
+        # earlier version compared against `traj.xyz` and passed only
+        # because superposition mutated it in place -- a test shaped by the
+        # defect it sat next to.
+        aligned = superposed(traj, frame=0, atom_indices=atom_idx)
         points = _superposed_coordinates(traj, atom_idx)
         expected = np.sqrt(
-            ((traj.xyz[0, atom_idx] - traj.xyz[1, atom_idx]) ** 2).sum()
+            ((aligned.xyz[0, atom_idx] - aligned.xyz[1, atom_idx]) ** 2).sum()
             / len(atom_idx)
         )
         assert np.isclose(

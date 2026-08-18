@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt
 import mdtraj as md
 import numpy as np
 
-from fastmdxplora.analysis.base import Analysis
+from fastmdxplora.analysis.base import Analysis, superposed
 from fastmdxplora.analysis.orchestrator import register_analysis
 
 
@@ -121,7 +121,7 @@ class LigandRMSD(Analysis):
         # transforms all coordinates (including the ligand) by the same
         # rigid-body operation, so the residual ligand motion is motion
         # relative to the protein frame.
-        aligned = traj.superpose(traj, frame=ref, atom_indices=align_idx)
+        aligned = superposed(traj, frame=ref, atom_indices=align_idx)
 
         # RMSD of the LIGAND atoms on the aligned coordinates, vs the
         # reference frame's ligand coordinates. No further alignment.

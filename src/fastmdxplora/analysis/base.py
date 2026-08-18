@@ -549,3 +549,33 @@ class Analysis(ABC):
         with path.open("w", encoding="utf-8") as fh:
             json.dump(manifest, fh, indent=2)
         return path
+
+
+def superposed(traj, *, frame=0, atom_indices=None):
+    """Align a copy, and drop the box that no longer describes it.
+
+    Two hazards, both silent, both met on the same run.
+
+    mdtraj's ``superpose`` rotates coordinates **in place** and returns the
+    same object. An analysis that aligned therefore left every later
+    analysis in the same run reading rotated coordinates, so a measure's
+    result depended on which other measures had run before it. Nothing in
+    the record could show this: every setting was identical either way.
+
+    And rotation does not rotate ``unitcell_vectors``. Minimum-image
+    distances computed afterwards map atoms through a box that no longer
+    corresponds to the frame, which does not fail -- it answers, wrongly.
+    On a 20 ns trypsin-benzamidine run the same ligand-protein pair
+    measured 1.64 nm before alignment and 1.83 nm after, and
+    ``pl_interactions`` reported 252 hydrophobic contacts in company
+    against 10 alone.
+
+    So: align a copy, and remove the box. An analysis that wants periodic
+    distances must take them from the unaligned trajectory, where the box
+    is still true. Absent is better than stale, because stale is the one
+    a caller cannot detect.
+    """
+    aligned = traj[:]
+    aligned.superpose(traj, frame=frame, atom_indices=atom_indices)
+    aligned.unitcell_vectors = None
+    return aligned

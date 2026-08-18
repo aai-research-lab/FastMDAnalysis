@@ -51,7 +51,7 @@ import matplotlib.pyplot as plt
 import mdtraj as md
 import numpy as np
 
-from fastmdxplora.analysis.base import Analysis
+from fastmdxplora.analysis.base import Analysis, superposed
 from fastmdxplora.analysis.orchestrator import register_analysis
 
 #: Amide hydrogen names in the force fields this software builds systems
@@ -228,7 +228,7 @@ class OrderParameters(Analysis):
                 f"with {n_frames} frames."
             )
 
-        aligned = traj.superpose(traj, frame=ref, atom_indices=align_idx)
+        aligned = superposed(traj, frame=ref, atom_indices=align_idx)
         nitrogen = np.array([p[0] for p in pairs])
         hydrogen = np.array([p[1] for p in pairs])
         residues = np.array([p[2] for p in pairs])

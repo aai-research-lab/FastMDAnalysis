@@ -34,7 +34,7 @@ import matplotlib.pyplot as plt
 import mdtraj as md
 import numpy as np
 
-from fastmdxplora.analysis.base import Analysis
+from fastmdxplora.analysis.base import Analysis, superposed
 from fastmdxplora.analysis.orchestrator import register_analysis
 
 #: B = (8 pi^2 / 3) <u^2>, so <u^2> = 3B / (8 pi^2), in the file's units of
@@ -180,7 +180,7 @@ class BFactorComparison(Analysis):
                 "needs at least three."
             )
 
-        aligned = traj.superpose(traj, frame=0, atom_indices=align_idx)
+        aligned = superposed(traj, frame=0, atom_indices=align_idx)
         # Alpha carbons within the scope selection: comparing a chain the
         # study excluded would report a correlation over residues it was
         # not asked about.

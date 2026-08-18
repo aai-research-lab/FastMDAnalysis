@@ -39,7 +39,7 @@ import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 
-from fastmdxplora.analysis.base import Analysis, AnalysisResult
+from fastmdxplora.analysis.base import Analysis, AnalysisResult, superposed
 from fastmdxplora.analysis.orchestrator import register_analysis
 from fastmdxplora.analysis.plotting import new_figure, save_figure
 
@@ -135,7 +135,7 @@ class DimRed(Analysis):
         # Superpose the trajectory onto frame 0 using the selected atoms,
         # then flatten each frame's coordinates into a feature vector.
         # This is the standard "Cartesian PCA" featurization.
-        aligned = traj.superpose(traj, frame=0, atom_indices=atom_idx)
+        aligned = superposed(traj, frame=0, atom_indices=atom_idx)
         coords = aligned.xyz[:, atom_idx, :].reshape(traj.n_frames, -1)
 
         # Mean-center: each feature should have zero mean before linear

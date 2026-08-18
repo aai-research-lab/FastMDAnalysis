@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 import mdtraj as md
 import numpy as np
 
-from fastmdxplora.analysis.base import Analysis
+from fastmdxplora.analysis.base import Analysis, superposed
 from fastmdxplora.analysis.orchestrator import register_analysis
 from fastmdxplora.analysis.rmsf import _atom_labels
 
@@ -99,7 +99,7 @@ class LigandRMSF(Analysis):
 
         # Align on the protein, then measure ligand-atom fluctuations about
         # their mean position on the aligned coordinates.
-        aligned = traj.superpose(traj, frame=ref, atom_indices=align_idx)
+        aligned = superposed(traj, frame=ref, atom_indices=align_idx)
         xyz = aligned.xyz[:, ligand_idx, :]
         mean_xyz = xyz.mean(axis=0)
         disp = xyz - mean_xyz

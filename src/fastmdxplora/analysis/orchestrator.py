@@ -305,7 +305,16 @@ class AnalysisOrchestrator:
                 continue
 
             logger.debug("--> running analysis '%s'", name)
-            self.results[name] = analysis.run(self.traj)
+            # Its own trajectory, not the shared one. Superposition in
+            # mdtraj rotates coordinates in place, so an analysis that
+            # aligns leaves every later analysis reading rotated
+            # coordinates -- and the result of one measure came to depend
+            # on which others had run before it, which nothing in the
+            # record could show. On a 20 ns trypsin-benzamidine run,
+            # `pl_interactions` reported 252 hydrophobic contacts after
+            # rmsf and ligand_rmsd had aligned the frames, and 10 when run
+            # by itself. The 10 was right.
+            self.results[name] = analysis.run(self.traj[:])
 
         self._reweight()
         self._write_manifest()

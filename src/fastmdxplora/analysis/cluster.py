@@ -41,7 +41,7 @@ import numpy as np
 import pandas as pd
 from sklearn.cluster import DBSCAN, AgglomerativeClustering, KMeans
 
-from fastmdxplora.analysis.base import Analysis, AnalysisResult
+from fastmdxplora.analysis.base import Analysis, AnalysisResult, superposed
 from fastmdxplora.analysis.orchestrator import register_analysis
 from fastmdxplora.analysis.plotting import new_figure, save_figure
 
@@ -394,7 +394,7 @@ def _superposed_coordinates(
     between those frames under this one alignment, so distances stay in nm and
     mean the same thing they do in the other feature space.
     """
-    aligned = traj.superpose(traj, frame=0, atom_indices=atom_idx)
+    aligned = superposed(traj, frame=0, atom_indices=atom_idx)
     coords = aligned.xyz[:, atom_idx, :].reshape(traj.n_frames, -1)
     return coords / np.sqrt(len(atom_idx))
 

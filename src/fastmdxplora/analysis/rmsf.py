@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 import mdtraj as md
 import numpy as np
 
-from fastmdxplora.analysis.base import Analysis
+from fastmdxplora.analysis.base import Analysis, superposed
 from fastmdxplora.analysis.orchestrator import register_analysis
 
 
@@ -114,7 +114,7 @@ class RMSF(Analysis):
                 f"with {n} frames."
             )
 
-        aligned = traj.superpose(traj, frame=ref, atom_indices=atom_idx)
+        aligned = superposed(traj, frame=ref, atom_indices=atom_idx)
 
         # Per-atom RMSF on the selected atoms only:
         # rmsf[i] = sqrt(mean over frames of ||r_i(t) - <r_i>||^2)
