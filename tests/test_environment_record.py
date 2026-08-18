@@ -79,3 +79,52 @@ class TestItReachesTheManifest:
             "the manifest records the software version and must record the "
             "stack underneath it")
         assert '"environment"' in writer
+
+
+class TestTheMetadataFallback:
+    """Some packages carry no version attribute at all.
+
+    PDBFixer is one, and it decides every protonation state in a run. The
+    installed distribution knows even where the module is silent, so the
+    record asks it rather than settling for "loaded".
+    """
+
+    def test_a_module_without_an_attribute_is_named_anyway(self, monkeypatch):
+        import sys
+        import types
+
+        # A module that is loaded, carries no `__version__`, and whose
+        # distribution is installed: exactly PDBFixer's shape.
+        stand_in = types.ModuleType("scipy")
+        monkeypatch.setitem(sys.modules, "scipy", stand_in)
+
+        record = environment_record()
+        assert record["scipy"] not in (None, "loaded"), (
+            "the distribution's metadata should have supplied a version "
+            "where the module did not")
+
+    def test_loaded_but_unknown_is_still_distinguishable(self, monkeypatch):
+        """A module with neither attribute nor installed distribution.
+
+        "Loaded, version unknown" and "not loaded" say different things
+        about a run, so they must not collapse onto each other.
+        """
+        import sys
+        import types
+
+        from fastmdxplora import provenance
+
+        # A name with no attribute and no installed distribution. Chosen
+        # rather than borrowed: the first draft used propka, which is
+        # installed here, so the fallback found 3.5.1 and the test was
+        # asserting the opposite of what it meant.
+        monkeypatch.setattr(
+            provenance, "RESULT_BEARING_PACKAGES",
+            ("fastmdx_not_a_real_package", "openmmplumed"))
+        monkeypatch.setitem(
+            sys.modules, "fastmdx_not_a_real_package",
+            types.ModuleType("fastmdx_not_a_real_package"))
+        record = provenance.environment_record()
+
+        assert record["fastmdx_not_a_real_package"] == "loaded"
+        assert record["openmmplumed"] is None

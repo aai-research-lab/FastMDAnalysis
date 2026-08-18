@@ -108,3 +108,38 @@ class TestWhatGetsDeposited:
         chemistry = _perceived()
         deposit_perceived_chemistry(chemistry, tmp_path)
         assert chemistry.as_record()["source"] == "perceived"
+
+
+class TestADepositThatCannotBeWritten:
+    def test_a_failure_returns_none_rather_than_raising(self, tmp_path,
+                                                        monkeypatch):
+        """Losing a run to save a record is the wrong trade.
+
+        The analysis has its chemistry in hand either way; what a failed
+        deposit costs is the note of what was used, and that is not worth
+        an exception on the way out of a finished measurement.
+        """
+        pytest.importorskip("rdkit", reason="requires the [ligand] extra")
+        from rdkit import Chem
+
+        from fastmdxplora.analysis import ligand_chemistry as module
+
+        def _explode(*args, **kwargs):
+            raise OSError("the disk said no")
+
+        monkeypatch.setattr(Chem, "SDWriter", _explode)
+        assert module.deposit_perceived_chemistry(
+            _perceived(), tmp_path) is None
+
+    def test_a_molecule_that_is_absent_is_not_written(self, tmp_path):
+        """Perceived, but nothing perceived: there is no molecule to
+        record and no file worth leaving behind."""
+        from fastmdxplora.analysis.ligand_chemistry import (
+            ResolvedChemistry,
+            deposit_perceived_chemistry,
+        )
+
+        empty = ResolvedChemistry(
+            mol=None, source="perceived", detail="nothing resolved",
+            resname="BEN", n_atoms=0)
+        assert deposit_perceived_chemistry(empty, tmp_path) is None
