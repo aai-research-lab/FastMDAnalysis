@@ -7,6 +7,62 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [2.5.4] — 2026-08-17
+
+A correctness fix. Interaction counts from any run that computed more than
+one analysis were too high.
+
+### If you have published interaction counts, recount
+
+**One analysis was disturbing another.** MDTraj's `superpose` rotates
+coordinates in place and returns the same object, and the analysis layer
+handed every measure the same trajectory. A measure that aligned -- RMSF,
+ligand RMSD, clustering, dimensionality reduction, order parameters,
+B-factor comparison -- left every measure after it reading rotated
+coordinates. What a measure reported depended on which other measures had
+run before it, and nothing in the record could show it, because "which
+other analyses ran" is not a setting.
+
+Compounding it: rotation does not rotate the unit cell. Minimum-image
+distances taken afterwards map atoms through a box that no longer
+describes the frame, which does not fail. It answers, wrongly.
+
+On a 20 ns trypsin--benzamidine run, `pl_interactions` reported 252
+hydrophobic contacts when it ran after three aligning analyses and 10 when
+it ran alone, on the same trajectory in the same container on the same
+day. The same ligand--protein pair measured 1.64 nm before alignment and
+1.83 nm after. **The smaller count is the correct one**: contacts counted
+after superposition are counted through a box that does not match the
+coordinates.
+
+Any interaction table from a full pipeline run, or from any `analyze` that
+included an aligning measure, over-reports. Re-run the analysis on this
+release; the trajectories are unaffected.
+
+Each analysis now receives its own copy of the trajectory, and every
+superposition goes through a helper that aligns a copy and drops the box
+that no longer describes it. A test asserts that a measure gives the same
+answer alone as in company.
+
+One existing test had accommodated the defect rather than catching it: it
+compared its result against the caller's trajectory and passed only
+because superposition had mutated it, with a comment explaining the
+mutation as though it were behaviour.
+
+### Provenance
+
+The environment record consults distribution metadata where a module
+carries no version attribute, so PDBFixer -- which decides every
+protonation state in a run -- is named rather than reported as merely
+loaded.
+
+A ligand whose chemistry was inferred from coordinates now leaves that
+chemistry in `setup/ligands/`, where the next analysis finds it instead of
+inferring again. Chemistry read from a file was already on disk; the
+inferred kind, which is the weaker of the two and the one this software
+labels a guess, was the only kind leaving no record of what was guessed.
+
+
 ## [2.5.3] — 2026-08-16
 
 Measurements the software can be checked against, and four numbers that
