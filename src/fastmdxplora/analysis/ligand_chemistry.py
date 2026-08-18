@@ -26,7 +26,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-__all__ = ["ResolvedChemistry", "resolve_ligand_chemistry", "SOURCES"]
+__all__ = ["ResolvedChemistry", "resolve_ligand_chemistry",
+           "deposit_perceived_chemistry", "SOURCES"]
 
 
 #: The routes, best first. Ordered by how much of the answer was decided by
@@ -163,6 +164,56 @@ def _perceive(
     except Exception:  # noqa: BLE001
         return None
     return mol, 0, []
+
+
+def deposit_perceived_chemistry(
+    chemistry: "ResolvedChemistry", run_dir: "str | Path | None"
+) -> "Path | None":
+    """Write a perceived molecule where the next reader will find it.
+
+    Chemistry resolved from a file is already on disk; chemistry inferred
+    from coordinates is not, and it is the weaker of the two. So a run
+    whose ligand was perceived leaves nothing behind, every later analysis
+    perceives it again, and the one route the software itself labels
+    "bond orders are a guess" is the one route with no record of what was
+    guessed.
+
+    Written into the same `setup/ligands/` directory that
+    `resolve_ligand_chemistry` already searches, so the next analysis
+    finds it as a resolved file rather than repeating the inference. The
+    file is not a claim that the chemistry is certain -- the record beside
+    it still says `perceived` -- it is a statement of what was used.
+
+    Returns the path written, or None where there was nothing to write or
+    nowhere to put it.
+    """
+    if run_dir is None or chemistry.mol is None:
+        return None
+    if not chemistry.is_perceived:
+        return None
+
+    from pathlib import Path as _Path
+
+    ligands = _Path(run_dir) / "setup" / "ligands"
+    target = ligands / f"{chemistry.resname}.sdf"
+    if target.exists():
+        return target
+
+    try:
+        from rdkit import Chem
+
+        ligands.mkdir(parents=True, exist_ok=True)
+        writer = Chem.SDWriter(str(target))
+        try:
+            writer.write(chemistry.mol)
+        finally:
+            writer.close()
+    except Exception:  # noqa: BLE001 - a deposit must not fail a run
+        # The analysis has its chemistry either way; what is lost is only
+        # the record, and losing a run to save a record is the wrong
+        # trade.
+        return None
+    return target
 
 
 def resolve_ligand_chemistry(

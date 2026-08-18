@@ -144,7 +144,10 @@ class ProteinLigandInteractions(Analysis):
     def compute(self, traj: md.Trajectory) -> pd.DataFrame:
         from fastmdxplora.analysis import interaction_summary as summary
         from fastmdxplora.analysis import interactions as rules
-        from fastmdxplora.analysis.ligand_chemistry import resolve_ligand_chemistry
+        from fastmdxplora.analysis.ligand_chemistry import (
+    deposit_perceived_chemistry,
+    resolve_ligand_chemistry,
+)
 
         ligand = traj.topology.select(f"resname {self.ligand_resname}")
         protein = traj.topology.select(self.protein_selection)
@@ -168,6 +171,14 @@ class ProteinLigandInteractions(Analysis):
         # perceived bond orders is a different claim from one computed from
         # chemistry that was resolved, and a reader deserves to know which.
         self.findings["ligand_chemistry"] = chemistry.as_record()
+
+        # And deposited where the next reader will find it, when it was
+        # inferred rather than read. Otherwise the weakest chemistry in the
+        # system is the only kind that leaves no trace of what was used.
+        deposited = deposit_perceived_chemistry(
+            chemistry, self._run_directory())
+        if deposited is not None:
+            self.findings["ligand_chemistry"]["deposited"] = str(deposited)
 
         found: list[Any] = []
         refused: dict[str, str] = {}
