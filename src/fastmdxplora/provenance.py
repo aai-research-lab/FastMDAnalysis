@@ -314,11 +314,24 @@ def environment_record() -> dict[str, str | None]:
             continue
         version = getattr(module, "__version__", None)
         if version is None:
-            # OpenMM keeps it on a submodule; others may not carry one at
-            # all, and "loaded, version unknown" is worth distinguishing
-            # from "not loaded".
+            # OpenMM keeps it on a submodule.
             version = getattr(getattr(module, "version", None),
                               "version", None)
+        if version is None:
+            # And PDBFixer carries no attribute at all, while deciding
+            # every protonation state in the run. The installed
+            # distribution knows even where the module does not.
+            try:
+                from importlib.metadata import (
+                    PackageNotFoundError,
+                    version as _distribution_version,
+                )
+
+                version = _distribution_version(name.split(".")[0])
+            except (PackageNotFoundError, ImportError, ValueError):
+                version = None
+        # "loaded, version unknown" stays distinguishable from "not
+        # loaded", because the two say different things about a run.
         versions[name] = str(version) if version is not None else "loaded"
 
     versions["python"] = ".".join(str(n) for n in sys.version_info[:3])
