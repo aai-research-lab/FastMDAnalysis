@@ -283,7 +283,16 @@ class TestARestraintActuallyHolds:
         assert unrestrained[-1] > unrestrained[0], (
             "a free structure should keep moving away from where it "
             f"started: {unrestrained}")
-        assert restrained[-1] < 2.0 * restrained[0], (
+        # The first block is discarded on both arms. It covers the first
+        # two picoseconds out of minimisation, where the structure is
+        # relaxing rather than sampling, and it comes out anomalously
+        # small: on one CI platform it read 0.016 against a plateau near
+        # 0.033, and comparing the end of the run against it failed a
+        # restraint that had held perfectly well. That is the third time
+        # this test has been anchored on the transient part of a run, so
+        # it is now anchored on nothing that a single block can move.
+        settled = restrained[1:]
+        assert max(settled) < 2.0 * min(settled), (
             "a restrained structure should settle at an amplitude rather "
             f"than keep travelling: {restrained}")
 
