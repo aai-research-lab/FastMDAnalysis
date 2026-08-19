@@ -230,6 +230,22 @@ _NO_FLAG_OF_ITS_OWN: dict[str, str] = {
 }
 
 
+class _PercentSafeHelp(argparse.RawDescriptionHelpFormatter):
+    """Render help without treating a literal percent as a format spec.
+
+    argparse expands help strings with `%`, so `71% of a cube` in box_shape
+    read as a `% o` octal conversion and raised at print_help() time while the
+    parser still built. Escaping in the schema is wrong: config/generate.py
+    and gui/schema_payload.py print the same text verbatim and would show
+    `71%%`, and the interface-parity test requires the stored help to equal
+    the schema's byte for byte. So the doubling happens here, at render, and
+    nowhere earlier.
+    """
+
+    def _get_help_string(self, action):
+        return (super()._get_help_string(action) or "").replace("%", "%%")
+
+
 def _generated_options(phase: str, written: list[tuple]) -> list[tuple]:
     """A flag for every setting the schema declares.
 
@@ -707,7 +723,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "Project-level orchestrator for end-to-end molecular dynamics "
             "studies: setup → simulate → analyze → report."
         ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        formatter_class=_PercentSafeHelp,
         epilog=(
             "Examples:\n"
             "  fastmdx explore -system protein.pdb\n"
@@ -753,7 +769,7 @@ def _build_parser() -> argparse.ArgumentParser:
                 "Each phase's flags are available under a per-phase prefix "
                 "(--setup-*, --simulate-*, --analyze-*, --report-*)."
             ),
-            formatter_class=argparse.RawDescriptionHelpFormatter,
+            formatter_class=_PercentSafeHelp,
         )
         _common_input_args(ep)
         ep.add_argument(
@@ -808,7 +824,7 @@ def _build_parser() -> argparse.ArgumentParser:
             phase,
             help=f"Run only the {phase} phase.",
             description=f"Run only the {phase} phase of the FastMDXplora pipeline.",
-            formatter_class=argparse.RawDescriptionHelpFormatter,
+            formatter_class=_PercentSafeHelp,
         )
         _common_input_args(pp)
         _attach_phase_options(pp, opts, group_title=f"{phase} options",
