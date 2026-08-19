@@ -1163,6 +1163,24 @@ def test_viewer_solvent_toggles_preserve_playback_with_static_environment_overla
     assert "environmentModel.getID()" in viewer_js
 
 
+def test_viewer_environment_overlay_keeps_the_solute_legible() -> None:
+    """Dense solvent and the periodic-cell guide must not dominate the protein."""
+    root = Path(__file__).resolve().parents[1]
+    viewer_js = (root / "src" / "fastmdxplora" / "gui" / "static" / "molecule-viewer.js").read_text(encoding="utf-8")
+
+    environment_style = viewer_js.split("function stylePlaybackEnvironment", 1)[1].split(
+        "\n  function resolveProteinSelection", 1
+    )[0]
+    periodic_box = viewer_js.split("function drawPeriodicBox", 1)[1].split(
+        "\n  function stylePlaybackEnvironment", 1
+    )[0]
+
+    assert 'resn: WATERS, elem: "O"' in environment_style
+    assert "opacity: 0.42" in environment_style
+    assert "const boxOpacity = STATE.visibility.water ? 0.55 : 0.38" in periodic_box
+    assert "linewidth: 1.2, opacity: boxOpacity" in periodic_box
+
+
 def test_dashboard_resets_run_dependent_state_when_active_run_changes() -> None:
     root = Path(__file__).resolve().parents[1]
     dashboard_js = (root / "src" / "fastmdxplora" / "gui" / "static" / "dashboard.js").read_text(encoding="utf-8")

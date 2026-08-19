@@ -733,8 +733,11 @@
       });
       const corners = [corner(0,0,0), corner(1,0,0), corner(0,1,0), corner(1,1,0),
         corner(0,0,1), corner(1,0,1), corner(0,1,1), corner(1,1,1)];
+      // A true periodic cell is physically larger than the protein. Keep the
+      // guide visible without allowing it to overpower a protein-only view.
+      const boxOpacity = STATE.visibility.water ? 0.55 : 0.38;
       for (const [start, end] of [[0,1],[0,2],[0,4],[1,3],[1,5],[2,3],[2,6],[3,7],[4,5],[4,6],[5,7],[6,7]]) {
-        viewer.addLine({start: corners[start], end: corners[end], color: COLORS.cyan, linewidth: 2.5, opacity: 0.95});
+        viewer.addLine({start: corners[start], end: corners[end], color: COLORS.cyan, linewidth: 1.2, opacity: boxOpacity});
       }
     } catch (error) { console.debug("periodic box rendering skipped", error); }
   }
@@ -746,10 +749,11 @@
     // first, then apply only controls that require the full system.
     try { viewer.setStyle(scope, {}); } catch (error) { console.debug(error); }
     if (STATE.visibility.water) {
-      addStyle(viewer, {...scope, resn: WATERS}, {
-        sphere: {scale: 0.28, color: "#4da3ff", opacity: 0.88},
-        stick: {radius: 0.075, color: "#4da3ff", opacity: 0.82},
-        line: {color: "#4da3ff", linewidth: 1.1, opacity: 0.72},
+      // A solvated system contains thousands of water hydrogens. Rendering
+      // every bond here hides the solute; oxygen markers preserve the solvent
+      // envelope while the Hydrogens control still exposes atom-level detail.
+      addStyle(viewer, {...scope, resn: WATERS, elem: "O"}, {
+        sphere: {scale: 0.22, color: "#4da3ff", opacity: 0.42},
       });
     }
     if (STATE.visibility.ions) {
@@ -759,8 +763,7 @@
     }
     if (STATE.visibility.hydrogens) {
       addStyle(viewer, {...scope, elem: "H"}, {
-        sphere: {scale: 0.18, colorscheme: "Jmol"},
-        stick: {radius: 0.08, colorscheme: "Jmol"},
+        sphere: {scale: 0.12, colorscheme: "Jmol", opacity: 0.45},
       });
     }
   }
