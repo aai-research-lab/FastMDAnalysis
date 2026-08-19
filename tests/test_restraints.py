@@ -277,12 +277,13 @@ class TestARestraintActuallyHolds:
         assert all(math.isfinite(x) for x in restrained), (
             f"the restrained run did not survive ({restrained})")
 
-        # The physics, stated as the thing that separates the two arms:
-        # unbounded against bounded. Free diffusion grows over the run;
-        # a harmonic well does not, whatever its amplitude happens to be.
-        assert unrestrained[-1] > unrestrained[0], (
-            "a free structure should keep moving away from where it "
-            f"started: {unrestrained}")
+        # The free arm must leave its initial displacement envelope. Its
+        # distance from the starting coordinates is stochastic, however, so a
+        # final snapshot can be lower than an earlier excursion without the
+        # structure having become restrained again.
+        assert max(unrestrained[1:]) > 1.5 * unrestrained[0], (
+            "a free structure should explore substantially beyond its "
+            f"initial displacement: {unrestrained}")
         # The first block is discarded on both arms. It covers the first
         # two picoseconds out of minimisation, where the structure is
         # relaxing rather than sampling, and it comes out anomalously
