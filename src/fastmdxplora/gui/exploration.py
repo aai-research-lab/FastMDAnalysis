@@ -538,6 +538,7 @@ class DashboardRuntime:
     process_finished_at: str | None = None
     process_returncode: int | None = None
     completion_error: str | None = None
+    data_stale: bool = False
     log_path: Path | None = None
     command: list[str] = field(default_factory=list)
     lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
@@ -552,7 +553,48 @@ class DashboardRuntime:
 
     def data_root(self) -> Path:
         with self.lock:
+            if self.data_stale or self.active_root is None:
+                # Preserve the old run on disk, but do not expose its
+                # telemetry when no current run is active.
+                return self.workspace_root / ".fastmdxplora-no-current-run"
             return self.active_root or self.workspace_root
+
+    def _telemetry_predates_process(self) -> bool:
+        if self.active_root is None or not self.process_started_at:
+            return False
+        status = _json_mapping(self.active_root / "simulation" / "live_status.json")
+        recorded = status.get("run_started_at") or status.get("last_update_timestamp")
+        if not recorded:
+            return False
+        try:
+            telemetry_time = datetime.fromisoformat(str(recorded).replace("Z", "+00:00"))
+            process_time = datetime.fromisoformat(str(self.process_started_at).replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        return telemetry_time < process_time
+
+    def _process_failure_message(self) -> str:
+        detail = ""
+        if self.log_path is not None:
+            try:
+                lines = [
+                    line.strip()
+                    for line in self.log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+                    if line.strip()
+                ]
+            except OSError:
+                lines = []
+            for index, line in enumerate(lines):
+                if "already hold results" in line.lower():
+                    detail = " ".join(lines[index:index + 2])
+                    break
+            if not detail and lines:
+                detail = lines[-1]
+        suffix = f" {detail}" if detail else ""
+        return (
+            f"The workflow exited with code {self.process_returncode}.{suffix} "
+            f"See {self.log_path or self.workspace_root / 'exploration.log'} for the full log."
+        )
 
     def _refresh_process(self) -> None:
         if self.process is None:
@@ -563,7 +605,12 @@ class DashboardRuntime:
         self.process_returncode = int(returncode)
         if self.process_finished_at is None:
             self.process_finished_at = _utc_now()
-        if self.process_returncode == 0 and self.completion_error is None:
+        if self.process_returncode != 0 and self.completion_error is None:
+            self.completion_error = self._process_failure_message()
+            self.data_stale = self._telemetry_predates_process()
+            if self.data_stale:
+                self.active_root = None
+        elif self.process_returncode == 0 and self.completion_error is None:
             self.completion_error = self._completed_run_error()
             if self.completion_error:
                 self._record_completion_failure(self.completion_error)
@@ -663,9 +710,9 @@ class DashboardRuntime:
             elif self.process is not None and self.process_returncode is not None:
                 status = "failed"
             return {
-                "mode": "home" if self.active_root is None else "run",
+                "mode": "home" if self.active_root is None or self.data_stale else "run",
                 "status": status,
-                "active_run": str(self.active_root) if self.active_root else None,
+                "active_run": str(self.active_root) if self.active_root and not self.data_stale else None,
                 "workspace": str(self.workspace_root),
                 "exploration_root": str(self.exploration_root),
                 "process_running": running,
@@ -712,12 +759,18 @@ class DashboardRuntime:
                     "errors": {"run_name": "Run name resolves outside the launch directory."},
                 }
             if output_dir.exists() and any(output_dir.iterdir()):
+                detail = f"Output folder already exists and is not empty: {output_dir}. Choose a new output folder to start a new simulation."
+                self.data_stale = True
+                self.completion_error = detail
                 return {
                     **result,
                     "valid": False,
-                    "errors": {"run_name": f"Output folder already exists and is not empty: {output_dir}"},
+                    "error": detail,
+                    "errors": {"run_name": detail},
+                    "next_action": "Choose a new output folder; the previous run was preserved.",
                 }
             output_dir.mkdir(parents=True, exist_ok=True)
+            self.data_stale = False
             command = build_exploration_command(config, output_dir)
             started = self._spawn(command, output_dir, dashboard_url)
             return {**result, **started}
@@ -816,6 +869,10 @@ class DashboardRuntime:
             if not prepared["ok"]:
                 return prepared
 
+            # A previous rejected launch may have hidden its old telemetry.
+            # This is a new process and must become the current run even when
+            # it is launched from the config-based Run page.
+            self.data_stale = False
             started = self._spawn(prepared["command"], output_dir, dashboard_url)
             return {
                 "ok": True,
@@ -865,7 +922,17 @@ class DashboardRuntime:
                 # Beside the config, under a name taken from it, so a config
                 # kept with its data leaves its results there too.
                 output_dir = (source.parent / f"{source.stem}_output").resolve()
+            if output_dir.exists() and any(output_dir.iterdir()):
+                detail = f"Output folder already exists and is not empty: {output_dir}. Choose a new output folder to start a new simulation."
+                self.data_stale = True
+                self.completion_error = detail
+                return {
+                    "ok": False,
+                    "error": detail,
+                    "next_action": "Choose a new output folder; the previous run was preserved.",
+                }
             output_dir.mkdir(parents=True, exist_ok=True)
+            self.data_stale = False
 
             command = [
                 sys.executable, "-m", "fastmdxplora.cli.main", "explore",

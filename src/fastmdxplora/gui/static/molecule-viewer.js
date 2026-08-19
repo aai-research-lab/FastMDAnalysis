@@ -14,7 +14,7 @@
     "HID", "HIE", "HIP", "ILE", "LEU", "LYS", "MET", "PHE", "PRO",
     "SER", "THR", "TRP", "TYR", "VAL", "MSE", "SEC", "PYL",
   ];
-  const WATERS = ["HOH", "WAT", "TIP", "TIP3", "SOL", "H2O"];
+  const WATERS = ["HOH", "WAT", "TIP", "TIP3", "TIP3P", "SOL", "H2O"];
   const IONS = [
     "NA", "K", "CL", "BR", "I", "F", "MG", "CA", "ZN", "MN", "FE",
     "CU", "NI", "CO", "CD", "HG", "PB", "CS", "RB", "LI", "BA", "SR",
@@ -63,6 +63,16 @@
     spinning: false,
     playbackPayload: null,
     playbackPdb: null,
+    // Incremented on a dashboard run transition so a late response from the
+    // previous run cannot repopulate the reset viewer.
+    viewerGeneration: 0,
+    // Full solvated topology used as a static overlay while the solute-only
+    // trajectory frames remain animated.
+    environmentPdb: null,
+    environmentUrl: null,
+    environmentModel: null,
+    environmentBaseCoordinates: null,
+    environmentTranslation: null,
     playbackSignature: null,
     playbackLoadPromise: null,
     playbackLoaded: false,
@@ -83,6 +93,7 @@
     window.FastMDXDashboard?.on("structure-updated", onStructureUpdated);
     window.FastMDXDashboard?.on("status-updated", ({status}) => onStatusUpdated(status));
     window.FastMDXDashboard?.on("playback-ready", onPlaybackReady);
+    window.FastMDXDashboard?.on("run-changed", onRunChanged);
     window.FastMDXDashboard?.on("viewer-page-opened", onViewerPageOpened);
     window.FastMDXDashboard?.on("live-page-opened", onLivePageOpened);
     window.FastMDXDashboard?.on("settings-updated", onSettingsUpdated);
@@ -93,6 +104,59 @@
       pollLiveFrame,
       Math.max(1000, Math.min(60000, refreshSeconds * 1000))
     );
+  }
+
+  function onRunChanged() {
+    // Requests started for the previous run are not safe to apply after this
+    // reset; each async path captures and checks this generation.
+    STATE.viewerGeneration += 1;
+    STATE.playbackLoadPromise = null;
+    pausePlayback();
+    STATE.liveUpdates = true;
+    STATE.liveFrameIndex = null;
+    STATE.mode = "structure";
+    STATE.structureInfo = null;
+    STATE.structureUrl = null;
+    STATE.structurePdb = null;
+    STATE.currentPdb = null;
+    STATE.playbackPayload = null;
+    STATE.playbackPdb = null;
+    STATE.environmentPdb = null;
+    STATE.environmentUrl = null;
+    STATE.environmentModel = null;
+    STATE.environmentBaseCoordinates = null;
+    STATE.environmentTranslation = null;
+    STATE.playbackSignature = null;
+    STATE.playbackLoaded = false;
+    STATE.playbackFrames = 0;
+    STATE.playbackFrameTimes = [];
+    STATE.playbackTimer = null;
+    STATE.model = null;
+    STATE.miniModel = null;
+    STATE.miniPlaybackModel = null;
+    STATE.spinning = false;
+    STATE.visibility = {
+      protein: true,
+      ligand: true,
+      pocket: true,
+      water: false,
+      ions: false,
+      hydrogens: false,
+      box: false,
+    };
+    document.querySelectorAll(".chip-toggle input[data-vis]").forEach((checkbox) => {
+      checkbox.checked = !!STATE.visibility[checkbox.getAttribute("data-vis")];
+    });
+    [STATE.viewer, STATE.miniViewer].forEach((viewer) => {
+      if (!viewer) return;
+      safeCall(viewer, "removeAllModels");
+      safeCall(viewer, "removeAllSurfaces");
+      safeCall(viewer, "removeAllShapes");
+      safeCall(viewer, "removeAllLabels");
+      safeCall(viewer, "render");
+    });
+    document.getElementById("viewer-canvas-frame")?.removeAttribute("data-ready");
+    document.getElementById("mini-preview-frame")?.removeAttribute("data-ready");
   }
 
   /* ------------------------------------------------------------------ */
@@ -186,7 +250,12 @@
     }));
   }
 
+  function isViewerGenerationCurrent(generation) {
+    return generation === STATE.viewerGeneration;
+  }
+
   async function onStructureUpdated(info) {
+    const generation = STATE.viewerGeneration;
     STATE.structureInfo = info || {};
     const ligandNames = Array.isArray(info?.ligand_resnames) ? info.ligand_resnames : [];
     if (!STATE.ligandResname && ligandNames.length) STATE.ligandResname = ligandNames[0];
@@ -197,6 +266,15 @@
         "Waiting for a molecular structure",
         "The viewer will initialize when setup/prepared.pdb or a simulation topology becomes available."
       );
+      return;
+    }
+
+    // Playback owns the animated model. Replacing it with a static topology
+    // on a visibility or dashboard update stops the trajectory. A separate
+    // static environment model provides solvent, ions, and the unit cell.
+    if (STATE.mode === "playback") {
+      if (needsFullTopology()) await ensurePlaybackEnvironment();
+      if (!isViewerGenerationCurrent(generation)) return;
       return;
     }
 
@@ -218,8 +296,10 @@
     }
     try {
       const response = await fetch(url, {cache: "no-store"});
+      if (!isViewerGenerationCurrent(generation)) return;
       if (!response.ok) throw new Error(`structure HTTP ${response.status}`);
       const pdb = await response.text();
+      if (!isViewerGenerationCurrent(generation)) return;
       if (!pdb.includes("ATOM") && !pdb.includes("HETATM")) {
         throw new Error("structure response contains no atoms");
       }
@@ -229,11 +309,11 @@
       // water and ions already stripped, so live mode cannot show them at
       // all -- asking for water while a frame is mounted otherwise fetched
       // the solvated system, stored it, and went on drawing the frame.
-      if (STATE.mode !== "live" || !STATE.currentPdb || wantsSolvent()) {
+      if (STATE.mode !== "live" || !STATE.currentPdb || needsFullTopology()) {
         STATE.currentPdb = pdb;
       }
       STATE.mode = STATE.liveFrameIndex != null ? "live" : "structure";
-      mountStoredStructureWhereVisible(true);
+      mountStoredStructureWhereVisible(true, {forceFit: true});
       hideViewerMessage();
     } catch (error) {
       console.warn("molecular structure load failed", error);
@@ -241,32 +321,116 @@
     }
   }
 
-  function mountStoredStructureWhereVisible(center) {
+  function mountStoredStructureWhereVisible(center, options) {
+    const opts = options || {};
     const main = ensureMainViewer();
-    if (main && STATE.currentPdb) installPdb(main, STATE.currentPdb, {main: true, center: !!center});
+    if (main && STATE.currentPdb) installPdb(main, STATE.currentPdb, {main: true, center: !!center, ...opts});
     const mini = ensureMiniViewer();
-    if (mini && STATE.currentPdb) installPdb(mini, STATE.currentPdb, {mini: true, center: !!center});
+    if (mini && STATE.currentPdb) installPdb(mini, STATE.currentPdb, {mini: true, center: !!center, ...opts});
   }
 
-  function wantsSolvent() {
-    return Boolean(STATE.visibility?.water || STATE.visibility?.ions);
+  function needsFullTopology() {
+    // The saved/live trajectory frames contain solute coordinates only. Water,
+    // ions, and CRYST1/unit-cell metadata all require the full topology.
+    return Boolean(STATE.visibility?.water || STATE.visibility?.ions || STATE.visibility?.box);
   }
 
   function withSolvent(url) {
-    if (!wantsSolvent()) return url;
+    if (!needsFullTopology()) return url;
     return url + (url.includes("?") ? "&" : "?") + "solvent=1";
+  }
+
+  async function ensurePlaybackEnvironment() {
+    const generation = STATE.viewerGeneration;
+    if (STATE.mode !== "playback") return false;
+    if (!needsFullTopology()) {
+      restyleViewers();
+      return true;
+    }
+    const url = withSolvent(STATE.structureInfo?.structure_url || "/structure/topology.pdb");
+    try {
+      if (STATE.environmentUrl !== url || !STATE.environmentPdb) {
+        const response = await fetch(url, {cache: "no-store"});
+        if (!isViewerGenerationCurrent(generation)) return false;
+        if (!response.ok) throw new Error(`environment HTTP ${response.status}`);
+        const pdb = await response.text();
+        if (!isViewerGenerationCurrent(generation)) return false;
+        if (!pdb.includes("ATOM") && !pdb.includes("HETATM")) {
+          throw new Error("environment response contains no atoms");
+        }
+        STATE.environmentUrl = url;
+        STATE.environmentPdb = pdb;
+        STATE.environmentModel = null;
+        STATE.environmentBaseCoordinates = null;
+        STATE.environmentTranslation = null;
+      }
+      const viewer = ensureMainViewer();
+      if (viewer && STATE.environmentPdb && !STATE.environmentModel) {
+        STATE.environmentModel = viewer.addModel(STATE.environmentPdb, "pdb", {keepH: true});
+        alignPlaybackEnvironment();
+      }
+      restyleViewers();
+      return true;
+    } catch (error) {
+      console.warn("playback environment load failed", error);
+      announce("Water, ions, or the periodic box could not be loaded for trajectory playback.");
+      return false;
+    }
+  }
+
+  function alignPlaybackEnvironment() {
+    const playbackModel = STATE.model;
+    const environmentModel = STATE.environmentModel;
+    if (!playbackModel || !environmentModel || typeof playbackModel.selectedAtoms !== "function"
+      || typeof environmentModel.selectedAtoms !== "function") return false;
+    try {
+      const playbackAnchor = playbackModel.selectedAtoms({resn: AMINO_ACIDS})[0];
+      const environmentAtoms = environmentModel.selectedAtoms({});
+      const environmentAnchor = environmentModel.selectedAtoms({resn: AMINO_ACIDS})[0];
+      if (!playbackAnchor || !environmentAnchor || !environmentAtoms.length) return false;
+      if (!STATE.environmentBaseCoordinates) {
+        STATE.environmentBaseCoordinates = new Map(environmentAtoms.map((atom) => [
+          atom.index, {x: atom.x, y: atom.y, z: atom.z},
+        ]));
+      }
+      const anchorBase = STATE.environmentBaseCoordinates.get(environmentAnchor.index);
+      if (!anchorBase) return false;
+      const translation = {
+        x: playbackAnchor.x - anchorBase.x,
+        y: playbackAnchor.y - anchorBase.y,
+        z: playbackAnchor.z - anchorBase.z,
+      };
+      environmentAtoms.forEach((atom) => {
+        const base = STATE.environmentBaseCoordinates.get(atom.index);
+        if (!base) return;
+        atom.x = base.x + translation.x;
+        atom.y = base.y + translation.y;
+        atom.z = base.z + translation.z;
+      });
+      STATE.environmentTranslation = translation;
+      return true;
+    } catch (error) {
+      console.debug("playback environment alignment skipped", error);
+      return false;
+    }
   }
 
   function installPdb(viewer, pdbText, options) {
     if (!viewer || !pdbText) return;
     const opts = options || {};
     const hadModel = opts.main ? !!STATE.model : !!STATE.miniModel;
-    const previousView = hadModel && STATE.preservingCamera ? captureView(viewer) : null;
+    const previousView = hadModel && STATE.preservingCamera && !opts.forceFit
+      ? captureView(viewer) : null;
     stopViewerMotion(viewer);
     safeCall(viewer, "removeAllModels");
     safeCall(viewer, "removeAllSurfaces");
     safeCall(viewer, "removeAllShapes");
     safeCall(viewer, "removeAllLabels");
+    if (opts.main) {
+      STATE.environmentModel = null;
+      STATE.environmentBaseCoordinates = null;
+      STATE.environmentTranslation = null;
+    }
 
     let model;
     try {
@@ -328,6 +492,11 @@
     safeCall(viewer, "removeAllSurfaces");
     safeCall(viewer, "removeAllShapes");
     safeCall(viewer, "removeAllLabels");
+    if (opts.main) {
+      STATE.environmentModel = null;
+      STATE.environmentBaseCoordinates = null;
+      STATE.environmentTranslation = null;
+    }
     try {
       const added = viewer.addModelsAsFrames(pdbText, "pdb");
       const model = added && typeof added === "object" && !Array.isArray(added)
@@ -373,11 +542,14 @@
   /* Live coordinates                                                    */
   /* ------------------------------------------------------------------ */
   async function pollLiveFrame() {
+    const generation = STATE.viewerGeneration;
     if (!STATE.liveUpdates || document.body.classList.contains("state-loading")) return;
     try {
       const response = await fetch("/api/live-frame-index", {cache: "no-store"});
+      if (!isViewerGenerationCurrent(generation)) return;
       if (!response.ok) return;
       const index = await response.json();
+      if (!isViewerGenerationCurrent(generation)) return;
       if (!index.live_frame_available) {
         setOverlay(false, {stage: index.simulation_stage || "waiting", age: "—"});
         return;
@@ -395,11 +567,13 @@
         `/structure/live-frame.pdb?v=${encodeURIComponent(index.live_frame_mtime || Date.now())}`,
         {cache: "no-store"}
       );
+      if (!isViewerGenerationCurrent(generation)) return;
       if (!frameResponse.ok) return;
       const pdb = await frameResponse.text();
+      if (!isViewerGenerationCurrent(generation)) return;
       if (!pdb.includes("ATOM") && !pdb.includes("HETATM")) return;
       STATE.liveFrameIndex = index.live_frame_index;
-      if (wantsSolvent()) {
+      if (needsFullTopology()) {
         // The frame has no solvent in it; replacing the solvated system with
         // it would empty the view the reader just asked for.
         return;
@@ -452,6 +626,9 @@
   function styleViewer(viewer, model, mini) {
     if (!viewer || !model) return;
     safeCall(viewer, "removeAllSurfaces");
+    // Unit-cell lines are viewer shapes, not styles. Without clearing them a
+    // visibility/color change stacks duplicate boxes on the canvas.
+    safeCall(viewer, "removeAllShapes");
     try { viewer.setStyle({}, {}); } catch (error) { console.debug(error); }
 
     const ligandNames = ligandResnames();
@@ -492,14 +669,26 @@
         addStyle(viewer, ligandSelection, ligandStyle());
       }
       if (!mini && STATE.visibility.water) {
-        addStyle(viewer, waterSelection, {line: {color: "#6ea8ff", opacity: 0.35}});
+        // Explicit cyan-blue gives the solvent enough contrast on the dark
+        // canvas; Jmol oxygen/hydrogen colors rendered nearly black at this
+        // density and made the checked control appear broken.
+        addStyle(viewer, waterSelection, {
+          sphere: {scale: 0.28, color: "#4da3ff", opacity: 0.88},
+          stick: {radius: 0.075, color: "#4da3ff", opacity: 0.82},
+          line: {color: "#4da3ff", linewidth: 1.1, opacity: 0.72},
+        });
       }
       if (!mini && STATE.visibility.ions) {
-        addStyle(viewer, ionSelection, {sphere: {scale: 0.35, colorscheme: "Jmol"}});
+        addStyle(viewer, ionSelection, {sphere: {scale: 0.55, colorscheme: "Jmol"}});
       }
     }
 
-    if (!STATE.visibility.hydrogens) {
+    if (STATE.visibility.hydrogens) {
+      addStyle(viewer, {elem: "H"}, {
+        sphere: {scale: 0.18, colorscheme: "Jmol"},
+        stick: {radius: 0.08, colorscheme: "Jmol"},
+      });
+    } else {
       try { viewer.setStyle({elem: "H"}, {}); } catch (error) { console.debug(error); }
     }
     if (!mini && STATE.representation === "surface" && STATE.visibility.protein) {
@@ -508,10 +697,72 @@
     if (!mini && STATE.pocketSurface && ligandNames.length) {
       addSurface(viewer, pocketSelection, {opacity: 0.55, color: COLORS.violet});
     }
-    if (!mini && STATE.visibility.box && typeof viewer.addUnitCell === "function") {
-      try { viewer.addUnitCell(model, {box: {color: COLORS.silver}}); } catch (error) { console.debug(error); }
+    if (!mini && STATE.mode === "playback" && STATE.environmentModel) {
+      stylePlaybackEnvironment(viewer, STATE.environmentModel);
     }
+    const boxModel = STATE.mode === "playback" ? STATE.environmentModel : model;
+    if (!mini && STATE.visibility.box && boxModel) drawPeriodicBox(viewer, boxModel);
     safeCall(viewer, "render");
+  }
+
+  function drawPeriodicBox(viewer, model) {
+    if (!viewer || !model || typeof viewer.addLine !== "function") return;
+    try {
+      const cryst = typeof model.getCrystData === "function" ? model.getCrystData() : null;
+      const elements = cryst?.matrix?.elements;
+      const atoms = typeof model.selectedAtoms === "function" ? model.selectedAtoms({}) : [];
+      if (!elements || elements.length < 9 || !atoms.length) return;
+      const vectors = [
+        {x: elements[0], y: elements[1], z: elements[2]},
+        {x: elements[3], y: elements[4], z: elements[5]},
+        {x: elements[6], y: elements[7], z: elements[8]},
+      ];
+      const centroid = atoms.reduce((sum, atom) => ({
+        x: sum.x + atom.x, y: sum.y + atom.y, z: sum.z + atom.z,
+      }), {x: 0, y: 0, z: 0});
+      centroid.x /= atoms.length; centroid.y /= atoms.length; centroid.z /= atoms.length;
+      const origin = {
+        x: centroid.x - 0.5 * (vectors[0].x + vectors[1].x + vectors[2].x),
+        y: centroid.y - 0.5 * (vectors[0].y + vectors[1].y + vectors[2].y),
+        z: centroid.z - 0.5 * (vectors[0].z + vectors[1].z + vectors[2].z),
+      };
+      const corner = (a, b, c) => ({
+        x: origin.x + a * vectors[0].x + b * vectors[1].x + c * vectors[2].x,
+        y: origin.y + a * vectors[0].y + b * vectors[1].y + c * vectors[2].y,
+        z: origin.z + a * vectors[0].z + b * vectors[1].z + c * vectors[2].z,
+      });
+      const corners = [corner(0,0,0), corner(1,0,0), corner(0,1,0), corner(1,1,0),
+        corner(0,0,1), corner(1,0,1), corner(0,1,1), corner(1,1,1)];
+      for (const [start, end] of [[0,1],[0,2],[0,4],[1,3],[1,5],[2,3],[2,6],[3,7],[4,5],[4,6],[5,7],[6,7]]) {
+        viewer.addLine({start: corners[start], end: corners[end], color: COLORS.cyan, linewidth: 2.5, opacity: 0.95});
+      }
+    } catch (error) { console.debug("periodic box rendering skipped", error); }
+  }
+
+  function stylePlaybackEnvironment(viewer, environmentModel) {
+    if (!viewer || !environmentModel || typeof environmentModel.getID !== "function") return;
+    const scope = {model: environmentModel.getID()};
+    // The static full topology is an overlay. Clear its duplicate protein
+    // first, then apply only controls that require the full system.
+    try { viewer.setStyle(scope, {}); } catch (error) { console.debug(error); }
+    if (STATE.visibility.water) {
+      addStyle(viewer, {...scope, resn: WATERS}, {
+        sphere: {scale: 0.28, color: "#4da3ff", opacity: 0.88},
+        stick: {radius: 0.075, color: "#4da3ff", opacity: 0.82},
+        line: {color: "#4da3ff", linewidth: 1.1, opacity: 0.72},
+      });
+    }
+    if (STATE.visibility.ions) {
+      addStyle(viewer, {...scope, resn: IONS}, {
+        sphere: {scale: 0.70, colorscheme: "Jmol", opacity: 1.0},
+      });
+    }
+    if (STATE.visibility.hydrogens) {
+      addStyle(viewer, {...scope, elem: "H"}, {
+        sphere: {scale: 0.18, colorscheme: "Jmol"},
+        stick: {radius: 0.08, colorscheme: "Jmol"},
+      });
+    }
   }
 
   function resolveProteinSelection(model) {
@@ -633,13 +884,17 @@
       checkbox.addEventListener("change", () => {
         const which = checkbox.getAttribute("data-vis");
         STATE.visibility[which] = checkbox.checked;
-        if (which === "water" || which === "ions") {
-          // The atoms themselves have to be fetched or dropped, not restyled.
+        if (which === "water" || which === "ions" || which === "box") {
+          if (STATE.mode === "playback") {
+            // Keep the animated solute frames mounted and add/update a static
+            // full-system overlay for water, ions, and the periodic cell.
+            void ensurePlaybackEnvironment();
+            return;
+          }
+          // Outside playback the atoms themselves have to be fetched or
+          // dropped, not merely restyled.
           STATE.structureUrl = null;
-          // Drop the mounted frame so the refetched structure is what mounts.
           STATE.currentPdb = null;
-          STATE.mode = "structure";
-          // Re-enter the same path the poll uses, with the info it last saw.
           onStructureUpdated(STATE.structureInfo || {});
           return;
         }
@@ -831,11 +1086,24 @@
   function onPlaybackReady(payload) {
     const signature = payload?.source_signature || payload?.compiled_at || null;
     const changed = !!(STATE.playbackSignature && signature && STATE.playbackSignature !== signature);
+    const previousPayload = STATE.playbackPayload;
+    const sameLiveHistorySource = changed
+      && STATE.playbackLoaded
+      && previousPayload?.source_kind === "live-history"
+      && payload?.source_kind === "live-history";
     STATE.playbackPayload = payload || null;
+    // A running job appends to the bounded live-history file, so its source
+    // signature changes on every polling cycle. That is not a replacement
+    // trajectory: keep the snapshot currently playing and retain the new
+    // payload for the next explicit reload.
+    if (sameLiveHistorySource) {
+      updatePlaybackButtons();
+      return;
+    }
     STATE.playbackSignature = signature;
     STATE.playbackFrameTimes = Array.isArray(payload?.frame_times_ns) ? payload.frame_times_ns : [];
     STATE.playbackFrames = Number(payload?.n_frames_browser || 0);
-    if (changed) {
+    if (changed && !sameLiveHistorySource) {
       STATE.playbackLoaded = false;
       STATE.playbackPdb = null;
       STATE.miniPlaybackModel = null;
@@ -848,10 +1116,13 @@
   }
 
   async function requestPlaybackPayload(force) {
+    const generation = STATE.viewerGeneration;
     try {
       const response = await fetch(`/api/playback-info${force ? "?force=1" : ""}`, {cache: "no-store"});
+      if (!isViewerGenerationCurrent(generation)) return null;
       if (!response.ok) throw new Error(`playback info HTTP ${response.status}`);
       const payload = await response.json();
+      if (!isViewerGenerationCurrent(generation)) return null;
       onPlaybackReady(payload);
       return payload;
     } catch (error) {
@@ -876,19 +1147,23 @@
   }
 
   async function loadPlayback(payload) {
+    const generation = STATE.viewerGeneration;
     const available = payload?.playback_available ? payload : await ensurePlaybackPayload();
-    if (!available) return false;
+    if (!isViewerGenerationCurrent(generation) || !available) return false;
     const signature = available.source_signature || available.compiled_at || null;
     if (STATE.playbackLoaded && STATE.playbackPdb && STATE.playbackSignature === signature) return true;
     if (STATE.playbackLoadPromise) return STATE.playbackLoadPromise;
 
     const viewer = ensureMainViewer();
     if (!viewer) return false;
-    STATE.playbackLoadPromise = (async () => {
+    let loadPromise;
+    loadPromise = (async () => {
       try {
         const response = await fetch(`/structure/playback.pdb?v=${encodeURIComponent(available.compiled_at || Date.now())}`, {cache: "no-store"});
+        if (!isViewerGenerationCurrent(generation)) return false;
         if (!response.ok) throw new Error(`playback HTTP ${response.status}`);
         const pdb = await response.text();
+        if (!isViewerGenerationCurrent(generation)) return false;
         if (!pdb.includes("MODEL") || (!pdb.includes("ATOM") && !pdb.includes("HETATM"))) {
           throw new Error("playback PDB contains no model frames");
         }
@@ -903,8 +1178,11 @@
         const mini = ensureMiniViewer();
         if (mini) installPlaybackPdb(mini, pdb, {mini: true, center: false});
         STATE.playbackLoaded = true;
+        if (needsFullTopology()) await ensurePlaybackEnvironment();
+        if (!isViewerGenerationCurrent(generation)) return false;
         document.getElementById("trajectory-row")?.removeAttribute("hidden");
         await setPlaybackFrame(Number(document.getElementById("traj-slider")?.value || 0));
+        if (!isViewerGenerationCurrent(generation)) return false;
         updatePlaybackButtons();
         return true;
       } catch (error) {
@@ -913,10 +1191,11 @@
         STATE.playbackLoaded = false;
         return false;
       } finally {
-        STATE.playbackLoadPromise = null;
+        if (STATE.playbackLoadPromise === loadPromise) STATE.playbackLoadPromise = null;
       }
     })();
-    return STATE.playbackLoadPromise;
+    STATE.playbackLoadPromise = loadPromise;
+    return loadPromise;
   }
 
   function wireTrajectoryControls() {
@@ -990,9 +1269,19 @@
   }
 
   async function setPlaybackFrame(frame) {
+    const generation = STATE.viewerGeneration;
     if (!STATE.viewer || !STATE.playbackLoaded) return;
     const index = clamp(Math.round(Number(frame)), 0, Math.max(0, STATE.playbackFrames - 1), 0);
     await setViewerFrame(STATE.viewer, index);
+    if (!isViewerGenerationCurrent(generation) || !STATE.playbackLoaded) return;
+    if (STATE.environmentModel) {
+      alignPlaybackEnvironment();
+      if (STATE.visibility.box) {
+        safeCall(STATE.viewer, "removeAllShapes");
+        drawPeriodicBox(STATE.viewer, STATE.environmentModel);
+      }
+      safeCall(STATE.viewer, "render");
+    }
     if (STATE.miniViewer && STATE.miniPlaybackModel) await setViewerFrame(STATE.miniViewer, index);
     const slider = document.getElementById("traj-slider");
     if (slider) slider.value = String(index);
@@ -1045,6 +1334,7 @@
       STATE.miniViewer.setBackgroundColor(COLORS.black);
     }
     if (settings.spin && STATE.viewer) safeCall(STATE.viewer, "spin", true);
+    if (STATE.mode === "playback" && needsFullTopology()) void ensurePlaybackEnvironment();
     const cutoff = document.getElementById("pocket-cutoff");
     if (cutoff) cutoff.value = String(STATE.pocketCutoff);
     restyleViewers();
