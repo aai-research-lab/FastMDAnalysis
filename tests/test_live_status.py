@@ -1094,8 +1094,8 @@ class TestTheViewerRespondsToClicksAndToggles:
         could never reveal them."""
         js = self._text("molecule-viewer.js")
         assert "solvent=1" in js
-        handler = js.split('data-vis]")', 1)[1].split("\n    });", 1)[0]
-        assert 'which === "water"' in handler
+        handler = js.split('checkbox.addEventListener("change"', 1)[1].split("\n    });", 1)[0]
+        assert 'which === "water" || which === "ions" || which === "box"' in handler
         assert "onStructureUpdated" in handler
 
     def test_the_route_serves_the_solvated_system_on_request(
@@ -1451,24 +1451,30 @@ class TestTheSolventTogglesShowSolvent:
         assert "HOH" not in drawn
         assert " NA D" not in drawn
 
-    def test_the_solvated_system_is_mounted_rather_than_stored(self) -> None:
+    def test_the_full_topology_is_requested_for_solvent_and_box(self) -> None:
         js = self._text("molecule-viewer.js")
         body = js.split("async function onStructureUpdated(", 1)[1].split(
             "\n  function ", 1
         )[0]
-        assert "wantsSolvent()" in body
+        assert "needsFullTopology()" in body
+        assert "withSolvent(info.structure_url" in body
 
-    def test_a_new_frame_does_not_replace_it(self) -> None:
-        """A frame arriving during a solvent view would empty the view the
-        reader just asked for."""
+    def test_a_new_frame_does_not_replace_a_full_topology_overlay(self) -> None:
+        """A solute-only live frame must not empty the selected environment."""
         js = self._text("molecule-viewer.js")
-        assert js.count("wantsSolvent()") >= 3
+        live_frame = js.split("async function pollLiveFrame(", 1)[1].split(
+            "\n  function ", 1
+        )[0]
+        assert "if (needsFullTopology())" in live_frame
+        assert "return;" in live_frame
 
-    def test_toggling_drops_the_mounted_frame(self) -> None:
+    def test_toggling_preserves_playback_and_reloads_static_structure(self) -> None:
         js = self._text("molecule-viewer.js")
-        handler = js.split('data-vis]")', 1)[1].split("\n    });", 1)[0]
+        handler = js.split('checkbox.addEventListener("change"', 1)[1].split("\n    });", 1)[0]
+        assert 'if (STATE.mode === "playback")' in handler
+        assert "ensurePlaybackEnvironment" in handler
         assert "STATE.currentPdb = null" in handler
-        assert 'STATE.mode = "structure"' in handler
+        assert "onStructureUpdated" in handler
 
 
 class TestAListOfChoicesIsOfferedAsChoices:
