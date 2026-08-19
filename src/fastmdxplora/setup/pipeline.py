@@ -337,6 +337,28 @@ def _keep_heterogens(params: dict, input_pdb) -> bool:
 
 
 
+def _explicit_ligand_resnames(params: dict) -> tuple[str, ...]:
+    """Component codes for chemistry the caller supplied by hand.
+
+    A caller who passes `ligand:` themselves never reaches `_auto_ligands`,
+    which is the only thing that records what preparation will re-add. Left
+    unset, PDBFixer's report warned that the ligand had been removed one line
+    before it was loaded and placed -- the message the kept/discarded split in
+    `pdbfix` exists to prevent. The route that got the wrong sentence was the
+    offline one: no network, so the SDF is handed over by hand.
+
+    Returns empty where the resname is not stated, which is the honest answer:
+    the file's own residue name is not read until parameterisation, and
+    guessing here would risk vouching for a component that was genuinely
+    dropped.
+    """
+    named = params.get("ligand_name")
+    if not named:
+        return ()
+    names = [named] if isinstance(named, str) else list(named)
+    return tuple(sorted({str(n).upper() for n in names if n}))
+
+
 def _validate_ligand_forcefield(params: dict) -> None:
     """Ligand parameterization needs a force field that can do it.
 
@@ -786,6 +808,8 @@ def run(
                 "Prepared %d ligand file(s) from the structure: %s",
                 len(discovered), ", ".join(Path(d).name for d in discovered),
             )
+    elif params.get("ligand"):
+        params["_reinstated_heterogens"] = _explicit_ligand_resnames(params)
 
     # ---- Stage 2: PDBFixer (or skip via fixed_pdb) ---------------------
     prepared_pdb = setup_dir / "prepared.pdb"

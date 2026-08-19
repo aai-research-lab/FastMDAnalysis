@@ -432,6 +432,29 @@ class SessionPresenter:
                 return values
             return []
 
+        _PHASE_OF_SUBCOMMAND = {
+            "setup": "setup",
+            "simulate": "simulation",
+            "analyze": "analysis",
+            "report": "report",
+        }
+
+        def subcommand_phase() -> str:
+            """The one phase a phase subcommand runs, or empty for the rest.
+
+            `fastmdx analyze` says nothing through --include, so the "where
+            nothing says, show everything" fallback printed a SIMULATION block
+            for a command that reads a finished trajectory: a million
+            production steps and a frame interval belonging to no run, taken
+            from the schema defaults. The subcommand is the most definite
+            statement available about which phases happen.
+            """
+            for token in argv:
+                if token.startswith("-"):
+                    continue
+                return _PHASE_OF_SUBCOMMAND.get(token, "")
+            return ""
+
         def will_run(phase: str) -> bool:
             """Whether this run includes a phase.
 
@@ -445,7 +468,14 @@ class SessionPresenter:
             block, so treating a block as inclusion hid two sections of a run
             that did all four. Where nothing says, every section is shown --
             leaving one out is the worse mistake.
+
+            A phase subcommand outranks both: `fastmdx analyze` states which
+            phase runs more definitely than any flag, and says nothing through
+            --include, so it used to fall to the show-everything fallback.
             """
+            only = subcommand_phase()
+            if only:
+                return phase == only
             included = argv_list("--include") or from_config.get("include")
             if isinstance(included, list) and included:
                 return phase in included
