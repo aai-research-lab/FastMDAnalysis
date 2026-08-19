@@ -159,6 +159,60 @@ def test_config_launch_clears_stale_data_state(tmp_path: Path) -> None:
     assert runtime.snapshot()["active_run"] == str(tmp_path / "new-run")
 
 
+def test_runtime_ignores_malformed_telemetry_timestamps(tmp_path: Path) -> None:
+    run = tmp_path / "runs" / "run"
+    runtime = DashboardRuntime(
+        workspace_root=tmp_path / "workspace",
+        exploration_root=tmp_path / "runs",
+        active_root=run,
+        process_started_at="2026-08-19T05:07:35+00:00",
+    )
+    status = run / "simulation" / "live_status.json"
+    status.parent.mkdir(parents=True)
+    status.write_text('{"run_started_at": "not-a-timestamp"}', encoding="utf-8")
+
+    assert runtime._telemetry_predates_process() is False
+
+
+def test_runtime_failure_message_survives_unreadable_log(tmp_path: Path) -> None:
+    log_path = tmp_path / "unreadable-log"
+    log_path.mkdir()
+    runtime = DashboardRuntime(
+        workspace_root=tmp_path / "workspace",
+        exploration_root=tmp_path / "runs",
+        log_path=log_path,
+        process_returncode=2,
+    )
+
+    message = runtime._process_failure_message()
+
+    assert "exited with code 2" in message
+    assert str(log_path) in message
+
+
+def test_existing_config_launch_refuses_nonempty_output_directory(tmp_path: Path) -> None:
+    runtime = DashboardRuntime(
+        workspace_root=tmp_path / "workspace",
+        exploration_root=tmp_path / "runs",
+    )
+    output = tmp_path / "existing-output"
+    output.mkdir()
+    (output / "manifest.json").write_text("{}", encoding="utf-8")
+    checked = {"ok": True, "path": str(tmp_path / "run.yml")}
+
+    with (
+        patch("fastmdxplora.gui.config_builder.check_config_file", return_value=checked),
+        patch("fastmdxplora.gui.exploration.subprocess.Popen") as popen,
+    ):
+        result = runtime.launch_existing_config(str(tmp_path / "run.yml"), output=str(output))
+
+    assert result["ok"] is False
+    assert "already exists and is not empty" in result["error"]
+    assert result["next_action"] == "Choose a new output folder; the previous run was preserved."
+    assert runtime.data_stale is True
+    popen.assert_not_called()
+
+
 def test_runtime_stop_escalates_after_terminate_timeout(tmp_path: Path) -> None:
     runtime = DashboardRuntime(
         workspace_root=tmp_path / "workspace",
