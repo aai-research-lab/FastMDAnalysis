@@ -351,8 +351,15 @@
   }
 
   function applyAppState(payload) {
-    state.appState = payload || {};
     const activeRun = payload?.active_run || "";
+    const previousRun = state.appState?.active_run || "";
+    const firstAppState = Object.keys(state.appState || {}).length === 0;
+    const runChanged = firstAppState || previousRun !== activeRun;
+    state.appState = payload || {};
+    if (runChanged) {
+      resetRunDependentState();
+      emit("run-changed", {previousRun, activeRun});
+    }
     if (activeRun) state.outputDir = activeRun;
 
     if (!state.initialRouteResolved) {
@@ -382,6 +389,30 @@
       }
     });
     emit("app-state", payload || {});
+  }
+
+  function resetRunDependentState() {
+    state.outputDir = "";
+    state.status = {};
+    state.health = {};
+    state.results = {};
+    state.structureInfo = null;
+    state.setupManifest = {};
+    state.simManifest = {};
+    state.metrics = [];
+    state.stages = [];
+    state.phases = [];
+    state.playbackAvailable = false;
+    state.playbackFrames = 0;
+    state.playbackTotalFrames = 0;
+    state.playbackFrameTimes = [];
+    state.playbackSignature = null;
+    if (window.FastMDXCharts) window.FastMDXCharts.update([]);
+    renderLiveProgress({});
+    renderRunSummary({});
+    renderStructureTab({valid: false, reason: "missing"});
+    renderLigandTab({});
+    renderSimulationTab({});
   }
 
   function safeApply(name, callback) {
@@ -450,6 +481,19 @@
   }
 
   function applyStatus(payload) {
+    if (!state.appState?.active_run) {
+      state.status = {};
+      state.health = {};
+      state.stages = [];
+      state.phases = [];
+      renderTopBar({}, {});
+      renderHero({});
+      renderHealth({});
+      renderStageTimeline({});
+      renderLiveProgress({});
+      emit("status-updated", {status: {}, health: {}});
+      return;
+    }
     const status = payload.status || {};
     const health = payload.health || {};
     state.status = status;

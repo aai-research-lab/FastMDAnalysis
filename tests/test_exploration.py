@@ -132,6 +132,33 @@ def test_runtime_launches_without_shell(tmp_path: Path) -> None:
     assert runtime.data_root().name == "trpcage_test"
 
 
+def test_config_launch_clears_stale_data_state(tmp_path: Path) -> None:
+    runtime = DashboardRuntime(
+        workspace_root=tmp_path / "workspace",
+        exploration_root=tmp_path / "runs",
+        data_stale=True,
+    )
+    fake_process = SimpleNamespace(pid=43, poll=lambda: None)
+    (tmp_path / "new-run").mkdir()
+    prepared = {
+        "ok": True,
+        "command": ["python", "-m", "fastmdxplora.cli.main", "explore"],
+        "config_path": str(tmp_path / "run.yml"),
+    }
+    with (
+        patch("fastmdxplora.gui.run_from_config.prepare_run", return_value=prepared),
+        patch("fastmdxplora.gui.exploration.subprocess.Popen", return_value=fake_process),
+    ):
+        result = runtime.launch_from_config(
+            {"output": str(tmp_path / "new-run")},
+            dashboard_url="http://127.0.0.1:8765",
+        )
+
+    assert result["ok"] is True
+    assert runtime.data_stale is False
+    assert runtime.snapshot()["active_run"] == str(tmp_path / "new-run")
+
+
 def test_runtime_stop_escalates_after_terminate_timeout(tmp_path: Path) -> None:
     runtime = DashboardRuntime(
         workspace_root=tmp_path / "workspace",
@@ -254,6 +281,13 @@ def test_home_server_exposes_exploration_apis(tmp_path: Path) -> None:
         with urllib.request.urlopen(url + "/api/explore/defaults") as response:
             defaults = json.load(response)
         assert defaults["simulation"]["temperature_K"] == 300.0
+
+        with urllib.request.urlopen(url + "/api/status") as response:
+            status = json.load(response)
+        assert status["status"] == {}
+        with urllib.request.urlopen(url + "/api/structure-info") as response:
+            structure = json.load(response)
+        assert structure["valid"] is False
 
         request = urllib.request.Request(
             url + "/api/explore/validate",

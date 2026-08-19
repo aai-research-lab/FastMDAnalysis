@@ -21,6 +21,7 @@ import pytest
 
 from fastmdxplora.cli.main import _build_parser, _enable_dashboard_telemetry
 from fastmdxplora.gui import protein_preview
+from fastmdxplora.gui.exploration import DashboardRuntime
 from fastmdxplora.gui.ligand_detection import detect_ligands, normalise_ligand_resname
 from fastmdxplora.gui.live_frames import (
     dashboard_display_pdb,
@@ -1126,6 +1127,113 @@ def test_dashboard_assets_include_svg_download_and_first_model_miniviewer_fix() 
     assert "const hadModel" in viewer_js
     assert "opts.center !== false || !hadModel" in viewer_js
     assert "resolveProteinSelection" in viewer_js
+
+
+def test_viewer_visibility_controls_render_solvent_and_hydrogen_atoms() -> None:
+    root = Path(__file__).resolve().parents[1]
+    viewer_js = (root / "src" / "fastmdxplora" / "gui" / "static" / "molecule-viewer.js").read_text(encoding="utf-8")
+
+    assert '"TIP3P"' in viewer_js
+    assert 'if (STATE.visibility.hydrogens)' in viewer_js
+    assert 'addStyle(viewer, {elem: "H"' in viewer_js
+    assert 'sphere: {scale: 0.28' in viewer_js
+    assert 'color: "#4da3ff"' in viewer_js
+    assert 'line: {color: "#4da3ff"' in viewer_js
+    assert 'sphere: {scale: 0.55' in viewer_js
+    assert "forceFit" in viewer_js
+
+
+def test_viewer_solvent_toggles_preserve_playback_with_static_environment_overlay() -> None:
+    """Water/ion visibility must not replace an animated trajectory model."""
+    root = Path(__file__).resolve().parents[1]
+    viewer_js = (root / "src" / "fastmdxplora" / "gui" / "static" / "molecule-viewer.js").read_text(encoding="utf-8")
+    toggle_start = viewer_js.index('if (which === "water" || which === "ions" || which === "box")')
+    toggle_end = viewer_js.index("restyleViewers();", toggle_start)
+    toggle_handler = viewer_js[toggle_start:toggle_end]
+
+    assert 'if (STATE.mode === "playback")' in toggle_handler
+    assert "ensurePlaybackEnvironment" in toggle_handler
+    assert 'STATE.mode = "structure"' not in toggle_handler
+    assert "function ensurePlaybackEnvironment" in viewer_js
+    assert "STATE.environmentPdb" in viewer_js
+    assert "STATE.environmentModel" in viewer_js
+    assert "alignPlaybackEnvironment" in viewer_js
+    assert "function drawPeriodicBox" in viewer_js
+    assert "viewer.addLine" in viewer_js
+    assert "environmentModel.getID()" in viewer_js
+
+
+def test_dashboard_resets_run_dependent_state_when_active_run_changes() -> None:
+    root = Path(__file__).resolve().parents[1]
+    dashboard_js = (root / "src" / "fastmdxplora" / "gui" / "static" / "dashboard.js").read_text(encoding="utf-8")
+    viewer_js = (root / "src" / "fastmdxplora" / "gui" / "static" / "molecule-viewer.js").read_text(encoding="utf-8")
+
+    assert 'emit("run-changed"' in dashboard_js
+    assert "if (!state.appState?.active_run)" in dashboard_js
+    assert 'window.FastMDXDashboard?.on("run-changed", onRunChanged)' in viewer_js
+    assert "STATE.playbackTimer = null" in viewer_js
+    assert "STATE.viewerGeneration += 1" in viewer_js
+    assert "function isViewerGenerationCurrent" in viewer_js
+    assert "if (!isViewerGenerationCurrent(generation)) return" in viewer_js
+    assert "STATE.playbackLoadPromise === loadPromise" in viewer_js
+    assert "STATE.structurePdb = null" in viewer_js
+
+
+def test_runtime_does_not_expose_old_telemetry_after_failed_reuse(tmp_path: Path) -> None:
+    runtime = DashboardRuntime(
+        workspace_root=tmp_path / "workspace",
+        exploration_root=tmp_path / "runs",
+    )
+    old_run = runtime.exploration_root / "old_run"
+    (old_run / "simulation").mkdir(parents=True)
+    (old_run / "simulation" / "live_status.json").write_text(
+        json.dumps(
+            {
+                "status": "running",
+                "stage": "production",
+                "run_started_at": "2026-08-18T18:03:14+00:00",
+                "last_update_timestamp": "2026-08-18T18:38:45+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    log_path = old_run / "exploration.log"
+    log_path.write_text(
+        "fastmdx: These output directories already hold results:\n"
+        f"  {old_run}\n",
+        encoding="utf-8",
+    )
+    runtime.active_root = old_run
+    runtime.process_started_at = "2026-08-19T05:07:35+00:00"
+    runtime.process_finished_at = "2026-08-19T05:07:43+00:00"
+    runtime.process_returncode = 2
+    runtime.process = SimpleNamespace(poll=lambda: 2)
+    runtime.log_path = log_path
+    runtime.command = ["python", "-m", "fastmdxplora.cli.main", "explore"]
+
+    state = runtime.snapshot()
+
+    assert state["status"] == "failed"
+    assert state["active_run"] is None
+    assert "already hold results" in state["error"]
+    assert runtime.data_root() != old_run
+
+
+def test_dashboard_assets_do_not_pause_playback_for_live_history_appends() -> None:
+    """A new rolling live frame is not a replacement trajectory.
+
+    ``/api/playback-info`` changes its signature as the bounded live history
+    grows. That must not pause an already playing viewer every poll.
+    """
+    root = Path(__file__).resolve().parents[1]
+    viewer_js = (root / "src" / "fastmdxplora" / "gui" / "static" / "molecule-viewer.js").read_text(encoding="utf-8")
+
+    assert "previousPayload?.source_kind === \"live-history\"" in viewer_js
+    assert "payload?.source_kind === \"live-history\"" in viewer_js
+    assert "STATE.playbackLoaded" in viewer_js
+    assert "sameLiveHistorySource" in viewer_js
+    assert "if (changed && !sameLiveHistorySource)" in viewer_js
+
 
 
 def test_run_dependent_nav_sections_are_marked(tmp_path: Path) -> None:
