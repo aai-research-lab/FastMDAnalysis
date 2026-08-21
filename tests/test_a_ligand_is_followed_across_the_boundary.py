@@ -156,3 +156,37 @@ def test_rounding_fractional_coordinates_would_not_do():
         delta - np.round(delta @ np.linalg.inv(CELL)) @ CELL, axis=1)
 
     assert (rounded > true_minimum + 1e-4).mean() > 0.1
+
+
+def test_the_analysis_actually_uses_it():
+    """The helper is proven above; this asserts `compute` calls it.
+
+    Every test above imports `_followed_across_the_boundary` and exercises
+    it directly, so all of them pass while the analysis ignores it.
+    Confirmed by mutation: replacing the call site in `compute` with
+    ``followed = None`` -- which routes straight back to the pre-fix
+    branch -- left the whole suite green.
+
+    That is the shape of defect this project has already paid for once. In
+    2.5.4 a test compared its result against the caller's trajectory and
+    passed only because superposition had mutated it. A helper that is
+    proven but unused fails the same question: could this pass if the thing
+    it tests were false?
+    """
+    from fastmdxplora.analysis.ligand_rmsd import LigandRMSD
+
+    traj, truth, _ligand, _receptor = _a_wandering_ligand()
+
+    naive = _rmsd_from_start(
+        np.asarray(traj.xyz[:, traj.topology.select("resname BNZ"), :],
+                   dtype=np.float64))
+    assert np.abs(np.diff(naive)).max() > 1.0, (
+        "the fixture must cross a face, or this asserts nothing")
+
+    result = LigandRMSD(ligand_resname="BNZ",
+                        align_selection="name CA").compute(traj)
+
+    assert np.abs(np.diff(result)).max() < 1.0, (
+        "an image swap reached the analysis output")
+    assert np.abs(result - _rmsd_from_start(truth)).max() < 1e-3, (
+        "compute() did not follow the ligand across the boundary")
