@@ -165,6 +165,29 @@ def _wrap(text: str, width: int) -> list[str]:
     return lines
 
 
+def _the_useful_part_of(name: str, reason: str | None) -> str:
+    """The part of a failure message worth putting in front of somebody.
+
+    Messages arrive as ``"<analysis>: <what went wrong>"``. The analysis
+    name is already the first column of the row, so repeating it wastes the
+    line. A bare exception class name is worse than nothing -- it occupies
+    the space where an explanation should be while saying only that
+    something raised -- so it is left out and the log keeps the traceback.
+    """
+    if not reason:
+        return ""
+    text = reason.strip()
+    prefix = f"{name}:"
+    if text.startswith(prefix):
+        text = text[len(prefix):].strip()
+    if not text or text in {"ok", name}:
+        return ""
+    # "KeyError" or "IndexError" alone says nothing a reader can act on.
+    if text.endswith("Error") and " " not in text:
+        return ""
+    return text
+
+
 class SessionPresenter:
     """Print structured session output to stdout.
 
@@ -1065,6 +1088,7 @@ class SessionPresenter:
         elapsed: float,
         *,
         name_width: int | None = None,
+        reason: str | None = None,
     ) -> None:
         """Print one row of the analysis-phase status table.
 
@@ -1074,6 +1098,15 @@ class SessionPresenter:
 
         The orchestrator should pass ``name_width`` set to the longest
         analysis name in the plan so all rows align.
+
+        An analysis that fails passes ``reason``, which is printed beneath
+        the row. Without it the table read ``✗ error`` and nothing else,
+        while the explanation sat in the debug log: `rdf` on a default
+        configuration reports *"selection_b 'water and name O' matched no
+        atoms"*, which names the problem exactly, and a reader watching the
+        run never saw it. The software refuses in order to be told why, and
+        a refusal filed somewhere the person is not looking is a refusal
+        that has not been made.
         """
         if self.quiet:
             return
@@ -1088,6 +1121,10 @@ class SessionPresenter:
             f"{path_arrow}  {path:<22}  {elapsed_str}"
         )
         self._write(line)
+        detail = _the_useful_part_of(name, reason)
+        if detail:
+            for wrapped in _wrap(detail, max(40, self.width - nw - 12)):
+                self._write(f"  {' ' * (nw + 4)}{self._c(wrapped, color)}")
 
     def done(self, *, message: str = "Done") -> None:
         """Print the closing session-total line."""

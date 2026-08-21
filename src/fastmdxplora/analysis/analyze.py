@@ -154,7 +154,8 @@ def run(
                 if r.output_dir else f"analysis/{name}/"
             )
             presenter.analysis_table_row(
-                name, r.status, path + "/", elapsed, name_width=name_width
+                name, r.status, path + "/", elapsed, name_width=name_width,
+                reason=r.message if r.status != "ok" else None,
             )
 
     artifacts: list[str] = []
