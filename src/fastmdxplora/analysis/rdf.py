@@ -67,6 +67,62 @@ def _what_would_fix_it(selection: str, traj: md.Trajectory) -> str:
     )
 
 
+def _is_that_a_peak(radii: np.ndarray, g: np.ndarray, peak: int) -> str:
+    """Why the tallest point is not a first peak, or empty if it is one.
+
+    The tallest point of a curve always exists. On a trajectory too short
+    for hydration structure to emerge the curve is flat, its tallest point
+    is noise, and reporting it as `first_peak_nm` states a shell where there
+    is none. Measured on a 0.1 ns Trp-cage run: g(r) spanned 0.000 to 1.074
+    and peaked at 1.782 nm, the last bin before half the box, which was
+    duly recorded as a hydration peak at 1.78 nm.
+
+    Two things distinguish a peak from the tallest bin of noise, and both
+    are read off the curve rather than set as thresholds:
+
+    * A peak is a local maximum. The last bins are the edge of the
+      measurable range, and the tallest point sitting there means the curve
+      was still climbing, or flat, when the box ran out.
+    * A peak stands above the bulk by more than the bulk's own scatter.
+      g(r) tends to 1 at large r, so the spread there is this curve's noise
+      level, measured on this run rather than assumed.
+
+    The wording follows `not_a_measurement` elsewhere: say what cannot be
+    concluded and why, rather than reporting a number with a caveat nobody
+    reads.
+    """
+    n = len(radii)
+    # The bulk: the outer third, where g(r) should be 1 and its scatter is
+    # this curve's noise.
+    bulk = g[int(n * 2 / 3):]
+    bulk = bulk[np.isfinite(bulk)]
+    if bulk.size < 3:
+        return ""
+    noise = float(np.std(bulk))
+
+    if peak >= n - max(2, int(n * 0.05)):
+        return (
+            f"The tallest point of g(r) is at {radii[peak]:.3f} nm, within a "
+            "few bins of half the box, which is the edge of what a periodic "
+            "cell can measure rather than a shell. A first peak is a local "
+            "maximum; this curve was still flat or climbing where it ran "
+            "out of range. No peak position is reported. A larger box, or a "
+            "run long enough for structure to appear, is what would change "
+            "this."
+        )
+
+    height = float(g[peak]) - 1.0
+    if height <= 3.0 * noise:
+        return (
+            f"g(r) rises {height:+.3f} above bulk at its tallest point, "
+            f"against a scatter of {noise:.3f} in the bulk region itself, so "
+            "the tallest point is not distinguishable from the noise of this "
+            "curve. No hydration structure is resolved here. A longer run is "
+            "the only remedy."
+        )
+    return ""
+
+
 class RadialDistribution(Analysis):
     """g(r) between two atom selections.
 
@@ -198,12 +254,17 @@ class RadialDistribution(Analysis):
                 "not a different estimator in every frame."
             )
 
-        # The first peak, which is what a published value is quoted for.
+        # The first peak, which is what a published value is quoted for --
+        # where there is one to quote.
         inside = radii > 0.15
         if inside.any() and np.isfinite(g[inside]).any():
             peak = int(np.argmax(np.where(inside, g, -np.inf)))
-            record["first_peak_nm"] = float(radii[peak])
-            record["first_peak_height"] = float(g[peak])
+            verdict = _is_that_a_peak(radii, g, peak)
+            if verdict:
+                record["not_a_measurement"] = verdict
+            else:
+                record["first_peak_nm"] = float(radii[peak])
+                record["first_peak_height"] = float(g[peak])
 
         self.findings["rdf"] = record
         return np.column_stack([radii, g])
