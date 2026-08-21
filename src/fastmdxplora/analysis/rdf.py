@@ -41,6 +41,32 @@ from fastmdxplora.analysis.orchestrator import register_analysis
 MAX_PAIRS = 400_000
 
 
+def _what_would_fix_it(selection: str, traj: md.Trajectory) -> str:
+    """The setting to change, where the empty selection has a known cause.
+
+    A selection matching nothing is usually a typo, and guessing at a remedy
+    would send the reader after the wrong thing. There is one case where the
+    cause is known: a selection asking for solvent, on a trajectory that
+    holds none, because a default run saves the solute alone. The simulation
+    phase says so at the time -- "Analyses of the solvent itself need
+    `save_selection: all`" -- but that is a different phase, a different log,
+    and hours earlier.
+
+    Returns empty otherwise, which is the honest answer: the analysis knows
+    the selection is empty and does not know why.
+    """
+    if not any(word in selection.lower() for word in ("water", "hoh", "sol", "solvent")):
+        return ""
+    if any(residue.is_water for residue in traj.topology.residues):
+        return ""
+    return (
+        " This trajectory holds no solvent: a run saves the solute alone"
+        " unless told otherwise, so the water this selection asks for was"
+        " never written. Set `save_selection: all` in the simulation phase"
+        " and run again."
+    )
+
+
 class RadialDistribution(Analysis):
     """g(r) between two atom selections.
 
@@ -66,6 +92,22 @@ class RadialDistribution(Analysis):
 
     name = "rdf"
     description = "Radial distribution function between two selections"
+
+    #: The default pair is the solute against water oxygens, and a default
+    #: run saves the solute alone (`save_selection`), so this analysis could
+    #: not succeed on a default configuration: two defaults asking for
+    #: different things. `water_sites` already declares this and `rdf` did
+    #: not, which is the whole of the defect -- the gate existed, this
+    #: analysis was simply not behind it.
+    #:
+    #: The gate is coarser than the question. Whether this analysis needs
+    #: water depends on the selections it is given, and the plan is built
+    #: before options are merged, so a class attribute is all that can be
+    #: declared. The cost falls on one case: a solvent-free trajectory with
+    #: custom selections naming neither group as water is now skipped by
+    #: default rather than run. That case needs `include: [rdf]`, which is
+    #: honoured as written. The case it fixes is every default run.
+    requires_water = True
     #: The two selections are the analysis's own, and a scope selection
     #: would name a third thing that is neither of them.
     honours_selection = False
@@ -113,6 +155,7 @@ class RadialDistribution(Analysis):
                 raise ValueError(
                     f"{name} {selection!r} matched no atoms, so there is no "
                     "distribution between the two groups to report."
+                    + _what_would_fix_it(selection, traj)
                 )
 
         half_box = float(np.min(traj.unitcell_lengths)) / 2.0
