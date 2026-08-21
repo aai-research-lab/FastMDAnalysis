@@ -529,6 +529,53 @@ def _not_submitted(after: str, *, umbrella: bool) -> str:
     )
 
 
+def _say_if_the_replicas_will_not_share_water(run_specs) -> None:
+    """Name `prepared_from` where runs differ only in how they are driven.
+
+    Solvation does not place water the same way twice. This module already
+    shares one prepared system across umbrella windows for that reason --
+    "water arranged differently between windows is noise in the free energy
+    rather than physics" -- but that path is gated on `_is_umbrella`, and a
+    seed sweep is not umbrella.
+
+    A seed sweep is the same case in kind: one system, one setup block, only
+    the integrator's seed differing. Left alone, each member solvates
+    independently. Measured on a three-member sweep: 30,654 atoms against
+    30,803. Anything called a replica sweep then measures dynamics variance
+    *plus* solvation variance, and nothing in the output says so, because
+    every recorded setting is identical -- the difference is in water that no
+    setting names.
+
+    This says it rather than fixing it, deliberately. Sharing setup by
+    default would silently change what an existing config produces, and a
+    study half-run under the old behaviour would stop being comparable with
+    its own earlier members. The person is told at plan time, once, with the
+    setting that resolves it.
+    """
+    if len(run_specs) < 2:
+        return
+
+    def preparation(spec):
+        return json.dumps(
+            {"system": spec.system, "setup": spec.options.get("setup") or {}},
+            sort_keys=True, default=str)
+
+    if len({preparation(spec) for spec in run_specs}) != 1:
+        return  # Different systems, or prepared differently on purpose.
+    if any((spec.options.get("simulation") or {}).get("prepared_from")
+           for spec in run_specs):
+        return
+
+    logger.warning(
+        "These %d runs share one system and one setup block, so they differ "
+        "only in how they are driven -- but each will solvate independently, "
+        "and solvation does not place water the same way twice. Differences "
+        "between them will include water placement as well as dynamics. Set "
+        "`simulation.prepared_from` to one run's `setup/` directory to give "
+        "them the same prepared system.",
+        len(run_specs))
+
+
 class BatchExplorer:
     """Run one or more FastMDXplora studies (systems × sweep).
 
@@ -619,6 +666,7 @@ class BatchExplorer:
         self.run_specs = self._build_run_specs(raw)
         self.is_single = len(self.run_specs) == 1
         self.results: list[dict[str, Any]] = []
+        _say_if_the_replicas_will_not_share_water(self.run_specs)
 
     # ------------------------------------------------------------------
     def _build_run_specs(self, raw: dict[str, Any]) -> list[RunSpec]:
