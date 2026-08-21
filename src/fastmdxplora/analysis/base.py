@@ -282,18 +282,28 @@ class Analysis(ABC):
         Returns the path actually written.
         """
         path.parent.mkdir(parents=True, exist_ok=True)
-        # Which of the two a `.dat` file is, recorded rather than left to be
-        # discovered. Both extensions are `.dat` because both are this
+        # Which of the two a `.dat` file is, said in the file as well as
+        # recorded. Both extensions are `.dat` because both are this
         # analysis's data, but one is whitespace with no header and the
         # other is comma-separated with one, so a reader that guesses wrong
-        # gets a ValueError at best and a column of NaN at worst. Anyone
-        # reaching for a one-liner can read the answer out of options.json
-        # instead of the file.
+        # gets a ValueError at best and a column of NaN at worst.
+        #
+        # `options.json` has carried the answer since 2.5.4, which helps
+        # only a reader who knows to look and still has the run directory.
+        # A deposited file travels: into a supplementary archive, an email,
+        # a student's home directory. So the array form now names its own
+        # layout on a `#` line, which `np.loadtxt` skips by default and
+        # `pd.read_csv(comment="#")` skips on request. The comma form needs
+        # no such line -- its header row already is one.
         if isinstance(result, np.ndarray):
             # %.8e preserves ~8 significant figures — well beyond what
             # MD trajectories ever resolve, and round-trips cleanly through
             # np.loadtxt.
-            np.savetxt(path, result, fmt="%.8e")
+            np.savetxt(
+                path, result, fmt="%.8e",
+                header=(f"{self.name}: whitespace-delimited, no column "
+                        f"header. Read with np.loadtxt(path)."),
+            )
             self._data_format = {
                 "layout": "whitespace-delimited, no header",
                 "read_with": "np.loadtxt(path)",
