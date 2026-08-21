@@ -112,6 +112,43 @@ def _is_a_terminal() -> bool:
         return False
 
 
+def _how_far_along(run_dirs) -> str:
+    """Step progress for the runs in flight, from what they already write.
+
+    A member of a campaign has no terminal. Its stage bars go to
+    `on_step_progress`, which in a worker goes nowhere, and the runner
+    deliberately keeps them out of the run log -- a file of the same line at
+    one per cent intervals is noise. The consequence was that a campaign
+    printed "0/3 done" for hours with no way to tell a healthy run from a
+    stalled one, and the only recourse was watching a DCD grow.
+
+    Nothing new is recorded here. `live_status.json` already carries
+    `current_step` against `total_planned_steps`, written by the telemetry
+    the runner starts by default. This reads it back, so the study's own
+    heartbeat can say how far its members have got.
+
+    Returns empty where nothing can be read: telemetry switched off, a run
+    that has not written its first status, or a file caught mid-write. A
+    heartbeat that fails is worse than a heartbeat that says less.
+    """
+    parts = []
+    for run_id, run_dir in run_dirs:
+        status_path = Path(run_dir) / "simulation" / "live_status.json"
+        try:
+            status = json.loads(status_path.read_text())
+        except Exception:  # noqa: BLE001 -- absent, partial, or unreadable
+            continue
+        done = status.get("current_step")
+        total = status.get("total_planned_steps")
+        if not isinstance(done, int) or not isinstance(total, int) or total <= 0:
+            continue
+        # The short form of the run id: the axis value is what distinguishes
+        # members, and the shared prefix is the same on every one of them.
+        label = str(run_id).split("__")[-1]
+        parts.append(f"{label} {100.0 * done / total:.0f}%")
+    return ("  [" + ", ".join(parts) + "]") if parts else ""
+
+
 def _clear_progress_line() -> None:
     """Wipe the bar before an event is printed over it.
 
@@ -1121,9 +1158,15 @@ class BatchExplorer:
                 # Piped to a file, a carriage return makes one endless line,
                 # so there the heartbeat is written out as before -- a log is
                 # read after the fact and wants the history.
+                in_flight = [
+                    (spec.run_id, self._run_output_dir(spec))
+                    for fut, (_index, spec) in futures.items()
+                    if fut in pending
+                ]
                 line = _progress_line(
                     running=len(pending), done=done, total=n,
-                    queued=n - next_index, seconds=time.monotonic() - began)
+                    queued=n - next_index, seconds=time.monotonic() - began
+                ) + _how_far_along(in_flight)
                 if _is_a_terminal():
                     print("\r" + line, end="", flush=True)
                 else:
