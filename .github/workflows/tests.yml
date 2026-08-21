@@ -34,17 +34,23 @@ jobs:
         # The ceiling moves rather than a fourth leg being added: three
         # operating systems times four versions is twelve jobs against a
         # twenty-job account ceiling, and a pileup of those is what the
-        # concurrency rule above exists to prevent. 3.13 becomes an
-        # in-between version, bracketed like 3.10 and 3.12 before it.
+        # concurrency rule above exists to prevent.
         #
-        # Checked before moving it, because the claim is only worth making
-        # if the wheels exist: every distribution in `[test]` and in the
-        # core dependencies publishes cp314 for Linux, macOS and Windows
-        # -- numpy 2.5.2, scipy 1.18, pandas 3.0.5, matplotlib 3.11.1,
-        # scikit-learn 1.9, mdtraj 1.11.1, rdkit 2026.3.5, with pytest,
-        # propka and python-pptx pure. OpenMM publishes cp314 too, and
-        # `[md]` is best-effort here in any case.
-        python-version: ["3.9", "3.11", "3.14"]
+        # It sat briefly at 3.14 and came back. Every distribution here
+        # publishes cp314 wheels, which is what was checked beforehand and
+        # was the wrong question: PROPKA installs on 3.14 and then raises
+        # at runtime. `propka/parameters.py` reads `self.__annotations__`,
+        # an instance lookup that resolved to the class dict through 3.13
+        # and does not under PEP 649, where class annotations are computed
+        # lazily through `__annotate__`. Latest is 3.5.1, it declares
+        # `>=3.8` with no upper bound, and no fix has been released.
+        #
+        # PROPKA is a run dependency of the conda package -- the install
+        # route the README leads with -- so `requires-python` cannot claim
+        # 3.14 while pKa assignment raises on it. Move the ceiling when
+        # PROPKA ships a release that runs there; a wheel existing is not
+        # evidence that it does.
+        python-version: ["3.9", "3.11", "3.13"]
 
     steps:
       - uses: actions/checkout@v5
