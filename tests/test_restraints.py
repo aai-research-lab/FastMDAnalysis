@@ -138,24 +138,6 @@ class TestTheReleaseSchedule:
         assert schedule.force_at(1.0) == 0.0
 
 
-def _grew_by(blocks: list[float]) -> float:
-    """How much a displacement climbed across a run, as a ratio.
-
-    The mean of the later half against the mean of the earlier half. A
-    structure that keeps travelling gives a ratio above one that rises with
-    run length; one held in a well gives a ratio near one whatever its
-    amplitude happens to be.
-
-    Means rather than extremes on purpose. A single block that lands high
-    or low moves an extreme by its whole excursion and a mean by a fraction
-    of it, which is why the extremes version of this test failed on data
-    where every block sat in the same band.
-    """
-    half = max(1, len(blocks) // 2)
-    early = sum(blocks[:half]) / half
-    late = sum(blocks[-half:]) / half
-    return late / early if early else float("inf")
-
 
 class TestARestraintActuallyHolds:
     """The measurement that matters: does a restrained structure move less
@@ -296,52 +278,52 @@ class TestARestraintActuallyHolds:
         assert all(math.isfinite(x) for x in restrained), (
             f"the restrained run did not survive ({restrained})")
 
-        # The physics, stated as the thing that separates the two arms:
-        # unbounded against bounded. Free diffusion grows over the run;
-        # a harmonic well does not, whatever its amplitude happens to be.
-        assert unrestrained[-1] > unrestrained[0], (
-            "a free structure should keep moving away from where it "
-            f"started: {unrestrained}")
-        # The first block is discarded on both arms. It covers the first
-        # two picoseconds out of minimisation, where the structure is
-        # relaxing rather than sampling, and it comes out anomalously
-        # small: on one CI platform it read 0.016 against a plateau near
-        # 0.033, and comparing the end of the run against it failed a
-        # restraint that had held perfectly well.
+        # What a positional restraint controls is amplitude, and that is
+        # what this asserts. Every earlier version asserted a *trend* --
+        # that the free arm climbs and the restrained one does not -- and
+        # every one of them failed eventually, because over twelve
+        # picoseconds a solvated helix may or may not have started
+        # diffusing yet, and a ratio of two blocks says so with a spread as
+        # wide as the effect.
         #
-        # Three of those re-anchorings later it failed again, in CI, on
-        # blocks that all sat in the same band: max 0.0524 against min
-        # 0.0254, so 2*min was 0.0508 and a perfectly well-behaved
-        # restraint missed by two parts in a thousand. The anchor was never
-        # the problem. `max/min` is the ratio of two extremes, and the
-        # spread of that ratio *grows* with the number of blocks -- the
-        # statistic gets less reliable the more you measure, which is the
-        # opposite of what a test wants.
+        # `setRandomNumberSeed(7)` made this look deterministic and is not.
+        # OpenMM's CPU platform sums forces in thread order, so the
+        # trajectory depends on the thread count as much as on the seed.
+        # Measured on one machine, one seed, same source: at one thread the
+        # free arm ends at 0.224 nm, at eight it ends at 0.520 nm. Three
+        # observations of the free arm's final displacement span 0.140,
+        # 0.224 and 0.520 nm, while the restrained arm sits at 0.035 and
+        # 0.036 across the same range. The amplitude is the invariant; the
+        # trend is not.
         #
-        # The claim is that the amplitude settles rather than climbing, and
-        # that is a statement about trend. Comparing the later half against
-        # the earlier one says it directly and averages the noise away
-        # instead of seeking it out.
+        # That is also why the thread count is left alone rather than
+        # pinned. Pinning would make one trajectory reproducible, and a
+        # test that passes only at a particular thread count is measuring
+        # the platform. The claim should survive the variation instead.
+        #
+        # The first block comes out on both arms, not just the restrained
+        # one: it covers the first two picoseconds out of minimisation,
+        # where the structure is relaxing rather than sampling, and it is
+        # anomalously small on either arm.
         settled = restrained[1:]
-        assert _grew_by(settled) < 1.5, (
-            "a restrained structure should settle at an amplitude rather "
-            f"than keep travelling: {restrained}")
-
-        # And the same measure separates the arms, which is the comparison
-        # the class is named for: free diffusion climbs, a harmonic well
-        # does not.
-        assert _grew_by(settled) < _grew_by(unrestrained[1:]), (
-            "the restrained arm should climb less than the free one: "
-            f"restrained {restrained}, free {unrestrained}")
-
-        # And the magnitude, with room. Measured at the end of the run,
-        # where the two have separated: about 0.12 when this was written,
-        # against the 0.5 asked for here.
-        assert restrained[-1] < unrestrained[-1] / 2, (
-            "a restrained structure should move markedly less than a free "
-            f"one: {restrained[-1]:.3f} nm restrained, "
-            f"{unrestrained[-1]:.3f} nm free"
-        )
+        sampling = unrestrained[1:]
+        assert max(settled) < min(sampling), (
+            "every restrained block should sit below every free one: "
+            f"restrained peaked at {max(settled):.4f} nm, the free arm's "
+            f"smallest block was {min(sampling):.4f} nm "
+            f"(restrained {restrained}, free {unrestrained})")
+        # The separation observed while writing this: 3.4x at one thread
+        # and 4.1x at eight. The assertion asks only for 1x, because three
+        # observations do not measure a tail, and the honest thing is to
+        # assert what is structural -- the two distributions do not
+        # overlap -- and report what was seen.
+        #
+        # Superseded, and recorded so it is not tried a fifth time:
+        # `restrained[-1] < unrestrained[-1] / 2` compared two endpoints,
+        # `_grew_by(settled) < 1.5` read 1.360 at one thread, and
+        # `_grew_by(settled) < _grew_by(unrestrained[1:])` read 1.360
+        # against 1.266 there and failed. Each was a statistic on two
+        # numbers drawn from a wide distribution.
 
     @pytest.mark.slow
     def test_releasing_the_restraint_lets_the_structure_loosen(self) -> None:
