@@ -7,6 +7,124 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [2.5.5] — 2026-08-21
+
+A correctness fix and eight repairs to what the software says while it
+works. Ligand pose RMSD was wrong for any ligand that left the pocket;
+everything else here is a message, a refusal, or a test that was not
+measuring what it claimed.
+
+### If you have quoted a ligand RMSD for an unbinding run, recompute
+
+**Nothing followed the ligand across the periodic boundary.** The analysis
+took raw Cartesian displacement after protein alignment, and `superposed`
+discards the unit cell, so a ligand crossing a face jumped by a box repeat.
+On the 20 ns T4-lysozyme unbound control the benzene gave 65 frame-to-frame
+jumps above 2 nm, the largest clustered at 6.58-6.80 nm between frames 10 ps
+apart, and the reported RMSD reached 9.49 nm in a box smaller than that. A
+benzene does not travel 6.8 nm in 10 ps.
+
+A bound ligand never crosses a face, so bound-state results are unchanged --
+a regression test pins that. The affected quantity is the unbinding or
+free-ligand case, where the reported path was the box rather than the
+ligand.
+
+The displacement is now unwrapped: each frame takes the image nearest its
+*predecessor*, not the one nearest the receptor. Consecutive frames are a
+saving interval apart, so a step of nearly a whole lattice vector is an
+image swap and nothing else, which is what makes rounding exact here.
+
+Two earlier attempts imaged per frame into the receptor's cell and are
+recorded in the tests so the approach is not tried a fourth time. The first
+rounded fractional coordinates, which is correct only in a near-orthogonal
+cell; in the rhombic dodecahedron these runs use it picks a longer image
+than the true minimum for 29% of random pairs, and it moved the control's
+maximum from 9.49 nm to 9.22 nm. The second delegated the minimum image to
+MDTraj, which handles triclinic correctly, and made the jumps worse --
+59 to 84. Per-frame imaging answers "where is it now" and cannot make a
+path continuous.
+
+**The fix was also rejected twice on magnitudes that were asserted rather
+than computed**, and the run's own data acquitted it. "A step above 0.3 nm
+is not physical motion" presumed a diffusion coefficient near 0.1 nm²/ns.
+The unwrapped series implies 1.60 nm²/ns from its own rms step -- where
+benzene in TIP3P belongs, TIP3P over-diffusing by roughly twice -- and at
+that value the series is Gaussian to counting noise: 188 steps above 0.3 nm
+observed against 187 predicted, 14 above 0.5 nm against 10, a largest step
+of 0.664 nm against an expected extreme of 0.698 for 1,999 draws, and none
+at all above 1 nm where the wrapped series had 72.
+
+### A refusal now reaches the person who can act on it
+
+Three analyses refused correctly and said so only in the debug log.
+
+`rdf` could not succeed on a default configuration at all: its default
+pair is the solute against water oxygens, and a default run saves the
+solute alone, so two defaults contradicted each other. It is now absent
+from a default plan rather than failing in it -- `_build_plan` already
+skipped analyses declaring `requires_water`, and `rdf` had simply never
+declared it. An explicit `include: [rdf]` still runs it, and where the
+trajectory holds no solvent the refusal names `save_selection: all`.
+
+More generally, an analysis that refuses now prints its reason beneath its
+row in the results table. The message was already carried on the result;
+the row renderer had no parameter for it. A bare exception class name is
+suppressed rather than printed, since it occupies the line an explanation
+should hold.
+
+### Findings that were not findings
+
+`rdf` reported a first peak from a flat curve. On a 0.1 ns Trp-cage run
+g(r) spanned 0.000 to 1.074 and peaked at 1.782 nm -- the last bin before
+half the box -- recorded as a hydration shell at 1.78 nm with no
+qualification. Two criteria now separate a peak from the tallest bin of
+noise, both read off the curve rather than set as thresholds: it must be a
+local maximum away from the edge of the measurable range, and it must stand
+above the bulk by more than the bulk's own scatter. Where neither holds the
+finding says `not_a_measurement`, as the radius of gyration already did.
+
+### Messages that described the wrong run
+
+`--help` raised on every subcommand carrying a literal percent: `71% of a
+cube` in `box_shape` was read as a format specification. The doubling now
+happens at render, not in the schema, because `config/generate.py` and the
+GUI print the same text verbatim and the interface-parity test requires
+them to match byte for byte.
+
+A ligand supplied by hand -- the offline route, where there is no network
+and the SDF is handed over directly -- was reported as removed one line
+before it was loaded and placed. And `analyze` printed a SIMULATION banner.
+
+### A campaign says how far along it is
+
+A member of a campaign has no terminal, so a three-member study printed
+`0/3 done` for hours with no way to distinguish a healthy run from a
+stalled one; the only recourse was watching a DCD grow. Nothing new is
+recorded: `live_status.json` already carries `current_step` against
+`total_planned_steps`, and the study's heartbeat now reads it back. Where
+it cannot be read the heartbeat says less rather than failing.
+
+### Tests
+
+The restraint test compared the largest block displacement against twice
+the smallest. That is a ratio of two extremes, and its spread *grows* with
+the number of blocks, so the statistic became less reliable the more it
+measured. It had been re-anchored three times; on the fourth failure every
+block sat in the same band and a sound restraint missed by two parts in a
+thousand. The claim is that amplitude settles rather than climbing, which
+is a statement about trend, so it now compares the later half of the run
+against the earlier half.
+
+The boundary fix arrived with seven tests that all exercised the helper
+directly and none through the analysis. Mutation showed the cost: replacing
+the call site in `compute` with `followed = None` -- routing straight back
+to the pre-fix branch -- left the entire suite green. A helper can be
+proven and unused. `test_the_analysis_actually_uses_it` closes it, and is
+checked by that same mutation.
+
+- Tests: 3,119 → 3,153 collected.
+
+
 ## [2.5.4] — 2026-08-17
 
 A correctness fix. Interaction counts from any run that computed more than
