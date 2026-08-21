@@ -104,16 +104,51 @@ recorded: `live_status.json` already carries `current_step` against
 `total_planned_steps`, and the study's heartbeat now reads it back. Where
 it cannot be read the heartbeat says less rather than failing.
 
+### The restraint test asks a question its data can answer
+
+Five versions of `test_restrained_atoms_move_less` have failed, each
+replaced on a reading of the previous failure. The reading was wrong every
+time, and the same wrongness underlies all five: the test asserted a
+*trend* -- that the free arm climbs away and the restrained arm does not --
+using a statistic built from two numbers.
+
+`setRandomNumberSeed(7)` made that look safe and does not. OpenMM's CPU
+platform sums forces in thread order, so the trajectory depends on the
+thread count as much as on the seed. On one machine, one seed, unchanged
+source: the free arm's final displacement is 0.224 nm at one thread and
+0.520 nm at eight. Across three observations it spans 0.140, 0.224 and
+0.520 nm -- a factor of 3.7 -- while the restrained arm sits at 0.035 and
+0.036 nm over the same range. Two thread counts failed two *different*
+assertions, which is what a wide distribution does to a statistic drawn
+from two of its samples.
+
+What a positional restraint controls is amplitude, so that is what the
+test now asserts: every restrained block below every free block, first
+block discarded on both arms. Replayed against all three observed
+trajectories it passes with the distributions separated by 3.0, 3.4 and
+4.1 times, where the old assertions failed two of the three. The thread
+count is deliberately not pinned -- a test that passes only at a
+particular thread count measures the platform rather than the physics.
+
 ### Tests
 
-The restraint test compared the largest block displacement against twice
-the smallest. That is a ratio of two extremes, and its spread *grows* with
-the number of blocks, so the statistic became less reliable the more it
-measured. It had been re-anchored three times; on the fourth failure every
-block sat in the same band and a sound restraint missed by two parts in a
-thousand. The claim is that amplitude settles rather than climbing, which
-is a statement about trend, so it now compares the later half of the run
-against the earlier half.
+A deposited `.dat` now names its own layout. The two conventions under one
+extension -- comma-separated with a header, whitespace with none -- have
+been recorded in `options.json` since 2.5.4, which serves a reader who
+knows to look and still has the run directory. The whitespace form now
+carries a `#` line saying how to read it, because a deposited file
+outlives its directory. `np.loadtxt` skips such lines by default, so
+nothing that reads these files changes.
+
+A sweep whose runs share one system and one setup block is told, at plan
+time, that its members will each solvate independently unless
+`simulation.prepared_from` is set. Solvation does not place water the same
+way twice: a three-member seed sweep gave 30,654 atoms against 30,803, so
+anything called a replica sweep measured dynamics variance plus solvation
+variance, and no recorded setting showed it. This names the setting rather
+than changing the default, because sharing setup silently would make a
+study half-run under the old behaviour incomparable with its own earlier
+members.
 
 The boundary fix arrived with seven tests that all exercised the helper
 directly and none through the analysis. Mutation showed the cost: replacing
@@ -122,7 +157,7 @@ to the pre-fix branch -- left the entire suite green. A helper can be
 proven and unused. `test_the_analysis_actually_uses_it` closes it, and is
 checked by that same mutation.
 
-- Tests: 3,119 → 3,153 collected.
+- Tests: 3,119 → 3,163 collected.
 
 
 ## [2.5.4] — 2026-08-17
