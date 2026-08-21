@@ -138,6 +138,25 @@ class TestTheReleaseSchedule:
         assert schedule.force_at(1.0) == 0.0
 
 
+def _grew_by(blocks: list[float]) -> float:
+    """How much a displacement climbed across a run, as a ratio.
+
+    The mean of the later half against the mean of the earlier half. A
+    structure that keeps travelling gives a ratio above one that rises with
+    run length; one held in a well gives a ratio near one whatever its
+    amplitude happens to be.
+
+    Means rather than extremes on purpose. A single block that lands high
+    or low moves an extreme by its whole excursion and a mean by a fraction
+    of it, which is why the extremes version of this test failed on data
+    where every block sat in the same band.
+    """
+    half = max(1, len(blocks) // 2)
+    early = sum(blocks[:half]) / half
+    late = sum(blocks[-half:]) / half
+    return late / early if early else float("inf")
+
+
 class TestARestraintActuallyHolds:
     """The measurement that matters: does a restrained structure move less
     than an unrestrained one?"""
@@ -288,13 +307,32 @@ class TestARestraintActuallyHolds:
         # relaxing rather than sampling, and it comes out anomalously
         # small: on one CI platform it read 0.016 against a plateau near
         # 0.033, and comparing the end of the run against it failed a
-        # restraint that had held perfectly well. That is the third time
-        # this test has been anchored on the transient part of a run, so
-        # it is now anchored on nothing that a single block can move.
+        # restraint that had held perfectly well.
+        #
+        # Three of those re-anchorings later it failed again, in CI, on
+        # blocks that all sat in the same band: max 0.0524 against min
+        # 0.0254, so 2*min was 0.0508 and a perfectly well-behaved
+        # restraint missed by two parts in a thousand. The anchor was never
+        # the problem. `max/min` is the ratio of two extremes, and the
+        # spread of that ratio *grows* with the number of blocks -- the
+        # statistic gets less reliable the more you measure, which is the
+        # opposite of what a test wants.
+        #
+        # The claim is that the amplitude settles rather than climbing, and
+        # that is a statement about trend. Comparing the later half against
+        # the earlier one says it directly and averages the noise away
+        # instead of seeking it out.
         settled = restrained[1:]
-        assert max(settled) < 2.0 * min(settled), (
+        assert _grew_by(settled) < 1.5, (
             "a restrained structure should settle at an amplitude rather "
             f"than keep travelling: {restrained}")
+
+        # And the same measure separates the arms, which is the comparison
+        # the class is named for: free diffusion climbs, a harmonic well
+        # does not.
+        assert _grew_by(settled) < _grew_by(unrestrained[1:]), (
+            "the restrained arm should climb less than the free one: "
+            f"restrained {restrained}, free {unrestrained}")
 
         # And the magnitude, with room. Measured at the end of the run,
         # where the two have separated: about 0.12 when this was written,
