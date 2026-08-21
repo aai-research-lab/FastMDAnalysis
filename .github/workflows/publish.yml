@@ -39,7 +39,7 @@ jobs:
                 | head -1 | sed -E 's|.*/fastmdx-([^-]+)-.*|\1|')
           echo "fastmdx version: $VER (tag: $TAG)"
           if [ "$TAG" != "$VER" ]; then
-            echo "::error::fastmdx alias version ($VER) does not match release tag ($TAG). Bump shim-package/pyproject.toml before tagging."
+            echo "::error::fastmdx alias version ($VER) does not match release tag ($TAG). The alias takes its version from the tag through setuptools-scm, so there is nothing in shim-package/pyproject.toml to bump -- check that the checkout used fetch-depth: 0 and that the tag is on the commit being built."
             exit 1
           fi
 

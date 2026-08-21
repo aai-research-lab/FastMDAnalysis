@@ -26,11 +26,25 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         # The floor, the coverage leg, and the ceiling: 3.9 keeps the
         # `>=3.9` claim honest and exercises the Windows wheel gap, 3.11
-        # is the one job codecov reads, and 3.13 is where what is coming
-        # breaks first. The versions in between are bracketed -- nothing
-        # in the tree branches on the interpreter version, so a suite
-        # green at both ends is green in the middle.
-        python-version: ["3.9", "3.11", "3.13"]
+        # is the one job codecov reads, and the ceiling is where what is
+        # coming breaks first. The versions in between are bracketed --
+        # nothing in the tree branches on the interpreter version, so a
+        # suite green at both ends is green in the middle.
+        #
+        # The ceiling moves rather than a fourth leg being added: three
+        # operating systems times four versions is twelve jobs against a
+        # twenty-job account ceiling, and a pileup of those is what the
+        # concurrency rule above exists to prevent. 3.13 becomes an
+        # in-between version, bracketed like 3.10 and 3.12 before it.
+        #
+        # Checked before moving it, because the claim is only worth making
+        # if the wheels exist: every distribution in `[test]` and in the
+        # core dependencies publishes cp314 for Linux, macOS and Windows
+        # -- numpy 2.5.2, scipy 1.18, pandas 3.0.5, matplotlib 3.11.1,
+        # scikit-learn 1.9, mdtraj 1.11.1, rdkit 2026.3.5, with pytest,
+        # propka and python-pptx pure. OpenMM publishes cp314 too, and
+        # `[md]` is best-effort here in any case.
+        python-version: ["3.9", "3.11", "3.14"]
 
     steps:
       - uses: actions/checkout@v5
