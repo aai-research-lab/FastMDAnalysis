@@ -561,8 +561,23 @@ def _numeric_column(path: Path, prefer: str):
     number as a column name. So the header is read by hand."""
     import numpy as np
     lines = [l for l in open(path) if l.strip()]
-    first = lines[0]
-    delim = "," if "," in first else None
+
+    # The delimiter is read off a data row, never off the header. Sniffing
+    # the first line broke the moment `save_data` began writing a `#` note
+    # naming the layout: that note contains a comma, so a whitespace file
+    # was split on commas, `names` came back wider than the array, and the
+    # column lookup raised IndexError -- for `sasa` but not `ligand_rmsd`,
+    # whose preferred name happened to match the first token. A message
+    # that must never contain a comma is a trap for whoever edits it next.
+    body_lines = [l for l in lines if not l.lstrip().startswith("#")]
+    if not body_lines:
+        raise ValueError(f"{path} holds no data rows")
+    delim = "," if "," in body_lines[0] else None
+
+    # A `#` line describes the file; it is not the column header. Where one
+    # is present the header, if any, is the first row that does not parse
+    # as numbers.
+    first = body_lines[0]
     header = first.lstrip("#").strip()
     tokens = ([t.strip() for t in header.split(",")] if delim
               else header.split())
@@ -577,7 +592,7 @@ def _numeric_column(path: Path, prefer: str):
     # it -- promoting a headerless file's first row to column names.
     has_header = not _floats(tokens)
     names = tokens if has_header else [f"col{i}" for i in range(len(tokens))]
-    body = lines[1:] if has_header else lines
+    body = body_lines[1:] if has_header else body_lines
     data = np.array([[float(v) for v in
                       (l.split(",") if delim else l.split())]
                      for l in body])
