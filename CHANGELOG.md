@@ -202,6 +202,15 @@ carries a `#` line saying how to read it, because a deposited file
 outlives its directory. `np.loadtxt` skips such lines by default, so
 nothing that reads these files changes.
 
+Almost nothing. The cross-tool harness reads one of these back, and it took
+its delimiter from the file's first line -- which is now that note, and the
+note contains a comma. A whitespace file was split on commas, the column
+names came back wider than the array, and the lookup raised `IndexError`.
+It read correctly for `ligand_rmsd`, whose preferred column name happened
+to match the first comma-split token, and failed for `sasa`. The delimiter
+now comes from a data row instead, which also repairs a PLUMED
+`#! FIELDS` header that the old path mis-parsed in 2.5.4.
+
 A sweep whose runs share one system and one setup block is told, at plan
 time, that its members will each solvate independently unless
 `simulation.prepared_from` is set. Solvation does not place water the same
@@ -227,7 +236,7 @@ to the pre-fix branch -- left the entire suite green. A helper can be
 proven and unused. `test_the_analysis_actually_uses_it` closes it, and is
 checked by that same mutation.
 
-- Tests: 3,119 → 3,185 collected.
+- Tests: 3,119 → 3,191 collected.
 
 
 ## [2.5.4] — 2026-08-17
