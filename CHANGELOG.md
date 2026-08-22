@@ -7,7 +7,7 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
-## [2.5.5] — 2026-08-21
+## [2.5.5] — 2026-08-22
 
 A correctness fix and eight repairs to what the software says while it
 works. Ligand pose RMSD was wrong for any ligand that left the pocket;
@@ -72,6 +72,14 @@ the row renderer had no parameter for it. A bare exception class name is
 suppressed rather than printed, since it occupies the line an explanation
 should hold.
 
+And it is now said once. An analysis that raised also printed
+``✗ ERROR Analysis 'rdf' failed`` several analyses before the table was
+drawn -- a line that named no reason, in a place where nothing could yet
+be done about it. It is suppressed on the console rather than demoted:
+`fastmdxplora.log` still records it at ERROR with its traceback, because a
+log that filed it at DEBUG would describe a run as clean when an analysis
+failed in it. The console and the audit record want different things.
+
 ### Findings that were not findings
 
 `rdf` reported a first peak from a flat curve. On a 0.1 ns Trp-cage run
@@ -130,6 +138,32 @@ trajectories it passes with the distributions separated by 3.0, 3.4 and
 count is deliberately not pinned -- a test that passes only at a
 particular thread count measures the platform rather than the physics.
 
+### Python 3.14 is not supported, and this says why
+
+`requires-python` remains `>=3.9, <3.14`. The ceiling was moved to 3.14 and
+moved back within the hour, and the reason is worth publishing so nobody
+repeats the check that missed it.
+
+Every distribution in the dependency set publishes cp314 wheels, which was
+verified first and was the wrong question. PROPKA is pure Python: it
+installs anywhere and runs where its code runs. On 3.14 it raises
+``'Parameters' object has no attribute '__annotations__'`` --
+`propka/parameters.py` reads `self.__annotations__`, an instance lookup
+that resolved to the class dict through 3.13 and does not under PEP 649,
+where class annotations are computed lazily through `__annotate__`. The
+current release is 3.5.1, it declares `>=3.8` with no upper bound, and no
+fix has been published.
+
+The full suite is otherwise green on 3.14: 3,171 passed, two failed, both
+from that one call. PROPKA is a run dependency of the conda package, so
+`requires-python` cannot claim 3.14 while pKa assignment raises there. The
+bound moves when PROPKA ships a release that runs on it.
+
+A related correction: the `publish.yml` version gate told a failing release
+to bump `shim-package/pyproject.toml`, which has taken its version from the
+tag through setuptools-scm since 2.5.4. It now names the causes that can
+actually produce the mismatch.
+
 ### Tests
 
 A deposited `.dat` now names its own layout. The two conventions under one
@@ -157,7 +191,7 @@ to the pre-fix branch -- left the entire suite green. A helper can be
 proven and unused. `test_the_analysis_actually_uses_it` closes it, and is
 checked by that same mutation.
 
-- Tests: 3,119 → 3,163 collected.
+- Tests: 3,119 → 3,168 collected.
 
 
 ## [2.5.4] — 2026-08-17
