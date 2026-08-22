@@ -164,6 +164,34 @@ to bump `shim-package/pyproject.toml`, which has taken its version from the
 tag through setuptools-scm since 2.5.4. It now names the causes that can
 actually produce the mismatch.
 
+### The 3D viewer keeps water, ions and the cell during playback
+
+*Contributed by Tomato_Cultivator (@Paradoxicaly).*
+
+Trajectory playback streams the solute-only trajectory, which is what the
+run saves. Water, ions and the periodic cell live in the full solvated
+topology, so switching a viewer into playback -- or changing which run it
+showed -- dropped them, and the toggles for them went on claiming they were
+on. The full topology is now mounted as a static environment overlay
+alongside the played frames, aligned to them, with the toggle states
+reasserted on every run change and a viewer generation counter so a slow
+load for an abandoned run cannot repaint the current one. Where the
+environment cannot be fetched the viewer says so rather than silently
+showing less.
+
+Two rendering changes come with it, both about a solvated box being mostly
+solvent. Water is drawn as oxygen markers rather than every bond, since
+rendering thousands of water hydrogens hides the solute the person is
+looking at; the Hydrogens control still exposes the atom-level view. And
+the periodic cell, which is physically larger than the protein, is drawn
+thinner and at an opacity that depends on whether water is shown, so the
+guide stays visible without overpowering a protein-only view.
+
+On the server side, a run whose process exits non-zero now reports the
+failure with the relevant line from its log rather than a bare return code,
+and telemetry that predates the current process is recognised as stale
+rather than shown as if it were live.
+
 ### Tests
 
 A deposited `.dat` now names its own layout. The two conventions under one
@@ -184,6 +212,14 @@ than changing the default, because sharing setup silently would make a
 study half-run under the old behaviour incomparable with its own earlier
 members.
 
+Two tests written for this release listened to a logger that does not
+exist. Both named `fastmdxplora.…`; the package logger is `fastmdx`. Both
+also captured through the root, while `setup_console` sets
+`propagate = False` on the package logger -- so a record need not reach
+root at all. One failed on every Python 3.9 job; the other passed
+throughout, asserting against a logger it had never configured. They now
+attach to the logger under test.
+
 The boundary fix arrived with seven tests that all exercised the helper
 directly and none through the analysis. Mutation showed the cost: replacing
 the call site in `compute` with `followed = None` -- routing straight back
@@ -191,7 +227,7 @@ to the pre-fix branch -- left the entire suite green. A helper can be
 proven and unused. `test_the_analysis_actually_uses_it` closes it, and is
 checked by that same mutation.
 
-- Tests: 3,119 → 3,168 collected.
+- Tests: 3,119 → 3,185 collected.
 
 
 ## [2.5.4] — 2026-08-17
