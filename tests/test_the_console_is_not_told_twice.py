@@ -21,7 +21,36 @@ import numpy as np
 import pytest
 
 from fastmdxplora.analysis.base import Analysis
-from fastmdxplora.utils.logging import _NotOnTheConsole
+from fastmdxplora.utils.logging import _NotOnTheConsole, get_logger
+
+
+@pytest.fixture
+def records():
+    """Capture on the package logger itself, not through the root.
+
+    `caplog` attaches at the root, and `setup_console` sets
+    `propagate = False` on the `fastmdx` logger -- so once anything in a
+    run has configured logging, nothing this module emits reaches root.
+    An earlier version of this file used `caplog` and passed alone and
+    failed in CI on every 3.9 job, for that reason and because it named
+    the logger `fastmdxplora`, which does not exist.
+    """
+    captured = []
+
+    class _Grab(logging.Handler):
+        def emit(self, record):
+            captured.append(record)
+
+    logger = get_logger("analysis.base")
+    handler = _Grab(level=logging.DEBUG)
+    previous = logger.level
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(handler)
+    try:
+        yield captured
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous)
 
 
 class _Raises(Analysis):
@@ -35,20 +64,18 @@ class _Raises(Analysis):
 
 
 class TestTheConsoleIsNotToldTwice:
-    def test_the_record_asks_to_be_kept_off_the_console(self, tmp_path, caplog):
-        with caplog.at_level(logging.DEBUG, logger="fastmdxplora.analysis.base"):
-            result = _Raises(output_dir=tmp_path).run(None)
+    def test_the_record_asks_to_be_kept_off_the_console(self, tmp_path, records):
+        result = _Raises(output_dir=tmp_path).run(None)
 
         assert result.status == "error"
-        failures = [r for r in caplog.records if "failed" in r.getMessage()]
+        failures = [r for r in records if "failed" in r.getMessage()]
         assert len(failures) == 1, "the failure should be logged once"
         assert getattr(failures[0], "to_console", True) is False
 
-    def test_the_log_keeps_it_at_error_with_the_traceback(self, tmp_path, caplog):
-        with caplog.at_level(logging.DEBUG, logger="fastmdxplora.analysis.base"):
-            _Raises(output_dir=tmp_path).run(None)
+    def test_the_log_keeps_it_at_error_with_the_traceback(self, tmp_path, records):
+        _Raises(output_dir=tmp_path).run(None)
 
-        record = next(r for r in caplog.records if "failed" in r.getMessage())
+        record = next(r for r in records if "failed" in r.getMessage())
         assert record.levelno == logging.ERROR, (
             "an analysis that raised is an error in the audit record")
         assert record.exc_info is not None, "the traceback is the useful part"

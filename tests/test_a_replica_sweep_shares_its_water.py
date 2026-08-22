@@ -27,6 +27,7 @@ import pytest
 from fastmdxplora.batch.explorer import (
     _say_if_the_replicas_will_not_share_water,
 )
+from fastmdxplora.utils.logging import get_logger
 
 
 class _Spec:
@@ -38,10 +39,32 @@ class _Spec:
 
 
 def _warnings(caplog, specs):
-    caplog.clear()
-    with caplog.at_level(logging.WARNING, logger="fastmdxplora.batch.explorer"):
+    """Capture on the package logger, not through the root.
+
+    `caplog` attaches at the root and `setup_console` sets
+    `propagate = False` on the `fastmdx` logger, so records need not reach
+    root at all. This also named the logger `fastmdxplora.batch.explorer`,
+    which does not exist -- it is `fastmdx.batch` -- so the level was being
+    set on nothing and the test passed for reasons unrelated to what it
+    asserts. Attaching here depends on neither.
+    """
+    captured = []
+
+    class _Grab(logging.Handler):
+        def emit(self, record):
+            captured.append(record)
+
+    logger = get_logger("batch")
+    handler = _Grab(level=logging.WARNING)
+    previous = logger.level
+    logger.setLevel(logging.WARNING)
+    logger.addHandler(handler)
+    try:
         _say_if_the_replicas_will_not_share_water(specs)
-    return [r.getMessage() for r in caplog.records]
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous)
+    return [r.getMessage() for r in captured]
 
 
 class TestASeedSweepIsTold:
