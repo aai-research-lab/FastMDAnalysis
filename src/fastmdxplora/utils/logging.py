@@ -56,6 +56,27 @@ _ICON = {"DEBUG": "·", "INFO": "✓", "WARNING": "⚠", "ERROR": "✗", "CRITIC
 # ---------------------------------------------------------------------------
 # Formatters
 # ---------------------------------------------------------------------------
+class _NotOnTheConsole(logging.Filter):
+    """Keep a record out of the console without keeping it out of the log.
+
+    An analysis that raises is an error, and `fastmdxplora.log` should say
+    so at ERROR with its traceback -- a log recording it at DEBUG would
+    report a run as clean when an analysis failed in it.
+
+    The console is a different audience. It already shows the failure in
+    the results table, on the analysis's own row, with the reason beneath
+    it. A second line saying only ``Analysis 'rdf' failed``, arriving
+    several analyses before the table is drawn, tells the reader nothing
+    the table will not tell them better.
+
+    So the record carries ``to_console=False`` and this drops it there.
+    Anything without the attribute is unaffected, which is everything else.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return getattr(record, "to_console", True)
+
+
 class _PrettyFormatter(logging.Formatter):
     """Compact, human-friendly formatter. Color only when stderr is a TTY."""
 
@@ -250,6 +271,7 @@ def setup_console(
             fmt = _PrettyFormatter(use_color)
         handler.setFormatter(fmt)
         handler.setLevel(base.level)
+        handler.addFilter(_NotOnTheConsole())
         _mark_owned(handler, _CONSOLE_KIND)
         base.addHandler(handler)
         _console_handler = handler

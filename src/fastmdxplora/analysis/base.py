@@ -395,7 +395,12 @@ class Analysis(ABC):
             )
         except Exception as exc:  # noqa: BLE001 -- captured, reported, propagated via status
             finished = datetime.now(timezone.utc).isoformat()
-            logger.exception("Analysis '%s' failed", self.name)
+            # ERROR with its traceback, in the log; not on the console,
+            # where the results table already carries this analysis's row
+            # and the reason beneath it. This line arrived several analyses
+            # earlier and said only that something failed.
+            logger.error("Analysis '%s' failed", self.name, exc_info=True,
+                         extra={"to_console": False})
             return AnalysisResult(
                 name=self.name,
                 status="error",
