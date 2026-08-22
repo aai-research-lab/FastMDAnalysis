@@ -529,6 +529,12 @@ def _not_submitted(after: str, *, umbrella: bool) -> str:
     )
 
 
+# The dashboard matches this to explain the commonest failure a run has.
+# A constant rather than a literal on both sides: a reworded message would
+# otherwise stop being recognised with nothing failing anywhere.
+ALREADY_HOLD_RESULTS = "These output directories already hold results:"
+
+
 def _say_if_the_replicas_will_not_share_water(run_specs) -> None:
     """Name `prepared_from` where runs differ only in how they are driven.
 
@@ -707,7 +713,7 @@ class BatchExplorer:
         if clashes:
             listed = "\n  ".join(clashes)
             raise FileExistsError(
-                "These output directories already hold results:\n  "
+                f"{ALREADY_HOLD_RESULTS}\n  "
                 f"{listed}\n"
                 "Choose another output directory, delete these, or pass "
                 "--force-overwrite to overwrite them."

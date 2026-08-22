@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from fastmdxplora.batch.explorer import ALREADY_HOLD_RESULTS
 from fastmdxplora.dependencies import dependency_error_message, missing_dependencies
 
 
@@ -53,6 +54,10 @@ _ANALYSES = (
     "dimred",
     "dihedrals",
 )
+
+
+# Returned as the data root when no run is current. Never created.
+_NO_CURRENT_RUN = ".fastmdxplora-no-current-run"
 
 
 def _utc_now() -> str:
@@ -555,8 +560,11 @@ class DashboardRuntime:
         with self.lock:
             if self.data_stale or self.active_root is None:
                 # Preserve the old run on disk, but do not expose its
-                # telemetry when no current run is active.
-                return self.workspace_root / ".fastmdxplora-no-current-run"
+                # telemetry when no current run is active. The path is
+                # deliberately never created: every handler under it reads
+                # files, so a root that does not exist is how they all come
+                # back empty without a second branch in each one.
+                return self.workspace_root / _NO_CURRENT_RUN
             return self.active_root or self.workspace_root
 
     def _telemetry_predates_process(self) -> bool:
@@ -566,10 +574,17 @@ class DashboardRuntime:
         recorded = status.get("run_started_at") or status.get("last_update_timestamp")
         if not recorded:
             return False
-        try:
-            telemetry_time = datetime.fromisoformat(str(recorded).replace("Z", "+00:00"))
-            process_time = datetime.fromisoformat(str(self.process_started_at).replace("Z", "+00:00"))
-        except ValueError:
+        # Both sides through the same parser, which normalises a naive
+        # timestamp to UTC and returns None rather than raising. Parsing
+        # inline caught ValueError only, and a naive `run_started_at` --
+        # what an older run or any writer not using an aware datetime
+        # leaves on disk -- reached the comparison and raised TypeError
+        # instead, inside the dashboard's polling path.
+        from fastmdxplora.gui.telemetry import _parse_iso_datetime
+
+        telemetry_time = _parse_iso_datetime(recorded)
+        process_time = _parse_iso_datetime(self.process_started_at)
+        if telemetry_time is None or process_time is None:
             return False
         return telemetry_time < process_time
 
@@ -585,7 +600,7 @@ class DashboardRuntime:
             except OSError:
                 lines = []
             for index, line in enumerate(lines):
-                if "already hold results" in line.lower():
+                if ALREADY_HOLD_RESULTS.lower() in line.lower():
                     detail = " ".join(lines[index:index + 2])
                     break
             if not detail and lines:
