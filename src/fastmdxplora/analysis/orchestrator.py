@@ -571,6 +571,7 @@ class AnalysisOrchestrator:
             here = Path(getattr(self, "output_dir", ".") or ".")
             for parent in (here, here.parent, here.parent.parent):
                 for candidate in (
+                    parent / "simulation" / "energy.csv",
                     parent / "simulation" / "state_data.csv",
                     parent / "state_data.csv",
                     parent / "simulation" / "production_state.csv",

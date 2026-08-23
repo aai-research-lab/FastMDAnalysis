@@ -158,13 +158,44 @@ class TestTheOutputsItWrites:
         assert ax.texts
         plt.close("all")
 
-    def test_it_discovers_the_record_beside_a_run(self, tmp_path):
+    def test_it_discovers_the_record_the_runner_writes(self, tmp_path):
         """The path that fails on a cluster, where nothing is where the
         laptop put it."""
         run = tmp_path / "run"
         (run / "simulation").mkdir(parents=True)
-        _state(run / "simulation")
+        state = _state(run / "simulation").rename(
+            run / "simulation" / "energy.csv")
         analysis = Thermodynamics()
         analysis.output_dir = run / "analysis" / "thermodynamics"
         analysis.output_dir.mkdir(parents=True)
-        assert analysis._state_path() is not None
+        analysis.compute(None)
+
+        assert analysis.findings["thermodynamics"]["source"] == str(state)
+
+    @pytest.mark.parametrize("relative_path", [
+        Path("simulation/state_data.csv"),
+        Path("state_data.csv"),
+        Path("simulation/production_state.csv"),
+    ])
+    def test_it_retains_legacy_record_names(self, tmp_path, relative_path):
+        run = tmp_path / "run"
+        state = run / relative_path
+        state.parent.mkdir(parents=True, exist_ok=True)
+        _state(state.parent).rename(state)
+        analysis = Thermodynamics()
+        analysis.output_dir = run / "analysis" / "thermodynamics"
+        analysis.output_dir.mkdir(parents=True)
+
+        assert analysis._state_path() == state
+
+    def test_an_explicit_record_takes_precedence(self, tmp_path):
+        run = tmp_path / "run"
+        (run / "simulation").mkdir(parents=True)
+        _state(run / "simulation").rename(run / "simulation" / "energy.csv")
+        (tmp_path / "explicit").mkdir()
+        explicit = _state(tmp_path / "explicit")
+        analysis = Thermodynamics(state_csv=str(explicit))
+        analysis.output_dir = run / "analysis" / "thermodynamics"
+        analysis.output_dir.mkdir(parents=True)
+
+        assert analysis._state_path() == explicit

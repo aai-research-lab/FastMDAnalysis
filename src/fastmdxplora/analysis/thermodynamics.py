@@ -124,6 +124,7 @@ class Thermodynamics(Analysis):
         here = Path(self.output_dir)
         for parent in (here.parent.parent, here.parent, here):
             for candidate in (
+                parent / "simulation" / "energy.csv",
                 parent / "simulation" / "state_data.csv",
                 parent / "state_data.csv",
                 parent / "simulation" / "production_state.csv",
