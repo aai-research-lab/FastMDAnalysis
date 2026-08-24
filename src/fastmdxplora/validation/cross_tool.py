@@ -122,7 +122,9 @@ def our_kind_family(kind: str) -> str | None:
 # threshold is pinned as a test. CONFIRM these against that file before
 # trusting a harmonized run; they are parameters to ProLIF's classes.
 HARMONIZED_PARAMETERS = {
-    "Hydrophobic": {"distance": 4.5},
+    # FastMDXplora's native hydrophobic rule is 0.40 nm (4.0 A). Keep the
+    # independent tool on the same geometric cutoff for the judged table.
+    "Hydrophobic": {"distance": 4.0},
     "Cationic": {"distance": 4.5},
     "Anionic": {"distance": 4.5},
 }
@@ -225,7 +227,7 @@ def trajectory_and_topology(run_dir: Path, manifest: dict) -> tuple[Path, Path]:
     return traj, top
 
 
-def ligand_resname(run_dir: Path) -> str:
+def _configured_ligand_resname(run_dir: Path) -> str | None:
     cfg = run_dir / "resolved_config.yml"
     if cfg.exists():
         import yaml
@@ -233,7 +235,46 @@ def ligand_resname(run_dir: Path) -> str:
         name = (data.get("setup") or {}).get("ligand_name")
         if name:
             return name
+
+    return None
+
+
+def ligand_resname(run_dir: Path) -> str:
+    name = _configured_ligand_resname(run_dir)
+    if name:
+        return name
     sys.exit("ligand_name not found in resolved_config.yml; pass --ligand")
+
+
+def topology_has_resname(topology: Path, resname: str) -> bool:
+    """Return whether a PDB topology contains the requested residue name."""
+    target = str(resname).upper()
+    for line in topology.read_text(errors="replace").splitlines():
+        if line.startswith(("ATOM  ", "HETATM")):
+            if line[17:20].strip().upper() == target:
+                return True
+    return False
+
+
+def unmeasured_interaction_families(run_dir: Path) -> set[str]:
+    """Read interaction kinds that native analysis explicitly refused.
+
+    A refused kind is not a zero-occupancy measurement. It must be excluded
+    from a cross-tool numeric comparison until both tools measure the same
+    claim.
+    """
+    options = run_dir / "analysis" / "pl_interactions" / "options.json"
+    if not options.is_file():
+        return set()
+    try:
+        data = json.loads(options.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    refused = ((data.get("findings") or {}).get("not_measured") or {})
+    families = set()
+    for kind in refused:
+        families.add(our_kind_family(kind) or str(kind))
+    return families
 
 
 def healed_trajectory(run_dir: Path, traj: Path, top: Path) -> Path:  # pragma: no cover - needs ProLIF/MDAnalysis and a finished run
@@ -259,6 +300,29 @@ def healed_trajectory(run_dir: Path, traj: Path, top: Path) -> Path:  # pragma: 
     return healed
 
 
+class _ReimageLigand:
+    """Move the ligand to the protein's triclinic minimum-image copy."""
+
+    def __init__(self, ligand, protein):
+        self.ligand = ligand
+        self.protein = protein
+
+    def __call__(self, ts):
+        import numpy as np
+        from MDAnalysis.lib.mdamath import triclinic_vectors
+
+        vectors = triclinic_vectors(ts.dimensions)
+        if not np.any(vectors):
+            return ts
+        ligand_center = self.ligand.positions.mean(axis=0)
+        protein_center = self.protein.positions.mean(axis=0)
+        delta = ligand_center - protein_center
+        fractional = np.linalg.solve(vectors.T, delta)
+        minimum_image = (fractional - np.rint(fractional)) @ vectors
+        self.ligand.positions += minimum_image - delta
+        return ts
+
+
 def prolif_occupancy(traj: Path, top: Path, resname: str,
                      harmonized: bool) -> dict[tuple[str, str], float]:  # pragma: no cover - needs ProLIF/MDAnalysis and a finished run
     mda, plf = _reference_tools()
@@ -280,6 +344,11 @@ def prolif_occupancy(traj: Path, top: Path, resname: str,
         lig.guess_bonds()
     if len(lig) == 0:
         sys.exit(f"no atoms with resname {resname} in the topology")
+    # Molecule healing makes each molecule whole, but it does not guarantee
+    # that the ligand and protein are in the same periodic image. Native
+    # FastMDXplora distances use the minimum image; apply the same triclinic
+    # reimaging before ProLIF sees the AtomGroups.
+    u.trajectory.add_transformations(_ReimageLigand(lig, prot))
     kinds = sorted(set(PROLIF_TO_FAMILY))
     params = HARMONIZED_PARAMETERS if harmonized else {}
     fp = plf.Fingerprint(
@@ -477,11 +546,17 @@ def cmd_interactions(args):  # pragma: no cover - needs ProLIF/MDAnalysis and a 
     traj = healed_trajectory(run_dir, traj, top)
     resname = args.ligand or ligand_resname(run_dir)
     ours = our_occupancy(run_dir, manifest)
+    excluded = unmeasured_interaction_families(run_dir)
+    if excluded:
+        print("[excluded] native interaction families not measured: "
+              f"{', '.join(sorted(excluded))}")
     for harmonized in ((True, False) if args.both else (args.harmonized,)):
         ref = prolif_occupancy(traj, top, resname, harmonized)
         label = "harmonized" if harmonized else "defaults"
         rows, worst = [], 0.0
         for key in sorted(set(ours) | set(ref)):
+            if key[1] in excluded:
+                continue
             got = ours.get(key, (0.0, 0.0))
             a_lo, a_hi = got if isinstance(got, tuple) else (got, got)
             b = ref.get(key, 0.0)
@@ -607,10 +682,32 @@ def cmd_negative(args):  # pragma: no cover - needs ProLIF/MDAnalysis and a fini
     run_dir = Path(args.run_dir)
     manifest = load_manifest(run_dir)
     cavity = {c.strip() for c in args.cavity.split(",")}
-    ours = our_occupancy(run_dir, manifest)
     traj, top = trajectory_and_topology(run_dir, manifest)
+    resname = args.ligand or _configured_ligand_resname(run_dir)
+    if not resname:
+        sys.exit("ligand_name not found in resolved_config.yml; pass --ligand")
+
+    # An explicitly ligand-free negative control has no valid native
+    # pl_interactions table and cannot be sent through the ligand-contact
+    # comparison path. Its preregistered claim is that the ligand was removed;
+    # verify that claim directly from the topology instead of manufacturing a
+    # zero interaction table.
+    if not topology_has_resname(top, resname):
+        evidence = run_dir / "benchmark_negative_control.json"
+        evidence.write_text(json.dumps({
+            "ligand_resname": resname,
+            "present_in_topology": False,
+            "cavity_residues": sorted(cavity, key=int),
+            "status": "ligand-free control verified",
+        }, indent=2) + "\n", encoding="utf-8")
+        print(f"[control] no {resname} residue in trajectory topology")
+        print(f"[written] {evidence}")
+        print("[verdict] negative control holds by explicit ligand removal; "
+              "ligand-contact occupancy is not applicable")
+        return
+
+    ours = our_occupancy(run_dir, manifest)
     traj = healed_trajectory(run_dir, traj, top)
-    resname = args.ligand or ligand_resname(run_dir)
     ref = prolif_occupancy(traj, top, resname, harmonized=True)
     bad = []
     # Ours is judged on the FLOOR: the measured max-pair occupancy. The

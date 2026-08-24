@@ -45,6 +45,7 @@ def run(
     output_dir: Path,
     trajectory: str | None = None,
     topology: str | None = None,
+    ligand_resname: str | None = None,
     include: list[str] | None = None,
     exclude: list[str] | None = None,
     options: dict[str, dict[str, Any]] | None = None,
@@ -112,7 +113,9 @@ def run(
     # Detect a ligand from the setup manifest so scope-based selections can
     # include it (solute = protein + ligand) and so ligand-specific analyses
     # know the residue name. Absent or unreadable manifest -> no ligand.
-    ligand_resname = _detect_ligand_resname(project_root)
+    resolved_ligand_resname = (
+        ligand_resname or _detect_ligand_resname(project_root)
+    )
 
     ao = AnalysisOrchestrator(
         trajectory=str(traj_path),
@@ -120,7 +123,7 @@ def run(
         output_dir=output_dir,
         selection=selection,
         scope=scope,
-        ligand_resname=ligand_resname,
+        ligand_resname=resolved_ligand_resname,
         stride=stride,
         first=first,
         last=last,

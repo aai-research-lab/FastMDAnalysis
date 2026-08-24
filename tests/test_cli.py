@@ -81,6 +81,15 @@ def test_cli_help_subprocess() -> None:
     assert "report" in result.stdout
 
 
+def test_cli_analyze_accepts_explicit_ligand_resname() -> None:
+    from fastmdxplora.cli.main import _build_parser
+
+    args = _build_parser().parse_args([
+        "analyze", "--system", "3PTB", "--ligand-resname", "BEN",
+    ])
+    assert args.ligand_resname == "BEN"
+
+
 def test_cli_no_args_starts_dashboard_home() -> None:
     cli_main_module = sys.modules["fastmdxplora.cli.main"]
     with patch.object(cli_main_module, "_cmd_dashboard_home", return_value=0) as home:

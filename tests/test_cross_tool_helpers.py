@@ -17,13 +17,16 @@ from pathlib import Path
 import pytest
 
 from fastmdxplora.validation.cross_tool import (
+    HARMONIZED_PARAMETERS,
     _numeric_column,
     _occupancy_from_csv,
     find_artifact,
     load_manifest,
     our_kind_family,
+    topology_has_resname,
     residue_label,
     trajectory_and_topology,
+    unmeasured_interaction_families,
 )
 
 
@@ -58,6 +61,32 @@ class TestJoiningTwoToolsTables:
         """
         assert our_kind_family("water_bridge") is None
         assert our_kind_family("something novel") is None
+
+    def test_harmonized_hydrophobic_cutoff_matches_native_rule(self):
+        assert HARMONIZED_PARAMETERS["Hydrophobic"]["distance"] == pytest.approx(4.0)
+
+    def test_native_not_measured_families_are_read_from_options(self, tmp_path):
+        adir = tmp_path / "analysis" / "pl_interactions"
+        adir.mkdir(parents=True)
+        (adir / "options.json").write_text(json.dumps({
+            "findings": {
+                "not_measured": {
+                    "salt_bridge": "charge ambiguous",
+                    "pi_cation": "charge ambiguous",
+                }
+            }
+        }), encoding="utf-8")
+        assert unmeasured_interaction_families(tmp_path) == {
+            "salt_bridge", "pi_cation"
+        }
+
+    def test_topology_residue_presence_can_prove_ligand_removal(self, tmp_path):
+        top = tmp_path / "trajectory_topology.pdb"
+        top.write_text(
+            "ATOM      1  CA  ALA A   1       0.000   0.000   0.000\nEND\n",
+            encoding="utf-8",
+        )
+        assert not topology_has_resname(top, "BNZ")
 
 
 class TestFindingArtifactsAfterTheFerry:
