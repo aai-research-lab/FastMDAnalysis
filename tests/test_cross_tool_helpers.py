@@ -80,6 +80,13 @@ class TestJoiningTwoToolsTables:
             "salt_bridge", "pi_cation"
         }
 
+    def test_missing_or_malformed_options_are_not_measurements(self, tmp_path):
+        assert unmeasured_interaction_families(tmp_path) == set()
+        adir = tmp_path / "analysis" / "pl_interactions"
+        adir.mkdir(parents=True)
+        (adir / "options.json").write_text("{not-json", encoding="utf-8")
+        assert unmeasured_interaction_families(tmp_path) == set()
+
     def test_topology_residue_presence_can_prove_ligand_removal(self, tmp_path):
         top = tmp_path / "trajectory_topology.pdb"
         top.write_text(
@@ -87,6 +94,56 @@ class TestJoiningTwoToolsTables:
             encoding="utf-8",
         )
         assert not topology_has_resname(top, "BNZ")
+
+        top.write_text(
+            "HETATM    1  C1  BNZ A   1       0.000   0.000   0.000\nEND\n",
+            encoding="utf-8",
+        )
+        assert topology_has_resname(top, "bnz")
+
+
+class TestPeriodicLigandReimaging:
+    @staticmethod
+    def _stub_mdanalysis(monkeypatch):
+        import sys
+        import types
+
+        import numpy as np
+
+        mda = types.ModuleType("MDAnalysis")
+        lib = types.ModuleType("MDAnalysis.lib")
+        math = types.ModuleType("MDAnalysis.lib.mdamath")
+        math.triclinic_vectors = lambda dimensions: np.diag(dimensions[:3])
+        monkeypatch.setitem(sys.modules, "MDAnalysis", mda)
+        monkeypatch.setitem(sys.modules, "MDAnalysis.lib", lib)
+        monkeypatch.setitem(sys.modules, "MDAnalysis.lib.mdamath", math)
+
+    def test_zero_box_is_a_no_op(self, monkeypatch):
+        self._stub_mdanalysis(monkeypatch)
+        import numpy as np
+
+        from fastmdxplora.validation.cross_tool import _ReimageLigand
+
+        ligand = type("Atoms", (), {"positions": np.array([[9.0, 0.0, 0.0]])})()
+        protein = type("Atoms", (), {"positions": np.array([[1.0, 0.0, 0.0]])})()
+        ts = type("Timestep", (), {"dimensions": np.zeros(6)})()
+        before = ligand.positions.copy()
+        assert _ReimageLigand(ligand, protein)(ts) is ts
+        assert np.array_equal(ligand.positions, before)
+
+    def test_ligand_moves_to_the_triclinic_minimum_image(self, monkeypatch):
+        self._stub_mdanalysis(monkeypatch)
+        import numpy as np
+
+        from fastmdxplora.validation.cross_tool import _ReimageLigand
+
+        ligand = type("Atoms", (), {"positions": np.array([[9.0, 0.0, 0.0]])})()
+        protein = type("Atoms", (), {"positions": np.array([[1.0, 0.0, 0.0]])})()
+        ts = type("Timestep", (), {
+            "dimensions": np.array([10.0, 10.0, 10.0, 90.0, 90.0, 90.0])
+        })()
+        _ReimageLigand(ligand, protein)(ts)
+        assert ligand.positions[0, 0] == pytest.approx(-1.0)
 
 
 class TestFindingArtifactsAfterTheFerry:
