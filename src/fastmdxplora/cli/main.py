@@ -155,6 +155,8 @@ _ANALYSIS_OPTIONS: list[tuple[str, str, dict[str, Any]]] = [
         "help": "Trajectory file (default: simulation/production.dcd)."}),
     ("topology", "topology", {"type": str, "metavar": "PATH",
         "help": "Topology file (default: simulation/topology.pdb)."}),
+    ("ligand-resname", "ligand_resname", {"type": str, "metavar": "NAME",
+        "help": "Ligand residue name for ligand-aware analyses."}),
     ("analyses", "include", {"nargs": "+", "metavar": "NAME",
         "help": "Subset of analyses to run (e.g. rmsd rmsf rg). Default: all."}),
     ("exclude-analyses", "exclude", {"nargs": "+", "metavar": "NAME",
