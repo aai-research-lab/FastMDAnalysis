@@ -250,7 +250,7 @@ C_OF_T_GRID_POINTS = 320
 
 
 def felt_bias(hills: Any, heights: np.ndarray, *, times: Any, values: Any,
-              periodic: bool) -> np.ndarray:
+              periodic: "bool | tuple[bool, ...]") -> np.ndarray:
     """The bias each frame felt, measured the short way round on a circle.
 
     A frame at -175 degrees is fifteen degrees from a hill at +170, not three
@@ -266,6 +266,25 @@ def felt_bias(hills: Any, heights: np.ndarray, *, times: Any, values: Any,
     generic weighting arithmetic and PLUMED's conventions belong here.
     """
     frames = np.asarray(values, dtype=float)
+    if getattr(hills, "n_dims", 1) > 1:
+        from fastmdxplora.simulation.metad_surface import bias_from_hills_nd
+
+        if frames.ndim != 2 or frames.shape[1] != hills.n_dims:
+            raise ValueError(
+                f"The hills hold {hills.n_dims} biased variables but frame "
+                f"coordinates have shape {frames.shape}."
+            )
+        wrap = tuple(periodic) if not isinstance(periodic, bool) else (
+            (periodic,) * hills.n_dims)
+        frame_times = np.asarray(times, dtype=float)
+        total = np.zeros(frames.shape[0], dtype=float)
+        for index, (when, where) in enumerate(zip(frame_times, frames)):
+            laid = int(np.searchsorted(hills.time_ps, when, side="right"))
+            total[index] = bias_from_hills_nd(
+                hills, where[None, :], heights=heights, upto=laid,
+                periodic=wrap)[0]
+        return total
+
     shifts = (-2.0 * np.pi, 0.0, 2.0 * np.pi) if periodic else (0.0,)
     total = np.zeros(frames.size, dtype=float)
     for shift in shifts:
@@ -276,7 +295,7 @@ def felt_bias(hills: Any, heights: np.ndarray, *, times: Any, values: Any,
 
 
 def c_of_t(hills: Any, times_ps: np.ndarray, temperature_K: float,
-           periodic: bool = False) -> np.ndarray:
+           periodic: "bool | tuple[bool, ...]" = False) -> np.ndarray:
     """The offset that makes a running bias usable for reweighting.
 
     The bias grows as hills accumulate, so exp(V(s,t)/RT) grows with time
@@ -298,6 +317,11 @@ def c_of_t(hills: Any, times_ps: np.ndarray, temperature_K: float,
     and the y -> infinity limit of that, which is the ratio to a flat
     integral, is the form for a run that was not tempered.
     """
+    if getattr(hills, "n_dims", 1) > 1:
+        wrap = tuple(periodic) if not isinstance(periodic, bool) else (
+            (periodic,) * hills.n_dims)
+        return _c_of_t_nd(hills, times_ps, temperature_K, periodic=wrap)
+
     kT = KB_KJ_PER_MOL_K * float(temperature_K)
     order = np.argsort(hills.time_ps)
     hill_times = np.asarray(hills.time_ps, dtype=float)[order]
@@ -361,6 +385,84 @@ def c_of_t(hills: Any, times_ps: np.ndarray, temperature_K: float,
     return np.interp(np.asarray(times_ps, dtype=float), checkpoints, offsets)
 
 
+def _c_of_t_nd(
+    hills: Any,
+    times_ps: np.ndarray,
+    temperature_K: float,
+    *,
+    periodic: tuple[bool, ...],
+) -> np.ndarray:
+    """Multidimensional c(t), integrated on one axis per biased variable."""
+    from fastmdxplora.simulation.metad_surface import Hills, bias_from_hills_nd
+
+    if len(periodic) != hills.n_dims:
+        raise ValueError(
+            f"The hills hold {hills.n_dims} variables but periodicity has "
+            f"{len(periodic)} entries."
+        )
+
+    kT = KB_KJ_PER_MOL_K * float(temperature_K)
+    order = np.argsort(hills.time_ps)
+    ordered = Hills(
+        time_ps=np.asarray(hills.time_ps, dtype=float)[order],
+        centre=np.asarray(hills.centre, dtype=float)[order],
+        sigma=np.asarray(hills.sigma, dtype=float)[order],
+        height=np.asarray(hills.height, dtype=float)[order],
+        bias_factor=float(hills.bias_factor),
+    )
+    heights = deposited_heights(hills)[order]
+
+    # Keep the integration budget bounded as dimensions grow. Forty points
+    # per axis in 2D gives 1,600 integration points; higher-dimensional runs
+    # retain approximately that total with a floor of eight per axis.
+    points_per_axis = max(8, int(round(1600 ** (1.0 / hills.n_dims))))
+    axes: list[np.ndarray] = []
+    for dim in range(hills.n_dims):
+        centres = ordered.column(dim)
+        sigmas = ordered.sigma_column(dim)
+        if periodic[dim]:
+            axes.append(np.linspace(-np.pi, np.pi, points_per_axis))
+        else:
+            span = 3.0 * float(np.max(sigmas))
+            axes.append(np.linspace(float(np.min(centres)) - span,
+                                    float(np.max(centres)) + span,
+                                    points_per_axis))
+    mesh = np.meshgrid(*axes, indexing="ij")
+    points = np.column_stack([axis.ravel() for axis in mesh])
+
+    times = np.asarray(times_ps, dtype=float)
+    checkpoints = np.linspace(
+        float(np.min(times)), float(np.max(times)),
+        min(C_OF_T_CHECKPOINTS, max(2, times.size)))
+    upto = np.searchsorted(ordered.time_ps, checkpoints, side="left")
+
+    factor = float(hills.bias_factor)
+    if factor > 1.0:
+        scale_numerator = factor / (factor - 1.0)
+        scale_denominator = 1.0 / (factor - 1.0)
+    else:
+        scale_numerator, scale_denominator = 1.0, 0.0
+
+    def log_integral(values: np.ndarray) -> float:
+        peak = float(np.max(values))
+        return float(np.log(np.sum(np.exp(values - peak))) + peak)
+
+    bias = np.zeros(points.shape[0], dtype=float)
+    offsets = np.empty(checkpoints.size, dtype=float)
+    cursor = 0
+    for index, stop in enumerate(upto):
+        if stop > cursor:
+            bias += bias_from_hills_nd(
+                ordered, points, heights=heights, start=cursor,
+                upto=int(stop), periodic=periodic)
+            cursor = int(stop)
+        offsets[index] = kT * (
+            log_integral(scale_numerator * bias / kT)
+            - log_integral(scale_denominator * bias / kT))
+
+    return np.interp(times, checkpoints, offsets)
+
+
 # ---------------------------------------------------------------------------
 # The weights for a run
 # ---------------------------------------------------------------------------
@@ -407,13 +509,20 @@ def weights_for_run(
         return None, provenance
 
     colvar = read_colvar(colvar_path)
-    cv_name = next((name for name in colvar
-                    if name not in ("time",) and not name.endswith("bias")),
-                   None)
-    if cv_name is None or "time" not in colvar:
+    cv_names = [name for name in colvar
+                if name != "time" and not name.endswith("bias")]
+    if not cv_names or "time" not in colvar:
         provenance["reason"] = (
             "COLVAR holds no collective variable column, so the frames "
             "cannot be placed on the coordinate the bias acted along.")
+        return None, provenance
+    if len(cv_names) != hills.n_dims:
+        provenance["reason"] = (
+            f"HILLS contains {hills.n_dims} biased variable(s), but COLVAR "
+            f"contains {len(cv_names)} collective-variable column(s) "
+            f"({', '.join(cv_names)}). Reweighting needs exactly one COLVAR "
+            "coordinate for each HILLS dimension."
+        )
         return None, provenance
 
     times = np.asarray(frame_times_ps, dtype=float)
@@ -424,7 +533,11 @@ def weights_for_run(
     # Frames written outside the recorded window would extrapolate; numpy
     # clamps to the end values instead, which is the right behaviour for the
     # one or two frames that can fall outside by a single stride.
-    frame_cv = np.interp(times, colvar["time"], colvar[cv_name])
+    frame_columns = [
+        np.interp(times, colvar["time"], colvar[name])
+        for name in cv_names]
+    frame_cv = (frame_columns[0] if hills.n_dims == 1
+                else np.column_stack(frame_columns))
 
     # A torsion is a circle, and every Gaussian sum below has to measure the
     # separation the short way round: a frame at -175 degrees is 15 degrees
@@ -432,8 +545,16 @@ def weights_for_run(
     # anything is summed, because both the felt bias and the offset need it.
     from fastmdxplora.simulation.umbrella import PERIODIC_VARIABLES
 
-    variable = _configured_cv(output_dir) or cv_name
-    periodic = variable in PERIODIC_VARIABLES
+    if hills.n_dims == 1:
+        variable: Any = _configured_cv(output_dir) or cv_names[0]
+        periodic: Any = variable in PERIODIC_VARIABLES
+    else:
+        from fastmdxplora.simulation.metad_surface import periodic_dimensions
+
+        variable = cv_names
+        script = _find(output_dir, "plumed.dat")
+        periodic = (periodic_dimensions(script, hills.n_dims)
+                    if script is not None else (False,) * hills.n_dims)
 
     heights = deposited_heights(hills)
     felt = felt_bias(
@@ -472,7 +593,9 @@ def weights_for_run(
         ours = felt_bias(
             hills, heights,
             times=before_deposition(hills, colvar["time"]),
-            values=colvar[cv_name], periodic=periodic)
+            values=(colvar[cv_names[0]] if hills.n_dims == 1 else
+                    np.column_stack([colvar[name] for name in cv_names])),
+            periodic=periodic)
         theirs = colvar[bias_column]
         spread = float(np.max(theirs) - np.min(theirs))
         if spread > 0:
@@ -488,7 +611,7 @@ def weights_for_run(
         # name is kept where it can be found, with the label beside it.
         "collective_variable": variable,
         "periodic": periodic,
-        "colvar_column": cv_name,
+        "colvar_column": (cv_names[0] if hills.n_dims == 1 else cv_names),
         "temperature_K": temperature,
         "temperature_from_record": measured,
         "settled": settled,

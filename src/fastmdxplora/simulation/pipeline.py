@@ -200,7 +200,7 @@ def _write_metadynamics_surface(output_dir: Path, presenter: Any) -> str | None:
     import numpy as np
 
     from fastmdxplora.simulation.metad_surface import (
-        compute_surface, compute_surface_2d, read_hills)
+        compute_surface, compute_surface_2d, periodic_dimensions, read_hills)
 
     hills = output_dir / "HILLS"
     if not hills.is_file():
@@ -232,26 +232,14 @@ def _write_metadynamics_surface(output_dir: Path, presenter: Any) -> str | None:
         # and it sits beside the hills it produced. Without this the barrier
         # came out at 60.7 kJ/mol on a run whose periodic value was 30.
         script = output_dir / "plumed.dat"
-        text = (script.read_text(encoding="utf-8").upper()
-                if script.is_file() else "")
-        circular = ("TORSION", "ANGLE")
+        per_dim = periodic_dimensions(script, n_dims)
         if n_dims == 1:
-            periodic = any(
-                f"{action}\n" in text or f"{action} " in text
-                for action in circular)
-            outcome = compute_surface(hills, sampled, periodic=periodic)
+            outcome = compute_surface(hills, sampled, periodic=per_dim[0])
         else:
             # Per variable, from its own definition line. A run biasing a
             # torsion against a distance is periodic in one and not the
             # other, and a single flag for both wraps the distance around
             # a circle it does not live on.
-            import re
-
-            actions = dict(re.findall(
-                r"^\s*(CV\d+)\s*:\s*(\w+)", text, re.MULTILINE))
-            per_dim = tuple(
-                actions.get(f"CV{i + 1}", "") in circular
-                for i in range(n_dims))
             names = tuple(f"cv{i + 1}" for i in range(n_dims))
             outcome = compute_surface_2d(
                 hills, sampled, periodic=per_dim, names=names)

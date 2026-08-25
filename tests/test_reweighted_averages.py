@@ -97,6 +97,67 @@ def _bias_from_hills(hill_times, centres, sigma, height, at_times, at_values):
     return out
 
 
+def _write_2d_run(directory: Path, *, colvar_dimensions: int = 2) -> Path:
+    """Two periodic torsions with hills and COLVAR in PLUMED's real layout."""
+    simulation = directory / "simulation"
+    simulation.mkdir(parents=True, exist_ok=True)
+    times = np.arange(1.0, 31.0)
+    centres = np.column_stack([
+        np.where((times % 2) == 0, np.pi - 0.08, -np.pi + 0.08),
+        np.where((times % 3) == 0, np.pi - 0.12, -np.pi + 0.12),
+    ])
+    sigmas = np.array([0.20, 0.25])
+    deposited = 0.6
+    bias_factor = 10.0
+    stored = deposited * bias_factor / (bias_factor - 1.0)
+    simulation.joinpath("HILLS").write_text(
+        "#! FIELDS time cv1 cv2 sigma_cv1 sigma_cv2 height biasf\n"
+        + "\n".join(
+            f"{time:.4f} {where[0]:.8f} {where[1]:.8f} "
+            f"{sigmas[0]:.4f} {sigmas[1]:.4f} {stored:.8f} {bias_factor:g}"
+            for time, where in zip(times, centres))
+        + "\n", encoding="utf-8")
+
+    colvar_times = np.arange(0.5, 30.5, 0.5)
+    values = np.column_stack([
+        np.where((np.arange(colvar_times.size) % 2) == 0,
+                 np.pi - 0.04, -np.pi + 0.04),
+        np.where((np.arange(colvar_times.size) % 3) == 0,
+                 np.pi - 0.06, -np.pi + 0.06),
+    ])
+    reference = np.zeros(colvar_times.size)
+    for index, (when, where) in enumerate(zip(colvar_times, values)):
+        laid = times < when
+        delta = where[None, :] - centres[laid]
+        delta = (delta + np.pi) % (2.0 * np.pi) - np.pi
+        reference[index] = np.sum(
+            deposited * np.exp(-0.5 * np.sum(
+                (delta / sigmas[None, :]) ** 2, axis=1)))
+
+    fields = "time cv1 cv2 metad.bias" if colvar_dimensions == 2 \
+        else "time cv1 metad.bias"
+    rows = []
+    for time, where, bias in zip(colvar_times, values, reference):
+        coordinates = (f"{where[0]:.8f} {where[1]:.8f}"
+                       if colvar_dimensions == 2 else f"{where[0]:.8f}")
+        rows.append(f"{time:.4f} {coordinates} {bias:.8f}")
+    simulation.joinpath("COLVAR").write_text(
+        f"#! FIELDS {fields}\n" + "\n".join(rows) + "\n",
+        encoding="utf-8")
+    simulation.joinpath("plumed.dat").write_text(
+        "cv1: TORSION ATOMS=1,2,3,4\n"
+        "cv2: TORSION ATOMS=5,6,7,8\n"
+        "metad: METAD ARG=cv1,cv2 SIGMA=0.20,0.25 FILE=HILLS\n",
+        encoding="utf-8")
+    simulation.joinpath("metadynamics_surface.json").write_text(
+        json.dumps({"provisional": False}), encoding="utf-8")
+    simulation.joinpath("simulation_parameters.json").write_text(
+        json.dumps({"temperature_K": 300.0}), encoding="utf-8")
+    analysis = directory / "analysis"
+    analysis.mkdir(parents=True, exist_ok=True)
+    return analysis
+
+
 class _Result:
     """Stands in for an AnalysisResult."""
 
@@ -134,6 +195,33 @@ class TestItReadsWhatPlumedWrote:
         # A real run should sit far below the 0.01 this is checked
         # against elsewhere; 11% is what a convention error looks like.
         assert provenance["largest_disagreement_with_plumed"] < 1e-5
+
+
+class TestMultidimensionalMetadynamics:
+    def test_two_colvar_coordinates_are_interpolated_and_weighted(
+            self, tmp_path: Path) -> None:
+        analysis = _write_2d_run(tmp_path)
+
+        weights, provenance = weights_for_run(
+            analysis, np.linspace(1.0, 30.0, 20))
+
+        assert weights is not None
+        assert weights.values.shape == (20,)
+        assert np.all(np.isfinite(weights.values))
+        assert provenance["colvar_column"] == ["cv1", "cv2"]
+        assert provenance["periodic"] == (True, True)
+        assert provenance["largest_disagreement_with_plumed"] < 1e-6
+
+    def test_hills_and_colvar_dimensions_must_match(
+            self, tmp_path: Path) -> None:
+        analysis = _write_2d_run(tmp_path, colvar_dimensions=1)
+
+        weights, provenance = weights_for_run(
+            analysis, np.linspace(1.0, 30.0, 20))
+
+        assert weights is None
+        assert "HILLS contains 2 biased variable" in provenance["reason"]
+        assert "COLVAR contains 1 collective-variable" in provenance["reason"]
 
 
 class TestAnUnbiasedRunIsLeftAlone:

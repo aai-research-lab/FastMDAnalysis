@@ -71,25 +71,72 @@ class MetadynamicsSurface(Analysis):
                 "recompute it."
             )
         record = json.loads(path.read_text(encoding="utf-8"))
-        grid = np.asarray(record.get("grid") or [], dtype=float)
-        energy = np.asarray(
-            [np.nan if value is None else float(value)
-             for value in (record.get("free_energy_kjmol") or [])],
-            dtype=float)
-
         self._refused = record.get("refused")
         self._provisional = bool(record.get("provisional"))
         self._evidence = record.get("evidence") or {}
-        if not len(grid) or not len(energy):
+        dimensions = int(record.get("dimensions") or 1)
+        self._dimensions = dimensions
+
+        if dimensions == 1:
+            grid = np.asarray(record.get("grid") or [], dtype=float)
+            energy = np.asarray(
+                [np.nan if value is None else float(value)
+                 for value in (record.get("free_energy_kjmol") or [])],
+                dtype=float)
+            if len(grid) and len(energy):
+                return {"coordinate": grid, "free_energy_kjmol": energy}
+        elif dimensions == 2:
+            axes = tuple(np.asarray(axis, dtype=float)
+                         for axis in (record.get("axes") or []))
+            energy = np.asarray(
+                record.get("free_energy_kjmol") or [], dtype=float)
+            expected = tuple(len(axis) for axis in axes)
+            if energy.size and (
+                    len(axes) != dimensions or energy.shape != expected):
+                raise ValueError(
+                    "The metadynamics record says it is two-dimensional, "
+                    f"but its axes have lengths {expected} and its free-energy "
+                    f"array has shape {energy.shape}. A surface needs one "
+                    "array dimension per collective-variable axis."
+                )
+            if energy.size and np.isfinite(energy).any():
+                per_dimension = self._evidence.get("per_dimension") or []
+                self._axis_names = tuple(
+                    str(per_dimension[index].get("name", f"cv{index + 1}"))
+                    if index < len(per_dimension) else f"cv{index + 1}"
+                    for index in range(dimensions))
+                return {
+                    "dimensions": dimensions,
+                    "axes": axes,
+                    "axis_names": self._axis_names,
+                    "free_energy_kjmol": energy,
+                }
+        else:
             raise ValueError(
-                "The metadynamics record holds no surface: "
-                + (str(self._refused) if self._refused
-                   else "the coordinate did not move, so there is nothing "
-                        "along it to draw.")
+                f"The metadynamics record has {dimensions} dimensions; this "
+                "analysis can draw one- and two-dimensional surfaces."
             )
-        return {"coordinate": grid, "free_energy_kjmol": energy}
+
+        raise ValueError(
+            "The metadynamics record holds no surface: "
+            + (str(self._refused) if self._refused
+               else "the coordinate did not move, so there is nothing "
+                    "along it to draw.")
+        )
 
     def plot(self, result: dict[str, Any], ax: plt.Axes) -> None:
+        if result.get("dimensions") == 2:
+            first, second = result["axes"]
+            energy = result["free_energy_kjmol"]
+            image = ax.contourf(first, second, energy.T, levels=24)
+            ax.figure.colorbar(image, ax=ax, label="Free energy (kJ/mol)")
+            lowest = np.unravel_index(np.nanargmin(energy), energy.shape)
+            ax.plot(first[lowest[0]], second[lowest[1]], marker="o",
+                    markersize=4, color="white", markeredgecolor="#555555")
+            if self._provisional:
+                ax.set_title(f"{self.figure_title()} (provisional)")
+            return
+
         coordinate = result["coordinate"]
         energy = result["free_energy_kjmol"]
         ax.plot(coordinate, energy, linewidth=1.6)
@@ -118,13 +165,34 @@ class MetadynamicsSurface(Analysis):
             ax.set_title(f"{self.figure_title()} (provisional)")
 
     def default_ylabel(self) -> str:
+        if getattr(self, "_dimensions", 1) == 2:
+            return getattr(self, "_axis_names", ("cv1", "cv2"))[1]
         return "Free energy (kJ/mol)"
 
     def default_xlabel(self) -> str:
+        if getattr(self, "_dimensions", 1) == 2:
+            return getattr(self, "_axis_names", ("cv1", "cv2"))[0]
         return "Collective variable"
 
     def save_data(self, result: dict[str, Any], path: Path) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
+        if result.get("dimensions") == 2:
+            first, second = result["axes"]
+            first_name, second_name = result["axis_names"]
+            header = f"# {first_name} {second_name} free_energy_kjmol"
+            if self._provisional:
+                header += ("\n# provisional: the bias had not settled "
+                           "when this was cut")
+            lines = [header]
+            energy = result["free_energy_kjmol"]
+            for i, x in enumerate(first):
+                for j, y in enumerate(second):
+                    value = energy[i, j]
+                    shown = "nan" if np.isnan(value) else f"{value:.6f}"
+                    lines.append(f"{x:.6f} {y:.6f} {shown}")
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            return path
+
         header = "# coordinate free_energy_kjmol"
         if self._provisional:
             header += "\n# provisional: the bias had not settled when this was cut"
