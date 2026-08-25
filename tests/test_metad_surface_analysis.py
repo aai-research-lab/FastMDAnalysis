@@ -31,7 +31,42 @@ def _record(run: Path, *, provisional=False, refused=None, empty=False) -> Path:
     return run
 
 
+def _record_2d(run: Path) -> Path:
+    (run / "simulation").mkdir(parents=True, exist_ok=True)
+    first = np.linspace(-np.pi, np.pi, 8)
+    second = np.linspace(-np.pi, np.pi, 6)
+    energy = ((1.0 - np.cos(first[:, None]))
+              + 2.0 * (1.0 - np.cos(second[None, :])))
+    record = {
+        "refused": None,
+        "provisional": False,
+        "evidence": {
+            "per_dimension": [
+                {"name": "cv1", "periodic": True},
+                {"name": "cv2", "periodic": True},
+            ],
+        },
+        "dimensions": 2,
+        "grid": None,
+        "axes": [first.tolist(), second.tolist()],
+        "free_energy_kjmol": energy.tolist(),
+    }
+    (run / "simulation" / "metadynamics_surface.json").write_text(
+        json.dumps(record), encoding="utf-8")
+    return run
+
+
 class TestItDrawsWhatTheRunComputed:
+    def test_the_one_dimensional_result_keeps_its_existing_shape(
+            self, tmp_path) -> None:
+        _record(tmp_path)
+        analysis = MetadynamicsSurface(output_dir=tmp_path / "analysis")
+
+        result = analysis.compute(None)
+
+        assert set(result) == {"coordinate", "free_energy_kjmol"}
+        assert result["coordinate"].shape == result["free_energy_kjmol"].shape
+
     def test_a_settled_surface_is_drawn(self, tmp_path) -> None:
         _record(tmp_path)
         result = MetadynamicsSurface(output_dir=tmp_path / "analysis").run(None)
@@ -59,6 +94,34 @@ class TestItDrawsWhatTheRunComputed:
         with pytest.raises(FileNotFoundError) as caught:
             analysis.compute(None)
         assert "metadynamics" in str(caught.value)
+
+
+class TestATwoDimensionalSurfaceKeepsBothCoordinates:
+    def test_grid_may_be_null_when_axes_describe_the_surface(
+            self, tmp_path) -> None:
+        _record_2d(tmp_path)
+        analysis = MetadynamicsSurface(output_dir=tmp_path / "analysis")
+
+        result = analysis.compute(None)
+
+        assert result["dimensions"] == 2
+        assert tuple(len(axis) for axis in result["axes"]) == (8, 6)
+        assert result["free_energy_kjmol"].shape == (8, 6)
+
+    def test_plotting_and_export_use_both_cv_axes(self, tmp_path) -> None:
+        _record_2d(tmp_path)
+        analysis = MetadynamicsSurface(output_dir=tmp_path / "analysis")
+
+        completed = analysis.run(None)
+
+        assert completed.status == "ok"
+        assert completed.figure_path.is_file()
+        lines = completed.data_path.read_text(encoding="utf-8").splitlines()
+        assert lines[0] == "# cv1 cv2 free_energy_kjmol"
+        values = np.loadtxt(completed.data_path)
+        assert values.shape == (8 * 6, 3)
+        assert len(np.unique(values[:, 0])) == 8
+        assert len(np.unique(values[:, 1])) == 6
 
 
 class TestAProvisionalSurfaceIsStillDrawn:

@@ -196,6 +196,82 @@ def read_hills(path: str | Path) -> Hills:
     )
 
 
+def periodic_dimensions(
+    script_path: str | Path,
+    n_dims: int,
+) -> tuple[bool, ...]:
+    """Which biased variables are circular, from PLUMED's own definitions."""
+    import re
+
+    path = Path(script_path)
+    text = (path.read_text(encoding="utf-8").upper()
+            if path.is_file() else "")
+    circular = ("TORSION", "ANGLE")
+    if n_dims == 1:
+        return (any(
+            f"{action}\n" in text or f"{action} " in text
+            for action in circular),)
+
+    actions = dict(re.findall(
+        r"^\s*(CV\d+)\s*:\s*(\w+)", text, re.MULTILINE))
+    return tuple(
+        actions.get(f"CV{i + 1}", "") in circular
+        for i in range(n_dims))
+
+
+def bias_from_hills_nd(
+    hills: Hills,
+    points: np.ndarray,
+    *,
+    heights: "np.ndarray | None" = None,
+    start: int = 0,
+    upto: "int | None" = None,
+    periodic: "tuple[bool, ...] | None" = None,
+    chunk: int = 512,
+) -> np.ndarray:
+    """Gaussian bias at N-dimensional points, with per-axis periodicity."""
+    coordinates = np.asarray(points, dtype=float)
+    if coordinates.ndim != 2 or coordinates.shape[1] != hills.n_dims:
+        raise ValueError(
+            f"The hills hold {hills.n_dims} variables and bias points have "
+            f"shape {coordinates.shape}; expected one column per variable."
+        )
+
+    first = max(0, int(start))
+    stop = len(hills) if upto is None else min(len(hills), int(upto))
+    if stop <= first:
+        return np.zeros(coordinates.shape[0], dtype=float)
+
+    wrap = tuple(periodic or (False,) * hills.n_dims)
+    if len(wrap) != hills.n_dims:
+        raise ValueError(
+            f"The hills hold {hills.n_dims} variables but periodicity has "
+            f"{len(wrap)} entries."
+        )
+
+    centres = np.asarray(hills.centre, dtype=float)
+    sigmas = np.asarray(hills.sigma, dtype=float)
+    if centres.ndim == 1:
+        centres = centres[:, None]
+        sigmas = sigmas[:, None]
+    amplitudes = (np.asarray(hills.height, dtype=float)
+                  if heights is None else np.asarray(heights, dtype=float))
+
+    bias = np.zeros(coordinates.shape[0], dtype=float)
+    for block_start in range(first, stop, chunk):
+        block = slice(block_start, min(block_start + chunk, stop))
+        exponent = np.zeros((coordinates.shape[0], centres[block].shape[0]))
+        for dim in range(hills.n_dims):
+            delta = (coordinates[:, dim][:, None]
+                     - centres[block][:, dim][None, :])
+            if wrap[dim]:
+                delta = (delta + np.pi) % (2.0 * np.pi) - np.pi
+            exponent += (
+                delta ** 2 / (2.0 * sigmas[block][:, dim][None, :] ** 2))
+        bias += (amplitudes[block][None, :] * np.exp(-exponent)).sum(axis=1)
+    return bias
+
+
 def surface_from_hills(
     hills: Hills, grid: np.ndarray, *, upto: int | None = None,
     periodic: bool = False,
@@ -353,30 +429,11 @@ def surface_from_hills_nd(
             f"The hills hold {n_dims} variables and {len(axes)} axes were "
             "given. A surface needs one axis per biased variable."
         )
-    wrap = tuple(periodic or (False,) * n_dims)
-
     mesh = np.meshgrid(*axes, indexing="ij")
     shape = mesh[0].shape
     points = np.column_stack([m.ravel() for m in mesh])
-
-    bias = np.zeros(points.shape[0], dtype=float)
-    centres = hills.centre[:stop]
-    sigmas = hills.sigma[:stop]
-    heights = hills.height[:stop]
-    if centres.ndim == 1:
-        centres = centres[:, None]
-        sigmas = sigmas[:, None]
-
-    for start in range(0, stop, chunk):
-        block = slice(start, min(start + chunk, stop))
-        exponent = np.zeros((points.shape[0], centres[block].shape[0]))
-        for dim in range(n_dims):
-            delta = points[:, dim][:, None] - centres[block][:, dim][None, :]
-            if wrap[dim]:
-                # The short way round, as in one dimension.
-                delta = (delta + np.pi) % (2.0 * np.pi) - np.pi
-            exponent += (delta ** 2) / (2.0 * sigmas[block][:, dim][None, :] ** 2)
-        bias += (heights[block][None, :] * np.exp(-exponent)).sum(axis=1)
+    bias = bias_from_hills_nd(
+        hills, points, upto=stop, periodic=periodic, chunk=chunk)
 
     if hills.bias_factor > 1.0:
         free = -bias * (hills.bias_factor / (hills.bias_factor - 1.0))
