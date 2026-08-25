@@ -7,6 +7,70 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### The thermodynamics analysis could not find the record it needs
+
+`Thermodynamics` looked beside the run for `state_data.csv` and
+`production_state.csv`. The simulation phase writes neither. It writes
+`simulation/energy.csv`, which six other places in the tree already read --
+the dashboard telemetry, the report, the convergence check, the server's
+file registry. The two names being searched for exist only inside the
+validation corpus, which builds them in a temporary directory as a fixture.
+
+So the analysis raised `FileNotFoundError` on every real run while its tests
+passed, because the fixture wrote the filename the code expected rather than
+the one the runner produces. `energy.csv` now joins the search order, in the
+analysis and in the orchestrator.
+
+*Contributed by Victory0102.*
+
+### Two-dimensional metadynamics reads periodicity from PLUMED
+
+Which biased variables are circular was decided by scanning the PLUMED
+script for `TORSION` or `ANGLE` anywhere in the text, then inferring per-axis
+periodicity separately for the one- and two-variable cases with the logic
+inline in the pipeline. It is now one function, `periodic_dimensions`, which
+reads each variable's own action definition and returns a flag per axis.
+Reconstructing the bias from hills is likewise now a single N-dimensional
+routine that takes per-axis periodicity, rather than separate paths that had
+to agree.
+
+This matters for any surface biased on two circular variables, φ and ψ being
+the usual pair.
+
+*Contributed by Victory0102.*
+
+### The harmonized benchmark was not harmonized for hydrophobic contacts
+
+**Interaction counts from a harmonized cross-tool run will change.**
+
+`HARMONIZED_PARAMETERS` puts the independent tool on our geometric criteria
+so that a disagreement means a disagreement about chemistry rather than about
+cutoffs. Its hydrophobic distance read 4.5 A. Ours is 4.0 A -- PLIP's
+threshold, and the docstring on our own rule says so in the same breath as
+noting that ProLIF uses 4.5. So the one comparison the harmonization exists
+to make fair was being made at two different cutoffs, and the gap was
+attributed to something other than the cutoff.
+
+The comment directly above that table says to confirm the values against the
+pinned test before trusting a harmonized run. Nobody had.
+
+Two further repairs to the same comparison. Molecule healing makes each
+molecule whole but does not put the ligand and the protein in the same
+periodic image, so the ligand is now reimaged to the protein's minimum-image
+copy before the independent tool sees it -- our own distances already use
+the minimum image, and the two were not being measured the same way.
+And an interaction family the native analysis explicitly *refused* to measure
+was being compared as though it had measured zero. A refusal is not a
+measurement, and those families are now excluded from the table by name.
+
+The ligand-free negative control no longer manufactures an empty interaction
+table. It verifies the ligand's absence from the topology and reports that,
+which is the claim the control actually makes.
+
+*Contributed by Tomato_Cultivator (@Paradoxicaly).*
+
+- Tests: 3,191 → 3,207 collected.
+
 ## [2.5.5] — 2026-08-22
 
 A correctness fix and eight repairs to what the software says while it
