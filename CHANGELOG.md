@@ -69,7 +69,36 @@ which is the claim the control actually makes.
 
 *Contributed by Tomato_Cultivator (@Paradoxicaly).*
 
-- Tests: 3,191 → 3,207 collected.
+### A phase records what produced it
+
+`fastmdx analyze` run directly against a finished simulation rewrote
+`manifest.json` with only the analysis phase, erasing the setup and
+simulate records. `self.results` is populated by the `explore` loop and by
+nothing else, so a single-phase command reached the manifest writer with an
+empty list. The phase result is now recorded before the manifest is
+written, and the writer merges what is already on disk: previous records
+kept, order preserved, a repeated phase replaced by its latest run,
+malformed shapes skipped rather than fatal.
+
+Preserving them raised a second problem. Every other manifest field is
+recomputed by whoever writes the file, so a run simulated under 2.5.4 on
+the cluster and analysed under a later version on a workstation came back
+claiming one version and one machine produced all of it. That is worse than
+the gap it replaced: a missing record sends you to look, a confident wrong
+one does not.
+
+Each phase now carries `produced_by` -- the version, host and package
+environment that produced *that* phase -- stamped where the phase runs.
+Phases recorded before this field existed keep no `produced_by` at all,
+which is the honest value. Where a manifest holds phases from more than one
+version, `versions_seen` and a short note appear at the top level, so a
+reader who checks only the header is not told a single version produced the
+lot.
+
+*Contributed by Tomato_Cultivator (@Paradoxicaly), with per-phase
+provenance added in review.*
+
+- Tests: 3,191 → 3,215 collected.
 
 ## [2.5.5] — 2026-08-22
 

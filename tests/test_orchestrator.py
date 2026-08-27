@@ -383,9 +383,9 @@ def test_a_preserved_phase_keeps_the_version_that_produced_it(tmp_path: Path) ->
         "tool": "FastMDXplora", "version": "2.5.4",
         "phases": [
             {"name": "setup", "status": "ok",
-             "produced_by": {"version": "2.5.4", "host": "aailab"}},
+             "produced_by": {"version": "2.5.4", "host": "cluster-1"}},
             {"name": "simulate", "status": "ok",
-             "produced_by": {"version": "2.5.4", "host": "aailab"}},
+             "produced_by": {"version": "2.5.4", "host": "cluster-1"}},
         ],
         "options": {"setup": {"padding_nm": 1.0}},
     }, indent=2))
@@ -393,14 +393,14 @@ def test_a_preserved_phase_keeps_the_version_that_produced_it(tmp_path: Path) ->
     fmdx = FastMDXplora(system="x.pdb", output_dir=tmp_path)
     fmdx.results.append(PhaseResult(
         name="analysis", status="ok",
-        produced_by={"version": __version__, "host": "aailab01"}))
+        produced_by={"version": __version__, "host": "workstation-2"}))
     fmdx._write_manifest()
 
     manifest = json.loads((tmp_path / "manifest.json").read_text())
     by_name = {p["name"]: p for p in manifest["phases"]}
 
     assert by_name["setup"]["produced_by"]["version"] == "2.5.4"
-    assert by_name["setup"]["produced_by"]["host"] == "aailab"
+    assert by_name["setup"]["produced_by"]["host"] == "cluster-1"
     assert by_name["analysis"]["produced_by"]["version"] == __version__
     assert manifest["versions_seen"] == ["2.5.4", __version__]
     assert "more than one" in manifest["version_note"]
