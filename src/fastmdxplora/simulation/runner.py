@@ -138,6 +138,52 @@ def _import_openmm() -> dict:
 # ---------------------------------------------------------------------------
 # Platform selection
 # ---------------------------------------------------------------------------
+def _probe_platform(omm: Any, platform: Any, name: str,
+                props: dict[str, str]) -> bool:
+    """A registered platform may still be unusable. Probe it by actually
+    computing a force; only meaningful for the GPU platforms.
+    CPU/Reference are always usable.
+
+    The probe used to build a Context around a System holding one
+    particle and no forces. That loads almost no kernels, so a platform
+    whose kernels will not compile passed the probe and failed on the
+    real system a second later. Seen on a workstation whose driver
+    rejected the installed build's PTX: `auto` chose CUDA, the probe
+    said yes, and `Simulation(...)` raised
+    `CUDA_ERROR_UNSUPPORTED_PTX_VERSION` -- with a working OpenCL
+    platform sitting next in the candidate list, unused.
+
+    `openmm.testInstallation` catches that case because it computes
+    forces. So does this now: two particles and a NonbondedForce, which
+    is the kernel every real system needs.
+    """
+    if name not in ("CUDA", "OpenCL", "HIP"):
+        return True
+    try:
+        mm = omm["openmm"]
+        unit = omm["unit"]
+        sys_ = mm.System()
+        sys_.addParticle(1.0)
+        sys_.addParticle(1.0)
+        force = mm.NonbondedForce()
+        force.addParticle(0.0, 1.0, 0.0)
+        force.addParticle(0.0, 1.0, 0.0)
+        sys_.addForce(force)
+        integ = mm.VerletIntegrator(0.001 * unit.picoseconds)
+        ctx = mm.Context(sys_, integ, platform, props)
+        ctx.setPositions([[0.0, 0.0, 0.0], [0.0, 0.0, 0.2]] * unit.nanometers)
+        # The kernels compile here, not at Context construction.
+        ctx.getState(getForces=True).getForces(asNumpy=True)
+        del ctx, integ, sys_
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.info(
+            "Platform %s is registered but not usable (%s); "
+            "trying next candidate.", name, exc,
+        )
+        return False
+
+
 def _say_what_is_available(omm: dict, wanted: "list[str]") -> None:
     """Name the platforms OpenMM found, and why a wanted one is missing.
 
@@ -240,28 +286,6 @@ def select_platform(
                 props[prop_key] = str(device_index)
         return props
 
-    def _platform_usable(platform: Any, name: str, props: dict[str, str]) -> bool:
-        """A registered platform may still be unusable (e.g. OpenCL with no
-        device). Probe it by building a trivial Context; only meaningful for
-        the GPU platforms. CPU/Reference are always usable."""
-        if name not in ("CUDA", "OpenCL", "HIP"):
-            return True
-        try:
-            mm = omm["openmm"]
-            unit = omm["unit"]
-            sys_ = mm.System()
-            sys_.addParticle(1.0)  # one dummy particle
-            integ = mm.VerletIntegrator(0.001 * unit.picoseconds)
-            ctx = mm.Context(sys_, integ, platform, props)
-            del ctx, integ, sys_
-            return True
-        except Exception as exc:  # noqa: BLE001
-            logger.info(
-                "Platform %s is registered but not usable (%s); "
-                "trying next candidate.", name, exc,
-            )
-            return False
-
     _say_what_is_available(omm, candidates)
 
     for name in candidates:
@@ -275,7 +299,7 @@ def select_platform(
         # usable device otherwise fails later at Context construction with
         # a confusing error. For an explicit request we honor it as-is so
         # the user sees the real error if their chosen platform is broken.
-        if auto and not _platform_usable(platform, name, props):
+        if auto and not _probe_platform(omm, platform, name, props):
             continue
         # What was applied, not what was asked for. `Precision` is a property
         # of the GPU platforms; the CPU platform has only `Threads` and
