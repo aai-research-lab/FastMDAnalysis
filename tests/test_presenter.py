@@ -314,7 +314,7 @@ def test_banner_respects_terminal_width():
             assert _visual_width(line) <= 50 + 20  # generous slack for box chars
 
 
-def test_orchestrator_reuses_the_process_presenter() -> None:
+def test_orchestrator_reuses_the_process_presenter(tmp_path) -> None:
     """The banner is shown once per presenter, so there must be only one.
 
     The orchestrator used to construct its own SessionPresenter, which made
@@ -326,7 +326,12 @@ def test_orchestrator_reuses_the_process_presenter() -> None:
 
     presenter_module._PRESENTER = None
     cli_presenter = presenter_module.get_presenter()
-    fmdx = FastMDXplora(system="1L2Y", output_dir="/tmp/does-not-need-to-exist")
+    # `tmp_path`, not a fixed path under /tmp. Constructing an orchestrator
+    # creates the output directory and opens a log file inside it, and on a
+    # shared machine a hardcoded /tmp path belongs to whoever created it
+    # first. This failed with PermissionError on a multi-user workstation
+    # where something else had already made the directory.
+    fmdx = FastMDXplora(system="1L2Y", output_dir=tmp_path / "run")
     assert fmdx._presenter is cli_presenter
 
 
