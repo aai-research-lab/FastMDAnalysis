@@ -1229,6 +1229,7 @@ def _cmd_phase(phase: str, args: argparse.Namespace) -> int:
     try:
         fmdx._presenter.phase_start(phase)  # noqa: SLF001 -- internal hook
         result = method(**kwargs)
+        fmdx.results.append(result)
         fmdx._presenter.phase_end(phase, status=result.status)
         fmdx._write_manifest()  # noqa: SLF001 -- single-phase still records
     except KeyboardInterrupt:

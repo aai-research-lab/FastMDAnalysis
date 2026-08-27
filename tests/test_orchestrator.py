@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from fastmdxplora import FastMDXplora
-from fastmdxplora.orchestrator import PHASES
+from fastmdxplora.orchestrator import PHASES, PhaseResult
 
 # Orchestration tests verify the pipeline wiring, not MD physics. We mock the
 # MD engine (see _mock_md below) so the simulation phase produces a real, tiny
@@ -173,6 +173,50 @@ def test_explore_writes_manifest(tmp_path: Path) -> None:
     assert manifest["tool"] == "FastMDXplora"
     assert manifest["doi"] == "10.1002/jcc.70350"
     assert len(manifest["phases"]) == len(PHASES)
+
+
+def test_single_phase_manifest_preserves_existing_phases(tmp_path: Path) -> None:
+    """A direct phase command must not erase earlier phase provenance."""
+    pdb = _make_pdb_stub(tmp_path)
+    output = tmp_path / "run"
+    output.mkdir()
+    (output / "manifest.json").write_text(json.dumps({
+        "tool": "FastMDXplora",
+        "phases": [
+            {"name": "simulation", "status": "stale"},
+            {"name": "simulation", "status": "ok"},
+        ],
+    }))
+    fmdx = FastMDXplora(system=str(pdb), output_dir=output)
+    fmdx.results.append(PhaseResult(name="analysis", status="ok"))
+
+    fmdx._write_manifest()
+
+    manifest = json.loads((output / "manifest.json").read_text())
+    assert [phase["name"] for phase in manifest["phases"]] == [
+        "simulation", "analysis"
+    ]
+    assert manifest["phases"][0]["status"] == "ok"
+
+
+def test_manifest_with_invalid_phase_and_option_shapes_is_recoverable(
+    tmp_path: Path,
+) -> None:
+    """A malformed prior manifest must not block recording a new phase."""
+    pdb = _make_pdb_stub(tmp_path)
+    output = tmp_path / "run"
+    output.mkdir()
+    (output / "manifest.json").write_text(json.dumps({
+        "phases": None,
+        "options": "not-a-mapping",
+    }))
+    fmdx = FastMDXplora(system=str(pdb), output_dir=output)
+    fmdx.results.append(PhaseResult(name="analysis", status="ok"))
+
+    fmdx._write_manifest()
+
+    manifest = json.loads((output / "manifest.json").read_text())
+    assert [phase["name"] for phase in manifest["phases"]] == ["analysis"]
 
 
 def test_explore_include(tmp_path: Path) -> None:

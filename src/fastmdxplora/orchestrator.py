@@ -908,6 +908,42 @@ class FastMDXplora:
             source_provenance,
         )
 
+        manifest_path = self.output_dir / "manifest.json"
+        previous: dict[str, Any] = {}
+        if manifest_path.is_file():
+            try:
+                with manifest_path.open(encoding="utf-8") as fh:
+                    loaded = json.load(fh)
+                if isinstance(loaded, dict):
+                    previous = loaded
+            except (OSError, json.JSONDecodeError):
+                # A malformed or unreadable previous manifest must not stop
+                # the phase from recording its own result.
+                previous = {}
+
+        phase_records: dict[str, dict[str, Any]] = {}
+        phase_order: list[str] = []
+        previous_phases = previous.get("phases", [])
+        if not isinstance(previous_phases, list):
+            previous_phases = []
+        for record in previous_phases:
+            if not isinstance(record, dict) or not record.get("name"):
+                continue
+            name = str(record["name"])
+            phase_records[name] = record
+            if name not in phase_order:
+                phase_order.append(name)
+        current_phases = [result.to_dict() for result in self.results]
+        for record in current_phases:
+            name = str(record["name"])
+            if name not in phase_records:
+                phase_order.append(name)
+            phase_records[name] = record
+
+        previous_options = previous.get("options", {})
+        options = dict(previous_options) if isinstance(previous_options, dict) else {}
+        options.update(self.options)
+
         manifest = {
             "tool": "FastMDXplora",
             "version": __version__,
@@ -927,10 +963,9 @@ class FastMDXplora:
             "citation": __citation__,
             "system": self.system,
             "output_dir": str(self.output_dir),
-            "phases": [r.to_dict() for r in self.results],
-            "options": self.options,
+            "phases": [phase_records[name] for name in phase_order],
+            "options": options,
         }
-        manifest_path = self.output_dir / "manifest.json"
         with manifest_path.open("w", encoding="utf-8") as fh:
             json.dump(manifest, fh, indent=2)
         logger.debug("Wrote manifest: %s", manifest_path)

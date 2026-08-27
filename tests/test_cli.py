@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pytest
 
 from fastmdxplora.dependencies import missing_dependencies
-from fastmdxplora.orchestrator import FastMDXplora
+from fastmdxplora.orchestrator import FastMDXplora, PhaseResult
 from fastmdxplora.cli.main import main
 
 
@@ -216,6 +216,26 @@ def test_cli_report_can_rerun_from_existing_output_without_system(tmp_path: Path
     assert (out / "report" / "report.md").exists()
 
 
+def test_cli_single_phase_manifest_preserves_and_records_phase(tmp_path: Path) -> None:
+    pdb = _make_pdb_stub(tmp_path)
+    out = tmp_path / "run"
+    out.mkdir()
+    (out / "manifest.json").write_text(json.dumps({
+        "system": str(pdb),
+        "phases": [{"name": "simulation", "status": "ok"}],
+    }), encoding="utf-8")
+    result = PhaseResult(name="analysis", status="ok")
+
+    with patch("fastmdxplora.orchestrator.FastMDXplora._run_phase", return_value=result):
+        rc = main(["analyze", "-system", str(pdb), "--output", str(out)])
+
+    assert rc == 0
+    manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+    assert [phase["name"] for phase in manifest["phases"]] == [
+        "simulation", "analysis"
+    ]
+
+
 def test_cli_explore_no_report(tmp_path: Path) -> None:
     pdb = _make_pdb_stub(tmp_path)
     out = tmp_path / "run"
@@ -370,7 +390,7 @@ def test_cli_phase_dashboard_uses_cli_output_path(tmp_path: Path) -> None:
     ) as start, patch.object(
         FastMDXplora,
         "setup",
-        return_value=SimpleNamespace(status="ok"),
+        return_value=PhaseResult(name="setup", status="ok"),
     ):
         rc = main(
             [
@@ -405,7 +425,7 @@ def test_cli_dashboard_uses_cli_output_path_for_other_phases(
     ) as start, patch.object(
         FastMDXplora,
         method_name,
-        return_value=SimpleNamespace(status="ok"),
+        return_value=PhaseResult(name=command, status="ok"),
     ):
         rc = main(
             [
@@ -476,7 +496,7 @@ def test_cli_dashboard_implies_live_telemetry_for_simulation(tmp_path: Path) -> 
     ), patch.object(
         FastMDXplora,
         "simulate",
-        return_value=SimpleNamespace(status="ok"),
+        return_value=PhaseResult(name="simulation", status="ok"),
     ) as simulate:
         rc = main(
             [
