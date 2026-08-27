@@ -365,3 +365,100 @@ def test_bundle_does_not_recursively_include_itself(tmp_path: Path) -> None:
     with zipfile.ZipFile(bundle) as zf:
         names = zf.namelist()
     assert "report/project_bundle.zip" not in names
+
+
+def test_a_preserved_phase_keeps_the_version_that_produced_it(tmp_path: Path) -> None:
+    """The merge keeps old phases; it must not relabel them as ours.
+
+    Preserving the records was the fix in 742c125. But every other manifest
+    field is recomputed by whoever writes the file, so a run simulated under
+    2.5.4 on the cluster and analysed under 2.5.5 on a workstation came back
+    claiming 2.5.5 produced all of it. That is worse than the gap it
+    replaced: a missing record makes you go and look, a confident wrong one
+    does not.
+    """
+    from fastmdxplora import __version__
+
+    (tmp_path / "manifest.json").write_text(json.dumps({
+        "tool": "FastMDXplora", "version": "2.5.4",
+        "phases": [
+            {"name": "setup", "status": "ok",
+             "produced_by": {"version": "2.5.4", "host": "aailab"}},
+            {"name": "simulate", "status": "ok",
+             "produced_by": {"version": "2.5.4", "host": "aailab"}},
+        ],
+        "options": {"setup": {"padding_nm": 1.0}},
+    }, indent=2))
+
+    fmdx = FastMDXplora(system="x.pdb", output_dir=tmp_path)
+    fmdx.results.append(PhaseResult(
+        name="analysis", status="ok",
+        produced_by={"version": __version__, "host": "aailab01"}))
+    fmdx._write_manifest()
+
+    manifest = json.loads((tmp_path / "manifest.json").read_text())
+    by_name = {p["name"]: p for p in manifest["phases"]}
+
+    assert by_name["setup"]["produced_by"]["version"] == "2.5.4"
+    assert by_name["setup"]["produced_by"]["host"] == "aailab"
+    assert by_name["analysis"]["produced_by"]["version"] == __version__
+    assert manifest["versions_seen"] == ["2.5.4", __version__]
+    assert "more than one" in manifest["version_note"]
+
+
+def test_one_version_needs_no_note(tmp_path: Path) -> None:
+    """The note is for mixed manifests. A single-version run stays clean."""
+    fmdx = FastMDXplora(system="x.pdb", output_dir=tmp_path)
+    fmdx.results.append(PhaseResult(name="setup", status="ok"))
+    fmdx._write_manifest()
+
+    manifest = json.loads((tmp_path / "manifest.json").read_text())
+
+    assert "versions_seen" not in manifest
+    assert "version_note" not in manifest
+
+
+def test_a_phase_recorded_before_this_field_stays_unlabelled(tmp_path: Path) -> None:
+    """An old record has no provenance and must not be given ours."""
+    (tmp_path / "manifest.json").write_text(json.dumps({
+        "phases": [{"name": "setup", "status": "ok"}],
+    }, indent=2))
+
+    fmdx = FastMDXplora(system="x.pdb", output_dir=tmp_path)
+    fmdx.results.append(PhaseResult(name="analysis", status="ok"))
+    fmdx._write_manifest()
+
+    manifest = json.loads((tmp_path / "manifest.json").read_text())
+    setup = next(p for p in manifest["phases"] if p["name"] == "setup")
+
+    assert "produced_by" not in setup
+
+
+def test_an_unreadable_manifest_does_not_stop_the_phase_recording(tmp_path: Path) -> None:
+    """The `except (OSError, JSONDecodeError)` branch, which had no test.
+
+    A truncated write leaves a file that is present and unparseable. The
+    phase that just ran must still be recorded.
+    """
+    (tmp_path / "manifest.json").write_text('{"phases": [{"name": "setup"')
+
+    fmdx = FastMDXplora(system="x.pdb", output_dir=tmp_path)
+    fmdx.results.append(PhaseResult(name="analysis", status="ok"))
+    fmdx._write_manifest()
+
+    manifest = json.loads((tmp_path / "manifest.json").read_text())
+
+    assert [p["name"] for p in manifest["phases"]] == ["analysis"]
+
+
+def test_a_manifest_that_is_not_an_object_is_ignored(tmp_path: Path) -> None:
+    """Valid JSON, wrong shape. `previous` must stay a dict."""
+    (tmp_path / "manifest.json").write_text('["not", "a", "manifest"]')
+
+    fmdx = FastMDXplora(system="x.pdb", output_dir=tmp_path)
+    fmdx.results.append(PhaseResult(name="analysis", status="ok"))
+    fmdx._write_manifest()
+
+    manifest = json.loads((tmp_path / "manifest.json").read_text())
+
+    assert [p["name"] for p in manifest["phases"]] == ["analysis"]

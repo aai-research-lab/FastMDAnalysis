@@ -48,9 +48,23 @@ class PhaseResult:
     finished_at: str = ""
     message: str = ""
     artifacts: list[str] = field(default_factory=list)
+    produced_by: dict[str, Any] = field(default_factory=dict)
+    """Version, host and package environment that produced *this* phase.
+
+    The manifest's top-level `version`, `environment` and `source` describe
+    whichever session wrote the file last. Once a manifest can carry phases
+    from more than one session -- a run simulated on the cluster and then
+    analysed on a workstation, or re-analysed after an upgrade -- those
+    top-level fields stop describing the phases beneath them. This says who
+    produced each one.
+
+    Empty for a phase recorded before this field existed. That is the
+    honest value: we do not know what produced it, and guessing the current
+    session would be worse than saying nothing.
+    """
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        record = {
             "name": self.name,
             "status": self.status,
             "output_dir": str(self.output_dir) if self.output_dir else None,
@@ -59,6 +73,9 @@ class PhaseResult:
             "message": self.message,
             "artifacts": self.artifacts,
         }
+        if self.produced_by:
+            record["produced_by"] = self.produced_by
+        return record
 
 
 @dataclass
@@ -806,6 +823,24 @@ class FastMDXplora:
         for said in found:
             logger.warning("%s %s %s", said.summary, said.detail, said.remedy)
 
+    @staticmethod
+    def _phase_provenance() -> dict[str, Any]:
+        """What produced a phase: version, host, and package environment."""
+        import socket
+
+        from fastmdxplora import __version__
+        from fastmdxplora.provenance import environment_record
+
+        try:
+            host = socket.gethostname()
+        except OSError:  # pragma: no cover - hostname is never load-bearing
+            host = ""
+        return {
+            "version": __version__,
+            "host": host,
+            "environment": environment_record(),
+        }
+
     def _run_phase(self, phase: str, kwargs: dict[str, Any]) -> PhaseResult:
         phase_dir = self._phase_dirs[phase]
         phase_dir.mkdir(parents=True, exist_ok=True)
@@ -829,6 +864,7 @@ class FastMDXplora:
                 finished_at=finished,
                 message=f"Phase '{phase}' completed.",
                 artifacts=list(artifacts or []),
+                produced_by=self._phase_provenance(),
             )
         except Exception as exc:  # noqa: BLE001 -- we log and record
             finished = datetime.now(timezone.utc).isoformat()
@@ -844,6 +880,7 @@ class FastMDXplora:
                 started_at=started,
                 finished_at=finished,
                 message=str(exc),
+                produced_by=self._phase_provenance(),
             )
 
     @staticmethod
@@ -944,6 +981,23 @@ class FastMDXplora:
         options = dict(previous_options) if isinstance(previous_options, dict) else {}
         options.update(self.options)
 
+        # The top-level `version`, `environment` and `source` below describe
+        # the session writing this file. Once phases from earlier sessions
+        # are preserved -- which is the whole point of the merge above --
+        # those fields no longer describe every phase beneath them. Each
+        # phase now carries its own `produced_by`, and where more than one
+        # version appears the manifest says so here, so that a reader who
+        # checks only the top of the file is not told a single version
+        # produced the lot.
+        versions_seen: list[str] = []
+        for name in phase_order:
+            produced = phase_records[name].get("produced_by")
+            version = (produced or {}).get("version") if isinstance(produced, dict) else None
+            if version and version not in versions_seen:
+                versions_seen.append(str(version))
+        if __version__ not in versions_seen:
+            versions_seen.append(__version__)
+
         manifest = {
             "tool": "FastMDXplora",
             "version": __version__,
@@ -966,6 +1020,13 @@ class FastMDXplora:
             "phases": [phase_records[name] for name in phase_order],
             "options": options,
         }
+        if len(versions_seen) > 1:
+            manifest["versions_seen"] = versions_seen
+            manifest["version_note"] = (
+                "This manifest holds phases produced by more than one "
+                "version. `version` above is the session that wrote the "
+                "file; each phase records its own under `produced_by`."
+            )
         with manifest_path.open("w", encoding="utf-8") as fh:
             json.dump(manifest, fh, indent=2)
         logger.debug("Wrote manifest: %s", manifest_path)
