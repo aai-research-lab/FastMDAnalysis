@@ -98,7 +98,26 @@ lot.
 *Contributed by Tomato_Cultivator (@Paradoxicaly), with per-phase
 provenance added in review.*
 
-- Tests: 3,191 → 3,215 collected.
+### A platform that loads is not a platform that runs
+
+`auto` tries CUDA, then OpenCL, then CPU, and probes each GPU platform
+before choosing it. The probe built a Context around a System holding one
+particle and no forces, which compiles almost no kernels -- so a platform
+whose kernels will not build passed the probe and failed on the real system
+a second later.
+
+Found on a workstation whose driver rejected the installed OpenMM build's
+PTX. `openmm.testInstallation` reported `CUDA - Error computing forces`
+while `auto` selected CUDA, and every run died with
+`CUDA_ERROR_UNSUPPORTED_PTX_VERSION` -- with a working OpenCL platform
+sitting next in the candidate list, never tried.
+
+The probe now computes a force on two particles with a `NonbondedForce`,
+which is what `testInstallation` does and what separates the two outcomes.
+A GPU platform that cannot compile its kernels is now skipped, with its
+reason logged, and the next candidate is used.
+
+- Tests: 3,191 → 3,218 collected.
 
 ## [2.5.5] — 2026-08-22
 
