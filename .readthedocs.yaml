@@ -4,17 +4,6 @@ build:
   os: ubuntu-22.04
   tools:
     python: "3.11"
-  jobs:
-    post_checkout:
-      # Read the Docs clones with --depth 1, and setuptools-scm derives the
-      # version from the nearest tag. Without the tags it falls back to
-      # counting commits since nothing, so `fastmdxplora.__version__` resolves
-      # to a development version -- and docs/conf.py reads that straight into
-      # `release`, which the theme prints on every page.
-      #
-      # The published documentation was showing 2.5.6.dev11+gc44becb39, a
-      # version that has never been released, where it should have said 2.5.5.
-      - git fetch --unshallow --tags || true
 
 sphinx:
   configuration: docs/conf.py
