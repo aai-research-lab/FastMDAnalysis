@@ -197,18 +197,24 @@ class ProteinLigandInteractions(Analysis):
             traj, ligand, protein, periodic=self.periodic))
         attempt("hydrophobic", lambda: rules.hydrophobic_contacts(
             traj, ligand, protein, periodic=self.periodic))
+        # Every rule takes `periodic`, and every one is given it. Six of the
+        # eight did not accept the parameter at all: four passed a hardcoded
+        # False to the distance helper and two measured raw Cartesian
+        # separation between group centres, while `options.json` recorded
+        # that the minimum image had been applied. The option is documented
+        # as controlling this, so it has to reach all eight or say less.
         attempt("salt_bridge", lambda: rules.salt_bridges(
-            traj, chemistry, ligand, protein))
+            traj, chemistry, ligand, protein, periodic=self.periodic))
         attempt("pi_stacking", lambda: rules.pi_stacking(
-            traj, chemistry, ligand, protein))
+            traj, chemistry, ligand, protein, periodic=self.periodic))
         attempt("pi_cation", lambda: rules.pi_cation(
-            traj, chemistry, ligand, protein))
+            traj, chemistry, ligand, protein, periodic=self.periodic))
         attempt("halogen_bond", lambda: rules.halogen_bonds(
-            traj, chemistry, ligand, protein))
+            traj, chemistry, ligand, protein, periodic=self.periodic))
         attempt("metal_coordination", lambda: rules.metal_coordination(
-            traj, ligand, protein))
+            traj, ligand, protein, periodic=self.periodic))
         attempt("water_bridge", lambda: rules.water_bridges(
-            traj, ligand, protein, water))
+            traj, ligand, protein, water, periodic=self.periodic))
 
         if refused:
             self.findings["not_measured"] = refused

@@ -431,14 +431,79 @@ def ligand_charged_groups(
     return positive, negative
 
 
-def _group_centres(traj: Any, groups: Any) -> np.ndarray:
-    """One position per charged group, per frame."""
+def _has_box(traj: Any) -> bool:
+    return getattr(traj, "unitcell_vectors", None) is not None
+
+
+def _group_centres(traj: Any, groups: Any, periodic: bool = True) -> np.ndarray:
+    """One position per charged group, per frame, with the group made whole.
+
+    A group straddling a periodic face has atoms a box length apart in the
+    stored coordinates, so their mean lands in the middle of the box where no
+    atom is. Rebuilt around the group's first atom using minimum-image
+    displacements, which mdtraj computes correctly for triclinic cells --
+    hand-rolled fractional rounding does not, as the ligand_rmsd work found
+    the expensive way.
+    """
     if not groups:
         return np.zeros((traj.n_frames, 0, 3))
-    return np.stack(
-        [traj.xyz[:, np.array(group), :].mean(axis=1) for group in groups],
-        axis=1,
-    )
+    if not periodic or not _has_box(traj):
+        return np.stack(
+            [traj.xyz[:, np.array(group), :].mean(axis=1) for group in groups],
+            axis=1,
+        )
+    import mdtraj as md
+
+    centres = []
+    for group in groups:
+        members = np.asarray(group, dtype=int)
+        anchor = int(members[0])
+        pairs = np.column_stack(
+            [np.full(len(members), anchor, dtype=int), members])
+        offsets = md.compute_displacements(traj, pairs, periodic=True)
+        centres.append(traj.xyz[:, anchor, :] + offsets.mean(axis=1))
+    return np.stack(centres, axis=1)
+
+
+def _between(
+    traj: Any,
+    from_groups: Any,
+    from_centres: np.ndarray,
+    to_groups: Any,
+    to_centres: np.ndarray,
+    periodic: bool = True,
+) -> np.ndarray:
+    """Minimum-image vector from each `from` centre to each `to` centre.
+
+    Shape ``(n_frames, n_from, n_to, 3)``.
+
+    A centre is not an atom, so mdtraj cannot image it directly. Each centre
+    does sit a short way from its own group's anchor atom, and mdtraj images
+    anchor to anchor exactly, triclinic cells included; adding the two small
+    within-group offsets to that exact vector gives the separation under the
+    minimum image. Valid whenever the true separation is well inside half the
+    box, which every criterion in this module is at 3 to 6 A.
+
+    Without this, six of the eight rules measured raw Cartesian separation:
+    a ligand and a residue 1.5 A apart through a box face read as the width
+    of the box, and the contact was silently absent from the table.
+    """
+    if (not periodic or not _has_box(traj)
+            or not len(from_groups) or not len(to_groups)):
+        return to_centres[:, None, :, :] - from_centres[:, :, None, :]
+
+    import mdtraj as md
+
+    from_anchor = np.array([int(g[0]) for g in from_groups], dtype=int)
+    to_anchor = np.array([int(g[0]) for g in to_groups], dtype=int)
+    pairs = np.array(
+        [[i, j] for i in from_anchor for j in to_anchor], dtype=int)
+    imaged = md.compute_displacements(traj, pairs, periodic=True).reshape(
+        traj.n_frames, len(from_anchor), len(to_anchor), 3)
+
+    from_offset = from_centres - traj.xyz[:, from_anchor, :]
+    to_offset = to_centres - traj.xyz[:, to_anchor, :]
+    return imaged + to_offset[:, None, :, :] - from_offset[:, :, None, :]
 
 
 def salt_bridges(
@@ -449,6 +514,7 @@ def salt_bridges(
     *,
     distance_nm: float = 0.45,
     allow_ambiguous_charge: bool = False,
+    periodic: bool = True,
 ) -> list[Contact]:
     """Salt bridges between ligand and protein, in every frame.
 
@@ -484,10 +550,12 @@ def salt_bridges(
                                           (ligand_negative, protein_positive)):
         if not ligand_groups or not protein_groups:
             continue
-        ligand_centres = _group_centres(traj, ligand_groups)
-        protein_centres = _group_centres(traj, protein_groups)
+        ligand_centres = _group_centres(traj, ligand_groups, periodic)
+        protein_centres = _group_centres(traj, protein_groups, periodic)
         separations = np.linalg.norm(
-            ligand_centres[:, :, None, :] - protein_centres[:, None, :, :], axis=-1
+            _between(traj, ligand_groups, ligand_centres,
+                     protein_groups, protein_centres, periodic),
+            axis=-1,
         )
         for frame, first, second in zip(*np.where(separations < distance_nm)):
             found.append(Contact(
@@ -535,14 +603,32 @@ def ligand_aromatic_rings(chemistry: Any, atom_indices: Any) -> list[list[int]]:
     return rings
 
 
-def _ring_geometry(traj: Any, rings: Any) -> tuple[np.ndarray, np.ndarray]:
-    """Each ring's centre and the unit normal to its plane, per frame."""
+def _ring_geometry(
+    traj: Any, rings: Any, periodic: bool = True
+) -> tuple[np.ndarray, np.ndarray]:
+    """Each ring's centre and the unit normal to its plane, per frame.
+
+    Made whole across the box first, for the reason `_group_centres` gives:
+    a ring split across a face has no meaningful centroid, and its fitted
+    plane is a plane through two clusters of atoms a box length apart.
+    """
     if not rings:
         empty = np.zeros((traj.n_frames, 0, 3))
         return empty, empty
+    whole = periodic and _has_box(traj)
+    if whole:
+        import mdtraj as md
     centres, normals = [], []
     for ring in rings:
-        points = traj.xyz[:, np.array(ring), :]
+        members = np.asarray(ring, dtype=int)
+        if whole:
+            anchor = int(members[0])
+            pairs = np.column_stack(
+                [np.full(len(members), anchor, dtype=int), members])
+            offsets = md.compute_displacements(traj, pairs, periodic=True)
+            points = traj.xyz[:, anchor, None, :] + offsets
+        else:
+            points = traj.xyz[:, members, :]
         centre = points.mean(axis=1)
         # The plane is fitted rather than taken from three atoms: a ring puckers,
         # and three atoms of a puckered ring give a normal that swings with
@@ -566,16 +652,18 @@ def _plane_angle(first: np.ndarray, second: np.ndarray) -> np.ndarray:
     return np.rad2deg(np.arccos(cosine))
 
 
-def _offsets(
-    centres_a: np.ndarray, centres_b: np.ndarray, normals_a: np.ndarray
-) -> np.ndarray:
+def _offsets(between: np.ndarray, normals_a: np.ndarray) -> np.ndarray:
     """How far one ring centre sits from the other's axis.
 
     Two rings can be the right distance apart and side by side rather than
     stacked. The offset is what tells those apart: it is the distance from one
     centre to the line through the other along its normal.
+
+    Takes the separation vector rather than the two centres, so that the
+    vector `_between` imaged is the one projected here. Building it again
+    from raw centres would put the minimum image back only in the distance
+    and leave the offset measured across the box.
     """
-    between = centres_b[:, None, :, :] - centres_a[:, :, None, :]
     along = np.einsum("...i,...i->...", between, normals_a[:, :, None, :])
     perpendicular = between - along[..., None] * normals_a[:, :, None, :]
     return np.linalg.norm(perpendicular, axis=-1)
@@ -590,6 +678,7 @@ def pi_stacking(
     distance_nm: float = 0.55,
     angle_tolerance_deg: float = 30.0,
     offset_nm: float = 0.20,
+    periodic: bool = True,
 ) -> list[Contact]:
     """Aromatic rings stacked on each other, in every frame.
 
@@ -607,17 +696,20 @@ def pi_stacking(
     if not ligand_rings or not protein_rings:
         return []
 
-    lig_centres, lig_normals = _ring_geometry(traj, ligand_rings)
-    pro_centres, pro_normals = _ring_geometry(traj, protein_rings)
+    lig_centres, lig_normals = _ring_geometry(traj, ligand_rings, periodic)
+    pro_centres, pro_normals = _ring_geometry(traj, protein_rings, periodic)
 
-    separations = np.linalg.norm(
-        lig_centres[:, :, None, :] - pro_centres[:, None, :, :], axis=-1)
+    between = _between(traj, ligand_rings, lig_centres,
+                       protein_rings, pro_centres, periodic)
+    separations = np.linalg.norm(between, axis=-1)
     angles = _plane_angle(lig_normals[:, :, None, :], pro_normals[:, None, :, :])
     # Measured from both rings: side by side looks stacked from one of them
-    # only when the other is ignored.
-    offset = np.minimum(_offsets(lig_centres, pro_centres, lig_normals),
-                        _offsets(pro_centres, lig_centres, pro_normals)
-                        .transpose(0, 2, 1))
+    # only when the other is ignored. The reverse direction is the same
+    # imaged vector negated and transposed -- recomputing it from the raw
+    # centres would leave this half measured across the box.
+    reverse = -between.transpose(0, 2, 1, 3)
+    offset = np.minimum(_offsets(between, lig_normals),
+                        _offsets(reverse, pro_normals).transpose(0, 2, 1))
 
     parallel = angles < angle_tolerance_deg
     perpendicular = angles > (90.0 - angle_tolerance_deg)
@@ -646,6 +738,7 @@ def pi_cation(
     distance_nm: float = 0.60,
     offset_nm: float = 0.20,
     allow_ambiguous_charge: bool = False,
+    periodic: bool = True,
 ) -> list[Contact]:
     """A positive charge sitting over an aromatic ring, in every frame.
 
@@ -679,11 +772,14 @@ def pi_cation(
     ):
         if not cations or not rings:
             continue
-        charge_centres = _group_centres(traj, cations)
-        ring_centres, ring_normals = _ring_geometry(traj, rings)
-        separations = np.linalg.norm(
-            charge_centres[:, :, None, :] - ring_centres[:, None, :, :], axis=-1)
-        offset = _offsets(ring_centres, charge_centres, ring_normals).transpose(0, 2, 1)
+        charge_centres = _group_centres(traj, cations, periodic)
+        ring_centres, ring_normals = _ring_geometry(traj, rings, periodic)
+        between = _between(traj, cations, charge_centres,
+                           rings, ring_centres, periodic)
+        separations = np.linalg.norm(between, axis=-1)
+        # Projected on the ring's normal, so the vector runs ring -> cation.
+        offset = _offsets(-between.transpose(0, 2, 1, 3),
+                          ring_normals).transpose(0, 2, 1)
 
         for frame, cation, ring in zip(
             *np.where((separations < distance_nm) & (offset < offset_nm))
@@ -711,6 +807,7 @@ def halogen_bonds(
     distance_nm: float = 0.35,
     donor_angle_deg: tuple[float, float] = (130.0, 180.0),
     include_fluorine: bool = False,
+    periodic: bool = True,
 ) -> list[Contact]:
     """A halogen on the ligand donating to an acceptor on the protein.
 
@@ -748,8 +845,8 @@ def halogen_bonds(
                for carbon, halogen in donors for acceptor in acceptors]
     pairs = [(halogen, acceptor) for _c, halogen in donors for acceptor in acceptors]
 
-    separations = _distances(traj, np.array(pairs), False)
-    angles = _angles(traj, np.array(triples), False)
+    separations = _distances(traj, np.array(pairs), periodic)
+    angles = _angles(traj, np.array(triples), periodic)
     low, high = donor_angle_deg
 
     found: list[Contact] = []
@@ -774,6 +871,7 @@ def metal_coordination(
     protein_indices: Any,
     *,
     distance_nm: float = 0.30,
+    periodic: bool = True,
 ) -> list[Contact]:
     """A metal ion coordinated by the ligand, or coordinating it.
 
@@ -822,7 +920,7 @@ def metal_coordination(
         if not metals or not partners:
             continue
         pairs = [(m, p) for m in metals for p in partners]
-        separations = _distances(traj, np.array(pairs), False)
+        separations = _distances(traj, np.array(pairs), periodic)
         for frame, column in zip(*np.where(separations < distance_nm)):
             metal, partner = pairs[column]
             found.append(Contact(
@@ -844,6 +942,7 @@ def water_bridges(
     min_distance_nm: float = 0.25,
     max_distance_nm: float = 0.41,
     omega_deg: tuple[float, float] = (71.0, 140.0),
+    periodic: bool = True,
 ) -> list[Contact]:
     """A water molecule hydrogen-bonded to both the ligand and the protein.
 
@@ -885,8 +984,8 @@ def water_bridges(
     # out an angle for every triple would be the expensive way to discover it.
     ligand_pairs = [(o, p) for o in oxygens for p in ligand_polar]
     protein_pairs = [(o, p) for o in oxygens for p in protein_polar]
-    to_ligand = _distances(traj, np.array(ligand_pairs), False)
-    to_protein = _distances(traj, np.array(protein_pairs), False)
+    to_ligand = _distances(traj, np.array(ligand_pairs), periodic)
+    to_protein = _distances(traj, np.array(protein_pairs), periodic)
 
     def in_range(separations):
         return (separations > min_distance_nm) & (separations < max_distance_nm)
@@ -922,15 +1021,20 @@ def water_bridges(
 
     # One frame's worth of geometry at a time: the triples were gathered per
     # frame, so the angle wanted is the one in that frame.
-    angles = _angles(traj, np.array(triples), False)
+    angles = _angles(traj, np.array(triples), periodic)
 
     found: list[Contact] = []
     for frame, oxygen, ligand_atom, protein_atom, column in described:
         opening = float(angles[frame, column])
         if not (low < opening < high):
             continue
-        separation = float(np.linalg.norm(
-            traj.xyz[frame, ligand_atom] - traj.xyz[frame, protein_atom]))
+        # The reported ligand-to-protein span, under the same convention the
+        # two legs of the bridge were measured with. Taken raw it could
+        # exceed the box on a bridge whose ends sit either side of a face --
+        # a number in the table larger than the system it came from.
+        separation = float(_distances(
+            traj, np.array([[ligand_atom, protein_atom]]), periodic
+        )[frame, 0])
         found.append(Contact(
             kind="water_bridge",
             frame=frame,

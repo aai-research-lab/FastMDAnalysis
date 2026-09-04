@@ -197,9 +197,21 @@ class WaterSites(Analysis):
             distances = md.compute_distances(frame, pairs, periodic=True)[0]
             nearest = distances.reshape(len(water_oxygens), len(site_atoms)).min(axis=1)
             near = np.where(nearest <= self.cutoff_nm)[0]
+            reshaped = distances.reshape(len(water_oxygens), len(site_atoms))
             for index in near:
                 atom = water_oxygens[int(index)]
-                positions.append(frame.xyz[0][atom])
+                # The position *where the water was found*, not where it is
+                # stored. It was accepted on a minimum-image distance, so it
+                # may be an image away from the site; recording the stored
+                # coordinate then handed DBSCAN points a box length apart,
+                # split one physical site into two at half occupancy each,
+                # and put one of them outside the box. Below the default
+                # minimum_occupancy an uneven split loses the smaller half
+                # and halves the survivor -- a persistent site can vanish.
+                closest = site_atoms[int(np.argmin(reshaped[int(index)]))]
+                offset = md.compute_displacements(
+                    frame, np.array([[closest, atom]]), periodic=True)[0, 0]
+                positions.append(frame.xyz[0][closest] + offset)
                 frames.append(frame_index)
                 residues.append(traj.topology.atom(atom).residue.index)
 

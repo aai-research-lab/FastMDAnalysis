@@ -114,6 +114,51 @@ def _resolve_topology(
     )
 
 
+def _made_whole(trajectory: md.Trajectory) -> md.Trajectory:
+    """Molecules put back together across the periodic boundary, once.
+
+    A trajectory written by another engine -- a GROMACS ``.xtc``, an AMBER
+    ``.nc``, anything not run through ``-pbc mol`` -- routinely stores a
+    molecule split across a box face. Nothing downstream of here images
+    anything: RMSD, RMSF, radius of gyration, SASA and clustering all read
+    ``traj.xyz`` directly, so a split protein gives a radius of gyration
+    several times too large, an RMSF two orders of magnitude too large, and
+    every one of them succeeds, writes its file, draws its figure and
+    reports ``status="ok"``.
+
+    Anchored on the solute where there is one, so the protein stays whole
+    and the ligand is imaged into the protein's copy rather than each being
+    made whole in its own. This is the same call, with the same anchor, that
+    ``validation/cross_tool`` has been applying successfully to these
+    trajectories all along -- it lived in the benchmark helper and never in
+    the pipeline it was checking.
+
+    Failure is not fatal: a topology without bonds cannot be made whole, and
+    an analysis of what was loaded beats refusing to load it. The reason is
+    logged rather than swallowed, so a silently unimaged run can be
+    recognised afterwards.
+    """
+    if trajectory.unitcell_vectors is None:
+        return trajectory
+    try:
+        solute = trajectory.topology.select("not water and not resname HOH")
+        anchors = None
+        if solute is not None and len(solute):
+            molecules = trajectory.topology.find_molecules()
+            wanted = set(int(i) for i in solute)
+            anchors = [m for m in molecules
+                       if any(a.index in wanted for a in m)]
+        trajectory.image_molecules(inplace=True, anchor_molecules=anchors or None)
+    except Exception as exc:  # MDTraj raises a variety of types
+        logger.warning(
+            "Could not image molecules across the periodic boundary (%s); "
+            "the trajectory is analysed as stored. If it was written without "
+            "molecules made whole, contacts and shape measures will be wrong "
+            "in ways that do not announce themselves.", exc,
+        )
+    return trajectory
+
+
 def load_trajectory(
     traj: TrajectoryInput,
     top: PathLike | None = None,
@@ -206,6 +251,8 @@ def load_trajectory(
     # MDTraj returns a list for a single file, ensure we have a Trajectory.
     if isinstance(trajectory, list):
         trajectory = md.join(trajectory)
+
+    trajectory = _made_whole(trajectory)
 
     if first is not None or last is not None:
         n = trajectory.n_frames
