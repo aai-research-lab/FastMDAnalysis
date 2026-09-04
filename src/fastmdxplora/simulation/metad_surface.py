@@ -305,14 +305,18 @@ def surface_from_hills(
         axis=0,
     )
 
-    if hills.bias_factor > 1.0:
-        scale = hills.bias_factor / (hills.bias_factor - 1.0)
-    else:
-        # Not well-tempered: the bias converges on the negative of the free
-        # energy without rescaling.
-        scale = 1.0
-
-    surface = -scale * bias
+    # No rescaling, for either tempering. PLUMED multiplies the height it
+    # deposits by y/(y-1) *before writing HILLS*, precisely so that summing
+    # the file gives the free energy directly -- which is what `plumed
+    # sum_hills` does, and why its --negbias flag exists to divide the factor
+    # back out. `reweighted_averages.deposited_heights` states this
+    # convention and undoes it to recover the bias; applying it again here
+    # squared the factor and made every well-tempered surface too large by
+    # y/(y-1): 11.1% at a bias factor of 10, 100% at 2.
+    #
+    # An untempered run stores what it deposited and the sum converges on
+    # the negative of the free energy, so the same expression serves both.
+    surface = -bias
     return surface - float(np.min(surface))
 
 
@@ -435,10 +439,9 @@ def surface_from_hills_nd(
     bias = bias_from_hills_nd(
         hills, points, upto=stop, periodic=periodic, chunk=chunk)
 
-    if hills.bias_factor > 1.0:
-        free = -bias * (hills.bias_factor / (hills.bias_factor - 1.0))
-    else:
-        free = -bias
+    # As in one dimension: the stored heights already carry y/(y-1), so the
+    # sum is the free energy and no rescaling belongs here.
+    free = -bias
     free = free.reshape(shape)
     return free - float(np.min(free))
 

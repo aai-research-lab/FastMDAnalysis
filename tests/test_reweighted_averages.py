@@ -724,12 +724,44 @@ class TestTheWellTemperedHeightConventionIsUndone:
 
     def test_the_surface_still_uses_the_stored_heights(self) -> None:
         """The same numbers are correct there. Summing the stored heights is
-        what gives the free energy, which is why the convention exists."""
-        from pathlib import Path as _P
-        import fastmdxplora.simulation.metad_surface as surface
+        what gives the free energy, which is why the convention exists.
 
-        source = _P(surface.__file__).read_text(encoding="utf-8")
-        assert "deposited_heights" not in source
+        This used to read `assert "deposited_heights" not in source` -- a
+        substring search over `metad_surface.py`. It asserted that the module
+        does not *call* the helper, which was true throughout the period when
+        the module applied the helper's factor by hand in the other
+        direction, so the surface was 11% too high at y=10 and this test was
+        green. It also broke the moment a comment mentioned the name.
+
+        Asserted against the arithmetic instead: the surface is the negated
+        sum of the heights **as stored**, with no tempering factor applied to
+        them on the way. The two failure modes it now catches are scaling by
+        y/(y-1) and scaling by (y-1)/y.
+        """
+        from fastmdxplora.analysis.reweighted_averages import deposited_heights
+        from fastmdxplora.simulation.metad_surface import (
+            Hills, surface_from_hills)
+
+        centre = np.array([0.0])
+        hills = Hills(
+            time_ps=np.array([0.0]),
+            centre=centre,
+            sigma=np.array([0.5]),
+            height=np.array([4.0]),
+            bias_factor=10.0,
+        )
+        grid = np.array([0.0, 6.0])
+
+        surface = surface_from_hills(hills, grid)
+
+        # Far from the hill the sum is ~0 and at its centre it is the stored
+        # height, so the depth is the stored height and nothing else.
+        depth = float(surface.max() - surface.min())
+        assert depth == pytest.approx(4.0, rel=1e-6)
+
+        # And explicitly not the deposited height, which is the other number
+        # in play and the one this class exists to compute.
+        assert depth != pytest.approx(float(deposited_heights(hills)[0]))
 
 
 class TestTheCollectiveVariableIsNamed:

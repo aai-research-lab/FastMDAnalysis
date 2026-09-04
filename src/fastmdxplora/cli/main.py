@@ -1473,53 +1473,6 @@ def _cmd_init_config(args: argparse.Namespace) -> int:
     return 0
 
 
-def _needs_chemistry(args: argparse.Namespace) -> bool:
-    """Return True if this command will actually invoke a chemistry phase."""
-    cmd = getattr(args, "command", None)
-    if cmd in ("setup", "simulate"):
-        return True
-    if cmd in ("explore", "xplore"):
-        # Dry runs only print the plan; they must work without chemistry so
-        # users can use them as a teaching tool when explaining the install gap.
-        if getattr(args, "dry_run", False):
-            return False
-        include = getattr(args, "include", None)
-        exclude = set(getattr(args, "exclude", None) or ())
-        if include is not None:
-            return bool(set(include) & _CHEMISTRY_PHASES)
-        if exclude >= _CHEMISTRY_PHASES:
-            return False
-        return True  # default plan runs every phase
-    return False
-
-
-def _missing_chemistry_backends() -> list[str]:
-    """Return the chemistry backend modules that aren't importable here.
-
-    Probes the *actual* import shape used by setup and simulation
-    (e.g. ``from openmm.app import PDBFile``) so a broken partial install
-    fails fast here instead of mid-phase.
-    """
-    probes: tuple[tuple[str, str], ...] = (
-        ("openmm", None),                                # top-level package
-        ("openmm.app", "from openmm.app import PDBFile"),
-        ("openmm", "from openmm import unit"),
-        ("pdbfixer", "from pdbfixer import PDBFixer"),
-    )
-    failing: list[str] = []
-    for name, stmt in probes:
-        try:
-            if stmt is None:
-                __import__(name)
-            else:
-                exec(stmt, {})  # noqa: S102 — string intentional, gated by probes tuple
-        except ImportError:
-            failing.append(name)
-    # Reduce to the *top-level* packages the user has to install, so the
-    # hint stays short and actionable.
-    return sorted({("openmm" if name.startswith("openmm") else name) for name in failing})
-
-
 def _cmd_gui(args: argparse.Namespace) -> int:
     """Serve the full GUI: study builder, exploration, telemetry, and viewer."""
     from fastmdxplora.gui.server import DashboardConfig, serve_dashboard
@@ -1638,10 +1591,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command is None:
         return _cmd_dashboard_home()
 
-    # Setup and simulation phases already handle missing optional chemistry
-    # dependencies gracefully by recording the skipped work in their manifests.
-    # Do not abort the CLI here: doing so prevents setup-only/config workflows
-    # and the test matrix from exercising that documented fallback behavior.
+    # No chemistry preflight here, deliberately. Setup and simulation handle
+    # missing optional dependencies by recording the skipped work in their
+    # manifests, and aborting here would prevent setup-only and config-only
+    # workflows -- and stop the test matrix exercising that fallback at all.
+    #
+    # Two functions used to sit further down this file implementing the other
+    # policy, `_needs_chemistry` and `_missing_chemistry_backends`. They had
+    # no caller once this decision was taken, `_needs_chemistry` referenced a
+    # `_CHEMISTRY_PHASES` that was never defined -- so calling it raised
+    # NameError -- and `tests/conftest.py` carried an autouse fixture
+    # neutralising the second of them for all 3,171 tests. All three are
+    # removed. The decision is here, in one place, and nothing half-implements
+    # its opposite. If the fail-fast policy is wanted instead, it is a change
+    # to this comment and a call on the next line, not a resurrection.
 
     if args.command == "init-config":
         return _cmd_init_config(args)

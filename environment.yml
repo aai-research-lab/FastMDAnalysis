@@ -21,7 +21,8 @@ dependencies:
   - python>=3.9,<3.14
   - pip
   # Core (analysis + report)
-  - numpy>=1.22
+  # See the note in pyproject.toml: np.trapezoid needs 2.0.
+  - numpy>=2.0
   - pyyaml>=6.0
   - mdtraj>=1.9.7
   - matplotlib>=3.5
@@ -29,6 +30,6 @@ dependencies:
   - pandas>=1.4
   - python-pptx>=0.6.21
   # Molecular-dynamics chemistry stack (setup + simulation phases)
-  - openmm>=8.0
+  - openmm>=8.2
   - pdbfixer
   - openmmforcefields

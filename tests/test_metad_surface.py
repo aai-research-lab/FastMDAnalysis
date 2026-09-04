@@ -50,11 +50,20 @@ def _hills_reaching(free_energy, grid, *, bias_factor=GAMMA, centres=400):
     checking the sampler: the first attempt read 27.7 kJ/mol for a 20 kJ/mol
     barrier because it wrapped the coordinate and not the bias grid. The
     physics is checked against PLUMED on alanine dipeptide, not here.
+
+    **The heights are the ones PLUMED writes, not the ones it deposits.**
+    This fixture used to scale by (y-1)/y, which is the deposited height,
+    and `surface_from_hills` scaled back by y/(y-1) -- so fixture and code
+    agreed with each other and neither agreed with PLUMED, and every
+    well-tempered surface was 11% too high at y=10 with 46 tests green over
+    it. `reweighted_averages.deposited_heights` had the convention written
+    down correctly the whole time. A fixture that encodes the same
+    misunderstanding as the code under test cannot fail.
     """
-    scale = (1.0 - 1.0 / bias_factor) if bias_factor > 1.0 else 1.0
     # Deposition fills wells, so the bias is high where the free energy is
-    # low. The constant drops out when the surface is shifted.
-    bias = scale * (free_energy.max() - free_energy)
+    # low. The constant drops out when the surface is shifted. No tempering
+    # factor: summing what HILLS holds is the free energy, by construction.
+    bias = free_energy.max() - free_energy
 
     # Placed past both ends, because a hill at the boundary has no neighbours
     # outside it and the sum falls away there: confined to the grid, a 20
@@ -87,8 +96,11 @@ def _written(tmp_path, hills, name="HILLS"):
 
 
 class TestTheBiasBecomesAFreeEnergy:
-    """Well-tempered deposition converges on -(1 - 1/γ)F, so the free energy
-    is the bias scaled by γ/(γ - 1) and negated."""
+    """The deposited bias converges on -(1 - 1/γ)F, and PLUMED applies the
+    γ/(γ - 1) that undoes it *before writing HILLS* -- so what the file holds
+    is the free energy already, and reading it is a negation and nothing
+    else. This class's own name for the operation is the reason the factor
+    was applied twice for as long as it was."""
 
     def test_a_known_barrier_comes_back(self) -> None:
         """To within the smoothing the hills impose -- see below."""
@@ -841,3 +853,76 @@ class TestTheRunWritesATwoVariableSurface:
         # trajectory of each variable reached the gate.
         for dim in record["evidence"]["per_dimension"]:
             assert dim["recrossings"] is not None and dim["recrossings"] > 0
+
+
+class TestTheStoredHeightsAreAlreadyTempered:
+    """PLUMED's HILLS convention, asserted against numbers, not wording.
+
+    `plumed sum_hills` negates the summed file and stops. It does that
+    because MetaD multiplies each height by y/(y-1) before printing, so the
+    file already holds the free energy's ingredients -- which is exactly
+    what `reweighted_averages.deposited_heights` says when it undoes the
+    factor to recover the bias.
+
+    Applying the factor a second time made every well-tempered surface too
+    large by y/(y-1) -- 11.1% at y=10, 100% at y=2 -- and no test saw it,
+    because the fixture that built the hills encoded the same
+    misunderstanding. These two assertions cannot both hold under that bug:
+    the first pins the absolute scale against an independently summed
+    profile, the second pins the invariant that makes the first robust.
+    """
+
+    def _hills_with_known_sum(self, bias_factor, centres=60):
+        """Hills whose plain sum is a 20 kJ/mol barrier, by construction."""
+        places = np.linspace(-np.pi, np.pi, centres)
+        sigma = 0.2
+        target = 20.0 * (1.0 - np.cos(2.0 * places)) / 2.0
+        overlap = np.exp(
+            -((places[:, None] - places[None, :]) ** 2) / (2.0 * sigma ** 2))
+        stored = np.linalg.solve(overlap, target)
+        return Hills(
+            time_ps=np.arange(centres, dtype=float),
+            centre=places,
+            sigma=np.full(centres, sigma),
+            height=stored,
+            bias_factor=bias_factor,
+        )
+
+    def test_the_surface_is_the_negated_sum_of_the_file(self):
+        hills = self._hills_with_known_sum(10.0)
+        grid = np.linspace(-np.pi, np.pi, 400)
+
+        got = surface_from_hills(hills, grid, periodic=True)
+        got = got - got.min()
+
+        # The same arithmetic `plumed sum_hills` performs, written out.
+        separation = np.remainder(
+            grid[None, :] - hills.centre[:, None] + np.pi, 2.0 * np.pi) - np.pi
+        summed = np.sum(
+            hills.height[:, None]
+            * np.exp(-separation ** 2 / (2.0 * hills.sigma[:, None] ** 2)),
+            axis=0,
+        )
+        expected = -summed
+        expected = expected - expected.min()
+
+        assert got.max() == pytest.approx(expected.max(), rel=1e-9)
+        assert np.allclose(got, expected)
+
+        # And the barrier the fixture was built to carry.
+        assert got.max() == pytest.approx(20.0, abs=0.3)
+
+    @pytest.mark.parametrize("bias_factor", [1.0, 2.0, 5.0, 10.0, 20.0])
+    def test_the_answer_does_not_depend_on_the_bias_factor(self, bias_factor):
+        """One HILLS file, five recorded bias factors, one free energy.
+
+        The tempering is already in the heights, so the number PLUMED
+        recorded alongside them cannot change what they sum to. Under the
+        double-scaling bug this reads 20.0 at y=1 and 40.0 at y=2.
+        """
+        grid = np.linspace(-np.pi, np.pi, 400)
+        hills = self._hills_with_known_sum(bias_factor)
+
+        surface = surface_from_hills(hills, grid, periodic=True)
+
+        assert (surface.max() - surface.min()) == pytest.approx(20.0, abs=0.3)

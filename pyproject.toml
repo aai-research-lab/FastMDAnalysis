@@ -46,7 +46,11 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [
-    "numpy>=1.22",
+    # np.trapezoid (simulation/binding.py) is the NumPy 2.0 rename of
+    # np.trapz and does not exist on 1.x, so binding_free_energy() raised
+    # AttributeError across most of the range this floor used to claim.
+    # CI cannot catch a floor: all nine legs resolve the newest NumPy.
+    "numpy>=2.0",
     "pyyaml>=6.0",
     "mdtraj>=1.9.7",
     "matplotlib>=3.5",
@@ -121,7 +125,12 @@ validation = [
     "prolif>=2.0",
 ]
 all = [
-    "fastmdxplora[md,ligand,plumed,amber,umap]",
+    # No `plumed` here. The comment fifteen lines up says there is
+    # deliberately no `plumed` extra; naming it anyway made pip print
+    # "does not provide the extra 'plumed'" and carry on, so `[all]`
+    # resolved without it and installed silently with no PLUMED support.
+    # A warning nobody reads is the same as no warning.
+    "fastmdxplora[md,ligand,amber,umap]",
 ]
 test = [
     "pytest>=7.0",

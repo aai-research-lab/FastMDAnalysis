@@ -880,6 +880,39 @@ class DashboardRuntime:
                 # A bare name is a folder beside the others this GUI made.
                 output_dir = (self.exploration_root / _slug(requested)).resolve()
 
+            # An output directory must be empty or absent, as `launch` and
+            # `launch_existing_config` both already require. Two reasons, and
+            # only the first was written down:
+            #
+            #   - it must not clobber a previous run; and
+            #   - `_spawn` makes this directory `active_root`, which is the
+            #     root `/artifacts/<path>` serves files from. An absolute
+            #     path is accepted here on purpose -- browsing to a folder
+            #     puts one in the box -- so without this check any directory
+            #     nameable in an unauthenticated POST became readable over
+            #     HTTP. A directory holding an SSH key is not empty; a
+            #     directory a run can be written into is.
+            #
+            # The traversal guard in `_send_artifact` is correct and was
+            # never the issue: it confines paths *within* the root, and the
+            # root itself was the thing being chosen.
+            if output_dir.exists() and any(output_dir.iterdir()):
+                detail = (
+                    f"Output folder already exists and is not empty: "
+                    f"{output_dir}. Choose a new output folder to start a "
+                    f"new simulation."
+                )
+                self.data_stale = True
+                self.completion_error = detail
+                return {
+                    "ok": False,
+                    "error": detail,
+                    "next_action": (
+                        "Choose a new output folder; anything already there "
+                        "was left untouched."
+                    ),
+                }
+
             prepared = prepare_run(dict(state), output_dir)
             if not prepared["ok"]:
                 return prepared

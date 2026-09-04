@@ -47,7 +47,7 @@ requirements:
     # Upper bound matches requires-python in pyproject.toml; the chemistry
     # stack has no 3.14 builds yet either.
     - python >=${{ python_min }},<3.14
-    - numpy >=1.22
+    - numpy >=2.0
     - pyyaml >=6.0
     - mdtraj >=1.9.7
     - matplotlib-base >=3.5
@@ -65,7 +65,7 @@ requirements:
     # for conda. Depending on them here is the point of the conda-forge
     # distribution: one install command makes all four phases work, where the
     # PyPI package covers analysis and reporting alone.
-    - openmm >=8.0
+    - openmm >=8.2
     - pdbfixer
     # Protein-ligand systems need small-molecule parameterization, and the
     # chemistry a structure omits has to be read and its protonation settled
