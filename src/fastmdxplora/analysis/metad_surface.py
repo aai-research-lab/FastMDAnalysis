@@ -124,6 +124,20 @@ class MetadynamicsSurface(Analysis):
                     "along it to draw.")
         )
 
+    def _band(self) -> "np.ndarray | None":
+        """The per-point convergence band, where the run computed one.
+
+        Absent from records written before the band existed, and absent from
+        a run with too few hills to cut, so every reader of it is optional.
+        """
+        record = getattr(self, "_evidence", None) or {}
+        convergence = record.get("convergence") or {}
+        values = convergence.get("band_kjmol")
+        if not values:
+            return None
+        band = np.asarray(values, dtype=float)
+        return band if np.isfinite(band).any() else None
+
     def plot(self, result: dict[str, Any], ax: plt.Axes) -> None:
         if result.get("dimensions") == 2:
             first, second = result["axes"]
@@ -140,6 +154,17 @@ class MetadynamicsSurface(Analysis):
         coordinate = result["coordinate"]
         energy = result["free_energy_kjmol"]
         ax.plot(coordinate, energy, linewidth=1.6)
+
+        # Shaded, and labelled for what it is. A band drawn round a free
+        # energy is read as an error bar unless the legend says otherwise,
+        # and this one is a statement about whether the bias stopped moving,
+        # not about how far the answer would move in a second run. The
+        # simulation phase writes the same disclaimer into the manifest.
+        band = self._band()
+        if band is not None and band.shape == energy.shape:
+            ax.fill_between(coordinate, energy - band, energy + band,
+                            alpha=0.18, linewidth=0, color="#4477aa",
+                            label="convergence band (not a standard error)")
 
         sampled = np.isfinite(energy)
         if sampled.any():
@@ -193,12 +218,38 @@ class MetadynamicsSurface(Analysis):
             path.write_text("\n".join(lines) + "\n", encoding="utf-8")
             return path
 
+        coordinate = result["coordinate"]
+        energy = result["free_energy_kjmol"]
+        band = self._band()
+        if band is not None and band.shape != np.asarray(energy).shape:
+            band = None
+
         header = "# coordinate free_energy_kjmol"
+        if band is not None:
+            header += " convergence_band_kjmol"
         if self._provisional:
             header += "\n# provisional: the bias had not settled when this was cut"
+        if band is not None:
+            # Spelled out in the file, because a third column beside a free
+            # energy is read as its error bar and this one is not that. The
+            # column is the spread of the surface over the later part of its
+            # own deposition -- whether the bias settled here -- and it
+            # cannot see how far the surface would move in an independent
+            # run. Replicas are the statistical error.
+            header += (
+                "\n# convergence_band_kjmol: spread across cumulative cuts "
+                "through the later deposition. A convergence indicator, NOT "
+                "a standard error: the cuts are nested and share one "
+                "trajectory, so this is a lower bound on run-to-run spread. "
+                "Independent replicas are the statistical error.")
         lines = [header]
-        for x, y in zip(result["coordinate"], result["free_energy_kjmol"]):
-            lines.append(f"{x:.6f} {'nan' if np.isnan(y) else f'{y:.6f}'}")
+        for index, (x, y) in enumerate(zip(coordinate, energy)):
+            shown = "nan" if np.isnan(y) else f"{y:.6f}"
+            row = f"{x:.6f} {shown}"
+            if band is not None:
+                value = band[index]
+                row += f" {'nan' if np.isnan(value) else f'{value:.6f}'}"
+            lines.append(row)
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return path
 

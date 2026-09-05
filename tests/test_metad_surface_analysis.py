@@ -189,3 +189,81 @@ class TestItIsAnAnalysisLikeAnyOther:
         source = inspect.getsource(MetadynamicsSurface.plot)
         assert "drift_ceiling_kjmol" in source
         assert "axhline" in source
+
+
+class TestTheConvergenceBandTravelsWithTheSurface:
+    """The simulation phase measures how much the surface still moved over
+    the later part of its own deposition, point by point. It reaches a reader
+    only if the figure draws it and the exported table carries it -- and only
+    honestly if both say, in words, that it is not a standard error. A shaded
+    band around a free energy is read as one otherwise, and this one is a
+    lower bound on run-to-run spread rather than an estimate of it."""
+
+    def _with_band(self, run: Path, *, points: int = 200) -> Path:
+        _record(run)
+        path = run / "simulation" / "metadynamics_surface.json"
+        record = json.loads(path.read_text(encoding="utf-8"))
+        record["evidence"]["convergence"] = {
+            "band_kjmol": list(np.linspace(0.1, 1.4, points)),
+            "typical_kjmol": 0.7,
+            "largest_kjmol": 1.4,
+            "blocks": 5,
+            "hills_at": [500, 625, 750, 875, 1000],
+            "from_fraction": 0.5,
+            "is_a_standard_error": False,
+            "note": "A convergence indicator, not a standard error.",
+        }
+        path.write_text(json.dumps(record), encoding="utf-8")
+        return run
+
+    def test_the_exported_table_gains_a_labelled_column(self, tmp_path) -> None:
+        self._with_band(tmp_path)
+        completed = MetadynamicsSurface(
+            output_dir=tmp_path / "analysis").run(None)
+
+        text = completed.data_path.read_text(encoding="utf-8")
+        assert "convergence_band_kjmol" in text.splitlines()[0]
+        assert "NOT a standard error" in text
+        assert "replicas" in text
+        values = np.loadtxt(completed.data_path)
+        assert values.shape == (200, 3)
+
+    def test_a_record_without_one_keeps_the_two_column_table(
+            self, tmp_path) -> None:
+        """Every run written before the band existed, and every run too short
+        to cut. An optional column has to be optional at both ends."""
+        _record(tmp_path)
+        completed = MetadynamicsSurface(
+            output_dir=tmp_path / "analysis").run(None)
+
+        lines = completed.data_path.read_text(encoding="utf-8").splitlines()
+        assert lines[0] == "# coordinate free_energy_kjmol"
+        assert np.loadtxt(completed.data_path).shape == (200, 2)
+
+    def test_a_band_of_the_wrong_length_is_ignored_rather_than_broadcast(
+            self, tmp_path) -> None:
+        """A record whose band does not match its grid is a record from a
+        different run or a different grid, and numpy would happily broadcast
+        a length-one array across the whole surface."""
+        self._with_band(tmp_path, points=7)
+        completed = MetadynamicsSurface(
+            output_dir=tmp_path / "analysis").run(None)
+
+        assert completed.status == "ok"
+        assert np.loadtxt(completed.data_path).shape == (200, 2)
+
+    def test_the_figure_legend_says_it_is_not_a_standard_error(
+            self, tmp_path) -> None:
+        import matplotlib.pyplot as plt
+
+        self._with_band(tmp_path)
+        analysis = MetadynamicsSurface(output_dir=tmp_path / "analysis")
+        result = analysis.compute(None)
+        figure, ax = plt.subplots()
+        try:
+            analysis.plot(result, ax)
+            labels = [text.get_text() for text in ax.get_legend().get_texts()]
+        finally:
+            plt.close(figure)
+
+        assert any("not a standard error" in label for label in labels)

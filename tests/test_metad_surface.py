@@ -303,6 +303,12 @@ class TestARunThatDoesNotSupportASurface:
             # whole grid: 2.3 against 5.4 on a real torsion, the difference
             # being one point on top of a 65 kJ/mol barrier.
             "drift_ceiling_kjmol", "drift_over_the_whole_grid_kjmol",
+            # The same drift measured point by point instead of as its worst
+            # value, which on any run with a real barrier is the barrier's
+            # shoulder. Labelled a convergence indicator and never an error
+            # bar: `test_a_surface_says_whether_it_settled` is about keeping
+            # those apart.
+            "convergence",
             "barrier_kjmol"}
 
     def test_every_refusal_says_that_longer_is_the_remedy(self, tmp_path) -> None:

@@ -26,13 +26,32 @@ make a barrier a measurement rather than an anecdote.
 hills and from all of them, a converged surface gives the same answer. This is
 the check the other two are proxies for, and the one that catches a run that
 satisfies them both for the wrong reasons.
+
+That last check returns one number for the whole surface -- the largest
+movement anywhere it is judged -- which decides the verdict and says nothing
+about where the surface is solid. A run can be settled to a tenth of a kJ/mol
+across both its wells and moving by two at the shoulder of a barrier, and the
+single figure reports the shoulder. `convergence_band` is the same measurement
+made point by point, from several cumulative cuts through the later deposition
+rather than one, so a plotted surface can carry the width of its own drift.
+
+**It is a convergence indicator and not a standard error, and this module says
+so wherever it reports one.** The cuts are nested -- each contains the hills of
+the one before -- and they all come from a single trajectory, so they are not
+independent samples of anything. What they measure is whether the bias has
+stopped moving; what they cannot see is how much the surface would differ in a
+second run from a different seed, which is the quantity a `±` in a paper is
+read as. A run that never left one basin gives a narrow band for exactly that
+reason. Independent replicas are the honest route to the second number, and the
+calibration experiment exists to establish what the first is worth.
 """
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -41,6 +60,9 @@ __all__ = [
     "read_hills",
     "surface_from_hills",
     "surface_from_hills_nd",
+    "cumulative_surfaces",
+    "cumulative_surfaces_nd",
+    "convergence_band",
     "marginal_profile",
     "recrossings",
     "compute_surface",
@@ -85,6 +107,23 @@ DRIFT_CEILING_KJMOL = 20.0
 #: hills and all of them, so it looks converged precisely because nothing
 #: happened.
 MINIMUM_EXPLORED_HILL_WIDTHS = 6.0
+
+#: Where the convergence band starts looking, as a fraction of the
+#: deposition. The first half of a well-tempered run is the bias filling the
+#: landscape: including it measures the filling, which is large and already
+#: known to be large, rather than what is left of it once the basins are
+#: full. Half is also what makes the band comparable between runs of
+#: different lengths -- an absolute cut in nanoseconds would mean a different
+#: fraction of every run.
+CONVERGENCE_FROM_FRACTION = 0.5
+
+#: How many cumulative cuts the band is taken over. Five is the fewest that
+#: gives a spread rather than a difference: with two cuts the standard
+#: deviation is the gap between them over root two, which is the existing
+#: single-number drift check wearing a different name, and with three the
+#: estimate is itself so noisy that the band's own scatter across the grid
+#: is read as structure in the surface.
+CONVERGENCE_BLOCKS = 5
 
 
 @dataclass(frozen=True)
@@ -326,6 +365,199 @@ def surface_from_hills(
     return surface - float(np.min(surface))
 
 
+def _convergence_cuts(
+    n_hills: int,
+    *,
+    blocks: int = CONVERGENCE_BLOCKS,
+    from_fraction: float = CONVERGENCE_FROM_FRACTION,
+) -> list[int]:
+    """Hill counts at which to cut, spanning the later deposition.
+
+    Returned as counts rather than fractions because the cuts have to be
+    distinct *hills*: on a run that deposited nine of them, five evenly
+    spaced fractions land on four separate counts and one repeat, and
+    keeping the repeat would put a surface into the spread twice and narrow
+    the band by counting it as agreement with itself.
+    """
+    n = int(n_hills)
+    if n < 2:
+        return []
+    first = max(1, int(round(float(from_fraction) * n)))
+    wanted = max(2, int(blocks))
+    cuts = sorted({
+        int(round(value))
+        for value in np.linspace(first, n, wanted)
+        if 1 <= round(value) <= n
+    })
+    return cuts
+
+
+def cumulative_surfaces(
+    hills: Hills,
+    grid: np.ndarray,
+    *,
+    blocks: int = CONVERGENCE_BLOCKS,
+    from_fraction: float = CONVERGENCE_FROM_FRACTION,
+    periodic: bool = False,
+) -> "tuple[list[int], list[np.ndarray]]":
+    """The surface at several points through the later deposition.
+
+    One pass over the hills, not one per cut. The bias is a sum over
+    Gaussians, so the surface at each cut is the previous one plus the hills
+    deposited between: calling `surface_from_hills` once per cut recomputes
+    the whole history every time and returns the identical numbers for
+    `blocks` times the work, which on a run with forty thousand hills is
+    minutes rather than seconds.
+
+    Each surface is reported against its own minimum, as `surface_from_hills`
+    does; `convergence_band` re-aligns them before comparing, because a
+    minimum that moves between cuts is a shift and not a disagreement.
+    """
+    coordinates = np.asarray(grid, dtype=float)
+    cuts = _convergence_cuts(
+        len(hills), blocks=blocks, from_fraction=from_fraction)
+    if not cuts:
+        return [], []
+
+    bias = np.zeros(coordinates.shape[0], dtype=float)
+    surfaces: list[np.ndarray] = []
+    start = 0
+    for stop in cuts:
+        centres = hills.centre[start:stop, None]
+        sigmas = hills.sigma[start:stop, None]
+        heights = hills.height[start:stop, None]
+        separation = coordinates[None, :] - centres
+        if periodic:
+            separation = (
+                np.remainder(separation + np.pi, 2.0 * np.pi) - np.pi)
+        bias = bias + np.sum(
+            heights * np.exp(-(separation ** 2) / (2.0 * sigmas ** 2)),
+            axis=0,
+        )
+        surface = -bias
+        surfaces.append(surface - float(np.min(surface)))
+        start = stop
+    return cuts, surfaces
+
+
+def convergence_band(
+    surfaces: "Sequence[np.ndarray]",
+    *,
+    judged: "np.ndarray | None" = None,
+    hills_at: "Sequence[int] | None" = None,
+    from_fraction: float = CONVERGENCE_FROM_FRACTION,
+) -> dict[str, Any]:
+    """How much the surface still moved over the later part of its deposition.
+
+    **This is a convergence indicator. It is not a standard error, and the
+    dictionary it returns says so in a field and again in a sentence**, because
+    a number in kJ/mol sitting beside a free energy will be read as one
+    otherwise. The distinction is not pedantry: the two differ by an unknown
+    factor and in a known direction.
+
+    The cuts are nested, each holding the hills of the one before, so
+    consecutive surfaces agree partly because they are largely the same sum.
+    And every cut comes from one trajectory: whatever that trajectory did not
+    visit is missing from all of them alike, and the spread across them cannot
+    report a basin nobody entered. Both effects push the same way, so the band
+    is a lower bound on run-to-run spread -- narrowest, unhelpfully, exactly
+    where the sampling was worst.
+
+    What it does answer is the question the single drift number answers, asked
+    point by point: has the bias stopped moving *here*. That is worth having on
+    a plotted surface, where the wells and the barrier tops have very different
+    claims to be believed and the one summary figure is always the barrier's.
+
+    Surfaces are aligned before comparison, because a free energy has no
+    absolute zero and a constant offset between two cuts is not a
+    disagreement. The offset is the **median** difference from the last cut,
+    over the judged region, and the choice of median matters more than it
+    looks:
+
+    * On the minimum, which is how the surfaces arrive, every point is tied to
+      the single lowest grid point. A minimum that hops one bin between cuts
+      then moves the whole surface, and the band reports a shift as though the
+      landscape had changed everywhere.
+    * On the mean, a change confined to one region is shared out over the whole
+      grid in proportion to its size. A right-hand third that deepens by 3
+      kJ/mol lifts the settled two thirds by 1, so the wells acquire a band
+      they did not earn and the ratio between the moving part and the quiet
+      part is flattened towards one.
+    * On the median, a region that did not move sets the reference as long as
+      it is more than half the judged grid, which is what "most of the surface
+      has settled" means. Where it is not -- a run whose surface is moving
+      nearly everywhere -- the reference lands in the moving part and the band
+      understates, which is the same direction as every other limitation here
+      and is reported as a small band on a run whose drift check has already
+      failed.
+    """
+    stack = np.asarray(surfaces, dtype=float)
+    unavailable = {
+        "band_kjmol": None,
+        "typical_kjmol": None,
+        "largest_kjmol": None,
+        "blocks": int(stack.shape[0]) if stack.ndim >= 1 else 0,
+        "hills_at": ([int(x) for x in hills_at] if hills_at else []),
+        "from_fraction": float(from_fraction),
+        "is_a_standard_error": False,
+        "note": (
+            "Too few hills to cut the deposition into separate pieces, so "
+            "there is no spread to report. This says nothing about whether "
+            "the run converged; it says the run is too short for this "
+            "particular measurement to be made on it."
+        ),
+    }
+    if stack.ndim < 2 or stack.shape[0] < 2:
+        return unavailable
+
+    flat = stack.reshape(stack.shape[0], -1)
+    where = (np.ones(flat.shape[1], dtype=bool) if judged is None
+             else np.asarray(judged, dtype=bool).ravel())
+    if where.size != flat.shape[1] or not where.any():
+        where = np.ones(flat.shape[1], dtype=bool)
+
+    with np.errstate(invalid="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        # Against the last cut, which is the surface the run actually
+        # reports; the others are asked how far they are from it.
+        reference = flat[-1]
+        offsets = np.nanmedian(
+            (flat - reference[None, :])[:, where], axis=1)
+        aligned = flat - offsets[:, None]
+        # ddof=1: the cuts are a sample of the surface's late history, not
+        # the whole of it. With five of them the difference from ddof=0 is
+        # 12%, which is larger than several of the drifts being judged.
+        band = np.nanstd(aligned, axis=0, ddof=1)
+        typical = float(np.nanmedian(band[where]))
+        largest = float(np.nanmax(band[where]))
+
+    at = [int(x) for x in hills_at] if hills_at else []
+    span = (f"the last {100.0 * (1.0 - float(from_fraction)):.0f}% of the "
+            f"deposition")
+    return {
+        "band_kjmol": [float(x) for x in band],
+        "typical_kjmol": typical,
+        "largest_kjmol": largest,
+        "blocks": int(flat.shape[0]),
+        "hills_at": at,
+        "from_fraction": float(from_fraction),
+        # Repeated as a field so a script reading the manifest can refuse to
+        # print it as a plus-or-minus without parsing English.
+        "is_a_standard_error": False,
+        "note": (
+            f"A convergence indicator, not a standard error: the spread of "
+            f"the surface across {int(flat.shape[0])} cumulative cuts through "
+            f"{span}, aligned on the region judged. The cuts are nested and "
+            "share a single trajectory, so they cannot see how far this "
+            "surface would move in an independent run, and a coordinate that "
+            "stayed in one basin gives a narrow band for that reason. Read it "
+            "as whether the bias has settled at each point. Independent "
+            "replicas are the statistical error; the calibration experiment "
+            "is what relates the two."
+        ),
+    }
+
+
 def basins(coordinate: np.ndarray, surface: np.ndarray,
            periodic: bool = False) -> tuple[float, float] | None:
     """The two deepest minima, which are the states a crossing goes between.
@@ -452,6 +684,45 @@ def surface_from_hills_nd(
     return free - float(np.min(free))
 
 
+def cumulative_surfaces_nd(
+    hills: Hills,
+    axes: "tuple[np.ndarray, ...]",
+    *,
+    blocks: int = CONVERGENCE_BLOCKS,
+    from_fraction: float = CONVERGENCE_FROM_FRACTION,
+    periodic: "tuple[bool, ...] | None" = None,
+    chunk: int = 512,
+) -> "tuple[list[int], list[np.ndarray]]":
+    """`cumulative_surfaces` over two or more variables.
+
+    The saving matters more here. An 80 by 80 grid is 6,400 points, and
+    building five surfaces from scratch on a run with tens of thousands of
+    hills is five full passes over the deposition where one will do --
+    `bias_from_hills_nd` already takes a `start`, so each cut is the previous
+    bias plus one segment.
+    """
+    cuts = _convergence_cuts(
+        len(hills), blocks=blocks, from_fraction=from_fraction)
+    if not cuts:
+        return [], []
+
+    mesh = np.meshgrid(*axes, indexing="ij")
+    shape = mesh[0].shape
+    points = np.column_stack([m.ravel() for m in mesh])
+
+    bias = np.zeros(points.shape[0], dtype=float)
+    surfaces: list[np.ndarray] = []
+    start = 0
+    for stop in cuts:
+        bias = bias + bias_from_hills_nd(
+            hills, points, start=start, upto=stop,
+            periodic=periodic, chunk=chunk)
+        free = (-bias).reshape(shape)
+        surfaces.append(free - float(np.min(free)))
+        start = stop
+    return cuts, surfaces
+
+
 def marginal_profile(
     surface: np.ndarray, axis: int, *, temperature_K: float = 300.0
 ) -> np.ndarray:
@@ -575,6 +846,14 @@ def compute_surface(
     if not explored.any():
         explored = np.ones_like(grid, dtype=bool)
 
+    # The same movement, point by point rather than as its worst value. The
+    # verdict below is unchanged and still rests on `drift`: this is what a
+    # reader plots the surface with, and what tells them the wells are firm
+    # where the shoulder of the barrier is not.
+    cuts, later = cumulative_surfaces(hills, grid, periodic=periodic)
+    convergence = convergence_band(
+        later, judged=judged & explored, hills_at=cuts)
+
     first = float(np.mean(hills.height[:max(1, len(hills) // 20)]))
     last = float(np.mean(hills.height[-max(1, len(hills) // 20):]))
     settled = last <= SETTLED_HEIGHT_FRACTION * first if first > 0 else False
@@ -608,6 +887,13 @@ def compute_surface(
         "drift_kjmol": drift,
         "drift_ceiling_kjmol": DRIFT_CEILING_KJMOL,
         "drift_over_the_whole_grid_kjmol": drift_over_the_whole_grid,
+        # Deliberately not called an uncertainty, an error or a sigma. It is
+        # one of the two numbers a metadynamics surface deserves and it is
+        # the weaker one; the other comes from independent replicas and is
+        # not computable from a single run's files, which is the whole
+        # reason this one is labelled rather than quietly reported as a
+        # plus-or-minus.
+        "convergence": convergence,
         "recrossings": crossed,
         # Named, because "recrossings" is a word whose definition changes the
         # number. Counting sign changes of the raw coordinate gave 97 on a run
@@ -780,6 +1066,11 @@ def compute_surface_2d(
     earlier = surface_from_hills_nd(
         hills, grid, upto=int(len(hills) * 0.75), periodic=periodic)
 
+    # Cut once, marginalised per dimension below. The marginal is a log of a
+    # sum of exponentials, so it cannot be taken after averaging surfaces:
+    # each cut has to be integrated in its own right.
+    cuts, later = cumulative_surfaces_nd(hills, grid, periodic=periodic)
+
     first = float(np.mean(hills.height[:max(1, len(hills) // 20)]))
     last = float(np.mean(hills.height[-max(1, len(hills) // 20):]))
     settled = last <= SETTLED_HEIGHT_FRACTION * first if first > 0 else False
@@ -814,6 +1105,10 @@ def compute_surface_2d(
         if not judged.any():
             judged = np.ones_like(profile, dtype=bool)
         drift = float(np.max(np.abs(profile - profile_earlier)[judged]))
+        convergence = convergence_band(
+            [marginal_profile(cut, dim, temperature_K=temperature_K)
+             for cut in later],
+            judged=judged, hills_at=cuts)
 
         two_basins = basins(grid[dim], profile, periodic=periodic[dim])
         crossed: int | None = None
@@ -841,6 +1136,7 @@ def compute_surface_2d(
             "basins": (None if two_basins is None
                        else [float(x) for x in two_basins]),
             "drift_kjmol": drift,
+            "convergence": convergence,
             "recrossings": crossed,
             "barrier_kjmol": float(np.max(profile)),
             "marginal": "the other variable integrated out, not minimised over",
@@ -893,6 +1189,16 @@ def compute_surface_2d(
             "a snapshot of a filling process rather than a landscape"
         )
 
+    # The band over the surface itself, judged where it means something, and
+    # without the per-point array: on an 80 by 80 grid that is 6,400 numbers
+    # in a manifest nobody reads point by point, and the per-dimension bands
+    # above are what a reader plots against. The two summary figures are
+    # here because the marginals integrate a coordinate out, and a surface
+    # can be settled along both marginals while a corner of it is not.
+    whole = convergence_band(
+        later, judged=(surface <= DRIFT_CEILING_KJMOL), hills_at=cuts)
+    whole.pop("band_kjmol", None)
+
     evidence = {
         "hills": len(hills),
         "bias_factor": hills.bias_factor,
@@ -900,6 +1206,7 @@ def compute_surface_2d(
         "last_hill_height_kjmol": last,
         "temperature_K": float(temperature_K),
         "per_dimension": per_dimension,
+        "convergence": whole,
         "barrier_kjmol": float(np.max(surface)),
     }
 
