@@ -1099,7 +1099,7 @@ class BatchExplorer:
             print(f"  mode:    parallel ({self._resolve_workers()} workers"
                   + (f", devices={self.devices}" if self.devices else "") + ")")
         else:
-            print(f"  mode:    sequential")
+            print("  mode:    sequential")
         print("-" * 50)
 
         planned: list[RunResult] = []

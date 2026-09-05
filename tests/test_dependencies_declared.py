@@ -343,7 +343,6 @@ def test_it_reports_what_is_there_and_what_is_not() -> None:
 def test_a_backend_that_raises_on_import_is_reported_broken(tmp_path) -> None:
     """The case a real machine hits: installed, and will not load."""
     import os
-    import sys
 
     from fastmdxplora.cli.main import _probe_backends
 
@@ -371,7 +370,6 @@ def test_a_backend_that_raises_on_import_is_reported_broken(tmp_path) -> None:
 def test_the_probe_cannot_be_interrupted_by_what_it_probes(capfd) -> None:
     """The point of the subprocess: whatever the backend writes, and however
     far down it writes it, stays out of this command's output."""
-    import os
 
     from fastmdxplora.cli.main import _probe_backends
 

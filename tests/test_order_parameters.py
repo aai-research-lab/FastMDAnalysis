@@ -139,7 +139,7 @@ class TestTheAnalysisSaysWhatItRests_On:
         averaging over, and unsampled motion looks like rigidity rather
         than like noise.
         """
-        rng = np.random.RandomState(2)
+        np.random.RandomState(2)
         traj = _peptide(n_frames=400)
         # A slow drift in one amide's direction: each half is internally
         # consistent and the two disagree.

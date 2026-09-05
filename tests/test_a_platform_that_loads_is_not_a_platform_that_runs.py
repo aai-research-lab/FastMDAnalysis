@@ -20,7 +20,6 @@ candidate must be chosen instead.
 
 from __future__ import annotations
 
-import pytest
 
 from fastmdxplora.simulation import runner
 

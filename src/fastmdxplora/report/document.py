@@ -22,6 +22,7 @@ import platform
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 

@@ -22,10 +22,9 @@ from fastmdxplora.analysis.orchestrator import (
     VALID_SCOPES,
     AnalysisOrchestrator,
     _resolve_scope,
-    get_analysis_class,
     register_analysis,
 )
-from fastmdxplora.analysis.base import Analysis, AnalysisResult
+from fastmdxplora.analysis.base import Analysis
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +123,6 @@ def _register_probes():
 @pytest.fixture
 def tiny_traj(tmp_path):
     """A 2-frame, 2-residue PDB trajectory good enough to drive the orchestrator."""
-    import mdtraj as md
 
     pdb = tmp_path / "tiny.pdb"
     pdb.write_text(

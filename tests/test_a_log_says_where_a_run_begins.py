@@ -16,7 +16,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
 
 from fastmdxplora.utils.logging import _mark_a_new_run
 

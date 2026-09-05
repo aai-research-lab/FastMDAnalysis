@@ -141,9 +141,21 @@ Re-run the `rsync` as often as you like; the GUI picks up whatever is there.
 
 ## Where it runs, and who can reach it
 
-The GUI binds to `127.0.0.1`, so it is reachable from your machine and nowhere
-else. There is no authentication because there is no network exposure to
-authenticate against.
+The GUI binds to `127.0.0.1` by default, so it is reachable from your machine
+and nowhere else, and there is no authentication because on that address there
+is no network exposure to authenticate against.
+
+`--dashboard-host` will bind it elsewhere, and that sentence stops being true
+the moment you use it. **There is still no authentication.** What the flag does
+instead is refuse the endpoints that need to trust the caller: starting and
+stopping a run, opening a local folder, walking the server's filesystem for the
+folder picker, and reading a config file the caller names. Those all return 403
+on a non-loopback bind. What remains reachable is the run's own artifacts and
+its live status, which is what a colleague watching a job needs.
+
+That is a narrower exposure, not a safe one. **Prefer the SSH tunnel below to
+binding a public address**, which is the arrangement the rest of this page
+assumes.
 
 To use it against a machine you have SSH access to, forward the port rather
 than binding to a public address:

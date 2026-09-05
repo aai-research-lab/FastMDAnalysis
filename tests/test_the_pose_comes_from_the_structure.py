@@ -26,7 +26,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 from fastmdxplora.setup.ligand import pose_from_structure
 

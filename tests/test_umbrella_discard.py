@@ -14,7 +14,6 @@ barrier and the force constant, and is the same kind of judgement.
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
 from fastmdxplora.simulation.umbrella import (

@@ -87,7 +87,11 @@ def apply_style() -> None:
             "figure.facecolor": "white",
             "figure.edgecolor": "white",
             "axes.facecolor": "white",
-            "axes.edgecolor": "black",
+            # Set once. It was written twice in this literal -- "black" here
+            # and "#333333" below -- and a dict literal keeps the last, so
+            # this line had never taken effect. Removing the *later* one
+            # would have silently darkened every axis in every figure, which
+            # is why the dead line is the one that goes.
             "axes.labelcolor": "black",
             "text.color": "black",
             "xtick.color": "black",

@@ -231,7 +231,7 @@ def build_comparison_report(batch_output_dir: str | Path) -> Path | None:
         rid = run["run_id"]
         per_run_scalars[rid] = {}
         run_out = Path(run["output_dir"])
-        for analysis, (label, unit, summary_kind) in _OVERLAY_ANALYSES.items():
+        for analysis, (_label, _unit, summary_kind) in _OVERLAY_ANALYSES.items():
             series = _load_series(_run_analysis_dir(run_out, analysis))
             if series is None or not len(series):
                 continue

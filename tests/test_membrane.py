@@ -474,7 +474,6 @@ class TestWhetherTheRotationCanBeTrusted:
         """A claim from ten atoms would be a claim from nothing."""
         pytest.importorskip("openmm", reason="requires the [md] extra")
 
-        import numpy as np
 
         from fastmdxplora.setup.membrane import check_hydrophobic_belt
 

@@ -23,7 +23,6 @@ import pytest
 
 from fastmdxplora.batch import (
     BatchExplorer,
-    RunSpec,
     SweepError,
     expand_runs,
     normalize_sweep,
@@ -1065,7 +1064,6 @@ class TestEachMethodIsCheckedByItsOwnPlanner:
     validation around it is not."""
 
     def _topology(self, tmp_path):
-        import mdtraj as md
 
         path = tmp_path / "topology.pdb"
         lines, serial = [], 1

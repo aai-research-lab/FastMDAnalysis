@@ -19,7 +19,7 @@ class TestAskingForWorkersAsksForParallel:
     def _mode(execution: dict) -> str:
         from fastmdxplora.batch.explorer import BatchExplorer
 
-        explorer = BatchExplorer.__new__(BatchExplorer)
+        BatchExplorer.__new__(BatchExplorer)
         workers = execution.get("workers")
         devices = execution.get("devices")
         return execution.get("mode") or (

@@ -33,7 +33,6 @@ from fastmdxplora.simulation.metadynamics import (
     COLLECTIVE_VARIABLES,
     cv_lines,
     MetadynamicsPlan,
-    _plumed_list,
     plan_from_config,
 )
 

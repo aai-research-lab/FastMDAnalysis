@@ -27,7 +27,6 @@ from fastmdxplora.gui.live_frames import (
     dashboard_display_pdb,
     read_live_frame_history,
     write_live_frame,
-    write_openmm_live_frame,
 )
 from fastmdxplora.gui.protein_preview import protein_preview_payload
 from fastmdxplora.gui.server import (
@@ -46,7 +45,6 @@ from fastmdxplora.gui.telemetry import (
     read_status,
 )
 from fastmdxplora.gui.trajectory_playback import (
-    PlaybackUnavailable,
     neighborhood_residues,
     playback_info,
 )
@@ -468,7 +466,7 @@ def test_dashboard_display_pdb_strips_solvent_and_keeps_ligand() -> None:
 # ---------------------------------------------------------------------------
 def test_dashboard_html_uses_separated_template() -> None:
     """The HTML shell lives on disk next to the module rather than as a giant f-string."""
-    template_path = Path(make_handler.__module__.split(".")[0])
+    Path(make_handler.__module__.split(".")[0])
     import fastmdxplora.gui as gui_pkg
     layout = Path(gui_pkg.__file__).with_name("templates") / "dashboard.html"
     assert layout.is_file()
@@ -545,7 +543,7 @@ def test_dashboard_endpoint_no_inline_html_css() -> None:
     We assert the absence of known-fingerprinted fragments from the old
     inline template — a tautology-free check.
     """
-    server_path = Path(make_handler.__module__.split(".")[0])
+    Path(make_handler.__module__.split(".")[0])
     import fastmdxplora.gui as gui_pkg
     src = (Path(gui_pkg.__file__).with_name("server.py")).read_text(encoding="utf-8")
     for marker in (
@@ -1485,7 +1483,6 @@ def test_data_files_are_summarised_without_plotting(tmp_path: Path) -> None:
     assert _summarise_data_file(projection, "scatter") == "12 frames"
 
     # Malformed data raises rather than inventing a caption.
-    import pytest
 
     bad = tmp_path / "bad.dat"
     bad.write_text("1\n2\n3\n", encoding="utf-8")
@@ -3242,7 +3239,6 @@ class TestNothingPromisesASequence:
     """
 
     def test_the_setup_phase_still_refuses_it(self, tmp_path) -> None:
-        import pytest
 
         from fastmdxplora.setup.pipeline import _resolve_input
 
@@ -4381,7 +4377,6 @@ class TestOnePageForOneRun:
     def test_the_live_panels_are_on_the_overview(self) -> None:
         """Moved rather than rebuilt, so every identifier the script reads is
         where it was."""
-        import re
 
         markup = self._markup()
         start = markup.index('<section class="page" data-page="overview"')

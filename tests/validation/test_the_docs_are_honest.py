@@ -146,7 +146,6 @@ class TestTheReweightingIsDescribedAsBuilt:
         assert "Tiwary" in section
 
     def test_every_reweighted_analysis_is_named(self) -> None:
-        import re
         section = self._section().lower()
         for name, cls in _REGISTRY.items():
             if not getattr(cls, "reweightable", None):

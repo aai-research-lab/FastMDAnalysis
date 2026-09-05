@@ -310,7 +310,7 @@ class TestPipelineCallsRunner:
                   fake_result.final_state, fake_result.energy_csv, fake_result.log_file):
             p.write_text("stub")
 
-        with patch.object(_pipeline, "run_simulation", return_value=fake_result, create=True) as m:
+        with patch.object(_pipeline, "run_simulation", return_value=fake_result, create=True):
             # Force the import inside the try block to succeed
             import sys
             from types import ModuleType

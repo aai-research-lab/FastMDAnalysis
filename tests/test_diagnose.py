@@ -10,7 +10,6 @@ problem is a ligand whose parameters are wrong.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def _system(residues, atoms_per_residue=4):

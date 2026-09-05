@@ -505,7 +505,7 @@ def test_the_yaml_examples_use_keys_the_software_reads() -> None:
             normalized = normalize_systems(parsed["systems"])
             checked += 1
 
-            for original, result in zip(parsed["systems"], normalized):
+            for original, _result in zip(parsed["systems"], normalized):
                 stray = set(original) - {"system", "id"} - {
                     "setup", "simulation", "analysis", "report"}
                 assert not stray, (
@@ -694,7 +694,6 @@ class TestTheInterfaceIsCalledTheGUI:
 
     def test_the_docs_name_the_interface_consistently(self) -> None:
         import pathlib
-        import re
 
         root = pathlib.Path(__file__).resolve().parents[1]
         for page in ("docs/gui.md", "docs/simulations.md", "README.md"):

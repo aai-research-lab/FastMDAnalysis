@@ -19,7 +19,6 @@ import inspect
 
 import mdtraj as md
 import numpy as np
-import pytest
 
 from fastmdxplora.analysis.base import Analysis
 from fastmdxplora.analysis.rmsd import RMSD

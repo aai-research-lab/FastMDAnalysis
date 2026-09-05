@@ -19,8 +19,7 @@ because it takes an hour catches nothing.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Any
 
 #: The tripeptide every case uses: Ala-Gly-Ala, fourteen atoms.

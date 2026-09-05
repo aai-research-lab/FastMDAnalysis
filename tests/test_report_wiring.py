@@ -376,7 +376,7 @@ class TestDashboard:
         assert "fake" not in text.lower()
         assert "dummy" not in text.lower()
         with zipfile.ZipFile(project_with_analysis / "report" / "project_bundle.zip") as zf:
-            names = set(zf.namelist())
+            set(zf.namelist())
 
     def test_dashboard_analysis_only_phase_aware_text(self, tmp_path: Path):
         root = tmp_path / "analysis_only_dashboard"
@@ -541,7 +541,7 @@ class TestDashboard:
         with zipfile.ZipFile(
             project_with_multi_method / "report" / "project_bundle.zip"
         ) as zf:
-            names = set(zf.namelist())
+            set(zf.namelist())
         for path, data in original_pngs.items():
             assert path.read_bytes() == data
 
@@ -1399,7 +1399,6 @@ class TestWhatTheRunResolvedIsRecorded:
         assert "1.0 bar" in text
 
     def test_and_says_so_when_neither_is_known(self) -> None:
-        from pathlib import Path
 
         from fastmdxplora.report.methods import missing_from_methods
 
@@ -2052,7 +2051,6 @@ class TestTheSummarySaysWhatTheStudyWas:
     def test_the_convergence_counts_add_up(self) -> None:
         """A first version counted settled and unjudged from overlapping
         conditions, and reported three and six out of six."""
-        import re
 
         from fastmdxplora.report.document import _what_the_run_supports
 
@@ -2413,7 +2411,7 @@ class TestReproducibilitySaysWhatItReproduces:
         from fastmdxplora.report import document
 
         source = inspect.getsource(document._reproducibility_section)
-        block = source[source.index("What rerunning") - 200:]
+        source[source.index("What rerunning") - 200:]
         assert "phase_context.setup_present" in source[:source.index("What rerunning")]
 
 

@@ -183,7 +183,6 @@ class TestADataFileSaysHowToReadIt:
     """
 
     def test_a_frame_result_declares_its_header(self, tmp_path):
-        import pandas as pd
 
         from fastmdxplora.analysis.rmsd import RMSD
 

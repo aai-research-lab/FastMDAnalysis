@@ -17,12 +17,11 @@ every ion anybody simulates and would be wrong for whichever was missing.
 from __future__ import annotations
 
 import logging
-import tempfile
 from pathlib import Path
 
 import pytest
 
-from fastmdxplora.setup.heterogens import Action, resolve
+from fastmdxplora.setup.heterogens import resolve
 from fastmdxplora.setup.pipeline import _auto_ligands
 
 

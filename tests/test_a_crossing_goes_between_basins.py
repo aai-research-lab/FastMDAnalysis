@@ -18,7 +18,6 @@ felt bias.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from fastmdxplora.simulation.metad_surface import basins, transitions
 

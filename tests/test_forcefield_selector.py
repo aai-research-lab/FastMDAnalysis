@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import dataclasses
+
 import pytest
 
 from fastmdxplora.setup.forcefields import (
@@ -94,8 +96,12 @@ class TestResolveForceField:
     def test_returns_frozen_choice(self):
         c = resolve_forcefield("charmm36")
         assert isinstance(c, ForceFieldChoice)
-        with pytest.raises(Exception):
-            c.name = "other"  # frozen dataclass
+        # `dataclasses.FrozenInstanceError`, named rather than caught blind:
+        # `pytest.raises(Exception)` here would have passed on an
+        # AttributeError from a typo in the attribute name, which is the
+        # opposite of what this asserts.
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            c.name = "other"
 
 
 # ---------------------------------------------------------------------------

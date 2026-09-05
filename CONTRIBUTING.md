@@ -57,8 +57,32 @@ environment for it.
 2. Fork the repository and create a topic branch from `main`.
 3. Make your changes. Write or update tests under `tests/`.
 4. Run the test suite locally (`pytest`).
-5. Run the linter (`ruff check src tests`) and ensure it passes.
-6. Open a pull request against `main`.
+5. Run the linter. CI gates on the rules that find bugs:
+
+   ```bash
+   ruff check src tests --select F,B     # must pass; this is what CI runs
+   ruff check src tests                  # everything, including the backlog
+   ```
+
+   The second reports a further 378 findings of import order and line
+   length. Clearing them is welcome and is a commit of its own; please do not
+   fold it into a change about something else, because a 138-file mechanical
+   diff hides whatever it is carrying.
+6. If you touched setup, chemistry or a guardrail, run the corpus that
+   actually builds molecules:
+
+   ```bash
+   pytest -m network tests/validation
+   ```
+
+   `pytest.ini` deselects these by default because they fetch from RCSB and
+   run real dynamics, so an ordinary `pytest` never touches them. They run
+   nightly in CI and can be triggered by hand from the Actions tab. They are
+   also where this project's defects have historically been found: the note
+   at the top of `tests/validation/structures.py` records that every one
+   found on 2026-08-07 came from running a real structure while the suite
+   stayed green at 1,900 tests.
+7. Open a pull request against `main`.
 
 ## Coding conventions
 

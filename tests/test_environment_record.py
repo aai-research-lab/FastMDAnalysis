@@ -10,7 +10,6 @@ localise it was recorded except the one thing that decided it.
 
 from __future__ import annotations
 
-import pytest
 
 from fastmdxplora.provenance import (
     RESULT_BEARING_PACKAGES,

@@ -495,8 +495,6 @@ class TestDriftIsJudgedWhereTheSurfaceMeansSomething:
     def test_a_barrier_top_does_not_decide_a_converged_run(self) -> None:
         """Wells stable, one high point moving: the verdict should follow the
         wells."""
-        import tempfile
-        from pathlib import Path
 
         from fastmdxplora.simulation.metad_surface import (
             DRIFT_CEILING_KJMOL,

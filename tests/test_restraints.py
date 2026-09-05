@@ -209,7 +209,6 @@ class TestARestraintActuallyHolds:
         released between them. Comparing two *separate* simulations this
         way is what the test below stopped doing, and why.
         """
-        import numpy as np
         import openmm.unit as unit
 
         def positions():
@@ -241,7 +240,6 @@ class TestARestraintActuallyHolds:
         everywhere else, and its replacement read 0.32 locally and 0.55
         on the same platform. The trend does not have that problem.
         """
-        import numpy as np
         import openmm.unit as unit
 
         def positions():
@@ -353,7 +351,6 @@ class TestARestraintOnNothingIsRefused:
         pytest.importorskip("openmm", reason="requires the [md] extra")
 
         import mdtraj as md
-        import numpy as np
         import openmm as omm
 
         from fastmdxplora.simulation.restraints import (
@@ -376,7 +373,6 @@ class TestARestraintOnNothingIsRefused:
         pytest.importorskip("openmm", reason="requires the [md] extra")
 
         import mdtraj as md
-        import numpy as np
         import openmm as omm
 
         from fastmdxplora.simulation.restraints import (

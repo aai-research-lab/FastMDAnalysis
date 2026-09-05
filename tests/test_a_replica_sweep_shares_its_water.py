@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import logging
 
-import pytest
 
 from fastmdxplora.batch.explorer import (
     _say_if_the_replicas_will_not_share_water,

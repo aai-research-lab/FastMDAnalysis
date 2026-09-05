@@ -20,7 +20,7 @@ number that has to be updated whenever a default changes.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)

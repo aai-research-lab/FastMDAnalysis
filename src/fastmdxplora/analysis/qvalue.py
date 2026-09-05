@@ -50,7 +50,6 @@ from typing import Any
 import matplotlib.pyplot as plt
 import mdtraj as md
 import numpy as np
-import pandas as pd
 from scipy.special import expit
 
 from fastmdxplora.analysis.base import Analysis

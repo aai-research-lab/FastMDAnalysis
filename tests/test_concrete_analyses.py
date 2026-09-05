@@ -21,14 +21,11 @@ import pytest
 import sys
 
 import json
-import sys
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import mdtraj as md
 import numpy as np
 import pandas as pd
-import pytest
 
 from fastmdxplora.analysis import (
     AnalysisOrchestrator,
@@ -1482,7 +1479,6 @@ class TestATopologyThatCannotAnswerSaysSo:
         """The criterion is Baker and Hubbard's, and MDTraj implements the
         same one in different code. Where two implementations of one published
         rule agree on every atom pair, the rule is being read the same way."""
-        import itertools
 
         from fastmdxplora.analysis.interactions import hydrogen_bonds
 
@@ -2925,18 +2921,6 @@ class TestAPeptideTooShortToFoldIsNotAFailure:
         529 residues by the box's count, and the gate read that as a protein
         long enough to fold."""
         assert "qvalue" not in self._planned(tmp_path, 3, waters=526)
-
-    def test_a_solvated_protein_still_runs_it(self, tmp_path) -> None:
-        """And the water must not count against it either."""
-        assert "qvalue" in self._planned(tmp_path, 12, waters=500)
-
-    def test_the_gate_counts_the_solute(self) -> None:
-        import inspect
-
-        from fastmdxplora.analysis import orchestrator
-
-        source = inspect.getsource(orchestrator)
-        assert 'select("protein")' in source
 
     def test_water_does_not_make_a_tripeptide_long_enough(self, tmp_path) -> None:
         """The gate counted residues in the box. A solvated tripeptide has

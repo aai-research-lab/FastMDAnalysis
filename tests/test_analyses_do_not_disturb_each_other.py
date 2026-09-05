@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import mdtraj as md
 import numpy as np
-import pytest
 
 
 def _system(n_frames: int = 60, seed: int = 0):

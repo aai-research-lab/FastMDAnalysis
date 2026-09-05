@@ -10,7 +10,6 @@ the half it leaves out is the one the reader wanted.
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 
 import pytest

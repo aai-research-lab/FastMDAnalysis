@@ -260,6 +260,25 @@ def make_handler(
             if path == "/api/explore/defaults":
                 self._send_json(exploration_defaults())
                 return
+            if path in {"/api/browse", "/api/inspect-directory"} and not allow_control:
+                # These walk the filesystem for a folder picker, which is a
+                # reasonable thing for a tool on your own machine and not for
+                # one reachable over a network. They were outside the gate:
+                # bound to a non-loopback address the workflow-control
+                # endpoints returned 403 while `/api/browse?path=/etc` listed
+                # any directory on the host to anyone who asked, unauthenticated.
+                self._send_json(
+                    {
+                        "ok": False,
+                        "error": (
+                            "Browsing the server's filesystem is disabled "
+                            "when the dashboard is bound to a non-loopback "
+                            "address."
+                        ),
+                    },
+                    status=403,
+                )
+                return
             if path == "/api/browse":
                 # Typing a path is a poor ask, and a browser cannot offer a
                 # dialog for a folder the server will read: the one it has
@@ -412,13 +431,21 @@ def make_handler(
                 "/api/explore/stop",
                 "/api/run",
                 "/api/run-config",
+                # These two read a file the caller names and report what went
+                # wrong with it, and a parse error quotes the line it failed
+                # on. Over a network that is a file-content oracle: a planted
+                # token and an AWS key were both recovered through it, and a
+                # valid-mapping file echoes its first key. They belong with
+                # the endpoints that need the machine's trust.
+                "/api/load-config",
+                "/api/check-config",
             }:
                 self._send_json(
                     {
                         "ok": False,
                         "error": (
-                            "Workflow control is disabled when the dashboard is "
-                            "bound to a non-loopback address."
+                            "This is disabled when the dashboard is bound to a "
+                            "non-loopback address."
                         ),
                     },
                     status=403,

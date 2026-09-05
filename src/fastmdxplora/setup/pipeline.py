@@ -313,7 +313,6 @@ def _keep_heterogens(params: dict, input_pdb) -> bool:
     ``auto`` inspects the structure and decides per component, refusing to
     proceed when the structure does not determine the answer.
     """
-    from fastmdxplora.setup.heterogens import Action, resolve, summarize
 
     policy = str(params.get("heterogens", "auto")).strip().lower()
     if params.get("keep_heterogens"):

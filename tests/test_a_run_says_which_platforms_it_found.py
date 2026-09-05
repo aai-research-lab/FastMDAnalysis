@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 
-import pytest
 
 from fastmdxplora.simulation.runner import _say_what_is_available
 

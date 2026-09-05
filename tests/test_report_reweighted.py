@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 
 from fastmdxplora.report.reweighted import (
     load_reweighted,

@@ -10,7 +10,6 @@ And `--force` did not say what it would force. It overwrites results.
 
 from __future__ import annotations
 
-import pytest
 
 from fastmdxplora.batch.explorer import _clear_progress_line, _progress_line
 

@@ -11,7 +11,6 @@ verdict naming its own unreliability. This brings g(r) into line: two
 criteria, both read off the curve rather than set as thresholds.
 """
 import numpy as np
-import pytest
 
 from fastmdxplora.analysis.rdf import _is_that_a_peak
 

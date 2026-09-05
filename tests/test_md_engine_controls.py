@@ -19,7 +19,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from fastmdxplora.config import validate_config, generate_template
-from fastmdxplora.config.loader import load_config_file
 import yaml
 
 from fastmdxplora.simulation import runner as _runner
@@ -433,7 +432,7 @@ class TestFixedPdb:
         out = tmp_path / "setup"
         out.mkdir()
 
-        artifacts = setup_run(
+        setup_run(
             orchestrator=orch, output_dir=out,
             fixed_pdb=str(tmp_path / "does_not_exist.pdb"),
         )

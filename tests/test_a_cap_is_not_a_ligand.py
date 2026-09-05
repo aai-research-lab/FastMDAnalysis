@@ -18,7 +18,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from fastmdxplora.gui.ligand_detection import (
     AMINO_ACID_RESNAMES, CAPPING_RESNAMES, POLYMER_RESNAMES, detect_ligands)

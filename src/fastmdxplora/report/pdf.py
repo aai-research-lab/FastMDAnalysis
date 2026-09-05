@@ -20,7 +20,6 @@ four formats should not fail because a fifth could not be produced.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 __all__ = ["render_pdf", "PdfUnavailable", "STYLESHEET"]
 

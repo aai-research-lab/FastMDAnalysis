@@ -490,7 +490,7 @@ class TestPopulationsAreCounts:
         """The two-state case with the answer known independently, asked at
         the level a clustering reports it."""
         from fastmdxplora.analysis.reweight import (
-            KB_KJ_PER_MOL_K, weights_from_bias)
+            weights_from_bias)
         from fastmdxplora.analysis.reweighted_averages import populations
 
         rng = np.random.default_rng(1)

@@ -29,7 +29,23 @@ dependencies:
   - scikit-learn>=1.0
   - pandas>=1.4
   - python-pptx>=0.6.21
+  - scipy>=1.7
+  - pillow>=10.0
   # Molecular-dynamics chemistry stack (setup + simulation phases)
   - openmm>=8.2
   - pdbfixer
   - openmmforcefields
+  # Ligand chemistry and protonation. Absent, `resolve_ligand_chemistry`
+  # cannot perceive a ligand and pKa assignment cannot run -- so a developer
+  # set up from this file had no ligand path at all while the page describing
+  # it said they had the whole stack.
+  - rdkit
+  - propka
+  - openff-toolkit
+  # Enhanced sampling. conda-only, which is the reason this file exists:
+  # there is deliberately no `plumed` pip extra, so a clone set up any other
+  # way has no umbrella, metadynamics or steered support.
+  - openmm-plumed
+  # Reading Amber NetCDF trajectories, and rendering the report as a PDF.
+  - netcdf4
+  - weasyprint>=60

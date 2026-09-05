@@ -17,7 +17,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import pytest
 
 from fastmdxplora.utils.native_output import suppress_native_output
 

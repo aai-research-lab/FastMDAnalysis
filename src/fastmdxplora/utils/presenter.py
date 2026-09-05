@@ -729,7 +729,6 @@ class SessionPresenter:
 
         trajectory_display = resolve_trajectory_display()
 
-        report_title = arg_value("--report-title", "--title", default="FastMDXplora Run")
         # Resolve the dashboard URL from an explicitly supplied field,
         # an environment variable, or the dashboard CLI flags.
         dashboard_link = str(
@@ -768,12 +767,6 @@ class SessionPresenter:
 
         H = chr(0x2500)
         V = chr(0x2502)
-        TL = chr(0x256D)
-        TR = chr(0x256E)
-        BL = chr(0x2570)
-        BR = chr(0x256F)
-        CHECK = chr(0x2713)
-
         # One box holds every section. It is left-aligned with the startup
         # wordmark rather than centred, so the whole introduction reads as a
         # single left-hand column instead of drifting to the middle of a wide

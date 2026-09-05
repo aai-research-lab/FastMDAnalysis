@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    # 03:00 UTC daily, for the corpus job below.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
 
 # A push superseding another cancels its run. Fifteen jobs per push against
 # a twenty-job account ceiling meant an afternoon of pushes queued for hours
@@ -15,6 +19,49 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The corpus that finds what the suite does not.
+  #
+  # `pytest.ini` deselects `-m "not network"` by default and the job below
+  # runs bare `pytest`, so the 105 network-marked tests -- the whole
+  # structure corpus and the method-produces-its-result suite -- ran nowhere:
+  # not in CI, not in the documented contributor workflow, which says only
+  # "run the test suite". `tests/validation/structures.py` opens by saying
+  # every defect found on 2026-08-07 was found by running a real structure
+  # "not by the test suite, which was green at 1,900 tests throughout", and
+  # the 2026-09-04 audit was another instance of that sentence.
+  #
+  # Nightly rather than per-push because it fetches from RCSB and runs real
+  # dynamics, and `workflow_dispatch` so it can be asked for before a
+  # release. It does not gate a pull request: a corpus that fetches from the
+  # network will go red for reasons that are not the contributor's, and a
+  # required check that does that gets ignored or removed.
+  corpus:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install everything the corpus needs
+        run: |
+          python -m pip install --upgrade pip
+          # [validation] brings MDAnalysis and ProLIF, which no job has ever
+          # installed -- so `validation/cross_tool.py`, 853 lines of genuine
+          # independent comparison with pre-registered tolerances, has never
+          # been executed by CI either.
+          python -m pip install -e ".[test,md,ligand,validation]"
+
+      - name: Run the network-marked corpus
+        run: pytest -m network tests/validation -v
+
   test:
     runs-on: ${{ matrix.os }}
     # A hung leg otherwise holds a runner for the six-hour default, which
@@ -104,6 +151,29 @@ jobs:
           else
             pytest
           fi
+
+      - name: Lint
+        # CONTRIBUTING has required this since before there was a job for it,
+        # which is how 474 findings accumulated -- three of them an undefined
+        # name, one a dict literal whose earlier value could never take
+        # effect, and three of them a test function defined twice in one file
+        # so that the earlier one never ran.
+        #
+        # Gated on F and B only, and the reason is in pyproject: the E, W, I
+        # and UP backlog is 350 findings of import order and line length that
+        # would have to be cleared in one 138-file commit before this job
+        # could go green, and holding the bug-finding rules hostage to that is
+        # how a lint job ends up permanently disabled. `ruff check src tests`
+        # still reports everything, and CONTRIBUTING says which subset must
+        # pass.
+        #
+        # One OS and one version: lint findings do not vary by platform, and
+        # fifteen copies of the same answer is fifteen runner-minutes.
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        shell: bash
+        run: |
+          python -m pip install ruff
+          ruff check src tests --select F,B
 
       - name: CLI smoke test
         shell: bash

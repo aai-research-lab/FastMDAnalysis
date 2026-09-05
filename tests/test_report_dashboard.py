@@ -6,7 +6,6 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from PIL import Image
 
 from fastmdxplora.gui.report_dashboard import build_dashboard
 from fastmdxplora.report.region_highlights import (

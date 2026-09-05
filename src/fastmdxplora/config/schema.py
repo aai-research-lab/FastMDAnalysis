@@ -26,7 +26,7 @@ so a config file and the equivalent flags/kwargs produce identical runs.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 

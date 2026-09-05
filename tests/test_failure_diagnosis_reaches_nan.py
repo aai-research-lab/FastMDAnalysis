@@ -7,7 +7,7 @@ a simulation dies, not the rare one. A real run hit it and got the generic
 list of settings to try, which is what the diagnosis was written to replace.
 """
 from __future__ import annotations
-import math, types, pytest
+import math, types
 from fastmdxplora.simulation.runner import _state_for_diagnosis, _validation_error
 
 

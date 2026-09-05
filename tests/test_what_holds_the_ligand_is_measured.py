@@ -25,11 +25,12 @@ import numpy as np
 import pytest
 
 md = pytest.importorskip("mdtraj")
-Chem = pytest.importorskip("rdkit.Chem").rdchem and __import__(
-    "rdkit.Chem", fromlist=["Chem"])
+# Skip the module where RDKit is absent, then import it properly. The probe
+# used to bind `Chem` itself and was shadowed on the next line, so whichever
+# of the two was wrong, nothing would have said which.
+pytest.importorskip("rdkit.Chem")
 
 from rdkit import Chem  # noqa: E402
-from rdkit.Chem import AllChem  # noqa: E402
 
 from fastmdxplora.analysis.interactions import (  # noqa: E402
     donors_and_acceptors,

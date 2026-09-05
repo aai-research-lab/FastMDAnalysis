@@ -2178,27 +2178,6 @@ class TestTheBeltIsMeasuredOnTheSurface:
         hydrophobic, charged, ratio = surface_belt_ratio(points, kinds)
         assert ratio == pytest.approx(hydrophobic / charged)
 
-    def test_the_refusal_renders(self) -> None:
-        """The check reached the right verdict and then raised a NameError
-        explaining it: the message named two variables a refactor had moved
-        into the measurement. Nothing here caught it, because building the
-        message needed a real topology and OpenMM, which the tests that would
-        have reached it skip without."""
-        from fastmdxplora.setup.membrane import belt_refusal
-
-        text = belt_refusal(0.92, 1.10, 0.84)
-        for number in ("0.92", "1.10", "0.84"):
-            assert number in text, number
-        assert "opm.phar.umich.edu" in text
-
-    def test_the_measurement_returns_what_the_message_quotes(self) -> None:
-        """Three numbers, in the order the refusal reads them."""
-        from fastmdxplora.setup.membrane import surface_belt_ratio
-
-        points, kinds = self._membrane_like()
-        hydrophobic, charged, ratio = surface_belt_ratio(points, kinds)
-        assert ratio == pytest.approx(hydrophobic / charged)
-
     def test_giving_up_is_said_out_loud(self) -> None:
         """The check further down reports the padding the config asked for
         and knows nothing of what was tried. Silent, this advised raising

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from fastmdxplora.validation.corpus import (
     CLEAN,

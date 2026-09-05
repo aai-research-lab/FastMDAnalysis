@@ -1039,7 +1039,7 @@ def water_bridges(
     angles = _angles(traj, np.array(triples), periodic)
 
     found: list[Contact] = []
-    for frame, oxygen, ligand_atom, protein_atom, column in described:
+    for frame, _oxygen, ligand_atom, protein_atom, column in described:
         opening = float(angles[frame, column])
         if not (low < opening < high):
             continue

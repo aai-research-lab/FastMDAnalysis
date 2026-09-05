@@ -766,7 +766,6 @@ class TestTheManifestRecordsWhatTheRunLearned:
         import pandas as pd
 
         from fastmdxplora.analysis.base import Analysis
-        from fastmdxplora.analysis.orchestrator import register_analysis
 
         class _Learns(Analysis):
             name = "learns_something"

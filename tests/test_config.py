@@ -29,7 +29,7 @@ from fastmdxplora.config import (
     validate_config,
     write_resolved_config,
 )
-from fastmdxplora.config.schema import TOP_LEVEL, all_schemas
+from fastmdxplora.config.schema import all_schemas
 from fastmdxplora.cli.main import main as cli_main
 
 

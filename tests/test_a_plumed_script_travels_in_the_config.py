@@ -24,7 +24,6 @@ import yaml
 from fastmdxplora.config.languages import (
     UntranslatableSetting,
     cli_command,
-    python_script,
 )
 from fastmdxplora.config.schema import PHASE_SCHEMAS
 from fastmdxplora.gui.browse import KINDS
