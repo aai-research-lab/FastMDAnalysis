@@ -104,3 +104,58 @@ class TestTheHarnessCanFail:
             "nested", lambda: {"thermo": {"not_a_measurement": "fixed box"}},
             "qualified", "the caveat is one level in")
         assert run_case(nested).agreed
+
+
+class TestTheCleanCorpusIsLargeEnoughToClaimSomething:
+    """Zero false refusals in seven cases excludes very little.
+
+    The exact 95% upper bound on a rate given zero failures in n trials is
+    1 - 0.05**(1/n): 35% at seven, 18% at fifteen. The registration asked
+    for fifteen because specificity is the half of V6 that is not a
+    foregone conclusion -- a checker that refused everything would score
+    perfectly on the defect corpus, and only the clean corpus separates
+    the two.
+    """
+
+    def test_the_clean_corpus_meets_its_registration(self) -> None:
+        from fastmdxplora.validation.corpus import CLEAN
+
+        assert len(CLEAN) >= 15, (
+            f"{len(CLEAN)} clean cases; zero refusals there is consistent "
+            f"with a true rate below {100 * (1 - 0.05 ** (1 / len(CLEAN))):.0f}%, "
+            "and the pre-registration named fifteen")
+
+    def test_every_case_is_named_once(self) -> None:
+        """Two cases sharing a name make the rates uninterpretable."""
+        from fastmdxplora.validation.corpus import CLEAN, DEFECTS
+
+        names = [c.name for c in DEFECTS] + [c.name for c in CLEAN]
+        assert len(names) == len(set(names))
+
+    def test_no_case_is_written_and_left_unwired(self) -> None:
+        """`_a_torsion_read_as_a_straight_line` was defined, complete, and
+        referenced nowhere -- a guardrail case that exists and never runs
+        is the same as one that does not exist. Wiring it in showed it does
+        not fire on its own data, so it stays out and stays named here
+        rather than sitting silently in the module."""
+        import inspect
+
+        from fastmdxplora.validation import corpus
+
+        wired = {c.run for c in corpus.DEFECTS} | {c.run for c in corpus.CLEAN}
+        known_unwired = {"_a_torsion_read_as_a_straight_line"}
+        defined = {
+            name for name, obj in vars(corpus).items()
+            if name.startswith("_") and inspect.isfunction(obj)
+            and obj.__module__ == corpus.__name__
+            and not name.startswith("__")
+        }
+        helpers = {"_classify", "_numpy", "_hills", "_peptide", "_gas",
+                   "_qualification"}
+        orphans = {
+            n for n in defined - helpers
+            if vars(corpus)[n] not in wired
+            and inspect.signature(vars(corpus)[n]).parameters == {}
+        } - known_unwired
+        assert not orphans, (
+            f"case functions defined and never run: {sorted(orphans)}")

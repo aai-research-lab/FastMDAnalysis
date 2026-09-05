@@ -570,6 +570,208 @@ def _a_malformed_save_selection():
     return resolve_save_selection(top, "protien")
 
 
+# ---------------------------------------------------------------------------
+# The clean half, extended. Seven cases could not exclude a false-refusal
+# rate of 35% at 95% confidence -- zero refusals in seven trials is
+# consistent with a rate anywhere below about a third, which is not the
+# claim V6 was designed to make. Fifteen brings that bound to 18%.
+#
+# Written as mirrors of the defect cases wherever one existed: a pair
+# differing in one named thing isolates what the guardrail is actually
+# keying on. A clean corpus of unrelated studies would raise the count
+# without testing the discrimination.
+# ---------------------------------------------------------------------------
+
+
+def _q_on_a_chain_long_enough() -> Any:
+    """The mirror of the three-residue chain: a hairpin has real contacts."""
+    import mdtraj as md
+    np = _numpy()
+    from fastmdxplora.analysis.qvalue import QValue
+
+    n = 24
+    top = md.Topology()
+    chain = top.add_chain()
+    for i in range(n):
+        res = top.add_residue("ALA", chain, resSeq=i + 1)
+        top.add_atom("CA", md.element.carbon, res)
+    # A hairpin: two strands 0.5 nm apart, so residue i contacts n-1-i and
+    # the sequence separation is real rather than a neighbour effect.
+    half = n // 2
+    xyz = np.zeros((5, n, 3), dtype="float32")
+    for i in range(half):
+        xyz[:, i, 0] = i * 0.38
+        xyz[:, n - 1 - i, 0] = i * 0.38
+        xyz[:, n - 1 - i, 1] = 0.5
+    return QValue(selection="all").compute(md.Trajectory(xyz, top))
+
+
+def _a_surface_where_both_coordinates_moved() -> Any:
+    """The mirror of the stuck dimension: both variables visit both basins."""
+    import tempfile
+    from pathlib import Path
+
+    np = _numpy()
+    from fastmdxplora.simulation.metad_surface import compute_surface_2d
+
+    rng = np.random.RandomState(0)
+    n = 800
+    heights = 1.2 * np.exp(-np.linspace(0, 3.5, n))
+    first = (np.where(rng.rand(n) < 0.5, -1.0, 1.0)
+             + rng.normal(scale=0.25, size=n))
+    second = (np.where(rng.rand(n) < 0.5, -1.0, 1.0)
+              + rng.normal(scale=0.25, size=n))
+    path = Path(tempfile.mkdtemp()) / "HILLS"
+    with path.open("w") as fh:
+        fh.write("#! FIELDS time cv1 cv2 sigma_cv1 sigma_cv2 height biasf\n")
+        for t, (a, b), h in zip(range(n), np.column_stack([first, second]),
+                                heights):
+            fh.write(f"{t * 0.5:.3f} {a:.5f} {b:.5f} 0.2000 0.2000 "
+                     f"{h:.6f} 10.0\n")
+    return compute_surface_2d(
+        path, np.column_stack([first, second]), points=40,
+        names=("phi", "psi"))
+
+
+def _density_at_constant_pressure() -> Any:
+    """The mirror of the constant-volume run: here the box breathes, so the
+    density is a measurement and carries an error."""
+    import tempfile
+    from pathlib import Path
+
+    np = _numpy()
+    from fastmdxplora.analysis.thermodynamics import Thermodynamics
+
+    rng = np.random.RandomState(0)
+    lines = ['#"Step","Time (ps)","Potential Energy (kJ/mole)",'
+             '"Kinetic Energy (kJ/mole)","Total Energy (kJ/mole)",'
+             '"Temperature (K)","Box Volume (nm^3)","Density (g/mL)"']
+    for i in range(300):
+        pot = -12000 + rng.normal(scale=40)
+        kin = 3000 + rng.normal(scale=30)
+        volume = 64.0 + rng.normal(scale=0.35)
+        lines.append(f"{i * 500},{i * 1.0},{pot:.4f},{kin:.4f},"
+                     f"{pot + kin:.4f},{300 + rng.normal(scale=3):.4f},"
+                     f"{volume:.6f},{0.997 * 64.0 / volume:.6f}")
+    path = Path(tempfile.mkdtemp()) / "state_data.csv"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    analysis = Thermodynamics(state_csv=str(path))
+    analysis.compute(None)
+    return analysis.findings["thermodynamics"]
+
+
+def _a_selection_that_keeps_something() -> Any:
+    """The mirror of the two broken save selections: this one is ordinary."""
+    import mdtraj as md
+    from fastmdxplora.simulation.runner import resolve_save_selection
+
+    top = md.Topology()
+    chain = top.add_chain()
+    for i in range(6):
+        res = top.add_residue("ALA", chain, resSeq=i + 1)
+        top.add_atom("CA", md.element.carbon, res)
+    water = top.add_chain()
+    for i in range(4):
+        res = top.add_residue("HOH", water, resSeq=100 + i)
+        top.add_atom("O", md.element.oxygen, res)
+    kept, described = resolve_save_selection(top, "not water")
+    # Not under `capped`: the harness reads any truthy `capped` as a
+    # qualification, and "6 of 10 atoms (not water)" is a statement of what
+    # was saved rather than a caveat about it. Filed under `capped` this
+    # ordinary selection scored as qualified, which would have made the
+    # software look more obstructive than it is -- the exact confusion this
+    # module's docstring warns against.
+    return {"kept": int(len(kept)), "selection_described": described}
+
+
+def _a_torsion_with_two_states_on_the_circle() -> Any:
+    """A torsion sampling two rotamers that are genuinely apart.
+
+    Written as a mirror of reading a torsion as a straight line, and the
+    first attempt got the physics backwards: rotamers at -3.0 and +3.0 rad
+    are 0.28 rad apart *across the wrap*, so on a circle they are one state
+    and refusing to name a barrier between them is the correct answer, not
+    a false refusal. Placed at 0 and pi they are as far apart as a circle
+    allows, and the barrier between them is real.
+    """
+    np = _numpy()
+    from fastmdxplora.simulation.metad_surface import compute_surface
+
+    n = 1200
+    rng = np.random.RandomState(1)
+    centres = (np.where(rng.rand(n) < 0.5, 0.0, np.pi)
+               + rng.normal(scale=0.25, size=n))
+    centres = (centres + np.pi) % (2 * np.pi) - np.pi
+    return compute_surface(
+        _hills(centres, 1.2 * np.exp(-np.linspace(0, 3.5, n))),
+        centres, points=60, periodic=True)
+
+
+def _crystallographic_water_retained_on_request() -> Any:
+    """Keeping the waters is ordinary, and used to be impossible.
+
+    `keep_water: true` marked them SIMULATE, which routed them into the
+    ligand path, and the run refused a local file by advising the reader to
+    download chemistry for water. Kept here so the fix is a corpus case
+    rather than only a unit test.
+    """
+    import tempfile
+    from pathlib import Path
+
+    from fastmdxplora.setup.pipeline import _auto_ligands
+
+    lines = ["ATOM      1  CA  ALA A   1      10.000  10.000  10.000"
+             "  1.00  0.00           C"]
+    for i in range(3):
+        lines.append(f"HETATM{i + 2:5d}  O   HOH A{600 + i:4d}    "
+                     f"{20.0 + 3.5 * i:8.3f}{10.0:8.3f}{10.0:8.3f}"
+                     f"  1.00  0.00           O")
+    tmp = Path(tempfile.mkdtemp())
+    structure = tmp / "waters.pdb"
+    structure.write_text("\n".join(lines) + "\nEND\n", encoding="utf-8")
+    written = _auto_ligands({"heterogens": "auto", "keep_water": True},
+                            structure, tmp, None)
+    return {"ligand_files": list(written)}
+
+
+def _a_lone_ion_kept_without_chemistry() -> Any:
+    """A structural zinc needs no SDF: a monatomic component has no bonds
+    for one to describe, and the protein force field carries it."""
+    import tempfile
+    from pathlib import Path
+
+    from fastmdxplora.setup.pipeline import _auto_ligands
+
+    lines = [
+        "ATOM      1  NE2 HIS A  10      10.000  10.000  10.000"
+        "  1.00  0.00           N",
+        "HETATM    2 ZN    ZN A 401      10.200  10.000  10.000"
+        "  1.00  0.00          ZN",
+    ]
+    tmp = Path(tempfile.mkdtemp())
+    structure = tmp / "zinc.pdb"
+    structure.write_text("\n".join(lines) + "\nEND\n", encoding="utf-8")
+    return {"ligand_files": list(
+        _auto_ligands({"heterogens": "auto"}, structure, tmp, None))}
+
+
+def _umbrella_windows_that_overlap() -> Any:
+    """The quiet side of the overlap gate: neighbours sharing ground are
+    recombined without comment."""
+    np = _numpy()
+    from fastmdxplora.simulation.umbrella import compute_pmf, plan_windows
+
+    plan = plan_windows({
+        "collective_variable": "distance",
+        "selection_a": "resid 1", "selection_b": "resid 2",
+        "force_constant": 1000.0, "from": 0.4, "to": 1.2, "n_windows": 9,
+    })
+    rng = np.random.RandomState(0)
+    samples = {w.index: w.centre + rng.normal(scale=0.075, size=1200)
+               for w in plan.windows}
+    return compute_pmf(samples, plan, bootstrap_resamples=0)
+
+
 #: Studies with one named thing wrong. The expected answer was written
 #: before any of them was run.
 DEFECTS: list[Case] = [
@@ -664,4 +866,35 @@ CLEAN: list[Case] = [
     Case("a box that already fits its cutoff",
          _a_box_that_already_fits, "proceeded",
          "no growing was needed, so nothing is reported about it"),
+    Case("fraction of native contacts on a chain long enough to have a fold",
+         _q_on_a_chain_long_enough, "proceeded",
+         "a hairpin puts residues far apart in sequence within contact "
+         "distance, which is what Q measures"),
+    Case("a two-dimensional surface where both coordinates moved",
+         _a_surface_where_both_coordinates_moved, "proceeded",
+         "both variables visited both basins, so neither axis is the "
+         "shape of the bias"),
+    Case("density from a constant-pressure run",
+         _density_at_constant_pressure, "proceeded",
+         "the box breathes, so the density is measured rather than set"),
+    Case("a save selection that keeps what was asked for",
+         _a_selection_that_keeps_something, "proceeded",
+         "the selection matches atoms, so there is nothing to cap or "
+         "correct"),
+    Case("a torsion with two states on the circle",
+         _a_torsion_with_two_states_on_the_circle, "proceeded",
+         "two rotamers half a turn apart are two states however the "
+         "coordinate is read, so there is a barrier to report"),
+    Case("crystallographic water retained on request",
+         _crystallographic_water_retained_on_request, "proceeded",
+         "the water model is part of the force field, so there is no "
+         "chemistry to retrieve and nothing to refuse over"),
+    Case("a lone ion kept without chemistry",
+         _a_lone_ion_kept_without_chemistry, "proceeded",
+         "a monatomic component has no bonds for an SDF to describe and "
+         "the protein force field carries its parameters"),
+    Case("umbrella windows that overlap",
+         _umbrella_windows_that_overlap, "proceeded",
+         "neighbours share ground, so the recombination rests on sampling "
+         "rather than on interpolation across a gap"),
 ]
