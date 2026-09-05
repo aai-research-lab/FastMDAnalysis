@@ -26,6 +26,7 @@ parameterised.
 
 from __future__ import annotations
 
+import io
 import logging
 from pathlib import Path
 
@@ -70,12 +71,28 @@ class TestWaterIsKeptWithoutBeingFetched:
         and neither could any structure whose waters were asked for."""
         assert _auto_ligands(KEEP, _structure(tmp_path), tmp_path, None) == []
 
-    def test_it_says_what_it_kept_and_why(
-            self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-        with caplog.at_level(logging.INFO):
+    def test_it_says_what_it_kept_and_why(self, tmp_path: Path) -> None:
+        """Captured from the module's own logger rather than through
+        `caplog`. `caplog` attaches to the root and depends on propagation
+        surviving whatever the rest of the suite did to logging: this test
+        passed alone and on a clean 3.9, and came back with an empty
+        `caplog.text` inside the full run on CI. A handler on the named
+        logger does not care what else has happened."""
+        logger = logging.getLogger("fastmdx.setup")
+        stream = io.StringIO()
+        handler = logging.StreamHandler(stream)
+        handler.setLevel(logging.INFO)
+        previous = logger.level
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+        try:
             _auto_ligands(KEEP, _structure(tmp_path), tmp_path, None)
-        assert "HOH" in caplog.text
-        assert "water model is part of the force field" in caplog.text
+        finally:
+            logger.removeHandler(handler)
+            logger.setLevel(previous)
+        said = stream.getvalue()
+        assert "HOH" in said
+        assert "water model is part of the force field" in said
 
     def test_no_chemistry_is_fetched_even_with_an_entry_to_look_it_up(
             self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
