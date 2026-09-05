@@ -507,7 +507,9 @@ def _auto_ligands(params: dict, input_pdb, setup_dir, entry_id: str | None) -> l
         available_forcefields,
         resolve_forcefield,
     )
-    from fastmdxplora.setup.heterogens import Action, resolve, summarize
+    from fastmdxplora.setup.heterogens import (
+        WATER_NAMES, Action, resolve, summarize,
+    )
     from fastmdxplora.setup.protonation import (
         POISED_MARGIN, apply_settled_state, settle,
     )
@@ -531,7 +533,32 @@ def _auto_ligands(params: dict, input_pdb, setup_dir, entry_id: str | None) -> l
                       for d in ions),
             "ions" if len(ions) > 1 or ions[0].count > 1 else "an ion")
 
-    wanted = [d for d in simulate if not d.is_monatomic]
+    # And water, for the same reason with more force behind it. The water
+    # model *is* part of the force field -- `amber14/tip3p.xml` carries HOH
+    # directly -- so `HOH_ideal.sdf` describes a molecule the solvent is
+    # already parameterising. Retained crystallographic water arrives here
+    # because `keep_water: true` marks it SIMULATE, and the ion exemption
+    # directly above was written for exactly this shape and never extended
+    # to it.
+    #
+    # Both outcomes were wrong and the quieter one was worse. From a local
+    # file the run refused, advising the user to `curl` chemistry for water.
+    # From a PDB identifier the fetch succeeds, and the retained waters are
+    # parameterised by openff as a small molecule -- a different water model
+    # from the solvent poured around them, in the same box, with nothing
+    # said.
+    waters = [d for d in simulate if d.resname in WATER_NAMES]
+    if waters:
+        logger.info(
+            "Keeping %s as water: the water model is part of the force "
+            "field, so there is no chemistry to retrieve and no separate "
+            "parameterisation to give it.",
+            ", ".join(f"{d.resname} x{d.count}" if d.count > 1 else d.resname
+                      for d in waters),
+        )
+
+    wanted = [d for d in simulate
+              if not d.is_monatomic and d.resname not in WATER_NAMES]
     if not wanted:
         return []
 
