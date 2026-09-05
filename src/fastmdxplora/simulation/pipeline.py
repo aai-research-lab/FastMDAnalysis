@@ -188,7 +188,9 @@ def _write_steered_work(output_dir: Path, params: dict, presenter: Any) -> str |
     return "steered_work.json"
 
 
-def _write_metadynamics_surface(output_dir: Path, presenter: Any) -> str | None:
+def _write_metadynamics_surface(
+    output_dir: Path, presenter: Any, temperature_K: float = 300.0
+) -> str | None:
     """Build the free energy surface beside the run, or record why not.
 
     Either way a file is written. A refusal that leaves no trace is a run that
@@ -241,8 +243,15 @@ def _write_metadynamics_surface(output_dir: Path, presenter: Any) -> str | None:
             # other, and a single flag for both wraps the distance around
             # a circle it does not live on.
             names = tuple(f"cv{i + 1}" for i in range(n_dims))
+            # The run's temperature, not the default. `marginal_profile`
+            # integrates a dimension out through exp(-F/kT), so at 350 K a
+            # 300 K constant misstated a basin free-energy difference by
+            # 0.81 kJ/mol on the reproduced case -- and the error is
+            # entropic, which is exactly the part the marginal exists to
+            # capture. The one-dimensional path had always passed it.
             outcome = compute_surface_2d(
-                hills, sampled, periodic=per_dim, names=names)
+                hills, sampled, periodic=per_dim, names=names,
+                temperature_K=float(temperature_K))
     except ValueError as exc:
         outcome = {"surface": None, "grid": None, "refused": str(exc)}
 
@@ -282,7 +291,8 @@ def _write_metadynamics_surface(output_dir: Path, presenter: Any) -> str | None:
         else:
             barrier = outcome["evidence"]["barrier_kjmol"]
             presenter.step(
-                f"Free energy surface: barrier {barrier:.1f} kJ/mol")
+                f"Free energy surface: barrier {barrier:.1f} kJ/mol",
+                explain="metadynamics")
     return "metadynamics_surface.json"
 
 
@@ -494,7 +504,9 @@ def run(
         # and got one with nothing attached. Umbrella sampling went from a
         # config block to a curve or a refusal; this went to a pair of files.
         if params.get("metadynamics"):
-            written = _write_metadynamics_surface(output_dir, presenter)
+            written = _write_metadynamics_surface(
+                output_dir, presenter,
+                temperature_K=float(params["temperature_K"]))
             if written is not None:
                 artifacts.append(written)
 

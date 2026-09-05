@@ -564,6 +564,17 @@ def compute_surface(
     drift = float(np.max(difference[judged]))
     drift_over_the_whole_grid = float(np.max(difference))
 
+    # Where the run actually put hills. For a periodic variable the grid is
+    # always the whole turn -- see the `linspace(-pi, pi)` above -- so a run
+    # that explored two thirds of it still has a surface defined on all of
+    # it, built from the tails of Gaussians rather than from deposition.
+    # Taking the barrier as a maximum over that is reading a number off
+    # ground nothing visited.
+    explored = (grid >= float(np.min(hills.centre))) & (
+        grid <= float(np.max(hills.centre)))
+    if not explored.any():
+        explored = np.ones_like(grid, dtype=bool)
+
     first = float(np.mean(hills.height[:max(1, len(hills) // 20)]))
     last = float(np.mean(hills.height[-max(1, len(hills) // 20):]))
     settled = last <= SETTLED_HEIGHT_FRACTION * first if first > 0 else False
@@ -619,7 +630,16 @@ def compute_surface(
              "there is no second basin to travel to and this says whether "
              "the coordinate moved rather than whether it changed state")
         ),
-        "barrier_kjmol": float(np.max(surface)),
+        # Measured where the hills actually went, not across the whole grid.
+        # For a periodic variable the grid is always the full turn, so a run
+        # that explored two thirds of it had its barrier taken as a maximum
+        # over an arc no hill was deposited on -- which is the identical
+        # failure `umbrella.describe_pmf` was written to fix, its docstring
+        # recording "a real study looked to have a 164 kJ/mol barrier that
+        # way, against 11 measured where the windows actually were". The
+        # umbrella side was corrected and this one was not.
+        "barrier_kjmol": float(np.max(surface[explored])),
+        "covered": [float(np.min(hills.centre)), float(np.max(hills.centre))],
     }
 
     reasons: list[str] = []

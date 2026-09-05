@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Sequence, Union
 
 import mdtraj as md
+import numpy as np
 
 from fastmdxplora.utils.logging import get_logger
 
@@ -159,6 +160,44 @@ def _made_whole(trajectory: md.Trajectory) -> md.Trajectory:
     return trajectory
 
 
+def _with_one_clock(trajectory: md.Trajectory, n_files: int) -> md.Trajectory:
+    """One time axis across files, rather than each shot keeping its own.
+
+    ``md.load([run01.dcd, run02.dcd])`` concatenates the coordinates and
+    leaves every file's ``time`` starting where that file started, so a
+    two-shot load comes back with `[0..9, 0..9]`. Every time-series figure
+    then draws an x axis that runs forward, jumps back, and overplots the
+    second half on the first; `water_sites` computes residence from
+    `time[-1] - time[0]` and gets the length of one shot. The docstring
+    advertises exactly this usage -- "name them run01.dcd, run02.dcd ... for
+    multi-shot data".
+
+    Each block is re-offset to continue the one before it, keeping the
+    spacing the files carry. Where the time is already monotonic -- one file,
+    or files whose clocks were written continuously -- nothing is touched.
+    """
+    time = getattr(trajectory, "time", None)
+    if n_files < 2 or time is None or len(time) < 2:
+        return trajectory
+    if np.all(np.diff(time) > 0):
+        return trajectory
+
+    step = float(np.median(np.diff(time)[np.diff(time) > 0])) if np.any(
+        np.diff(time) > 0) else 1.0
+    mended = np.array(time, dtype=float)
+    for index in range(1, len(mended)):
+        if mended[index] <= mended[index - 1]:
+            mended[index:] += mended[index - 1] - mended[index] + step
+    trajectory.time = mended
+    logger.info(
+        "The %d trajectory files each carried their own clock, so the time "
+        "axis ran backwards where one ended and the next began. They are "
+        "joined end to end at the interval the files use (%.4g ps); frame "
+        "order is unchanged.", n_files, step,
+    )
+    return trajectory
+
+
 def load_trajectory(
     traj: TrajectoryInput,
     top: PathLike | None = None,
@@ -253,6 +292,7 @@ def load_trajectory(
         trajectory = md.join(trajectory)
 
     trajectory = _made_whole(trajectory)
+    trajectory = _with_one_clock(trajectory, len(traj_paths))
 
     if first is not None or last is not None:
         n = trajectory.n_frames

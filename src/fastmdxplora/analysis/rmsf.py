@@ -145,7 +145,16 @@ class RMSF(Analysis):
                 label = int(res.resSeq)
             except (AttributeError, TypeError):
                 label = ridx
-            rows.append((label, float(np.mean(residues[ridx]))))
+            # sqrt(mean(MSF)), which is what `rmsf -res` and cpptraj
+            # report and therefore what a published per-residue RMSF is.
+            # Averaging the RMSF instead reads low wherever a residue has
+            # one mobile atom among several rigid ones -- 0.1985 nm against
+            # 0.2951 on one floppy atom in four -- and the number is then
+            # not comparable with anything. Only bites for a multi-atom
+            # selection; the "name CA" default is one atom per residue and
+            # the two expressions coincide there.
+            values = np.asarray(residues[ridx], dtype=float)
+            rows.append((label, float(np.sqrt(np.mean(values ** 2)))))
 
         return np.array(rows, dtype=np.float64)
 

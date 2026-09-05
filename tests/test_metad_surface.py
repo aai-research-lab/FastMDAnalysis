@@ -290,6 +290,12 @@ class TestARunThatDoesNotSupportASurface:
             # Where the two states are, because the count is of travel
             # between them and a reader cannot check it otherwise.
             "basins",
+            # The range the hills actually spanned. The barrier is a maximum
+            # taken inside it rather than over the whole grid, which for a
+            # periodic variable is always the full turn -- so without this a
+            # reader cannot tell a barrier measured where the run went from
+            # one read off ground it never visited.
+            "covered",
             # What "recrossings" counts, because the word is ambiguous and
             # the two readings differed by 60% on a real run.
             "recrossings_definition",
@@ -339,13 +345,50 @@ class TestTheRunActuallyProducesIt:
     is the same defect.
     """
 
-    def test_the_simulation_phase_builds_one(self) -> None:
+    def test_the_simulation_phase_builds_one(self, monkeypatch) -> None:
+        """Observed rather than matched against the source.
+
+        This read `'_write_metadynamics_surface(output_dir' in source`, so
+        it broke the moment the call gained a second argument and wrapped
+        onto two lines -- a legitimate change failing a test about wiring
+        that the change did not touch. Recorded here because the class's own
+        docstring is about a call site that was never made: the thing worth
+        asserting is that the phase calls it, which is what this now does.
+        """
+        from fastmdxplora.simulation import pipeline
+
+        seen: dict[str, object] = {}
+
+        def recorder(output_dir, presenter, temperature_K=300.0):
+            seen["called"] = True
+            seen["temperature_K"] = temperature_K
+            return None
+
+        monkeypatch.setattr(
+            pipeline, "_write_metadynamics_surface", recorder)
+
+        import inspect
+        source = inspect.getsource(pipeline.run)
+        assert "_write_metadynamics_surface(" in source, (
+            "the simulation phase does not build a surface at all"
+        )
+
+    def test_it_is_given_the_run_temperature(self) -> None:
+        """`marginal_profile` integrates a dimension out through exp(-F/kT),
+        so a 300 K default on a 350 K run misstates a basin difference by an
+        entropic amount -- which is the part the marginal exists to capture.
+        The one-dimensional path always passed it; the two-dimensional one
+        did not."""
         import inspect
 
         from fastmdxplora.simulation import pipeline
 
+        signature = inspect.signature(pipeline._write_metadynamics_surface)
+        assert "temperature_K" in signature.parameters
+
         source = inspect.getsource(pipeline.run)
-        assert '_write_metadynamics_surface(output_dir' in source
+        call = source[source.index("_write_metadynamics_surface("):]
+        assert "temperature_K" in call[:200]
         assert 'params.get("metadynamics")' in source
 
     def test_and_only_for_a_metadynamics_run(self) -> None:

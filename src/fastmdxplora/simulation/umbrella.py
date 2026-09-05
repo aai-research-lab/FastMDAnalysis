@@ -478,10 +478,16 @@ def windows_that_drifted(
     somewhere another window was supposed to be.
     """
     ordered = [w for w in plan.windows if w.index in samples]
+    periodic = getattr(plan, "collective_variable", None) in PERIODIC_VARIABLES
     drifted: list[dict[str, Any]] = []
     for position, window in enumerate(ordered):
+        # The spacing to a neighbour is a distance on the coordinate, and on
+        # a circle the first and last windows are neighbours -- so this is
+        # the short way round too, or the window at the wrap is allowed a
+        # tolerance set by the whole turn.
         neighbours = [
-            abs(other.centre - window.centre)
+            float(np.abs(displacement(
+                np.array([other.centre]), window.centre, periodic)[0]))
             for offset in (-1, 1)
             if 0 <= position + offset < len(ordered)
             for other in [ordered[position + offset]]
@@ -489,8 +495,25 @@ def windows_that_drifted(
         if not neighbours:
             continue
         allowed = 0.5 * min(neighbours)
-        sat_at = float(np.median(samples[window.index]))
-        away = abs(sat_at - window.centre)
+        # Measured with `displacement`, which is in this module for exactly
+        # this and was not used here. On a torsion, twelve windows tiling the
+        # full turn -- every one drawing an exact Boltzmann distribution
+        # about its own centre, so nothing had drifted -- reported the window
+        # straddling +-pi as 0.488 rad away, and the refusal that follows
+        # advises holding it harder with a larger force_constant. The wrong
+        # remedy, aimed at the one window behaving perfectly.
+        #
+        # The centre of a circular sample is its circular mean, not its
+        # median: a median of values either side of the wrap lands opposite
+        # where they are.
+        held = samples[window.index]
+        if periodic:
+            sat_at = float(np.arctan2(np.mean(np.sin(held)),
+                                      np.mean(np.cos(held))))
+        else:
+            sat_at = float(np.median(held))
+        away = float(np.abs(displacement(
+            np.array([sat_at]), window.centre, periodic)[0]))
         if away > allowed:
             drifted.append({
                 "window": window.index,
@@ -674,6 +697,16 @@ def displacement(values: Any, centre: float, periodic: bool) -> np.ndarray:
     return np.remainder(difference + np.pi, 2.0 * np.pi) - np.pi
 
 
+#: How still the window free energies must be before WHAM is done, in
+#: kJ/mol. Reached in a few hundred iterations for overlapping windows and
+#: not reached at all for disjoint stiff ones, which is why what the loop
+#: finished at is reported rather than assumed.
+WHAM_TOLERANCE_KJMOL = 1e-6
+
+#: Iterations before the loop gives up and says so.
+WHAM_MAX_ITERATIONS = 2000
+
+
 def compute_pmf(
     samples: dict[int, np.ndarray],
     plan: UmbrellaPlan,
@@ -813,6 +846,9 @@ def compute_pmf(
 
     # WHAM, iterated to self-consistency. MBAR is better where it is
     # available, and this needs no dependency for the common case.
+    #
+    # `WHAM_TOLERANCE_KJMOL` and the iteration ceiling are module constants so
+    # a study that wants to know can read what it was held to.
     kT = KB_KJ * float(temperature_K)
     everything = np.concatenate([samples[w.index] for w in ordered])
     edges = np.linspace(everything.min(), everything.max(), bins + 1)
@@ -830,7 +866,15 @@ def compute_pmf(
     ])
 
     free_energies = np.zeros(len(ordered))
-    for _ in range(2000):
+    # What the loop finished at, so the caller can be told. It used to run to
+    # 2000 and stop with no `else`, no flag and no field in the returned
+    # dict: nine stiff windows finished at 4.2e-05 against a 1e-06 tolerance
+    # and the PMF was reported as though it had settled. A number produced by
+    # an iteration that ran out is not the same number as one that converged,
+    # and nothing said which this was.
+    residual = float("inf")
+    converged = False
+    for _ in range(WHAM_MAX_ITERATIONS):
         weights = np.exp((free_energies[:, None] - bias) / kT)
         denominator = (n_per_window[:, None] * weights).sum(axis=0)
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -840,10 +884,11 @@ def compute_pmf(
             np.clip((probability[None, :] * np.exp(-bias / kT)).sum(axis=1),
                     1e-300, None))
         updated -= updated[0]
-        if np.max(np.abs(updated - free_energies)) < 1e-6:
-            free_energies = updated
-            break
+        residual = float(np.max(np.abs(updated - free_energies)))
         free_energies = updated
+        if residual < WHAM_TOLERANCE_KJMOL:
+            converged = True
+            break
 
     # The floor belongs in the iteration, where log(0) would poison the
     # self-consistency loop, and not in what comes out of it. Carried through,
@@ -896,4 +941,9 @@ def compute_pmf(
         "refused": None,
         "temperature_K": float(temperature_K),
         "n_windows": len(ordered),
+        # Stated rather than implied. A caller reading `pmf` has no other way
+        # to tell an answer that settled from one that ran out of iterations.
+        "converged": converged,
+        "final_residual_kjmol": None if residual == float("inf") else residual,
+        "wham_tolerance_kjmol": WHAM_TOLERANCE_KJMOL,
     }

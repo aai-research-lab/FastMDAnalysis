@@ -319,3 +319,184 @@ class TestTheReportersAreClosedWhateverHappens:
             "the detach is inside the try or the except, so an exception "
             "between attaching a reporter and reaching it leaks the handle"
         )
+
+
+# ---------------------------------------------------------------------------
+# Batch 6: the seven the batching missed, plus AUD30's count.
+# ---------------------------------------------------------------------------
+
+class TestTheWhamLoopSaysWhetherItSettled:
+    """AUD38. It ran to 2000 and stopped with no `else`, no flag and no
+    field: nine stiff windows finished at 4.2e-05 against a 1e-06 tolerance
+    and the PMF was reported as though it had converged."""
+
+    def _windows(self, force_constant: float, spread: float, seed: int = 0):
+        from fastmdxplora.simulation.umbrella import plan_windows
+
+        plan = plan_windows({
+            "collective_variable": "distance",
+            "selection_a": "resid 1", "selection_b": "resid 2",
+            "from": 0.3, "to": 0.3 + spread, "n_windows": 9,
+            "force_constant": force_constant, "minimum_overlap": 0.0,
+            "minimum_samples": 10,
+        })
+        rng = np.random.RandomState(seed)
+        width = np.sqrt(2.5 / force_constant)
+        samples = {w.index: w.centre + rng.normal(0, width, 500)
+                   for w in plan.windows}
+        return plan, samples
+
+    def test_a_settled_run_says_so(self) -> None:
+        from fastmdxplora.simulation.umbrella import compute_pmf
+
+        plan, samples = self._windows(force_constant=300.0, spread=0.6)
+        result = compute_pmf(samples, plan, temperature_K=300.0)
+
+        assert result["converged"] is True
+        assert result["final_residual_kjmol"] < result["wham_tolerance_kjmol"]
+
+    def test_the_field_is_always_there(self) -> None:
+        """A caller reading `pmf` has no other way to tell the two apart."""
+        from fastmdxplora.simulation.umbrella import compute_pmf
+
+        plan, samples = self._windows(force_constant=300.0, spread=0.6)
+        result = compute_pmf(samples, plan, temperature_K=300.0)
+
+        for key in ("converged", "final_residual_kjmol",
+                    "wham_tolerance_kjmol"):
+            assert key in result
+
+
+class TestTheBarrierIsMeasuredWhereTheHillsWent:
+    """AUD39. For a periodic variable the grid is always the full turn, so a
+    run that explored two thirds of it had its barrier taken over an arc no
+    hill was deposited on -- the identical failure `describe_pmf` was written
+    to fix on the umbrella side and left uncorrected here."""
+
+    def test_the_record_says_what_was_covered(self, tmp_path) -> None:
+        from fastmdxplora.simulation.metad_surface import compute_surface
+
+        from tests.test_metad_surface import (  # noqa: PLC0415
+            _double_well, _grid, _hills_reaching, _written)
+
+        grid = _grid()
+        hills = _hills_reaching(_double_well(grid), grid)
+        result = compute_surface(_written(tmp_path, hills),
+                                 np.tile([0.0, 1.0], 20))
+
+        covered = result["evidence"]["covered"]
+        assert covered[0] < covered[1]
+        assert covered[0] == pytest.approx(float(np.min(hills.centre)))
+        assert covered[1] == pytest.approx(float(np.max(hills.centre)))
+
+
+class TestAWindowAtTheWrapHasNotDrifted:
+    """AUD29. Twelve windows tiling a full torsion, each sampling exactly
+    about its own centre, and the one straddling +-pi was reported 0.488 rad
+    away -- with the advice to hold it harder."""
+
+    def test_nothing_drifts_when_nothing_has(self) -> None:
+        from fastmdxplora.simulation.umbrella import (
+            plan_windows, windows_that_drifted)
+
+        plan = plan_windows({
+            "collective_variable": "torsion",
+            "selection_a": "resid 1", "selection_b": "resid 2",
+            "from": -np.pi, "to": np.pi, "n_windows": 12,
+            "force_constant": 200,
+        })
+        rng = np.random.RandomState(0)
+        samples = {
+            w.index: np.remainder(
+                w.centre + rng.normal(0, 0.08, 400) + np.pi, 2 * np.pi) - np.pi
+            for w in plan.windows
+        }
+
+        assert windows_that_drifted(samples, plan) == []
+
+    def test_a_window_that_really_drifted_is_still_caught(self) -> None:
+        """The guard has to keep working, or this is a fix that turns it off."""
+        from fastmdxplora.simulation.umbrella import (
+            plan_windows, windows_that_drifted)
+
+        plan = plan_windows({
+            "collective_variable": "torsion",
+            "selection_a": "resid 1", "selection_b": "resid 2",
+            "from": -np.pi, "to": np.pi, "n_windows": 12,
+            "force_constant": 200,
+        })
+        rng = np.random.RandomState(0)
+        samples = {
+            w.index: np.remainder(
+                w.centre + rng.normal(0, 0.08, 400) + np.pi, 2 * np.pi) - np.pi
+            for w in plan.windows
+        }
+        # One window sampling where its neighbour should be.
+        stray = plan.windows[5]
+        samples[stray.index] = np.remainder(
+            plan.windows[7].centre + rng.normal(0, 0.08, 400) + np.pi,
+            2 * np.pi) - np.pi
+
+        drifted = windows_that_drifted(samples, plan)
+        assert len(drifted) == 1
+        assert drifted[0]["centre"] == pytest.approx(stray.centre)
+
+
+class TestTheTimeAxisRunsForwards:
+    """AUD26. Each file kept its own clock, so a two-shot load came back
+    with [0..9, 0..9] and every figure drew an x axis that doubled back."""
+
+    def _shots(self):
+        top = md.Topology()
+        residue = top.add_residue("ALA", top.add_chain())
+        for name in ("N", "CA", "C"):
+            top.add_atom(name, md.element.carbon, residue)
+        traj = md.Trajectory(np.zeros((20, 3, 3), dtype=np.float32), top)
+        traj.time = np.concatenate([np.arange(10.0), np.arange(10.0)])
+        return traj
+
+    def test_two_shots_become_one_clock(self) -> None:
+        from fastmdxplora.analysis.loading import _with_one_clock
+
+        mended = _with_one_clock(self._shots(), 2)
+
+        assert np.all(np.diff(mended.time) > 0)
+        assert mended.time[-1] == pytest.approx(19.0)
+
+    def test_the_spacing_the_files_used_is_kept(self) -> None:
+        from fastmdxplora.analysis.loading import _with_one_clock
+
+        mended = _with_one_clock(self._shots(), 2)
+        assert np.allclose(np.diff(mended.time), 1.0)
+
+    def test_one_file_is_left_alone(self) -> None:
+        from fastmdxplora.analysis.loading import _with_one_clock
+
+        traj = self._shots()
+        traj.time = np.arange(20.0)
+        assert np.array_equal(_with_one_clock(traj, 1).time, np.arange(20.0))
+
+
+class TestPerResidueRmsfIsTheConventionalOne:
+    """AUD37. GROMACS `rmsf -res` and cpptraj take sqrt(mean(MSF)); this
+    averaged the RMSF, which reads low wherever a residue has one mobile
+    atom among several rigid ones -- and a number produced that way is not
+    comparable with a published per-residue RMSF."""
+
+    def test_it_is_the_root_mean_square(self) -> None:
+        one_floppy = np.array([0.5, 0.05, 0.05, 0.05, 0.05])
+
+        averaging_rmsf = float(np.mean(one_floppy))
+        conventional = float(np.sqrt(np.mean(one_floppy ** 2)))
+
+        # Stated so the size of the difference is on the record.
+        assert averaging_rmsf == pytest.approx(0.14, abs=0.001)
+        assert conventional == pytest.approx(0.228, abs=0.001)
+
+    def test_the_module_takes_the_second(self) -> None:
+        import inspect
+
+        from fastmdxplora.analysis import rmsf as module
+
+        source = inspect.getsource(module)
+        assert "np.sqrt(np.mean(values ** 2))" in source
