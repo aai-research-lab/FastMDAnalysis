@@ -78,7 +78,6 @@ class UmbrellaPlan:
     #: Steps to discard at the start of each window before it counts. A
     #: window begins away from where it will settle, and counting that
     #: approach as sampling biases the histogram towards where it started.
-    equilibration_steps: int = 0
     #: The fraction of each window's sampling discarded before its histogram
     #: is built. A window begins away from where it will settle and the
     #: approach is not sampling, so some must go; how much is a judgement
@@ -108,7 +107,6 @@ class UmbrellaPlan:
             "to": self.windows[-1].centre if self.windows else None,
             "force_constant": (self.windows[0].force_constant
                                if self.windows else None),
-            "equilibration_steps": self.equilibration_steps,
             "equilibration_fraction": self.equilibration_fraction,
             "minimum_overlap": self.minimum_overlap,
             "minimum_samples": self.minimum_samples,
@@ -120,7 +118,7 @@ class UmbrellaPlan:
 #: which is a loud failure in a test rather than a quiet one in a study.
 _UMBRELLA_OWN_KEYS: frozenset[str] = frozenset({
     "force_constant", "centres", "centers", "from", "to", "n_windows",
-    "equilibration_steps", "equilibration_fraction",
+    "equilibration_fraction",
     "minimum_overlap", "minimum_samples",
     # Written by the expansion onto each window, and read back from it.
     "centre", "index",
@@ -158,6 +156,21 @@ def check_umbrella_keys(spec: dict[str, Any]) -> None:
     unknown = sorted(set(spec) - accepted)
     if not unknown:
         return
+    if "equilibration_steps" in unknown:
+        # Not a typo and not unknown: it was accepted, validated, recorded in
+        # pmf.json and read by nothing. A study writing
+        # `equilibration_steps: 500000` discarded no more than the default
+        # fraction and had the record say otherwise. This module refuses a
+        # *misspelled* key precisely so a guard cannot be silently switched
+        # off; a correctly spelled inert one is the same failure with better
+        # spelling, so it is named rather than listed.
+        raise ConfigError(
+            "'equilibration_steps' was accepted and never applied: it was "
+            "recorded in pmf.json and read by nothing, so a study asking for "
+            "it discarded only the default fraction. Use "
+            "`equilibration_fraction` instead -- a fraction of each window's "
+            "production, which is what the discard is actually measured in."
+        )
     named = ", ".join(
         f"'{key}'{_suggest(key, set(accepted))}" for key in unknown)
     raise ConfigError(
@@ -241,7 +254,6 @@ def plan_windows(spec: dict[str, Any]) -> UmbrellaPlan:
         windows=tuple(Window(index=i, centre=c, force_constant=force)
                       for i, c in enumerate(centres)),
         collective_variable=variable,
-        equilibration_steps=int(spec.get("equilibration_steps", 0)),
         equilibration_fraction=_checked_fraction(
             spec.get("equilibration_fraction", 0.2)),
         minimum_overlap=float(spec.get("minimum_overlap", 0.03)),
@@ -319,7 +331,6 @@ def plan_from_expanded(config: dict[str, Any]) -> UmbrellaPlan | None:
     systems = config.get("systems") or []
     windows = []
     variable = ""
-    equilibration = 0
     fraction = 0.2
     minimum = 0.03
     fewest = 200
@@ -329,7 +340,6 @@ def plan_from_expanded(config: dict[str, Any]) -> UmbrellaPlan | None:
         if not block or block.get("centre") is None:
             continue
         variable = str(block.get("collective_variable", variable))
-        equilibration = int(block.get("equilibration_steps", equilibration))
         fraction = _checked_fraction(
             block.get("equilibration_fraction", fraction))
         minimum = float(block.get("minimum_overlap", minimum))
@@ -344,7 +354,6 @@ def plan_from_expanded(config: dict[str, Any]) -> UmbrellaPlan | None:
     return UmbrellaPlan(
         windows=tuple(sorted(windows, key=lambda w: w.index)),
         collective_variable=variable,
-        equilibration_steps=equilibration,
         equilibration_fraction=fraction,
         minimum_overlap=minimum,
         minimum_samples=fewest,
@@ -516,7 +525,16 @@ def windows_with_too_little_sampling(
 #: on one of these has no ends: the arc between the last centre and the first
 #: is as real as any other, and leaving it bare is a gap rather than a
 #: boundary.
-PERIODIC_VARIABLES = frozenset({"torsion", "angle"})
+#: Coordinates that wrap. A torsion does: -pi and +pi are the same
+#: arrangement, so a window may straddle the join and the profile must meet
+#: itself. A bond *angle* does not -- PLUMED's ANGLE has domain [0, pi], and
+#: treating it as a full turn built surface grids over negative angles no
+#: geometry can occupy, took barriers as maxima across that fabricated half,
+#: and advised tiling windows onto it. `displacement()` was unaffected, since
+#: it is a no-op for values already inside [0, pi], so the bias and the
+#: histogramming were right and only the advice and the reported extent were
+#: wrong.
+PERIODIC_VARIABLES = frozenset({"torsion"})
 
 
 def warn_if_a_circle_is_left_open(plan: "UmbrellaPlan") -> str | None:
@@ -581,7 +599,8 @@ def closure_gap(coordinate: Any, energy: Any) -> float | None:
 
 
 def describe_pmf(coordinate: Any, energy: Any,
-                 covered: tuple[float, float] | None = None) -> dict[str, Any]:
+                 covered: tuple[float, float] | None = None,
+                 *, periodic: bool = False) -> dict[str, Any]:
     """The numbers a reader wants from a curve, computed once, here.
 
     Reading these by hand is how the curve gets misread. The grid spans
@@ -619,8 +638,16 @@ def describe_pmf(coordinate: Any, energy: Any,
         "barrier_at": float(where[top]),
         "covered": [float(where.min()), float(where.max())],
         "minima": sorted(minima, key=lambda m: m["free_energy_kjmol"]),
-        # None where the profile is not a closed turn.
-        "closure_gap_kjmol": closure_gap(coordinate, energy),
+        # Only where the coordinate is a circle. `closure_gap` decides "is
+        # this a closed turn?" from the span alone -- span >= 2*pi - 2*delta
+        # -- with no reference to whether the coordinate can close. A ligand
+        # unbinding along a distance in nm spanning more than 6.28 satisfies
+        # that arithmetic, and got a `closure_gap_kjmol` documented as "how
+        # far a periodic profile misses meeting itself" and as saying "what
+        # the study's own statistics are worth": a fabricated uncertainty
+        # equal to the well depth of a coordinate with two ends.
+        "closure_gap_kjmol": (closure_gap(coordinate, energy)
+                              if periodic else None),
     }
 
 
@@ -862,7 +889,8 @@ def compute_pmf(
     return {
         "pmf": {"coordinate": centres.tolist(), "free_energy_kjmol": free_energy},
         "covered": [float(covered[0]), float(covered[1])],
-        "summary": describe_pmf(centres, free_energy, covered),
+        "summary": describe_pmf(centres, free_energy, covered,
+                                periodic=periodic),
         "unsampled_bins": unsampled,
         "overlaps": overlaps,
         "refused": None,

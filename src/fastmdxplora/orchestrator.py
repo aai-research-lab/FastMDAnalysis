@@ -316,6 +316,18 @@ class FastMDXplora:
         config file passed to the constructor, the config-file values are
         used. Explicit arguments to this method always win.
         """
+        # This call's results, and only this call's. `self.results` was set
+        # in __init__ and appended to here, so a second explore() on the same
+        # object inherited the first one's phase records -- and since the
+        # returned status is "error if any result is an error", a retry after
+        # a failed setup came back as an error with everything succeeding.
+        # The manifest survived it (the writer de-duplicates by phase name),
+        # so the wrong answer reached only the Python API's return value,
+        # which is the API's only signal. Retrying on the same object is the
+        # obvious idiom for an interface the README advertises as
+        # `FastMDXplora(config="study.yml").explore()`.
+        self.results = []
+
         # Config-driven runs (one system or many) go through the batch
         # machinery internally. The user always sees the same FastMDXplora
         # interface; the batch layer is an implementation detail.

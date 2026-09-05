@@ -69,7 +69,8 @@ class TestItOnlyAppliesToACircle:
 class TestTheStudyReportsIt:
     def test_it_travels_with_the_barrier(self) -> None:
         c = _turn()
-        got = describe_pmf(c, _well(c) + np.linspace(0.0, 2.0, c.size))
+        got = describe_pmf(c, _well(c) + np.linspace(0.0, 2.0, c.size),
+                           periodic=True)
         assert got["closure_gap_kjmol"] == pytest.approx(2.0, abs=1e-6)
         assert got["barrier_kjmol"] is not None
 
@@ -77,5 +78,6 @@ class TestTheStudyReportsIt:
         """Zero would read as 'closed perfectly', which is the opposite of
         'this was never a closed turn'."""
         c = np.radians(np.linspace(-30, 165, 40))
-        got = describe_pmf(c, 11.0 * np.sin(np.linspace(0, np.pi, 40)) ** 2)
+        got = describe_pmf(c, 11.0 * np.sin(np.linspace(0, np.pi, 40)) ** 2,
+                           periodic=True)
         assert got["closure_gap_kjmol"] is None

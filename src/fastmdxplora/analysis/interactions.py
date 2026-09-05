@@ -76,12 +76,20 @@ _METALS = frozenset({
 #: a phenylalanine's ring is a phenylalanine's ring. Tryptophan has two, fused,
 #: and they are kept apart because a stacking partner sits over one or the
 #: other and the centre of the pair is over neither.
+#: An imidazole is aromatic whatever the force field calls the residue.
+#: AMBER writes HIE/HID/HIP and CHARMM writes HSE/HSD/HSP for the same ring,
+#: with the same heavy-atom names, and keying on "HIS" alone meant a
+#: prepared system lost every histidine ring it had -- silently, because the
+#: variants were also on the "nothing to contribute" list below.
+_IMIDAZOLE = (("CG", "ND1", "CD2", "CE1", "NE2"),)
+_HISTIDINES = ("HIS", "HIE", "HID", "HIP", "HSD", "HSE", "HSP")
+
 _AROMATIC_RINGS = {
     "PHE": (("CG", "CD1", "CD2", "CE1", "CE2", "CZ"),),
     "TYR": (("CG", "CD1", "CD2", "CE1", "CE2", "CZ"),),
-    "HIS": (("CG", "ND1", "CD2", "CE1", "NE2"),),
     "TRP": (("CG", "CD1", "CD2", "NE1", "CE2"),
             ("CD2", "CE2", "CE3", "CZ2", "CZ3", "CH2")),
+    **{name: _IMIDAZOLE for name in _HISTIDINES},
 }
 
 
@@ -98,6 +106,13 @@ _AROMATIC_RINGS = {
 _POSITIVE_GROUPS = {
     "ARG": ("NH1", "NH2", "NE"),
     "LYS": ("NZ",),
+    # The docstring above defers on HIS because whether it is charged depends
+    # on pH and environment, and the setup phase decides that when it
+    # protonates. HIP and HSP *are* that decision, written into the residue
+    # name: doubly protonated imidazole, +1. Leaving them out did not defer
+    # to the setup phase, it discarded what the setup phase concluded.
+    "HIP": ("ND1", "NE2"),
+    "HSP": ("ND1", "NE2"),
 }
 _NEGATIVE_GROUPS = {
     "ASP": ("OD1", "OD2"),
@@ -1070,8 +1085,14 @@ def residues_not_covered(topology: Any, atom_indices: Any) -> dict[str, int]:
     #: unknown.
     known |= {
         "ALA", "GLY", "VAL", "LEU", "ILE", "PRO", "MET", "SER", "THR", "CYS",
-        "ASN", "GLN", "HIE", "HID", "HIP", "CYX", "ASH", "GLH", "LYN",
+        "ASN", "GLN", "CYX", "ASH", "GLH", "LYN",
     }
+    # HIE, HID, HIP, HSD, HSE and HSP used to be on that list, which said they
+    # had nothing to contribute. An imidazole is aromatic and HIP is +1, so it
+    # was wrong twice over -- and because it was a claim of coverage rather
+    # than an omission, the residues did not appear here either. They are in
+    # the ring table now, so `known` picks them up above and nothing needs to
+    # be said twice.
     wanted = set(int(i) for i in atom_indices)
     unknown: dict[str, int] = {}
     for residue in topology.residues:

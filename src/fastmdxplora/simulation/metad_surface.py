@@ -206,7 +206,13 @@ def periodic_dimensions(
     path = Path(script_path)
     text = (path.read_text(encoding="utf-8").upper()
             if path.is_file() else "")
-    circular = ("TORSION", "ANGLE")
+    # A torsion wraps and a bond angle does not: PLUMED's ANGLE has domain
+    # [0, pi]. Calling it circular put the surface grid on [-pi, pi], so half
+    # of every angle surface was ground the coordinate cannot occupy, the
+    # barrier was a maximum taken across that half, and `basins` treated
+    # -pi and +pi as neighbours. The umbrella side declared the same pair
+    # and is corrected with it.
+    circular = ("TORSION",)
     if n_dims == 1:
         return (any(
             f"{action}\n" in text or f"{action} " in text
@@ -769,6 +775,16 @@ def compute_surface_2d(
     per_dimension: list[dict[str, Any]] = []
     reasons: list[str] = []
     for dim in range(2):
+        # This dimension's hill centres, read before anything uses them. The
+        # assignment used to sit *after* the recrossing band was computed
+        # from `centres`, so dimension 0 took its range from dimension 1's
+        # hills and dimension 1 from dimension 0's -- a leftover from the
+        # axis-building loop on the first pass, and the previous iteration's
+        # value on the second. Any pair of CVs on different scales then gave
+        # 0 recrossings or a saturated count: a coordinate sweeping its full
+        # range fifty times reported none.
+        centres = hills.column(dim)
+
         profile = marginal_profile(surface, dim, temperature_K=temperature_K)
         profile_earlier = marginal_profile(
             earlier, dim, temperature_K=temperature_K)
@@ -786,13 +802,12 @@ def compute_surface_2d(
             if two_basins is not None:
                 crossed = transitions(
                     values, between=two_basins, periodic=periodic[dim])
-            elif True:
+            else:
                 low, high = float(np.min(centres)), float(np.max(centres))
                 span = high - low
                 crossed = recrossings(
                     values, low=low + 0.25 * span, high=high - 0.25 * span)
 
-        centres = hills.column(dim)
         travelled = float(np.max(centres) - np.min(centres))
         typical_width = float(np.median(hills.sigma_column(dim)))
         in_widths = (travelled / typical_width

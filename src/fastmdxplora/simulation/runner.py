@@ -1295,7 +1295,7 @@ def run_simulation(
 
         spec = {k: v for k, v in umbrella.items()
                 if k not in ("centre", "force_constant", "n_windows",
-                             "centres", "from", "to", "equilibration_steps")}
+                             "centres", "from", "to")}
         spec.setdefault("sigma", 0.05)
         spec.setdefault("unbounded", True)
         # The ligand's residue name, which a ligand variable needs and the
@@ -1884,7 +1884,6 @@ def run_simulation(
                 ),
             )
 
-        _detach_all_reporters(simulation)
     except Exception as exc:
         if telemetry is not None:
             telemetry.event(f"error: {type(exc).__name__}: {exc}", level="error")
@@ -1907,6 +1906,16 @@ def run_simulation(
                 telemetry.write_status(status="failed", latest_error=f"{type(exc).__name__}: {exc}")
         raise
     finally:
+        # Detached here rather than at the end of the `try`, where it was.
+        # Any exception between attaching a reporter and that last statement
+        # -- a NaN state from _validate_state_finite, an OpenMM integration
+        # error, a PLUMED failure -- skipped it entirely and the `except`
+        # re-raised without cleanup. mdtraj's DCD writer flushes per write so
+        # no data was lost, but `_run_sequential` calls `_execute_run` in the
+        # parent process rather than through a pool, so a long sweep leaked
+        # three descriptors per failed run in one long-lived process. The
+        # suite already needs an ulimit of 65536 to finish.
+        _detach_all_reporters(simulation)
         log_fh.close()
 
     # Counted from the steps production actually ran, not from the steps it

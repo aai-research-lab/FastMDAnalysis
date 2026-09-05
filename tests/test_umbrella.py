@@ -1448,12 +1448,22 @@ class TestASettingThatDoesNotExist:
     def test_the_settings_that_exist_are_accepted(self) -> None:
         from fastmdxplora.simulation.umbrella import _accepted_keys, plan_windows
 
+        # `equilibration_steps` used to be in this list. It was accepted,
+        # validated, written into pmf.json and read by nothing, so a study
+        # asking for it discarded only the default fraction while its record
+        # said otherwise -- the same failure a typo produces, which this very
+        # class exists to catch. It is refused by name now, pointing at
+        # `equilibration_fraction`, which is what the discard is measured in.
         plan = plan_windows(self._block(
-            minimum_overlap=0.15, minimum_samples=25, equilibration_steps=100,
+            minimum_overlap=0.15, minimum_samples=25,
+            equilibration_fraction=0.25,
             selection="protein and name CA"))
         assert plan.minimum_overlap == 0.15
         assert plan.minimum_samples == 25
-        assert {"minimum_overlap", "minimum_samples"} <= _accepted_keys()
+        assert plan.equilibration_fraction == 0.25
+        assert {"minimum_overlap", "minimum_samples",
+                "equilibration_fraction"} <= _accepted_keys()
+        assert "equilibration_steps" not in _accepted_keys()
 
     def test_the_check_runs_when_a_config_is_only_validated(self) -> None:
         """Which is the route the browser's Check it button takes, and

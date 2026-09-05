@@ -176,7 +176,7 @@ class DimRed(Analysis):
                 # possible -- and the distance between two frames is their
                 # RMSD, which is what a structural biologist means by how
                 # different two conformations are.
-                distances = _pairwise_rmsd(traj)
+                distances = _pairwise_rmsd(traj, self.select_atoms(traj))
                 embedding = _classical_mds(distances, self.n_components)
                 self._explained_variance = None
             elif method == "tsne":
@@ -321,18 +321,31 @@ def _plot_dimred_scatter(
 register_analysis(DimRed.name, DimRed)
 
 
-def _pairwise_rmsd(traj: Any) -> np.ndarray:
+def _pairwise_rmsd(traj: Any, atom_indices: Any = None) -> np.ndarray:
     """RMSD between every pair of frames, each pair superposed optimally.
 
     The same measure clustering uses, so the two agree about how different
-    two conformations are.
+    two conformations are -- which was the intent and was not the case.
+    Clustering's copy of this helper takes an atom selection and this one did
+    not, so MDS measured every atom in the system while every other method in
+    the module measured the selection. On a solvated trajectory that is a few
+    hundred protein atoms against tens of thousands of diffusing waters: the
+    between-state contrast fell from 32x to 1x on a two-state test system,
+    and the same `DimRed` call resolved the transition with PCA and hid it
+    with MDS.
+
+    It went unnoticed because `default_selection` is "name CA", so the
+    orchestrator leaves the selection alone and never narrows the trajectory
+    on this analysis's behalf, and because the test that covers MDS uses a
+    solvent-free peptide, where every atom *is* the selection.
     """
     import mdtraj as md
 
     n = traj.n_frames
     distances = np.zeros((n, n), dtype=np.float64)
     for index in range(n):
-        distances[index] = md.rmsd(traj, traj, index)
+        distances[index] = md.rmsd(traj, traj, index,
+                                   atom_indices=atom_indices)
     # md.rmsd is not exactly symmetric to floating point, and an asymmetric
     # matrix would give MDS a slightly complex eigenspectrum.
     return 0.5 * (distances + distances.T)

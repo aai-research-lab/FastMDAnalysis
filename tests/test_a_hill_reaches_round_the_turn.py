@@ -99,8 +99,19 @@ class TestThePeriodicVariablesAreOneList:
         assert "from fastmdxplora.simulation.umbrella import PERIODIC_VARIABLES" \
             in source
 
-    def test_a_torsion_and_an_angle_are_circles(self) -> None:
-        assert {"torsion", "angle"} <= PERIODIC_VARIABLES
+    def test_a_torsion_is_a_circle_and_a_bond_angle_is_not(self) -> None:
+        """PLUMED's TORSION wraps; its ANGLE has domain [0, pi].
+
+        This asserted that both were circles, which is what the code said
+        and not what PLUMED does. The consequence was a surface grid on
+        [-pi, pi] for a bond angle -- half of it ground no geometry can
+        occupy -- a barrier taken as a maximum across that half, and
+        umbrella advice to tile windows onto it. `displacement()` was
+        unaffected, being a no-op for values already in [0, pi], so the bias
+        and the histogramming were right throughout.
+        """
+        assert "torsion" in PERIODIC_VARIABLES
+        assert "angle" not in PERIODIC_VARIABLES
 
     def test_a_distance_is_not(self) -> None:
         assert not ({"distance", "radius_of_gyration", "ligand_rmsd"}
