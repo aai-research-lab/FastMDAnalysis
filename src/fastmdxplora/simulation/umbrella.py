@@ -33,6 +33,8 @@ from typing import Any
 
 import numpy as np
 
+from fastmdxplora.uncertainty import DEFAULT_RESAMPLES, block_bootstrap
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -714,6 +716,9 @@ def compute_pmf(
     temperature_K: float = 300.0,
     bins: int = 60,
     minimum_overlap: float | None = None,
+    bootstrap_resamples: int = DEFAULT_RESAMPLES,
+    bootstrap_seed: int = 0,
+    _edges: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """A potential of mean force, or a refusal saying why not.
 
@@ -851,7 +856,12 @@ def compute_pmf(
     # a study that wants to know can read what it was held to.
     kT = KB_KJ * float(temperature_K)
     everything = np.concatenate([samples[w.index] for w in ordered])
-    edges = np.linspace(everything.min(), everything.max(), bins + 1)
+    # `_edges` pins the grid when a bootstrap resample is recombined. The
+    # edges are drawn from the data's extremes, so every resample would
+    # otherwise land on a slightly different grid and the bin-by-bin spread
+    # would measure where the bins moved as much as what the free energy did.
+    edges = (np.asarray(_edges, dtype=float) if _edges is not None
+             else np.linspace(everything.min(), everything.max(), bins + 1))
     centres = 0.5 * (edges[:-1] + edges[1:])
 
     counts = np.array([np.histogram(samples[w.index], bins=edges)[0]
@@ -931,8 +941,35 @@ def compute_pmf(
     window_centres = [w.centre for w in ordered]
     covered = (min(window_centres), max(window_centres))
 
+    # An error bar on the curve, from resampling each window's own samples in
+    # contiguous blocks. Without it the PMF was a line with no width, and a
+    # binding free energy taken from it was quoted to four figures with
+    # nothing saying how many of them the sampling supports.
+    #
+    # `minimum_overlap=0.0` inside the loop deliberately: the overlap gate is
+    # a statement about the real data and has been applied above. A resample
+    # dipping below it has discovered nothing about the study, and refusing
+    # there would abort the error bar rather than report it.
+    uncertainty = None
+    if bootstrap_resamples:
+        def _curve(drawn: dict[int, np.ndarray]) -> np.ndarray:
+            inner = compute_pmf(
+                drawn, plan, temperature_K=temperature_K, bins=bins,
+                minimum_overlap=0.0, bootstrap_resamples=0, _edges=edges)
+            return np.array(
+                [np.nan if v is None else v
+                 for v in inner["pmf"]["free_energy_kjmol"]], dtype=float)
+
+        uncertainty = block_bootstrap(
+            {w.index: samples[w.index] for w in ordered}, _curve,
+            resamples=int(bootstrap_resamples), seed=bootstrap_seed,
+        ).as_dict()
+        if uncertainty["note"]:
+            logger.info("Free-energy uncertainty: %s", uncertainty["note"])
+
     return {
-        "pmf": {"coordinate": centres.tolist(), "free_energy_kjmol": free_energy},
+        "pmf": {"coordinate": centres.tolist(), "free_energy_kjmol": free_energy,
+                "uncertainty": uncertainty},
         "covered": [float(covered[0]), float(covered[1])],
         "summary": describe_pmf(centres, free_energy, covered,
                                 periodic=periodic),
