@@ -29,6 +29,7 @@ revisited the states it left -- is reported rather than assumed.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -662,6 +663,61 @@ def cv_lines(plan: "MetadynamicsPlan",
     return lines
 
 
+#: The collective variables whose bounds are the variable's own geometry
+#: rather than a guess, as ``(GRID_MIN, GRID_MAX, width)``. A PLUMED
+#: ``TORSION`` is periodic on [-pi, pi] and cannot leave it.
+PERIODIC_RANGES: dict[str, tuple[str, str, float]] = {
+    "torsion": ("-pi", "pi", 2.0 * math.pi),
+}
+
+#: Grid points per sigma. PLUMED's own guidance is a spacing no coarser than
+#: half the smallest sigma; five is comfortably inside that and still cheap --
+#: a 2-CV torsion grid at sigma 0.35 is 90x90 doubles.
+GRID_POINTS_PER_SIGMA = 5
+
+
+def _grid_keywords(biased: "list[tuple[str, float]]") -> str:
+    """``GRID_*`` for a METAD line, when every biased variable has real bounds.
+
+    Without a grid PLUMED evaluates the bias by summing over every hill
+    deposited so far, at every step, so the cost per step grows with the
+    number of hills and a long run slows without bound. Measured on the
+    2-CV torsion run this was found on -- ``PACE=500`` with a 2 fs step,
+    so 1,000 hills per nanosecond -- the instantaneous rate fell from 312
+    ns/day at 2,000 hills to 272 at 8,000, and ``1/rate = 2.95e-3 +
+    9.98e-8 * n_hills`` (R^2 = 0.93) puts 100 ns at about 19 hours where
+    the same run on a grid holds its opening rate and takes about 7. The
+    displayed estimate does not show this: OpenMM extrapolates the
+    cumulative average speed as though it were constant, so it reads low
+    all the way and slides upward for the length of the run.
+
+    Only where the bounds are the variable's own geometry, which is why
+    this is a table and not a heuristic. A distance, a ligand RMSD or a
+    radius of gyration has no ceiling the setup can know, and PLUMED stops
+    the run when a variable steps outside its grid -- so an assumed
+    ceiling would trade a slow run for one that dies partway through, at
+    an unpredictable point, having written a partial HILLS. Walls do not
+    make a variable bounded either: they are restraints, and a soft one is
+    crossed.
+
+    Returns the keywords with a leading space, or an empty string, so the
+    caller can concatenate unconditionally.
+    """
+    if not biased or not all(name in PERIODIC_RANGES for name, _ in biased):
+        return ""
+    mins, maxes, bins = [], [], []
+    for name, sigma in biased:
+        low, high, width = PERIODIC_RANGES[name]
+        mins.append(low)
+        maxes.append(high)
+        # Bins, not spacing: PLUMED derives one from the other, and stating
+        # the count keeps the script readable and the test arithmetic exact.
+        bins.append(str(max(
+            1, math.ceil(width / (float(sigma) / GRID_POINTS_PER_SIGMA)))))
+    return (f" GRID_MIN={','.join(mins)} GRID_MAX={','.join(maxes)} "
+            f"GRID_BIN={','.join(bins)}")
+
+
 def build_plumed_script(plan: MetadynamicsPlan, reference_pdb: str | None = None) -> str:
     """The PLUMED input for a plan.
 
@@ -686,6 +742,7 @@ def build_plumed_script(plan: MetadynamicsPlan, reference_pdb: str | None = None
         f"BIASFACTOR={plan.bias_factor:g} "
         f"TEMP={plan.temperature_K:g} "
         "FILE=HILLS"
+        + _grid_keywords([(plan.collective_variable, plan.sigma)])
     )
     if plan.walls:
         lines.append("")
@@ -854,6 +911,8 @@ def build_plumed_script_pair(
         f"BIASFACTOR={first.bias_factor:g} "
         f"TEMP={first.temperature_K:g} "
         "FILE=HILLS"
+        + _grid_keywords([(first.collective_variable, first.sigma),
+                          (second.collective_variable, second.sigma)])
     )
 
     for plan, arg in zip(pair.plans, ("cv1", "cv2")):

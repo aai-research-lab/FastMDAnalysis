@@ -841,3 +841,126 @@ class TestTwoVariablesUnderOneDeposition:
             "torsion", "radius_of_gyration"]
         assert len(record["dimensions"]) == 2
         assert "one METAD" in record["shared_deposition"]
+
+
+class TestTheBiasIsLookedUpNotResummed:
+    """Without a grid PLUMED sums every hill at every step, so a long run
+    slows without bound.
+
+    Found by running, not reading. The V3 alanine-dipeptide run deposits
+    1,000 hills per nanosecond (`PACE=500`, 2 fs step) and its instantaneous
+    rate fell 312 -> 272 ns/day between 2,000 and 8,000 hills; the fit
+    `1/rate = 2.95e-3 + 9.98e-8 * n_hills` puts 100 ns at ~19 hours against
+    ~7 with a grid. The run's own estimate never showed it -- OpenMM
+    extrapolates the cumulative average speed as constant, so it reads low
+    throughout and slides upward all day.
+
+    A grid is exact for a torsion: the variable is periodic on [-pi, pi] and
+    cannot leave the grid, so this buys the speed with no assumption.
+    """
+
+    @staticmethod
+    def _plan(**spec):
+        from fastmdxplora.simulation.metadynamics import plan_from_config
+
+        return plan_from_config(spec, _topology(), temperature_K=310.0)
+
+    @staticmethod
+    def _metad_line(script: str) -> str:
+        line = [ln for ln in script.splitlines() if ln.startswith("metad:")]
+        assert len(line) == 1, f"expected one METAD line, got {line}"
+        return line[0]
+
+    def test_a_torsion_is_gridded_over_the_whole_turn(self) -> None:
+        from fastmdxplora.simulation.metadynamics import build_plumed_script
+
+        plan = self._plan(collective_variable="torsion",
+                          selection="resid 0 and name N CA C O", sigma=0.35)
+        line = self._metad_line(build_plumed_script(plan))
+        assert "GRID_MIN=-pi" in line
+        assert "GRID_MAX=pi" in line
+        assert "GRID_BIN=" in line
+
+    def test_the_spacing_is_finer_than_the_hill_it_resolves(self) -> None:
+        """A grid coarser than sigma smooths the hills it is meant to store,
+        which changes the surface rather than the speed."""
+        import math
+        import re
+
+        from fastmdxplora.simulation.metadynamics import (
+            GRID_POINTS_PER_SIGMA, build_plumed_script)
+
+        for sigma in (0.10, 0.35, 0.60):
+            plan = self._plan(collective_variable="torsion",
+                              selection="resid 0 and name N CA C O",
+                              sigma=sigma)
+            line = self._metad_line(build_plumed_script(plan))
+            bins = int(re.search(r"GRID_BIN=(\d+)", line).group(1))
+            spacing = (2.0 * math.pi) / bins
+            assert spacing <= sigma / GRID_POINTS_PER_SIGMA + 1e-12, (
+                f"sigma={sigma}: spacing {spacing:.4f} is coarser than "
+                f"sigma/{GRID_POINTS_PER_SIGMA}")
+
+    def test_two_torsions_get_one_bound_per_variable(self) -> None:
+        """PLUMED reads these positionally: one value short and it pairs the
+        second variable's bound with the first's."""
+        import re
+
+        from fastmdxplora.simulation.metadynamics import (
+            build_plumed_script_pair, plan_pair_from_config)
+
+        pair = plan_pair_from_config(
+            {"variables": [
+                {"collective_variable": "torsion",
+                 "selection": "resid 0 and name N CA C O", "sigma": 0.35},
+                {"collective_variable": "torsion",
+                 "selection": "resid 1 and name N CA C O", "sigma": 0.20},
+            ]},
+            _topology(), temperature_K=300.0)
+        line = self._metad_line(build_plumed_script_pair(pair))
+        assert "GRID_MIN=-pi,-pi" in line
+        assert "GRID_MAX=pi,pi" in line
+        bins = re.search(r"GRID_BIN=(\S+)", line).group(1).split(",")
+        assert len(bins) == 2
+        # The narrower sigma needs the finer grid; equal counts would mean
+        # the sigmas were not read per variable.
+        assert int(bins[1]) > int(bins[0])
+
+    def test_an_unbounded_variable_is_left_ungridded(self) -> None:
+        """PLUMED stops the run when a variable steps outside its grid. A
+        radius of gyration has no ceiling the setup knows, so a guessed one
+        trades a slow run for one that dies partway with a partial HILLS."""
+        from fastmdxplora.simulation.metadynamics import build_plumed_script
+
+        plan = self._plan(collective_variable="radius_of_gyration",
+                          selection="protein and name CA", sigma=0.05)
+        assert "GRID_" not in self._metad_line(build_plumed_script(plan))
+
+    def test_a_wall_does_not_count_as_a_bound(self) -> None:
+        """Walls are restraints, not barriers: a soft one is crossed, and the
+        crossing would end the run rather than push the variable back."""
+        from fastmdxplora.simulation.metadynamics import build_plumed_script
+
+        plan = self._plan(collective_variable="ligand_distance",
+                          ligand_resname="BNZ",
+                          site_selection="resid 1 to 3 and name CA",
+                          sigma=0.05, walls={"upper": 2.5})
+        line = self._metad_line(build_plumed_script(plan))
+        assert "GRID_" not in line
+        assert "UPPER_WALLS" in build_plumed_script(plan)
+
+    def test_a_mixed_pair_is_left_ungridded(self) -> None:
+        """One bounded variable does not make the pair griddable: PLUMED
+        grids all arguments or none."""
+        from fastmdxplora.simulation.metadynamics import (
+            build_plumed_script_pair, plan_pair_from_config)
+
+        pair = plan_pair_from_config(
+            {"variables": [
+                {"collective_variable": "torsion",
+                 "selection": "resid 0 and name N CA C O", "sigma": 0.35},
+                {"collective_variable": "radius_of_gyration",
+                 "selection": "protein and name CA", "sigma": 0.05},
+            ]},
+            _topology(), temperature_K=300.0)
+        assert "GRID_" not in self._metad_line(build_plumed_script_pair(pair))
