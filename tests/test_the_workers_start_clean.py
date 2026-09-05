@@ -23,7 +23,6 @@ named test with every thread's stack attached instead of hanging a runner.
 
 from __future__ import annotations
 
-import re
 from concurrent.futures import Future
 from pathlib import Path
 
@@ -47,9 +46,22 @@ class TestTheChoiceIsWrittenWhereThePoolIsMade:
         assert "--timeout-method=thread" in ini
 
     def test_the_ceiling_is_declared_where_ci_installs(self):
-        pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
-        test_extra = re.search(r"test = \[(.*?)\]", pyproject, re.S).group(1)
-        assert "pytest-timeout" in test_extra
+        """Parsed as TOML rather than scanned for the next `]`.
+
+        The regex version stopped at the first closing bracket after
+        `test = [`, so a comment inside the list containing one -- a prose
+        mention of `[dev]`, which is exactly what got written there -- cut
+        the extract short and the assertion failed on a table that was
+        correct. Same shape as `_numeric_column` taking its delimiter from a
+        line that later grew a comma: a text scanner tripped by punctuation
+        inside prose. The file is TOML and there is a parser for it.
+        """
+        import tomllib
+
+        pyproject = tomllib.loads(
+            Path("pyproject.toml").read_text(encoding="utf-8"))
+        test_extra = pyproject["project"]["optional-dependencies"]["test"]
+        assert any(name.startswith("pytest-timeout") for name in test_extra)
 
 
 class _RecordingPool:

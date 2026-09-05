@@ -98,6 +98,13 @@ def _from_sdf(path: Path, resname: str, expected_atoms: int) -> ResolvedChemistr
 _CHARGES_TO_TRY = (0, -1, 1, -2, 2)
 
 
+def _rdkit_is_absent() -> bool:
+    """Whether the refusal should say so, rather than blaming perception."""
+    import importlib.util
+
+    return importlib.util.find_spec("rdkit") is None
+
+
 def _perceive(
     traj: Any, atom_indices: Any, resname: str, net_charge: int | None
 ) -> tuple[Any, int, list[int]] | None:
@@ -116,8 +123,21 @@ def _perceive(
     """
     import tempfile
 
-    from rdkit import Chem
-    from rdkit.Chem import rdDetermineBonds
+    try:
+        from rdkit import Chem
+        from rdkit.Chem import rdDetermineBonds
+    except ImportError:
+        # Perception is the last thing tried, and it is the only one that
+        # needs RDKit. A bare import here escaped `resolve_ligand_chemistry`
+        # as a ModuleNotFoundError, so the carefully written refusal below --
+        # which names everything that was tried and says to supply an SDF --
+        # could never fire on the one path where it was most needed. The
+        # user got a traceback instead of a next step, which is the single
+        # place "it refuses rather than guesses" was not true.
+        #
+        # None here, and the caller adds "perception from the coordinates"
+        # to `tried` exactly as it does for any other failed route.
+        return None
 
     with tempfile.TemporaryDirectory() as scratch:
         path = Path(scratch) / "ligand.pdb"
@@ -294,7 +314,12 @@ def resolve_ligand_chemistry(
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         found = _perceive(traj, atom_indices, resname, net_charge)
-    tried.append("perception from the coordinates")
+    if _rdkit_is_absent():
+        tried.append(
+            "perception from the coordinates (RDKit is not installed; "
+            "`conda install -c conda-forge rdkit`)")
+    else:
+        tried.append("perception from the coordinates")
     if found:
         mol, charge, balanced = found
         if net_charge is not None:

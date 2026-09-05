@@ -86,14 +86,42 @@ def _imported_distributions() -> dict[str, set[str]]:
     return found
 
 
-def _declared_in_pyproject() -> set[str]:
-    text = (REPO / "pyproject.toml").read_text(encoding="utf-8")
-    section = text[text.index("dependencies = ["):text.index("[project.urls]")]
-    # Entries appear as "name", "name>=1.2", or "name[extra]>=1.2".
+def _requirement_names(entries) -> set[str]:
+    """The distribution names in a list of requirement strings."""
     return {
-        m.group(1).split("[")[0].lower()
-        for m in re.finditer(r'"([A-Za-z0-9_.\-\[\]]+?)(?:[><=!~,\s]|")', section)
+        re.split(r"[><=!~;\s\[]", str(entry), maxsplit=1)[0].strip().lower()
+        for entry in entries
+        if str(entry).strip()
     }
+
+
+def _pyproject() -> dict:
+    import tomllib
+
+    return tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
+
+
+def _core_dependencies() -> set[str]:
+    """Only `[project] dependencies` -- what a bare install actually gets."""
+    return _requirement_names(_pyproject()["project"]["dependencies"])
+
+
+def _declared_in_pyproject() -> set[str]:
+    """Every distribution named anywhere: core plus every extra.
+
+    Parsed as TOML. It used to slice the file from `dependencies = [` to
+    `[project.urls]`, which spans the whole `[project.optional-dependencies]`
+    table -- so an import satisfied only by an extra counted as declared, and
+    `rdkit`, imported unguarded in `analysis/ligand_chemistry.py` and present
+    only in `[ligand]` and `[test]`, passed this check while raising
+    ModuleNotFoundError on a plain install. The distinction is available now
+    through `_core_dependencies`.
+    """
+    project = _pyproject()["project"]
+    names = _requirement_names(project["dependencies"])
+    for entries in project.get("optional-dependencies", {}).values():
+        names |= _requirement_names(entries)
+    return {name.split("[")[0] for name in names if not name.startswith("fastmdxplora")}
 
 
 def test_every_import_is_declared_in_pyproject() -> None:

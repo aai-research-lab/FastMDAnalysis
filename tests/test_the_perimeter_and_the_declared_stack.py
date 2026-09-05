@@ -251,3 +251,70 @@ class TestThreeTestsThatHadNeverRun:
         assert not repeated, (
             f"defined twice, so the first never runs: {repeated}"
         )
+
+
+class TestAnUnguardedImportIsACoreDependency:
+    """AUD18, and the reason it was invisible.
+
+    `analysis/ligand_chemistry.py` imported RDKit at the top of `_perceive`
+    with no guard, and RDKit is in `[ligand]` and `[test]` and not in the
+    core dependency list. So on a plain `pip install fastmdxplora` the call
+    raised ModuleNotFoundError, escaping `resolve_ligand_chemistry` and its
+    carefully written refusal -- the one that names every route tried and
+    says to supply an SDF. The user got a traceback instead of a next step,
+    on the single path where "it refuses rather than guesses" was not true.
+
+    `test_dependencies_declared` was supposed to catch exactly this and could
+    not: it sliced pyproject from `dependencies = [` to `[project.urls]`,
+    which spans the whole optional-dependencies table, so anything named in
+    any extra counted as a core declaration. That slice is a TOML parse now,
+    and the distinction it lost is what this class asserts.
+    """
+
+    def _core(self) -> set[str]:
+        import tomllib
+
+        project = tomllib.loads(
+            (ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+        import re as _re
+        return {_re.split(r"[><=!~;\s\[]", entry, maxsplit=1)[0].strip().lower()
+                for entry in project["dependencies"]}
+
+    def test_rdkit_is_not_a_core_dependency(self) -> None:
+        """Stated so the test below means something. RDKit belongs in the
+        ligand extra -- the point is that the code must cope without it."""
+        assert "rdkit" not in self._core()
+
+    def test_perception_returns_none_rather_than_raising(self, monkeypatch) -> None:
+        """The behaviour that lets the refusal downstream do its job."""
+        import builtins
+
+        from fastmdxplora.analysis import ligand_chemistry
+
+        real_import = builtins.__import__
+
+        def without_rdkit(name, *args, **kwargs):
+            if name.startswith("rdkit"):
+                raise ImportError("No module named 'rdkit'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", without_rdkit)
+        assert ligand_chemistry._perceive(None, [], "LIG", None) is None
+
+    def test_the_refusal_says_rdkit_is_missing(self, monkeypatch) -> None:
+        """And names the install line, rather than reading as though
+        perception had been tried and had not worked."""
+        from fastmdxplora.analysis import ligand_chemistry
+
+        monkeypatch.setattr(ligand_chemistry, "_rdkit_is_absent", lambda: True)
+        monkeypatch.setattr(ligand_chemistry, "_perceive",
+                            lambda *a, **k: None)
+
+        with pytest.raises(ValueError) as refusal:
+            ligand_chemistry.resolve_ligand_chemistry(
+                traj=None, atom_indices=[], resname="LIG")
+
+        message = str(refusal.value)
+        assert "RDKit is not installed" in message
+        assert "conda install" in message
+        assert "Supply an SDF" in message
