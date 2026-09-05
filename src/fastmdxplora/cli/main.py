@@ -248,6 +248,21 @@ class _PercentSafeHelp(argparse.RawDescriptionHelpFormatter):
         return (super()._get_help_string(action) or "").replace("%", "%%")
 
 
+def _schema_for(phase: str):
+    """The schema a CLI verb (or block name) refers to, or None.
+
+    Three functions used to write `PHASE_SCHEMAS.get(_SCHEMA_KEY.get(...))`
+    separately, which made `execution` invisible to the flag generator, the
+    default reader and the choice reader in the same stroke -- it is a
+    top-level block and not a phase, so it is in `all_schemas()` and not in
+    `PHASE_SCHEMAS`. One lookup, and adding a block to `all_schemas()` is
+    enough to reach all three.
+    """
+    from fastmdxplora.config.schema import all_schemas
+
+    return all_schemas().get(_SCHEMA_KEY.get(phase, phase))
+
+
 def _generated_options(phase: str, written: list[tuple]) -> list[tuple]:
     """A flag for every setting the schema declares.
 
@@ -264,9 +279,7 @@ def _generated_options(phase: str, written: list[tuple]) -> list[tuple]:
     be: a flag deliberately named something other than its setting, and a
     convenience flag that has no setting of its own.
     """
-    from fastmdxplora.config.schema import PHASE_SCHEMAS
-
-    group = PHASE_SCHEMAS.get(_SCHEMA_KEY.get(phase, phase))
+    group = _schema_for(phase)
     if group is None:
         return written
 
@@ -360,12 +373,19 @@ for _phase in list(_PHASE_SPEC):
     _table, _prefix = _PHASE_SPEC[_phase]
     _PHASE_SPEC[_phase] = (_generated_options(_phase, _table), _prefix)
 
+#: `execution` is not a phase -- it has no subcommand and does not appear in
+#: a plan -- so it is not in `_PHASE_SPEC`. It is still a block of the config
+#: with four settings, and it had no flag and no form control: writing a file
+#: was the only way to reach `mode`, `workers`, `devices` or
+#: `continue_on_error`, against a README that says no interface is a subset
+#: of another. Generated the same way, attached to the commands that schedule
+#: more than one run.
+_EXECUTION_OPTIONS = _generated_options("execution", [])
+
 
 def _schema_defaults(phase: str) -> dict[str, Any]:
     """Every default for a phase, read from the one place they are declared."""
-    from fastmdxplora.config.schema import PHASE_SCHEMAS
-
-    group = PHASE_SCHEMAS.get(_SCHEMA_KEY.get(phase, phase))
+    group = _schema_for(phase)
     if group is None:
         return {}
     return {field.name: field.default for field in group.fields}
@@ -373,9 +393,7 @@ def _schema_defaults(phase: str) -> dict[str, Any]:
 
 def _schema_choices(phase: str) -> dict[str, tuple[str, ...]]:
     """Every accepted-value list for a phase, from the schema that declares it."""
-    from fastmdxplora.config.schema import PHASE_SCHEMAS
-
-    group = PHASE_SCHEMAS.get(_SCHEMA_KEY.get(phase, phase))
+    group = _schema_for(phase)
     if group is None:
         return {}
     return {f.name: f.choices for f in group.fields if f.choices}
@@ -810,6 +828,17 @@ def _build_parser() -> argparse.ArgumentParser:
                  "phases) without running anything.",
         )
 
+        # The execution block: how the runs a plan produces are scheduled.
+        # Prefixed like the phases, because `--mode` and `--workers` on their
+        # own say nothing about which part of the study they belong to.
+        _attach_phase_options(
+            ep, _EXECUTION_OPTIONS,
+            prefix="execution",
+            dest_prefix="execution",
+            group_title="execution options",
+            phase="execution",
+        )
+
         # Per-phase options under per-phase prefix
         for phase, (opts, prefix) in _PHASE_SPEC.items():
             _attach_phase_options(
@@ -989,6 +1018,15 @@ def _build_explore_config(args: argparse.Namespace) -> dict[str, Any]:
         config = load_config_file(args.config)
     else:
         config = {}
+
+    # The execution block, on the same terms: what the flag says beats what
+    # the file says, and an unset flag leaves the file alone.
+    scheduling = _harvest_phase_options(
+        args, _EXECUTION_OPTIONS, dest_prefix="execution")
+    if scheduling:
+        block = dict(config.get("execution") or {})
+        block.update(scheduling)
+        config["execution"] = block
 
     # Harvest per-phase option flags and merge them on top (flags win).
     for phase, (opts, _prefix) in _PHASE_SPEC.items():

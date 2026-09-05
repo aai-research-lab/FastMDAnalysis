@@ -216,8 +216,22 @@ class TestValidation:
         })
 
     def test_execution_bad_mode_rejected(self):
-        with pytest.raises(ConfigError, match="execution.mode must be"):
+        """The refusal is unchanged; the sentence now comes from the schema.
+
+        `mode` was checked here against a hand-written ("sequential",
+        "parallel") pair, beside a schema that named the same pair in prose
+        and declared no `choices` -- so the parser could not offer them and
+        the GUI could not either. It has the tuple now and is refused on the
+        same terms as the other nine choice-bearing settings, which is why
+        the wording moved. Asserted on the value and the accepted list rather
+        than on a phrase, so the next such consolidation does not fail a test
+        that is not about it.
+        """
+        with pytest.raises(ConfigError) as refusal:
             validate_config({"systems": SYS, "execution": {"mode": "turbo"}})
+        message = str(refusal.value)
+        assert "mode" in message and "'turbo'" in message
+        assert "sequential" in message and "parallel" in message
 
 
 # ===========================================================================

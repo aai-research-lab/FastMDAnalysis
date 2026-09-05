@@ -696,7 +696,8 @@ EXECUTION = PhaseSchema(
     description="How the runs are scheduled: sequentially or in parallel.",
     fields=(
         Field("mode", str, "sequential",
-              "Run scheduling: 'sequential' (one at a time) or 'parallel'."),
+              "Run scheduling: 'sequential' (one at a time) or 'parallel'.",
+              choices=("sequential", "parallel")),
         Field("workers", int, None,
               "Parallel worker count. Default: one per device if `devices` "
               "is set, else the CPU count (capped at the number of runs).",
@@ -820,6 +821,14 @@ SETTING_GROUPS: dict[str, tuple[tuple[str, str, tuple[str, ...]], ...]] = {
          "The formats written to the run directory.",
          ("document", "slides", "pdf", "bundle")),
     ),
+    # Not a phase, and it still has to be reachable. Without an entry here
+    # `grouped_fields("execution")` returned an empty tuple, so the GUI drew
+    # no controls for it and `--help` had no section to put its flags under.
+    "execution": (
+        ("How the runs are scheduled",
+         "One at a time, or several at once across the devices named.",
+         ("mode", "workers", "devices", "continue_on_error")),
+    ),
 }
 
 
@@ -831,7 +840,8 @@ def grouped_fields(phase: str) -> tuple[tuple[str, str, tuple[Field, ...]], ...]
     from every interface at once. The test is what makes that a warning
     rather than a habit.
     """
-    group = PHASE_SCHEMAS.get(phase)
+    group = PHASE_SCHEMAS.get(phase) or (EXECUTION if phase == "execution"
+                                         else None)
     if group is None:
         return ()
     by_name = {f.name: f for f in group.fields}
@@ -872,5 +882,15 @@ TOP_LEVEL_KEYS = TOP_LEVEL.field_names() | set(PHASE_KEYS) | set(BATCH_KEYS)
 
 
 def all_schemas() -> dict[str, PhaseSchema]:
-    """Return every schema, including the top-level pseudo-phase."""
-    return {"(top-level)": TOP_LEVEL, **PHASE_SCHEMAS}
+    """Return every schema, including the top-level pseudo-phase.
+
+    `execution` is here and is not in `PHASE_SCHEMAS`, which is the
+    distinction worth keeping: the four phases drive the plan, and this
+    block says how the runs the plan produces are scheduled. It was in
+    neither, so the flag generator, the GUI form builder and the parity
+    suite all walked past it -- and the parity suite iterating this
+    function is why the omission stayed invisible. `mode`, `workers`,
+    `devices` and `continue_on_error` were reachable only by writing a
+    config file.
+    """
+    return {"(top-level)": TOP_LEVEL, **PHASE_SCHEMAS, "execution": EXECUTION}

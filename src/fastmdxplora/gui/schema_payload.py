@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastmdxplora.config.schema import PHASE_SCHEMAS, TOP_LEVEL
+from fastmdxplora.config.schema import EXECUTION, PHASE_SCHEMAS, TOP_LEVEL
 
 __all__ = ["schema_payload", "field_payload"]
 
@@ -217,8 +217,15 @@ def schema_payload() -> dict[str, Any]:
         field_payload(field) for field in TOP_LEVEL.fields
         if field.name not in _STRUCTURAL_TOP_LEVEL
     ]
+    # How the runs are scheduled. Not a phase -- it is not in the plan and
+    # cannot be included or excluded -- so it is offered beside the run
+    # options rather than as a fifth tab. It reached the config file and
+    # nothing else: no flag, no control, which is the same gap the comment
+    # above records closing for the top-level settings.
+    execution_options = [field_payload(field) for field in EXECUTION.fields]
     return {
         "phases": phases,
         "run_options": run_options,
+        "execution_options": execution_options,
         "analysis_options": _analysis_options(),
     }

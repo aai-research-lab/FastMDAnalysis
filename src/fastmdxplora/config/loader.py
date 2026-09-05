@@ -75,19 +75,13 @@ def load_config_file(path: str | Path) -> dict[str, Any]:
             f"got {type(data).__name__}."
         )
 
-    # An umbrella block describes a set of windows; everything downstream
-    # runs one system at a time. Expanding here means the block reaches
-    # exactly one place and every route into the software -- command line,
-    # Python, the GUI -- gets the same expansion rather than each
-    # remembering to ask for it.
-    from fastmdxplora.simulation.umbrella import expand_umbrella
-
-    try:
-        data = expand_umbrella(data)
-    except ValueError as exc:
-        raise ConfigError(str(exc)) from exc
-
-    return data
+    # Settled here as well as in `validate_config`, so a caller that loads a
+    # file and reads it without validating still sees the expanded windows,
+    # as it always did. `normalise_config` is idempotent -- `expand_umbrella`
+    # lifts the block out of `simulation` as it expands, so a second pass is
+    # a no-op -- which is what makes calling it twice safe rather than
+    # merely convenient.
+    return normalise_config(data)
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +148,55 @@ def _check_type(value: Any, expected: type | tuple[type, ...]) -> bool:
     return isinstance(value, allowed)
 
 
+#: Fields whose values a later, more specific check refuses better than a
+#: generic one can. Kept as a list rather than a flag on the field, because
+#: it is a fact about this module's ordering and not about the schema.
+_CHECKED_MORE_FULLY_LATER = frozenset({
+    ("analysis", "include"),
+    ("analysis", "exclude"),
+})
+
+
+def _check_choices(value: Any, fld: Any, *, key: str, context: str) -> None:
+    """Refuse a value the schema does not list, the way the parser does.
+
+    The schema names the accepted values for nine settings and argparse
+    rejects anything else on all nine. This checked the field's *name* and
+    its *type* and stopped, so `box_shape: dodecahedran` validated here,
+    survived PDBFixer and force-field construction, and died inside OpenMM's
+    `addSolvent` several minutes later with a message about neither the
+    setting nor the typo.
+
+    Which is the failure this module's own docstring names: "a typo'd config
+    that silently runs with defaults is the worst failure mode in science...
+    so we never silently ignore". It was true of unknown keys and not of
+    known keys carrying unknown values.
+
+    A list field is checked element by element -- `analysis.include` names
+    the twenty-three analyses, and one misspelling in a list of six should
+    say which.
+    """
+    if not getattr(fld, "choices", None):
+        return
+    if (context, key) in _CHECKED_MORE_FULLY_LATER:
+        # `analysis.include` and `analysis.exclude` have a refusal further
+        # down that names the analysis, offers the three nearest, and says
+        # what the list is for. A generic "does not accept" firing first
+        # would replace a better message with a worse one.
+        return
+    offered = set(fld.choices)
+    given = value if fld.type is list and isinstance(value, list) else [value]
+    for item in given:
+        if item in offered:
+            continue
+        where = f"{context} option '{key}'"
+        raise ConfigError(
+            f"{where} does not accept {item!r}"
+            f"{_suggest(str(item), offered)}. "
+            f"Accepted values: {', '.join(str(c) for c in fld.choices)}."
+        )
+
+
 def _validate_block(
     block: dict[str, Any],
     schema: PhaseSchema,
@@ -178,6 +221,7 @@ def _validate_block(
                 f"{context} option '{key}' should be {_type_name(fld.type)}, "
                 f"got {type(value).__name__} ({value!r})."
             )
+        _check_choices(value, fld, key=key, context=context)
 
 
 def _validate_phase_list(value: Any, *, field_name: str) -> None:
@@ -244,6 +288,29 @@ def normalise_config(data: dict[str, Any]) -> dict[str, Any]:
         for field in ("include", "exclude"):
             if field in analysis:
                 analysis[field] = _split_on_commas(analysis[field])
+
+    # An umbrella block describes a set of windows; everything downstream runs
+    # one system at a time, so the block becomes one `systems` entry per
+    # window. This lived in `load_config_file`, under a comment saying the
+    # point was that "every route into the software -- command line, Python,
+    # the GUI -- gets the same expansion rather than each remembering to ask
+    # for it". It was in the one route that reads a file. `config_data=` is
+    # the CLI's own path and the documented Python-API shape, and there a
+    # five-window study became one run with the block unexpanded, and
+    # `continue_on_error` silently flipped from False to True.
+    #
+    # Here instead, because `validate_config` calls this and both routes call
+    # that -- and in place, because a caller holding the dict keeps the dict
+    # it passed in.
+    from fastmdxplora.simulation.umbrella import expand_umbrella
+
+    try:
+        expanded = expand_umbrella(data)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
+    if expanded is not data:
+        data.clear()
+        data.update(expanded)
 
     return data
 
@@ -327,13 +394,12 @@ def validate_config(data: dict[str, Any], *, require_systems: bool = False) -> N
                 f"The 'execution' block must be a mapping, "
                 f"got {type(execution).__name__}."
             )
+        # `mode` used to be checked against a hand-written pair here, beside
+        # a schema that named the same pair in prose and declared no
+        # `choices`. It has the tuple now, so `_check_choices` refuses it on
+        # the same terms as every other setting -- and argparse offers the
+        # same two, from the same tuple.
         _validate_block(execution, EXECUTION, context="execution")
-        mode = execution.get("mode")
-        if mode is not None and mode not in ("sequential", "parallel"):
-            raise ConfigError(
-                f"execution.mode must be 'sequential' or 'parallel', "
-                f"got {mode!r}."
-            )
 
     # Validate each per-phase block
     for phase in PHASE_KEYS:

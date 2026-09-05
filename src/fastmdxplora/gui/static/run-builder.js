@@ -257,6 +257,7 @@
     }
 
     host.appendChild(runOptionsSection());
+    host.appendChild(executionSection());
 
     chosen.forEach((phase) => {
       host.appendChild(settingsSection(phase));
@@ -308,6 +309,48 @@
       const grid = document.createElement("div");
       grid.className = "run-section-body";
       options.forEach((field) => grid.appendChild(control(RUN_OPTIONS_KEY, field)));
+      section.appendChild(grid);
+    }
+    return section;
+  }
+
+  /* How the runs are scheduled. Under its own sentinel key for the same
+     reason "This run" has one: the control builder takes a phase name, and
+     `execution` is a top-level block rather than a phase -- it is not in the
+     plan and cannot be included or excluded. It reached the config file and
+     neither the flags nor the form, so a study wanting two GPUs had to be
+     written by hand. */
+  const EXECUTION_KEY = "__execution__";
+
+  function executionSection() {
+    const section = document.createElement("div");
+    section.className = "run-section";
+
+    const options = (state.schema && state.schema.execution_options) || [];
+    if (!options.length) return section;
+
+    const changed = Object.keys(state.values[EXECUTION_KEY] || {}).length;
+
+    const head = document.createElement("button");
+    head.type = "button";
+    head.className = "run-section-head";
+    head.setAttribute("aria-expanded", String(state.open.has(EXECUTION_KEY)));
+    head.innerHTML =
+      '<span class="run-section-name">How the runs are scheduled</span>' +
+      `<span class="run-section-count">${
+        changed ? `${changed} changed` : `${options.length} settings`
+      }</span>`;
+    head.addEventListener("click", () => {
+      if (state.open.has(EXECUTION_KEY)) state.open.delete(EXECUTION_KEY);
+      else state.open.add(EXECUTION_KEY);
+      renderSettings();
+    });
+    section.appendChild(head);
+
+    if (state.open.has(EXECUTION_KEY)) {
+      const grid = document.createElement("div");
+      grid.className = "run-section-body";
+      options.forEach((field) => grid.appendChild(control(EXECUTION_KEY, field)));
       section.appendChild(grid);
     }
     return section;

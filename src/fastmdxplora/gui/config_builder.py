@@ -208,6 +208,29 @@ def build_config(state: dict[str, Any], *, full: bool = False) -> dict[str, Any]
                 continue
             config[name] = value
 
+    # Scheduling, kept under its own sentinel for the same reason: one
+    # control builder draws it, and it is lifted here to the block the config
+    # file expects. `execution` is a top-level block and not a phase, so it
+    # is not in the loop below.
+    scheduling = state.get("__execution__")
+    if isinstance(scheduling, dict):
+        from fastmdxplora.config.schema import EXECUTION
+
+        fields = {f.name: f for f in EXECUTION.fields}
+        kept: dict[str, Any] = {}
+        for name, raw in scheduling.items():
+            field = fields.get(name)
+            if field is None:
+                continue
+            value = _coerce(raw, field)
+            if value is None:
+                continue
+            if not full and value == field.default:
+                continue
+            kept[name] = value
+        if kept:
+            config["execution"] = {**(config.get("execution") or {}), **kept}
+
     for phase, group in PHASE_SCHEMAS.items():
         block = state.get(phase)
         if not isinstance(block, dict):
