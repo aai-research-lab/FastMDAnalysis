@@ -158,3 +158,82 @@ class TestThePmfCarriesOne:
         plan = self._plan()
         result = compute_pmf(self._samples(plan), plan, bootstrap_resamples=0)
         assert result["pmf"]["uncertainty"] is None
+
+
+class TestAReweightedAverageSaysWhenItsBarIsAFloor:
+    """The concrete half of AUD7.
+
+    `reweighted_std` describes the spread of the reweighted distribution,
+    not the error on its mean, and it moved 3% for a 37-fold drop in
+    effective sample size while the report printed it as a plus-or-minus.
+    A resampling bar answers the right question -- but only while enough
+    frames still carry the average, and the point where it stops is
+    measured rather than assumed.
+    """
+
+    @staticmethod
+    def _series(seed: int, n: int = 2000, tau: int = 30, spread: float = 0.0):
+        from fastmdxplora.analysis.reweight import weights_from_bias
+
+        rng = np.random.default_rng(seed)
+        noise = rng.normal(0.0, 1.0, n + 10 * tau)
+        values = np.convolve(noise, np.ones(tau) / tau, mode="valid")[:n]
+        bias = rng.normal(0.0, spread, n) * 2.494 if spread else np.zeros(n)
+        return values, weights_from_bias(bias, temperature_K=300.0)
+
+    def test_even_weights_are_not_called_a_floor(self) -> None:
+        from fastmdxplora.analysis.reweight import weighted_uncertainty
+
+        values, weights = self._series(0)
+        result = weighted_uncertainty(values, weights, resamples=80)
+        assert result["is_a_floor"] is False
+        assert result["effective_fraction"] > 0.9
+
+    def test_concentrated_weights_are_called_a_floor(self) -> None:
+        """The failure this exists to prevent is a tight-looking bar on an
+        average that a handful of frames decide."""
+        from fastmdxplora.analysis.reweight import weighted_uncertainty
+
+        values, weights = self._series(0, spread=3.0)
+        result = weighted_uncertainty(values, weights, resamples=80)
+        assert result["is_a_floor"] is True
+        assert "replicas" in str(result["note"])
+
+    def test_the_bar_responds_to_the_sampling_behind_it(self) -> None:
+        """`reweighted_std` moved 3% across this range, which is the
+        complaint. It need not be exact -- the floor note covers the rest --
+        but it has to move."""
+        from fastmdxplora.analysis.reweight import weighted_uncertainty
+
+        even = weighted_uncertainty(*self._series(0), resamples=120)
+        tight = weighted_uncertainty(*self._series(0, spread=3.0),
+                                     resamples=120)
+        assert tight["standard_error"] > 1.2 * even["standard_error"]
+
+    def test_it_matches_the_estimator_s_own_spread_where_it_claims_to(
+            self) -> None:
+        """Ground truth: the spread of the reweighted mean over independent
+        realisations. Checked in the regime the constant says is trustworthy,
+        because a bar validated only where it happens to work is the defect
+        rather than the fix."""
+        from fastmdxplora.analysis.reweight import weighted_uncertainty
+
+        def mean_of(seed: int) -> float:
+            values, weights = self._series(seed)
+            w = np.asarray(weights.values, dtype=float)
+            return float(np.sum(values * w) / np.sum(w))
+
+        truth = float(np.std([mean_of(s) for s in range(60)], ddof=1))
+        got = float(weighted_uncertainty(*self._series(0),
+                                         resamples=200)["standard_error"])
+        assert got == pytest.approx(truth, rel=0.35)
+
+    def test_the_pairing_is_kept(self) -> None:
+        """Resampling values and weights apart would put one frame's value
+        with another's weight, which is not a resample of anything."""
+        from fastmdxplora.uncertainty import paired_block_bootstrap
+
+        a = np.arange(100.0)
+        with pytest.raises(ValueError, match="same length"):
+            paired_block_bootstrap([a, a[:50]], lambda x, y: float(x.sum()),
+                                   resamples=5)

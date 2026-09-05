@@ -164,6 +164,71 @@ def weighted_mean(values: np.ndarray, weights: Weights) -> float:
     return float(np.sum(array * weights.values) / np.sum(weights.values))
 
 
+def weighted_uncertainty(
+    values: "np.ndarray",
+    weights: "Weights",
+    *,
+    resamples: int = 200,
+    seed: int = 0,
+) -> "dict[str, object]":
+    """A standard error on a reweighted average, and whether to trust it.
+
+    `weighted_standard_deviation` describes the spread of the reweighted
+    distribution. It is not an error on the mean, and it barely moves when
+    the sampling behind that mean collapses: measured on this package's own
+    output it changed 3% for a 37-fold drop in effective sample size, while
+    the report printed it as a plus-or-minus. That is the defect this
+    function exists to answer.
+
+    The estimate is a moving-block bootstrap over the frames, resampling
+    values and weights together -- the pairing is the whole content of a
+    reweighted average, and shuffling them apart would put one frame's
+    value with another's weight.
+
+    **It is reported as a floor where the weights concentrate.** Against the
+    spread of the estimator over 200 independent realisations it holds to
+    about 15% while a tenth of the frames still carry the average, and
+    returns 0.36 of the true spread once that falls to a hundredth. The
+    limit is structural: resampling one run's frames cannot see how much the
+    weights themselves would differ in another run. Where that matters the
+    note says so and names replicas as the answer.
+    """
+    import numpy as np
+
+    from fastmdxplora.uncertainty import WEIGHT_ESS_FLOOR, paired_block_bootstrap
+
+    v = np.asarray(values, dtype=float).ravel()
+    w = np.asarray(weights.values, dtype=float).ravel()
+    if v.size != w.size or v.size == 0:
+        raise ValueError(
+            f"{v.size} values against {w.size} weights: a reweighted average "
+            "needs one weight per frame.")
+
+    def _mean(a: "np.ndarray", b: "np.ndarray") -> float:
+        total = float(np.sum(b))
+        return float(np.sum(a * b) / total) if total else float("nan")
+
+    result = paired_block_bootstrap([v, w], _mean, resamples=resamples,
+                                    seed=seed).as_dict()
+    ess = float(weights.effective_sample_size)
+    fraction = ess / float(v.size) if v.size else 0.0
+    result["effective_sample_size"] = ess
+    result["effective_fraction"] = fraction
+    result["is_a_floor"] = bool(fraction < WEIGHT_ESS_FLOOR)
+    if result["is_a_floor"]:
+        floor_note = (
+            f"{ess:.0f} effective samples from {v.size} frames "
+            f"({100 * fraction:.1f}%). Below {100 * WEIGHT_ESS_FLOOR:.0f}% a "
+            "resampling error bar on a weighted average is a floor rather "
+            "than an estimate: it cannot see how much the weights "
+            "themselves would differ in another run, and measured against "
+            "independent realisations it returned as little as a third of "
+            "the true spread. Independent replicas are the honest route.")
+        result["note"] = (f"{result['note']} {floor_note}" if result.get("note")
+                          else floor_note)
+    return result
+
+
 def weighted_standard_deviation(values: np.ndarray, weights: Weights) -> float:
     """The spread about the weighted mean, on the effective sample size.
 

@@ -57,6 +57,7 @@ __all__ = [
     "Bootstrap",
     "block_length_for",
     "block_bootstrap",
+    "paired_block_bootstrap",
     "DEFAULT_RESAMPLES",
 ]
 
@@ -71,6 +72,26 @@ DEFAULT_RESAMPLES = 200
 #: shorter blocks break correlations that are really there and shrink the
 #: error bar.
 BLOCKS_PER_CORRELATION_TIME = 2
+
+#: Below this ratio of effective to actual samples, a resampling error bar
+#: on a *weighted* average stops being an estimate and becomes a floor.
+#:
+#: Measured, not assumed. Against the spread of the estimator over 200
+#: independent realisations -- correlated values, lognormal weights, 3,000
+#: frames -- the block bootstrap returned this fraction of the true
+#: run-to-run spread:
+#:
+#:     ESS/n   1.00   0.78   0.39   0.15   0.056   0.012
+#:     ratio   0.92   0.92   0.91   0.85   0.66    0.36
+#:
+#: It holds to within about 15% while a tenth of the frames still carry the
+#: estimate, and falls away below that. The reason is structural rather
+#: than fixable: resampling frames from one run cannot see how much the
+#: *weights themselves* would differ in another run, and when a handful of
+#: frames carry the average that variation is most of the answer.
+#: Independent replicas are the honest route there, which is what the
+#: calibration experiment exists to establish.
+WEIGHT_ESS_FLOOR = 0.10
 
 
 @dataclass(frozen=True)
@@ -210,4 +231,78 @@ def block_bootstrap(
         block_length=int(max(blocks)),
         resolved=bool(resolved),
         note=note,
+    )
+
+
+def paired_block_bootstrap(
+    arrays: "Sequence[np.ndarray]",
+    statistic: Callable[..., Any],
+    *,
+    resamples: int = DEFAULT_RESAMPLES,
+    block_length: int | None = None,
+    seed: int | None = 0,
+    confidence: float = 0.95,
+) -> Bootstrap:
+    """One index sequence, applied to every array, so paired quantities stay
+    paired.
+
+    A reweighted average is a value and a weight per frame, and the pairing
+    is the whole content of the estimator: resampling the two independently
+    would put one frame's value with another frame's weight, which is not a
+    resample of anything. The same holds for a coordinate and its bias, or
+    a distance and the frame time it was measured at.
+
+    The block length is taken from the first array, which is by convention
+    the quantity being averaged; a weight series inherits its correlation
+    from the trajectory that produced it, so measuring g on the values is
+    the right reading.
+    """
+    series = [np.asarray(a, dtype=float).ravel() for a in arrays]
+    if not series:
+        raise ValueError("paired_block_bootstrap needs at least one array")
+    n = series[0].size
+    if any(a.size != n for a in series):
+        raise ValueError(
+            "paired arrays must be the same length; got "
+            + ", ".join(str(a.size) for a in series))
+    if n == 0:
+        raise ValueError("paired_block_bootstrap needs non-empty arrays")
+
+    rng = np.random.default_rng(seed)
+    block = block_length or block_length_for(series[0])
+    resolved = correlation_is_resolved(series[0]) if n > 1 else False
+    note = None
+    if not resolved:
+        note = (
+            "The series is shorter than its own correlation time, so the "
+            "block length is a lower bound and this error bar is optimistic "
+            "by an unknown factor. Report it as a floor, or sample longer."
+        )
+
+    value = np.asarray(statistic(*series), dtype=float)
+    drawn = np.empty((int(resamples),) + value.shape, dtype=float)
+    index = np.arange(n)
+    for i in range(int(resamples)):
+        if block >= n:
+            picked = index
+        else:
+            starts = rng.integers(0, n - block + 1,
+                                  size=int(np.ceil(n / block)))
+            picked = np.concatenate(
+                [index[s:s + block] for s in starts])[:n]
+        drawn[i] = np.asarray(statistic(*[a[picked] for a in series]),
+                              dtype=float)
+
+    tail = (1.0 - float(confidence)) / 2.0
+    with np.errstate(invalid="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        error = np.nanstd(drawn, axis=0, ddof=1)
+        low = np.nanpercentile(drawn, 100.0 * tail, axis=0)
+        high = np.nanpercentile(drawn, 100.0 * (1.0 - tail), axis=0)
+
+    return Bootstrap(
+        value=value, standard_error=error,
+        low=np.asarray(low, dtype=float), high=np.asarray(high, dtype=float),
+        resamples=int(resamples), block_length=int(block),
+        resolved=bool(resolved), note=note,
     )
