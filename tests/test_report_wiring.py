@@ -1966,7 +1966,7 @@ class TestTheReportDoesNotStateWhatDidNotHappen:
 
 
 class TestTheTitleNamesTheSystem:
-    """The title read "FastMDXplora Study --- /home/claude/ala3.pdb": the
+    """The title read "FastMDXplora Study --- /home/aaina/ala3.pdb": the
     author's home directory, on the first line of a document meant to be sent
     to somebody."""
 

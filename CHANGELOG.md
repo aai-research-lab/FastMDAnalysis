@@ -1337,7 +1337,7 @@ the CLI and the Python API each build one and each run all four phases.
   Setup records the input form; it is read.
 
 - **The report title carried the author's home directory.** "FastMDXplora
-  Study --- /home/claude/ala3.pdb", on the first line of a document meant to
+  Study --- /home/aaina/ala3.pdb", on the first line of a document meant to
   be sent to somebody. The title names the system: `ala3`, or `181L` where the
   input was a PDB entry.
 

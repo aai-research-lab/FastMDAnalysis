@@ -70,7 +70,7 @@ def _system_label(system: object) -> str:
 
     The name of the structure, not the path to it. A report is a document
     somebody sends to a colleague or attaches to a submission, and the title
-    read "FastMDXplora Study --- /home/claude/ala3.pdb": the author's home
+    read "FastMDXplora Study --- /home/aaina/ala3.pdb": the author's home
     directory, on the first line, in a file meant to leave the machine. A
     four-character PDB entry is already a name and is kept as one.
     """
