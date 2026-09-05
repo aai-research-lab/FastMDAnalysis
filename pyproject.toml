@@ -133,6 +133,11 @@ all = [
     "fastmdxplora[md,ligand,amber,umap]",
 ]
 test = [
+    # A test asserts the lint gate is clean, so the linter is part of
+    # running the tests. It was in [dev] alone, which meant that test
+    # raised FileNotFoundError in every environment installed the way
+    # the docs describe -- including CI's own test job.
+    "ruff>=0.5.0",
     "pytest>=7.0",
     "pytest-cov>=4.0",
     # The suite may fail; it may not hang. A per-test ceiling turns a wall

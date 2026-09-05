@@ -171,9 +171,7 @@ jobs:
         # fifteen copies of the same answer is fifteen runner-minutes.
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
         shell: bash
-        run: |
-          python -m pip install ruff
-          ruff check src tests --select F,B
+        run: ruff check src tests --select F,B
 
       - name: CLI smoke test
         shell: bash

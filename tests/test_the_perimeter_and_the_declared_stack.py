@@ -196,9 +196,23 @@ class TestTheLinterHasAJobAndAStatedScope:
 
     def test_the_rules_it_gates_on_are_clean(self) -> None:
         """The gate is F and B -- the rules that find bugs. Holding those
-        hostage to a 350-finding backlog of import order and line length is
-        how a lint job ends up permanently disabled."""
+        hostage to a backlog of import order and line length is how a lint
+        job ends up permanently disabled.
+
+        Skipped where ruff is absent rather than erroring. The first version
+        of this called `subprocess.run(["ruff", ...])` unguarded, and ruff
+        was in the `[dev]` extra and not in `[test]` -- so it raised
+        FileNotFoundError in every environment installed the documented way,
+        including CI's own test job. A test that shells out to a tool has to
+        say what it needs. It is in `[test]` now as well, so the skip should
+        be rare; it stays because an environment predating that change is
+        not a broken one.
+        """
+        import shutil
         import subprocess
+
+        if shutil.which("ruff") is None:
+            pytest.skip("ruff is not installed; `pip install -e '.[test]'`")
 
         result = subprocess.run(
             ["ruff", "check", "src", "tests", "--select", "F,B"],
