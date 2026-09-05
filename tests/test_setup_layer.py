@@ -578,23 +578,52 @@ class TestAFailureDuringSolvationExplainsItself:
     """
 
     def test_solvation_is_wrapped_like_system_creation(self) -> None:
+        """Asked of the syntax tree rather than of the text.
+
+        This was a window into `inspect.getsource`, anchored by searching
+        for "addSolvent" and then for the call after it. Both anchors are
+        words, and words appear in prose: adding a comment that named
+        `Modeller.addSolvent` moved the first anchor above the definition,
+        so the window opened on the wrong function and the test failed on a
+        change that touched nothing it was about. That is this repository's
+        recorded lesson twice over -- a `[dev]` inside a comment breaking a
+        regex that read the `[test]` extra, and a delimiter taken from a
+        line that later grew a comma.
+
+        What the test means is structural: the call to the solvation helper
+        sits inside a `try` whose handlers reach `_explain_unparameterized`.
+        Asked that way it cannot be moved by a comment, and it fails only
+        if the protection actually goes.
+        """
+        import ast
         import inspect
 
         from fastmdxplora.setup import prepare
 
-        # Anchored on the call site rather than on `modeller.addSolvent`,
-        # which now appears twice: solvation goes through a helper that can
-        # re-solvate with more padding when the box comes out smaller than
-        # twice the cutoff. The helper is called inside the same `try`, so
-        # the protection is unchanged -- only where to look for it.
-        source = inspect.getsource(prepare)
-        # The call, not the definition: the definition comes first in the file.
-        call = source.index("_solvate_with_room_for_the_cutoff(", source.index("addSolvent"))
-        # The call spans several lines now, so the window has to reach past it.
-        solvate = source[call:][:1800]
-        assert "_explain_unparameterized" in solvate, (
-            "a template failure during solvation still reaches the user raw"
-        )
+        tree = ast.parse(inspect.getsource(prepare))
+
+        def calls(node: ast.AST, name: str) -> bool:
+            return any(
+                isinstance(n, ast.Call)
+                and getattr(n.func, "id", getattr(n.func, "attr", None)) == name
+                for n in ast.walk(node))
+
+        def mentions(node: ast.AST, name: str) -> bool:
+            return any(getattr(n, "id", None) == name
+                       or getattr(n, "attr", None) == name
+                       for n in ast.walk(node))
+
+        protected = [
+            block for block in ast.walk(tree)
+            if isinstance(block, ast.Try)
+            and calls(block, "_solvate_with_room_for_the_cutoff")
+            and any(mentions(handler, "_explain_unparameterized")
+                    for handler in block.handlers)
+        ]
+        assert protected, (
+            "a template failure during solvation still reaches the user raw: "
+            "no `try` both calls the solvation helper and reaches "
+            "`_explain_unparameterized` from a handler")
 
     def test_the_explanation_says_what_to_do(self) -> None:
         from fastmdxplora.setup.prepare import _explain_unparameterized

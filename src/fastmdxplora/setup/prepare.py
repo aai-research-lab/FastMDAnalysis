@@ -119,6 +119,69 @@ def _refuse_an_implausible_structure(topology: Any, positions: Any, unit: Any) -
     )
 
 
+#: How narrow each box shape is, as the ratio of its smallest periodic
+#: width to the `size` OpenMM builds it from. Read off the box vectors
+#: `Modeller.addSolvent` uses: a cube is (1,0,0),(0,1,0),(0,0,1); a
+#: dodecahedron (1,0,0),(0,1,0),(1/2,1/2,sqrt2/2); a truncated octahedron
+#: (1,0,0),(-1/3,2sqrt2/3,0),(-1/3,-sqrt2/3,sqrt6/3). OpenMM constrains the
+#: *diagonal* of that matrix, so the narrowest width is the smallest
+#: diagonal entry and not the edge length the padding appears to control.
+NARROWEST_WIDTH_PER_SIZE: dict[str, float] = {
+    "cube": 1.0,
+    "dodecahedron": 2 ** 0.5 / 2,      # 0.7071
+    "octahedron": 6 ** 0.5 / 3,        # 0.8165
+}
+
+#: How much room to leave above OpenMM's hard floor of twice the cutoff.
+#:
+#: The floor is checked on the box as solvated, and the next phase runs a
+#: barostat whose whole job is to shrink it: solvation leaves a gap around
+#: the solute, and closing it is a 2-3.5% linear contraction on the systems
+#: measured here. A box that clears the floor by less than that cannot
+#: equilibrate to the right density, however long it runs.
+#:
+#: Ten percent covers the contraction with room for the barostat's own
+#: fluctuations. It is a judgement about how much water to buy for safety
+#: rather than a derived constant, and it is here as one number so it can
+#: be argued with.
+NPT_CONTRACTION_MARGIN = 1.10
+
+
+def padding_that_reaches(
+    *,
+    smallest_nm: float,
+    padding_nm: float,
+    nonbonded_cutoff_nm: float,
+    box_shape: str,
+    margin: float = NPT_CONTRACTION_MARGIN,
+) -> float:
+    """The padding whose box clears twice the cutoff, with room to shrink.
+
+    Separated from the solvation loop so the arithmetic can be checked
+    without building a system, because the arithmetic is where this was
+    wrong. The loop asked for `padding + shortfall / 2`, which is the
+    cube's relation between padding and width: a cube's narrowest dimension
+    is `maxSize + 2 * padding`, so a shortfall of 0.30 nm needs 0.15 nm
+    more padding.
+
+    A dodecahedron's narrowest dimension is that quantity divided by
+    sqrt(2), so the same padding buys sqrt(2) less width and the loop
+    undershot by exactly that factor. Measured on the V3 run it killed:
+    from 1.20 nm padding the box came out 1.70 nm across, the loop grew to
+    1.45 nm aiming at 2.20 nm, and got 2.05 -- against a floor of 2.00.
+    NPT then contracted 1.9% and the run died on the second barostat move.
+
+    The general relation is `d(width)/d(padding) = 2 * f`, with f the
+    shape's narrowest width per unit size.
+    """
+    factor = NARROWEST_WIDTH_PER_SIZE.get(str(box_shape).lower(), 1.0)
+    wanted = 2.0 * float(nonbonded_cutoff_nm) * float(margin)
+    shortfall = wanted - float(smallest_nm)
+    if shortfall <= 0.0:
+        return float(padding_nm)
+    return float(padding_nm) + shortfall / (2.0 * factor)
+
+
 def _solvate_with_room_for_the_cutoff(
     modeller: Any,
     ff: Any,
@@ -174,13 +237,21 @@ def _solvate_with_room_for_the_cutoff(
         # topology could not say, which is not a problem this can solve.
         if smallest <= 0.0:
             return
-        if nonbonded_cutoff_nm <= 0.5 * smallest or attempt == attempts - 1:
+        wanted = 2.0 * nonbonded_cutoff_nm * NPT_CONTRACTION_MARGIN
+        if smallest >= wanted or attempt == attempts - 1:
             return
 
-        # Enough for the cutoff, plus a little so a box on the exact boundary
-        # does not fail on a rounding difference.
-        shortfall = (2.0 * nonbonded_cutoff_nm) - smallest
-        grown = padding + (shortfall / 2.0) + 0.1
+        # Enough for the cutoff, and for the contraction the barostat is
+        # about to apply. The shape matters: a dodecahedron's narrowest
+        # width is the edge over sqrt(2), so the same padding buys sqrt(2)
+        # less of it than a cube's, and `shortfall / 2` -- the cube's
+        # arithmetic -- undershot every non-cubic box by that factor.
+        grown = padding_that_reaches(
+            smallest_nm=smallest,
+            padding_nm=padding,
+            nonbonded_cutoff_nm=nonbonded_cutoff_nm,
+            box_shape=str(kwargs.get("boxShape", "cube")),
+        )
         if grown - float(padding_nm) > most_it_may_grow_nm:
             # Said out loud, because the check further down reports the
             # padding the config asked for and knows nothing of what was
