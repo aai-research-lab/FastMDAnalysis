@@ -96,9 +96,9 @@ def _requirement_names(entries) -> set[str]:
 
 
 def _pyproject() -> dict:
-    import tomllib
+    from tests._toml import load_toml
 
-    return tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
+    return load_toml(REPO / "pyproject.toml")
 
 
 def _core_dependencies() -> set[str]:

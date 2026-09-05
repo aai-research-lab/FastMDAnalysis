@@ -272,10 +272,9 @@ class TestAnUnguardedImportIsACoreDependency:
     """
 
     def _core(self) -> set[str]:
-        import tomllib
+        from tests._toml import load_toml
 
-        project = tomllib.loads(
-            (ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+        project = load_toml(ROOT / "pyproject.toml")["project"]
         import re as _re
         return {_re.split(r"[><=!~;\s\[]", entry, maxsplit=1)[0].strip().lower()
                 for entry in project["dependencies"]}

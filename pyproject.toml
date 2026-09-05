@@ -138,6 +138,13 @@ test = [
     # raised FileNotFoundError in every environment installed the way
     # the docs describe -- including CI's own test job.
     "ruff>=0.5.0",
+    # Four tests read this file, and `tomllib` is stdlib only from 3.11
+    # while requires-python starts at 3.9. `tomli` is the same parser
+    # under its pre-stdlib name. Not skipping below 3.11: that would have
+    # hidden those four on two of the five supported versions, and a skip
+    # is invisible in a green run -- the same reasoning as RDKit below.
+    # The import is made once, in tests/_toml.py.
+    "tomli>=2.0; python_version < '3.11'",
     "pytest>=7.0",
     "pytest-cov>=4.0",
     # The suite may fail; it may not hang. A per-test ceiling turns a wall
@@ -169,6 +176,7 @@ dev = [
     "propka>=3.5",
     "ruff>=0.5.0",
     "python-pptx>=0.6.21",
+    "tomli>=2.0; python_version < '3.11'",
 ]
 
 [project.urls]

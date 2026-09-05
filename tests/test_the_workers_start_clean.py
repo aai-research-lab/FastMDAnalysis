@@ -56,10 +56,9 @@ class TestTheChoiceIsWrittenWhereThePoolIsMade:
         line that later grew a comma: a text scanner tripped by punctuation
         inside prose. The file is TOML and there is a parser for it.
         """
-        import tomllib
+        from tests._toml import load_toml
 
-        pyproject = tomllib.loads(
-            Path("pyproject.toml").read_text(encoding="utf-8"))
+        pyproject = load_toml(Path("pyproject.toml"))
         test_extra = pyproject["project"]["optional-dependencies"]["test"]
         assert any(name.startswith("pytest-timeout") for name in test_extra)
 
