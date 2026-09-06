@@ -38,7 +38,11 @@ jobs:
   corpus:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # 90 was reached exactly, at 90% of the corpus, on 2026-09-06 -- and 70 of
+    # those minutes were one structure prepared seven times because a failed
+    # preparation was not cached. With that fixed the run is about 40 minutes;
+    # this leaves room for a slow fetch without leaving room for a silent hang.
+    timeout-minutes: 120
     # conda, not pip, and the reason is in `environment.yml`'s own comments.
     # Two capabilities in this corpus have no wheel at all:
     #

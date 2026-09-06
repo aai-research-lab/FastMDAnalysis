@@ -84,8 +84,36 @@ def _run_setup(expectation: Expectation, workspace: Path) -> Prepared:
         command += ["--setup-membrane", expectation.membrane,
                     "--setup-membrane-orient"]
 
-    completed = subprocess.run(
-        command, capture_output=True, text=True, timeout=1800)
+    # Shorter than the 600 s pytest timeout in pytest.ini, and deliberately
+    # so. It was 1800 -- three times the outer budget, which meant it could
+    # never fire: pytest killed the test first, `_run_setup` never returned,
+    # the cache below never filled, and the next test on the same structure
+    # paid the full 600 s again. Seven tests share `multimer-glycoprotein`,
+    # which is 70 minutes of a 90-minute job spent re-attempting one
+    # preparation. Worse, killing the subprocess destroyed the output that
+    # would have said what it was doing, so the cause stayed invisible for as
+    # long as the arrangement lasted.
+    budget = int(os.environ.get("FASTMDXPLORA_SETUP_TIMEOUT_S", "420"))
+    try:
+        completed = subprocess.run(
+            command, capture_output=True, text=True, timeout=budget)
+    except subprocess.TimeoutExpired as expired:
+        def _text(stream):
+            if stream is None:
+                return ""
+            return stream if isinstance(stream, str) else stream.decode(
+                "utf-8", "replace")
+
+        return Prepared(
+            expectation=expectation,
+            directory=directory,
+            returncode=-1,
+            output=(_text(expired.stdout) + _text(expired.stderr)
+                    + f"\n\nPreparation did not finish within {budget} s and "
+                      "was stopped. The output above is what it had written by "
+                      "then, which is the evidence for where it was. Raise "
+                      "FASTMDXPLORA_SETUP_TIMEOUT_S to give it longer."),
+        )
     return Prepared(
         expectation=expectation,
         directory=directory,
@@ -102,6 +130,9 @@ def prepared(workspace: Path):
     def _for(kind: str) -> Prepared:
         if kind not in cache:
             expectation = next(e for e in CORPUS if e.kind == kind)
+            # Cached whatever the outcome. A preparation that failed is a
+            # result the other tests on this structure can read; re-running it
+            # once per test tells nobody anything the first attempt did not.
             cache[kind] = _run_setup(expectation, workspace)
         return cache[kind]
 
