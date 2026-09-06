@@ -39,28 +39,65 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    # conda, not pip, and the reason is in `environment.yml`'s own comments.
+    # Two capabilities in this corpus have no wheel at all:
+    #
+    #   openmm-plumed  -- "conda-only, which is the reason this file exists:
+    #                     there is deliberately no `plumed` pip extra, so a
+    #                     clone set up any other way has no umbrella,
+    #                     metadynamics or steered support."
+    #   openff-toolkit -- `fastmdx doctor` prints, in every job that has run:
+    #                     "OpenFF toolkit  missing  conda install -c
+    #                     conda-forge openff-toolkit"
+    #
+    # Installed by pip, this job ran the corpus with no enhanced sampling and
+    # no ligand chemistry, so `test_it_runs` refused for umbrella,
+    # metadynamics and steered, and the ligand structure refused too -- four
+    # clean, correct refusals that read as four defects. An extras group pip
+    # can satisfy is not the same thing as an environment the physics can run
+    # in, and only `environment.yml` describes the second.
+    defaults:
+      run:
+        shell: bash -el {0}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v6
+      # The declared stack, from the file the package already ships and that
+      # `test_the_stack_is_actually_there` already checks against.
+      - uses: mamba-org/setup-micromamba@v2
         with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: pyproject.toml
-
-      - name: Install everything the corpus needs
-        run: |
-          python -m pip install --upgrade pip
+          environment-file: environment.yml
+          cache-environment: true
           # [validation] brings MDAnalysis and ProLIF, which no job has ever
           # installed -- so `validation/cross_tool.py`, 853 lines of genuine
           # independent comparison with pre-registered tolerances, has never
-          # been executed by CI either.
-          python -m pip install -e ".[test,md,ligand,validation]"
+          # been executed by CI either. From conda-forge here so pip does not
+          # resolve numpy or scipy over the build openmm was compiled for.
+          create-args: >-
+            mdanalysis>=2.10
+            prolif>=2.2
+            pytest
+            pytest-timeout
+            pytest-cov
 
+      - name: Install FastMDXplora without re-resolving the stack
+        run: python -m pip install -e . --no-deps
+
+      # State the environment rather than leaving it to be inferred from
+      # which tests failed. Four hours were spent reading a failure whose
+      # cause this command prints in one line.
+      - name: What this environment actually has
+        run: fastmdx doctor
+
+      # `--timeout-method=signal` fails the hung test instead of killing the
+      # session. On 2026-09-06 one structure hung for the full 600 s and took
+      # the whole report with it: no failure section, no summary, nothing for
+      # the other hundred tests. A corpus that fetches real structures will
+      # meet a slow one, and it should cost that one test.
       - name: Run the network-marked corpus
-        run: pytest -m network tests/validation -v
+        run: pytest -m network tests/validation -v --timeout-method=signal
 
   test:
     runs-on: ${{ matrix.os }}
