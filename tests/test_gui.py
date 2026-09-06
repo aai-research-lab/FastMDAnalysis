@@ -2240,9 +2240,15 @@ class TestASettingShowsWhatItWillDo:
             # `r_max` is not a choice left unmade either: it is half the
             # smallest box dimension, which the system fixes and no literal
             # can state.
+            # `reference` names a measured dataset, which is a fact about
+            # what is available to compare against rather than a setting
+            # with a default; and `reference_exclude` deliberately defaults
+            # to nothing, because a residue set silently applied is the
+            # thing that makes such a comparison unreadable. Both belong to
+            # a comparison that is off unless a study asks for it.
             and o.name not in {"ligand_resname", "ligand_net_charge",
                                "ligand_chemistry", "structure", "state_csv",
-                               "r_max"}
+                               "r_max", "reference", "reference_exclude"}
         }
         assert not silent, f"these cannot say what they would do: {sorted(silent)}"
 

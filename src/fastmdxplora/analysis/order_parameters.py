@@ -45,6 +45,7 @@ magnetic resonance relaxation in macromolecules. 1. *J. Am. Chem. Soc.*
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import matplotlib.pyplot as plt
@@ -53,6 +54,65 @@ import numpy as np
 
 from fastmdxplora.analysis.base import Analysis, superposed
 from fastmdxplora.analysis.orchestrator import register_analysis
+
+
+def read_reference(path: "str | Path") -> "dict[int, float]":
+    """Per-residue reference order parameters from a text table.
+
+    Two or three whitespace- or comma-separated columns -- residue number,
+    S^2, and an optional uncertainty this ignores -- with `#` comments and
+    any non-numeric header line skipped. Deliberately not a bespoke format:
+    an experimental set arrives as whatever the depositing group wrote, and
+    a loader that insists on one layout is a loader nobody can feed.
+    """
+    values: dict[int, float] = {}
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        stripped = line.split("#", 1)[0].strip()
+        if not stripped:
+            continue
+        parts = stripped.replace(",", " ").split()
+        if len(parts) < 2:
+            continue
+        try:
+            residue, s2 = int(float(parts[0])), float(parts[1])
+        except ValueError:
+            continue          # a header row, or a comment without its hash
+        values[residue] = s2
+    if not values:
+        raise ValueError(
+            f"{path} holds no usable rows. Expected two columns, residue "
+            "number and S^2, with anything else on a `#` line."
+        )
+    return values
+
+
+def parse_residues(spec: "str | None") -> "set[int]":
+    """Residue numbers from a spec like `1,72-76`.
+
+    A comparison's residue set is a scientific choice and belongs in the
+    configuration where it can be pre-registered, not in a post-hoc filter
+    applied to a table after the correlation has been seen.
+    """
+    chosen: set[int] = set()
+    for piece in str(spec or "").replace(" ", "").split(","):
+        if not piece:
+            continue
+        if "-" in piece[1:]:
+            # Split at the separating hyphen, not the first one: a
+            # deposited structure can number an expression tag at or below
+            # zero, and `partition` on "-2--1" hands back an empty lower
+            # bound.
+            cut = piece.index("-", 1)
+            chosen.update(
+                range(int(piece[:cut]), int(piece[cut + 1:]) + 1))
+        else:
+            chosen.add(int(piece))
+    return chosen
+
+
+def _spearman(a: np.ndarray, b: np.ndarray) -> float:
+    from scipy.stats import spearmanr
+    return float(spearmanr(a, b).statistic)
 
 #: Amide hydrogen names in the force fields this software builds systems
 #: with. ``H`` is the AMBER and PDB v3 name; ``HN`` is CHARMM's; ``H1``
@@ -150,12 +210,26 @@ class OrderParameters(Analysis):
         because it is a choice that changes the answer.
     ref : int, default 0
         Frame the superposition is made onto.
+    reference : str, optional
+        Path to a table of measured order parameters -- residue number and
+        S^2, whitespace or comma separated, `#` for comments. Given one,
+        the analysis reports Pearson and Spearman correlations, the mean
+        absolute deviation and the RMSD against it, and writes the measured
+        values beside the computed ones. Without one it computes S^2 and
+        makes no comparison.
+    reference_exclude : str, optional
+        Residues to leave out of that comparison, as `1,72-76`. A residue
+        set is a scientific choice and belongs in the configuration where
+        it can be pre-registered; chosen after the correlation has been
+        seen, it is how this kind of comparison is made to pass.
     **kwargs
         Standard base-class options.
 
     Output
     ------
-    ``order_parameters.dat`` -- two columns, residue number and S^2.
+    ``order_parameters.dat`` -- residue number and S^2, plus the reference
+    value where one was given, so any residue subset can be recomputed from
+    the deposited file rather than taken on trust.
     ``order_parameters.png`` -- S^2 against residue number.
     """
 
@@ -180,14 +254,21 @@ class OrderParameters(Analysis):
         *,
         align_selection: str = "name CA",
         ref: int = 0,
+        reference: "str | None" = None,
+        reference_exclude: "str | None" = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self.align_selection = str(align_selection)
         self.ref = int(ref)
+        self.reference = str(reference) if reference else None
+        self.reference_exclude = (
+            str(reference_exclude) if reference_exclude else None)
         self.options.update(
             align_selection=self.align_selection,
             ref=self.ref,
+            reference=self.reference,
+            reference_exclude=self.reference_exclude,
             definition=(
                 "Lipari-Szabo generalised order parameter, from the "
                 "closed form of the internal second-rank correlation "
@@ -272,15 +353,129 @@ class OrderParameters(Analysis):
                     "rather than a measurement and the error is in one "
                     "direction. A longer run is the only remedy."
                 )
+        self._matched: "np.ndarray | None" = None
+        if self.reference:
+            self._matched = self._compare(labels, s2, record)
+
         self.findings["order_parameters"] = record
 
+        if self._matched is not None:
+            return np.column_stack(
+                [labels.astype(float), s2, self._matched])
         return np.column_stack([labels.astype(float), s2])
+
+    def _compare(self, labels: np.ndarray, s2: np.ndarray,
+                 record: dict) -> np.ndarray:
+        """Agreement with a measured set, reported without a verdict.
+
+        The analysis computed S^2 and stopped there, so the manuscript's
+        claim that trajectories are tested against NMR order parameters had
+        no machinery behind it: the run produced the simulated numbers and
+        nothing compared them to anything. This follows the pattern
+        `bfactor_comparison` already uses -- match by residue, report the
+        agreement, and say plainly what the agreement is not.
+
+        Pearson **and** Spearman, because they answer different questions
+        and the second is the robust one: a rank correlation asks whether
+        the flexible residues are the same residues, which is what a
+        correlation between a simulation and an experiment can support,
+        while Pearson is moved by a handful of low-S^2 termini.
+        """
+        reference = read_reference(self.reference)
+        excluded = parse_residues(self.reference_exclude)
+
+        rows, missing = [], 0
+        for residue, value in zip(labels.tolist(), s2.tolist()):
+            residue = int(residue)
+            if residue in excluded:
+                continue
+            measured = reference.get(residue)
+            if measured is None:
+                missing += 1
+                continue
+            rows.append((residue, float(value), float(measured)))
+
+        aligned = np.full(labels.shape[0], np.nan, dtype=float)
+        by_residue = {r: m for r, _, m in rows}
+        for position, residue in enumerate(labels.tolist()):
+            aligned[position] = by_residue.get(int(residue), np.nan)
+
+        if len(rows) < 3:
+            record["reference_comparison"] = {
+                "refused": (
+                    f"Only {len(rows)} residues matched between the "
+                    f"trajectory and {Path(self.reference).name}, which is "
+                    "too few to compare. The usual cause is a renumbering "
+                    "during preparation, so the residues no longer line up "
+                    "with the deposited set."),
+                "source": str(self.reference),
+            }
+            return aligned
+
+        table = np.array([(a, b) for _, a, b in rows], dtype=float)
+        simulated, measured = table[:, 0], table[:, 1]
+        difference = simulated - measured
+        record["reference_comparison"] = {
+            "source": str(self.reference),
+            "residues_compared": len(rows),
+            "residues_unmatched": missing,
+            "residues_excluded": sorted(excluded) or None,
+            "pearson_r": float(np.corrcoef(simulated, measured)[0, 1]),
+            "spearman_rho": _spearman(simulated, measured),
+            "mean_absolute_deviation": float(np.mean(np.abs(difference))),
+            "rmsd": float(np.sqrt(np.mean(difference ** 2))),
+            "mean_ratio": float(np.mean(simulated / np.where(
+                measured != 0.0, measured, np.nan))),
+            "mean_simulated": float(np.mean(simulated)),
+            "mean_measured": float(np.mean(measured)),
+            "what_this_is_not": (
+                "An accuracy. A measured order parameter is a model-free "
+                "fit to relaxation rates at one field and temperature, and "
+                "a computed one is a plateau of a correlation function over "
+                "whatever motion this trajectory length sampled -- so the "
+                "two are the same quantity only to the extent that the run "
+                "saw the motions the experiment averaged over. Slower "
+                "motion missing from the run raises S^2 here and not there, "
+                "which is a disagreement in one direction; see "
+                "`halves_max_difference` for whether this run has that "
+                "problem. Reported as a property of the force field as "
+                "implemented, not as a pass or a failure."),
+        }
+        return aligned
 
     def plot(self, result: np.ndarray, ax: plt.Axes) -> None:
         ax.plot(result[:, 0], result[:, 1], marker="o", markersize=2.5,
-                linewidth=1.0)
+                linewidth=1.0, label="simulation")
+        if result.shape[1] > 2 and np.isfinite(result[:, 2]).any():
+            ax.plot(result[:, 0], result[:, 2], marker="s", markersize=2.5,
+                    linewidth=0.0, color="#EE6677", label="measured")
+            ax.legend(loc="lower right", fontsize="small")
         ax.set_ylim(0.0, 1.05)
         ax.axhline(1.0, color="#888888", linestyle=":", linewidth=0.8)
+
+    def save_data(self, result: np.ndarray, path: Path) -> Path:
+        """Three named columns where a reference was compared.
+
+        The base writer stamps `no column header` on any array, which is
+        true of two columns whose meaning the analysis name gives away and
+        false of three."""
+        if result.ndim != 2 or result.shape[1] < 3:
+            return super().save_data(result, path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        np.savetxt(
+            path, result, fmt="%.8e",
+            header=("order_parameters: whitespace-delimited.\n"
+                    "columns: residue  S2_simulated  S2_measured\n"
+                    "S2_measured is nan where the reference has no value "
+                    "for that residue, or where the residue was excluded "
+                    "from the comparison."),
+        )
+        self._data_format = {
+            "layout": "whitespace-delimited, columns named in the header",
+            "read_with": "np.loadtxt(path)",
+            "columns": ["residue", "S2_simulated", "S2_measured"],
+        }
+        return path
 
     def default_xlabel(self) -> str | None:
         return "Residue"

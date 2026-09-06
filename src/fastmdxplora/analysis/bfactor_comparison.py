@@ -225,11 +225,21 @@ class BFactorComparison(Analysis):
         table = np.array(rows, dtype=float)
         simulated, implied = table[:, 1], table[:, 2]
         correlation = float(np.corrcoef(simulated, implied)[0, 1])
+        # Rank as well as value. Pearson on this pair is moved by the
+        # termini, which are the largest fluctuations on both sides and the
+        # least comparable: a crystallographic tail is disordered where a
+        # solution tail is mobile, and those are different statements. The
+        # rank correlation asks the question the comparison can actually
+        # answer -- whether the flexible residues are the same residues --
+        # and published values for this comparison are quoted both ways.
+        from scipy.stats import spearmanr
+        rank_correlation = float(spearmanr(simulated, implied).statistic)
 
         self.findings["bfactor_comparison"] = {
             "residues_compared": len(rows),
             "residues_unmatched": missing,
             "pearson_r": correlation,
+            "spearman_rho": rank_correlation,
             "source": str(path),
             "mean_simulated_nm": float(np.mean(simulated)),
             "mean_implied_nm": float(np.mean(implied)),

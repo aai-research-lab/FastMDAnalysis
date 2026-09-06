@@ -9,7 +9,7 @@ is in it: designing a run, starting it, watching it happen, and reading the
 results.
 
 The GUI is not a cut-down version of the command line. It offers **every
-setting the software has** — all 238 analysis options across 23 analyses, and
+setting the software has** — all 240 analysis options across 23 analyses, and
 all 104 phase and top-level settings — because the form is generated from the
 same declaration the CLI and the config file are built from, rather than
 written by hand. Adding a setting to the schema puts a control in the GUI;
