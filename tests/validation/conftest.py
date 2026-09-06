@@ -93,7 +93,12 @@ def _run_setup(expectation: Expectation, workspace: Path) -> Prepared:
     # preparation. Worse, killing the subprocess destroyed the output that
     # would have said what it was doing, so the cause stayed invisible for as
     # long as the arrangement lasted.
-    budget = int(os.environ.get("FASTMDXPLORA_SETUP_TIMEOUT_S", "420"))
+    # 900, measured rather than guessed. On 2026-09-06 at 420 s, 5WYZ was
+    # 340 s into its *second* identical PDBFixer pass (one per ligand copy;
+    # it is a homodimer) and 6B73 had just finished embedding 192,906 atoms
+    # in a bilayer and was building the OpenMM System. Both were working,
+    # not hung. The corpus command raises pytest's own timeout to match.
+    budget = int(os.environ.get("FASTMDXPLORA_SETUP_TIMEOUT_S", "900"))
     try:
         completed = subprocess.run(
             command, capture_output=True, text=True, timeout=budget)
