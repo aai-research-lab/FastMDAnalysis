@@ -89,7 +89,7 @@ jobs:
       # which tests failed. Four hours were spent reading a failure whose
       # cause this command prints in one line.
       - name: What this environment actually has
-        run: fastmdx doctor
+        run: fastmdx info
 
       # `--timeout-method=signal` fails the hung test instead of killing the
       # session. On 2026-09-06 one structure hung for the full 600 s and took
