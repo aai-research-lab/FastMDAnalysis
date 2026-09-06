@@ -47,7 +47,8 @@ class TestItRecoversAFreeEnergyItWasGiven:
         samples = {w.index: _sample(w.centre, w.force_constant, seed=w.index)
                    for w in plan.windows}
 
-        result = compute_pmf(samples, plan, temperature_K=300.0)
+        result = compute_pmf(samples, plan, temperature_K=300.0,
+                             bootstrap_resamples=0)
         assert result["refused"] is None
 
         x = np.array(result["pmf"]["coordinate"])
@@ -67,7 +68,7 @@ class TestItRecoversAFreeEnergyItWasGiven:
             "n_windows": 17, "force_constant": 200.0})
         result = compute_pmf(
             {w.index: _sample(w.centre, w.force_constant, seed=w.index)
-             for w in plan.windows}, plan)
+             for w in plan.windows}, plan, bootstrap_resamples=0)
 
         x = np.array(result["pmf"]["coordinate"])
         f = np.array(result["pmf"]["free_energy_kjmol"])
@@ -91,7 +92,7 @@ class TestWindowsThatDoNotOverlap:
         samples = {w.index: _sample(w.centre, w.force_constant, n=4000,
                                     seed=w.index, width=0.5)
                    for w in plan.windows}
-        return compute_pmf(samples, plan)
+        return compute_pmf(samples, plan, bootstrap_resamples=0)
 
     def test_no_free_energy_is_returned(self) -> None:
         assert self._separated()["pmf"] is None
@@ -275,7 +276,8 @@ class TestReadingTheSamplingBack:
 
         directories = {w.index: tmp_path / f"window_{w.index:02d}"
                        for w in plan.windows}
-        result = compute_pmf(collect_samples(directories), plan)
+        result = compute_pmf(collect_samples(directories), plan,
+                             bootstrap_resamples=0)
         x = np.array(result["pmf"]["coordinate"])
         f = np.array(result["pmf"]["free_energy_kjmol"])
         assert f[np.argmin(np.abs(x))] == pytest.approx(10.0, abs=1.5)
@@ -934,7 +936,7 @@ class TestHowMuchOverlapIsEnough:
         rng = np.random.RandomState(0)
         samples = {0: rng.normal(0.0, 0.10, 6000),
                    1: rng.normal(0.16, 0.10, 6000)}
-        return compute_pmf(samples, plan)
+        return compute_pmf(samples, plan, bootstrap_resamples=0)
 
     def test_the_same_data_passes_or_fails_by_the_threshold(self) -> None:
         assert self._pair(0.03)["refused"] is None
@@ -1260,7 +1262,7 @@ class TestAWindowThatIsNotWhereItWasHeld:
         plan = self._plan()
         where = {0: 0.114, 1: 0.156, 2: 0.219, 3: 0.485,
                  4: 1.190, 5: 1.197, 6: 1.500}
-        result = compute_pmf(self._sampled(plan, where, 0.03), plan)
+        result = compute_pmf(self._sampled(plan, where, 0.03), plan, bootstrap_resamples=0)
 
         assert result["pmf"] is None
         assert "did not sample where they were held" in result["refused"]
@@ -1274,7 +1276,7 @@ class TestAWindowThatIsNotWhereItWasHeld:
         plan = self._plan()
         where = {0: 0.114, 1: 0.156, 2: 0.219, 3: 0.485,
                  4: 1.190, 5: 1.197, 6: 1.500}
-        refused = compute_pmf(self._sampled(plan, where, 0.03), plan)["refused"]
+        refused = compute_pmf(self._sampled(plan, where, 0.03), plan, bootstrap_resamples=0)["refused"]
 
         assert "larger `force_constant`" in refused
         assert "A softer one will make this worse." in refused
@@ -1287,7 +1289,7 @@ class TestAWindowThatIsNotWhereItWasHeld:
 
         plan = self._plan(n=3, first=0.0, last=4.0)
         on_target = {w.index: w.centre for w in plan.windows}
-        refused = compute_pmf(self._sampled(plan, on_target, 0.05), plan)["refused"]
+        refused = compute_pmf(self._sampled(plan, on_target, 0.05), plan, bootstrap_resamples=0)["refused"]
 
         assert "did not sample where they were held" not in refused
         assert "softer force constant so each wanders further" in refused
@@ -1299,7 +1301,7 @@ class TestAWindowThatIsNotWhereItWasHeld:
         plan = self._plan()
         where = {w.index: w.centre for w in plan.windows}
         where[5] = 1.19
-        result = compute_pmf(self._sampled(plan, where, 0.03), plan)
+        result = compute_pmf(self._sampled(plan, where, 0.03), plan, bootstrap_resamples=0)
 
         assert [d["window"] for d in result["drifted"]] == [5]
 
@@ -1333,7 +1335,7 @@ class TestARunTooShortToJudge:
         from fastmdxplora.simulation.umbrella import compute_pmf
 
         plan = self._plan()
-        result = compute_pmf(self._sampled(plan, 41), plan)
+        result = compute_pmf(self._sampled(plan, 41), plan, bootstrap_resamples=0)
 
         assert result["pmf"] is None
         assert "recorded fewer than 200 values" in result["refused"]
@@ -1344,7 +1346,7 @@ class TestARunTooShortToJudge:
         from fastmdxplora.simulation.umbrella import compute_pmf
 
         plan = self._plan()
-        result = compute_pmf(self._sampled(plan, 41), plan)
+        result = compute_pmf(self._sampled(plan, 41), plan, bootstrap_resamples=0)
         assert len(result["overlaps"]) == 6
         assert [t["window"] for t in result["thin"]] == list(range(7))
 
@@ -1356,7 +1358,7 @@ class TestARunTooShortToJudge:
         plan = self._plan()
         where = {0: 0.114, 1: 0.156, 2: 0.219, 3: 0.485,
                  4: 1.190, 5: 1.197, 6: 1.500}
-        refused = compute_pmf(self._sampled(plan, 41, where), plan)["refused"]
+        refused = compute_pmf(self._sampled(plan, 41, where), plan, bootstrap_resamples=0)["refused"]
 
         assert "not at their centres" in refused
         assert "cannot be told apart" in refused
@@ -1372,7 +1374,7 @@ class TestARunTooShortToJudge:
         plan = self._plan()
         where = {0: 0.114, 1: 0.156, 2: 0.219, 3: 0.485,
                  4: 1.190, 5: 1.197, 6: 1.500}
-        refused = compute_pmf(self._sampled(plan, 4000, where), plan)["refused"]
+        refused = compute_pmf(self._sampled(plan, 4000, where), plan, bootstrap_resamples=0)["refused"]
 
         assert "larger `force_constant`" in refused
         assert "Sample for longer first" not in refused
@@ -1384,7 +1386,7 @@ class TestARunTooShortToJudge:
 
         plan = self._plan(minimum_samples=20)
         assert plan.minimum_samples == 20
-        result = compute_pmf(self._sampled(plan, 41), plan)
+        result = compute_pmf(self._sampled(plan, 41), plan, bootstrap_resamples=0)
         assert "recorded fewer than" not in (result["refused"] or "")
 
     def test_it_survives_expansion_like_the_overlap_does(self) -> None:
@@ -1583,7 +1585,8 @@ class TestAnUnsampledBinIsNotAMeasurement:
             "force_constant": 2000.0,
         })
         return compute_pmf(
-            samples, plan, temperature_K=300.0, minimum_overlap=0.0)
+            samples, plan, temperature_K=300.0, minimum_overlap=0.0,
+            bootstrap_resamples=0)
 
     def test_a_sampled_bin_reports_a_number(self) -> None:
         result = self._pmf(gap=False)

@@ -78,7 +78,8 @@ class TestAKnownPeriodicProfileIsRecovered:
     windows sampled from it."""
 
     def test_the_barrier_comes_back(self) -> None:
-        out = compute_pmf(*_study(), temperature_K=300.0)
+        out = compute_pmf(*_study(), temperature_K=300.0,
+                          bootstrap_resamples=0)
         assert out.get("refused") is None
         energy = np.array([np.nan if v is None else v
                            for v in out["pmf"]["free_energy_kjmol"]])
@@ -88,7 +89,8 @@ class TestAKnownPeriodicProfileIsRecovered:
     def test_the_circle_closes(self) -> None:
         """The two ends are the same point. A chain of window offsets with
         nothing tying them together drifts, and the drift shows up here."""
-        out = compute_pmf(*_study(), temperature_K=300.0)
+        out = compute_pmf(*_study(), temperature_K=300.0,
+                          bootstrap_resamples=0)
         energy = np.array([np.nan if v is None else v
                            for v in out["pmf"]["free_energy_kjmol"]])
         finite = np.isfinite(energy)
@@ -100,7 +102,8 @@ class TestAKnownPeriodicProfileIsRecovered:
     def test_it_is_not_a_ramp(self) -> None:
         """The failure looked like a plausible file: a monotonic slide with
         no minimum, and every check passing."""
-        out = compute_pmf(*_study(), temperature_K=300.0)
+        out = compute_pmf(*_study(), temperature_K=300.0,
+                          bootstrap_resamples=0)
         energy = np.array([np.nan if v is None else v
                            for v in out["pmf"]["free_energy_kjmol"]])
         finite = energy[np.isfinite(energy)]

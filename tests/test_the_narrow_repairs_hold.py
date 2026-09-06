@@ -350,7 +350,8 @@ class TestTheWhamLoopSaysWhetherItSettled:
         from fastmdxplora.simulation.umbrella import compute_pmf
 
         plan, samples = self._windows(force_constant=300.0, spread=0.6)
-        result = compute_pmf(samples, plan, temperature_K=300.0)
+        result = compute_pmf(samples, plan, temperature_K=300.0,
+                             bootstrap_resamples=0)
 
         assert result["converged"] is True
         assert result["final_residual_kjmol"] < result["wham_tolerance_kjmol"]
@@ -360,7 +361,8 @@ class TestTheWhamLoopSaysWhetherItSettled:
         from fastmdxplora.simulation.umbrella import compute_pmf
 
         plan, samples = self._windows(force_constant=300.0, spread=0.6)
-        result = compute_pmf(samples, plan, temperature_K=300.0)
+        result = compute_pmf(samples, plan, temperature_K=300.0,
+                             bootstrap_resamples=0)
 
         for key in ("converged", "final_residual_kjmol",
                     "wham_tolerance_kjmol"):
