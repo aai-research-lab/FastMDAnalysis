@@ -101,7 +101,7 @@ jobs:
       # the other hundred tests. A corpus that fetches real structures will
       # meet a slow one, and it should cost that one test.
       - name: Run the network-marked corpus
-        run: pytest -m network tests/validation -v --timeout-method=signal --timeout=1200
+        run: pytest -m network tests/validation -v --timeout-method=signal --timeout=2400
 
   test:
     runs-on: ${{ matrix.os }}

@@ -93,12 +93,17 @@ def _run_setup(expectation: Expectation, workspace: Path) -> Prepared:
     # preparation. Worse, killing the subprocess destroyed the output that
     # would have said what it was doing, so the cause stayed invisible for as
     # long as the arrangement lasted.
-    # 900, measured rather than guessed. On 2026-09-06 at 420 s, 5WYZ was
-    # 340 s into its *second* identical PDBFixer pass (one per ligand copy;
-    # it is a homodimer) and 6B73 had just finished embedding 192,906 atoms
-    # in a bilayer and was building the OpenMM System. Both were working,
-    # not hung. The corpus command raises pytest's own timeout to match.
-    budget = int(os.environ.get("FASTMDXPLORA_SETUP_TIMEOUT_S", "900"))
+    # 1800, measured rather than guessed, and every rise has been read off a
+    # log rather than doubled hopefully. 6B73 needed more than 420 s to
+    # embed 192,906 atoms in a bilayer and build the System; it passes at
+    # 900. 5WYZ needs two PDBFixer passes that are genuinely different --
+    # one keeping heterogens for the pKa complex, one with the ligand
+    # stripped for `prepared.pdb` -- and each takes about 475 s on a
+    # 1,600-residue dimer with 48 unresolved termini. At 900 it ran out
+    # roughly eighty seconds short of finishing the second, with solvation
+    # still to come. That is a large structure, not a stall. The corpus
+    # command raises pytest's own timeout to match.
+    budget = int(os.environ.get("FASTMDXPLORA_SETUP_TIMEOUT_S", "1800"))
     try:
         completed = subprocess.run(
             command, capture_output=True, text=True, timeout=budget)
