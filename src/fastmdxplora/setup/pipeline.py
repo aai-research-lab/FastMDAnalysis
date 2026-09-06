@@ -388,6 +388,16 @@ def _validate_ligand_forcefield(params: dict) -> None:
 
 
 
+#: One repaired complex per (structure, setup directory, pH), because that is
+#: what determines it. `_repaired_complex` is called once per ligand copy and
+#: writes a fixed path from unchanging arguments, so every call after the first
+#: rebuilt a file identical to the one already on disk. On 5WYZ -- TLR8, a
+#: homodimer carrying the same ligand in both chains -- PDBFixer takes 475 s,
+#: and it ran twice; 6B73, with three ligands, ran it four times. The key holds
+#: the setup directory, so runs in one batch process do not see each other's.
+_REPAIRED_COMPLEXES = {}
+
+
 def _repaired_complex(input_pdb, setup_dir, ph: float):
     """A structure with missing atoms rebuilt, for the pKa calculation.
 
@@ -396,12 +406,22 @@ def _repaired_complex(input_pdb, setup_dir, ph: float):
     computing it in the wrong electrostatic environment, so the ligand and the
     protein are repaired first. Falls back to the deposition if repair fails,
     since a less accurate pKa is better than none.
+
+    Repaired once per structure rather than once per ligand: the result
+    depends on the structure and the pH, and neither changes between the
+    copies of a ligand in one complex.
     """
     from fastmdxplora.setup.pdbfix import fix_pdb_with_pdbfixer
 
     # setup_dir is already the setup directory, as it is for the ligand
     # files: appending "setup" again buried this in setup/setup/.
     repaired = Path(setup_dir) / "complex_for_pka.pdb"
+    key = (str(input_pdb), str(repaired), float(ph))
+
+    remembered = _REPAIRED_COMPLEXES.get(key)
+    if remembered is not None and Path(remembered).is_file():
+        return remembered
+
     repaired.parent.mkdir(parents=True, exist_ok=True)
     try:
         fix_pdb_with_pdbfixer(
@@ -409,6 +429,7 @@ def _repaired_complex(input_pdb, setup_dir, ph: float):
             keep_heterogens=True,   # the ligand must be present to be assessed
             keep_water=False,
         )
+        _REPAIRED_COMPLEXES[key] = repaired
         return repaired
     except Exception as exc:  # noqa: BLE001 - fall back rather than fail
         logger.warning(
@@ -416,6 +437,9 @@ def _repaired_complex(input_pdb, setup_dir, ph: float):
             "using the deposition as given, which may have unmodelled side "
             "chains near the site.", exc,
         )
+        # Remembered too. A repair that failed will fail the same way for the
+        # next copy of the same ligand, and saying so once is enough.
+        _REPAIRED_COMPLEXES[key] = input_pdb
         return input_pdb
 
 
