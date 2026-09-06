@@ -161,10 +161,31 @@ class TestTheCorpusHasSomewhereToRun:
     def test_it_installs_the_extras_no_job_ever_has(self) -> None:
         """`[validation]` brings MDAnalysis and ProLIF. Without it
         `cross_tool.py` -- 853 lines of independent comparison against
-        pre-registered tolerances -- skips, which is how it has never run."""
-        steps = self._workflow()["jobs"]["corpus"]["steps"]
-        run = " ".join(str(step.get("run", "")) for step in steps)
-        assert "validation" in run and "ligand" in run and "md" in run
+        pre-registered tolerances -- skips, which is how it has never run.
+
+        Asserted over the whole job rather than over its `run:` lines,
+        because these arrive from conda now and a conda dependency is named
+        in a `with:` block. What has to stay true is that the job gets them,
+        not which installer fetched them.
+        """
+        job = yaml.safe_dump(self._workflow()["jobs"]["corpus"]).lower()
+        assert "mdanalysis" in job
+        assert "prolif" in job
+
+    def test_it_is_built_from_the_environment_file(self) -> None:
+        """openff-toolkit and openmm-plumed have no wheel at all, so a job
+        that installs by pip runs this corpus with no ligand chemistry and no
+        enhanced sampling. On 2026-09-06 that is what happened: `test_it_runs`
+        refused for umbrella, metadynamics and steered, the ligand structure
+        refused too, and four correct refusals read as four defects. Only
+        `environment.yml` describes an environment the physics can run in.
+        """
+        job = yaml.safe_dump(self._workflow()["jobs"]["corpus"])
+        assert "environment.yml" in job
+
+        declared = (ROOT / "environment.yml").read_text(encoding="utf-8")
+        assert "openff-toolkit" in declared
+        assert "openmm-plumed" in declared
 
     def test_it_is_scheduled_and_can_be_asked_for(self) -> None:
         workflow = self._workflow()
