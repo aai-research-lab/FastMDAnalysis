@@ -372,15 +372,12 @@ def _bonded_topology(pdb_text: str) -> Any:
     is one is all the imaging needs of its bonds, and a ligand is written
     whole, so each atom is reached from the one before it.
     """
-    import mdtraj as md
-
-    from fastmdxplora.utils.native_output import suppress_native_output
+    from fastmdxplora.utils.native_output import topology_quietly
 
     with tempfile.TemporaryDirectory(prefix="fastmdx-live-") as folder:
         path = Path(folder) / "frame.pdb"
         path.write_text(pdb_text, encoding="utf-8")
-        with suppress_native_output():
-            topology = md.load_topology(str(path))
+        topology = topology_quietly(path)
     bonded = {atom.index for bond in topology.bonds for atom in bond}
     for residue in topology.residues:
         members = list(residue.atoms)

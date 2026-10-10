@@ -343,18 +343,14 @@ def _selected_atoms(selection: dict[str, Any], runs: list[Any], topology: Any,
 
 
 def _topology(lines: list[str]) -> Any:
-    import warnings
-
-    import mdtraj as md
-
-    from fastmdxplora.utils.native_output import suppress_native_output
+    from fastmdxplora.utils.native_output import topology_quietly
 
     with tempfile.TemporaryDirectory() as folder:
         path = Path(folder) / "shown.pdb"
         path.write_text("\n".join(lines) + "\nEND\n", encoding="utf-8")
-        with suppress_native_output(), warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            return md.load_topology(str(path))
+        # Read where its warnings reach the terminal (MDTraj's PDB reader
+        # prints nothing below Python).
+        return topology_quietly(path)
 
 
 def _pocket(xyz: Any, runs: list[Any], ligands: set[str], cutoff: float,

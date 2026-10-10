@@ -211,11 +211,13 @@ def _from_trajectory(source: dict[str, Any], simulation: Path, most_frames: int,
     import mdtraj as md
 
     from fastmdxplora.analysis.loading import _made_whole
-    from fastmdxplora.utils.native_output import suppress_native_output
+    from fastmdxplora.utils.native_output import suppress_native_output, topology_quietly
 
     topology_path: Path = source["topology"]
+    # The structure read where its warnings reach the terminal; only the
+    # DCD's own reader, which prints below Python, is kept from it.
+    whole = topology_quietly(topology_path)
     with suppress_native_output():
-        whole = md.load_topology(str(topology_path))
         kept = "not water"
         shown = whole.select(kept)
         if len(shown) == 0:
@@ -495,7 +497,7 @@ def superposed_frames(output_dir: str | Path, on: str, *, ligand: str | None = N
     with lock:
         if not (frames_file.is_file() and topology_file.is_file()):
             return {"ok": False, "reason": "There are no frames to superpose yet."}
-        from fastmdxplora.utils.native_output import suppress_native_output
+        from fastmdxplora.utils.native_output import pdb_quietly, suppress_native_output
 
         with suppress_native_output():
             frames = md.load_dcd(str(frames_file), top=str(topology_file))
@@ -517,8 +519,7 @@ def superposed_frames(output_dir: str | Path, on: str, *, ligand: str | None = N
                      "the first frame.")}
         reference, reference_atoms = frames, atoms
         if to == "start":
-            with suppress_native_output():
-                reference = md.load_pdb(str(topology_file))
+            reference = pdb_quietly(topology_file)
             said += ", fitted to the structure the run started from"
         elif to == "deposited":
             atoms, xyz, fitted = _deposited_reference(out, topology_file, atoms)

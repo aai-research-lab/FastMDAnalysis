@@ -16,7 +16,6 @@ import os
 import re
 import tempfile
 import threading
-import warnings
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
@@ -141,19 +140,15 @@ def _topology(pdb: bytes, key: tuple[str, int, int]) -> Any:
         if key in _TOPOLOGIES:
             _TOPOLOGIES.move_to_end(key)
             return _TOPOLOGIES[key]
-    import mdtraj as md
-
-    from fastmdxplora.utils.native_output import suppress_native_output
+    from fastmdxplora.utils.native_output import topology_quietly
 
     handle, name = tempfile.mkstemp(suffix=".pdb")
     try:
         with os.fdopen(handle, "wb") as out:
             out.write(pdb)
-        # MDTraj's notes on the file (residues numbered alike where an
-        # insertion code tells them apart) change no atom's place.
-        with suppress_native_output(), warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            topology = md.load_topology(name)
+        # Read where its warnings reach the terminal: shown into the redirect,
+        # Python counts one as said and never says it again.
+        topology = topology_quietly(name)
     finally:
         os.unlink(name)
     with _TOPOLOGIES_LOCK:

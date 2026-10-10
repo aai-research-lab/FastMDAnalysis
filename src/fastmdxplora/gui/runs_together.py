@@ -318,13 +318,10 @@ def _shown_atoms(topology_path: Path) -> tuple[list[str] | None, Any, Any]:
     """The atoms of a topology the Viewer shows (all but water), each named
     by its PDB line, with their indices and the whole topology; None where
     the file's lines and its atoms do not agree."""
-    import mdtraj as md
-
     from fastmdxplora.gui.trajectory_frames import _atom_lines, _read
-    from fastmdxplora.utils.native_output import suppress_native_output
+    from fastmdxplora.utils.native_output import topology_quietly
 
-    with suppress_native_output():
-        whole = md.load_topology(str(topology_path))
+    whole = topology_quietly(topology_path)
     kept = whole.select("not water")
     if len(kept) == 0:
         kept = np.arange(whole.n_atoms)

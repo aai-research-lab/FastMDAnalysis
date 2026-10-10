@@ -149,7 +149,7 @@ def _water_map(out: Path, index: dict[str, Any], ligand: str, cutoff: float) -> 
 
     from fastmdxplora.analysis.water_sites import WATER_RESIDUES
     from fastmdxplora.gui.trajectory_frames import _even, _source
-    from fastmdxplora.utils.native_output import suppress_native_output
+    from fastmdxplora.utils.native_output import suppress_native_output, topology_quietly
 
     source = _source(out)
     if source is None or source["kind"] != "trajectory":
@@ -159,8 +159,7 @@ def _water_map(out: Path, index: dict[str, Any], ligand: str, cutoff: float) -> 
     if frames is None:
         return {"ok": False, "reason": f"The map could not be made: {fitted}"}
     heavy = frames.topology.select(f"resname {ligand} and not element H")
-    with suppress_native_output():
-        whole = md.load_topology(str(source["topology"]))
+    whole = topology_quietly(source["topology"])
     waters = np.array([atom.index for atom in whole.atoms
                        if atom.residue.name.upper() in WATER_RESIDUES
                        and atom.element is not None and atom.element.symbol == "O"], dtype=int)
@@ -305,7 +304,7 @@ def water_sites_placed(root: str | Path) -> dict[str, Any]:
     from fastmdxplora.analysis.loading import _made_whole
     from fastmdxplora.gui.series import analysed_axis, of_the_played_trajectory
     from fastmdxplora.gui.trajectory_frames import _source
-    from fastmdxplora.utils.native_output import suppress_native_output
+    from fastmdxplora.utils.native_output import suppress_native_output, topology_quietly
 
     out = Path(root)
     folder = out / "analysis" / "water_sites"
@@ -330,8 +329,7 @@ def water_sites_placed(root: str | Path) -> dict[str, Any]:
     source = _source(out)
     if not index.get("available") or source is None or source["kind"] != "trajectory":
         return {"ok": False, "reason": "There are no frames to place the sites on yet."}
-    with suppress_native_output():
-        whole = md.load_topology(str(source["topology"]))
+    whole = topology_quietly(source["topology"])
     site = whole.select(str((findings.get("site") or {}).get("selection") or "protein"))
     kept = whole.select("not water")
     within = np.searchsorted(kept, site)

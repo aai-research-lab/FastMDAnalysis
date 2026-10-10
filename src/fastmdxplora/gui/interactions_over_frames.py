@@ -104,9 +104,9 @@ def _placed(base: Path, pairs: list[dict[str, Any]]) -> list[list[int] | None]:
             != where.resolve():
         return nothing
     try:
-        import mdtraj as md
+        from fastmdxplora.utils.native_output import topology_quietly
 
-        topology = md.load_topology(str(where))
+        topology = topology_quietly(where)
     except Exception:  # noqa: BLE001 - the timeline is shown without the atoms
         return nothing
     shown = np.asarray(topology.select(kept))

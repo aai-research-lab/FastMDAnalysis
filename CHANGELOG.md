@@ -63,6 +63,10 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   anyway. A study is carried on by one process at a time: a resume or an
   extension of a study another process is carrying on is refused. The
   Overview's speed is read from the last piece run.
+- MDTraj's notes on reading a structure (a placeholder CRYST1 cell, two
+  residues under one number) no longer print in the terminal under
+  `fastmdx gui`; any other warning still shows, and two of the GUI's reads
+  at once no longer leave the terminal showing nothing after them.
 
 ### Security
 

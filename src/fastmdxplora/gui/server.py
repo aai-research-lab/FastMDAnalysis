@@ -2680,6 +2680,11 @@ def start_dashboard_session(
     """
     root = Path(output).resolve()
     root.mkdir(parents=True, exist_ok=True)
+    # Before the server's threads: MDTraj's notes on reading a structure,
+    # its frames' included, kept out of the terminal for every one of them.
+    from fastmdxplora.utils.native_output import keep_notes_on_reading_quiet
+
+    keep_notes_on_reading_quiet()
     if hosting is not None:
         exploration_root = hosting.workspace
     runtime = DashboardRuntime(
