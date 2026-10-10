@@ -121,7 +121,9 @@
       const asked = studyInAddress();
       if (asked && state.addressSettled && asked !== state.studyShown && !state.addressAsking) {
         openAsked(asked);
+        return;
       }
+      followAddress();
     });
     // A page kept by the browser and shown again on Back is read afresh.
     window.addEventListener("pageshow", (event) => {
@@ -131,10 +133,20 @@
         schedulePoll(0);
       }
     });
-    window.addEventListener("hashchange", () => {
-      const page = location.hash.replace(/^#/, "");
-      if (state.pages.includes(page.split("/")[0]) || DIALOG_OF[page]) navigate(page, {updateHash: false});
-    });
+    window.addEventListener("hashchange", followAddress);
+  }
+
+  /* The page and place the address names, opened where they are not the
+   * ones shown. Back to a step whose address differs from this one by more
+   * than its hash (the study named in one, not yet in the step before) is
+   * a popstate with no hashchange after it: the page stayed as it was. */
+  function followAddress() {
+    const page = location.hash.replace(/^#/, "");
+    const [name, place] = page.split(/\/(.*)/);
+    if (!state.pages.includes(name) && !DIALOG_OF[page]) return;
+    if (!DIALOG_OF[page] && name === state.activePage
+        && (name === "analysis" ? place || "" : "") === (state.activePlace || "")) return;
+    navigate(page, {updateHash: false});
   }
 
   /* Preferences and the citation were pages and are dialogs over the page

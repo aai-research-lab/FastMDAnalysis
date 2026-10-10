@@ -135,3 +135,22 @@ def test_an_address_naming_no_study_here_says_so(browser, session) -> None:
                            "(document.getElementById('dashboard-toast') || {}).textContent || '')")
     _named(page, session.first)
     page.context.close()
+
+
+def test_back_to_a_step_not_yet_naming_the_study_opens_its_page(browser, session) -> None:
+    """The address is put right to name the study once the page has read
+    it; a page opened before that left a step without the study's name,
+    and Back to it changed the address but left the page shown."""
+    page = _open(browser, session)
+    _named(page, session.first)
+    # The step as it was before the study was named in it.
+    page.evaluate("() => history.replaceState(history.state, '', location.pathname + '#overview')")
+    page.click("[data-view-link='viewer']")
+    page.wait_for_function("() => location.hash === '#viewer' && "
+                           "new URL(location.href).searchParams.get('study')")
+    page.go_back()
+    page.wait_for_function("() => location.hash === '#overview' && "
+                           "!document.querySelector(`.page[data-page='overview']`).hidden")
+    errors = page.errors
+    page.context.close()
+    assert errors == []
