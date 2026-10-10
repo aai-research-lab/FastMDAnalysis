@@ -637,9 +637,19 @@ def _resume(code: str, why: str, where: str, folders: list[Path],
 
 def _checkpoint_written(folder: Path) -> bool:
     """Whether a run in ``folder`` wrote a checkpoint to carry on from,
-    there or in a piece carried on since."""
-    return ((folder / "simulation" / "checkpoint.chk").is_file()
-            or any(folder.glob("segment-*/simulation/checkpoint.chk")))
+    there or in a piece carried on since; for a piece of a study, in the
+    study or any piece of it. An extension stopped before its first
+    checkpoint is carried on from the piece before it: it was said to have
+    stopped before production, and to be run again."""
+    folder = Path(folder)
+    if ((folder / "simulation" / "checkpoint.chk").is_file()
+            or any(folder.glob("segment-*/simulation/checkpoint.chk"))):
+        return True
+    study = folder.parent
+    return (folder.name.startswith("segment-")
+            and (study / "resolved_config.yml").is_file()
+            and ((study / "simulation" / "checkpoint.chk").is_file()
+                 or any(study.glob("segment-*/simulation/checkpoint.chk"))))
 
 
 def _longer(code: str, why: str, where: str, root: Path) -> Remedy | None:

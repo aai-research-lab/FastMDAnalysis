@@ -504,7 +504,10 @@ def continuation_of(parent: str | Path, *, total_ns: float | None = None,
     # remainder, and the joined trajectory changes its spacing there.
     interval = trajectory_interval_of(source)
     if interval and done_steps % interval:
-        return Continuation(**empty, refusal=(
+        # What ran is said with the refusal: read as nothing done, a study
+        # of one piece was run again from its start over its frames.
+        return Continuation(**{**empty, "production_done_ns": done_ns,
+                               "production_planned_ns": planned_ns}, refusal=(
             f"the checkpoint is at production step {done_steps:,}, which is not a "
             f"multiple of the {interval:,} steps between frames, so a continuation's "
             f"frames would fall {done_steps % interval:,} steps off the ones before "
@@ -657,7 +660,13 @@ def production_done_ns(study: str | Path) -> float:
     total = 0.0
     # Each piece's own folder, as found. Rebuilt from its number as
     # segment-NNN, a folder named segment-1 was never read.
-    for folder in (piece.directory for piece in survey_segments(root)):
+    for found in survey_segments(root):
+        folder = found.directory
+        # Stopped before its first checkpoint, a piece kept nothing: what it
+        # ran is run again from the checkpoint before it. It was counted at
+        # the length it was asked for.
+        if not found.finished and not (folder / "simulation" / "checkpoint.chk").is_file():
+            continue
         resolved = folder / "resolved_config.yml"
         try:
             config = yaml.safe_load(resolved.read_text(encoding="utf-8")) or {}
