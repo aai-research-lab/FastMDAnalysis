@@ -95,10 +95,20 @@ def _production_speed(root: Path) -> float | None:
     fix card prices a carry-on: the line beside it gave the live record's
     average from the run's start, setup and minimisation in it, half the
     price's."""
+    import re
+
     from fastmdxplora.remedies import _speed
 
-    pieces = sorted(root.glob("segment-*/simulation/live_status.json"))
-    folder = pieces[-1].parent.parent if pieces else root
+    # The last piece run, by its number: by name, a piece set aside
+    # (`segment-002-stopped-before-its-checkpoint`) lists after the one run
+    # in its place, and `segment-010` before `segment-9`. Read from the
+    # folders' names, as this is asked at every poll of the Overview.
+    pieces = []
+    for folder in root.glob("segment-*"):
+        number = re.fullmatch(r"segment-(\d+)", folder.name)
+        if number and (folder / "simulation" / "live_status.json").is_file():
+            pieces.append((int(number.group(1)), folder))
+    folder = max(pieces)[1] if pieces else root
     # The one speed every price is read at: the run's cost record where it
     # wrote one, else its production's own steps and times.
     seconds, _platform = _speed(folder, root)

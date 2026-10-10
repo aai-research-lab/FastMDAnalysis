@@ -67,3 +67,22 @@ def test_production_off_the_frame_grid_is_not_run_again_from_its_start(monkeypat
     assert not plan.possible and plan.production_done_ns == pytest.approx(0.2002)
     assert answer["ok"] is False and ran == [], answer
     assert "0.200 ns of production is written" in answer["error"], answer
+
+
+def test_the_overview_s_speed_is_the_last_piece_run(monkeypatch, tmp_path) -> None:
+    """The Overview's production speed was read from the last `segment-*`
+    folder by name: a piece set aside, or `segment-9` beside `segment-010`,
+    was read in place of the piece run last."""
+    from fastmdxplora import remedies
+    from fastmdxplora.gui.overview_view import _production_speed
+
+    root = tmp_path / "study"
+    for name in ("segment-001", "segment-001-stopped-before-its-checkpoint",
+                 "segment-9", "segment-010", "segment-010-stopped-before-its-checkpoint"):
+        (root / name / "simulation").mkdir(parents=True)
+        (root / name / "simulation" / "live_status.json").write_text("{}")
+    read = []
+    monkeypatch.setattr(remedies, "_speed",
+                        lambda folder, study: (read.append(folder.name) or 86400.0, "CPU"))
+    assert _production_speed(root) == pytest.approx(1.0)
+    assert read == ["segment-010"]
