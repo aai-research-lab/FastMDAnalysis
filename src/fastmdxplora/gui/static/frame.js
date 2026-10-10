@@ -13,6 +13,8 @@
   "use strict";
 
   function el(id) { return document.getElementById(id); }
+  // The page shown, as its address names it.
+  function currentPage() { return (location.hash || "#overview").slice(1).split("/")[0] || "overview"; }
   function $$(sel, root) { return Array.from((root || document).querySelectorAll(sel)); }
 
   var store = {
@@ -1137,12 +1139,9 @@
           loadStudy.textContent = "Load study";
           loadPath.value = "";
           if (d && d.ok) {
-            // Read the new study at once rather than waiting for the poll,
-            // and land on the overview.
-            if (window.FastMDXDashboard && window.FastMDXDashboard.navigate) {
-              window.FastMDXDashboard.navigate("overview");
-            }
-            location.reload();
+            // Read the new study at once, on its overview, as a step of
+            // its own.
+            window.FastMDXDashboard.studyOpened(d);
           } else {
             window.alert((d && d.error) || "Could not load that folder.");
           }
@@ -1185,7 +1184,9 @@
           fetch("/api/explore/switch", {
             method: "POST", headers: { "content-type": "application/json" },
             body: JSON.stringify({ folder: elsewherePath })
-          }).then(function () { location.reload(); });
+          }).then(function (r) { return r.json(); }).then(function (d) {
+            window.FastMDXDashboard.studyOpened(d, currentPage());
+          });
         });
       }
     }
@@ -1197,7 +1198,9 @@
       fetch("/api/explore/switch", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ folder: folder })
-      }).then(function () { location.reload(); });
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        window.FastMDXDashboard.studyOpened(d, currentPage());
+      });
     }
     function shortAxis(axis) { return String(axis).split(".").pop(); }
     function valuesText(values) {

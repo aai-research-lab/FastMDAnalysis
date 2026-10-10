@@ -1044,8 +1044,7 @@
     }).then(function (r) { return r.json(); }).then(function (d) {
       button.disabled = false;
       if (d && d.ok) {
-        location.hash = "#overview";
-        location.reload();
+        window.FastMDXDashboard.studyOpened(d);
       } else {
         notOpened(button, (d && d.error) || "Could not open it.");
       }
@@ -1234,8 +1233,7 @@
         var answer = await response.json();
         if (answer && answer.ok) {
           said.textContent = "Opened. Every file matched its SHA-256.";
-          location.hash = "#overview";
-          location.reload();
+          window.FastMDXDashboard.studyOpened(answer);
           return;
         }
         said.textContent = (answer && answer.error) || "It could not be opened.";

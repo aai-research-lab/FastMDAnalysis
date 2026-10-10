@@ -66,9 +66,12 @@
     wireTrajectoryControls();
     wireSettings();
     navigate(location.hash.replace(/^#/, "") || "overview", {updateHash: false});
-    startLoadingChecklist();
-    schedulePoll(0);
-    openChangeStream();
+    // The study the address names, opened before the page reads one.
+    openAskedFirst().finally(() => {
+      startLoadingChecklist();
+      schedulePoll(0);
+      openChangeStream();
+    });
   }
 
   /* ------------------------------------------------------------------ */
@@ -91,8 +94,7 @@
           });
           const answer = await response.json();
           if (answer && answer.ok) {
-            location.hash = "#overview";
-            location.reload();
+            studyOpened(answer);
             return;
           }
           demoButton.textContent = (answer && answer.error) || "Could not open it.";
@@ -112,6 +114,22 @@
         event.preventDefault();
         navigate(element.getAttribute("data-view-link"));
       });
+    });
+    // Back or Forward to a step of this page naming another study (the
+    // address followed a study opened elsewhere): that study is opened.
+    window.addEventListener("popstate", () => {
+      const asked = studyInAddress();
+      if (asked && state.addressSettled && asked !== state.studyShown && !state.addressAsking) {
+        openAsked(asked);
+      }
+    });
+    // A page kept by the browser and shown again on Back is read afresh.
+    window.addEventListener("pageshow", (event) => {
+      if (event.persisted) {
+        state.addressSettled = false;
+        state.addressRecheck = true;
+        schedulePoll(0);
+      }
     });
     window.addEventListener("hashchange", () => {
       const page = location.hash.replace(/^#/, "");
@@ -755,6 +773,100 @@
     // The folder read, so a listener can tell one study's status from
     // another's (a study opened elsewhere between two polls).
     emit("status-updated", {status, health, times: state.times, study: payload.study || ""});
+    addressTheStudy(payload.study || "");
+  }
+
+  /* ---- The study in the address ------------------------------------ */
+  /* The address names the open study by the server's key for it, never its
+   * path: Back returns to the study before, a bookmark opens this one, and
+   * an address naming another study opens it. */
+  function studyInAddress() {
+    try { return new URL(location.href).searchParams.get("study") || ""; } catch (e) { return ""; }
+  }
+
+  function addressFor(key, hash) {
+    const url = new URL(location.href);
+    if (key) url.searchParams.set("study", key);
+    else url.searchParams.delete("study");
+    if (hash !== undefined) url.hash = hash;
+    return url.pathname + url.search + url.hash;
+  }
+
+  // The page loaded again, its address and the study it opens the same.
+  function goTo(address, replace) {
+    if (address.split("#")[0] === location.pathname + location.search) {
+      if (address !== location.pathname + location.search + location.hash) {
+        history.replaceState(history.state, "", address);
+      }
+      location.reload();
+    } else if (replace) {
+      location.replace(address);
+    } else {
+      location.assign(address);
+    }
+  }
+
+  /* A study opened from the page: a step of its own, so Back opens the one
+   * before. A switch's answer names it; an answer that does not (the demo,
+   * a shared study) leaves the address to name what the page then finds. */
+  function studyOpened(answer, page) {
+    goTo(addressFor((answer && answer.study_key) || "", `#${page || "overview"}`), false);
+  }
+
+  async function switchToKeyed(asked) {
+    try {
+      const response = await fetch("/api/explore/switch", {
+        method: "POST", headers: {"content-type": "application/json"},
+        body: JSON.stringify({study: asked}),
+      });
+      return await response.json();
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /* Opened as the page starts, so what it reads first is that study. */
+  async function openAskedFirst() {
+    const asked = studyInAddress();
+    if (!asked) return;
+    const answer = await switchToKeyed(asked);
+    if (!answer || !answer.ok) {
+      state.addressRefused = (answer && answer.error) || "The study this address names could not be opened.";
+    }
+  }
+
+  function addressTheStudy(key) {
+    const asked = studyInAddress();
+    state.studyShown = key;
+    if (!state.addressSettled) {
+      state.addressSettled = true;
+      if (state.addressRefused) showToast(state.addressRefused, "warning");
+      state.addressRefused = "";
+      // Shown again by the browser on Back, with another study open since.
+      if (state.addressRecheck && asked && asked !== key) {
+        state.addressRecheck = false;
+        openAsked(asked);
+        return;
+      }
+    }
+    if (asked !== key && !state.addressAsking) {
+      history.replaceState(history.state, "", addressFor(key));
+    }
+  }
+
+  /* Opened once the page is shown (Back or Forward to a step naming
+   * another study): read again from the start. */
+  async function openAsked(asked) {
+    state.addressAsking = true;
+    const answer = await switchToKeyed(asked);
+    if (answer && answer.ok) {
+      goTo(addressFor(answer.study_key || asked), true);
+      return;
+    }
+    showToast((answer && answer.error) || "The study this address names could not be opened.",
+              "warning");
+    state.addressAsking = false;
+    history.replaceState(history.state, "", addressFor(state.studyShown || ""));
   }
 
   /* The Overview's blocks in the order they are read, in the page itself,
@@ -2242,6 +2354,8 @@
     settings: () => currentSettings(),
     /* The page's notice, seen and read out (icons.js says a copy in it). */
     toast: (message, kind) => showToast(message, kind),
+    /* A study opened from the page, by the switch's answer. */
+    studyOpened: (answer, page) => studyOpened(answer, page),
     figureChip: (name, made) => provenanceChip(name, made),
     listenForFigureChips: (host, lookup) => listenForProvenance(host, lookup),
     /* A name shortened in its middle to the width given (studies.js). */

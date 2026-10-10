@@ -1786,7 +1786,23 @@ def make_handler(
                 self._send_json(app_runtime.open_shared_study(source))
                 return
             if path == "/api/explore/switch":
+                # A folder, or a study an address names by its key (a page
+                # opened, or gone back to, on a study): the answer names
+                # the study now open by its key, for the page's address.
+                from fastmdxplora.gui.workspace import study_key, study_keyed
+
                 folder = str((payload or {}).get("folder") or "").strip()
+                keyed = str((payload or {}).get("study") or "").strip()
+                if keyed and not folder:
+                    found = study_keyed(keyed, [
+                        getattr(app_runtime, "active_root", None),
+                        getattr(app_runtime, "running_root", None),
+                    ], [getattr(app_runtime, "exploration_root", None)])
+                    if found is None:
+                        self._send_json({"ok": False, "error": "The study this address names "
+                                         "is not among the studies here."}, status=404)
+                        return
+                    folder = str(found)
                 if not folder:
                     self._send_json({"ok": False, "error": "No folder given."},
                                     status=400)
@@ -1794,7 +1810,18 @@ def make_handler(
                 named = self._path_for(folder)
                 if named is None:
                     return
-                self._send_json(app_runtime.switch_to(named))
+                opened = getattr(app_runtime, "active_root", None)
+                if keyed and opened is not None and Path(named) == opened:
+                    # Already open: a page loaded again on its own address
+                    # leaves the study, and what its run is doing, as it is.
+                    self._send_json({"ok": True, "state": app_runtime.snapshot(),
+                                     "study_key": study_key(opened)})
+                    return
+                answer = app_runtime.switch_to(named)
+                opened = getattr(app_runtime, "active_root", None)
+                if answer.get("ok") and opened is not None:
+                    answer = {**answer, "study_key": study_key(opened)}
+                self._send_json(answer)
                 return
             self.send_error(404, "Not found")
 

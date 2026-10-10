@@ -24,7 +24,7 @@ from typing import Any
 from fastmdxplora.system_id import system_id
 
 __all__ = ["studies_in", "card_of", "studies_compared", "tags_used", "thumbnail_of",
-           "thumbnail_series"]
+           "thumbnail_series", "study_key", "study_keyed"]
 
 #: A difference is marked past this many combined standard errors.
 RESOLVED_AT = 2.0
@@ -37,6 +37,9 @@ MOST = 200
 #: Folders a study keeps inside it that are never studies of their own.
 _INSIDE_A_STUDY = {"runs", "superseded", "setup", "simulation", "analysis", "report",
                    "comparison", "shared_setup", "free_energy", "pmf"}
+
+#: How many folders a study named by its key is looked for in.
+_LOOKED_IN = 20000
 
 #: The measures a card names first, in order.
 _FIRST = ("rmsd", "rg", "sasa", "rmsf", "hbonds", "ligand_rmsd")
@@ -86,6 +89,100 @@ def studies_in(root: Path | str, *, deepest: int = DEEPEST,
     cards.sort(key=lambda card: card.get("when") or "", reverse=True)
     return {"ok": True, "root": str(base), "studies": cards, "more": more,
             "tags_used": tags_used(cards)}
+
+
+def study_key(folder: Path | str) -> str:
+    """The key a page names a study by in its address: the study's folder,
+    hashed, so no path is said; the same key `/api/status` gives."""
+    import hashlib
+
+    return hashlib.sha256(str(Path(folder).expanduser().resolve()).encode("utf-8")).hexdigest()[:16]
+
+
+def study_keyed(key: str, near: list[Path | str | None],
+                under: list[Path | str | None] = ()) -> Path | None:
+    """The study an address names by its key: one of the folders ``near``
+    (the one open, the one running), the study each sits in, or a run
+    inside one of those; else a study under the folders ``under`` (the ones
+    the GUI looks in) as All studies finds them, or a run inside one. None
+    where none has that key. Only ``under`` is walked: the folders around a
+    study are not looked through."""
+    import re
+
+    from fastmdxplora.gui.browse import is_study
+
+    if not isinstance(key, str) or not re.fullmatch(r"[0-9a-f]{16}", key):
+        return None
+    looked = 0
+    seen: set[Path] = set()
+
+    def matches(folder: Path) -> bool:
+        if folder in seen:
+            return False
+        seen.add(folder)
+        return is_study(folder) and study_key(folder) == key
+
+    def runs_of(study: Path) -> Path | None:
+        try:
+            runs = [p for p in (study / "runs").iterdir() if p.is_dir()]
+        except OSError:
+            return None
+        return next((run for run in runs if matches(run)), None)
+
+    def walk(folder: Path, depth: int) -> Path | None:
+        nonlocal looked
+        try:
+            children = sorted(p for p in folder.iterdir()
+                              if p.is_dir() and not p.name.startswith("."))
+        except OSError:
+            return None
+        for child in children:
+            looked += 1
+            if looked > _LOOKED_IN:
+                return None
+            if child.name in _INSIDE_A_STUDY:
+                continue
+            if matches(child):
+                return child
+            if is_study(child):
+                found = runs_of(child)
+            elif depth < DEEPEST:
+                found = walk(child, depth + 1)
+            else:
+                found = None
+            if found is not None:
+                return found
+        return None
+
+    def resolved(folders: Any) -> list[Path]:
+        kept: list[Path] = []
+        for given in folders:
+            if given is None:
+                continue
+            try:
+                kept.append(Path(given).expanduser().resolve())
+            except OSError:
+                continue
+        return kept
+
+    bases: list[Path] = []
+    for base in resolved(near) + resolved(under):
+        # A run inside a study: the study, and its other runs, are near too.
+        bases.extend(b for b in (base, base.parent.parent) if b not in bases)
+    for base in bases:
+        if not base.is_dir():
+            continue
+        if matches(base):
+            return base
+        found = runs_of(base) if is_study(base) else None
+        if found is not None:
+            return found
+    for base in resolved(under):
+        if base.is_dir():
+            found = walk(base, 1)
+            if found is not None:
+                return found
+    return None
 
 
 def tags_used(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
