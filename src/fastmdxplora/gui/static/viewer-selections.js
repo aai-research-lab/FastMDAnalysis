@@ -26,7 +26,12 @@
     signature: "",
     asked: 0,
     typed: new Map(),     // signature + expression -> the server's answer
+    // The atoms a scene shown before it is written highlights (the Agent's,
+    // molecule-viewer.js showScene): drawn as a scene file draws them,
+    // orange sticks, never listed or saved.
+    forNow: null,         // {expression, labelled, atoms, signature}
   };
+  var HIGHLIGHT = 0xe69f00;
 
   function byId(id) { return document.getElementById(id); }
 
@@ -57,8 +62,9 @@
    * now; none until their atoms are known in it. */
   function forScene() {
     var v = viewer();
-    if (!v || !state.named.length || state.signature !== v.modelSignature()) return null;
-    return state.named.map(function (one) {
+    if (!v) return null;
+    var signature = v.modelSignature();
+    var shown = !state.named.length || state.signature !== signature ? [] : state.named.map(function (one) {
       return {
         atoms: state.atoms.get(one.name) || [],
         colour: one.colour ? parseInt(one.colour.slice(1), 16) : null,
@@ -67,7 +73,32 @@
         labelled: one.labelled,
       };
     });
+    var now = state.forNow;
+    if (now && now.signature === signature && now.atoms.length) {
+      shown.push({ atoms: now.atoms, colour: HIGHLIGHT, shown: true, representation: "sticks",
+        labelled: now.labelled });
+    }
+    return shown.length ? shown : null;
   }
+
+  /** The atoms ``expression`` names highlighted in what is rendered, until
+   * cleared; the server's answer, its atoms among them. */
+  function showForNow(expression, labelled) {
+    var v = viewer();
+    if (!v || !v.STATE || !v.STATE.model || !engine()) {
+      return Promise.resolve({ ok: false, reason: "The Viewer is not rendering a structure." });
+    }
+    var signature = v.modelSignature();
+    var now = { expression: expression, labelled: !!labelled, atoms: [], signature: signature };
+    state.forNow = now;
+    return typedAtoms(expression, signature).then(function (answer) {
+      if (state.forNow !== now) return { ok: false, reason: "Another scene was shown." };
+      now.atoms = answer && answer.ok ? answer.atoms : [];
+      return answer || { ok: false, reason: "The server did not answer." };
+    });
+  }
+
+  function clearForNow() { state.forNow = null; }
 
   function shows(one) {
     return (state.atoms.get(one.name) || []).length
@@ -114,6 +145,7 @@
     var asked = ++state.asked;
     var found = new Map();
     var notes = new Map();
+    var now = state.forNow;
     var waits = state.named.map(function (one) {
       if (one.kind === "residues") {
         found.set(one.name, e.atomsOfResidues(one.residues));
@@ -124,14 +156,25 @@
         if (!answer || !answer.ok) notes.set(one.name, (answer && answer.reason) || "");
       });
     });
+    // The highlight shown for now, read again in what is rendered now.
+    var nowAtoms = null;
+    if (now && now.signature !== signature) {
+      waits.push(typedAtoms(now.expression, signature).then(function (answer) {
+        nowAtoms = answer && answer.ok ? answer.atoms : [];
+      }));
+    }
     return Promise.all(waits).then(function () {
       if (asked !== state.asked || signature !== v.modelSignature()) return;
       var before = forScene();
+      if (nowAtoms && state.forNow === now) {
+        now.atoms = nowAtoms;
+        now.signature = signature;
+      }
       state.atoms = found;
       state.notes = notes;
       state.signature = signature;
       list();
-      if (state.named.some(shows) || (before && before.some(function (one) {
+      if (state.named.some(shows) || (nowAtoms && nowAtoms.length) || (before && before.some(function (one) {
         return one.atoms.length;
       }))) {
         return v.restyle();
@@ -408,6 +451,7 @@
     window.addEventListener("dashboard:selection-changed", offerName);
     window.addEventListener("dashboard:viewer-page-opened", function () { load(); });
     window.addEventListener("dashboard:run-changed", function () {
+      state.forNow = null;
       state.named = [];
       state.atoms = new Map();
       state.typed = new Map();
@@ -423,6 +467,6 @@
 
   window.FastMDXSelections = {
     state: state, forScene: forScene, resolve: resolve, load: load, pick: pick,
-    keep: keep, change: change, forget: forget,
+    keep: keep, change: change, forget: forget, showForNow: showForNow, clearForNow: clearForNow,
   };
 }());

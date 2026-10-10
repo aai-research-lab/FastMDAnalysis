@@ -972,6 +972,49 @@ button {
 }
 .viewer-overlay[data-live="true"] .overlay-tag { color: var(--accent-text); }
 
+/* A scene shown before it is written, said on the canvas with the way back:
+   dark in every scheme, as the overlay is. */
+.viewer-scene-notice {
+    --text-primary: #f5f5f7;
+    --text-secondary: #c4c4ca;
+    /* Dark in every scheme, as the overlay is: its button's hover and
+       focus read on it. */
+    --accent-white: #f5f5f7;
+    --accent-cyan: #33a6c8;
+    --accent-text: #33a6c8;
+    --border-primary: color-mix(in srgb, #f5f5f7 16%, transparent);
+    /* Beside the colour bar, below the overlay. */
+    position: absolute;
+    bottom: 14px;
+    right: 14px;
+    max-width: min(360px, calc(100% - 242px));
+    /* Clear of the overlay above it, however much it says: what it says
+       scrolls, and Back to my view stays in sight below it. */
+    max-height: calc(100% - 180px);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--border-primary);
+    border-radius: 10px;
+    background: rgba(5, 5, 5, 0.82);
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    line-height: 1.4;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 3;
+}
+.viewer-scene-notice[hidden] { display: none; }
+.viewer-scene-notice > span { min-height: 0; overflow-y: auto; }
+.viewer-scene-notice > button { flex-shrink: 0; }
+@media (max-width: 560px) {
+    /* Above the colour bar, which stays clear below it. */
+    .viewer-scene-notice { top: 52px; bottom: auto; left: 14px; right: 14px; max-width: none;
+                           max-height: calc(100% - 152px); }
+}
+
 /* The colour bar of a per-residue result, on the canvas: dark in every
    scheme, as the overlay is. */
 .viewer-legend {

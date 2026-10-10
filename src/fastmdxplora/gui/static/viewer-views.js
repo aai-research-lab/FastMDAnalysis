@@ -124,7 +124,10 @@
           var now = viewer().viewNow ? viewer().viewNow() : null;
           if (now) view.camera = now.camera;
         }
-        return viewer().showView(view).then(function (shown) {
+        var ended = viewer().endTheScene ? viewer().endTheScene(view) : null;
+        return Promise.resolve(ended).then(function () {
+          return viewer().showView(view);
+        }).then(function (shown) {
           say(shown ? "Showing the scene " + name + "." : "The scene " + name
             + " could not be shown here.");
           return shown;
@@ -234,7 +237,10 @@
       sayTheNote();
       var view = views.filter(function (v) { return v.name === select.value; })[0];
       if (view && viewer() && viewer().showView) {
-        viewer().showView(view).then(function (shown) {
+        var ended = viewer().endTheScene ? viewer().endTheScene(view) : null;
+        Promise.resolve(ended).then(function () {
+          return viewer().showView(view);
+        }).then(function (shown) {
           if (shown) say("Showing the view " + view.name + ".");
         });
       }

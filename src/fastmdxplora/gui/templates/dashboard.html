@@ -1105,6 +1105,12 @@
                   <div class="legend-ends"><span class="legend-low"></span><span class="legend-high"></span></div>
                   <div class="legend-none" hidden></div>
                 </div>
+                <!-- A scene shown before it is written (the Agent's), with the
+                     way back to the view before it (molecule-viewer.js). -->
+                <div class="viewer-scene-notice" id="viewer-scene-notice" hidden>
+                  <span id="viewer-scene-said"></span>
+                  <button type="button" class="chip-btn" id="viewer-scene-back">Back to my view</button>
+                </div>
                 <div class="viewer-empty" id="viewer-empty">
                   <div class="empty-title">Waiting for structure</div>
                   <div class="empty-detail muted">The 3D viewer will initialize when a topology or prepared PDB becomes available.</div>
