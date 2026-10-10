@@ -360,6 +360,22 @@ python -m fastmdxplora.validation.paper_reading --out paper_reading.json \
     --file buch_2011=buch_2011.pdf
 ```
 
+Read once under that registration (2026-10-10), two of the four claims are
+met and two are not:
+
+| Claim | Threshold | Result |
+|---|---|---|
+| Of the values used, those right | at least 0.98 | 0.9327, **not met** |
+| Of the values the paper states, those found | at least 0.75 | 0.9275, met |
+| Of the paper's studies, those found | at least 0.80 | 0.4735, **not met** |
+| A paper not open for programs refused by its DOI, read from its PDF | | met |
+
+Every study not found is in five long papers whose answers came back cut
+off or not in the form FastMDXplora reads, so their studies count as not
+found; in the other fifteen, every study was found. Most of the values used
+wrongly (57 of 108) are one paper's main settings given to studies it
+describes apart. The counts, paper by paper, are under the registration.
+
 ---
 
 ## What this does not do

@@ -135,3 +135,114 @@ python -m fastmdxplora.validation.paper_reading --out paper_reading.json \
 ```
 
 `--papers` takes keys, comma separated, to read only some.
+
+## Clarified before the second sitting
+
+On 2026-10-10, after the first sitting below and before any paper of the
+second was read, how a paper that is not read counts was set down. It
+changes no threshold and no count above:
+
+- A refusal by the provider FastMDXplora reads with means the paper was not
+  read: an answer that is the provider's status rather than a reading (the
+  account's limit or quota, billing, a refused key, overload, or a server
+  error after the retries). The paper is read again in a later sitting, and
+  the report names each paper read again and how many sittings the run
+  took.
+- FastMDXplora's own failure to read an answer it was given (not the JSON
+  asked for after its retry, a part of the wrong shape, a reply cut off at
+  the length FastMDXplora asks for) counts the paper's studies as not found
+  (claim 3), and the paper is not read again: reading again until an answer
+  parses would count only the good tries.
+- The claims are judged only once every paper is read or counted as not
+  found.
+
+## Result (check 5, 2026-10-10)
+
+Run on a Mac on branch `paper` at `390debb6`, reading with
+`anthropic/claude-opus-5-5`, the AI model chosen with `fastmdx agent model`
+(the second and third sittings' files record it as `model`; the first
+wrote no file, and its model is not recorded), and Buch 2011 given as its
+PDF. A try the same day on
+`e8ce408c` is not a run of this registration: it refused 19 of the papers
+before reading any, since a PMCID was searched in quotes and Europe PMC
+finds nothing for that (fixed in `390debb6`).
+
+**Three sittings.** The first was stopped by hand after 13 papers and wrote
+no file (the harness then wrote only at its end); its six papers' counts
+are the lines it printed; the second's and third's are as their files
+hold them. The first sitting's other seven (ilter_2025,
+fischer_2024, rieloff_2021, pantsar_2018, love_2023, montgomery_2024,
+siwy_2017) were refused by the provider for the account's own spend limit
+("You have reached your specified API usage limits"), so not read. The
+limit was raised, and the second sitting tried those seven and the seven
+not yet tried. In the second, three papers (love_2023, montgomery_2024,
+siwy_2017) were refused for the spend limit again and tried again in the
+third, and three (pantsar_2018, lee_2016, lu_huang_2022) were papers
+FastMDXplora could not read its answer for: their studies count as not
+found. In the third, siwy_2017 was read, and love_2023 and
+montgomery_2024 could not be read.
+
+| Paper | Sitting | Studies paired / truth | Correct | Wrong | Missed | Invented |
+|---|---|---|---|---|---|---|
+| seekr2_2022 | 1 | 7 / 7 | 43 | 2 | 12 | 7 |
+| ansari_2022 | 1 | 6 / 6 | 64 | 1 | 5 | 10 |
+| plattner_2015 | 1 | 1 / 1 | 9 | 0 | 1 | 10 |
+| buch_2011 (its PDF) | 1 | 1 / 1 | 15 | 1 | 4 | 0 |
+| lindorff_larsen_2012 | 1 | 48 / 48 | 472 | 2 | 30 | 0 |
+| pereira_2021 | 1 | 5 / 5 | 94 | 0 | 0 | 0 |
+| ilter_2025 | 2 | 4 / 4 | 80 | 0 | 0 | 0 |
+| fischer_2024 | 2 | 10 / 10 | 92 | 4 | 0 | 57 |
+| rieloff_2021 | 2 | 10 / 10 | 213 | 0 | 8 | 0 |
+| larsen_2021 | 2 | 5 / 5 | 60 | 0 | 15 | 3 |
+| atlas_2024 | 2 | 1 / 1 | 20 | 0 | 0 | 0 |
+| aldeghi_2016 | 2 | 2 / 2 | 44 | 2 | 1 | 0 |
+| moore_2023 | 2 | 7 / 7 | 117 | 0 | 16 | 0 |
+| mdcath_2024 | 2 | 5 / 5 | 110 | 5 | 0 | 0 |
+| siwy_2017 | 3 | 4 / 4 | 64 | 4 | 4 | 0 |
+| pantsar_2018 | 2, not found | 0 / 14 | | | | |
+| lee_2016 | 2, not found | 0 / 25 | | | | |
+| lu_huang_2022 | 2, not found | 0 / 9 | | | | |
+| love_2023 | 3, not found | 0 / 48 | | | | |
+| montgomery_2024 | 3, not found | 0 / 33 | | | | |
+| **All 20** | | **116 / 245** | **1497** | **21** | **96** | **87** |
+
+The claims:
+
+1. **Values used are right: not met.** 1497 / (1497 + 21 + 87) = 0.9327,
+   against 0.98.
+2. **Most stated values are found: met.** 1497 / (1497 + 21 + 96) =
+   0.9275, against 0.75.
+3. **Most studies are found: not met.** 116 / 245 = 0.4735, against 0.80.
+   Every study not found is in the five papers FastMDXplora could not read
+   its answer for, which hold 129 of the truth's 245; in the fifteen read,
+   each of the truth's studies was paired. The share of the reading's
+   studies that are the truth's is not reported: the first sitting printed
+   the paired and the truth's counts only. For the papers of the second
+   and third sittings it is 1.0.
+4. **Buch 2011 is refused by its DOI and read from its PDF: met.** Refused
+   with `environment.paper.not_open`, then read from its PDF.
+
+**What the counts show.** Of the 87 invented, 57 are fischer_2024's: six of
+its ten studies, which the paper describes apart from its main runs and
+whose settings both readers recorded as not stated, were given the main
+protocol's settings, each from words the paper does hold (pressure,
+ensemble, thermostat, barostat, timestep, constraints, electrostatics and
+engine for each; temperature, padding and box shape for two; a PDB ID for
+three). The other 30 are ansari_2022's 10, plattner_2015's 10,
+seekr2_2022's 7 and larsen_2021's 3. The five papers not found hold 9 to
+48 studies each, and their answers came back cut off or not in the form
+FastMDXplora reads; the most likely cause is the length FastMDXplora then
+allowed an answer (at most 4000 tokens), since the same paper was read
+once whole and once not (below).
+
+**Read against the rule, and not counted.** The third sitting's command
+named the three papers not found in the second as well. pantsar_2018 was
+then read whole: 14 / 14 studies, 320 correct, 0 wrong, 0 missed, 0
+invented. Under the rule above it stays not found, and is reported here
+beside the result, never in it: a reading tried until it parses counts
+only the good tries. lee_2016 and lu_huang_2022 could not be read that
+time either.
+
+Nothing above this result was changed after it. A second registration,
+with its own held-out papers, is for the reading as it is changed after
+this.

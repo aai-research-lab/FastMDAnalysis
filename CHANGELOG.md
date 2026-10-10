@@ -14,6 +14,9 @@ agreed reading is a truth a reading is counted against field by field
 (`python -m fastmdxplora.validation.paper_reading`), with what is claimed
 from the counts registered first in `preregistration/paper-reading.md`.
 
+**Added:** the first reading under that registration (check 5), reported
+beneath it and on the papers page: two of its four claims met, two not.
+
 ### A paper's studies for the Agent and an AI app
 
 **Added:** the Agent's tool `studies_in_paper`, so asking it to reproduce a
