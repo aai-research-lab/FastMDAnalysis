@@ -149,22 +149,40 @@ class TestMachinesAndPlans:
 
     def test_a_config_outside_the_workspace_is_refused(self, served, tmp_path):
         address, machine = served
-        outside = tmp_path / "elsewhere.yml"
+        root = machine.study.parent.resolve()
+        far = (tmp_path / "far").resolve()
+        far.mkdir()
+        outside = far / "elsewhere.yml"
         outside.write_text(machine.study.read_text())
+        (far / "top.pdb").write_text((root / "top.pdb").read_text())
+        (far / "notes.txt").write_text("not a config\n")
         status, said = _ask(address, "/api/remote/plan", {"config": str(outside),
                                                           "machine": "box"})
         # Round 3 of the last round: it was called "not a config file", and
         # named no way to send it.
         assert said["ok"] is False and said["code"] == "remote.input.outside"
-        assert said["error"].startswith(f"{outside.resolve()} is outside the workspace")
-        assert f"`cd {outside.parent.resolve()}`, then `fastmdx gui`" in said["error"]
-        assert f"copy it, with the files it names, into {machine.study.parent.resolve()}" \
-            in said["error"]
-        # A file that is not there is still no config file.
-        _, none = _ask(address, "/api/remote/plan", {"config": str(tmp_path / "gone.yml"),
-                                                     "machine": "box"})
-        assert "is not a config file in the workspace" in none["error"]
-        assert machine.commands == []
+        assert said["error"].startswith(f"{outside} is outside the workspace")
+        assert (f"Open the GUI on its folder (`cd {far}`, then `fastmdx gui` with no "
+                f"`--output`) or copy it, with the files it names, into {root} and give "
+                f"its full path there ({root / 'elsewhere.yml'}).") in said["error"]
+        # Round 1: what is no config file is said as that, wherever it is.
+        for named in (tmp_path / "gone.yml", far / "notes.txt"):
+            _, none = _ask(address, "/api/remote/plan", {"config": str(named),
+                                                         "machine": "box"})
+            assert "is not a config file in the workspace" in none["error"], named
+        # Each way, followed, plans it.
+        for name in ("elsewhere.yml", "top.pdb"):
+            (root / name).write_bytes((far / name).read_bytes())
+        _, copied = _ask(address, "/api/remote/plan", {"config": str(root / "elsewhere.yml"),
+                                                       "machine": "box"})
+        assert copied["ok"], copied
+        (root / "elsewhere.yml").unlink()
+        with _serving(DashboardRuntime(workspace_root=far, exploration_root=far.parent)
+                      ) as there:
+            _, opened = _ask(there, "/api/remote/plan", {"config": str(outside),
+                                                         "machine": "box"})
+        assert opened["ok"], opened
+        assert machine.commands == [] or not _sent(machine)
 
     def test_a_results_folder_in_use_is_refused(self, served):
         address, machine = served
@@ -462,7 +480,7 @@ class TestTheConfigBuilder:
         _, up = _ask(address, "/api/remote/plan", {"config": "../up/study.yml",
                                                    "machine": "box"})
         # Round 3 of the last round: a file not there was named as if it were.
-        assert f"is {(started / 'up' / 'study.yml').resolve()}, where there is none;" \
+        assert f"is {(started / 'up' / 'study.yml').resolve()}, which does not exist;" \
             in up["error"]
         assert (f"a plan reads a relative name only inside the folder the GUI "
                 f"was opened on ({root}), and ../up/study.yml leads out of it.") in up["error"]
@@ -500,27 +518,42 @@ class TestTheConfigBuilder:
         assert not _sent(machine)
 
     def test_a_relative_config_checked_outside_the_routes_says_how_to_send_it(
-            self, machine, tmp_path, monkeypatch):
+            self, served, tmp_path, monkeypatch):
         """Round 3 of the last round: the refusal said to give the full path,
         which is refused too where the file checked is outside the folders
         the routes reach; and a plan's reading of a file not there was named
         as if it were."""
+        _, machine = served
         root = machine.study.parent.resolve()
         opened = root / "opened"
         opened.mkdir()
         desk = RemoteDesk(DashboardRuntime(workspace_root=opened, exploration_root=root))
-        far = tmp_path / "far"
+        far = (tmp_path / "far").resolve()
         far.mkdir()
         (far / "study.yml").write_text(machine.study.read_text())
+        (far / "top.pdb").write_text((root / "top.pdb").read_text())
         monkeypatch.chdir(far)
         said = desk.plan("study.yml", "box")
         assert said["code"] == "remote.config.read_elsewhere"
         assert "Give its full path" not in said["error"]
         assert (f"The file checked is outside the workspace ({opened}, and {root} where "
-                "new studies go)") in said["error"]
-        assert (f"Start the GUI in its folder (`cd {far.resolve()}`, then `fastmdx gui`), "
-                f"or copy it, with the files it names, into {opened}") in said["error"]
-        assert f"as {opened / 'study.yml'}, where there is none." in said["error"]
+                "new studies go), so its full path would be refused too") in said["error"]
+        # Round 1: started in its folder, it was told to start the GUI there.
+        assert ("Start the GUI again without `--output`, so it is opened on the folder "
+                "holding it or copy it, with the files it names, into "
+                f"{opened} and give its full path there ({opened / 'study.yml'}).") \
+            in said["error"]
+        assert f"as {opened / 'study.yml'}, which does not exist." in said["error"]
+        # Round 1: the copy given by its bare name was refused as before; by
+        # its full path, as said, it plans. So does a GUI opened on its folder.
+        for name in ("study.yml", "top.pdb"):
+            (opened / name).write_bytes((far / name).read_bytes())
+        assert desk.plan("study.yml", "box")["code"] == "remote.config.read_elsewhere"
+        copied = desk.plan(str(opened / "study.yml"), "box")
+        assert copied["ok"], copied
+        on_it = RemoteDesk(DashboardRuntime(workspace_root=far, exploration_root=far.parent))
+        assert on_it.plan("study.yml", "box")["ok"]
+        (opened / "study.yml").unlink()
         # Checked inside the routes, its full path is the way.
         monkeypatch.chdir(root)
         inside = desk.plan("study.yml", "box")
@@ -528,6 +561,66 @@ class TestTheConfigBuilder:
         assert inside["error"].endswith(
             "Give its full path, so the file planned is the one checked.")
         assert not _sent(machine)
+
+    def test_no_way_is_offered_for_a_file_kept_with_keys_or_settings(
+            self, served, tmp_path, monkeypatch):
+        """Round 1: a key, a settings file or any file outside the routes was
+        told how to be sent (open the GUI on its folder, or copy it in), and
+        the answer told such a file from one not there."""
+        address, machine = served
+        keys = tmp_path / "account" / ".ssh"
+        keys.mkdir(parents=True)
+        (keys / "id_ed25519").write_text("KEY\n")
+        (keys / "c.yml").write_text(machine.study.read_text())
+        beside = tmp_path / "beside"
+        (beside / ".ssh").mkdir(parents=True)
+        (beside / "c.yml").write_text(machine.study.read_text())
+        for named in (keys / "id_ed25519", keys / "c.yml", beside / "c.yml",
+                      Path("/etc/passwd")):
+            _, said = _ask(address, "/api/remote/plan", {"config": str(named),
+                                                         "machine": "box"})
+            assert said["ok"] is False, named
+            assert "is not a config file in the workspace" in said["error"], named
+            assert "copy it" not in said["error"] and "GUI" not in said["error"], named
+        monkeypatch.chdir(keys)
+        _, typed = _ask(address, "/api/remote/plan", {"config": "c.yml", "machine": "box"})
+        assert typed["code"] == "remote.config.read_elsewhere"
+        assert typed["error"].endswith("and nothing outside it is sent from here.")
+        assert not _sent(machine)
+
+    def test_a_hard_link_to_the_config_planned_is_not_the_one_checked(
+            self, served, tmp_path, monkeypatch):
+        """Round 1: the same file reached from another folder was taken for
+        the one planned, though the files it names by relative paths are
+        read from that other folder."""
+        address, machine = served
+        far = tmp_path / "far"
+        far.mkdir()
+        (far / "study.yml").hardlink_to(machine.study)
+        (far / "top.pdb").write_text("ATOM      other\n")
+        monkeypatch.chdir(far)
+        _, said = _ask(address, "/api/remote/plan", {"config": "study.yml", "machine": "box"})
+        assert said["ok"] is False and said["code"] == "remote.config.read_elsewhere"
+        assert not _sent(machine)
+
+    def test_a_command_in_a_note_is_quoted_or_not_shown(self, machine, tmp_path):
+        """Round 1: the note's commands named their folders unquoted, so a
+        name with a space or `$(...)` broke the command or ran another; and
+        a name no quoting holds safely is said in words."""
+        from fastmdxplora.gui.remote_routes import _as_typed
+
+        root = machine.study.parent.resolve()
+        odd = root / "my $(touch x) runs"
+        odd.mkdir()
+        desk = RemoteDesk(DashboardRuntime(workspace_root=odd, exploration_root=Path("/")))
+        said = desk.machines()["not_built_here"]
+        assert f"`fastmdx gui --output '{odd / 'first'}'`" in said
+        curly = root / "it\u2019s"
+        assert _as_typed(curly) is None
+        curly.mkdir()
+        words = RemoteDesk(DashboardRuntime(workspace_root=curly, exploration_root=Path("/")))
+        said = words.machines()["not_built_here"]
+        assert f"with `fastmdx gui --output` naming a new folder in {curly}." in said
 
     def test_a_name_the_folder_started_in_cannot_follow_is_refused(
             self, served, tmp_path, monkeypatch):
@@ -563,9 +656,11 @@ class TestTheConfigBuilder:
         (started / "study.yml").write_text("output: other\n")
         monkeypatch.chdir(started)
         real = os.path.samefile
+        # The disk reads the folder and the file in other letters as these.
+        alike = ({str(started.resolve() / "study.yml"), str(root / "study.yml")},
+                 {str(started.resolve()), str(root)})
         monkeypatch.setattr(os.path, "samefile", lambda a, b: (
-            {str(a), str(b)} == {str(started.resolve() / "study.yml"),
-                                 str(root / "study.yml")} or real(a, b)))
+            {str(a), str(b)} in alike or real(a, b)))
         assert desk._read_elsewhere_here("study.yml") is None
 
     def test_a_home_folder_that_cannot_be_looked_in_still_opens_the_panel(

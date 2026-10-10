@@ -551,11 +551,15 @@ found to be when last inspected.
   where the plan would read another file, or none, or where that folder is
   gone: give its full path. Where the file checked is outside the folders
   the routes reach, its full path would be refused too, so the refusal
-  says so and names the two ways to send it: start the GUI in its folder
-  (`cd` there, then `fastmdx gui`), or copy it with the files it names into
-  the folder the GUI was opened on. A config named by its full path outside
-  those folders is refused (`remote.input.outside`) with the same two
-  ways.
+  says so and names the ways to send it: open the GUI on its folder (`cd`
+  there, then `fastmdx gui` with no `--output`), or copy it with the files
+  it names into the folder the GUI was opened on and give its full path
+  there. A way that would be refused in turn (a folder that is your home
+  folder or above it) is left out. A config named by its full path outside
+  those folders is refused (`remote.input.outside`) with the same ways. No
+  way is offered for a file that is not a `.yml` config, nor for one in a
+  place keys or FastMDXplora's settings are kept or in a folder holding
+  one: it is said only not to be a config file the GUI can send.
 - **One at a time.** One plan or send is out at a time, and what it answers
   is said on the page, left and come back to or not; the form changed while
   a send is out takes nothing away.
