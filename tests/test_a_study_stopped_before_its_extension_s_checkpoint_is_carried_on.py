@@ -107,6 +107,7 @@ class TestAStudyStoppedBeforeItsExtensionSCheckpoint(unittest.TestCase):
 def _killed(study, pdb, *limits):
     """The study run, killed after each count of steps in turn: the first
     as it is explored, each next one as it is carried on."""
+    pytest.importorskip("openmm.app")
     from unittest import mock
 
     import openmm.app

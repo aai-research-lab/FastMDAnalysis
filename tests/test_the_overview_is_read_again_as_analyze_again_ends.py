@@ -62,7 +62,7 @@ def _page(pw, url, errors):
 
 
 def test_the_overview_drops_the_earlier_rules_as_analyze_again_ends(tmp_path) -> None:
-    from playwright.sync_api import sync_playwright
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
     root, record, judged = _study(tmp_path)
     errors: list[str] = []
@@ -99,7 +99,7 @@ def test_a_run_started_elsewhere_that_fails_is_read_too(tmp_path) -> None:
     """Started by the Agent, a fix or the command line, the Analysis page's
     button knows nothing of the run; and a run that fails has still moved
     the old records aside. Either way the Overview reads again as it ends."""
-    from playwright.sync_api import sync_playwright
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
     root, record, judged = _study(tmp_path)
     errors: list[str] = []
@@ -121,7 +121,7 @@ def test_a_run_started_elsewhere_that_fails_is_read_too(tmp_path) -> None:
 def test_a_read_asked_for_while_one_is_on_its_way_is_made(tmp_path) -> None:
     """The end comes while a read begun before it is on its way: that read
     may hold the records as they were, so one more is made after it."""
-    from playwright.sync_api import sync_playwright
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
     root, record, judged = _study(tmp_path)
     errors: list[str] = []
