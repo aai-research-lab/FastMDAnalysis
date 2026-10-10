@@ -802,7 +802,7 @@ def test_a_window_whose_studies_go_in_home_says_why_before_the_click(session) ->
     from playwright.sync_api import sync_playwright
 
     served, machine = session
-    why = ("Studies built here would be saved in /h, your home folder. For example "
+    why = ("Studies built in the form would be saved in /h, your home folder. For example "
            "`fastmdx gui --output /home/adekunle_aina_lab_workstation_account/"
            "molecular_dynamics/first`.")
     with sync_playwright() as pw:
@@ -932,7 +932,7 @@ def test_a_command_in_the_note_is_never_broken_inside_its_flag(session) -> None:
     from playwright.sync_api import sync_playwright
 
     served, machine = session
-    why = ("Studies built here would be saved in /h, your home folder. For example "
+    why = ("Studies built in the form would be saved in /h, your home folder. For example "
            "`fastmdx gui --output /home/someone/md/first`.")
     with sync_playwright() as pw:
         browser, page, errors = _page(pw, served.url + "#run", width=390, height=844)

@@ -172,6 +172,27 @@ def _absolute(given: Any) -> bool:
         return False
 
 
+def _same_file(one: Path, other: Path) -> bool:
+    """Whether two paths name one file: the same text, or the same file on
+    disk (a name in other letters where the disk ignores their case)."""
+    if one == other:
+        return True
+    import os
+
+    try:
+        return os.path.samefile(one, other)
+    except (OSError, ValueError):
+        return False
+
+
+def _a_folder(path: Path) -> bool:
+    """Whether ``path`` is a folder, False where it cannot be looked at."""
+    try:
+        return path.is_dir()
+    except (OSError, ValueError):
+        return False
+
+
 def _said(exc: BaseException) -> dict[str, Any]:
     found = refusal_of(exc)
     return _refused(found.message, found.code)
@@ -232,28 +253,21 @@ class RemoteDesk:
         """Why a study built in the form cannot be sent from this window,
         or None: its config would be saved in the home folder or one above
         it, which nothing is sent from. Said with the folder to open."""
-        import os
-
         from fastmdxplora.remote.inputs import home_folders, home_or_above
 
         base = self._new_studies_folder()
         if not home_or_above(base, home_unknown=True):
             return None
-        still = " A config file can still be sent with A config I have."
         homes = home_folders()
         if not homes:
-            return (f"Studies built in the form would be saved in {base}, and no home "
-                    "folder was found (neither `HOME` nor the account names one), so this "
-                    "window cannot tell whether that is your home folder, which nothing "
-                    "is sent from. To send one, set `HOME` and start the GUI again." + still)
-
-        def same(one: Path, other: Path) -> bool:
-            try:
-                return os.path.samefile(one, other)
-            except OSError:
-                return one == other
-
-        is_home = any(same(base, home) for home in homes)
+            # Nothing is sent where home cannot be told, a config file
+            # included, so the note offers none.
+            return (f"No home folder was found, so whether {base}, where studies built "
+                    "in the form would be saved, is your home folder cannot be told, "
+                    "and nothing is sent. Set `HOME` to your home folder and start the "
+                    "GUI again.")
+        still = " A config file can still be sent with A config I have."
+        is_home = any(_same_file(base, home) for home in homes)
         where = ("your home folder" if is_home
                  else "the top of the disk" if base == Path(base.anchor)
                  else "a folder above your home folder")
@@ -265,11 +279,38 @@ class RemoteDesk:
         else:
             # The home it was opened on or in, else the account's own.
             home = next((home for home in homes if opened == home), None) or next(
-                (home for home in homes if home.is_dir()), homes[0])
+                (home for home in homes if _a_folder(home)), homes[0])
             instead = ("To send one, start the GUI on a folder of its own inside your home "
                        f"folder, for example `fastmdx gui --output {home / 'md' / 'first'}`.")
-        return (f"Studies built here would be saved in {base}, {where}, and nothing is "
-                f"sent from there. {instead}{still}")
+        return (f"Studies built in the form would be saved in {base}, {where}, and "
+                f"nothing is sent from there. {instead}{still}")
+
+    def _outside(self, given: Any) -> Path | None:
+        """The file ``given`` names, read as a plan reads it (a relative name
+        in the folder opened), where it is a file the routes do not reach;
+        else None."""
+        try:
+            named = Path(str(given).strip()).expanduser()
+            found = (named if named.is_absolute() else self.root / named).resolve()
+            if found.is_file() and self.inside(str(found)) is None:
+                return found
+        except (OSError, RuntimeError, ValueError):
+            pass
+        return None
+
+    def _bring_in(self, file: Path) -> str:
+        """How a config the routes do not reach can be sent: from a GUI
+        started in its folder, where that folder may travel, or copied in."""
+        import shlex
+
+        from fastmdxplora.remote.inputs import home_or_above
+
+        copy = (f"copy it, with the files it names, into {self.root} and give its "
+                "name there.")
+        if home_or_above(file.parent, home_unknown=True):
+            return copy[0].upper() + copy[1:]
+        return (f"Start the GUI in its folder (`cd {shlex.quote(str(file.parent))}`, "
+                f"then `fastmdx gui`), or {copy}")
 
     def _workspace(self) -> str:
         """The folders the routes reach, as a refusal names them."""
@@ -428,6 +469,14 @@ class RemoteDesk:
         import yaml
 
         file = self.inside(config) if config else None
+        if file is None and config:
+            outside = self._outside(config)
+            if outside is not None:
+                named = (f"{outside} is" if str(outside) == str(config).strip()
+                         else f"{config} is {outside},")
+                return None, None, _refused(
+                    f"{named} outside {self._workspace()}, and nothing outside it is "
+                    "sent from here. " + self._bring_in(outside), "remote.input.outside")
         if file is None or not file.is_file() or file.suffix.lower() not in (".yml", ".yaml"):
             return None, None, _refused(
                 f"{config!r} is not a config file in " + (
@@ -473,7 +522,7 @@ class RemoteDesk:
         if base not in self.roots:
             # Only into a folder the routes reach, however the window's
             # folder for new studies came to be another since.
-            return None, _refused(f"Studies built here would be saved in {base}, which "
+            return None, _refused(f"Studies built in the form would be saved in {base}, which "
                                   "this window does not send from. Start the GUI again "
                                   "to send one."), False
         source = dict(state)
@@ -614,14 +663,29 @@ class RemoteDesk:
                             "known." + full, code, given=text)
         try:
             checked = (started / given).resolve()
-            there = (self.root / given).resolve()
-        except (OSError, RuntimeError, ValueError):
+        except ValueError:
             return None  # no file's name: refused by the plan as no config file
+        except (OSError, RuntimeError) as exc:
+            # A loop of links on the way, say: the file checked is not known.
+            return _refused(f"{text} cannot be followed from the folder the GUI was "
+                            f"started in ({started}): {exc}. So which file was checked "
+                            "is not known." + full, code, given=text)
+        try:
+            there: Path | None = (self.root / given).resolve()
+        except (OSError, RuntimeError, ValueError):
+            there = None
         planned = self.inside(text)
-        if planned is not None and checked == planned:
+        if planned is not None and _same_file(checked, planned):
             return None
+
+        def none_at(path: Path) -> str:
+            try:
+                return "" if path.exists() else ", where there is none"
+            except (OSError, ValueError):
+                return ""
+
         read = (f"Checked from the folder the GUI was started in ({started}), {text} is "
-                f"{checked}; ")
+                f"{checked}{none_at(checked)}; ")
         if planned is None:
             # A plan reads a relative name only inside the folder opened.
             said = (f"a plan reads a relative name only inside the folder the GUI was "
@@ -629,7 +693,20 @@ class RemoteDesk:
             said = (said[0].upper() + said[1:]) if there == checked else read + said
         else:
             said = (read + f"a plan reads it from the folder the GUI was opened on "
-                    f"({self.root}), as {planned}.")
+                    f"({self.root}), as {planned}{none_at(planned)}.")
+        try:
+            reached = checked.is_file() and self.inside(str(checked)) is not None
+            unreached = checked.is_file() and not reached
+        except (OSError, ValueError):
+            reached = unreached = False
+        if unreached:
+            # Its full path would be refused too: say how it can be sent.
+            return _refused(f"{said} The file checked is outside {self._workspace()}, "
+                            "and nothing outside it is sent from here. "
+                            + self._bring_in(checked), code, given=text)
+        if not reached:
+            return _refused(said + " Give the full path of the config to send.", code,
+                            given=text)
         return _refused(said + full, code, given=text)
 
     def _plan(self, config: Any, machine: Any) -> dict[str, Any]:

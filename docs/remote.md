@@ -214,15 +214,17 @@ file or folder of that name beside the Config.
 
 **Only files in the study's own folder travel,** the folder holding the
 Config. A file named outside it is refused (`remote.input.outside`) and nothing
-is sent, whoever wrote the Config: one written by an AI model naming
-`~/.ssh/id_ed25519` would otherwise copy the key to the machine. Links are
+is sent, whoever wrote the Config: one naming `~/.ssh/id_ed25519` would
+otherwise copy the key to the machine. Links are
 resolved first, so a link in the folder leading out of it is outside too, and a
 folder that travels is refused if a link in it, or in a folder one of its links
 leads to, leads out of it or back into itself, since the copy follows links.
 Copy the file into the study's folder and name it there. A Config in your home
 folder (the one your account names, or the one `HOME` names), or at the top of
 the file system, is refused, since its folder is what
-travels; and nothing in a place keys and credentials are kept (`.ssh`,
+travels; where no home folder can be found at all, every Config is refused,
+since its folder could be your home folder (set `HOME` and send it again);
+and nothing in a place keys and credentials are kept (`.ssh`,
 `.gnupg`, `.aws`, `.kube` and the like, and FastMDXplora's own settings) is
 ever sent: a folder that travels is refused if one is anywhere in it, reached
 directly or through a link. The link and key checks are made again as the copy
@@ -515,9 +517,11 @@ found to be when last inspected.
   on. A file it names by a relative path is read from there too, as a run
   here reads it, and the plan says where its results come back to, by
   their full path. A results folder left blank is given the name the plan
-  chose, in the form (a bare name, as **Run on this machine** reads it),
-  kept while the plan stands and after a send that went, so the study
-  planned again is saved to the same file.
+  chose, in the form (a bare name, as **Run on this machine** reads it).
+  It is kept while the plan stands, so the study planned again is saved to
+  the same file, and after a send that went, so the form names the folder
+  its results come back to; planned again then, it is refused as a job of
+  that name until the Results box names a new folder.
 - **Where new studies would go in your home folder,** the top of a disk or
   a folder above your home folder (a GUI opened on a folder directly in
   your home folder, on the home folder itself, or on a folder at the top
@@ -526,9 +530,10 @@ found to be when last inspected.
   before anything is asked, naming a folder to open it on instead
   (`fastmdx gui --output ~/md/first` in place of `~/md`). Your home folder
   is taken to be both the one your account names and the one `HOME`
-  names; where neither is found, nothing built in the form is sent either,
-  and the note says to set `HOME`. A config file can still be sent with **A config
-  I have**.
+  names. A config file can still be sent with **A config I have**. Where
+  neither names a home folder, nothing is sent from the GUI at all, a
+  config file included, since any folder could be your home folder, and
+  the note says to set `HOME`.
 - **A plan let go** (**Not now**, taken away as the form changed, a send
   refused, or kept past its ten minutes) takes back the config saved for
   it, unless the config has been changed since, another plan is of it or a
@@ -544,7 +549,13 @@ found to be when last inspected.
   named by a relative path is read from the folder the GUI was started in,
   as its check reads it, and refused (`remote.config.read_elsewhere`)
   where the plan would read another file, or none, or where that folder is
-  gone: give its full path.
+  gone: give its full path. Where the file checked is outside the folders
+  the routes reach, its full path would be refused too, so the refusal
+  says so and names the two ways to send it: start the GUI in its folder
+  (`cd` there, then `fastmdx gui`), or copy it with the files it names into
+  the folder the GUI was opened on. A config named by its full path outside
+  those folders is refused (`remote.input.outside`) with the same two
+  ways.
 - **One at a time.** One plan or send is out at a time, and what it answers
   is said on the page, left and come back to or not; the form changed while
   a send is out takes nothing away.

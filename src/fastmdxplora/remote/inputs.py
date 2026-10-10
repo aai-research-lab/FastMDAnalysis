@@ -16,8 +16,8 @@ the internet; the caller refuses where it has none.
 
 **Only what is in the study's own folder travels.** A file the config names
 outside the folder holding it is refused, not sent, whoever wrote the config:
-a config an AI model wrote naming ``~/.ssh/id_ed25519`` would otherwise copy
-the key to the machine. Links are resolved first, so a link in the folder
+a config naming ``~/.ssh/id_ed25519`` would otherwise copy the key to the
+machine. Links are resolved first, so a link in the folder
 pointing out of it is outside too, and a folder that travels is refused if
 a link in it, or in a folder one of its links leads to, points out of it or
 back into itself, since the copy follows links. One
@@ -205,7 +205,7 @@ _PRIVATE_PAIRS = frozenset({(".config", "gcloud"), (".config", "gh"),
                             (".config", "rclone"), ("library", "keychains")})
 
 
-#: FastMDXplora's own settings: the AI model's key, the machines, the jobs.
+#: FastMDXplora's own settings: the Agent's key, the machines, the jobs.
 _SETTINGS_KEPT = ("model.json", "calibration.json", "machines", "jobs", "sockets",
                   "gpu_memory", "gpu_memory_here.json")
 
@@ -215,11 +215,20 @@ def _settings_kept() -> tuple[str, ...]:
     sent. The settings folder itself may hold a study; only these may not."""
     from fastmdxplora.user_dir import user_config_dir
 
+    places = []
     try:
-        settings = user_config_dir().resolve()
-    except (OSError, RuntimeError):
-        return ()
-    return tuple(str(settings / name) for name in _SETTINGS_KEPT)
+        places.append(user_config_dir().resolve())
+    except (OSError, RuntimeError, ValueError):
+        pass
+    # Also where it is found from each home folder, so a wrong `HOME` does
+    # not let the settings under the account's own home travel.
+    for home in home_folders():
+        try:
+            places.append((home / ".config" / "fastmdxplora").resolve())
+        except (OSError, RuntimeError, ValueError):
+            continue
+    return tuple(str(settings / name) for settings in dict.fromkeys(places)
+                 for name in _SETTINGS_KEPT)
 
 
 def _private(path: Path, kept: tuple[str, ...] = ()) -> bool:
@@ -261,8 +270,9 @@ def private_in(path: Path) -> Path | None:
 
 def _home_or_above(folder: Path) -> bool:
     """Whether ``folder`` is the top of the file system, the home folder or
-    a folder holding it, also where the disk ignores the case of letters."""
-    return home_or_above(folder)
+    a folder holding it, also where the disk ignores the case of letters;
+    True where no home folder can be found, since then it cannot be told."""
+    return home_or_above(folder, home_unknown=True)
 
 
 def home_folders() -> list[Path]:
@@ -435,12 +445,16 @@ def gather_inputs(config: Any, base: Path) -> Inputs:
     """
     folder = base.resolve()
     if _home_or_above(folder):
-        raise StudyError(
-            f"The config is in {folder}, and a study's folder is what travels with "
-            "it; that cannot be the top of the file system or your home folder. "
-            "Put the config and its files in a folder of their own.",
-            code="remote.input.outside", given=str(folder), where="",
-            folder=str(folder))
+        said = (f"The config is in {folder}, and a study's folder is what travels with "
+                "it; that cannot be the top of the file system or your home folder. "
+                "Put the config and its files in a folder of their own.")
+        if folder != Path(folder.anchor) and not home_folders():
+            said = (f"The config is in {folder}, and a study's folder is what travels "
+                    "with it. No home folder was found, so whether that is your home "
+                    "folder, which never travels, cannot be told. Set `HOME` to your "
+                    "home folder and send it again.")
+        raise StudyError(said, code="remote.input.outside", given=str(folder), where="",
+                         folder=str(folder))
     found = Inputs(config=None)
     by_source: dict[Path, str] = {}
 
