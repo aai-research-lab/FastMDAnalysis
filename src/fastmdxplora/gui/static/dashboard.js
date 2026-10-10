@@ -2241,7 +2241,9 @@
       .replace(/\b\w/g, (character) => character.toUpperCase());
   }
 
-  function showToast(message, kind) {
+  /* The page's notice. With an action ({label, run}), a button for it, Undo
+   * above all, offered while the notice shows, and longer. */
+  function showToast(message, kind, action) {
     let toast = byId("dashboard-toast");
     if (!toast) {
       toast = document.createElement("div");
@@ -2252,9 +2254,27 @@
     }
     toast.textContent = message;
     toast.setAttribute("data-kind", kind || "ok");
+    const offered = action && action.label && typeof action.run === "function";
+    toast.style.pointerEvents = offered ? "auto" : "";
+    if (offered) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "file-action dashboard-toast-action";
+      button.textContent = action.label;
+      button.addEventListener("click", () => {
+        toast.classList.remove("show");
+        toast.style.pointerEvents = "";
+        button.remove();
+        action.run();
+      }, {once: true});
+      toast.append(" ", button);
+    }
     toast.classList.add("show");
     window.clearTimeout(showToast.timer);
-    showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 3500);
+    showToast.timer = window.setTimeout(() => {
+      toast.classList.remove("show");
+      toast.style.pointerEvents = "";
+    }, offered ? 10000 : 3500);
   }
 
   function escapeHTML(value) {
@@ -2377,7 +2397,7 @@
     /* The settings as the fields say them, as "settings-updated" sends. */
     settings: () => currentSettings(),
     /* The page's notice, seen and read out (icons.js says a copy in it). */
-    toast: (message, kind) => showToast(message, kind),
+    toast: (message, kind, action) => showToast(message, kind, action),
     /* A study opened from the page, by the switch's answer. */
     studyOpened: (answer, page) => studyOpened(answer, page),
     figureChip: (name, made) => provenanceChip(name, made),

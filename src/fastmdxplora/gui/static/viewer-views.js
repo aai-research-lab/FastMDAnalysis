@@ -62,6 +62,32 @@
       .catch(function () { views = []; list(); });
   }
 
+  /** A saved view as it is kept, to put back; null where there is none. */
+  function keptView(name) {
+    var found = views.filter(function (view) { return view && view.name === name; })[0];
+    if (!found) return null;
+    var kept = Object.assign({}, found.view || found);
+    delete kept.name;
+    return kept;
+  }
+
+  /** The change said in the page's notice with Undo, which sends ``back``. */
+  function offerUndo(said, back, name) {
+    var board = window.FastMDXDashboard;
+    if (!board || !board.toast) return;
+    board.toast(said, "ok", { label: "Undo", run: function () {
+      post(back).then(function (answer) {
+        if (!answer || !answer.ok) {
+          say("It could not be undone: " + ((answer && (answer.reason || answer.error)) || "no reason given"));
+          return;
+        }
+        views = answer.views || [];
+        list(back.action === "save" ? name : undefined);
+        say(back.action === "save" ? "The view " + name + " is back as it was." : "The view " + name + " is gone again.");
+      });
+    } });
+  }
+
   function post(body) {
     return fetch("/api/views", {
       method: "POST", headers: { "content-type": "application/json" },
@@ -216,6 +242,7 @@
     var note = byId("viewer-view-note");
     var written = note ? note.value.trim() : "";
     if (written) shown = Object.assign({}, shown, { note: written });
+    var before = keptView(name);
     post({ action: "save", name: name, view: shown }).then(function (said) {
       if (!said || !said.ok) {
         say("The view was not saved: " + ((said && (said.reason || said.error)) || "no reason given"));
@@ -225,6 +252,10 @@
       list(name);
       naming(false);
       say("Saved the view " + name + " with the study.");
+      // Undone, a view saved over another is that one again; a new one goes.
+      offerUndo("Saved the view " + name + ".", before
+        ? { action: "save", name: name, view: before } : { action: "delete", name: name },
+        name);
     });
   }
 
@@ -265,6 +296,7 @@
     byId("viewer-view-forget").addEventListener("click", function () {
       var name = select.value;
       if (!name) return;
+      var before = keptView(name);
       post({ action: "delete", name: name }).then(function (said) {
         if (!said || !said.ok) {
           say("The view was not forgotten: " + ((said && (said.reason || said.error)) || "no reason given"));
@@ -273,6 +305,7 @@
         views = said.views || [];
         list();
         say("Forgot the view " + name + ".");
+        if (before) offerUndo("Forgot the view " + name + ".", { action: "save", name: name, view: before }, name);
       });
     });
     var scenesList = byId("viewer-scenes");

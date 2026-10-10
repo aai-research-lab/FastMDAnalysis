@@ -194,6 +194,7 @@
       event.preventDefault();
       if (adding.value.trim()) add();
       save.disabled = true;
+      var before = { tags: (study.tags || []).slice(), note: study.note || "" };
       fetch("/api/study-tags", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -210,6 +211,7 @@
         tagsUsed = countTags();
         offerTags();
         draw();
+        offerUndoOfTags(study, before);
       }).catch(function () {
         save.disabled = false;
         said.textContent = "The server did not answer.";
@@ -221,6 +223,31 @@
     buttons.append(save, cancel);
     form.append(list, row, note, buttons, said);
     return form;
+  }
+
+  /* Tags and a note kept, said in the page's notice with Undo, which keeps
+   * them as they were. */
+  function offerUndoOfTags(study, before) {
+    var board = window.FastMDXDashboard;
+    if (!board || !board.toast) return;
+    board.toast("Kept the tags and note of " + (study.name || "the study") + ".", "ok", { label: "Undo", run: function () {
+      fetch("/api/study-tags", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: study.path, tags: before.tags, note: before.note })
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        if (!d || !d.ok) {
+          board.toast((d && (d.reason || d.error)) || "It could not be undone.", "warning");
+          return;
+        }
+        study.tags = d.tags;
+        study.note = d.note;
+        tagsUsed = countTags();
+        offerTags();
+        draw();
+        board.toast("The tags and note are back as they were.", "ok");
+      }).catch(function () { board.toast("The server did not answer.", "warning"); });
+    } });
   }
 
   function countTags() {
