@@ -28,6 +28,7 @@ except ImportError:  # pragma: no cover - the backends are optional
 
 from tests.test_a_carried_on_study_reads_its_energy_whole import _config
 from tests.test_a_real_study_runs_end_to_end import TRI_ALANINE
+from tests.test_a_study_stopped_before_its_extension_s_checkpoint_is_carried_on import _as_killed
 
 
 @unittest.skipUnless(HAS_BACKENDS, "OpenMM, PDBFixer and MDTraj are needed")
@@ -144,6 +145,7 @@ class TestAnExtensionStoppedShortIsNotCalledWhole(unittest.TestCase):
             (cls.study / "manifest.json").unlink()
             taken.update(steps=0, limit=250)
             cls.extended = extend_study(cls.study, more_ns=0.0008)
+            _as_killed(cls.study)
         cls.answer = resume_study(cls.study)
         cls.again = resume_study(cls.study)
 

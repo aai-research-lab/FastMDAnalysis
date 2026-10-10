@@ -70,6 +70,11 @@ class TestAStudyStoppedBeforeItsExtensionSCheckpoint(unittest.TestCase):
             (cls.study / "manifest.json").unlink()
             taken.update(steps=0, limit=40)
             cls.stopped = resume_study(cls.study)
+            # As the test's stop leaves it, the piece's own Manifest says an
+            # error: an answer, which running it again would give again.
+            cls.refused = resume_study(cls.study)
+            cls.refused_left = (cls.study / "segment-001").is_dir()
+            _as_killed(cls.study)
         (cls.study / "manifest.json").unlink(missing_ok=True)
         cls.first = cls.study / "simulation" / "production.dcd"
         cls.first_bytes = cls.first.read_bytes()
@@ -80,6 +85,13 @@ class TestAStudyStoppedBeforeItsExtensionSCheckpoint(unittest.TestCase):
     def test_the_segment_stopped_before_its_checkpoint(self):
         self.assertFalse(self.stopped["ok"])
         self.assertFalse(self.segment_had_checkpoint)
+
+    def test_a_piece_of_a_study_not_finished_that_stopped_with_an_answer_is_said(self):
+        self.assertEqual((self.refused["ok"], self.refused["did"]), (False, "nothing"),
+                         self.refused)
+        self.assertTrue(self.refused["error"].startswith(
+            "The study's last piece, segment-001, stopped with an answer"))
+        self.assertTrue(self.refused_left)
 
     def test_it_is_carried_on_not_run_again_from_its_start(self):
         self.assertEqual((self.answer["ok"], self.answer["did"]), (True, "continued"),
@@ -110,6 +122,15 @@ def _folder() -> Path:
     return Path(tempfile.mkdtemp()).resolve()
 
 
+def _as_killed(study):
+    """A piece killed writes no Manifest. The stop these tests make inside a
+    piece is recorded as an error in its own Manifest, which reads as an
+    answer, not an interruption: taken away, as a kill leaves none."""
+    for manifest in study.glob("segment-*/manifest.json"):
+        if '"error"' in manifest.read_text(encoding="utf-8"):
+            manifest.unlink()
+
+
 def _killed(study, pdb, *limits):
     """The study run, killed after each count of steps in turn: the first
     as it is explored, each next one as it is carried on."""
@@ -137,6 +158,7 @@ def _killed(study, pdb, *limits):
             (study / "manifest.json").unlink(missing_ok=True)
             taken.update(steps=0, limit=limit)
             resume_study(study)
+            _as_killed(study)
     (study / "manifest.json").unlink(missing_ok=True)
 
 
@@ -257,6 +279,7 @@ class TestAnExtensionPastThePlanKeepsItsLength(unittest.TestCase):
             (cls.study / "manifest.json").unlink()
             taken.update(steps=0, limit=40)
             extend_study(cls.study, more_ns=0.0008)
+            _as_killed(cls.study)
         (cls.study / "manifest.json").unlink(missing_ok=True)
         cls.answer = resume_study(cls.study)
         cls.done = production_done_ns(cls.study)
@@ -310,6 +333,7 @@ class TestASecondExtensionPastAFinishedPlanKeepsItsLength(unittest.TestCase):
             resume.extend_study(cls.study, more_ns=0.0008)
             taken.update(steps=0, limit=40)
             resume.extend_study(cls.study, more_ns=0.0008)
+            _as_killed(cls.study)
         # The Manifest the first extension's join wrote is left, as a kill
         # leaves it: every phase done, so the study read as finished.
         cls.second_had_checkpoint = (
@@ -372,7 +396,7 @@ class TestAFinishedStudyExtendedAndStoppedIsCarriedOn(unittest.TestCase):
             resume_study,
         )
 
-        root = Path(tempfile.mkdtemp())
+        root = _folder()
         cls.addClassCleanup(shutil.rmtree, root, True)
         pdb = root / "tri-ala.pdb"
         pdb.write_text(TRI_ALANINE)
@@ -383,6 +407,11 @@ class TestAFinishedStudyExtendedAndStoppedIsCarriedOn(unittest.TestCase):
                          output_dir=str(cls.study)).explore()
             taken.update(steps=0, limit=40)
             extend_study(cls.study, more_ns=0.0008)
+        # As the test's stop leaves it, the piece's own Manifest says an
+        # error: an answer, which running it again would give again.
+        cls.refused = resume_study(cls.study)
+        cls.left = (cls.study / "segment-001").is_dir()
+        _as_killed(cls.study)
         cls.had_manifest = (cls.study / "manifest.json").is_file()
         cls.answer = resume_study(cls.study)
         cls.done = production_done_ns(cls.study)
@@ -396,6 +425,15 @@ class TestAFinishedStudyExtendedAndStoppedIsCarriedOn(unittest.TestCase):
         self.assertEqual(self.answer.get("set_aside"), str(aside))
         # 300 steps of 2 fs, and the 0.0008 ns asked.
         self.assertAlmostEqual(self.done, 0.0014, places=6)
+
+    def test_a_piece_that_stopped_with_an_answer_is_said_not_run_again(self):
+        self.assertEqual((self.refused["ok"], self.refused["did"]), (False, "nothing"))
+        self.assertTrue(self.refused["error"].startswith(
+            "The study's last piece, segment-001, stopped with an answer, not an "
+            "interruption: simulation: "), self.refused["error"])
+        self.assertIn("To run it again anyway, move segment-001 out of the study's folder "
+                      "and resume.", self.refused["error"])
+        self.assertTrue(self.left)
 
     def test_once_carried_on_it_is_finished(self):
         self.assertEqual((self.again["ok"], self.again["did"]), (True, "nothing"),
@@ -418,7 +456,7 @@ class TestAStoppedExtensionDoesNotStopTheNext(unittest.TestCase):
         from fastmdxplora import FastMDXplora
         from fastmdxplora.simulation.resume import extend_study, production_done_ns
 
-        root = Path(tempfile.mkdtemp())
+        root = _folder()
         cls.addClassCleanup(shutil.rmtree, root, True)
         pdb = root / "tri-ala.pdb"
         pdb.write_text(TRI_ALANINE)
@@ -429,6 +467,7 @@ class TestAStoppedExtensionDoesNotStopTheNext(unittest.TestCase):
                          output_dir=str(cls.study)).explore()
             taken.update(steps=0, limit=40)
             extend_study(cls.study, more_ns=0.0008)
+            _as_killed(cls.study)
         cls.answer = extend_study(cls.study, more_ns=0.0004)
         cls.done = production_done_ns(cls.study)
 
@@ -462,7 +501,7 @@ class TestAnExtensionStoppedPastItsCheckpointKeepsItsLength(unittest.TestCase):
             resume_study,
         )
 
-        root = Path(tempfile.mkdtemp())
+        root = _folder()
         cls.addClassCleanup(shutil.rmtree, root, True)
         pdb = root / "tri-ala.pdb"
         pdb.write_text(TRI_ALANINE)
@@ -474,8 +513,11 @@ class TestAnExtensionStoppedPastItsCheckpointKeepsItsLength(unittest.TestCase):
             (cls.study / "manifest.json").unlink()
             taken.update(steps=0, limit=40)
             extend_study(cls.study, more_ns=0.0008)
+            _as_killed(cls.study)
             taken.update(steps=0, limit=250)
             cls.stopped = resume_study(cls.study)
+            cls.owed_refused = resume_study(cls.study)
+            _as_killed(cls.study)
         cls.had_checkpoint = (cls.study / "segment-001" / "simulation" / "checkpoint.chk").is_file()
         cls.answer = resume_study(cls.study)
         cls.done = production_done_ns(cls.study)
@@ -483,6 +525,12 @@ class TestAnExtensionStoppedPastItsCheckpointKeepsItsLength(unittest.TestCase):
     def test_the_carry_on_stopped_past_its_checkpoint(self):
         self.assertFalse(self.stopped["ok"])
         self.assertTrue(self.had_checkpoint)
+
+    def test_a_piece_past_its_checkpoint_that_stopped_with_an_answer_is_said(self):
+        self.assertEqual((self.owed_refused["ok"], self.owed_refused["did"]), (False, "nothing"),
+                         self.owed_refused)
+        self.assertTrue(self.owed_refused["error"].startswith(
+            "The study's last piece, segment-001, stopped with an answer"))
 
     def test_the_rest_of_the_length_asked_runs(self):
         self.assertEqual((self.answer["ok"], self.answer["did"]), (True, "continued"),
@@ -507,7 +555,7 @@ class TestTheLengthAskedIsTheNewestSetAsideFromThisCheckpoint(unittest.TestCase)
     last by its name, whatever its folder's time says after a copy."""
 
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp())
+        self.root = _folder()
         self.addCleanup(shutil.rmtree, self.root, True)
         self.own = self.root / "simulation" / "checkpoint.chk"
         self.own.parent.mkdir(parents=True)
@@ -560,3 +608,79 @@ class TestAPieceStillRunningIsNotSetAside(unittest.TestCase):
         self.assertEqual((answer["ok"], answer["did"]), (False, "nothing"))
         self.assertIn("still going", answer["error"])
         self.assertTrue(segment.is_dir())
+
+
+@unittest.skipUnless(HAS_BACKENDS, "OpenMM, PDBFixer and MDTraj are needed")
+class TestAnExtensionPastAPlanNotYetDoneRunsItsOwnLength(unittest.TestCase):
+    """A study stopped 150 steps into its 0.0006 ns (its checkpoint at 100),
+    extended by 0.0008 ns and stopped 150 steps into that (its checkpoint at
+    100): 0.0010 ns asked in all. Carried on, only the plan's 0.0002 ns left
+    ran, and the next resume said nothing, the rest lost without a word."""
+
+    @classmethod
+    def setUpClass(cls):
+        from unittest import mock
+
+        pytest.importorskip("openmm.app")
+        import openmm.app
+
+        from fastmdxplora import FastMDXplora
+        from fastmdxplora.simulation.resume import (
+            extend_study,
+            production_done_ns,
+            resume_study,
+        )
+
+        root = _folder()
+        cls.addClassCleanup(shutil.rmtree, root, True)
+        pdb = root / "tri-ala.pdb"
+        pdb.write_text(TRI_ALANINE)
+        cls.study = root / "study"
+        taken = {"steps": 0, "limit": 200 + 150}
+        with mock.patch.object(openmm.app.Simulation, "step", _stepping(taken)):
+            FastMDXplora(config_data=_config(pdb, telemetry_interval=25),
+                         output_dir=str(cls.study)).explore()
+            (cls.study / "manifest.json").unlink()
+            taken.update(steps=0, limit=150)
+            extend_study(cls.study, more_ns=0.0008)
+            _as_killed(cls.study)
+        (cls.study / "manifest.json").unlink(missing_ok=True)
+        cls.answer = resume_study(cls.study)
+        cls.done = production_done_ns(cls.study)
+        cls.again = resume_study(cls.study)
+
+    def test_it_runs_to_the_length_the_extension_asked(self):
+        self.assertEqual((self.answer["ok"], self.answer["did"]), (True, "continued"),
+                         self.answer.get("error"))
+        self.assertAlmostEqual(self.done, 0.0010, places=6)
+        self.assertEqual((self.again["ok"], self.again["did"]), (True, "nothing"),
+                         self.again.get("error"))
+
+
+def test_a_finished_study_whose_pieces_cannot_be_read_is_said_not_raised(tmp_path):
+    """Two folders for one piece (`segment-1` and `segment-001`): the survey
+    of the pieces refuses, and resume says so as its answer, where it raised
+    and printed no outcome for `--json`."""
+    import yaml
+
+    from fastmdxplora.simulation.resume import resume_study
+
+    study = tmp_path / "study"
+    (study / "simulation").mkdir(parents=True)
+    (study / "resolved_config.yml").write_text(yaml.safe_dump(
+        {"simulation": {"duration_ns": 0.0004}}), encoding="utf-8")
+    (study / "manifest.json").write_text(json.dumps({"phases": [
+        {"name": name, "status": "ok"} for name in ("setup", "simulation", "analysis",
+                                                     "report")]}), encoding="utf-8")
+    for name in ("segment-1", "segment-001"):
+        (study / name / "simulation").mkdir(parents=True)
+        (study / name / "resolved_config.yml").write_text(yaml.safe_dump(
+            {"simulation": {"duration_ns": 0.0004}}), encoding="utf-8")
+    answer = resume_study(study)
+    assert (answer["ok"], answer["did"]) == (False, "nothing")
+    assert "both segment 1" in answer["error"]
+    # And a study not finished, which the survey reads on another path.
+    (study / "manifest.json").unlink()
+    answer = resume_study(study)
+    assert (answer["ok"], answer["did"]) == (False, "nothing")
+    assert "both segment 1" in answer["error"]

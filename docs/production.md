@@ -640,8 +640,13 @@ to carry it on, is not thrown away by starting again: the reason is said
 instead. Running `fastmdx resume` twice does the work once, so a service can
 run it every time a job restarts; `--json` prints the outcome as one line for
 a program to read. An extension of a finished study that was stopped before
-the join is carried on the same way, and extending such a study again sets
-the stopped piece aside first.
+the join is carried on the same way; extending such a study again sets a
+piece stopped before its first checkpoint aside first, and carries on one
+stopped past it from that checkpoint. A piece carried on that stopped with an
+error of its own is said, as the study's would be, with how to run it again
+anyway. Whether a finished study was
+extended since is read from its join (`joined/joined.json`): a study whose
+`joined` folder is gone is joined and analysed again.
 
 **By hand, recovery is at phase boundaries.** A finished setup or trajectory in a
 directory is reused rather than redone, and `--include` picks up from the phase

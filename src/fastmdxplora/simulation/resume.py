@@ -1263,6 +1263,27 @@ def _owed_by_the_last_piece(root: Path) -> float | None:
     return owed if owed > 0 else None
 
 
+def _the_last_piece_s_answer(root: Path) -> tuple[str, str] | None:
+    """(its folder's name, why it stopped) where the study's last numbered
+    piece stopped with an answer, not an interruption: its own Manifest
+    says an error the registry does not mark as worth retrying. A piece
+    killed writes no Manifest, and reads as an interruption."""
+    import yaml
+
+    from fastmdxplora.analysis.joining import survey_segments
+
+    pieces = [piece for piece in survey_segments(root) if piece.directory != root]
+    if not pieces:
+        return None
+    last = max(pieces, key=lambda each: each.index).directory
+    try:
+        config = yaml.safe_load((last / "resolved_config.yml").read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        config = {}
+    _finished, stopped = _finished_record(last, config if isinstance(config, dict) else {})
+    return (last.name, stopped) if stopped is not None else None
+
+
 def _extended_since_it_finished(root: Path) -> bool:
     """Whether the study was extended after its record last said it was
     done: a piece the join has not taken in (the extension stopped before it
@@ -1487,8 +1508,30 @@ def resume_study(study: str | Path, *,
         return {**base, "ok": False, "did": RESUMED_NOTHING,
                 "error": f"The study's config could not be read: {exc}"}
     finished, stopped = _finished_record(root, config)
-    if finished and _extended_since_it_finished(root):
+    try:
+        # Pieces that cannot be told apart (two folders for one number) are
+        # said here, as an answer, before anything reads them.
+        survey_segments(root)
+        extended = finished and _extended_since_it_finished(root)
+        # A piece carried on that stopped with an answer of its own gives
+        # the same one when run again: said, not set aside and run again,
+        # whether the study had finished or not.
+        piece_said = (_the_last_piece_s_answer(root)
+                      if extended or not finished else None)
+    except (StudyError, ValueError) as exc:
+        return {**base, "ok": False, "did": RESUMED_NOTHING, "error": str(exc)}
+    if extended:
         finished = False
+    if piece_said is not None:
+        name, why = piece_said
+        why = why.splitlines()[0].strip()
+        if not why.endswith((".", "!", "?")):
+            why += "."
+        return {**base, "ok": False, "did": RESUMED_NOTHING,
+                "error": f"The study's last piece, {name}, stopped with an answer, not an "
+                         f"interruption: {why} Running it again "
+                         f"would give the same one. To run it again anyway, move {name} "
+                         "out of the study's folder and resume."}
     if stopped is not None:
         return {**base, "ok": False, "did": RESUMED_NOTHING,
                 "error": f"The study stopped with an answer, not an interruption "
@@ -1509,13 +1552,16 @@ def resume_study(study: str | Path, *,
     asked = _length_asked(root, plan.checkpoint)
     if asked is not None:
         plan = extension_of(root, more_ns=asked)
-    elif not plan.possible:
+    else:
         # The last piece stopped past its checkpoint, short of the length it
-        # was asked to run, with nothing of the plan left (an extension past
-        # it): the rest of its own ask, not a join refused for a piece that
-        # did not finish, at every resume after.
-        asked = _owed_by_the_last_piece(root)
-        if asked is not None:
+        # was asked to run, and that ask reaches past what is left of the
+        # plan (an extension past it): the rest of its own ask, not the
+        # plan's remainder (the rest lost for good), nor a join refused for
+        # a piece that did not finish at every resume after.
+        owed = _owed_by_the_last_piece(root)
+        left = (plan.production_planned_ns - plan.production_done_ns) if plan.possible else 0.0
+        if owed is not None and owed > left + 1e-9:
+            asked = owed
             plan = extension_of(root, more_ns=asked)
     if plan.possible:
         answer = extend_study(root, more_ns=asked, device_index=device_index)
