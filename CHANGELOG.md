@@ -41,6 +41,14 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   the files it names, into a new folder inside the folder opened. No way is
   offered for a file that is no study's config, or one kept where keys or
   settings are kept. See `docs/remote.md`, From the GUI.
+- The Config Builder's draft is saved as the page goes: a reload right after a
+  change, a value still being typed, or Reset then a reload no longer opens
+  the draft from before, and a study started discards a save still waiting.
+  A page closed does not write its older draft over one another tab saved
+  since. Ctrl+Enter from a field sends the value typed, and where the study
+  is not started the field keeps the focus and the refusal stays said.
+  "Saved" plays once for each save that changed the draft, not again when the
+  page is shown, and not for a save made while the page was hidden.
 
 ### Security
 

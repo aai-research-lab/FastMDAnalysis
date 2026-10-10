@@ -3133,11 +3133,14 @@
 
   /* The form as it stands, saved in this browser for this person, so a
    * reload or a visit to another page loses nothing. Nothing leaves the
-   * browser; a study run or Reset discards it. */
+   * browser; a study run discards it, and Reset writes it over. */
   const DRAFT_KEY = "fmx.builderDraft";
   let draftTimer = null;
   let draftReady = false;
   let draftEndWired = false;
+  // The draft as this page last wrote or opened it: another tab's newer one
+  // stored since is not written over as this page goes.
+  let draftSeen = null;
 
   function draftKey() {
     const where = (state.schema && state.schema.workspace) || "";
@@ -3147,56 +3150,112 @@
   function saveDraft() {
     if (!draftReady) return;
     clearTimeout(draftTimer);
-    draftTimer = setTimeout(() => {
-      const draft = {
-        start: state.start, phases: Array.from(state.phases), values: state.values,
-        analyses: Array.from(state.analyses), analysisOptions: state.analysisOptions,
-        sweep: state.sweep, decisions: state.decisions, full: Boolean(state.full),
-        analysisMode: state.analysisMode, lengthMode: state.lengthMode || null,
-        systems: state.systems.map((row) => ({ id: row.id, system: row.system, own: row.own || {} })),
-        output: (el("run-output") && el("run-output").value) || "",
-        trajectory: (el("run-trajectory") && el("run-trajectory").value) || "",
-        topology: (el("run-topology") && el("run-topology").value) || "",
-        configPath: (el("run-config-path") && el("run-config-path").value) || "",
-      };
-      try {
-        const written = JSON.stringify(draft);
-        const before = window.localStorage.getItem(draftKey());
-        if (!draft.start) window.localStorage.removeItem(draftKey());
-        else window.localStorage.setItem(draftKey(), written);
-        const said = el("run-draft");
-        if (said) {
-          said.hidden = !draft.start;
-          // Each save that changed the draft is said again: the class is
-          // taken off and put back so its animation plays once more, and
-          // taken off as it ends, so nothing shown again replays it.
-          if (!draftEndWired) {
-            draftEndWired = true;
-            said.addEventListener("animationend", (event) => {
-              if (event.animationName === "builder-saved") said.classList.remove("just-saved");
-            });
-          }
-          said.classList.remove("just-saved");
-          if (draft.start && written !== before) {
-            void said.offsetWidth;
-            said.classList.add("just-saved");
-          }
+    draftTimer = setTimeout(writeDraft, 300);
+  }
+
+  /* A value typed into a field of the form and not yet left has had no
+   * change event: the field is let go of, so the browser sends one where
+   * the value changed (and none for a choice already made, which would
+   * set its defaults again). */
+  function commitTyping() {
+    const typing = document.activeElement;
+    if (!typing || !typing.closest || !typing.closest(".page[data-page='run']")) return null;
+    typing.blur();
+    return typing;
+  }
+
+  // A save still waiting as the page goes (a reload, Reset then a reload)
+  // is made now, or the draft opened next is the one before it; the field
+  // being typed in first, as the browser does not let go of it as the page
+  // goes.
+  window.addEventListener("pagehide", () => {
+    if (draftReady) commitTyping();
+    madeNow();
+  });
+  // A phone may close a page switched away from without its pagehide.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") madeNow();
+  });
+
+  function madeNow() {
+    if (!draftTimer) return;
+    clearTimeout(draftTimer);
+    writeDraft(true);
+  }
+
+  function writeDraft(leaving) {
+    draftTimer = null;
+    if (leaving) {
+      let stored = null;
+      try { stored = window.localStorage.getItem(draftKey()); } catch (error) { stored = null; }
+      // Another tab saved its draft since this one: the newer is kept.
+      if (stored !== draftSeen) return;
+    }
+    const draft = {
+      start: state.start, phases: Array.from(state.phases), values: state.values,
+      analyses: Array.from(state.analyses), analysisOptions: state.analysisOptions,
+      sweep: state.sweep, decisions: state.decisions, full: Boolean(state.full),
+      analysisMode: state.analysisMode, lengthMode: state.lengthMode || null,
+      systems: state.systems.map((row) => ({ id: row.id, system: row.system, own: row.own || {} })),
+      output: (el("run-output") && el("run-output").value) || "",
+      trajectory: (el("run-trajectory") && el("run-trajectory").value) || "",
+      topology: (el("run-topology") && el("run-topology").value) || "",
+      configPath: (el("run-config-path") && el("run-config-path").value) || "",
+    };
+    try {
+      const written = JSON.stringify(draft);
+      const before = window.localStorage.getItem(draftKey());
+      if (!draft.start) window.localStorage.removeItem(draftKey());
+      else window.localStorage.setItem(draftKey(), written);
+      draftSeen = draft.start ? written : null;
+      const said = el("run-draft");
+      if (said) {
+        said.hidden = !draft.start;
+        // Each save that changed the draft is said again: the class is
+        // taken off and put back so its animation plays once more, and
+        // taken off as it ends or is cut short by the page being hidden,
+        // so nothing shown again replays it. A play cut short by the next
+        // save is not one of those: its cancel comes after the class is
+        // back, and the note is still shown.
+        if (!draftEndWired) {
+          draftEndWired = true;
+          said.addEventListener("animationend", (event) => {
+            if (event.animationName === "builder-saved") said.classList.remove("just-saved");
+          });
+          said.addEventListener("animationcancel", (event) => {
+            if (event.animationName === "builder-saved" && !said.getClientRects().length) {
+              said.classList.remove("just-saved");
+            }
+          });
         }
-      } catch (error) {
-        // No storage here: the form works without it, and says no save.
-        const said = el("run-draft");
-        if (said) {
-          said.hidden = true;
+        // A save that changed nothing leaves a play going; one made while
+        // the page or the tab is hidden is not played, nor kept to play
+        // when shown.
+        if (draft.start && written !== before && said.getClientRects().length
+            && document.visibilityState === "visible") {
+          said.classList.remove("just-saved");
+          void said.offsetWidth;
+          said.classList.add("just-saved");
+        } else if (!draft.start) {
           said.classList.remove("just-saved");
         }
       }
-    }, 300);
+    } catch (error) {
+      // No storage here: the form works without it, and says no save.
+      const said = el("run-draft");
+      if (said) {
+        said.hidden = true;
+        said.classList.remove("just-saved");
+      }
+    }
   }
 
   function restoreDraft() {
     let draft = null;
-    try { draft = JSON.parse(window.localStorage.getItem(draftKey()) || "null"); }
-    catch (error) { draft = null; }
+    try {
+      draftSeen = window.localStorage.getItem(draftKey());
+      draft = JSON.parse(draftSeen || "null");
+    } catch (error) { draft = null; }
     if (!draft || !draft.start || !STARTING_POINTS[draft.start]) return false;
     forgetWhatWasSetAside();
     state.start = draft.start;
@@ -3220,7 +3279,11 @@
   }
 
   function discardDraft() {
+    // A save still waiting would write the draft back as the page goes.
+    clearTimeout(draftTimer);
+    draftTimer = null;
     try { window.localStorage.removeItem(draftKey()); } catch (error) { /* nothing to discard */ }
+    draftSeen = null;
     const said = el("run-draft");
     if (said) said.hidden = true;
   }
@@ -3543,7 +3606,17 @@
 
   async function start() {
     const button = el("run-start-button");
-    if (!ready()) return;
+    // Ctrl+Enter from a field: the value typed is the study's, and the
+    // field has the focus again where the study is not started.
+    const typed = commitTyping();
+    const backToTyping = () => {
+      if (typed && typed.isConnected && (!document.activeElement
+          || document.activeElement === document.body)) typed.focus({ preventScroll: true });
+    };
+    if (!ready()) {
+      backToTyping();
+      return;
+    }
     button.disabled = true;
     const phone = el("run-phone-start");
     if (phone) phone.disabled = true;
@@ -3557,15 +3630,20 @@
       started = await response.json();
     } catch (error) {
       text(el("run-note"), "Could not reach the server.");
+      // Kept when the summary's check comes back.
+      el("run-note").dataset.ok = "false";
       button.disabled = false;
       if (phone) phone.disabled = false;
+      backToTyping();
       return;
     }
     if (!started.ok) {
       text(el("run-note"), started.error || "Could not start.");
+      el("run-note").dataset.ok = "false";
       sayRefusal(started);
       button.disabled = false;
       if (phone) phone.disabled = false;
+      backToTyping();
       return;
     }
     sayRefusal(started);
@@ -3733,7 +3811,11 @@
     });
 
     const configPath = el("run-config-path");
-    if (configPath) configPath.addEventListener("change", checkConfigFile);
+    if (configPath) {
+      configPath.addEventListener("change", checkConfigFile);
+      // Kept in the draft as it is typed, as the other paths are.
+      configPath.addEventListener("input", saveDraft);
+    }
     const wire = (id, handler) => { const button = el(id); if (button) button.addEventListener("click", handler); };
     wire("run-check-config", checkConfigFile);
     wire("run-open-config", loadConfigIntoForm);

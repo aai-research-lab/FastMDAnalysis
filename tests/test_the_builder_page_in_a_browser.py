@@ -26,6 +26,8 @@ promise the rebuild makes:
 
 from __future__ import annotations
 
+import json
+
 import pytest
 import yaml
 
@@ -184,14 +186,14 @@ class TestTheDraft:
         context.add_init_script(self.WATCH)
         page = _open(site, context=context)
         page.wait_for_selector("#run-draft:not([hidden])")
-        self._settled(page)
+        self._quiet(page)
         # What opening the form played (its structure chosen is a change).
         self._frames(page)
         page.evaluate("() => window.__saves.splice(0)")
         return page
 
     @staticmethod
-    def _settled(page):
+    def _quiet(page):
         """Once the form has stopped writing its draft (a save waits 300 ms
         after the last change)."""
         seen = -1
@@ -215,9 +217,10 @@ class TestTheDraft:
         page.wait_for_function("""([n, value]) => window.__writes.length > n
             && String(Object.values(JSON.parse(window.__writes[window.__writes.length - 1])
                 .values || {}).map((phase) => (phase || {}).ph).find((ph) => ph !== undefined))
-               === value""", arg=[written, value])
+               === value""", arg=[written, value], timeout=30000)
         if changes:
-            page.wait_for_function("() => window.__saves.length >= 2")
+            # Saved, and not played: the note's play is what this waits for.
+            page.wait_for_function("() => window.__saves.length >= 2", timeout=30000)
         self._frames(page)
         return page.evaluate("() => window.__saves.splice(0)")
 
@@ -259,7 +262,7 @@ class TestTheDraft:
         page.wait_for_function("() => window.__saves.length >= 2")
         back = page.evaluate("() => window.__saves.splice(0)")
         last = page.evaluate("() => JSON.parse(window.__writes[window.__writes.length - 1])")
-        self._settled(page)
+        self._quiet(page)
         page.evaluate("() => window.__saves.splice(0)")
         written = page.evaluate("() => window.__writes.length")
         page.click("#run-reset")
@@ -277,10 +280,10 @@ class TestTheDraft:
     def test_a_draft_opened_again_is_not_played(self, site):
         page = self._watched(site)
         self._plays(page, "6.5")
-        self._settled(page)
+        self._quiet(page)
         page.reload(wait_until="domcontentloaded")
         page.wait_for_selector("#run-draft:not([hidden])")
-        self._settled(page)
+        self._quiet(page)
         self._frames(page)
         played = page.evaluate("() => window.__saves")
         restored = page.input_value('#run-settings [data-setting="ph"] input')
@@ -309,6 +312,317 @@ class TestTheDraft:
                     getComputedStyle(note, '::before').animationName, window.__saves.length]; }""")
         assert moves == [True, "none", "none", 0]
         page.context.close()
+
+    # The page's 300 ms waits held, as on a machine that reloads first: a
+    # save still waiting is made only if the page makes it as it goes.
+    HOLD = """() => { const later = window.setTimeout;
+        window.setTimeout = (run, ms, ...rest) => ms === 300 ? later(() => {}, 1e9) : later(run, ms, ...rest); }"""
+
+    def test_a_reload_as_a_save_waits_loses_nothing(self, site):
+        """Reset, then a reload within the 300 ms a save waits, opened the
+        settings from before Reset; an edit reloaded as soon was lost."""
+        ph = '#run-settings [data-setting="ph"] input'
+        page = self._watched(site)
+        self._plays(page, "6.5")
+        self._quiet(page)
+        page.evaluate(self.HOLD)
+        page.click("#run-reset")
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_selector(ph)
+        after_reset = page.input_value(ph)
+        self._quiet(page)
+        page.evaluate(self.HOLD)
+        page.fill(ph, "7.5")
+        page.dispatch_event(ph, "change")
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_selector(ph)
+        edited = page.input_value(ph)
+        page.context.close()
+        errors = page.errors
+        assert after_reset == ""
+        assert edited == "7.5"
+        assert errors == []
+
+    def test_a_save_said_twice_plays_twice(self, site):
+        """A second save as the first still plays starts it again; and one
+        cut short as the page is hidden does not play when it is shown."""
+        page = self._watched(site)
+        # Long enough that the next save comes as it plays.
+        page.add_style_tag(content="#run-draft.just-saved { animation-duration: 60s !important; }")
+        self._plays(page, "6.5")
+        again = self._plays(page, "7.5")
+        # The field let go of: leaving it saves, which also ends a play.
+        page.evaluate("() => document.activeElement && document.activeElement.blur()")
+        self._quiet(page)
+        page.evaluate("() => window.__saves.splice(0)")
+        # Saved again with the keyboard elsewhere, then hidden as it plays,
+        # as another page is shown, with nothing saved as it goes.
+        written = page.evaluate("() => window.__writes.length")
+        page.evaluate("""() => { const box = document.querySelector('#run-settings [data-setting="ph"] input');
+            box.value = '8.0'; box.dispatchEvent(new Event('input', {bubbles: true}));
+            box.dispatchEvent(new Event('change', {bubbles: true})); }""")
+        page.wait_for_function("(n) => window.__writes.length > n && window.__saves.length >= 2",
+                               arg=written)
+        page.evaluate("() => window.__saves.splice(0)")
+        written = page.evaluate("() => window.__writes.length")
+        run = ".page[data-page='run']"
+        page.evaluate("(run) => { document.querySelector(run).hidden = true; }", run)
+        page.wait_for_function("() => !document.getElementById('run-draft')"
+                               ".classList.contains('just-saved')", timeout=10000)
+        page.evaluate("(run) => { document.querySelector(run).hidden = false; }", run)
+        self._frames(page)
+        shown = page.evaluate("() => window.__saves.splice(0)")
+        saved = page.evaluate("() => window.__writes.length") - written
+        errors = page.errors
+        page.context.close()
+        assert "builder-saved" in again
+        assert saved == 0
+        assert shown == []
+        assert errors == []
+
+    def test_a_save_made_while_the_page_is_hidden_is_not_played_when_shown(self, site):
+        """A value given and another page opened within the 300 ms a save
+        waits: the save is made while the form is hidden, where its play
+        never starts and so never ends, and it played once the form was
+        shown again."""
+        run = ".page[data-page='run']"
+        page = self._watched(site)
+        written = page.evaluate("() => window.__writes.length")
+        page.evaluate("""(run) => { const box = document.querySelector(
+                '#run-settings [data-setting="ph"] input');
+            box.value = '6.5'; box.dispatchEvent(new Event('input', {bubbles: true}));
+            box.dispatchEvent(new Event('change', {bubbles: true}));
+            document.querySelector(run).hidden = true; }""", run)
+        page.wait_for_function("(n) => window.__writes.length > n", arg=written)
+        kept = page.evaluate("() => document.getElementById('run-draft')"
+                             ".classList.contains('just-saved')")
+        page.evaluate("(run) => { document.querySelector(run).hidden = false; }", run)
+        self._frames(page)
+        played = page.evaluate("() => window.__saves.splice(0)")
+        errors = page.errors
+        page.context.close()
+        assert kept is False
+        assert played == []
+        assert errors == []
+
+    def test_a_save_waiting_as_the_page_goes_is_made(self, site):
+        """The page's own pagehide, as a browser that sends no
+        visibilitychange as a page goes (older Safari) leaves it."""
+        ph = '#run-settings [data-setting="ph"] input'
+        page = self._watched(site)
+        page.evaluate(self.HOLD)
+        written = page.evaluate("() => window.__writes.length")
+        page.fill(ph, "6.5")
+        page.dispatch_event(ph, "change")
+        page.evaluate("() => window.dispatchEvent(new PageTransitionEvent('pagehide',"
+                      " {persisted: false}))")
+        made = page.evaluate("(n) => window.__writes.slice(n)", written)
+        errors = page.errors
+        page.context.close()
+        assert len(made) == 1
+        values = json.loads(made[0]).get("values") or {}
+        assert any(str((phase or {}).get("ph")) == "6.5" for phase in values.values())
+        assert errors == []
+
+    def test_a_choice_already_made_and_left_focused_keeps_the_form_through_a_reload(self, site):
+        """The start already chosen, clicked again or reached with the
+        keyboard, holds the focus: a change sent to it as the page went set
+        its default phases again, the Report left out put back."""
+        report = "#run-phases [data-phase='report'] input"
+        page = self._watched(site)
+        page.click(report)
+        self._quiet(page)
+        page.focus("#run-start [data-start='structure'] input")
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_selector(report)
+        kept = page.is_checked(report)
+        page.context.close()
+        assert kept is False
+
+    def test_a_tab_left_behind_does_not_write_over_a_newer_draft(self, site):
+        """A tab whose field kept the focus after its value was saved, left
+        while another tab saved a newer draft, and then reloaded: the change
+        sent to its field as it went wrote its own older draft back."""
+        ph = '#run-settings [data-setting="ph"] input'
+        context = site["browser"].new_context(viewport={"width": 1440, "height": 900})
+        context.add_init_script(self.WATCH)
+        first = _open(site, context=context)
+        first.fill(ph, "6.5")
+        first.dispatch_event(ph, "change")
+        self._quiet(first)
+        second = context.new_page()
+        second.set_default_timeout(60000)
+        second.goto(site["url"], wait_until="domcontentloaded")
+        second.wait_for_selector(ph)
+        second.fill(ph, "8.0")
+        second.dispatch_event(ph, "change")
+        self._quiet(second)
+        first.reload(wait_until="domcontentloaded")
+        first.wait_for_selector(ph)
+        kept = first.input_value(ph)
+        context.close()
+        assert kept == "8.0"
+
+    def test_a_tab_left_behind_with_typing_does_not_write_over_a_newer_draft(self, site):
+        """A tab with a value typed and not left, while another tab saved a
+        newer draft, then closed: the change sent to its field as it went
+        wrote its whole older form over the newer draft."""
+        ph = '#run-settings [data-setting="ph"] input'
+        context = site["browser"].new_context(viewport={"width": 1440, "height": 900})
+        context.add_init_script(self.WATCH)
+        first = _open(site, context=context)
+        self._quiet(first)
+        first.fill(ph, "6.6")
+        second = context.new_page()
+        second.set_default_timeout(60000)
+        second.goto(site["url"], wait_until="domcontentloaded")
+        second.wait_for_selector(ph)
+        second.fill("#run-output", "newer_from_b")
+        self._quiet(second)
+        first.close(run_before_unload=True)
+        second.wait_for_timeout(500)
+        kept = json.loads(second.evaluate("""() => localStorage.getItem(Object.keys(localStorage)
+            .filter((key) => key.startsWith('fmx.builderDraft'))[0])"""))
+        context.close()
+        assert kept["output"] == "newer_from_b"
+
+    def test_a_value_typed_and_run_with_the_keyboard_is_the_study_s(self, site):
+        """Ctrl+Enter from a field still being typed in: the study ran
+        without the value, and its draft was written after it started."""
+        ph = '#run-settings [data-setting="ph"] input'
+        page = self._watched(site)
+        sent = []
+
+        def answer(route):
+            sent.append(route.request.post_data or "")
+            route.fulfill(status=200, content_type="application/json",
+                          body='{"ok": true, "config_path": "study.yml"}')
+
+        page.route("**/api/run", answer)
+        page.fill(ph, "6.9")
+        page.keyboard.press("Control+Enter")
+        page.wait_for_selector("#run-draft", state="hidden")
+        page.wait_for_timeout(1000)
+        kept = page.evaluate("""() => Object.keys(localStorage)
+            .filter((key) => key.startsWith('fmx.builderDraft'))""")
+        page.context.close()
+        assert len(sent) == 1
+        assert "6.9" in sent[0]
+        assert kept == []
+
+    @pytest.mark.parametrize("refused", ["said", "unreached"])
+    def test_a_study_not_started_leaves_the_focus_in_the_field(self, site, refused):
+        """Ctrl+Enter from a field, and the study not started (refused with
+        no setting named, or the server not reached): the field let go of
+        to send its value had the focus no more."""
+        ph = '#run-settings [data-setting="ph"] input'
+        page = self._watched(site)
+        if refused == "said":
+            page.route("**/api/run", lambda route: route.fulfill(
+                status=200, content_type="application/json",
+                body='{"ok": false, "error": "A study is already running here."}'))
+        else:
+            page.route("**/api/run", lambda route: route.abort())
+        page.fill(ph, "6.9")
+        page.keyboard.press("Control+Enter")
+        page.wait_for_function("() => !document.getElementById('run-start-button').disabled"
+                               " && document.getElementById('run-note').textContent"
+                               " !== 'Starting\u2026'")
+        focused = page.evaluate("""() => !!document.activeElement
+            && !!document.activeElement.closest('[data-setting="ph"]')
+            && document.activeElement.tagName === 'INPUT'""")
+        value = page.input_value(ph)
+        # The summary's check, set off as the field was let go of, comes
+        # back after the refusal and left the note blank.
+        page.wait_for_timeout(1500)
+        note = page.text_content("#run-note")
+        page.context.close()
+        assert focused is True
+        assert value == "6.9"
+        assert note == ("A study is already running here." if refused == "said"
+                        else "Could not reach the server.")
+
+    def test_a_config_path_typed_is_kept_as_the_page_is_hidden(self, site):
+        """Only a change kept the path, and its check saves only once its
+        answer comes: a phone that closes a page switched away from, with
+        no pagehide, lost the path being typed."""
+        page = self._watched(site)
+        page.click("#run-start [data-start='config']")
+        self._quiet(page)
+        page.evaluate(self.HOLD)
+        written = page.evaluate("() => window.__writes.length")
+        page.fill("#run-config-path", "/data/my_study.yml")
+        page.evaluate("""() => { Object.defineProperty(document, 'visibilityState',
+            {value: 'hidden', configurable: true});
+            document.dispatchEvent(new Event('visibilitychange')); }""")
+        made = page.evaluate("(n) => window.__writes.slice(n)", written)
+        page.context.close()
+        assert [json.loads(one).get("configPath") for one in made] == ["/data/my_study.yml"]
+
+    def test_a_study_started_as_a_save_waits_leaves_no_draft(self, site):
+        """Start pressed within the 300 ms a save waits, then a reload: the
+        save still waiting wrote the started study's draft back."""
+        ph = '#run-settings [data-setting="ph"] input'
+        page = self._watched(site)
+        page.route("**/api/run", lambda route: route.fulfill(
+            status=200, content_type="application/json",
+            body='{"ok": true, "config_path": "study.yml"}'))
+        page.evaluate(self.HOLD)
+        page.fill(ph, "6.5")
+        page.dispatch_event(ph, "change")
+        page.click("#run-start-button")
+        page.wait_for_selector("#run-draft", state="hidden")
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_function("() => window.FastMDXRun && window.FastMDXRun.state.schema")
+        kept = page.evaluate("""() => Object.keys(localStorage)
+            .filter((key) => key.startsWith('fmx.builderDraft'))
+            .map((key) => localStorage.getItem(key))""")
+        page.context.close()
+        assert kept == []
+
+    def test_a_value_typed_and_not_left_is_kept_through_a_reload(self, site):
+        """A field still being typed in has had no change event, and the
+        browser sends none as the page goes."""
+        ph = '#run-settings [data-setting="ph"] input'
+        page = self._watched(site)
+        page.fill(ph, "7.5")
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_selector(ph)
+        kept = page.input_value(ph)
+        page.context.close()
+        assert kept == "7.5"
+
+    def test_a_save_waiting_as_the_page_is_hidden_is_made(self, site):
+        """A phone may close a page switched away from without its pagehide:
+        the save waiting is made as the page is hidden."""
+        ph = '#run-settings [data-setting="ph"] input'
+        page = self._watched(site)
+        page.evaluate(self.HOLD)
+        written = page.evaluate("() => window.__writes.length")
+        page.fill(ph, "6.5")
+        page.dispatch_event(ph, "change")
+        page.evaluate("""() => { Object.defineProperty(document, 'visibilityState',
+            {value: 'hidden', configurable: true});
+            document.dispatchEvent(new Event('visibilitychange')); }""")
+        made = page.evaluate("(n) => window.__writes.slice(n)", written)
+        # A tab hidden keeps the page laid out: its save is not played.
+        played = page.evaluate("() => document.getElementById('run-draft')"
+                               ".classList.contains('just-saved')")
+        page.context.close()
+        assert played is False
+        assert len(made) == 1
+        values = json.loads(made[0]).get("values") or {}
+        assert any(str((phase or {}).get("ph")) == "6.5" for phase in values.values())
+
+    def test_a_save_that_changes_nothing_leaves_a_play_going(self, site):
+        page = self._watched(site)
+        page.add_style_tag(content="#run-draft.just-saved { animation-duration: 60s !important; }")
+        self._plays(page, "6.5")
+        self._plays(page, "6.5", changes=False)
+        playing = page.evaluate("() => document.getElementById('run-draft')"
+                                ".classList.contains('just-saved')")
+        page.context.close()
+        assert playing
 
     def test_an_agent_reply_does_not_overwrite_it(self, site):
         page = _open(site)
