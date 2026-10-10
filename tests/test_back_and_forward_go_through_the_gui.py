@@ -6,6 +6,8 @@ step of its own now, and each dialog opened is one over its page: Back
 closes it before it leaves the page, Forward opens it again, and a dialog
 closed by its own Close takes its step back with it, so Back then goes to
 the page before. Where the GUI opens is put right in its address, not a step.
+An analysis opened from elsewhere is a step to its place on the Analysis
+page (`#analysis/rmsd`), which a reload opens again.
 """
 
 from __future__ import annotations
@@ -22,7 +24,15 @@ from tests.test_the_drawing_scripts_run_in_a_browser import _write_study  # noqa
 def session(tmp_path_factory):
     from fastmdxplora.gui.server import start_dashboard_session
 
+    from tests.test_an_analysis_is_drawn_from_its_numbers import _figure
+    from tests.test_the_analysis_page_reads_as_a_whole import _analysis, _ar1, _manifest
+
     study = _write_study(tmp_path_factory.mktemp("back") / "study")
+    names = ["rmsd", "rg", "sasa", "rmsf", "hbonds", "ligand_rmsd"]
+    _manifest(study, {name: {"status": "ok"} for name in names})
+    for seed, name in enumerate(names):
+        _analysis(study, name, 1.0 + 0.01 * _ar1(4000, 0.5, seed + 1))
+        _figure(study / "analysis" / name / f"{name}.png")
     started = start_dashboard_session(output=str(study), host="127.0.0.1", port=0)
     yield started
     started.server.shutdown()
@@ -142,4 +152,27 @@ def test_a_page_opened_as_a_dialog_closes_is_not_taken_back_with_it(browser, ses
     _on(page, "files")
     errors = page.errors
     page.context.close()
+    assert errors == []
+
+
+def test_an_analysis_opened_is_a_place_a_reload_opens_again(browser, session) -> None:
+    page = _open(browser, session)
+    page.evaluate("() => window.FastMDXDashboard.showAnalysis('ligand_rmsd')")
+    page.wait_for_function("() => location.hash === '#analysis/ligand_rmsd'")
+    _on_place = ("() => { const c = document.querySelector("
+                 "'.page[data-page=\"analysis\"] .analysis-card[data-analysis=\"ligand_rmsd\"]');"
+                 " if (!c || c.offsetParent === null) return false;"
+                 " const r = c.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; }")
+    page.wait_for_function(_on_place)
+    page.go_back()
+    _on(page, "overview")
+    page.go_forward()
+    page.wait_for_function("() => location.hash === '#analysis/ligand_rmsd' && "
+                           "!document.querySelector('.page[data-page=\"analysis\"]').hidden")
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_function(_on_place)
+    kept = page.evaluate("() => location.hash")
+    errors = page.errors
+    page.context.close()
+    assert kept == "#analysis/ligand_rmsd"
     assert errors == []

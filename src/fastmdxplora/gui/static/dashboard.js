@@ -133,7 +133,7 @@
     });
     window.addEventListener("hashchange", () => {
       const page = location.hash.replace(/^#/, "");
-      if (state.pages.includes(page) || DIALOG_OF[page]) navigate(page, {updateHash: false});
+      if (state.pages.includes(page.split("/")[0]) || DIALOG_OF[page]) navigate(page, {updateHash: false});
     });
   }
 
@@ -141,17 +141,33 @@
    * shown; a link to either (#settings, #cite) opens it. */
   const DIALOG_OF = {settings: "prefs-dialog", preferences: "prefs-dialog", cite: "cite-dialog"};
 
+  /* A page and the place on it the address names: `#analysis/rmsd` is the
+   * Analysis page at the RMSD's section. */
+  function addressOfPage(page, place) {
+    return place ? `#${page}/${place}` : `#${page}`;
+  }
+
   function navigate(page, options) {
     const opts = options || {};
     if (DIALOG_OF[page] && byId(DIALOG_OF[page])) {
       // The link's own step becomes the dialog's, over the page shown.
       if (!state.activePage) navigate("overview", {replace: true});
-      else history.replaceState(null, "", `#${state.activePage}`);
+      else history.replaceState(null, "", addressOfPage(state.activePage, state.activePlace));
       window.FastMDXDialog?.open(DIALOG_OF[page], undefined, "replace");
       return;
     }
-    if (!state.pages.includes(page)) page = "overview";
+    let place = opts.place || "";
+    if (!place && String(page).includes("/")) {
+      [page, place] = String(page).split(/\/(.*)/);
+    }
+    if (!state.pages.includes(page)) {
+      page = "overview";
+      place = "";
+    }
+    // Only the Analysis page has places the address names, so far.
+    if (page !== "analysis") place = "";
     state.activePage = page;
+    state.activePlace = place;
     $$('.page').forEach((element) => {
       const hidden = element.getAttribute("data-page") !== page;
       element.hidden = hidden;
@@ -170,14 +186,16 @@
     if (column) column.scrollTop = 0;
     // Each page a step of its own, so Back and Forward go between them;
     // an address only put right replaces its step.
-    if (opts.updateHash !== false && location.hash !== `#${page}`) {
+    const address = addressOfPage(page, place);
+    if (opts.updateHash !== false && location.hash !== address) {
       const step = () => {
-        if (opts.replace) history.replaceState(null, "", `#${page}`);
-        else history.pushState(null, "", `#${page}`);
+        if (opts.replace) history.replaceState(null, "", address);
+        else history.pushState(null, "", address);
       };
       if (window.FastMDXDialog?.afterHistory) window.FastMDXDialog.afterHistory(step);
       else step();
     }
+    if (place) revealAnalysis(place);
     requestAnimationFrame(() => {
       // The live panels moved onto the overview, so opening that is
       // what starts the polling they need. Keyed to a page that no
@@ -554,7 +572,7 @@
       const requested = location.hash.replace(/^#/, "");
       // Where the page opens is put right in its address, not a step of
       // its own: Back from it leaves the GUI.
-      if (requested && state.pages.includes(requested)) navigate(requested, {replace: true});
+      if (requested && state.pages.includes(requested.split("/")[0])) navigate(requested, {replace: true});
       else if (activeRun) navigate("overview", {replace: true});
       else navigate("run", {replace: true});
     }
@@ -2269,8 +2287,13 @@
    * while the Analysis page stays open, for up to a minute. */
   const CITED_LOOK_MS = 60000;
 
+  /* An analysis opened from anywhere: a step to its place on the Analysis
+   * page, which a reload or Back opens again. */
   function showAnalysis(name) {
-    navigate("analysis");
+    navigate("analysis", {place: String(name || "")});
+  }
+
+  function revealAnalysis(name) {
     const wanted = String(name || "");
     const started = Date.now();
     let timer = null;
@@ -2285,7 +2308,8 @@
       }
       const card = $$(`.page[data-page="analysis"] .analysis-card[data-analysis]`)
         .find((element) => element.getAttribute("data-analysis") === wanted
-          && element.offsetParent !== null);
+          && element.offsetParent !== null)
+        || (byId(`analysis-section-${wanted}`)?.offsetParent ? byId(`analysis-section-${wanted}`) : null);
       if (!card) return;
       finish();
       // Which figure the page was opened on, kept after the mark fades.

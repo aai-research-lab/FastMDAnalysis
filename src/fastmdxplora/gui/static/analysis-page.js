@@ -132,8 +132,9 @@
     decorateCards(host);
   }
 
-  /* An index link scrolls to its section and moves focus there, rather than
-   * changing the address, which the page uses for its own navigation. */
+  /* An index link scrolls to its section and moves focus there; the
+   * address names the section in place of the one before, so a reload or a
+   * bookmark opens it, and Back still goes to the page before. */
   document.addEventListener("click", function (event) {
     var link = event.target.closest && event.target.closest(".analysis-index-link, [data-goto-analysis]");
     if (!link) return;
@@ -145,6 +146,7 @@
       return;
     }
     if (!target) return;
+    history.replaceState(history.state, "", "#analysis/" + anchor);
     target.scrollIntoView({ behavior: "smooth", block: "start" });
     var heading = target.querySelector(".analysis-section-title");
     if (heading) {
