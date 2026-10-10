@@ -737,9 +737,14 @@ def extend_study(study: str | Path, *, total_ns: float | None = None,
     import yaml
 
     root = Path(study).expanduser().resolve()
+    # An extension stopped before its first checkpoint has nothing to go on
+    # from: set aside, as a resume does, so the next is carried on from the
+    # piece before it rather than refused for it.
+    aside = _set_aside_a_segment_never_checkpointed(root)
+    said = {"set_aside": str(aside)} if aside is not None else {}
     plan = extension_of(root, total_ns=total_ns, more_ns=more_ns)
     if not plan.possible:
-        return {"ok": False, "error": plan.refusal, "stage": "planning"}
+        return {"ok": False, "error": plan.refusal, "stage": "planning", **said}
 
     # Before anything runs: can what is here be joined to what will be?
     # A segment that did not finish was killed, and its trajectory holds frames
@@ -757,7 +762,7 @@ def extend_study(study: str | Path, *, total_ns: float | None = None,
     # trajectory and calls it whole.
     keep_frames, refusal = _frames_to_keep(root)
     if refusal is not None:
-        return {"ok": False, "stage": "planning", **refusal}
+        return {"ok": False, "stage": "planning", **refusal, **said}
     if keep_frames:
         # The resume starts from a checkpoint the run did not seal, which
         # the runner refuses unless it is told. OpenMM still refuses one it
@@ -789,11 +794,13 @@ def extend_study(study: str | Path, *, total_ns: float | None = None,
         stopped = any((phase.refusal or {}).get("code") == STOPPED_CODE
                       for result in failed for phase in result.phases)
         return {"ok": False, "stage": "simulation", "segment": str(segment),
-                "stopped": stopped,
+                "stopped": stopped, **said,
                 "error": failed[0].message or f"{segment.name} did not finish."}
 
-    return _join_and_analyse(root, plan.config, segment=segment,
-                             keep_frames=keep_frames or None, analyse=analyse)
+    # Where the piece left behind went is said whatever the join says.
+    return {**_join_and_analyse(root, plan.config, segment=segment,
+                                keep_frames=keep_frames or None, analyse=analyse),
+            **said}
 
 
 def _frames_to_keep(root: Path, *, last_too: bool = True
@@ -1166,44 +1173,119 @@ def _length_asked(root: Path, checkpoint: str | None) -> float | None:
 
     Read from every segment set aside, not only one set aside now: a resume
     that stopped short of carrying it on leaves it set aside, and the next
-    one still runs it as it was asked."""
+    one still runs it as it was asked. The newest is the one set aside
+    last, by the number its name was given, not by its folder's time,
+    which a copy of the study changes."""
+    import re
+
     if not checkpoint:
         return None
-    asides = sorted((path for path in root.glob(f"segment-*{NEVER_CHECKPOINTED}*")
-                     if path.is_dir()),
-                    key=lambda path: path.stat().st_mtime, reverse=True)
-    for aside in asides:
-        asked, began = _length_asked_of(aside)
-        if asked is not None and _the_same_checkpoint(began, checkpoint, root):
+    named = re.compile(r"segment-(\d+)" + re.escape(NEVER_CHECKPOINTED) + r"(?:-(\d+))?")
+    asides = []
+    for path in root.glob(f"segment-*{NEVER_CHECKPOINTED}*"):
+        found = named.fullmatch(path.name)
+        if found and path.is_dir():
+            asides.append(((int(found.group(1)), int(found.group(2) or 1)), path))
+    for _, aside in sorted(asides, reverse=True):
+        asked, began, ran_in = _length_asked_of(aside)
+        if asked is not None and _the_same_checkpoint(began, ran_in, checkpoint, root):
             return asked
     return None
 
 
-def _the_same_checkpoint(began: str | None, checkpoint: str, root: Path) -> bool:
+def _the_same_checkpoint(began: str | None, ran_in: str | None, checkpoint: str,
+                         root: Path) -> bool:
     """Whether a segment's recorded checkpoint is ``checkpoint``: as written,
-    or, the study moved since, the same file within the study."""
+    or, the study moved since, the same file within the study. ``ran_in`` is
+    where the study was when the segment ran (the folder above the
+    segment's own); the checkpoint's place within it must be the same."""
     if not began:
         return False
     if began == checkpoint:
         return True
+    if not ran_in:
+        return False
     try:
-        inside = Path(checkpoint).resolve().relative_to(root.resolve()).parts
+        then = Path(began).relative_to(Path(ran_in))
+        now = Path(checkpoint).resolve().relative_to(root.resolve())
     except (OSError, ValueError):
         return False
-    return bool(inside) and Path(began).parts[-len(inside):] == inside
+    return then == now
 
 
-def _length_asked_of(aside: Path) -> tuple[float | None, str | None]:
-    """The length a set-aside segment was asked to run, and the checkpoint
-    it ran from, as its config recorded them; Nones where unreadable."""
+def _length_asked_of(aside: Path) -> tuple[float | None, str | None, str | None]:
+    """The length a set-aside segment was asked to run, the checkpoint it
+    ran from, and where the study was as it ran, as its config recorded
+    them; Nones where unreadable."""
     import yaml
 
     try:
         config = yaml.safe_load((aside / "resolved_config.yml").read_text(encoding="utf-8"))
         simulation = config.get("simulation") or {}
-        return float(simulation["duration_ns"]), str(simulation.get("resume_from") or "")
+        output = str(config.get("output") or "")
+        return (float(simulation["duration_ns"]), str(simulation.get("resume_from") or ""),
+                str(Path(output).parent) if output else None)
     except (OSError, ValueError, TypeError, KeyError, AttributeError, yaml.YAMLError):
-        return None, None
+        return None, None, None
+
+
+def _owed_by_the_last_piece(root: Path) -> float | None:
+    """What the study's last extension was asked to run and did not, where
+    it stopped past a checkpoint; None for the study's own piece, a piece
+    that finished, or one with no checkpoint."""
+    import yaml
+
+    from fastmdxplora.analysis.joining import survey_segments
+
+    pieces = survey_segments(root)
+    if not pieces:
+        return None
+    piece = max(pieces, key=lambda each: each.index)
+    last = piece.directory
+    if (last == root or piece.finished
+            or not (last / "simulation" / "checkpoint.chk").is_file()):
+        return None
+    try:
+        config = yaml.safe_load((last / "resolved_config.yml").read_text(encoding="utf-8"))
+        asked = float((config.get("simulation") or {})["duration_ns"])
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, yaml.YAMLError):
+        return None
+    owed = round(asked - continuation_of(last).production_done_ns, 9)
+    return owed if owed > 0 else None
+
+
+def _extended_since_it_finished(root: Path) -> bool:
+    """Whether the study was extended after its record last said it was
+    done: a piece the join has not taken in (the extension stopped before it
+    finished), or a piece set aside that its carry-on has not yet run again.
+
+    The study's Manifest is written by the join, so an extension killed
+    before it is joined leaves the Manifest of the study as it was, every
+    phase done: the study read as finished, its extension was never carried
+    on, and extending it again was refused for the piece left behind."""
+    import json
+
+    from fastmdxplora.analysis.joining import survey_segments
+
+    try:
+        numbered = [piece.index for piece in survey_segments(root) if piece.index >= 1]
+    except OSError:
+        return False
+    if numbered:
+        try:
+            joined = json.loads((root / "joined" / "joined.json").read_text(encoding="utf-8"))
+            taken = {int(index) for index in joined.get("segments") or []}
+        except (OSError, ValueError, TypeError, AttributeError):
+            taken = set()
+        if max(numbered) not in taken:
+            return True
+    if not any(path.is_dir() for path in root.glob(f"segment-*{NEVER_CHECKPOINTED}*")):
+        return False
+    try:
+        checkpoint = extension_of(root).checkpoint
+    except Exception:  # noqa: BLE001 - a study no plan reads is not extended here
+        return False
+    return _length_asked(root, checkpoint) is not None
 
 
 def _extended(root: Path) -> bool:
@@ -1396,6 +1478,8 @@ def resume_study(study: str | Path, *,
         return {**base, "ok": False, "did": RESUMED_NOTHING,
                 "error": f"The study's config could not be read: {exc}"}
     finished, stopped = _finished_record(root, config)
+    if finished and _extended_since_it_finished(root):
+        finished = False
     if stopped is not None:
         return {**base, "ok": False, "did": RESUMED_NOTHING,
                 "error": f"The study stopped with an answer, not an interruption "
@@ -1416,6 +1500,14 @@ def resume_study(study: str | Path, *,
     asked = _length_asked(root, plan.checkpoint)
     if asked is not None:
         plan = extension_of(root, more_ns=asked)
+    elif not plan.possible:
+        # The last piece stopped past its checkpoint, short of the length it
+        # was asked to run, with nothing of the plan left (an extension past
+        # it): the rest of its own ask, not a join refused for a piece that
+        # did not finish, at every resume after.
+        asked = _owed_by_the_last_piece(root)
+        if asked is not None:
+            plan = extension_of(root, more_ns=asked)
     if plan.possible:
         answer = extend_study(root, more_ns=asked, device_index=device_index)
         return {**base, **answer, "did": RESUMED_PRODUCTION,

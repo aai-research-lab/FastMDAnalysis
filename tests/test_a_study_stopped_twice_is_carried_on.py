@@ -111,7 +111,8 @@ class TestAnExtensionStoppedShortIsNotCalledWhole(unittest.TestCase):
     production sealed reaches the plan, but the extension did not reach
     what it was asked for. Cut back to its checkpoint it was joined,
     analysed and called finished, the length asked for dropped without a
-    word."""
+    word; then refused at every resume. It is carried on from its
+    checkpoint to the length it was asked for."""
 
     @classmethod
     def setUpClass(cls):
@@ -150,9 +151,13 @@ class TestAnExtensionStoppedShortIsNotCalledWhole(unittest.TestCase):
         self.assertFalse(self.extended["ok"])
         self.assertEqual(self.extended["stage"], "simulation")
 
-    def test_it_is_not_cut_back_and_called_finished(self):
-        self.assertEqual((self.answer["ok"], self.answer["did"]), (False, "analysed"))
-        self.assertIn("[1]", self.answer["error"])
-        self.assertFalse((self.study / "analysis" / "thermodynamics").exists())
-        self.assertFalse(self.again["ok"])
-        self.assertNotEqual(self.again["did"], "nothing")
+    def test_it_is_carried_on_to_the_length_asked(self):
+        from fastmdxplora.simulation.resume import production_done_ns
+
+        self.assertEqual((self.answer["ok"], self.answer["did"]), (True, "continued"))
+        # 200 steps of the first piece, 200 of the extension to its
+        # checkpoint, and the 200 it was still asked for: 600 at 2 fs.
+        self.assertAlmostEqual(production_done_ns(self.study), 0.0012, places=9)
+        joined = json.loads((self.study / "joined" / "joined.json").read_text())
+        self.assertEqual((joined["segments"], joined["frames"]), ([0, 1, 2], 12))
+        self.assertEqual((self.again["ok"], self.again["did"]), (True, "nothing"))

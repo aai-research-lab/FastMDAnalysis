@@ -616,9 +616,9 @@ fastmdx resume runs/study
 
 | What the study holds | What is run |
 |---|---|
-| Every phase of its plan recorded as done | Nothing |
+| Every phase of its plan recorded as done, and no extension since | Nothing |
 | All of production, and not its analyses or report | The analyses and the report, over the whole trajectory |
-| Part of production | The rest of it, from the last sealed checkpoint, then the join and the analyses, as [extending a study](#long-runs-and-segments) does; a segment that stopped before its first checkpoint is set aside (`segment-001-stopped-before-its-checkpoint`, its frames kept) and run again from the piece before it |
+| Part of production | The rest of it, from the last sealed checkpoint, then the join and the analyses, as [extending a study](#long-runs-and-segments) does; a segment that stopped before its first checkpoint is set aside (`segment-001-stopped-before-its-checkpoint`, its frames kept) and run again from the piece before it, for the length it was asked to run; an extension stopped past its checkpoint runs the rest of what it was asked, past the plan too |
 | No production yet, or none as far as its first checkpoint | The whole study again: nothing it wrote can be continued from |
 
 **A study of several runs is carried on run by run.** A sweep, several systems
@@ -639,7 +639,9 @@ off the frame grid for instance, or an extended study with no checkpoint left
 to carry it on, is not thrown away by starting again: the reason is said
 instead. Running `fastmdx resume` twice does the work once, so a service can
 run it every time a job restarts; `--json` prints the outcome as one line for
-a program to read.
+a program to read. An extension of a finished study that was stopped before
+the join is carried on the same way, and extending such a study again sets
+the stopped piece aside first.
 
 **By hand, recovery is at phase boundaries.** A finished setup or trajectory in a
 directory is reused rather than redone, and `--include` picks up from the phase

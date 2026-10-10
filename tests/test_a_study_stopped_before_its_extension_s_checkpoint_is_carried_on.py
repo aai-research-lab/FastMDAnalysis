@@ -310,7 +310,8 @@ class TestASecondExtensionPastAFinishedPlanKeepsItsLength(unittest.TestCase):
             resume.extend_study(cls.study, more_ns=0.0008)
             taken.update(steps=0, limit=40)
             resume.extend_study(cls.study, more_ns=0.0008)
-        (cls.study / "manifest.json").unlink(missing_ok=True)
+        # The Manifest the first extension's join wrote is left, as a kill
+        # leaves it: every phase done, so the study read as finished.
         cls.second_had_checkpoint = (
             cls.study / "segment-002" / "simulation" / "checkpoint.chk").is_file()
         # A resume that set the segment aside and stopped there, its own
@@ -331,6 +332,213 @@ class TestASecondExtensionPastAFinishedPlanKeepsItsLength(unittest.TestCase):
                          self.answer.get("error"))
         # 200 steps of 2 fs to the first checkpoint, and 0.0008 ns twice.
         self.assertAlmostEqual(self.done, 0.0020, places=6)
+
+
+def _stepping(limit):
+    """OpenMM's steps, stopped as a kill stops them once ``limit`` are
+    taken; ``limit`` is a dict, changed between the runs."""
+    openmm_app = pytest.importorskip("openmm.app")
+
+    real_step = openmm_app.Simulation.step
+
+    def step_until_killed(simulation, steps):
+        if limit["steps"] >= limit["limit"]:
+            raise RuntimeError("killed")
+        limit["steps"] += int(steps)
+        return real_step(simulation, steps)
+
+    return step_until_killed
+
+
+@unittest.skipUnless(HAS_BACKENDS, "OpenMM, PDBFixer and MDTraj are needed")
+class TestAFinishedStudyExtendedAndStoppedIsCarriedOn(unittest.TestCase):
+    """A study that finished (0.0006 ns), extended by 0.0008 ns and killed
+    before the extension's first checkpoint, its Manifest left as the
+    finished study wrote it. Read as finished: "nothing to carry on", the
+    segment left in place, and extending it again refused for it. Carried on
+    to the length asked, then read as finished once it is."""
+
+    @classmethod
+    def setUpClass(cls):
+        from unittest import mock
+
+        pytest.importorskip("openmm.app")
+        import openmm.app
+
+        from fastmdxplora import FastMDXplora
+        from fastmdxplora.simulation.resume import (
+            extend_study,
+            production_done_ns,
+            resume_study,
+        )
+
+        root = Path(tempfile.mkdtemp())
+        cls.addClassCleanup(shutil.rmtree, root, True)
+        pdb = root / "tri-ala.pdb"
+        pdb.write_text(TRI_ALANINE)
+        cls.study = root / "study"
+        taken = {"steps": 0, "limit": 10 ** 9}
+        with mock.patch.object(openmm.app.Simulation, "step", _stepping(taken)):
+            FastMDXplora(config_data=_config(pdb, telemetry_interval=25),
+                         output_dir=str(cls.study)).explore()
+            taken.update(steps=0, limit=40)
+            extend_study(cls.study, more_ns=0.0008)
+        cls.had_manifest = (cls.study / "manifest.json").is_file()
+        cls.answer = resume_study(cls.study)
+        cls.done = production_done_ns(cls.study)
+        cls.again = resume_study(cls.study)
+
+    def test_it_is_carried_on_to_the_length_asked(self):
+        self.assertTrue(self.had_manifest)
+        self.assertEqual((self.answer["ok"], self.answer["did"]), (True, "continued"),
+                         self.answer.get("error") or self.answer.get("detail"))
+        aside = self.study / "segment-001-stopped-before-its-checkpoint"
+        self.assertEqual(self.answer.get("set_aside"), str(aside))
+        # 300 steps of 2 fs, and the 0.0008 ns asked.
+        self.assertAlmostEqual(self.done, 0.0014, places=6)
+
+    def test_once_carried_on_it_is_finished(self):
+        self.assertEqual((self.again["ok"], self.again["did"]), (True, "nothing"),
+                         self.again.get("error"))
+
+
+@unittest.skipUnless(HAS_BACKENDS, "OpenMM, PDBFixer and MDTraj are needed")
+class TestAStoppedExtensionDoesNotStopTheNext(unittest.TestCase):
+    """The same, extended again by hand rather than carried on: the piece
+    with no checkpoint is set aside and the new length runs from the study's
+    own checkpoint, not refused for the piece left behind."""
+
+    @classmethod
+    def setUpClass(cls):
+        from unittest import mock
+
+        pytest.importorskip("openmm.app")
+        import openmm.app
+
+        from fastmdxplora import FastMDXplora
+        from fastmdxplora.simulation.resume import extend_study, production_done_ns
+
+        root = Path(tempfile.mkdtemp())
+        cls.addClassCleanup(shutil.rmtree, root, True)
+        pdb = root / "tri-ala.pdb"
+        pdb.write_text(TRI_ALANINE)
+        cls.study = root / "study"
+        taken = {"steps": 0, "limit": 10 ** 9}
+        with mock.patch.object(openmm.app.Simulation, "step", _stepping(taken)):
+            FastMDXplora(config_data=_config(pdb, telemetry_interval=25),
+                         output_dir=str(cls.study)).explore()
+            taken.update(steps=0, limit=40)
+            extend_study(cls.study, more_ns=0.0008)
+        cls.answer = extend_study(cls.study, more_ns=0.0004)
+        cls.done = production_done_ns(cls.study)
+
+    def test_the_new_length_runs(self):
+        self.assertTrue(self.answer["ok"], self.answer.get("error"))
+        aside = self.study / "segment-001-stopped-before-its-checkpoint"
+        self.assertEqual(self.answer.get("set_aside"), str(aside))
+        self.assertAlmostEqual(self.done, 0.0010, places=6)
+
+
+@unittest.skipUnless(HAS_BACKENDS, "OpenMM, PDBFixer and MDTraj are needed")
+class TestAnExtensionStoppedPastItsCheckpointKeepsItsLength(unittest.TestCase):
+    """Killed in production (its checkpoint at 200 steps), extended past its
+    plan by 0.0008 ns and killed before the extension's checkpoint, carried
+    on and killed again past the carry-on's checkpoint (250 of its 400
+    steps): nothing of the plan is left, and the join was refused for the
+    piece that did not finish at every resume after. The rest of the
+    0.0008 ns asked is run."""
+
+    @classmethod
+    def setUpClass(cls):
+        from unittest import mock
+
+        pytest.importorskip("openmm.app")
+        import openmm.app
+
+        from fastmdxplora import FastMDXplora
+        from fastmdxplora.simulation.resume import (
+            extend_study,
+            production_done_ns,
+            resume_study,
+        )
+
+        root = Path(tempfile.mkdtemp())
+        cls.addClassCleanup(shutil.rmtree, root, True)
+        pdb = root / "tri-ala.pdb"
+        pdb.write_text(TRI_ALANINE)
+        cls.study = root / "study"
+        taken = {"steps": 0, "limit": 200 + 250}
+        with mock.patch.object(openmm.app.Simulation, "step", _stepping(taken)):
+            FastMDXplora(config_data=_config(pdb, telemetry_interval=25),
+                         output_dir=str(cls.study)).explore()
+            (cls.study / "manifest.json").unlink()
+            taken.update(steps=0, limit=40)
+            extend_study(cls.study, more_ns=0.0008)
+            taken.update(steps=0, limit=250)
+            cls.stopped = resume_study(cls.study)
+        cls.had_checkpoint = (cls.study / "segment-001" / "simulation" / "checkpoint.chk").is_file()
+        cls.answer = resume_study(cls.study)
+        cls.done = production_done_ns(cls.study)
+
+    def test_the_carry_on_stopped_past_its_checkpoint(self):
+        self.assertFalse(self.stopped["ok"])
+        self.assertTrue(self.had_checkpoint)
+
+    def test_the_rest_of_the_length_asked_runs(self):
+        self.assertEqual((self.answer["ok"], self.answer["did"]), (True, "continued"),
+                         self.answer.get("error"))
+        # 200 steps to the first checkpoint, and the 0.0008 ns asked.
+        self.assertAlmostEqual(self.done, 0.0012, places=6)
+
+
+def _aside(root, name, *, asked, began, ran_in):
+    folder = root / name
+    folder.mkdir(parents=True)
+    (folder / "resolved_config.yml").write_text(
+        f"output: {ran_in}/segment-002\nsimulation:\n  duration_ns: {asked}\n"
+        f"  resume_from: {began}\n", encoding="utf-8")
+    return folder
+
+
+class TestTheLengthAskedIsTheNewestSetAsideFromThisCheckpoint(unittest.TestCase):
+    """Which set-aside piece's length a carry-on runs: one from the same
+    checkpoint within the study (another piece's, or another study's, with
+    the same name of file is not it), and of two from it, the one set aside
+    last by its name, whatever its folder's time says after a copy."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.own = self.root / "simulation" / "checkpoint.chk"
+        self.own.parent.mkdir(parents=True)
+        self.own.write_bytes(b"")
+
+    def test_another_piece_s_checkpoint_is_not_the_study_s(self):
+        from fastmdxplora.simulation.resume import NEVER_CHECKPOINTED, _length_asked
+
+        was = "/somewhere/old"
+        _aside(self.root, f"segment-002{NEVER_CHECKPOINTED}", asked=50,
+               began=f"{was}/segment-001/simulation/checkpoint.chk", ran_in=was)
+        _aside(self.root, f"segment-003{NEVER_CHECKPOINTED}", asked=60,
+               began="/another/study/simulation/checkpoint.chk", ran_in=was)
+        self.assertIsNone(_length_asked(self.root, str(self.own)))
+        _aside(self.root, f"segment-001{NEVER_CHECKPOINTED}", asked=7,
+               began=f"{was}/simulation/checkpoint.chk", ran_in=was)
+        self.assertEqual(_length_asked(self.root, str(self.own)), 7.0)
+
+    def test_the_last_set_aside_by_its_name_is_read(self):
+        import os
+
+        from fastmdxplora.simulation.resume import NEVER_CHECKPOINTED, _length_asked
+
+        first = _aside(self.root, f"segment-001{NEVER_CHECKPOINTED}", asked=20,
+                       began=str(self.own), ran_in=str(self.root))
+        second = _aside(self.root, f"segment-001{NEVER_CHECKPOINTED}-2", asked=5,
+                        began=str(self.own), ran_in=str(self.root))
+        # Copied without its times: the first now looks the newer.
+        os.utime(second, (1_000_000, 1_000_000))
+        os.utime(first, (2_000_000, 2_000_000))
+        self.assertEqual(_length_asked(self.root, str(self.own)), 5.0)
 
 
 class TestAPieceStillRunningIsNotSetAside(unittest.TestCase):
