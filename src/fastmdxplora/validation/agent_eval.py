@@ -80,6 +80,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
+from fastmdxplora.refusals import StudyError
 from fastmdxplora.validation.agent_looks import numbers_in
 from fastmdxplora.validation.agent_looks_v2 import committed
 
@@ -989,7 +990,8 @@ def judge(case: Case, turns: list[Mapping[str, Any]], *,
                                          rounded_ok=True)
         return Verdict(agrees, f"{said} (within {within:g})")
 
-    raise ValueError(f"unknown kind {kind!r}")
+    raise StudyError(f"unknown kind {kind!r}", code="config.option.not_permitted",
+                     option="kind", given=kind, permitted=list(KINDS))
 
 
 # -- recording and replaying ------------------------------------------------------
@@ -1114,15 +1116,12 @@ def _provider_failed(record: Mapping[str, Any]) -> Any:
     """What the loop is given for an error the AI model's completion raised:
     a provider's failure, under the code the loop and the trial know it by,
     however it came (a read cut short, a body that is not JSON, a 529)."""
-    from fastmdxplora.refusals import StudyError
-
     return StudyError(f"{record.get('code')}: {record.get('message') or 'failed'}",
                       code=_PROVIDER_CODE)
 
 
 def _raise_recorded(entry: Mapping[str, Any]) -> None:
     from fastmdxplora.agent.turns import NoToolCalling
-    from fastmdxplora.refusals import StudyError
 
     if entry.get("raises") == "no_tool_calling":
         raise NoToolCalling(str(entry.get("message") or "no tool calling"))
@@ -1384,11 +1383,15 @@ def _chosen(names: Iterable[str] | None, kinds: Iterable[str] | None) -> tuple[C
     wanted = set(names or ())
     unknown = wanted - {c.name for c in CASES}
     if unknown:
-        raise ValueError("no such case: " + ", ".join(sorted(unknown)))
+        raise StudyError("no such case: " + ", ".join(sorted(unknown)),
+                         code="config.option.not_permitted", option="case",
+                         given=sorted(unknown), permitted=sorted(c.name for c in CASES))
     of_kinds = set(kinds or ())
     bad = of_kinds - set(KINDS)
     if bad:
-        raise ValueError("no such kind: " + ", ".join(sorted(bad)))
+        raise StudyError("no such kind: " + ", ".join(sorted(bad)),
+                         code="config.option.not_permitted", option="kind",
+                         given=sorted(bad), permitted=list(KINDS))
     return tuple(c for c in CASES if (not wanted or c.name in wanted)
                  and (not of_kinds or c.kind in of_kinds))
 
@@ -1431,8 +1434,9 @@ def replay(recorded: Mapping[str, Any], *, cases: Iterable[str] | None = None,
     A records case is judged against the truth it was recorded with: the
     study it read is on the machine it ran on."""
     if recorded.get("set") != SET_NAME or recorded.get("version") != SET_VERSION:
-        raise ValueError(f"the recording is of {recorded.get('set')} version "
-                         f"{recorded.get('version')}, not {SET_NAME} version {SET_VERSION}")
+        raise StudyError(f"the recording is of {recorded.get('set')} version "
+                         f"{recorded.get('version')}, not {SET_NAME} version {SET_VERSION}",
+                         code="config.option.inapplicable", option="replay")
     wanted = {c.name for c in _chosen(cases, kinds)}
     by_name = {c.name: c for c in CASES}
     trials = []
@@ -1454,7 +1458,8 @@ def replay(recorded: Mapping[str, Any], *, cases: Iterable[str] | None = None,
         trial["recorded"] = old.get("verdict")
         trials.append(trial)
     if missing:
-        raise ValueError("the recording holds cases this set does not: " + ", ".join(missing))
+        raise StudyError("the recording holds cases this set does not: " + ", ".join(missing),
+                         code="config.option.inapplicable", option="replay")
     result = _result(trials)
     for key in ("ai_model", "fastmdxplora", "when", "protocol", "repeats"):
         if key in recorded:

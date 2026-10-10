@@ -53,6 +53,10 @@ NOT_REFUSALS = frozenset({
     # record by the recorder that raised it and never raised past it
     # (`setup/audit.py`): the preparation goes on as it would without it.
     "CaptureStopped",
+    # The Agent's evaluation finding its code asked other than its
+    # recording did: judged as the trial's verdict where it is caught
+    # (`validation/agent_eval.py`), never a study refused.
+    "ReplayDiverged",
 })
 
 #: Helpers that carry an inner refusal's code out to an outer raise. A site
@@ -66,7 +70,7 @@ FORWARDERS = frozenset({"_rewrapped"})
 #: uncoded understates the work by thirteen sites. Named explicitly rather
 #: than accepting any call, so an actual uncoded helper cannot hide here.
 BUILDERS = frozenset({"_validation_error", "_explain_unparameterized",
-                      "_no_belt", "_tilted"})
+                      "_no_belt", "_tilted", "_provider_failed"})
 
 #: Sites allowed to raise without saying which refusal they are. None.
 #:
