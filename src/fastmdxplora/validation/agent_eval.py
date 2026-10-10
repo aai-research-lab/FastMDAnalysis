@@ -648,7 +648,7 @@ CASES: tuple[Case, ...] = (
          "what is copied", tier="medium", docs=(("remote", "What travels"),),
          evidence="folder"),
     Case("d_ai_app", "docs",
-         ("How do I use FastMDXplora from Claude Desktop or another AI app?",),
+         ("How do I use FastMDXplora from the AI app on my desktop?",),
          "the MCP server, found without its name",
          docs=(("mcp", "Setting it up"), ("cli", "`mcp`")), evidence="fastmdx mcp"),
     Case("d_install", "docs", ("What is the recommended way to install FastMDXplora?",),

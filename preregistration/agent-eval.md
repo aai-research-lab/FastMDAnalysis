@@ -150,7 +150,7 @@ in its run.
 | `d_until_known` | medium | "Can a study run until the RMSD is known well enough, rather than for a fixed length?" | `production` > Running until it is determined; `config_reference` > How long it runs |  |
 | `d_send` | easy | "How do I send a study to run on our lab's workstation?" | `remote` > Sending a study; `cli` > `remote` |  |
 | `d_what_travels` | medium | "When I send a study to another machine, which of my files go with it?" | `remote` > What travels |  |
-| `d_ai_app` | easy | "How do I use FastMDXplora from Claude Desktop or another AI app?" | `mcp` > Setting it up; `cli` > `mcp` |  |
+| `d_ai_app` | easy | "How do I use FastMDXplora from the AI app on my desktop?" | `mcp` > Setting it up; `cli` > `mcp` |  |
 | `d_install` | easy | "What is the recommended way to install FastMDXplora?" | `installation` > Recommended: conda-forge |  |
 | `d_offline` | easy | "How do I install it on a cluster node that has no internet?" | `clusters` > Installing where there is no network |  |
 | `d_gpu_used` | easy | "How can I tell the GPU is actually being used on the cluster?" | `clusters` > Making sure the GPU is being used |  |
@@ -409,6 +409,12 @@ was seen. What changed:
 - **Records.** A study given by a relative path is named whole in the
   message: the Agent's looks read from a folder of their own, and could
   not find it.
+
+A third change, made 2026-10-10 before any reply was seen (the recorded
+run had not been made): `d_ai_app` named one AI app's product in prose,
+which the software's prose does not, and now asks "How do I use
+FastMDXplora from the AI app on my desktop?". Its docs rank, recomputed on
+the same docs, is still 1.
 
 ## Results
 
