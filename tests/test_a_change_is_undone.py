@@ -119,3 +119,49 @@ def test_a_view_forgotten_is_undone(browser, session) -> None:
     assert gone == []
     assert [(view["name"], view["frame"], view["camera"]["radius"]) for view in back] == [("one", 3, 12.5)]
     assert errors == []
+
+
+@pytest.fixture(scope="module")
+def builder(tmp_path_factory):
+    from fastmdxplora.gui import preview
+    from fastmdxplora.gui.server import start_dashboard_session
+    from tests.test_the_builder_page_in_a_browser import _peptide
+
+    root = tmp_path_factory.mktemp("builder-undo")
+    _peptide(root / "peptide.pdb")
+    mp = pytest.MonkeyPatch()
+    mp.setenv("FASTMDXPLORA_CACHE_DIR", str(root / "cache"))
+    mp.setenv("FASTMDXPLORA_CONFIG_DIR", str(root / "config"))
+    mp.setattr(preview, "_platform", lambda requested, precision: ("CPU", precision))
+    started = start_dashboard_session(output=str(root / "study"), host="127.0.0.1", port=0)
+    started.peptide = root / "peptide.pdb"
+    yield started
+    started.server.shutdown()
+    mp.undo()
+
+
+def test_the_builder_takes_its_edits_back_and_forward(browser, builder) -> None:
+    page = _page(browser, builder, "#run")
+    page.wait_for_function("() => window.FastMDXRun && window.FastMDXRun.state.schema")
+    page.click("#run-start [data-start='structure']")
+    page.fill("#run-system", str(builder.peptide))
+    ph = '#run-settings [data-setting="ph"] input'
+    page.wait_for_selector(ph)
+    first = page.input_value(ph)
+    for value in ("6.5", "8.0"):
+        page.fill(ph, value)
+        page.dispatch_event(ph, "change")
+    # Away from the field, so the keys are the form's, not the typing's.
+    page.click("#run-summary-panel")
+    seen = []
+    for keys in ("Control+z", "Control+z", "Control+Shift+z", "Control+y"):
+        page.keyboard.press(keys)
+        seen.append((page.input_value(ph), page.evaluate(
+            "() => String(window.FastMDXRun.state.values.setup && window.FastMDXRun.state.values.setup.ph)")))
+    said = page.text_content("#run-note")
+    errors = page.errors
+    page.context.close()
+    assert [shown for shown, _ in seen] == ["6.5", first, "6.5", "8.0"], seen
+    assert float(seen[0][1]) == 6.5 and float(seen[-1][1]) == 8.0
+    assert said == "Done again."
+    assert errors == []

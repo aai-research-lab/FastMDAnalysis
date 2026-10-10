@@ -3727,6 +3727,115 @@
     saveDraft();
   }
 
+  // ------------------------------------------------------------------- undo
+
+  /* Cmd+Z (Ctrl+Z elsewhere) takes the form back one change at a time, and
+   * Shift+Cmd+Z (or Ctrl+Y) forward again: a field typed, a box ticked, a
+   * revert, a system added. Inside a text field being typed in, the
+   * browser's own undo of the typing is left alone. */
+  const UNDO_MOST = 100;
+  const undo = { back: [], ahead: [], before: null, typedFrom: null };
+
+  function formNow() {
+    return JSON.stringify({
+      start: state.start, phases: Array.from(state.phases || []), values: state.values,
+      analyses: Array.from(state.analyses || []), analysisOptions: state.analysisOptions,
+      sweep: state.sweep, decisions: state.decisions, full: Boolean(state.full),
+      analysisMode: state.analysisMode, lengthMode: state.lengthMode || null,
+      systems: (state.systems || []).map((row) => ({ id: row.id, system: row.system, own: row.own || {} })),
+      output: (el("run-output") && el("run-output").value) || "",
+      trajectory: (el("run-trajectory") && el("run-trajectory").value) || "",
+      topology: (el("run-topology") && el("run-topology").value) || "",
+      configPath: (el("run-config-path") && el("run-config-path").value) || "",
+    });
+  }
+
+  function onTheBuilder(event) {
+    const page = document.querySelector('.page[data-page="run"]');
+    return Boolean(page && !page.hidden && event.target && page.contains(event.target));
+  }
+
+  // Before a person acts on the form: what it held.
+  function beforeActing() {
+    if (draftReady && undo.before === null) undo.before = formNow();
+  }
+
+  // After: a change from what it held is a step back to take.
+  function afterActing() {
+    if (!draftReady) return;
+    const now = formNow();
+    if (undo.before !== null && now !== undo.before) {
+      undo.back.push(undo.before);
+      if (undo.back.length > UNDO_MOST) undo.back.shift();
+      undo.ahead = [];
+    }
+    undo.before = now;
+  }
+
+  function useForm(kept) {
+    const form = JSON.parse(kept);
+    forgetWhatWasSetAside();
+    state.start = form.start;
+    state.phases = new Set(form.phases || []);
+    state.values = form.values || {};
+    state.analyses = new Set(form.analyses || []);
+    state.analysisOptions = form.analysisOptions || {};
+    state.sweep = form.sweep || [];
+    state.decisions = form.decisions || {};
+    state.full = Boolean(form.full);
+    state.analysisMode = form.analysisMode || "all";
+    state.lengthMode = form.lengthMode || null;
+    state.systems = (form.systems || []).map((row) => ({ id: row.id || "", system: row.system || "", own: row.own || {}, facts: null }));
+    if (el("run-output")) el("run-output").value = form.output || "";
+    if (el("run-trajectory")) el("run-trajectory").value = form.trajectory || "";
+    if (el("run-topology")) el("run-topology").value = form.topology || "";
+    if (el("run-config-path")) el("run-config-path").value = form.configPath || "";
+    renderAll();
+    saveDraft();
+    undo.before = formNow();
+  }
+
+  function stepThrough(from, to, said) {
+    afterActing();
+    if (!from.length) return false;
+    to.push(formNow());
+    useForm(from.pop());
+    sayOnTheForm(said);
+    return true;
+  }
+
+  function wireUndo() {
+    ["pointerdown", "keydown", "focusin"].forEach((kind) => {
+      document.addEventListener(kind, (event) => { if (onTheBuilder(event)) beforeActing(); }, true);
+    });
+    ["change", "click"].forEach((kind) => {
+      document.addEventListener(kind, (event) => {
+        if (onTheBuilder(event)) setTimeout(afterActing, 0);
+      });
+    });
+    document.addEventListener("focusin", (event) => {
+      const field = event.target;
+      undo.typedFrom = field && /^(INPUT|TEXTAREA)$/.test(field.tagName) ? field.value : null;
+    });
+    document.addEventListener("keydown", (event) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+      if (document.documentElement.getAttribute("data-page") !== "run") return;
+      const key = String(event.key || "").toLowerCase();
+      const again = (key === "z" && event.shiftKey) || (key === "y" && !event.shiftKey);
+      if (key !== "z" && !again) return;
+      const field = event.target;
+      // Typing still to be undone in its own field is the browser's.
+      if (field && /^(INPUT|TEXTAREA)$/.test(field.tagName) && undo.typedFrom !== null
+          && field.value !== undo.typedFrom) return;
+      if (field && field.isContentEditable) return;
+      if (field && field.closest && field.closest(".agent-dialog, #agent-drawer")) return;
+      const moved = again
+        ? stepThrough(undo.ahead, undo.back, "Done again.")
+        : stepThrough(undo.back, undo.ahead, "Undone.");
+      if (moved) event.preventDefault();
+    });
+  }
+
   // ------------------------------------------------------------------- wire
 
   function renderAll() {
@@ -3868,6 +3977,7 @@
     }
     watchForARun();
     followTheSteps();
+    wireUndo();
 
     loadSchema().then(() => {
       if (!openedAConfig) restoreDraft();
