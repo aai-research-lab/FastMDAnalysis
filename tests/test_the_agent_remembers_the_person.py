@@ -719,13 +719,28 @@ def test_a_memory_turned_off_is_told_nothing() -> None:
 
 
 def test_the_registered_harnesses_pass_no_memory() -> None:
-    import inspect
-
-    from fastmdxplora.agent import evaluate
+    """The evaluation and the looks harness ask as registered: what the
+    person has the Agent remember never reaches their prompts."""
+    from fastmdxplora.agent import evaluate, propose_config
     from fastmdxplora.validation import agent_looks
 
-    for module in (evaluate, agent_looks):
-        assert "memory=" not in inspect.getsource(module)
+    remember("You study zebrafish ion channels.")
+    asked: list[str] = []
+
+    def complete(prompt: str) -> str:
+        asked.append(prompt)
+        return "I cannot help with that."
+
+    evaluate.measure(complete, requests=evaluate.REQUESTS[:1], max_cycles=1)
+    measured = len(asked)
+    agent_looks.ask(agent_looks.QUESTIONS[0], 0, complete, with_tools=False)
+    assert measured >= 1 and len(asked) > measured
+    assert not any("zebrafish" in prompt for prompt in asked)
+    # Given the memory, the same request carries it, so the check can see it.
+    before = len(asked)
+    propose_config(evaluate.REQUESTS[0].text, complete, max_cycles=1,
+                   memory=load_memory())
+    assert any("zebrafish" in prompt for prompt in asked[before:])
 
 
 # ---------------------------------------------------------------------------
@@ -1093,13 +1108,22 @@ def test_a_hosted_page_s_agent_is_told_its_store_and_learns_once_turned_on(
     assert load_memory().lines == ()
 
 
-def test_the_memory_is_not_shared_with_a_study() -> None:
-    import inspect
+def test_the_memory_is_not_shared_with_a_study(tmp_path) -> None:
+    import zipfile
 
-    from fastmdxplora.sharing import pack
+    from fastmdxplora.sharing.pack import share_study
+    from tests.test_a_study_is_shared import AUTHORS, _study
 
-    assert "agent_memory" not in inspect.getsource(pack)
-    assert kept.MEMORY_FILE == "agent_memory.md"
+    remember("You study zebrafish ion channels.")
+    assert memory_path().is_file() and kept.MEMORY_FILE == "agent_memory.md"
+    study = _study(tmp_path / "study")
+    for everything in (False, True):
+        out = tmp_path / f"shared-{everything}.zip"
+        share_study(study, out, authors=AUTHORS, everything=everything)
+        with zipfile.ZipFile(out) as archive:
+            names = archive.namelist()
+            assert not any("agent_memory" in name for name in names)
+            assert not any(b"zebrafish" in archive.read(name) for name in names)
 
 
 # ---------------------------------------------------------------------------
