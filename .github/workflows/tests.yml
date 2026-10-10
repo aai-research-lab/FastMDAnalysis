@@ -127,8 +127,10 @@ jobs:
     # A hung leg otherwise holds a runner for the six-hour default, which
     # during a pileup is a fifth of the account's whole capacity. The
     # coverage leg runs the same tests traced, about twice as long, and
-    # was cancelled at 99% under the 45 minutes the others take.
-    timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11' && 90 || 60 }}
+    # was cancelled at 99% under the 45 minutes the others take. With the
+    # browser tests it took 86 minutes at 0bcdf122 and was cancelled at 90
+    # in run #729.
+    timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11' && 150 || 60 }}
     strategy:
       fail-fast: false
       matrix:
@@ -238,13 +240,14 @@ jobs:
         # faster untraced.
         shell: bash
         run: |
-          # -rs lists each skipped test with its reason, so a program or a
-          # package missing from a job is read here rather than inferred from
-          # a coverage report.
+          # -rfEs lists each failed test, each error and each skipped test
+          # with its reason, so a red job names what failed and a program or
+          # a package missing from a job is read here rather than inferred
+          # from a coverage report.
           if [ "${{ matrix.os }}" = "ubuntu-latest" ] && [ "${{ matrix.python-version }}" = "3.11" ]; then
-            pytest -rs --cov=fastmdxplora --cov-report=term-missing --cov-report=xml
+            pytest -rfEs --cov=fastmdxplora --cov-report=term-missing --cov-report=xml
           else
-            pytest -rs
+            pytest -rfEs
           fi
 
       - name: Lint
