@@ -3,7 +3,9 @@
  *
  * FastMDXDialog opens and closes them: Escape, a click on the dimmed page
  * or Close shuts the one on top, focus stays inside while it is open and
- * goes back to what opened it. The preferences are kept in this browser
+ * goes back to what opened it. Each opened adds a step to the browser's
+ * history, so Back closes it before it leaves the page, and Forward opens
+ * it again. The preferences are kept in this browser
  * (`fmx.preferences`) and put into their fields before the page reads
  * them, so a reload keeps them; a study's display name and ligand residue
  * are kept by the study's folder (`fmx.study:<folder>`). Nothing here is
@@ -41,10 +43,63 @@
     return $$(FOCUSABLE, dialog).filter(function (n) { return n.offsetParent !== null; });
   }
 
-  function openDialog(id, opener) {
+  /* ---- Back and Forward over a dialog ------------------------------ */
+  // The dialogs that are the same however they are opened.
+  var AGAIN = ["prefs-dialog", "cite-dialog", "viewer-help"];
+  // The dialogs with a step of their own in the history, the newest last.
+  var stepped = [];
+  // A step back of a dialog's own on its way: what waits for it to land.
+  var settling = null;
+
+  function stepBack() {
+    var waiting = settling = [];
+    history.back();
+    // Should the browser not answer, nothing waits for ever.
+    setTimeout(function () { if (settling === waiting) land(); }, 600);
+  }
+  function land() {
+    var waiting = settling || [];
+    settling = null;
+    waiting.forEach(function (go) { go(); });
+  }
+  /* A page's own step waits for a dialog's step back to land, so it is
+   * not taken back with it. */
+  function afterHistory(go) {
+    if (settling) settling.push(go); else go();
+  }
+
+  window.addEventListener("popstate", function (e) {
+    if (settling) { land(); return; }
+    var wanted = e.state && e.state.fmxDialog;
+    // Back: each dialog above the step landed on is closed, the top first.
+    for (var i = stepped.length - 1; i >= 0 && stepped[i] !== wanted; i--) {
+      var gone = el(stepped[i]);
+      stepped.splice(i, 1);
+      closeDialog(gone, true);
+    }
+    // Forward onto a dialog's step: open again, as it was opened. Those
+    // filled for what opened them (a file, a search) are not opened bare.
+    if (wanted && stepped.indexOf(wanted) === -1 && el(wanted)) {
+      if (wanted === "study-field-dialog") {
+        if (STUDY_FIELDS[e.state.field]) openStudyField(e.state.field, null, true);
+      } else if (AGAIN.indexOf(wanted) !== -1) {
+        openDialog(wanted, null, "history");
+      }
+    }
+  });
+
+  function openDialog(id, opener, step) {
     var dialog = el(id);
     if (!dialog) return null;
     openers[id] = opener || document.activeElement;
+    if (step !== "history" && stepped.indexOf(id) === -1) {
+      var entry = { fmxDialog: id, field: id === "study-field-dialog" ? editing : null };
+      afterHistory(function () {
+        if (step === "replace") history.replaceState(entry, "", location.href);
+        else history.pushState(entry, "", location.href);
+      });
+    }
+    if (stepped.indexOf(id) === -1) stepped.push(id);
     dialog.hidden = false;
     // The first of its fields, or Close where it has none.
     var body = dialog.querySelector(".agent-dialog-body");
@@ -54,9 +109,15 @@
     return dialog;
   }
 
-  function closeDialog(dialog) {
+  function closeDialog(dialog, byHistory) {
     if (!dialog || dialog.hidden) return;
     dialog.hidden = true;
+    var at = stepped.indexOf(dialog.id);
+    if (!byHistory && at !== -1) {
+      stepped.splice(at, 1);
+      // Its step taken back, so Back then leaves the page as it would have.
+      if (history.state && history.state.fmxDialog === dialog.id) stepBack();
+    }
     var back = openers[dialog.id];
     delete openers[dialog.id];
     if (back && document.contains(back) && back.offsetParent !== null) back.focus();
@@ -114,7 +175,9 @@
     return item;
   }
 
-  window.FastMDXDialog = { open: openDialog, close: function (id) { closeDialog(el(id)); } };
+  window.FastMDXDialog = {
+    open: openDialog, close: function (id) { closeDialog(el(id)); }, afterHistory: afterHistory,
+  };
 
   /* ---- Copy --------------------------------------------------------- */
   document.addEventListener("click", function (e) {
@@ -268,7 +331,7 @@
   }
 
   var editing = "";
-  function openStudyField(which, opener) {
+  function openStudyField(which, opener, again) {
     var spec = STUDY_FIELDS[which];
     if (!spec) return;
     editing = which;
@@ -279,7 +342,7 @@
     input.placeholder = spec.placeholder;
     input.value = (el(spec.field) || {}).value || "";
     el("study-field-refused").hidden = true;
-    openDialog("study-field-dialog", opener);
+    openDialog("study-field-dialog", opener, again ? "history" : undefined);
     input.select();
   }
 

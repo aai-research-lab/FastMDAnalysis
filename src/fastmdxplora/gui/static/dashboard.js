@@ -126,9 +126,10 @@
   function navigate(page, options) {
     const opts = options || {};
     if (DIALOG_OF[page] && byId(DIALOG_OF[page])) {
-      if (!state.activePage) navigate("overview");
+      // The link's own step becomes the dialog's, over the page shown.
+      if (!state.activePage) navigate("overview", {replace: true});
       else history.replaceState(null, "", `#${state.activePage}`);
-      window.FastMDXDialog?.open(DIALOG_OF[page]);
+      window.FastMDXDialog?.open(DIALOG_OF[page], undefined, "replace");
       return;
     }
     if (!state.pages.includes(page)) page = "overview";
@@ -149,8 +150,15 @@
     // thread landed at the foot of the report.
     const column = document.querySelector(".main");
     if (column) column.scrollTop = 0;
+    // Each page a step of its own, so Back and Forward go between them;
+    // an address only put right replaces its step.
     if (opts.updateHash !== false && location.hash !== `#${page}`) {
-      history.replaceState(null, "", `#${page}`);
+      const step = () => {
+        if (opts.replace) history.replaceState(null, "", `#${page}`);
+        else history.pushState(null, "", `#${page}`);
+      };
+      if (window.FastMDXDialog?.afterHistory) window.FastMDXDialog.afterHistory(step);
+      else step();
     }
     requestAnimationFrame(() => {
       // The live panels moved onto the overview, so opening that is
@@ -526,9 +534,11 @@
     if (!state.initialRouteResolved) {
       state.initialRouteResolved = true;
       const requested = location.hash.replace(/^#/, "");
-      if (requested && state.pages.includes(requested)) navigate(requested);
-      else if (activeRun) navigate("overview");
-      else navigate("run");
+      // Where the page opens is put right in its address, not a step of
+      // its own: Back from it leaves the GUI.
+      if (requested && state.pages.includes(requested)) navigate(requested, {replace: true});
+      else if (activeRun) navigate("overview", {replace: true});
+      else navigate("run", {replace: true});
     }
 
     if (!activeRun) {

@@ -2678,9 +2678,10 @@ class TestWhatTheGUIOpensOn:
 
         script = (pathlib.Path(server.__file__).parent / "static"
                   / "dashboard.js").read_text(encoding="utf-8")
-        # A run to look at, a page asked for by name, or nothing yet.
-        assert 'else if (activeRun) navigate("overview");' in script
-        assert 'else navigate("run");' in script
+        # A run to look at, a page asked for by name, or nothing yet; where
+        # it opens is put right in the address, not a step of its own.
+        assert 'else if (activeRun) navigate("overview", {replace: true});' in script
+        assert 'else navigate("run", {replace: true});' in script
 
 
 class TestOpeningTheGUIWithNothingRunning:
@@ -3122,7 +3123,7 @@ class TestOnePageBuildsAnyRun:
 
         script = (pathlib.Path(server.__file__).parent / "static"
                   / "dashboard.js").read_text(encoding="utf-8")
-        assert 'else navigate("run");' in script
+        assert 'else navigate("run", {replace: true});' in script
 
     def test_every_phase_can_be_left_out(self) -> None:
         """A run that only analyses is a run with one phase ticked."""
