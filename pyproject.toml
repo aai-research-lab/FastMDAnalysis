@@ -181,6 +181,10 @@ test = [
     "tomli>=2.0; python_version < '3.11'",
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    # Three tests run the build step that copies the docs into the package.
+    # Python 3.12 and later make a virtual environment without setuptools,
+    # so without it those tests fail on the import on CI's 3.13 legs.
+    "setuptools>=77",
     # The suite may fail; it may not hang. A per-test ceiling turns a wall
     # into a named red test with every thread's stack attached.
     "pytest-timeout>=2.1",
