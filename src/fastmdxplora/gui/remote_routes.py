@@ -188,14 +188,15 @@ def _same_file(one: Path, other: Path) -> bool:
 def _as_typed(path: Path) -> str | None:
     """``path`` quoted for a POSIX shell, as a command the page shows, or
     None where no quoting is safe to show: on Windows, whose shells quote
-    otherwise, and for a name holding curly quotes (PowerShell's quotes
-    too) or characters that are not printable."""
+    otherwise, and for a name holding a backslash, a quote (curly ones are
+    PowerShell's quotes too) or characters that are not printable."""
     import os
     import shlex
 
     text = str(path)
+    # A backslash or a single quote is read otherwise by some shells (fish).
     if os.name == "nt" or not text.isprintable() or any(
-            mark in text for mark in "\u2018\u2019\u201a\u201b\u201c\u201d"):
+            mark in text for mark in "\\'\u2018\u2019\u201a\u201b\u201c\u201d"):
         return None
     return shlex.quote(text)
 
@@ -277,10 +278,10 @@ class RemoteDesk:
         if not homes:
             # Nothing is sent where home cannot be told, a config file
             # included, so the note offers none.
-            return (f"No home folder was found, so whether {base}, where studies built "
-                    "in the form would be saved, is your home folder cannot be told, "
-                    "and nothing is sent. Set `HOME` to your home folder and start the "
-                    "GUI again.")
+            return (f"No home folder was found, so FastMDXplora cannot tell whether {base}, "
+                    "where studies built in the form would be saved, is your home folder. "
+                    "Nothing is sent from the GUI. Set `HOME` to your home folder and "
+                    "start the GUI again.")
         still = " A config file can still be sent with A config I have."
         is_home = any(_same_file(base, home) for home in homes)
         where = ("your home folder" if is_home
@@ -305,71 +306,89 @@ class RemoteDesk:
         return (f"Studies built in the form would be saved in {base}, {where}, and "
                 f"nothing is sent from there. {instead}{still}")
 
-    def _outside(self, given: Any) -> Path | None:
+    def _outside(self, given: Any) -> tuple[Path, str] | None:
         """The file ``given`` names, read as a plan reads it (a relative name
-        in the folder opened), where it is a file the routes do not reach;
-        else None."""
+        in the folder opened), and how it can be sent, where it is a config
+        the routes do not reach that a refusal may say how to send
+        (:meth:`_how_to_send`); else None."""
         try:
             named = Path(str(given).strip()).expanduser()
             found = (named if named.is_absolute() else self.root / named).resolve()
-            if self._sendable_elsewhere(found) and self.inside(str(found)) is None:
-                return found
+            if self.inside(str(found)) is None:
+                how = self._how_to_send(found)
+                if how is not None:
+                    return found, how
         except (OSError, RuntimeError, ValueError):
             pass
         return None
 
     @staticmethod
-    def _sendable_elsewhere(file: Path) -> bool:
-        """Whether ``file`` is a config a GUI elsewhere could send, so a
-        refusal may say how: a ``.yml`` file, not in a place keys or
-        FastMDXplora's settings are kept, nor in a folder that is one. Any
-        other file outside the routes is told nothing more of."""
-        from fastmdxplora.remote.inputs import _PRIVATE_PARTS, _private, _settings_kept
+    def _kept_apart(file: Path) -> bool:
+        """Whether ``file`` is in, or its folder holds, a place keys or
+        settings may be kept: any folder whose name starts with a dot
+        between the top of the disk and the file (another tool's settings
+        under ``~/.config``, ``~/.local``), ``Library``, a place keys and
+        credentials are kept, or FastMDXplora's own settings. Such a file is
+        told no way to be sent, whatever it holds."""
+        from fastmdxplora.remote.inputs import (
+            _PRIVATE_PAIRS,
+            _PRIVATE_PARTS,
+            _private,
+            _settings_kept,
+        )
+
+        kept = _settings_kept()
+        folder = file.parent
+        names = _PRIVATE_PARTS | {second for _, second in _PRIVATE_PAIRS} | {"library"}
+        for place in (folder, folder.resolve()):
+            if any(part.startswith(".") or part.casefold() in names
+                   for part in place.parts[1:]):
+                return True
+        settings = {Path(place).parent for place in kept}
+        if _private(file, kept) or any(
+                folder == place or place in folder.parents or folder in place.parents
+                for place in settings):
+            return True
+        # Its folder would be opened, and its pages list what is in it.
+        return any(child.name.casefold() in names | {".config", ".local"}
+                   for child in folder.iterdir())
+
+    def _how_to_send(self, file: Path, started: Path | None = None) -> str | None:
+        """How a config the routes do not reach can be sent, by ways that
+        work if followed, or None where no way is said: a file that is not a
+        ``.yml`` config, or one kept apart (:meth:`_kept_apart`). The ways:
+        a GUI opened on its folder, where that folder may travel, or a copy
+        in a new folder inside the folder opened, where that may."""
+        from fastmdxplora.remote.inputs import home_folders, home_or_above
 
         try:
             if not file.is_file() or file.suffix.lower() not in (".yml", ".yaml"):
-                return False
-            kept = _settings_kept()
-            folder = file.parent
-            settings = {Path(place).parent for place in kept}
-            if any(_private(place, kept) for place in (file, folder, folder.resolve())) or any(
-                    folder == place or place in folder.parents or folder in place.parents
-                    for place in settings):
-                return False
-            # A folder holding keys or other settings beside the config is not
-            # one to open the GUI on (its pages would list them).
-            return not any(child.name.casefold() in _PRIVATE_PARTS | {".config"}
-                           for child in folder.iterdir())
+                return None
+            if not home_folders():
+                return ("No home folder was found, so nothing is sent from any folder. "
+                        "Set `HOME` to your home folder and start the GUI again.")
+            if home_or_above(file.parent, home_unknown=True):
+                return ("A config in your home folder itself, or above it, is never sent: "
+                        "put it, with the files it names, in a folder of its own inside "
+                        "your home folder, and open the GUI on that folder.")
+            if self._kept_apart(file):
+                return None
         except (OSError, RuntimeError, ValueError):
-            return False
-
-    def _bring_in(self, file: Path, started: Path | None = None) -> str:
-        """How a config the routes do not reach can be sent, by ways that
-        work if followed: from a GUI opened on its folder, where that folder
-        may travel, or copied into the folder opened, where that may."""
-        from fastmdxplora.remote.inputs import home_folders, home_or_above
-
-        if not home_folders():
-            return ("No home folder was found, so nothing is sent from any folder. Set "
-                    "`HOME` to your home folder and start the GUI again.")
-        ways = []
-        if not home_or_above(file.parent, home_unknown=True):
-            if started is not None and _same_file(started, file.parent):
-                ways.append("start the GUI again without `--output`, so it is opened on "
-                            "the folder holding it")
-            else:
-                typed = _as_typed(file.parent)
-                ways.append(f"open the GUI on its folder (`cd {typed}`, then `fastmdx gui` "
-                            "with no `--output`)" if typed else
-                            f"open the GUI on its folder, {file.parent} (`fastmdx gui` "
-                            "started there, with no `--output`)")
+            return None
+        if started is not None and _same_file(started, file.parent):
+            ways = ["start the GUI again here without `--output`, so it opens on the "
+                    "config's folder"]
+        else:
+            typed = _as_typed(file.parent)
+            ways = [f"open the GUI on the config's folder (`cd {typed}`, then `fastmdx gui` "
+                    "with no `--output`)" if typed else
+                    f"open the GUI on the config's folder, {file.parent} (`fastmdx gui` "
+                    "started there, with no `--output`)"]
         if not home_or_above(self.root, home_unknown=True):
-            ways.append(f"copy it, with the files it names, into {self.root} and give "
-                        f"its full path there ({self.root / file.name})")
-        if not ways:
-            return ("Put it, with the files it names, in a folder of its own inside "
-                    "your home folder, and open the GUI on that folder.")
-        said = " or ".join(ways) + "."
+            # A new folder, so nothing already there is written over.
+            ways.append(f"copy it, with the files it names, into a new folder inside "
+                        f"{self.root} and give its full path there")
+        said = ", or ".join(ways) + "."
         return said[0].upper() + said[1:]
 
     def _workspace(self) -> str:
@@ -532,11 +551,12 @@ class RemoteDesk:
         if file is None and config:
             outside = self._outside(config)
             if outside is not None:
-                named = (f"{outside} is" if str(outside) == str(config).strip()
-                         else f"{config} is {outside},")
+                found, how = outside
+                named = (f"{found} is" if str(found) == str(config).strip()
+                         else f"{config} is {found},")
                 return None, None, _refused(
                     f"{named} outside {self._workspace()}, and nothing outside it is "
-                    "sent from here. " + self._bring_in(outside), "remote.input.outside")
+                    f"sent from here. {how}", "remote.input.outside")
         if file is None or not file.is_file() or file.suffix.lower() not in (".yml", ".yaml"):
             return None, None, _refused(
                 f"{config!r} is not a config file in " + (
@@ -742,13 +762,15 @@ class RemoteDesk:
             return None
 
         def none_at(path: Path) -> str:
+            # Only where the routes reach: of a file outside them nothing is
+            # said that tells whether it is there.
             try:
                 return "" if path.exists() else ", which does not exist"
             except (OSError, ValueError):
                 return ""
 
         read = (f"Checked from the folder the GUI was started in ({started}), {text} is "
-                f"{checked}{none_at(checked)}; ")
+                f"{checked}; ")
         if planned is None:
             # A plan reads a relative name only inside the folder opened.
             said = (f"a plan reads a relative name only inside the folder the GUI was "
@@ -757,25 +779,24 @@ class RemoteDesk:
         else:
             said = (read + f"a plan reads it from the folder the GUI was opened on "
                     f"({self.root}), as {planned}{none_at(planned)}.")
-        try:
-            reached = checked.is_file() and self.inside(str(checked)) is not None
-            unreached = checked.is_file() and not reached
-        except (OSError, ValueError):
-            reached = unreached = False
-        if unreached and not self._sendable_elsewhere(checked):
-            # Not a config a GUI elsewhere could send: no way is offered.
-            return _refused(f"{said} The file checked is outside {self._workspace()}, "
-                            "and nothing outside it is sent from here.", code, given=text)
-        if unreached:
-            # Its full path would be refused too: say how it can be sent.
-            return _refused(f"{said} The file checked is outside {self._workspace()}, "
-                            "so its full path would be refused too: nothing outside it "
-                            "is sent from here. " + self._bring_in(checked, started),
-                            code, given=text)
-        if not reached:
-            return _refused(said + " Give the full path of the config to send.", code,
-                            given=text)
-        return _refused(said + full, code, given=text)
+        if self.inside(str(checked)) is not None:
+            # Inside the routes, where the page may look anyway.
+            try:
+                reached = checked.is_file()
+            except (OSError, ValueError):
+                reached = False
+            if reached:
+                return _refused(said + full, code, given=text)
+        else:
+            how = self._how_to_send(checked, started)
+            if how is not None:
+                # A config its full path would not reach either: how to send it.
+                return _refused(f"{said} The file checked is outside {self._workspace()}, "
+                                "so its full path would be refused too: nothing outside it "
+                                f"is sent from here. {how}", code, given=text)
+        # Said alike of any other file and of none, so nothing more is told.
+        return _refused(said + " Give the full path of the config to send.", code,
+                        given=text)
 
     def _plan(self, config: Any, machine: Any) -> dict[str, Any]:
         from fastmdxplora.remote.send import room_said, sent_digest, travelling
