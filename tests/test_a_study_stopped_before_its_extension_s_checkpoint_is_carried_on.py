@@ -49,7 +49,7 @@ class TestAStudyStoppedBeforeItsExtensionSCheckpoint(unittest.TestCase):
         from fastmdxplora import FastMDXplora
         from fastmdxplora.simulation.resume import resume_study
 
-        root = Path(tempfile.mkdtemp())
+        root = _folder()
         cls.addClassCleanup(shutil.rmtree, root, True)
         pdb = root / "tri-ala.pdb"
         pdb.write_text(TRI_ALANINE)
@@ -104,6 +104,12 @@ class TestAStudyStoppedBeforeItsExtensionSCheckpoint(unittest.TestCase):
         self.assertEqual(record["findings"]["thermodynamics"]["samples"], 12)
 
 
+def _folder() -> Path:
+    """A new temporary folder, resolved as the resume resolves a study: on
+    macOS the temporary folder is under /var, a link to /private/var."""
+    return Path(tempfile.mkdtemp()).resolve()
+
+
 def _killed(study, pdb, *limits):
     """The study run, killed after each count of steps in turn: the first
     as it is explored, each next one as it is carried on."""
@@ -145,7 +151,7 @@ class TestAFirstPieceBeforeItsCheckpointIsRunAgain(unittest.TestCase):
         pytest.importorskip("openmm.app")
         from fastmdxplora.simulation.resume import resume_study
 
-        root = Path(tempfile.mkdtemp())
+        root = _folder()
         cls.addClassCleanup(shutil.rmtree, root, True)
         pdb = root / "tri-ala.pdb"
         pdb.write_text(TRI_ALANINE)
@@ -179,7 +185,7 @@ class TestAnExtendedStudyWithNoCheckpointIsNotRunOver(unittest.TestCase):
         pytest.importorskip("openmm.app")
         from fastmdxplora.simulation.resume import resume_study
 
-        root = Path(tempfile.mkdtemp())
+        root = _folder()
         cls.addClassCleanup(shutil.rmtree, root, True)
         pdb = root / "tri-ala.pdb"
         pdb.write_text(TRI_ALANINE)
@@ -231,7 +237,7 @@ class TestAnExtensionPastThePlanKeepsItsLength(unittest.TestCase):
             resume_study,
         )
 
-        root = Path(tempfile.mkdtemp())
+        root = _folder()
         cls.addClassCleanup(shutil.rmtree, root, True)
         pdb = root / "tri-ala.pdb"
         pdb.write_text(TRI_ALANINE)
@@ -282,7 +288,7 @@ class TestASecondExtensionPastAFinishedPlanKeepsItsLength(unittest.TestCase):
         from fastmdxplora import FastMDXplora
         from fastmdxplora.simulation import resume
 
-        root = Path(tempfile.mkdtemp())
+        root = _folder()
         cls.addClassCleanup(shutil.rmtree, root, True)
         pdb = root / "tri-ala.pdb"
         pdb.write_text(TRI_ALANINE)
@@ -336,7 +342,7 @@ class TestAPieceStillRunningIsNotSetAside(unittest.TestCase):
 
         from fastmdxplora.simulation import resume
 
-        root = Path(tempfile.mkdtemp())
+        root = _folder()
         self.addCleanup(shutil.rmtree, root, True)
         (root / "resolved_config.yml").write_text("simulation: {}\n", encoding="utf-8")
         segment = root / "segment-001"
