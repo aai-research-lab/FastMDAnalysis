@@ -540,8 +540,12 @@ def test_a_late_summary_of_one_run_does_not_end_the_next(tmp_path, monkeypatch):
                 page.wait_for_timeout(100)
             page.fill("#agent-request", "make it 4 ns")
             page.keyboard.press("Enter")
+            # Version 2 shown, not only its reply's card made: a click while
+            # it was still hidden took version 1's Run, which then folded
+            # away under it.
             page.wait_for_function(
-                "() => document.querySelectorAll('#agent-thread .agent-study').length >= 2")
+                "() => document.querySelectorAll('#agent-thread .agent-study:not([hidden])')"
+                ".length >= 2")
             page.click("#agent-thread .agent-study:not([hidden]) [data-role=run] >> nth=-1")
             page.wait_for_function(
                 "() => document.querySelectorAll('#agent-thread .agent-running').length >= 2")
