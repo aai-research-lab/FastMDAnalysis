@@ -10,6 +10,7 @@ study.", and after a reload the thread was gone from the page.
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -79,9 +80,12 @@ def _launches(monkeypatch, workspace, taking=0.0):
     made = []
 
     def launch(self, state, *, dashboard_url=None, config=None):
+        import json
+
         folder = workspace / f"run{len(made) + 1}"
         folder.mkdir()
         (folder / "exploration.yml").write_text("systems: []\n", encoding="utf-8")
+        (folder / "launched.json").write_text(json.dumps(config or {}), encoding="utf-8")
         made.append(str(folder))
         self.active_root = folder
         time.sleep(taking)
@@ -187,7 +191,13 @@ def test_a_slow_disk_loses_nothing_across_two_runs(tmp_path, monkeypatch) -> Non
     kept += list((tmp_path / "workspace").rglob(".fastmdxplora_agent_conversations/conv-*.json"))
     assert [p.parent.parent.parent.name for p in kept] == ["run2"]
     entries = json.loads(kept[0].read_text(encoding="utf-8"))["entries"]
-    assert [e.get("output") for e in entries if e.get("kind") == "action"] == made
+    # The page sends both runs once the saves queued before them land, so
+    # they may start in either order; each entry names the folder of the run
+    # it asked for, whichever started first.
+    ran = [e.get("output") for e in entries if e.get("kind") == "action"]
+    assert sorted(ran) == sorted(made)
+    assert [json.loads((Path(out) / "launched.json").read_text(encoding="utf-8"))
+            ["simulation"]["duration_ns"] for out in ran] == [2, 4]
     assert any(e.get("text") == "It has just begun." for e in entries)
     assert shown == 3
     assert errors == []
