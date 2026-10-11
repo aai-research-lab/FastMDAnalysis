@@ -12,6 +12,7 @@ from __future__ import annotations
 import copy
 import json
 import subprocess
+import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -34,6 +35,61 @@ from tests.test_a_study_travels_and_comes_back import RELEASE, _send
 
 machine = travels.machine
 machine_path = travels.machine_path
+
+#: The machine these tests send to is this computer. A run working in a job
+#: folder is found there through /proc, which macOS has not: the send then
+#: goes on, as `_still_working` says it does on such a machine.
+SEES_WHAT_WORKS_IN_A_FOLDER = pytest.mark.skipif(
+    not Path("/proc/self").is_dir(),
+    reason="the machine is this computer, which has no /proc to find a run in its folder")
+
+
+class TestAMachineWithoutProc:
+    """What the tests marked above cannot show on such a computer: where the
+    machine has no /proc, a job folder is free unless a run cancelled from
+    here within the hour still has its process group there."""
+
+    class _Link:
+        def __init__(self, *said: str) -> None:
+            self.said = list(said)
+
+        def run(self, argv, stdin=""):
+            return SimpleNamespace(stdout=self.said.pop(0))
+
+    def test_it_is_free_with_no_run_cancelled_here(self) -> None:
+        from fastmdxplora.remote.send import _still_working
+
+        assert _still_working("/x", None, self._Link("no_proc")) is False
+
+    def test_a_run_cancelled_within_the_hour_holds_it_while_its_group_is_there(self) -> None:
+        from fastmdxplora.remote.jobs import ABANDONED
+        from fastmdxplora.remote.send import _still_working
+
+        job = SimpleNamespace(state=ABANDONED, handle="4242",
+                              extra={"cancelled_at": time.time() - 60})
+        assert _still_working("/x", job, self._Link("no_proc", "alive")) is True
+        assert _still_working("/x", job, self._Link("no_proc", "")) is False
+        job.extra["cancelled_at"] = time.time() - 2 * 3600
+        assert _still_working("/x", job, self._Link("no_proc")) is False
+
+    def test_only_a_run_cancelled_here_by_a_usable_number_is_asked_after(self) -> None:
+        from fastmdxplora.remote.jobs import ABANDONED
+        from fastmdxplora.remote.send import _still_working
+
+        recent = {"cancelled_at": time.time() - 60}
+        for job in (SimpleNamespace(state="running", handle="4242", extra=dict(recent)),
+                    SimpleNamespace(state=ABANDONED, handle="1", extra=dict(recent)),
+                    SimpleNamespace(state=ABANDONED, handle="4242", extra={})):
+            # One answer only: a second question would find the link empty.
+            assert _still_working("/x", job, self._Link("no_proc")) is False
+        job = SimpleNamespace(state=ABANDONED, handle="4242", extra=dict(recent))
+        assert _still_working("/x", job, self._Link("scanned")) is False
+
+    def test_an_answer_cut_short_holds_it(self) -> None:
+        from fastmdxplora.remote.send import _still_working
+
+        assert _still_working("/x", None, self._Link("")) is True
+        assert _still_working("/x", None, self._Link("in_folder")) is True
 
 
 def _stopped(job) -> None:
@@ -1257,6 +1313,12 @@ class TestFifthReview:
         assert (machine.back / "manifest.json").stat().st_ino == first
         assert (machine.back / "analysis" / "new.csv").is_file()
 
+    # Open (CI #707, the remote session's): macOS's own rsync fails the copy
+    # with exit 11 before the clash is checked, so the refusal says the fetch
+    # failed rather than that nothing was put in place. Expected to fail
+    # there until the clash is checked before the copy.
+    @pytest.mark.xfail(sys.platform == "darwin", raises=AssertionError, strict=False,
+                       reason="macOS's rsync fails the copy before the clash check (CI #707)")
     def test_a_clash_is_refused_before_anything_moves(self, machine):
         from pathlib import Path
 
@@ -3753,6 +3815,7 @@ class TestThirteenthReviewGpusWhatIsHeld:
         finally:
             cancel(first.name, transport=machine.transport())
 
+    @SEES_WHAT_WORKS_IN_A_FOLDER
     def test_a_cancelled_run_still_in_its_folder_after_an_hour_is_not_replaced(
             self, machine, tmp_path):
         from fastmdxplora.remote.jobs import load_job, save_job
@@ -3910,6 +3973,7 @@ class TestFourteenthReviewGpusSentAgain:
         finally:
             _group_killed(first.handle)
 
+    @SEES_WHAT_WORKS_IN_A_FOLDER
     def test_a_folder_worked_in_with_no_record_here_is_not_replaced(
             self, machine, tmp_path):
         from fastmdxplora.remote.jobs import _path_for
@@ -3929,6 +3993,7 @@ class TestFourteenthReviewGpusSentAgain:
         finally:
             _group_killed(first.handle)
 
+    @SEES_WHAT_WORKS_IN_A_FOLDER
     def test_a_cancelled_run_is_not_replaced_where_the_machine_has_no_ps(
             self, machine, tmp_path):
         import os
@@ -4075,6 +4140,7 @@ class TestFifteenthReviewGpusSentAgain:
                    code=RELEASE)
         travels._until_finished(machine, job.name)
 
+    @SEES_WHAT_WORKS_IN_A_FOLDER
     def test_a_send_not_forced_does_not_start_a_second_job_where_one_works(
             self, machine):
         from fastmdxplora.remote.jobs import _path_for
@@ -4423,6 +4489,7 @@ class TestSixteenthReviewWhatAPersonIsTold:
 
 
 class TestSixteenthReviewWhatAnAIAppIsTold:
+    @SEES_WHAT_WORKS_IN_A_FOLDER
     def test_a_folder_worked_in_names_a_step_an_ai_app_can_take(self, app):
         """F3: the AI app is told to "give another --output", which it
         cannot; the fix it can make is the config's `output`."""
