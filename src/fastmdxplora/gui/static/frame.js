@@ -1344,6 +1344,10 @@
    * page's View button. The panel's tab shows, the list loads if it has
    * not, the row is marked, and the file opens. */
   function previewPath(path) {
+    /* Asked for, so kept: the study's first status, arriving after (a
+     * study finished, or silent), closed the panel under the file (CI on
+     * 99b21cc6). */
+    panelChosen = true;
     setCollapsed(false);
     showTab("files");
     var open = function () {
