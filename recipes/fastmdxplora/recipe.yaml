@@ -18,7 +18,7 @@ schema_version: 1
 
 context:
   name: fastmdxplora
-  version: "2.5.8"
+  version: "2.6.0"
 
 package:
   name: ${{ name|lower }}
@@ -160,7 +160,7 @@ about:
     - src/fastmdxplora/gui/static/molstar/THIRD-PARTY-NOTICES.txt
     - src/fastmdxplora/gui/static/fonts/OFL-Inter.txt
     - src/fastmdxplora/gui/static/fonts/OFL-JetBrainsMono.txt
-  documentation: https://fastmdxplora.readthedocs.io
+  documentation: https://fastmdxplora.readthedocs.io/en/stable/
   repository: https://github.com/aai-research-lab/FastMDXplora
 
 extra:

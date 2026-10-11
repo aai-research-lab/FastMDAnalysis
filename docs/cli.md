@@ -242,7 +242,7 @@ Prepare a system and stop. Flag names here drop the `--setup-` prefix.
 ```
 
 Every other `setup` setting has a flag too, spelled from its name. See
-[Config reference](config_reference.md#setup--43-settings) and
+[Config reference](config_reference.md#setup--47-settings) and
 `fastmdx setup --help`.
 
 ---
@@ -426,7 +426,7 @@ fastmdx gui --output runs/study    # open a run, live or finished
 | `--host` | `127.0.0.1` | What to bind to |
 | `--port` | `8765` | Which port. If busy, the next free one is used and reported |
 | `--no-browser` | opens a tab | Print the URL instead |
-| `--demo [DIR]` | off | Copy the demo study (3PTB, finished) into DIR and open it; fetched the first time (about 11 MB) and kept in the cache |
+| `--demo [DIR]` | off | Copy the demo study (3PTB, finished) into DIR and open it; fetched the first time (about 11 MB) and kept in the cache, once it is published (not yet for 2.6.0) |
 | `--open SOURCE` | off | Open a shared study from its DOI, its Zenodo address or its zip, every file checked against its SHA-256 first ([Sharing a study](sharing.md)) |
 | `--open-into DIR` | current directory | Where `--open` unpacks it |
 | `--open-most-gb GB` | `2` | The largest archive `--open` downloads and opens |

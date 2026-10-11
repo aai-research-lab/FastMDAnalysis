@@ -15,8 +15,8 @@
 [![codecov](https://img.shields.io/codecov/c/github/aai-research-lab/FastMDXplora/main?labelColor=black)](https://codecov.io/gh/aai-research-lab/FastMDXplora)
 [![Docs](https://img.shields.io/readthedocs/fastmdxplora?label=docs&labelColor=black)](https://fastmdxplora.readthedocs.io)
 
-[**Quick start**](https://fastmdxplora.readthedocs.io/en/latest/first_study.html) ·
-[**Agent**](https://fastmdxplora.readthedocs.io/en/latest/agent.html) ·
+[**Quick start**](https://fastmdxplora.readthedocs.io/en/stable/first_study.html) ·
+[**Agent**](https://fastmdxplora.readthedocs.io/en/stable/agent.html) ·
 [**Cite**](#citation)
 
 </div>
@@ -130,33 +130,33 @@ decide numbers. A run directory is readable by somebody who was not there.
 
 ## Documentation
 
-**Start here** — [Install](https://fastmdxplora.readthedocs.io/en/latest/installation.html) ·
-[Your first study](https://fastmdxplora.readthedocs.io/en/latest/first_study.html) ·
-[How FastMDXplora works](https://fastmdxplora.readthedocs.io/en/latest/how_it_works.html)
+**Start here** — [Install](https://fastmdxplora.readthedocs.io/en/stable/installation.html) ·
+[Your first study](https://fastmdxplora.readthedocs.io/en/stable/first_study.html) ·
+[How FastMDXplora works](https://fastmdxplora.readthedocs.io/en/stable/how_it_works.html)
 
-**The Config** — [The FastMDXplora Config](https://fastmdxplora.readthedocs.io/en/latest/config.html) ·
-[Config reference](https://fastmdxplora.readthedocs.io/en/latest/config_reference.html) ·
-[Selections](https://fastmdxplora.readthedocs.io/en/latest/selections.html) ·
-[Examples](https://fastmdxplora.readthedocs.io/en/latest/examples.html)
+**The Config** — [The FastMDXplora Config](https://fastmdxplora.readthedocs.io/en/stable/config.html) ·
+[Config reference](https://fastmdxplora.readthedocs.io/en/stable/config_reference.html) ·
+[Selections](https://fastmdxplora.readthedocs.io/en/stable/selections.html) ·
+[Examples](https://fastmdxplora.readthedocs.io/en/stable/examples.html)
 
-**Writing a Config** — [GUI](https://fastmdxplora.readthedocs.io/en/latest/gui.html) ·
-[CLI](https://fastmdxplora.readthedocs.io/en/latest/cli.html) ·
-[API](https://fastmdxplora.readthedocs.io/en/latest/api.html) ·
-[Agent](https://fastmdxplora.readthedocs.io/en/latest/agent.html) ·
-[From your AI app](https://fastmdxplora.readthedocs.io/en/latest/mcp.html)
+**Writing a Config** — [GUI](https://fastmdxplora.readthedocs.io/en/stable/gui.html) ·
+[CLI](https://fastmdxplora.readthedocs.io/en/stable/cli.html) ·
+[API](https://fastmdxplora.readthedocs.io/en/stable/api.html) ·
+[Agent](https://fastmdxplora.readthedocs.io/en/stable/agent.html) ·
+[From your AI app](https://fastmdxplora.readthedocs.io/en/stable/mcp.html)
 
-**Going further** — [Restraints, membranes, enhanced sampling](https://fastmdxplora.readthedocs.io/en/latest/studies.html) ·
-[Production and GPUs](https://fastmdxplora.readthedocs.io/en/latest/production.html) ·
-[Running elsewhere](https://fastmdxplora.readthedocs.io/en/latest/clusters.html)
+**Going further** — [Restraints, membranes, enhanced sampling](https://fastmdxplora.readthedocs.io/en/stable/studies.html) ·
+[Production and GPUs](https://fastmdxplora.readthedocs.io/en/stable/production.html) ·
+[Running elsewhere](https://fastmdxplora.readthedocs.io/en/stable/clusters.html)
 
-**Results** — [The FastMDXplora Manifest](https://fastmdxplora.readthedocs.io/en/latest/manifest.html) ·
-[Reading the results](https://fastmdxplora.readthedocs.io/en/latest/results.html) ·
-[The analyses](https://fastmdxplora.readthedocs.io/en/latest/analyses.html) ·
-[Protein-ligand interactions](https://fastmdxplora.readthedocs.io/en/latest/interactions.html) ·
-[Refusals](https://fastmdxplora.readthedocs.io/en/latest/refusals.html)
+**Results** — [The FastMDXplora Manifest](https://fastmdxplora.readthedocs.io/en/stable/manifest.html) ·
+[Reading the results](https://fastmdxplora.readthedocs.io/en/stable/results.html) ·
+[The analyses](https://fastmdxplora.readthedocs.io/en/stable/analyses.html) ·
+[Protein-ligand interactions](https://fastmdxplora.readthedocs.io/en/stable/interactions.html) ·
+[Refusals](https://fastmdxplora.readthedocs.io/en/stable/refusals.html)
 
-**For developers** — [Developing FastMDXplora](https://fastmdxplora.readthedocs.io/en/latest/developers.html) ·
-[How it is validated](https://fastmdxplora.readthedocs.io/en/latest/validation.html)
+**For developers** — [Developing FastMDXplora](https://fastmdxplora.readthedocs.io/en/stable/developers.html) ·
+[How it is validated](https://fastmdxplora.readthedocs.io/en/stable/validation.html)
 
 ## Citation
 

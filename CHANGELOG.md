@@ -7,6 +7,68 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-10-11
+
+This release gives every mean one verdict on every page, records the rules
+that judged it, and gives it an error that holds the truth about as often as
+it says. The statistical inefficiency is corrected for the sample mean, the
+start discarded is the latest that keeps within a tenth of the most
+independent samples, a correlation time counts as resolved at 25 independent
+samples, and replicas are averaged from the start they share, so means,
+errors and withheld verdicts can differ from 2.5.8's. Counted on held-out
+sets, single runs and replicas of stationary series held the truth within
+one error in 65% to 69% of studies and within two in 94% to 96%. A mean
+whose frames still move one way is withheld, and a study analysed by an
+earlier version says so until it is analysed again.
+
+Analyses give other numbers where 2.5.8's were wrong: RMSF is taken over the
+equilibrated frames and weighted by mass per residue; `protein` takes in CYX,
+the histidine and aspartate forms and the terminal caps, so equilibration's
+restraints on `protein` now hold its bridged cysteines and histidines too;
+the alpha-carbon default leaves out a calcium ion; ligand RMSD is over heavy
+atoms with the ligand's symmetry; a centre-of-mass distance, a ligand's RMSF
+and an end-to-end distance are taken across the periodic box; and
+protein-ligand interactions follow stated chemical criteria for contacts,
+halogen bonds, water bridges, charged groups and acceptors. Some studies were
+prepared or run wrong under 2.5.8 without a warning: a box grown for its
+cutoff ("Re-solvating" in the setup log) was given extra ions; a membrane
+protein was placed in its bilayer by its file's frame, or by its longest axis
+when rotated, which is wrong for one with a soluble domain, and DMPC, DOPC,
+DPPC, DLPC and DLPE bilayers were coupled isotropically; and a 4 fs
+run that stated no lengths equilibrated and produced for twice as long as
+now, since the default stage lengths are times (500 ps, 1 ns and 2 ns).
+Preparation is seeded throughout, so one seed gives one system. A study sent
+to another machine takes only the files in its Config's folder (a Config in
+the home folder is refused), and a shared umbrella system that cannot be
+checked is no longer reused.
+
+New in 2.6.0: the GUI rebuilt around what a study determined; the Viewer
+rendered with Mol\*, with named selections, views saved as MolViewSpec
+scenes, distances and angles, and movies; the Agent replying by tool calls,
+answering from the software's docs and the study's records, and remembering
+the person; an AI app reaching FastMDXplora through `fastmdx mcp`, starting a
+study only from a checked file and with your go-ahead; studies on your own
+machines planned, sent, followed and fetched from the GUI, from Python and
+from an AI app; a study shared as one RO-Crate file, made a draft on Zenodo
+and opened from its DOI; a study run until what it is for is known
+(`simulation.stop_when`); a membrane protein placed by a fit checked against
+OPM, and its bilayer analysed; and `fastmdx resume` for a study of several
+runs.
+
+`fastmdx init-config` is now `fastmdx config` and `fastmdx agent set` is
+`fastmdx agent model`; and `reweight.weights_for_run` and
+`reweight.read_colvar`, the Chemical Component Dictionary route for ligands
+and the multi-model PDB playback are removed. `fastmdx gui --demo` and **Open
+the demo study** fetch a finished demo study the first time it is opened,
+once it is published; it is not yet, so in 2.6.0 `--demo` says so and the
+button is not shown. `markdown` is now a required dependency,
+building needs setuptools 77 or later, and as the package ships Mol\* and
+the interface's fonts its licence expression is MIT AND Apache-2.0 AND ISC
+AND 0BSD AND OFL-1.1 (FastMDXplora's own code stays MIT). An error does not
+include a state no run left: a study trapped in one of two states looked
+determined in 3% to 6% of studies, and slow replicas reached the 200 ns
+ceiling in about half of theirs.
+
 ### Copy, once
 
 **Fixed:** Open the folder copied the path twice, the second time after the
@@ -691,7 +753,9 @@ match; nothing is kept), and keep it in `~/.cache/fastmdxplora/demo`.
 same folder, and says its SHA-256 and size; it leaves out the report's
 downloads and what a finished study is not shown from (the run's live
 snapshots, the SVG beside each figure, the clusters' medoid structures, the
-standalone page), and keeps what the pages read.
+standalone page), and keeps what the pages read. The demo study is not yet
+published for 2.6.0: `--demo` says so (`environment.demo.absent`) and
+**Open the demo study** is not shown.
 
 ### A live frame shows a bound ligand in its pocket
 

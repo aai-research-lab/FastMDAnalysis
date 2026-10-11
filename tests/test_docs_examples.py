@@ -483,7 +483,7 @@ def test_every_documentation_link_resolves() -> None:
     # And the README's links into the published site.
     readme = (repo / "README.md").read_text(encoding="utf-8")
     for match in re.finditer(
-            r"readthedocs\.io/en/latest/([a-z_]+)\.html", readme):
+            r"readthedocs\.io/en/(?:latest|stable)/([a-z_]+)\.html", readme):
         if match.group(1) not in pages:
             broken.append(f"README.md -> {match.group(1)}.html")
 
