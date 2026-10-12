@@ -7,6 +7,13 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+
+- A structure fetched from RCSB is tried up to three times when the connection
+  is dropped, the transfer is cut short, or RCSB answers 429 or 5xx. A study
+  stopped by such a failure is told so, not that the machine may have no route
+  to the internet.
+
 ## [2.6.0] - 2026-10-11
 
 This release gives every mean one verdict on every page, records the rules

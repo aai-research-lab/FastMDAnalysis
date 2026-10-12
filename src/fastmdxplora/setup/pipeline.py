@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import time
 from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -114,19 +115,104 @@ def _classify_input(system: str | None) -> str:
     , code="setup.input.unrecognised")
 
 
-def _fetch_pdb_from_rcsb(pdb_id: str, dest: Path) -> Path:
-    """Fetch ``{pdb_id}.pdb`` from RCSB to ``dest``. Raises on HTTP error."""
+#: The waits before each try after the first, in seconds. RCSB dropped one
+#: connection in the nightly validation on 2.6.0 (6B73, setup over in 0.1 s,
+#: as the fetch was made once); a request that drops is now made again
+#: before the study stops on it.
+_FETCH_WAITS_S = (2.0, 8.0)
+_sleep = time.sleep
+
+
+def _passes(exc: BaseException) -> bool:
+    """Whether a failed request is one that a later try can get past: the
+    connection reset, aborted or cut off once it was made, the transfer cut
+    short, or the service busy (429) or failing (5xx). Not a name that does
+    not resolve, no route, a connection refused or never answered (a
+    firewalled cluster node times out this way, and would wait out every
+    try), or an entry that is not there."""
+    import http.client
+    import ssl
+    import urllib.error
+
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code == 429 or exc.code >= 500
+    if isinstance(exc, (urllib.error.ContentTooShortError, http.client.HTTPException)):
+        return True
+    if isinstance(exc, urllib.error.URLError):
+        # Raised while connecting or sending: a timeout there is a request
+        # nothing answered, and is not tried again.
+        reason = exc.reason
+        if isinstance(reason, TimeoutError):
+            return False
+    else:
+        reason = exc
+    if isinstance(reason, ConnectionRefusedError):
+        return False
+    return isinstance(reason, (ConnectionError, TimeoutError, ssl.SSLEOFError))
+
+
+def _retrieve(url: str, dest: Path) -> None:
+    """Fetch ``url`` to ``dest``, tried again while the failure is one that
+    passes; the last failure is raised, and nothing is left at ``dest``."""
+    import http.client
     import urllib.request
 
+    for wait in (*_FETCH_WAITS_S, None):
+        try:
+            urllib.request.urlretrieve(url, dest)  # noqa: S310 -- trusted URL
+            return
+        except (OSError, http.client.HTTPException) as exc:
+            try:
+                dest.unlink(missing_ok=True)
+            except OSError:
+                pass
+            if wait is None or not _passes(exc):
+                raise
+            logger.info("The request to RCSB failed (%s); trying again in %.0f s", exc, wait)
+            _sleep(wait)
+
+
+def _not_fetched(pdb_id: str, url: str, exc: BaseException) -> StudyError:
+    """The refusal for a fetch that failed, by what failed."""
+    if _passes(exc):
+        said = (f"Could not fetch {pdb_id.upper()} from RCSB in "
+                f"{len(_FETCH_WAITS_S) + 1} tries: {exc}.\n\n"
+                "Each time the connection was dropped or RCSB answered that "
+                "it could not serve the file. Carry the study on later, or "
+                "fetch the structure on a machine that reaches RCSB and pass "
+                "the file:\n\n")
+    else:
+        # A machine with no route out raises this as `[Errno -3] Temporary
+        # failure in name resolution`, which is Python's words for a
+        # situation the reader can act on and cannot act on from that
+        # sentence. Clusters are commonly airgapped and this is the first
+        # thing a run does there, so it is worth saying plainly.
+        said = (f"Could not fetch {pdb_id.upper()} from RCSB: {exc}.\n\n"
+                "Where the machine has no route to the internet -- a cluster "
+                "compute node, commonly -- fetch the structure somewhere that "
+                "does and pass the file:\n\n")
+    return StudyError(
+        said + f"    curl -O {url}\n\n"
+        "then name it in place of the identifier. The path is read from "
+        "where fastmdx was run."
+    , code="environment.service.unreachable")
+
+
+def _fetch_pdb_from_rcsb(pdb_id: str, dest: Path) -> Path:
+    """Fetch ``{pdb_id}.pdb``, or its mmCIF read as PDB, from RCSB to
+    ``dest``, trying again a failure that passes; raises StudyError."""
+    import http.client
     import urllib.error
 
     url = f"https://files.rcsb.org/download/{pdb_id.upper()}.pdb"
     logger.info("Fetching PDB from RCSB: %s", url)
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:
-        urllib.request.urlretrieve(url, dest)  # noqa: S310 -- trusted URL
+        _retrieve(url, dest)
     except urllib.error.HTTPError as exc:
         if exc.code != 404:
+            if _passes(exc):
+                raise _not_fetched(pdb_id, url, exc) from exc
             raise StudyError(f"RCSB refused {url}: {exc}.",
                              code="environment.service.unreachable") from exc
         # Entries too large for the PDB format are deposited as mmCIF only.
@@ -136,26 +222,17 @@ def _fetch_pdb_from_rcsb(pdb_id: str, dest: Path) -> Path:
         # input.pdb), so two entries fetched at once keep apart.
         cif = dest.with_suffix(".cif")
         try:
-            urllib.request.urlretrieve(cif_url, cif)  # noqa: S310 -- trusted URL
-        except OSError as cif_exc:
+            _retrieve(cif_url, cif)
+        except urllib.error.HTTPError as cif_exc:
+            if _passes(cif_exc):
+                raise _not_fetched(pdb_id, cif_url, cif_exc) from cif_exc
             raise StudyError(f"Could not fetch {pdb_id.upper()} from RCSB as PDB or mmCIF: "
                              f"{cif_exc}.", code="environment.service.unreachable") from cif_exc
+        except (OSError, http.client.HTTPException) as cif_exc:
+            raise _not_fetched(pdb_id, cif_url, cif_exc) from cif_exc
         _write_mmcif_as_pdb(cif, dest)
-    except OSError as exc:
-        # A machine with no route out raises this as `[Errno -3] Temporary
-        # failure in name resolution`, which is Python's words for a
-        # situation the reader can act on and cannot act on from that
-        # sentence. Clusters are commonly airgapped and this is the first
-        # thing a run does there, so it is worth saying plainly.
-        raise StudyError(
-            f"Could not fetch {pdb_id.upper()} from RCSB: {exc}.\n\n"
-            "Where the machine has no route to the internet -- a cluster "
-            "compute node, commonly -- fetch the structure somewhere that "
-            "does and pass the file:\n\n"
-            f"    curl -O {url}\n\n"
-            "then name it in place of the identifier. The path is read from "
-            "where fastmdx was run."
-        , code="environment.service.unreachable") from exc
+    except (OSError, http.client.HTTPException) as exc:
+        raise _not_fetched(pdb_id, url, exc) from exc
     return dest
 
 
