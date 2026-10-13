@@ -1616,6 +1616,9 @@ def replay(recorded: Mapping[str, Any], *, cases: Iterable[str] | None = None,
         raise StudyError("the recording holds cases this set does not: " + ", ".join(missing),
                          code="config.option.inapplicable", option="replay")
     result = _result(trials)
+    if "context" in recorded:
+        # Replayed as the run was asked, and said so in its table.
+        result["context"] = recorded["context"] is not False
     for key in ("ai_model", "fastmdxplora", "source", "when", "protocol", "repeats", "context",
                 "version"):
         if key in recorded:

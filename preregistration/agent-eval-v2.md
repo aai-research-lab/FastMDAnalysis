@@ -180,4 +180,113 @@ recordings the suite replays.
 
 ## Results
 
-None yet.
+### The `context` kind with and without the Agent's context, 2026-10-13
+
+Asked on a Mac with `anthropic/claude-opus-5-5`, tool calls, three repeats,
+from the round's two commits applied on `main` at `e81bd023` (tree
+`19b1676a`, checked there; the run names the local commit, `c4c69a5d`),
+against `fastmdxplora_1l2y_study_20260930003505`, the study version 1's
+records trials were asked again against (Rg 0.7184 nm, RMSD 0.0645 nm, both
+determined). With the context at 22:03 UTC, without it at 22:06 UTC: 24
+trials each, every one judged, none asked again for the provider. All three
+claims are met.
+
+| Claim | Counted | Met |
+|---|---|---|
+| 1. With the context, at least 18 of 24 | 24 of 24 | yes |
+| 2. At least 6 more than without | 24 against 9: 15 more | yes |
+| 3. No config for the question still open | 0 of 3 came to a config | yes |
+
+| Case | With | Without |
+|---|---|---|
+| `ctx_far_forcefield` | 3 | 0 |
+| `ctx_far_temperature` | 3 | 0 |
+| `ctx_far_ph` | 3 | 0 |
+| `ctx_open_question` | 3 | 3 |
+| `ctx_file_open` | 3 | 0 |
+| `ctx_report_section` | 3 | 0 |
+| `ctx_mention_study` | 3 | 3 |
+| `ctx_mention_analysis` | 3 | 3 |
+
+**What was decided many turns before.** Without the context, each of the 9
+trials wrote an accepted config of the structure and length asked, with the
+setting decided earlier left at its default. In all three
+`ctx_far_forcefield` trials the reply told the person they had not chosen a
+force field (in one, "You didn't pick a force field when I asked earlier"),
+where their turn chose charmm36 in its second sentence. With the context,
+all 9 held it.
+
+**What the page shows.** In both arms the Agent looked at the page first
+(`current_view`, all 12 trials). Without the context it was told the page
+and the study only, and in 5 of 6 asked which file or section was meant;
+in the sixth it listed the study's means and answered "unknown, until you
+name the section". With the context, the look named the file open and
+gave it whole, and the answer was read from it (3 of 3). On the Report
+page it named the section; the Agent then asked for a file of the RMSD
+analysis that the study does not hold (`analysis/rmsd/summary.json` twice,
+`results.json` once, each refused as no such file) and answered from the
+study's record (3 of 3).
+
+**What the passes hide: looks cut short.** Each look gives the Agent at
+most 4,000 characters. With the context, the study's record (`read_study`)
+is cut in the last words of its `rmsd` entry, as each analysis not
+determined before it says why at length. The entry says nothing more of the
+mean (it is determined), but the Agent could not know that, and the entries
+after it (`sasa` and on) are not given. The look at the Report page names
+the section but does not give its text: it gives the study's record, cut
+before its `rmsd` entry. In 5 of the 6 trials with the context that quote
+the RMSD mean (the 3 `ctx_report_section` and 2 of the 3
+`ctx_mention_analysis`) the reply said the record it read was cut off. In
+one of them it said the error should stand, which is so, but not from
+anything it was shown. The third `ctx_mention_analysis` trial read
+`analysis/rmsd/options.json` to see past the cut. A question about an entry
+after `rmsd` would not have passed. On the Files page the file open (518
+bytes) comes first in the look, whole.
+
+**The question still open, and the names with @,** passed in both arms, as
+the claims allowed for. Without the context the Agent asked about the
+lysozyme all the same, giving as its reason that hen egg-white and T4
+lysozyme are different proteins, and in two of three said the earlier
+question was never answered; in all three it searched the PDB and offered
+2VB1, 1LYZ, 2LZM and a human lysozyme (2NWD twice, 1LZ1 once), never 1AKI.
+With the context it asked in all three, but kept to the two candidates it
+had given only once: in the other two it searched the PDB and offered other
+structures beside them (2VB1, 1LYZ, 1LZ1), and in one of those 1AKI was not
+among the choices. The case passes as registered, on a question naming the
+candidates; what was offered before was not held to. For the @ cases,
+without the context the Agent read the study named by its folder's name
+(`ctx_mention_study`), or listed the studies and looked at the page for the
+open one (`ctx_mention_analysis`); with it, it read the study the @
+resolved to.
+
+**Checked, not claimed.** `current_view` was the first look in each of the
+6 page trials with the context, and the look that gave the file or the
+section. `keep_plan` was not called in either arm: no case asks for steps.
+
+**Read, not findings.** With the context, 47 requests (tokens read from
+the cache 957,181, written to it 34,451, not cached 142, output 11,916),
+and looks `read_study` 9, `current_view` 6, `find_structure` 4,
+`read_study_file` 4 (3 of them the files refused above). Without, 43
+requests (885,624, 14,097, 134, 10,036), and looks `current_view` 9,
+`find_structure` 5, `read_study` 3, `list_studies` 3. All 18 configs
+written were accepted.
+
+**What was changed to keep them in the suite**
+(`tests/data/agent_eval/context_2026-10-13.json.gz` and
+`context_without_2026-10-13.json.gz`): the home folder of the person who
+ran them is written `/Users/person`, and in the run without the context,
+the three looks listing the folder of studies (`ctx_mention_analysis`) keep
+only the entry of the study asked about: each other entry, with its tags
+and notes, is written "(a folder of the person's, not kept in this
+recording)". Nothing else. Each replays to every verdict recorded. Replayed
+on the branch, the 12 trials of the far cases and the question still open
+in each run (and without the context, `ctx_mention_study`'s 3) are asked
+exactly as recorded, every request and look. In the others, 38 exchanges
+with the context and 11 without are counted as asked differently: each is a
+look whose request names the study's folder, or a request after a look
+whose text names it, and differs by what was written anew (the home folder,
+the folders listed) after the run's digests were taken. The first request
+of the two @ cases with the context differs only for the reason given
+above: what an @ names is resolved from the folders on the machine
+replaying. Their `fastmdxplora` version, `2.5.9.dev475+gb091679ad`, is the
+editable install's, as in version 1's run.

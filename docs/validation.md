@@ -154,7 +154,7 @@ the software's tools, and judged in code:
 | `act` | 2 | What is asked for by name is done |
 | `docs` | 31 | A question about the software is answered from the docs: `read_docs` brought back the section holding the answer, and the answer given is right where there is one |
 | `records` | 2 | A finished study's mean is quoted from its record, within its error |
-| `context` | 8 | What the page shows (the file open, the report's section), what is named with @, or what was settled fourteen turns before is used: a study written with it, a mean quoted from the record it points at, or a question still open asked rather than answered for the person |
+| `context` | 8 | What the page shows (the file open, the report's section), what is named with @, or what was decided fourteen turns before is used: a study written with it, a mean quoted from the record it points at, or a question still open asked rather than answered for the person |
 
 The no-structure, refusal and no-action kinds are held to every case in
 every repeat: there the wrong answer costs the person more than none.
@@ -240,6 +240,31 @@ Agent, or another AI model, doing better; harder cases are for the set's
 next version. The run, the records trials asked again, and what was changed
 in it to keep it in the suite are under **Results** in version 1's
 registration.
+
+**What the Agent's context adds.** The `context` kind was asked twice the
+same day, by the same AI model against the same 1L2Y study, with the
+Agent's context and without it. Both runs are kept in the suite
+(`tests/data/agent_eval/context_2026-10-13.json.gz` and
+`context_without_2026-10-13.json.gz`) and replay to every verdict:
+
+| Claim (version 2) | `anthropic/claude-opus-5-5`, 2026-10-13, 3 repeats | Met |
+|---|---|---|
+| With the context, at least 18 of 24 | 24 of 24 | yes |
+| At least 6 more than without | 24 against 9: 15 more | yes |
+| No config for the question still open | 0 of 3 | yes |
+
+Without the context, the setting decided fourteen turns before was left at
+its default in all 9 far trials, and in the 6 page trials, the page having
+said only its name and the study, the Agent asked which file or section
+was meant (5) or would not say a number until told (1). The question still
+open and the two names with @ passed in both arms. With the context, the
+Agent asked the open question in all three trials, but in two it searched
+again and offered other structures beside the two it had given, in one
+leaving 1AKI out. With the context, the study's record a look gives is cut
+(at 4,000 characters) at the end of its RMSD entry, so the Agent cannot
+see whether anything follows; 5 of the 6 replies quoting that mean said
+the record was cut. Each case's counts, and what each run was replayed
+against, are under **Results** in version 2's registration.
 
 **The docs set without an AI model.** `--docs-only` searches the docs for
 each docs question as `read_docs` does and says where among the four

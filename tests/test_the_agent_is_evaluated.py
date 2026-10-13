@@ -1129,11 +1129,16 @@ def test_the_recorded_run_meets_each_claim_as_reported(monkeypatch) -> None:
                       for case in ("d_key", "d_lipids", "d_send", "d_serve_lab")]
 
 
-def test_the_recorded_run_names_no_one_s_home_folder() -> None:
+CONTEXT_RUNS = {True: RECORDED.with_name("context_2026-10-13.json.gz"),
+                False: RECORDED.with_name("context_without_2026-10-13.json.gz")}
+
+
+@pytest.mark.parametrize("recording", [RECORDED, *CONTEXT_RUNS.values()], ids=lambda p: p.name)
+def test_the_recorded_run_names_no_one_s_home_folder(recording) -> None:
     import gzip
     import re
 
-    text = gzip.decompress(RECORDED.read_bytes()).decode("utf-8")
+    text = gzip.decompress(recording.read_bytes()).decode("utf-8")
     homes = set(re.findall(r"/(?:Users|home)/([A-Za-z0-9._-]+)", text))
     # "you" is the docs' own example; "person" stands for the one who ran it.
     assert homes <= {"you", "person"}, homes
@@ -1365,3 +1370,111 @@ def test_a_version_1_recording_replays_and_another_version_does_not():
     with pytest.raises(StudyError, match="version 1 or 2"):
         ev.replay({"set": ev.SET_NAME, "version": 9, "trials": []})
     assert json.dumps(ev.replay({"set": ev.SET_NAME, "version": 1, "trials": []}))
+
+
+# -- the context kind, asked with and without the Agent's context ---------------------------
+
+def _replayed_context_run(monkeypatch, context: bool) -> tuple[dict, dict]:
+    recorded = ev.read_recording(CONTEXT_RUNS[context])
+    import fastmdxplora.agent.tools as tools
+
+    def no_look(self, name, asked):
+        raise AssertionError(f"{name} was run in a replay")
+
+    monkeypatch.setattr(tools.Toolbox, "use", no_look)
+    return recorded, ev.replay(recorded)
+
+
+@pytest.mark.parametrize("context", [True, False], ids=["with", "without"])
+def test_each_context_run_replays_to_every_verdict_it_was_recorded_with(
+        monkeypatch, context) -> None:
+    recorded, replayed = _replayed_context_run(monkeypatch, context)
+    assert recorded["set"] == ev.SET_NAME and recorded["version"] == 2
+    assert recorded["context"] is context and replayed["context"] is context
+    assert recorded["ai_model"] == "anthropic/claude-opus-5-5"
+    assert recorded["complete"] is True and recorded["repeats"] == 3
+    assert len(recorded["trials"]) == len(replayed["trials"]) == 24
+    assert {t["kind"] for t in recorded["trials"]} == {"context"}
+    for old, new in zip(recorded["trials"], replayed["trials"]):
+        assert (new["case"], new["repeat"]) == (old["case"], old["repeat"])
+        assert new["verdict"] == old["verdict"], (old["case"], old["repeat"])
+    assert ("asked without the Agent's context" in ev._table(replayed)) is not context
+    # What the context is made of, asked as it was: the trials that name no
+    # study's folder send every request and look as recorded. Like ASKED_NOW,
+    # a round that changes what the Agent is sent sets this anew, and says so
+    # under version 2's Results. The others differ by the home folder written
+    # anew after the run's digests were taken, and by what an @ resolves to.
+    alike = {"ctx_far_forcefield", "ctx_far_temperature", "ctx_far_ph", "ctx_open_question"}
+    if not context:
+        alike.add("ctx_mention_study")
+    changed = {(t["case"], t["repeat"]): t["changed"] for t in replayed["trials"]}
+    assert {k: v for k, v in changed.items() if k[0] in alike} == {
+        (case, r): 0 for case in alike for r in (1, 2, 3)}
+    assert replayed["tally"]["changed_since_recorded"] == (38 if context else 11)
+
+
+def test_the_person_s_other_folders_are_not_kept_in_a_recording() -> None:
+    # The folder of studies listed for the Agent named every folder in it,
+    # with tags and notes; only the study the case was asked about is kept.
+    import re
+
+    for recording in CONTEXT_RUNS.values():
+        for trial in ev.read_recording(recording)["trials"]:
+            for exchange in trial["exchanges"]:
+                if exchange.get("tool") != "list_studies":
+                    continue
+                said = exchange["said"]
+                entries = re.findall(r"^- (.*?)(?::|$)", said, flags=re.M)
+                kept = {e for e in entries if not e.startswith("(a folder of the person")}
+                assert kept <= {"fastmdxplora_1l2y_study_20260930003505"}, kept
+                assert "note:" not in said and "tagged:" not in said
+
+
+def test_the_two_context_runs_were_asked_alike_the_same_day() -> None:
+    runs = {c: ev.read_recording(p) for c, p in CONTEXT_RUNS.items()}
+    assert runs[True]["source"] == runs[False]["source"]
+    assert runs[True]["source"]["uncommitted"] is False
+    assert runs[True]["when"][:10] == runs[False]["when"][:10] == "2026-10-13"
+    assert runs[True]["when"] < runs[False]["when"]
+    assert {r["ai_model"] for r in runs.values()} == {"anthropic/claude-opus-5-5"}
+    assert {r["protocol"] for r in runs.values()} == {"tools"}
+    assert all(t["asked"] == 1 for r in runs.values() for t in r["trials"])
+
+
+def test_the_context_runs_meet_each_claim_as_reported(monkeypatch) -> None:
+    """The counts docs/validation.md and version 2's Results give."""
+    passed = {}
+    by_case = {}
+    replays = {}
+    for context in (True, False):
+        _, replayed = _replayed_context_run(monkeypatch, context)
+        replays[context] = replayed
+        tally = replayed["tally"]
+        assert tally["all"]["not_judged"] == 0 and tally["asked_again"] == 0
+        passed[context] = tally["all"]["passed"]
+        counts: dict[str, int] = {}
+        for t in replayed["trials"]:
+            counts[t["case"]] = counts.get(t["case"], 0) + bool(t["verdict"]["passed"])
+        by_case[context] = counts
+    # 1: at least 18 of 24 with the context. 2: at least 6 more than without.
+    assert passed == {True: 24, False: 9}
+    assert passed[True] >= 18 and passed[True] - passed[False] >= 6
+    assert by_case[True] == dict.fromkeys(
+        [c.name for c in ev.CASES if c.kind == "context"], 3)
+    assert len(by_case[True]) == 8
+    assert by_case[False] == {
+        "ctx_far_forcefield": 0, "ctx_far_temperature": 0, "ctx_far_ph": 0,
+        "ctx_open_question": 3, "ctx_file_open": 0, "ctx_report_section": 0,
+        "ctx_mention_study": 3, "ctx_mention_analysis": 3}
+    # 3: the question still open was asked, never answered with a config.
+    for context in (True, False):
+        open_ = [t for t in replays[context]["trials"] if t["case"] == "ctx_open_question"]
+        assert len(open_) == 3
+        assert all(t["verdict"]["why"].startswith("asked") for t in open_)
+    # Checked, not claimed: with the context, the look at the page read the
+    # file open and the section being read.
+    looks = {(t["case"], t["repeat"]): [e.get("tool") for e in t["exchanges"]
+                                         if e.get("kind") == "look"]
+             for t in ev.read_recording(CONTEXT_RUNS[True])["trials"]}
+    for case in ("ctx_file_open", "ctx_report_section"):
+        assert all(looks[(case, r)][0] == "current_view" for r in (1, 2, 3))

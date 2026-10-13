@@ -19,6 +19,18 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   verdicts fails the suite. A run now records the commit it was asked from,
   and `--replay` reads a gzipped run. See `docs/validation.md`, The Agent's
   evaluation.
+- The Agent knows where you are. It is told the page you are on and what is
+  open in it (the file in the file reader, the Report's section being
+  read); a name written with @ (a study, an analysis, a residue, a frame, a
+  file) is shown as a chip and resolved to the record it names; the turns
+  before the last twelve are kept as what was decided and what is still
+  open, not each by its first sentence; and for a request of several steps
+  the Agent may keep a plan, shown under its reply as a checklist. It can
+  read a file of a study (`read_study_file`). The evaluation's version 2
+  adds a `context` kind of 8 cases, asked with and without the context: 24
+  of 24 passed with it and 9 of 24 without, by `anthropic/claude-opus-5-5`,
+  and both runs are kept in the suite. See `docs/agent.md`, What you are
+  looking at, and what you name, and `docs/validation.md`.
 
 - A ligand file holding several molecules is read as several ligands, each
   prepared as its own, in the order they are written. A molecule is named
