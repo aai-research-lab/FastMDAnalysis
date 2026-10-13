@@ -370,9 +370,14 @@ class TestOneSettingOneFlag(unittest.TestCase):
         import sys
 
         for flag in ("--resume-from", "--extra-ns"):
+            # Decoded as UTF-8, as the command line writes it whatever the
+            # locale. `text=True` alone decodes with this process's locale
+            # encoding, which on macOS was found to be ASCII after an earlier
+            # test had created an OpenMM Context, and the help's dash failed.
             out = subprocess.run([sys.executable, "-m", "fastmdxplora.cli.main",
                                   "simulate", "--help"],
-                                 capture_output=True, text=True, timeout=120).stdout
+                                 capture_output=True, text=True, encoding="utf-8",
+                                 timeout=120).stdout
             self.assertIn(flag, out)
 
     def test_the_subcommands_are_gone(self):
