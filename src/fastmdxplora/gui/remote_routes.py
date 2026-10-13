@@ -197,7 +197,7 @@ def _through_keys(name: Any, root: Path | None = None) -> bool:
     relative."""
     import os
 
-    from fastmdxplora.remote.inputs import _PRIVATE_PARTS, _private, _settings_kept
+    from fastmdxplora.remote.inputs import _PRIVATE_PARTS, _private, own_settings_kept
 
     try:
         named = Path(str(name).strip()).expanduser()
@@ -208,7 +208,8 @@ def _through_keys(name: Any, root: Path | None = None) -> bool:
                 return False
             named = root / named
         named = Path(os.path.normpath(named))
-        kept = _settings_kept()
+        # Keys only: other programs' settings are named by the refusal.
+        kept = own_settings_kept()
         if _private(named, kept):
             return True
         # Each folder on the way, where its links lead.
@@ -673,7 +674,8 @@ class RemoteDesk:
         except (OSError, ValueError, yaml.YAMLError) as exc:
             # What was wrong, without the file's own lines.
             why = getattr(exc, "problem", None) or type(exc).__name__
-            return None, None, _refused(f"{self.shown(file)} could not be read: {why}.")
+            return None, None, _refused(f"{self.shown(file)} could not be read: {why}. "
+                                        "Correct the file and plan it again.")
         requested = str((raw or {}).get("output") or file.with_suffix("")) if isinstance(
             raw, dict) else str(file.with_suffix(""))
         output = self.inside(requested)
@@ -683,8 +685,9 @@ class RemoteDesk:
                                         f"to a new folder inside it.", "remote.input.outside")
         place = kept_place_of(as_given(requested)) or kept_place_of(output)
         if place is not None:
-            return None, None, _refused(kept_place_said(requested, place, results=True),
-                                        "remote.input.outside")
+            return None, None, _refused(
+                kept_place_said(requested, place, results=True, in_gui=True),
+                "remote.input.outside")
         return file, output, None
 
     def _saved(self, state: dict[str, Any]

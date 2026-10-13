@@ -232,11 +232,15 @@ kept where programs keep their settings and tokens, and no results folder
 is fetched into such a place: a folder directly in your home folder whose
 name starts with a dot (`~/.config`, `~/.local`), or that is `AppData` or
 `Library` (its `CloudStorage` and `Mobile Documents` aside); the folders
-`XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `APPDATA` and `LOCALAPPDATA` name; and
-wherever a link from one of these leads (`~/.config/gh -> ~/dotfiles/gh`).
-Each is judged as named and where links lead. Your own folders whose names
-start with a dot deeper down (`~/projects/.runs`) are not such places. The
-link and key checks are made again as the copy starts.
+`XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `APPDATA` and `LOCALAPPDATA` name, where
+they are full paths; and wherever a link in one of these, up to four
+folders down, leads (`~/.config/gh -> ~/dotfiles/gh`, a key a dotfiles
+manager links into `~/.ssh`). Each is judged as named and where links
+lead. Your own folders whose names start with a dot deeper down
+(`~/projects/.runs`) are not such places. A hard link to a key, which no
+path tells apart from any other file, is not caught: keep keys out of a
+study's folder. The link and key checks are made again as the copy
+starts. A results folder refused here is set with `--output`.
 
 **Your defaults travel in the Config.** A `fastmdx-defaults.yml` beside the
 Config or above it fills what the Config leaves unset here, as `explore -c`
@@ -573,7 +577,9 @@ found to be when last inspected.
   or `systems`. A file of keys or settings (a kubeconfig, a list of tokens)
   is none, wherever it is kept and however a link leads to it. Nor is a way
   offered for a config whose name starts with a dot, under a folder whose
-  name starts with a dot (`~/.config`, `~/.local`) or is `AppData`, under
+  name starts with a dot at any depth (`~/.config`, and your own
+  `~/projects/.runs` too, though a config there is still sent once copied
+  out, or from a GUI opened on its folder's parent) or is `AppData`, under
   your home folder's own `Library` (its `CloudStorage` and `Mobile
   Documents` folders aside), in a place keys or settings are kept
   (FastMDXplora's own, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `APPDATA`,

@@ -213,8 +213,22 @@ _SETTINGS_KEPT = ("model.json", "calibration.json", "machines", "jobs", "sockets
 
 
 def _settings_kept() -> tuple[str, ...]:
-    """Where FastMDXplora keeps this person's settings, each resolved: never
-    sent. The settings folder itself may hold a study; only these may not."""
+    """Where settings and keys are kept, each resolved: never sent.
+    FastMDXplora's own (:func:`own_settings_kept`; its settings folder
+    itself may hold a study, only these may not), and other programs' by
+    name or by a link (:func:`_kept_by_name_or_link`)."""
+    return own_settings_kept() + _kept_by_name_or_link()
+
+
+def _own_settings(places: list[Path]) -> tuple[str, ...]:
+    """FastMDXplora's own settings in each of its settings folders."""
+    return tuple(str(settings / name) for settings in dict.fromkeys(places)
+                 for name in _SETTINGS_KEPT)
+
+
+def own_settings_kept() -> tuple[str, ...]:
+    """FastMDXplora's own settings alone (its key, machines, jobs): the
+    places of keys :func:`_settings_kept` holds, without other programs'."""
     from fastmdxplora.user_dir import user_config_dir
 
     places = []
@@ -222,15 +236,12 @@ def _settings_kept() -> tuple[str, ...]:
         places.append(user_config_dir().resolve())
     except (OSError, RuntimeError, ValueError):
         pass
-    # Also where it is found from each home folder, so a wrong `HOME` does
-    # not let the settings under the account's own home travel.
     for home in home_folders():
         try:
             places.append((home / ".config" / "fastmdxplora").resolve())
         except (OSError, RuntimeError, ValueError):
             continue
-    return tuple(str(settings / name) for settings in dict.fromkeys(places)
-                 for name in _SETTINGS_KEPT) + _kept_by_name_or_link()
+    return _own_settings(places)
 
 
 #: Names directly in a home folder where programs keep settings, beside the
@@ -238,16 +249,64 @@ def _settings_kept() -> tuple[str, ...]:
 _HOME_SETTINGS = frozenset({"appdata", "library"})
 #: Folders in the home folder's ``Library`` that hold the person's own files.
 _LIBRARY_FILES = frozenset({"cloudstorage", "mobile documents"})
+#: Folders in a home folder that hold many files and no settings: not looked
+#: through for links.
+_NOT_LOOKED_THROUGH = frozenset({".cache", ".npm", ".cargo", ".rustup", ".conda",
+                                 ".pyenv", ".nvm", ".gradle", ".m2", ".trash",
+                                 ".vscode", ".vscode-server", ".local"})
+#: How deep below each place of settings links are looked for, and how many
+#: entries are looked at in all.
+_LINK_DEPTH = 4
+_LINK_ENTRIES = 100_000
 
 _KEPT_CACHE: dict[tuple, tuple[float, tuple[str, ...]]] = {}
+
+
+def _settings_roots(homes: tuple[Path, ...], named: tuple[str, ...]) -> list[Path]:
+    """The places of settings links are looked for in: each home folder's
+    own entries whose names start with a dot (but the large ones of
+    :data:`_NOT_LOOKED_THROUGH`), its ``AppData`` and ``Library`` (not their
+    cloud folders), ``~/.local/share`` and ``~/.local/state``, and the
+    folders the XDG and APPDATA variables name, where they are full paths."""
+    roots: list[Path] = []
+    for text in named:
+        try:
+            place = Path(text).expanduser()
+        except (RuntimeError, ValueError):
+            continue
+        if text and place.is_absolute():
+            roots.append(place)
+    for home in homes:
+        roots += [home / ".local" / "share", home / ".local" / "state"]
+        try:
+            entries = list(home.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            name = entry.name.casefold()
+            if name.startswith(".") and name not in _NOT_LOOKED_THROUGH:
+                roots.append(entry)
+            elif name == "appdata":
+                roots.append(entry)
+            elif name == "library":
+                try:
+                    roots += [inner for inner in entry.iterdir()
+                              if inner.name.casefold() not in _LIBRARY_FILES]
+                except OSError:
+                    continue
+    return roots
 
 
 def _kept_by_name_or_link() -> tuple[str, ...]:
     """Where settings and keys are kept that no dot names: the folders
     ``XDG_CONFIG_HOME``, ``XDG_DATA_HOME``, ``APPDATA`` and ``LOCALAPPDATA``
-    name, and where links lead from a home folder's settings (``~/.ssh ->
-    ~/dotfiles/ssh``, ``~/.config/gh -> ~/dotfiles/gh``, a single file in
-    one), each resolved. Looked up again after ten seconds at most."""
+    name, and wherever a link in a place of settings leads (``~/.ssh ->
+    ~/dotfiles/ssh``, ``~/.config/gh -> ~/dotfiles/gh``, a key linked in by
+    a dotfiles manager), each resolved, down to :data:`_LINK_DEPTH` folders
+    and :data:`_LINK_ENTRIES` entries; a folder that cannot be read is
+    passed over, not the rest. A place that is a home folder or above it is
+    a mistake, not a place, and is left out. Looked up again after ten
+    seconds at most."""
     homes = tuple(home_folders())
     named = tuple(os.environ.get(name, "") for name in
                   ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "APPDATA", "LOCALAPPDATA"))
@@ -257,35 +316,40 @@ def _kept_by_name_or_link() -> tuple[str, ...]:
     if kept is not None and now - kept[0] < 10:
         return kept[1]
     found: list[Path] = []
-    bases = [Path(text).expanduser() for text in named if text]
-    for home in homes:
-        bases += [home / ".config", home / ".local" / "share"]
-        try:
-            entries = list(home.iterdir())
-        except OSError:
-            entries = []
-        found += [entry for entry in entries if entry.is_symlink() and (
-            entry.name.startswith(".") or entry.name.casefold() in _HOME_SETTINGS)]
-    for base in bases:
-        # A folder named for settings that is a home folder or above it
-        # would keep everything back; such a name is a mistake, not a place.
-        if home_or_above(base.resolve(), home_unknown=True):
-            continue
-        try:
-            found.append(base)
-            for child in base.iterdir():
-                if child.is_symlink():
-                    found.append(child)
-                elif child.is_dir():
-                    found += [inner for inner in child.iterdir() if inner.is_symlink()]
-        except OSError:
-            continue
+    left = _LINK_ENTRIES
+    for root in _settings_roots(homes, named):
+        if root.is_symlink():
+            found.append(root)
+        elif root.name.casefold() in {"appdata"} or str(root).startswith(
+                tuple(str(home / ".local") for home in homes)) or any(
+                str(root) == text for text in named):
+            found.append(root)
+        # Each folder read on its own: one that cannot be read is passed
+        # over, and the links after it are still found.
+        stack = [(root, 0)]
+        while stack and left > 0:
+            folder, depth = stack.pop()
+            try:
+                with os.scandir(folder) as listed:
+                    for entry in listed:
+                        left -= 1
+                        if left <= 0:
+                            break
+                        if entry.is_symlink():
+                            found.append(Path(entry.path))
+                        elif depth + 1 < _LINK_DEPTH and entry.is_dir(follow_symlinks=False):
+                            stack.append((Path(entry.path), depth + 1))
+            except OSError:
+                continue
     places = []
     for place in found:
         try:
-            places.append(str(place.resolve()))
+            resolved = place.resolve()
         except (OSError, RuntimeError, ValueError):
             continue
+        # A link to a home folder or above it would keep everything back.
+        if not home_or_above(resolved, home_unknown=True):
+            places.append(str(resolved))
     kept = tuple(dict.fromkeys(places))
     _KEPT_CACHE.clear()
     _KEPT_CACHE[key] = (now, kept)
@@ -298,10 +362,30 @@ def _private(path: Path, kept: tuple[str, ...] = ()) -> bool:
             pair in _PRIVATE_PAIRS for pair in zip(parts, parts[1:])):
         return True
     # By the path's text: a folder's parents are slow to walk 20,000 times.
-    # Where the disk ignores the case of letters, so does this.
+    # Where the disk ignores the case of letters, so does this. Each folder
+    # above it looked up among the places, not each place tried in turn.
+    places = _places_as_read(kept)
     text = _as_the_disk_reads(str(path))
-    return any(text == place or text.startswith(place + os.sep)
-               for place in map(_as_the_disk_reads, kept))
+    while True:
+        if text in places:
+            return True
+        above = os.path.dirname(text)
+        if above == text:
+            return False
+        text = above
+
+
+_PLACES_READ: dict[tuple[str, ...], frozenset[str]] = {}
+
+
+def _places_as_read(kept: tuple[str, ...]) -> frozenset[str]:
+    """``kept`` as the disk compares names, as a set (the last kept)."""
+    found = _PLACES_READ.get(kept)
+    if found is None:
+        _PLACES_READ.clear()
+        found = _PLACES_READ[kept] = frozenset(
+            os.path.normpath(_as_the_disk_reads(place)) for place in kept)
+    return found
 
 
 def _as_the_disk_reads(text: str) -> str:
@@ -514,16 +598,17 @@ def kept_place_of(path: Path, *, a_file: bool = False) -> Path | None:
         pass
     homes = home_folders()
     for place in places:
-        parts = place.parts[:-1] if a_file else place.parts
+        # The file itself too: a single file a link in a place of keys leads to.
+        parts = place.parts
         for depth in range(1, len(parts) + 1):
             if _private(Path(*parts[:depth]), kept):
                 return Path(*parts[:depth])
-        text = _as_the_disk_reads(str(place))
+        folded = [_as_the_disk_reads(part) for part in place.parts]
         for home in homes:
-            start = _as_the_disk_reads(str(home)) + os.sep
-            if not text.startswith(start):
+            ours = [_as_the_disk_reads(part) for part in home.parts]
+            if folded[:len(ours)] != ours or len(folded) == len(ours):
                 continue
-            rest = Path(str(place)[len(start):]).parts
+            rest = place.parts[len(ours):]
             if len(rest) < (2 if a_file else 1):
                 continue
             first = rest[0]
@@ -546,13 +631,19 @@ def refuse_kept_place(path: Path, *, results: bool = False) -> None:
                      folder=str(place))
 
 
-def kept_place_said(path: Any, place: Path, *, results: bool = False) -> str:
+def kept_place_said(path: Any, place: Path, *, results: bool = False,
+                    in_gui: bool = False) -> str:
     """Why a config or a results folder in a place keys or settings are kept
-    is refused, with what to do instead."""
+    is refused, with what to do instead, where it is said: at the command
+    line, `--output` names the results folder; in the GUI, `output` in the
+    config or the Results box does."""
     if results:
+        how = ("Set `output` in the config, or the Results box, to a folder outside "
+               "such places." if in_gui else
+               "Give `--output` naming a folder outside such places, or send it from "
+               "another folder.")
         return (f"The results folder {path} is in {place}, where keys or settings are "
-                "kept, so nothing is fetched into it. Name a results folder outside "
-                "such places (`--output`, or `output` in the config).")
+                f"kept, so nothing is fetched into it. {how}")
     return (f"The config {path} is in {place}, where keys or settings are kept, so it "
             "is not sent. Put the study's config and its files in a folder of their "
             "own.")
