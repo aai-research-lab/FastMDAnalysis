@@ -190,31 +190,59 @@ _NO_HOME = ("No home folder was found, so nothing is sent from any folder. Set `
             "to your home folder and start the GUI again.")
 
 
-def _through_keys(name: Any) -> bool:
+def _through_keys(name: Any, root: Path | None = None) -> bool:
     """Whether a path as named goes through a place keys and credentials are
-    kept (``.ssh`` and the like), whatever its links lead to."""
-    from fastmdxplora.remote.inputs import _PRIVATE_PARTS
+    kept (``.ssh`` and the like), by a part of its name or by where a link
+    on the way leads (``keys -> ~/.ssh``), read from ``root`` where it is
+    relative."""
+    import os
+
+    from fastmdxplora.remote.inputs import _PRIVATE_PARTS, _private, _settings_kept
 
     try:
-        parts = Path(str(name).strip()).expanduser().parts
-    except (RuntimeError, ValueError):
+        named = Path(str(name).strip()).expanduser()
+        if any(part.casefold() in _PRIVATE_PARTS for part in named.parts):
+            return True
+        if not named.is_absolute():
+            if root is None:
+                return False
+            named = root / named
+        named = Path(os.path.normpath(named))
+        kept = _settings_kept()
+        # Each folder on the way, where its links lead.
+        for depth in range(2, len(named.parts) + 1):
+            if _private(Path(*named.parts[:depth]).resolve(), kept):
+                return True
+    except (OSError, RuntimeError, ValueError):
         return False
-    return any(part.casefold() in _PRIVATE_PARTS for part in parts)
+    return False
 
 
 #: A config read to tell a study's from a file of settings: at most this.
-_CONFIG_READ_BYTES = 1024 * 1024
+_CONFIG_READ_BYTES = 64 * 1024
 
 
 def _a_study_config(file: Path) -> bool:
     """Whether ``file`` holds a study's config: a mapping that names its
     `system` or `systems`, read only up to :data:`_CONFIG_READ_BYTES`."""
+    import os
+    import stat
+
     import yaml
 
     try:
-        if file.stat().st_size > _CONFIG_READ_BYTES:
+        # Opened without waiting, and judged as opened: a pipe put in its
+        # place is never read, and no more than the most is read.
+        handle = os.open(file, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+        with os.fdopen(handle, "rb") as opened:
+            found = os.fstat(opened.fileno())
+            if not stat.S_ISREG(found.st_mode) or found.st_size > _CONFIG_READ_BYTES:
+                return False
+            text = opened.read(_CONFIG_READ_BYTES + 1)
+        if len(text) > _CONFIG_READ_BYTES:
             return False
-        raw = yaml.safe_load(file.read_text(encoding="utf-8"))
+        raw = yaml.load(text.decode("utf-8"),
+                        Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
     except (OSError, ValueError, yaml.YAMLError):
         return False
     return isinstance(raw, dict) and ("system" in raw or "systems" in raw)
@@ -652,8 +680,9 @@ class RemoteDesk:
 
         # A name through a place of keys reads as any name that is no
         # config, wherever its links lead.
-        file = self.inside(config) if config and not _through_keys(config) else None
-        if file is None and config and not _through_keys(config):
+        through = bool(config) and _through_keys(config, self.root)
+        file = self.inside(config) if config and not through else None
+        if file is None and config and not through:
             outside = self._outside(config)
             if outside is not None:
                 found, how = outside
@@ -678,6 +707,18 @@ class RemoteDesk:
         if output is None:
             return None, None, _refused(f"The results folder {requested} is outside "
                                         f"{self._workspace()}.")
+        from fastmdxplora.remote.inputs import kept_place_of
+
+        # In a window on the home folder, its places of settings are inside.
+        for what, path, a_file in (("config", file, True),
+                                   ("results folder", output, False)):
+            place = kept_place_of(path, a_file=a_file)
+            if place is not None:
+                return None, None, _refused(
+                    f"The {what} {self.shown(path)} is in {place}, a place keys or "
+                    "settings are kept, so nothing is sent with it. Put the study's "
+                    "config and its files in a folder of their own, and its results "
+                    "outside such places.", "remote.input.outside")
         return file, output, None
 
     def _saved(self, state: dict[str, Any]
@@ -783,6 +824,8 @@ class RemoteDesk:
             # Nothing is sent from any folder, so nothing more is looked at
             # (a machine's record is found through the home folder too).
             return _refused(_NO_HOME, "remote.input.outside")
+        if not isinstance(state, dict) and not str(config or "").strip():
+            return _refused("No config file was named.")
         if not config and isinstance(state, dict):
             from fastmdxplora.remote.machines import load_machine
 
@@ -878,7 +921,8 @@ class RemoteDesk:
 
         # A name through a place of keys is not followed, even into the
         # routes: what is in such a place is never told.
-        inside = self.inside(str(checked)) is not None and not _through_keys(text)
+        inside = (self.inside(str(checked)) is not None
+                  and not _through_keys(text, started))  # what is in it is not told
         try:
             # A link crossed before a `..` (`.ssh/lnk/../x.yml`), or a name
             # through a folder kept apart by its dot: no way is offered.
@@ -886,7 +930,8 @@ class RemoteDesk:
         except (OSError, RuntimeError, ValueError):
             crossed = True
         dotted = any(part.startswith(".") and part not in (".", "..") for part in given.parts)
-        how = (None if inside or crossed or dotted
+        through = _through_keys(text, started)
+        how = (None if inside or crossed or dotted or through
                else self._how_to_send(checked, started, named=typed))
         # Where a link leads is said only inside the routes.
         shown = checked if inside else typed
@@ -918,13 +963,19 @@ class RemoteDesk:
         else:
             if how is not None:
                 # A config its full path would not reach either: how to send it.
-                it = "The file checked" if said.startswith("Checked") else "The file it names"
+                it = ("The file checked" if said.startswith("Checked")
+                      else f"The file {text} names")
                 return _refused(f"{said} {it} is outside {self._workspace()}, "
-                                "so its full path would be refused too: nothing outside it "
-                                f"is sent from here. {how}", code, given=text)
+                                "so its full path would be refused too: nothing outside "
+                                f"the workspace is sent from here. {how}", code, given=text)
         # Said alike of any other file and of none, so nothing more is told.
-        return _refused(said + " Give the full path of the config to send."
-                        + ("" if inside else self._copy_way()), code, given=text)
+        copy = "" if inside else self._copy_way()
+        if copy:
+            # The full path of a file outside would be refused too.
+            return _refused(said + " Give the full path of a config in the workspace, or,"
+                            + copy.replace(" To send", " to send", 1), code, given=text)
+        return _refused(said + " Give the full path of the config to send.", code,
+                        given=text)
 
     def _plan(self, config: Any, machine: Any) -> dict[str, Any]:
         from fastmdxplora.remote.send import room_said, sent_digest, travelling

@@ -87,6 +87,7 @@ from fastmdxplora.remote.inputs import (
     link_out_of,
     private_in,
     refuse_home_or_above,
+    refuse_kept_place,
     size_of,
 )
 from fastmdxplora.remote.jobs import (
@@ -457,12 +458,16 @@ def prepare(config_path: str | Path, machine_name: str, *,
     # Before your defaults are looked for, up to the home folder: where
     # none can be found, or the config is in it, nothing travels.
     refuse_home_or_above(config_path.resolve().parent)
+    refuse_kept_place(config_path)
     defaults_note = ""
     if isinstance(raw, dict):
         raw, defaults_note = _with_your_defaults(raw, config_path)
     # Before the machine is reached: a file that may not travel is refused
     # here, having connected to nothing.
     inputs = gather_inputs(raw, config_path.resolve().parent)
+    if output:
+        # Results are fetched there: never into a place keys are kept.
+        refuse_kept_place(Path(output), results=True)
 
     machine = load_machine(machine_name)
     link = transport or Transport(machine_name)
@@ -522,6 +527,7 @@ def prepare(config_path: str | Path, machine_name: str, *,
     # Absolute, so the record says the same folder whatever folder a later
     # caller asks from.
     local_output = str((Path(output) if output else Path.cwd() / name).resolve())
+    refuse_kept_place(Path(local_output), results=True)
     found = machine.inspection
     base = found.scratch or found.home
     remote_dir = f"{base}/fastmdxplora-jobs/{name}"

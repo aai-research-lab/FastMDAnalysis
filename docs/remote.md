@@ -227,8 +227,11 @@ since its folder could be your home folder (set `HOME` and send it again);
 and nothing in a place keys and credentials are kept (`.ssh`,
 `.gnupg`, `.aws`, `.kube` and the like, and FastMDXplora's own settings) is
 ever sent: a folder that travels is refused if one is anywhere in it, reached
-directly or through a link. The link and key checks are made again as the copy
-starts.
+directly or through a link. Nor is a Config kept in such a place, or in a
+folder of your home folder whose name starts with a dot (`~/.config/<tool>`,
+`~/.local`) or is `AppData`, where other programs keep their settings and
+tokens, as named or where a link leads; and no results folder is fetched
+into one. The link and key checks are made again as the copy starts.
 
 **Your defaults travel in the Config.** A `fastmdx-defaults.yml` beside the
 Config or above it fills what the Config leaves unset here, as `explore -c`
@@ -552,7 +555,8 @@ found to be when last inspected.
   gone: give its full path. Where the file checked is outside the folders
   the routes reach, its full path would be refused too, so the refusal
   says so and names the ways to send it: open the GUI on its folder (`cd`
-  there, then `fastmdx gui` with no `--output`), or copy it, with the files
+  there, then `fastmdx gui` with no `--output`; or, started there with
+  `--output`, start it again without), or copy it, with the files
   it names, into a new folder inside the folder the GUI was opened on and
   give its full path there. A way that would be refused in turn is left
   out: opening the GUI on a config's folder that is your home folder or
@@ -560,7 +564,7 @@ found to be when last inspected.
   the top of a disk. A config named by its full path outside those folders
   is refused (`remote.input.outside`) with the same ways.
 - **Files kept apart.** A way of its own is offered only for a study's
-  config: a `.yml` or `.yaml` file of at most 1 MiB that names its `system`
+  config: a `.yml` or `.yaml` file of at most 64 KiB that names its `system`
   or `systems`. A file of keys or settings (a kubeconfig, a list of tokens)
   is none, wherever it is kept and however a link leads to it. Nor is a way
   offered for a config whose name starts with a dot, under a folder whose

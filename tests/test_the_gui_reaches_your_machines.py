@@ -489,8 +489,8 @@ class TestTheConfigBuilder:
         assert f"is {(started / 'up' / 'study.yml').resolve()};" in up["error"]
         # remote-b5's round 1: the copy way was reached only a step later.
         assert up["error"].endswith(
-            "Give the full path of the config to send. To send a config kept elsewhere, "
-            "copy it, with the files it names, into a new folder inside "
+            "Give the full path of a config in the workspace, or, to send a config kept "
+            "elsewhere, copy it, with the files it names, into a new folder inside "
             f"{root} and give its full path there.")
         assert (f"a plan reads a relative name only inside the folder the GUI "
                 f"was opened on ({root}), and ../up/study.yml leads out of it.") in up["error"]
@@ -621,8 +621,9 @@ class TestTheConfigBuilder:
                 f"Checked from the folder the GUI was started in ({keys.resolve()}), {name} "
                 f"is {keys.resolve() / name}; a plan reads it from the folder the GUI was "
                 f"opened on ({root}), where there is no such file. Give the full path of "
-                "the config to send. To send a config kept elsewhere, copy it, with the files "
-                f"it names, into a new folder inside {root} and give its full path there."), name
+                "a config in the workspace, or, to send a config kept elsewhere, copy it, "
+                f"with the files it names, into a new folder inside {root} and give its full "
+                "path there."), name
         assert not _sent(machine)
 
     def test_a_config_kept_by_the_home_folder_is_told_only_to_be_copied(
@@ -874,7 +875,12 @@ class TestTheConfigBuilder:
         _, said = _ask(address, "/api/remote/plan", {"config": "../far/c.yml", "machine": "box"})
         assert said["error"].startswith(
             f"A plan reads a relative name only inside the folder the GUI was opened on "
-            f"({root}), and ../far/c.yml leads out of it. The file it names is outside")
+            f"({root}), and ../far/c.yml leads out of it. The file ../far/c.yml names is "
+            f"outside the workspace ({root}), so its full path would be refused too: nothing "
+            "outside the workspace is sent from here.")
+        # remote-b5's round 3: a blank name read as " is not a config file".
+        _, blank = _ask(address, "/api/remote/plan", {"config": "  ", "machine": "box"})
+        assert blank["error"] == "No config file was named."
 
     def test_a_window_on_the_home_folder_is_told_the_copy_way(
             self, machine, tmp_path, monkeypatch):
@@ -897,6 +903,110 @@ class TestTheConfigBuilder:
         above = RemoteDesk(DashboardRuntime(workspace_root=home.parent,
                                             exploration_root=home.parent))
         assert "To send" not in above.plan(str(tmp_path / "far" / "none.yml"), "box")["error"]
+
+    def test_a_config_or_results_in_a_place_of_settings_never_travel(
+            self, served, tmp_path, monkeypatch):
+        """remote-b5's round 3: in a window opened on the home folder, a
+        settings file there (`~/.config/gh/hosts.yml`) was planned and sent
+        as a study's config, token and all, and so was a config reached
+        through a link to `.ssh`; a results folder in `.ssh` was planned
+        too, for a fetch to fill. The same from the command line."""
+        import pwd
+
+        from fastmdxplora.refusals import refusal_of
+        from fastmdxplora.remote import send
+
+        _, machine = served
+        home = (tmp_path / "account").resolve()
+        study = machine.study.read_text()
+        (home / ".config" / "gh").mkdir(parents=True)
+        (home / ".config" / "gh" / "hosts.yml").write_text(study)
+        (home / ".config" / "doctl").mkdir()
+        (home / ".config" / "doctl" / "config.yaml").write_text(study)
+        (home / ".ssh").mkdir()
+        (home / ".ssh" / "c.yml").write_text(study)
+        (home / "proj").mkdir()
+        (home / "proj" / "keys").symlink_to(home / ".ssh")
+        (home / "proj" / "c.yml").write_text(study + f"output: {home / '.ssh' / 'run'}\n")
+        for name in ("top.pdb",):
+            for folder in (home / ".config" / "gh", home / ".config" / "doctl",
+                           home / ".ssh", home / "proj"):
+                (folder / name).write_text((machine.study.parent / name).read_text())
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        desk = RemoteDesk(DashboardRuntime(workspace_root=home, exploration_root=home.parent))
+        # A place of keys by name (`.config/gh`) or by a link on the way is
+        # not looked into: it reads as no config file. Others say the place.
+        for named in (home / ".config" / "gh" / "hosts.yml",
+                      home / "proj" / "keys" / "c.yml"):
+            said = desk.plan(str(named), "box")
+            assert said["ok"] is False and "is not a config file in" in said["error"], named
+        for named in (home / ".config" / "doctl" / "config.yaml", home / "proj" / "c.yml"):
+            said = desk.plan(str(named), "box")
+            assert said["ok"] is False and said["code"] == "remote.input.outside", named
+            assert "a place keys or settings are kept" in said["error"], named
+        assert not _sent(machine)
+        # The command line refuses them as well, config and results.
+        for config, output in ((home / ".config" / "gh" / "hosts.yml", None),
+                               (home / "proj" / "keys" / "c.yml", None),
+                               (machine.study, str(home / ".ssh" / "run"))):
+            with pytest.raises(Exception) as caught:
+                send.prepare(config, "box", output=output)
+            found = refusal_of(caught.value)
+            assert found.code == "remote.input.outside", config
+            assert "a place keys or settings are kept" in found.message, config
+
+    def test_a_name_through_a_link_into_a_place_of_keys_is_not_followed(
+            self, served, tmp_path, monkeypatch):
+        """remote-b5's round 3: a name through a link to `.ssh` with no dot
+        in its own parts (`proj/keys/lnk/x.yml`, `keys -> ~/.ssh`) was
+        followed into the routes, and told what is in `.ssh`."""
+        address, machine = served
+        root = machine.study.parent.resolve()
+        home = tmp_path / "home"
+        (home / ".ssh").mkdir(parents=True)
+        (home / ".ssh" / "lnk").symlink_to(root)
+        (home / "proj").mkdir()
+        (home / "proj" / "keys").symlink_to(home / ".ssh")
+        monkeypatch.chdir(home)
+        answers = set()
+        for link in ("lnk", "none"):
+            _, said = _ask(address, "/api/remote/plan", {
+                "config": f"proj/keys/{link}/study.yml", "machine": "box"})
+            assert said["ok"] is False, link
+            answers.add(said["error"].replace(link, "NAME"))
+            _, full = _ask(address, "/api/remote/plan", {
+                "config": str(home / "proj" / "keys" / link / "study.yml"), "machine": "box"})
+            assert "is not a config file in" in full["error"], link
+        assert len(answers) == 1, answers
+        assert not _sent(machine)
+
+    def test_a_config_is_judged_without_waiting_or_reading_much(self, tmp_path):
+        """remote-b5's round 3: a config outside the routes was read whole
+        once its size was seen, so a file grown since was read in full and a
+        pipe put in its place held the request."""
+        import os
+
+        from fastmdxplora.gui.remote_routes import _CONFIG_READ_BYTES, _a_study_config
+
+        pipe = tmp_path / "c.yml"
+        os.mkfifo(pipe)
+        said: list[bool] = []
+        # In a thread, so a read held by the pipe fails the test, not the run.
+        reading = threading.Thread(target=lambda: said.append(_a_study_config(pipe)),
+                                   daemon=True)
+        reading.start()
+        reading.join(timeout=5)
+        assert said == [False], "held by a pipe"
+        big = tmp_path / "big.yml"
+        big.write_text("systems: []\n" + "# x\n" * _CONFIG_READ_BYTES)
+        assert _a_study_config(big) is False
+        small = tmp_path / "small.yml"
+        small.write_text("systems: [{system: 1UBQ}]\n")
+        assert _a_study_config(small) is True
 
     def test_a_send_from_the_command_line_with_no_home_found_says_so(
             self, machine, tmp_path, monkeypatch):

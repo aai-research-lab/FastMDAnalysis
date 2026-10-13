@@ -46,7 +46,8 @@ from typing import Any
 from fastmdxplora.refusals import StudyError
 
 __all__ = ["Inputs", "fingerprint_of", "gather_inputs", "link_out_of", "outside_said",
-           "private_in", "refuse_home_or_above", "size_of"]
+           "kept_place_of", "private_in", "refuse_home_or_above", "refuse_kept_place",
+           "size_of"]
 
 #: Settings that name where results go rather than something to read.
 _NOT_INPUTS = frozenset({"output"})
@@ -434,6 +435,49 @@ def outside_said(where: str, given: str, found: Path, folder: Path,
                    else "")
                 + ".")
     return said
+
+
+def kept_place_of(path: Path, *, a_file: bool = False) -> Path | None:
+    """The place keys or settings are kept that ``path`` is in, as named or
+    where its links lead, or None: one of :data:`_PRIVATE_PARTS` or the
+    pairs, FastMDXplora's own settings, or, inside a home folder, a folder
+    whose name starts with a dot (``~/.config/<tool>``, ``~/.local``) or
+    ``AppData``; of ``a_file``, its folders only. A study's config there,
+    or its results, never travel."""
+    kept = _settings_kept()
+    places = [Path(os.path.normpath(path))]
+    try:
+        places.append(path.resolve())
+    except (OSError, RuntimeError, ValueError):
+        pass
+    homes = home_folders()
+    for place in places:
+        if _private(place, kept):
+            return place
+        for home in homes:
+            try:
+                rest = place.relative_to(home).parts
+            except ValueError:
+                continue
+            for depth, part in enumerate(rest[:-1] if a_file else rest):
+                if part.startswith(".") or part.casefold() == "appdata":
+                    return home.joinpath(*rest[:depth + 1])
+    return None
+
+
+def refuse_kept_place(path: Path, *, results: bool = False) -> None:
+    """Refuse (``remote.input.outside``) a config kept in a place keys or
+    settings are kept (:func:`kept_place_of`), which would travel as the
+    study's config, or a results folder there, which a fetch would fill."""
+    place = kept_place_of(Path(path), a_file=not results)
+    if place is None:
+        return
+    what = "results folder" if results else "config"
+    raise StudyError(
+        f"The {what} {path} is in {place}, a place keys or settings are kept, so "
+        "nothing is sent with it. Put the study's config and its files in a folder "
+        "of their own, and its results outside such places.",
+        code="remote.input.outside", given=str(path), where="", folder=str(place))
 
 
 def refuse_home_or_above(folder: Path) -> None:
