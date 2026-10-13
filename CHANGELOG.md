@@ -26,6 +26,15 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   is dropped, the transfer is cut short, or RCSB answers 429 or 5xx. A study
   stopped by such a failure is told so, not that the machine may have no route
   to the internet.
+- The Report and its Methods say what the records hold. Methods now states
+  that frames whose statistical inefficiency, before the correction for the
+  sample mean, is under 2 are given an error without spanning 25
+  statistical inefficiencies, as the estimator already did; a withheld error
+  says so too. A count of
+  independent samples under one is said as fewer than one, not 0. An
+  analysis's parameters and its findings are two lists, rendered as lists. A
+  run on the CPU platform is not said to have used the precision it asked
+  for, which only the GPU platforms take.
 
 ## [2.6.0] - 2026-10-11
 

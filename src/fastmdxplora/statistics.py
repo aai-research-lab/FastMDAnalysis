@@ -83,6 +83,13 @@ MINIMUM_EFFECTIVE_SAMPLES = 10.0
 #: to 41% at random and passed the ones whose estimate had read low.
 RESOLVED_SAMPLES = 25.0
 
+#: Frames this close to independent (a statistical inefficiency, as first
+#: estimated and before :func:`_for_the_mean`'s correction, under this) have
+#: no correlation time for a longer run to pin down, so they are not held to
+#: :data:`RESOLVED_SAMPLES`: their error may be given at fewer independent
+#: samples than that, never fewer than :data:`MINIMUM_EFFECTIVE_SAMPLES`.
+UNCORRELATED_INEFFICIENCY = 2.0
+
 #: Equilibration is detected as the latest start that keeps at least this
 #: share of the most independent samples any start keeps. The start that
 #: keeps the most leaves the most of a relaxation in the mean: on a transient
@@ -329,8 +336,9 @@ def _corrected_for_the_mean(g: float, pairs: int, n: int) -> tuple[float, float]
 
 
 def correlation_is_resolved(series: np.ndarray) -> bool:
-    """Whether the series is long enough to measure its own correlation time:
-    at least :data:`RESOLVED_SAMPLES` times its inefficiency.
+    """Whether the series is long enough to resolve its own correlation time:
+    at least :data:`RESOLVED_SAMPLES` times its inefficiency, or so little
+    correlated that its inefficiency is under :data:`UNCORRELATED_INEFFICIENCY`.
 
     A run shorter than a few times its correlation time reads that time low,
     and its own error with it: on an AR(1) series with a true inefficiency of
@@ -358,7 +366,7 @@ def correlation_is_resolved(series: np.ndarray) -> bool:
 
     # Nothing to resolve. Frames this close to independent have no
     # correlation time for a longer run to pin down.
-    if statistical_inefficiency(values) < 2.0:
+    if statistical_inefficiency(values) < UNCORRELATED_INEFFICIENCY:
         return True
     g, _dof = _for_the_mean(values)
     return values.size / g >= RESOLVED_SAMPLES
@@ -533,7 +541,7 @@ def _summary(
             if whole > error:
                 error, dof = whole, dof_whole
     effective = (spread / error) ** 2 if error > 0.0 else kept.size / g
-    resolved = raw < 2.0 or effective >= RESOLVED_SAMPLES
+    resolved = raw < UNCORRELATED_INEFFICIENCY or effective >= RESOLVED_SAMPLES
 
     equilibrated = Equilibrated(
         discard=discard,
@@ -558,7 +566,9 @@ def _summary(
             f"This run is not long against its own correlation time: "
             f"{kept.size} frames hold {effective:.1f} independent samples by "
             f"their own estimate, and a correlated run shorter than "
-            f"{RESOLVED_SAMPLES:g} of them reads its correlation time low. "
+            f"{RESOLVED_SAMPLES:g} of them reads its correlation time low (only frames "
+            "whose statistical inefficiency, before the correction for the sample "
+            f"mean, is under {UNCORRELATED_INEFFICIENCY:g} are exempt). "
             "That count is an upper bound, so an error computed from it would "
             "be a lower bound -- and none is reported here rather than one "
             "that is wrong in a knowable direction. On ten replicas of one "
