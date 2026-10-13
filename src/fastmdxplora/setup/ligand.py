@@ -19,6 +19,7 @@ opaque ImportError, so the setup phase can degrade gracefully.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -519,6 +520,224 @@ def _hydrogen_parents(molecule: Any, positions: Any,
     return parents
 
 
+#: A residue name as a PDB file and the force fields write it: one to three
+#: letters or digits.
+_NAME = re.compile(r"[A-Za-z0-9]{1,3}")
+
+#: A title taken as a residue name: one to three letters or digits, the first
+#: a letter, since `resname 07` is not a selection MDTraj can read.
+_TITLE_NAME = re.compile(r"[A-Za-z][A-Za-z0-9]{0,2}")
+
+#: Residue names a molecule's title is never given as its own: the standard
+#: residues of proteins and nucleic acids, their caps, water and the ions.
+#: A ligand called ALA, HOH or CL would be selected with the protein, the
+#: solvent or the ions by every analysis that selects by residue name.
+_STANDARD_RESIDUES = frozenset({
+    "ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE",
+    "LEU", "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL",
+    "SEC", "PYL", "ACE", "NME", "NMA", "UNK",
+    "HID", "HIE", "HIP", "HSD", "HSE", "HSP", "ASH", "GLH", "LYN", "CYM",
+    "CYX", "MSE", "SEP", "TPO", "PTR",
+    "DA", "DC", "DG", "DT", "DI", "DU", "A", "C", "G", "U", "I", "T",
+})
+
+
+def _polymer_water_and_ion_names() -> frozenset[str]:
+    """The names that are never a ligand: the residues of proteins and
+    nucleic acids, their caps and variants, water and the ions."""
+    from fastmdxplora.protein_names import PROTEIN_VARIANTS
+    from fastmdxplora.setup.heterogens import ION_NAMES, WATER_NAMES
+
+    return _STANDARD_RESIDUES | PROTEIN_VARIANTS | ION_NAMES | WATER_NAMES
+
+
+def _reserved_names() -> frozenset[str]:
+    """The names a title is not taken as: those above, and every name
+    MDTraj's `protein` keyword selects, some of which are cofactors (SAH)."""
+    reserved = _polymer_water_and_ion_names()
+    try:
+        # Every name MDTraj's `protein` keyword selects.
+        from mdtraj.core.residue_names import _PROTEIN_RESIDUES
+    except ImportError:
+        return reserved
+    return reserved | frozenset(_PROTEIN_RESIDUES)
+
+
+def _generated_names():
+    """Residue names for molecules whose title cannot be one: L01 to L99,
+    then LA0 to LZZ."""
+    for number in range(1, 100):
+        yield f"L{number:02d}"
+    digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    for first in digits[10:]:
+        for second in digits:
+            yield f"L{first}{second}"
+
+
+def _split_records(text: str, suffix: str) -> list[str]:
+    """The molecules of an SDF or MOL2 text, each as its own record.
+
+    Done on the text rather than through the toolkit, so a file is divided
+    before OpenFF is needed and each record reaches the toolkit exactly as it
+    was written.
+    """
+    if suffix == ".sdf":
+        # Each record keeps its own `$$$$` line, so the blank line that ends
+        # its last data item stays; only a last record written without one
+        # is given it.
+        records: list[str] = []
+        start = 0
+        for end in re.finditer(r"(?m)^\$\$\$\$[^\n]*(?:\n|\Z)", text):
+            record = text[start:end.end()]
+            if text[start:end.start()].strip():
+                records.append(record if record.endswith("\n") else record + "\n")
+            start = end.end()
+        rest = text[start:]
+        if rest.strip():
+            records.append(rest + ("" if rest.endswith("\n") else "\n") + "$$$$\n")
+        return records
+    parts = re.split(r"(?m)^(?=@<TRIPOS>MOLECULE)", text)
+    return [r for r in parts if r.startswith("@<TRIPOS>MOLECULE")]
+
+
+def _record_title(record: str, suffix: str) -> str:
+    """The molecule's own name: an SDF record's first line, a MOL2
+    molecule's line after `@<TRIPOS>MOLECULE`."""
+    lines = record.splitlines()
+    if suffix == ".sdf":
+        return lines[0].strip() if lines else ""
+    return lines[1].strip() if len(lines) > 1 else ""
+
+
+def title_can_name(name: str) -> bool:
+    """Whether a molecule's title can be its residue name."""
+    return bool(_TITLE_NAME.fullmatch(name)) and name.upper() not in _reserved_names()
+
+
+def _as_name(stem: str) -> str:
+    """The residue name a file's stem gives its ligand, as preparation reads it."""
+    return stem.strip().upper()[:3] or "LIG"
+
+
+def expand_ligand_files(ligands: Any, out_dir: str | Path,
+                        told: list[str] | None = None,
+                        named: bool = False) -> Any:
+    """Give every molecule its own file, so a file of several reads as several.
+
+    A list of N files is already N ligands; one file holding N molecules is
+    the same thing written differently, and is divided here into the files it
+    would otherwise have been supplied as, in the order the molecules are
+    written. Everything after this sees one molecule per file, which is what
+    :func:`load_ligand` and the system build expect.
+
+    Each new file is named for its molecule's title where that is a usable
+    residue name: one to three letters or digits, not a standard residue,
+    water or ion name, and not shared with another molecule being divided.
+    The others are named ``L01``, ``L02`` ... in turn, skipping every name
+    already in use. The file stem becomes the residue name, so the names
+    differ; a title that is the name of a ligand supplied as its own file is
+    refused (``setup.ligand.names_collide``), since whether the two are the
+    same component cannot be told from the files.
+
+    ``told`` collects one sentence per divided file, for the person.
+    ``named`` says the caller gives every ligand its residue name, so a title
+    that is a whole file's name is no clash.
+
+    Returns ``ligands`` itself, unchanged, when no file holds more than one
+    molecule.
+    """
+    as_list = [ligands] if isinstance(ligands, (str, Path)) else list(ligands)
+    divided: dict[int, tuple[Path, str, list[str], list[str]]] = {}
+    for index, entry in enumerate(as_list):
+        path = Path(entry).expanduser()
+        suffix = path.suffix.lower()
+        if suffix not in (".sdf", ".mol2") or not path.is_file():
+            continue                   # load_ligand says what is wrong with it
+        # The bytes as written, whatever their encoding: a record reaches the
+        # toolkit as it was in the file.
+        with open(path, encoding="utf-8", errors="surrogateescape",
+                  newline="") as handle:
+            text = handle.read()
+        records = _split_records(text, suffix)
+        if len(records) > 1:
+            divided[index] = (path, suffix, records,
+                              [_record_title(r, suffix) for r in records])
+    if not divided:
+        return ligands
+
+    # The names the files supplied whole give their ligands.
+    whole = {index: _as_name(Path(entry).expanduser().stem)
+             for index, entry in enumerate(as_list) if index not in divided}
+    taken = set(whole.values())
+    reserved = _reserved_names()
+    titles = [title.upper() for _, _, _, found in divided.values()
+              for title in found if _TITLE_NAME.fullmatch(title)]
+    usable = {t for t in titles
+              if titles.count(t) == 1 and t not in reserved}
+    clashing = sorted(usable & taken)
+    if clashing and not named:
+        said = (f"A molecule in a ligand file of several is called "
+                f"{clashing[0]}, the name a ligand supplied as its own file "
+                "already takes" if len(clashing) == 1 else
+                f"Molecules in a ligand file of several are called "
+                f"{', '.join(clashing)}, names ligands supplied as their own "
+                "files already take")
+        raise LigandError(
+            f"{said}. Two different "
+            "molecules cannot share a residue name, and whether these are "
+            "one component cannot be told from the files. Give the molecule "
+            "another title in its file (an SDF record's first line, a MOL2 "
+            "molecule's line after @<TRIPOS>MOLECULE), or rename the other "
+            "file."
+        , code="setup.ligand.names_collide", names=clashing,
+            option="setup.ligand")
+    if named:
+        usable -= taken
+    taken |= usable
+    fresh = (name for name in _generated_names()
+             if name not in taken and name not in reserved)
+
+    out_dir = Path(out_dir)
+    out: list[str] = []
+    for index, entry in enumerate(as_list):
+        if index not in divided:
+            out.append(str(entry))
+            continue
+        path, suffix, records, found = divided[index]
+        out_dir.mkdir(parents=True, exist_ok=True)
+        parts: list[str] = []
+        for number, (record, title) in enumerate(zip(records, found), start=1):
+            name = title.upper() if title.upper() in usable else next(fresh, None)
+            if name is None:
+                raise LigandError(
+                    "The ligand files hold more molecules than there are "
+                    "residue names to give them. A ligand file is a few "
+                    "molecules beside a protein; a library of compounds is "
+                    "studied one study at a time."
+                , code="setup.ligand.too_many_molecules",
+                    option="setup.ligand")
+            target = out_dir / f"{name}{suffix}"
+            with open(target, "w", encoding="utf-8", errors="surrogateescape",
+                      newline="") as handle:
+                handle.write(record)
+            out.append(str(target))
+            if title.upper() == name:
+                parts.append(name)
+            elif title:
+                shown = title.encode("utf-8", "surrogateescape").decode(
+                    "utf-8", "replace")
+                parts.append(f"'{shown}' as {name}")
+            else:
+                parts.append(f"molecule {number} (untitled) as {name}")
+        sentence = (f"The ligand file {path.name} holds {len(records)} "
+                    f"molecules, each prepared as its own ligand: "
+                    f"{', '.join(parts)}.")
+        logger.info("%s", sentence)
+        if told is not None:
+            told.append(sentence)
+    return out
+
+
 def load_ligand(
     ligand_file: str | Path,
     *,
@@ -583,15 +802,14 @@ def load_ligand(
             f"Ensure the SDF/MOL2 has explicit hydrogens and bond orders."
         , code="setup.ligand.unreadable", path=str(path)) from exc
 
-    # Molecule.from_file may return a list when the file holds multiple
-    # molecules; a single ligand is parameterized for now (the config is
-    # list-shaped so multi-ligand support can layer on later).
+    # A file of several molecules is divided by :func:`expand_ligand_files`
+    # before it gets here, so a list means a caller reached this directly.
     if isinstance(molecule, list):
         if len(molecule) != 1:
             raise LigandError(
                 f"Ligand file {path.name!r} contains {len(molecule)} "
-                f"molecules; provide a single-molecule SDF/MOL2 (multi-ligand "
-                f"support is not yet implemented)."
+                f"molecules, and this loads one at a time; pass it through the "
+                f"setup phase, or divide it with expand_ligand_files."
             , code="setup.ligand.multiple_molecules", path=str(path), count=len(molecule))
         molecule = molecule[0]
 

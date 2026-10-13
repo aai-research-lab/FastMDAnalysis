@@ -20,7 +20,26 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   and `--replay` reads a gzipped run. See `docs/validation.md`, The Agent's
   evaluation.
 
+- A ligand file holding several molecules is read as several ligands, each
+  prepared as its own, in the order they are written. A molecule is named
+  for its title (an SDF record's first line, a MOL2 molecule's line after
+  `@<TRIPOS>MOLECULE`) when that is one to three letters or digits starting
+  with a letter, not shared by another molecule, and not the name of a
+  protein or nucleic acid residue, water or ion; otherwise `L01`, `L02` and
+  on, skipping names in use. A molecule takes its pose from the structure's
+  residue of its name, so the study says how each file was divided, and
+  which molecules take their pose from the file where the structure holds a
+  ligand none of them is named for. One `ligand_net_charge` for several
+  molecules is refused, and so is a title that is the name of a ligand given
+  as its own file (`setup.ligand.names_collide`). The analyses select every
+  ligand of a study with several.
+
 ### Fixed
+
+- Two or more ligand files given without `ligand_name` are named from their
+  files. The default `LIG` was counted as one name given for all of them, and
+  the study was refused. A study run again from its own `resolved_config.yml`
+  is named the same way.
 
 - A structure fetched from RCSB is tried up to three times when the connection
   is dropped, the transfer is cut short, or RCSB answers 429 or 5xx. A study

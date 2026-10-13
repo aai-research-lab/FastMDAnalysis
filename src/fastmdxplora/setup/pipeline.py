@@ -569,6 +569,57 @@ def _keep_heterogens(params: dict, input_pdb) -> bool:
 
 
 
+def _poses_from_the_file(names: list[str], divided: list[bool], input_pdb: Any,
+                         policy: Any) -> str | None:
+    """Say which molecules divided from a ligand file will take their pose
+    from the file, where the structure holds a ligand no ligand is named for.
+
+    ``names`` are the residue names preparation gives the ligands, in order;
+    ``divided`` marks those divided from a file of several.
+
+    A ligand takes its pose from the structure's residue of its name. A
+    molecule named L01 because its title was not a residue name finds none,
+    and keeps the file's coordinates; an ideal geometry is then wherever it
+    happens to lie, not in the site. That is said, with how to name it.
+    """
+    if not any(divided) or str(policy or "").strip().lower() == "file":
+        return None
+    from fastmdxplora.setup.ligand import _polymer_water_and_ion_names, title_can_name
+
+    try:
+        lines = Path(input_pdb).read_text(errors="replace").splitlines()
+    except (OSError, TypeError):
+        return None
+    held = {line[17:20].strip().upper() for line in lines
+            if line.startswith("HETATM")}
+    held -= _polymer_water_and_ion_names()
+    unmatched = sorted(held - set(names))
+    without = [n for n, cut in zip(names, divided) if cut and n not in held]
+    if not unmatched or not without:
+        return None
+    one = len(without) == 1
+    said = (f"The structure holds {', '.join(unmatched)}, and no molecule "
+            f"divided from the ligand file is named for "
+            f"{'it' if len(unmatched) == 1 else 'them'}: {', '.join(without)} "
+            f"{'takes its pose' if one else 'take their poses'} from the file.")
+    titled = [n for n in unmatched if title_can_name(n)]
+    filed = [n for n in unmatched if not title_can_name(n)]
+    where = "it is" if one else "one of them is"
+    if titled:
+        said += (f" Where {where} the structure's {' or '.join(titled)}, give "
+                 "it that residue name as its title in the file (an SDF "
+                 "record's first line, a MOL2 molecule's line after "
+                 "@<TRIPOS>MOLECULE), so it is placed where the structure has "
+                 "it.")
+    if filed:
+        said += (f" A title cannot name {' or '.join(filed)} (the name starts "
+                 "with a digit, or MDTraj selects it as protein); where "
+                 f"{where} that molecule, supply it as its own file named for "
+                 f"it ({filed[0]}.sdf), as the ligands retrieved for a "
+                 "structure are.")
+    return said
+
+
 def _explicit_ligand_resnames(params: dict) -> tuple[str, ...]:
     """Component codes for chemistry the caller supplied by hand.
 
@@ -1390,6 +1441,62 @@ def _run(
         _write_manifest(setup_dir, orchestrator, input_form, params, artifacts, notes)
         raise
 
+    # A file holding several molecules is several ligands. It is divided here,
+    # once, so everything after sees one molecule per file.
+    if params.get("ligand"):
+        from fastmdxplora.setup.ligand import _as_name, expand_ligand_files
+
+        # `ligand_name` carries a default, and a default counted as a name
+        # given for every ligand, so two files with no names were refused for
+        # having one. The default is in the resolved config a study writes,
+        # so the default read back is not a name given either: one name for
+        # several ligands is refused in any case.
+        given = options.get("ligand_name") or options.get("ligand_resname")
+        if isinstance(given, str) and given.strip().upper() == DEFAULTS["ligand_name"]:
+            given = None
+        told: list[str] = []
+        ligands_dir = Path(setup_dir) / "ligands"
+        expanded = expand_ligand_files(params["ligand"], ligands_dir, told=told,
+                                       named=isinstance(given, (list, tuple)))
+        if expanded is not params["ligand"]:
+            charge = params.get("ligand_net_charge")
+            if charge is not None and not isinstance(charge, (list, tuple)):
+                # One number cannot be right for several different molecules,
+                # and applying it to each would be a guess.
+                raise StudyError(
+                    f"`ligand_net_charge` is {charge}, a single number, but "
+                    f"the ligand files hold {len(expanded)} molecules. Leave "
+                    "`ligand_net_charge` out, and each molecule's own formal "
+                    "charges decide its charge."
+                , code="config.option.conflicting",
+                    options=["ligand_net_charge", "ligand"], context="setup")
+            params["ligand"] = expanded
+        # Unless the caller named them, several ligands are named by their
+        # files (the molecules' own names), as `_auto_ligands` names those
+        # it retrieves, so the setup record and the steps after it read them.
+        if (isinstance(params["ligand"], (list, tuple)) and len(params["ligand"]) > 1
+                and not given):
+            params["ligand_name"] = [_as_name(Path(str(f)).stem)
+                                     for f in params["ligand"]]
+            if params.get("ligand_resname"):
+                params["ligand_resname"] = None
+        if told:
+            # The names preparation will give them: the caller's, or the files'.
+            names = params.get("ligand_name")
+            if not isinstance(names, (list, tuple)) or len(names) != len(expanded):
+                names = [_as_name(Path(str(f)).stem) for f in expanded]
+            unplaced = _poses_from_the_file(
+                [str(n).strip().upper() for n in names],
+                [Path(f).parent == ligands_dir for f in expanded],
+                input_pdb, params.get("ligand_pose"))
+            if unplaced:
+                notes.append(unplaced)
+            if presenter:
+                for sentence in told:
+                    presenter.step(sentence)
+                if unplaced:
+                    presenter.step(unplaced, status="warning")
+
     # With the auto policy, the structure decides what to simulate and the
     # chemistry it omits is retrieved before preparation runs, so the rest of
     # the phase sees an ordinary protein-ligand job. With the ligand's
@@ -1546,6 +1653,7 @@ def _run(
             ligand_name=(
                 params["ligand_name"]
                 if isinstance(params["ligand_name"], (list, tuple))
+                or params["ligand_name"] is None
                 else str(params["ligand_name"])
             ),
             ligand_net_charge=params["ligand_net_charge"],
@@ -1778,9 +1886,19 @@ def _write_manifest(
             params["ligand"] if isinstance(params["ligand"], list)
             else [params["ligand"]]
         )
+        # The names the ligands were built with, as preparation resolved them.
+        try:
+            from fastmdxplora.setup.prepare import _resolve_ligand_names
+
+            names = _resolve_ligand_names(ligand_files, params.get("ligand_name"))
+            ligand_names: Any = names[0] if len(names) == 1 else names
+        except (StudyError, ValueError):
+            ligand_names = params.get("ligand_name") or (
+                "LIG" if len(ligand_files) == 1
+                else [Path(str(f)).stem.upper()[:3] for f in ligand_files])
         resolved_ff["ligand"] = {
             "files": [str(f) for f in ligand_files],
-            "name": params.get("ligand_name", "LIG"),
+            "name": ligand_names,
             "small_molecule_forcefield": (
                 params.get("ligand_forcefield")
                 or resolved_ff.get("small_molecule_forcefield")
