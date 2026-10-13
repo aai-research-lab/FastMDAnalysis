@@ -88,6 +88,7 @@ from fastmdxplora.remote.inputs import (
     private_in,
     refuse_home_or_above,
     refuse_kept_place,
+    refuse_no_study,
     size_of,
 )
 from fastmdxplora.remote.jobs import (
@@ -459,6 +460,9 @@ def prepare(config_path: str | Path, machine_name: str, *,
     # none can be found, or the config is in it, nothing travels.
     refuse_home_or_above(config_path.resolve().parent)
     refuse_kept_place(config_path)
+    # A file that names no systems is no study's config: a file of settings
+    # or keys never travels as one, wherever it is kept.
+    refuse_no_study(raw, config_path)
     defaults_note = ""
     if isinstance(raw, dict):
         raw, defaults_note = _with_your_defaults(raw, config_path)
@@ -467,7 +471,7 @@ def prepare(config_path: str | Path, machine_name: str, *,
     inputs = gather_inputs(raw, config_path.resolve().parent)
     if output:
         # Results are fetched there: never into a place keys are kept.
-        refuse_kept_place(Path(output), results=True)
+        refuse_kept_place(Path(output), results=True, output_given=True)
 
     machine = load_machine(machine_name)
     link = transport or Transport(machine_name)
@@ -527,7 +531,7 @@ def prepare(config_path: str | Path, machine_name: str, *,
     # Absolute, so the record says the same folder whatever folder a later
     # caller asks from.
     local_output = str((Path(output) if output else Path.cwd() / name).resolve())
-    refuse_kept_place(Path(local_output), results=True)
+    refuse_kept_place(Path(local_output), results=True, output_given=bool(output))
     found = machine.inspection
     base = found.scratch or found.home
     remote_dir = f"{base}/fastmdxplora-jobs/{name}"

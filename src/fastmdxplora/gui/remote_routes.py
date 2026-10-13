@@ -248,7 +248,9 @@ def _a_study_config(file: Path) -> bool:
                         Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
     except (OSError, ValueError, yaml.YAMLError):
         return False
-    return isinstance(raw, dict) and ("system" in raw or "systems" in raw)
+    from fastmdxplora.remote.inputs import names_a_study
+
+    return names_a_study(raw)
 
 
 def _as_typed(path: Path) -> str | None:
@@ -667,8 +669,11 @@ class RemoteDesk:
         place = kept_place_of(as_given(config), a_file=True) or kept_place_of(
             file, a_file=True)
         if place is not None:
-            return None, None, _refused(kept_place_said(str(config).strip(), place),
-                                        "remote.input.outside")
+            # Inside the workspace, where the page may look: a file that is
+            # no study's config is called a file.
+            return None, None, _refused(
+                kept_place_said(str(config).strip(), place, a_study=_a_study_config(file)),
+                "remote.input.outside")
         try:
             raw = yaml.safe_load(file.read_text(encoding="utf-8"))
         except (OSError, ValueError, yaml.YAMLError) as exc:
@@ -786,7 +791,16 @@ class RemoteDesk:
         """What a send of ``config`` to ``machine`` would do, as the page
         shows it before the person agrees; with a token the send is made by.
         Given the Config Builder's ``state`` in place of a file, the study is
-        saved as one first (:meth:`_saved`)."""
+        saved as one first (:meth:`_saved`). A refusal on the way (where
+        settings are kept cannot be told, say) is said as one."""
+        from fastmdxplora.refusals import StudyError
+
+        try:
+            return self._plan_of(config, machine, state=state)
+        except StudyError as exc:
+            return _said(exc)
+
+    def _plan_of(self, config: Any, machine: Any, *, state: Any = None) -> dict[str, Any]:
         from fastmdxplora.remote.inputs import home_folders
 
         if not home_folders():

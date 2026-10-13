@@ -233,14 +233,29 @@ is fetched into such a place: a folder directly in your home folder whose
 name starts with a dot (`~/.config`, `~/.local`), or that is `AppData` or
 `Library` (its `CloudStorage` and `Mobile Documents` aside); the folders
 `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `APPDATA` and `LOCALAPPDATA` name, where
-they are full paths; and wherever a link in one of these, up to four
-folders down, leads (`~/.config/gh -> ~/dotfiles/gh`, a key a dotfiles
-manager links into `~/.ssh`). Each is judged as named and where links
+they are full paths; and wherever a link leads from one of your home
+folder's own entries whose name starts with a dot (`~/.ssh ->
+~/dotfiles/ssh`), or from up to three folders inside a place of keys
+(`.ssh`, `.aws`, `.gnupg`, `.kube` and the like), `~/.config`,
+`~/.local/share`, `~/Library/Keychains` or those named folders
+(`~/.config/gh -> ~/dotfiles/gh`, a key a dotfiles manager links into
+`~/.ssh`). A link to your home folder, a folder above it, or one of your
+own folders directly in it (`~/Documents`) does not make that folder a
+place of keys; nor are links in `~/Library/Containers`, Wine's folders or
+the Trash followed, since apps keep links there to your own folders. A
+place with more than 20,000 entries cannot be looked through, and nothing
+is sent until it is smaller. Each place is judged as named and where links
 lead. Your own folders whose names start with a dot deeper down
 (`~/projects/.runs`) are not such places. A hard link to a key, which no
 path tells apart from any other file, is not caught: keep keys out of a
 study's folder. The link and key checks are made again as the copy
-starts. A results folder refused here is set with `--output`.
+starts. A results folder refused here is set with `--output` at the
+command line, and with `output` in the config in the GUI.
+
+**Only a study's config is sent.** A file that names no `systems` (nor a
+study it carries on, by `simulation.resume_from` or `setup_from`) is no
+study's config, and is refused (`config.option.missing_companion`): a file
+of settings or tokens never travels as one, wherever it is kept.
 
 **Your defaults travel in the Config.** A `fastmdx-defaults.yml` beside the
 Config or above it fills what the Config leaves unset here, as `explore -c`
@@ -594,7 +609,11 @@ found to be when last inspected.
   elsewhere can be sent: copy it, with the files it names, into a new
   folder inside the folder the GUI was opened on and give its full path
   there (left out where the GUI was opened above your home folder or on the
-  top of a disk). So the page never tells which of these files exist. The
+  top of a disk). So the page never tells which of these files exist
+  outside the folders it reaches. In a GUI opened on your home folder,
+  where those folders are its own, a file in another program's settings
+  folder is named as kept there ("The config" for a study's config, "The
+  file" for anything else), as the page could list it anyway. The
   way of its own names a config's folder as it was given, not where a link
   in the name leads.
 - **One at a time.** One plan or send is out at a time, and what it answers

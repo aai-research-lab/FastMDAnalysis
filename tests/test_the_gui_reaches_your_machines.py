@@ -960,7 +960,7 @@ class TestTheConfigBuilder:
         assert said["error"] == (
             f"The results folder {home / '.ssh' / 'run'} is in {home / '.ssh'}, where keys "
             "or settings are kept, so nothing is fetched into it. Set `output` in the "
-            "config, or the Results box, to a folder outside such places.")
+            "config (or Results folder in the form) to a folder outside such places.")
         assert not _sent(machine)
         # The command line refuses them as well, config and results.
         for config, output in ((home / ".config" / "gh" / "hosts.yml", None),
@@ -1130,8 +1130,7 @@ class TestTheConfigBuilder:
         monkeypatch.setenv("XDG_CONFIG_HOME", "~nosuchuser/x")
         inputs._KEPT_CACHE.clear()
         for kept in (dots / "ssh" / "id_ed25519", dots / "aws" / "credentials",
-                     home / "Dropbox" / "App" / "c.yml", dots / "deep" / "c.yml",
-                     dots / "late" / "hosts.yml"):
+                     dots / "deep" / "c.yml", dots / "late" / "hosts.yml"):
             assert kept_place_of(kept, a_file=True) is not None, kept
         with pytest.raises(Exception) as caught:
             gather_inputs({"systems": [{"system": "top.pdb"}], "key": "ssh/id_ed25519"}, dots)
@@ -1140,6 +1139,46 @@ class TestTheConfigBuilder:
         # XDG folder given as `.`.
         monkeypatch.chdir(home / "proj")
         assert kept_place_of(home / "proj" / "c.yml", a_file=True) is None
+
+    def test_the_person_s_own_folders_are_not_kept_by_apps_links(
+            self, tmp_path, monkeypatch):
+        """remote-b6's round 3: every link found in the home folder's
+        settings made its target a place of keys, so the links sandboxed
+        apps keep to `~/Documents` and `~/Desktop` (`~/Library/Containers`),
+        Wine's to `~/Documents`, and a link in the Trash refused ordinary
+        studies on every Mac."""
+        import pwd
+
+        from fastmdxplora.remote import inputs
+        from fastmdxplora.remote.inputs import kept_place_of
+
+        home = (tmp_path / "account").resolve()
+        for own in ("Documents", "Desktop", "md"):
+            (home / own).mkdir(parents=True)
+        (home / "md" / "project").mkdir()
+        data = home / "Library" / "Containers" / "app" / "Data"
+        data.mkdir(parents=True)
+        (data / "Documents").symlink_to(home / "Documents")
+        (data / "Desktop").symlink_to(home / "Desktop")
+        wine = home / ".wine" / "drive_c" / "users" / "me"
+        wine.mkdir(parents=True)
+        (wine / "Documents").symlink_to(home / "Documents")
+        trash = home / ".local" / "share" / "Trash" / "files"
+        trash.mkdir(parents=True)
+        (trash / "data").symlink_to(home / "md" / "project")
+        support = home / "Library" / "Application Support"
+        support.mkdir(parents=True)
+        (support / "App").symlink_to(home / "Documents")
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        inputs._KEPT_CACHE.clear()
+        for study in (home / "Documents" / "lysozyme" / "study.yml",
+                      home / "Desktop" / "s" / "study.yml",
+                      home / "md" / "project" / "study.yml"):
+            assert kept_place_of(study, a_file=True) is None, study
 
     def test_a_home_whose_name_folds_to_other_letters_is_seen(self, tmp_path, monkeypatch):
         """remote-b6's round 2: a home folder named in letters that fold to
@@ -1161,6 +1200,69 @@ class TestTheConfigBuilder:
         # Typed with the letter that folds to two.
         typed = home.parent / "Stra\u00dfe" / ".local" / "x" / "c.yml"
         assert kept_place_of(typed, a_file=True) is not None
+
+    def test_only_a_study_s_config_travels_and_each_refusal_says_its_way(
+            self, served, tmp_path, monkeypatch):
+        """remote-b6's round 3: a file of settings could travel as a config
+        wherever no rule of places reached it; the command line's results
+        remedy offered a way that fails where `--output` was given; a
+        settings folder named with a trailing `/` was not kept; a place one
+        cannot read, or one too large to look through, broke or passed the
+        send; and the refusal did not say a link led there."""
+        import os
+        import pwd
+
+        from fastmdxplora.refusals import StudyError, refusal_of
+        from fastmdxplora.remote import inputs, send
+        from fastmdxplora.remote.inputs import kept_place_of
+
+        _, machine = served
+        home = (tmp_path / "account").resolve()
+        work = home / "work"
+        work.mkdir(parents=True)
+        (work / "hosts.yml").write_text("github.com: {oauth_token: x}\n")
+        conf = home / "conf"
+        (conf / "tool").mkdir(parents=True)
+        dots = home / "dotfiles" / "gh"
+        dots.mkdir(parents=True)
+        (home / ".config").mkdir()
+        (home / ".config" / "gh").symlink_to(dots)
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(conf) + "/")
+        inputs._KEPT_CACHE.clear()
+        with pytest.raises(StudyError) as caught:
+            send.prepare(work / "hosts.yml", "box")
+        assert refusal_of(caught.value).code == "config.option.missing_companion"
+        assert kept_place_of(conf / "tool" / "c.yml", a_file=True) is not None
+        with pytest.raises(StudyError) as caught:
+            send.prepare(machine.study, "box", output=str(home / ".ssh" / "run"))
+        assert caught.value.args[0].endswith(
+            "Give `--output` naming a folder outside such places.")
+        said = inputs.kept_place_said(dots / "hosts.yml", kept_place_of(dots / "hosts.yml"))
+        assert f"(a link, {home / '.config' / 'gh'}, leads there)" in said
+        # A place that cannot be read is passed over; one too large refuses.
+        listing = os.scandir
+
+        def scandir(path="."):
+            if Path(path) == home / ".config":
+                raise PermissionError(13, "Permission denied", str(path))
+            return listing(path)
+
+        monkeypatch.setattr(inputs.os, "scandir", scandir)
+        inputs._KEPT_CACHE.clear()
+        assert kept_place_of(work / "c.yml", a_file=True) is None
+        monkeypatch.setattr(inputs.os, "scandir", listing)
+        monkeypatch.setattr(inputs, "_LINK_ENTRIES", 3)
+        for n in range(5):
+            (home / ".config" / f"f{n}").write_text("")
+        inputs._KEPT_CACHE.clear()
+        with pytest.raises(StudyError) as caught:
+            kept_place_of(work / "c.yml", a_file=True)
+        assert "nothing is sent" in caught.value.args[0]
 
     def test_a_config_that_cannot_be_read_is_said_without_its_lines(self, served):
         """remote-b6's round 1: a config that could not be read was said with
