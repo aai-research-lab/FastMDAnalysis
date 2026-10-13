@@ -341,9 +341,14 @@ class TestOneSettingOneFlag(unittest.TestCase):
         import sys
 
         for flag in ("--resume-from", "--extra-ns"):
+            # Decoded as UTF-8 by name. `text=True` alone uses the locale
+            # encoding of this process, and creating an OpenMM Context
+            # earlier in the same session leaves that as ASCII, which cannot
+            # read the help's punctuation.
             out = subprocess.run([sys.executable, "-m", "fastmdxplora.cli.main",
                                   "simulate", "--help"],
-                                 capture_output=True, text=True, timeout=120).stdout
+                                 capture_output=True, text=True, encoding="utf-8",
+                                 timeout=120).stdout
             self.assertIn(flag, out)
 
     def test_the_subcommands_are_gone(self):
