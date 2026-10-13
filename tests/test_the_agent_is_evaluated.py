@@ -2,7 +2,8 @@
 
 The set itself is measured with an AI model, on the person's machine. What is
 tested here is everything that does not need one: that each case can be
-passed and is judged as `preregistration/agent-eval.md` says, that a run is
+passed and is judged as `preregistration/agent-eval.md` (version 1) and
+`agent-eval-v2.md` (the `context` kind) say, that a run is
 recorded whole and replays to the same verdicts with no AI model and no
 network, and that the docs cases point where the docs hold the answer.
 
@@ -23,6 +24,7 @@ from fastmdxplora.validation.agent_eval import (CASES, KINDS, SET, Above, AnyOf,
                                                 File, Holding, Unordered)
 
 REGISTRATION = Path(__file__).resolve().parents[1] / "preregistration" / "agent-eval.md"
+REGISTRATION_V2 = REGISTRATION.with_name("agent-eval-v2.md")
 BY_NAME = {case.name: case for case in CASES}
 
 
@@ -145,23 +147,46 @@ def test_the_cases_are_well_formed() -> None:
             assert case.docs and case.evidence, case.name
         if case.kind == "records":
             assert case.analysis and "{study}" in case.said[0], case.name
+        if case.kind == "context":
+            assert case.judge_as in ("write", "records", "ask"), case.name
+            if case.judge_as == "write":
+                assert case.must and case.systems, case.name
+            if case.judge_as == "records":
+                assert case.analysis and (case.view or "@" in case.said[0]), case.name
+            if case.judge_as == "ask":
+                assert case.asks_with, case.name
+            # A far case's settling turn is no longer among the twelve kept whole.
+            if case.earlier:
+                assert len(case.earlier) + 1 > 12 + 2, case.name
+        else:
+            assert not (case.judge_as or case.earlier or case.view), case.name
     counts = {kind: sum(1 for c in CASES if c.kind == kind) for kind in KINDS}
     assert counts == {"write": 16, "edit": 6, "repair": 4, "no_structure": 3, "refusal": 3,
-                      "no_action": 5, "act": 2, "docs": 31, "records": 2}
+                      "no_action": 5, "act": 2, "docs": 31, "records": 2, "context": 8}
 
 
 def test_the_registration_names_every_case_and_its_words() -> None:
-    registered = REGISTRATION.read_text(encoding="utf-8")
-    assert f"version {ev.SET_VERSION}" in registered
+    first = REGISTRATION.read_text(encoding="utf-8")
+    second = REGISTRATION_V2.read_text(encoding="utf-8")
+    assert "version 1" in first and f"version {ev.SET_VERSION}" in second
+    assert ev.REGISTRATION == "preregistration/agent-eval-v2.md"
     for case in CASES:
+        # Version 1's cases stay as version 1 registered them.
+        registered = second if case.kind == "context" else first
         assert f"`{case.name}`" in registered, case.name
+        flat = " ".join(registered.split())
         for message in case.said:
-            assert f'"{message}"' in registered, (case.name, message)
+            assert f'"{message}"' in flat, (case.name, message)
         if case.attachment is not None and case.attachment[0] != "study.yml":
             assert case.attachment[1].rstrip() in registered, case.name
-    text = registered.replace("\n", " ")
-    for word in (chr(0x2014), chr(0x2013)):
-        assert word not in text
+        for _role, said in case.earlier[:4]:
+            # The turns that settle or ask, in the registration's words.
+            first_part = " ".join(said.split("\n\nCandidates:")[0].split())
+            assert first_part in flat, (case.name, said)
+    for registered in (first, second):
+        text = registered.replace("\n", " ")
+        for word in (chr(0x2014), chr(0x2013)):
+            assert word not in text
 
 
 def test_every_config_case_can_be_passed() -> None:
@@ -600,7 +625,7 @@ def test_the_command_lists_searches_replays_and_reads_marks(tmp_path, capsys) ->
     recording.write_text(json.dumps(_recorded()))
     assert ev.main(["--replay", str(recording)]) == 0
     said = capsys.readouterr().out
-    assert "agent-eval version 1" in said and "differs" not in said
+    assert f"agent-eval version {ev.SET_VERSION}" in said and "differs" not in said
     changed = json.loads(recording.read_text())
     changed["trials"][0]["exchanges"][0]["reply"] = "SAY: Not run."
     recording.write_text(json.dumps(changed))
@@ -1055,7 +1080,9 @@ def test_the_recorded_run_replays_to_every_verdict_it_was_recorded_with(monkeypa
     import hashlib
 
     recorded, replayed, asked_now = _replayed_recording(monkeypatch)
-    assert recorded["set"] == ev.SET_NAME and recorded["version"] == ev.SET_VERSION
+    # A run of version 1, whose cases version 2 keeps as they were.
+    assert recorded["set"] == ev.SET_NAME and recorded["version"] == 1
+    assert replayed["recorded_version"] == 1 and replayed["version"] == ev.SET_VERSION
     assert recorded["ai_model"] == "anthropic/claude-opus-5-5"
     assert recorded["complete"] is True and len(recorded["trials"]) == 216
     assert len(replayed["trials"]) == len(recorded["trials"])
@@ -1240,3 +1267,101 @@ def test_a_records_case_says_why_it_was_not_asked(tmp_path) -> None:
     assert no_mean["verdict"]["passed"] is None
     assert no_mean["verdict"]["why"] == (
         f"not asked: no determined mean of rmsd in {study.resolve()}")
+
+
+# -- the context kind (version 2) ---------------------------------------------------------
+
+def _ctx_turns(*turns):
+    """A completion by tool calls that keeps what each turn was given."""
+    left = list(turns)
+    seen: list = []
+
+    def complete(prompt: str, **_: object) -> str:
+        raise AssertionError("asked in text")
+
+    def turn(system, messages, tools, **_: object):
+        seen.append(list(messages))
+        return left.pop(0)
+
+    complete.turn = turn
+    complete.seen = seen
+    return complete
+
+
+def test_a_case_with_the_file_open_is_read_through_the_page(tmp_path):
+    from tests.test_the_workspace_says_its_studies import _study
+
+    study = _study(tmp_path / "ws" / "ubq", means={"rg": (1.21, 0.02), "rmsd": (0.12, 0.01)})
+    case = BY_NAME["ctx_file_open"]
+    look = ToolCall("v1", "current_view", {})
+    complete = _ctx_turns(Turn(text="", calls=(look,), usage=Usage()),
+                          Turn(text="The file records 1.21 nm.\nANSWER: 1.21", calls=(),
+                               usage=Usage()))
+    turns = ev.ask_case(case, complete, study=str(study))
+    assert turns[-1]["looks"][0]["tool"] == "current_view"
+    assert "has analysis/rg/options.json open" in turns[-1]["looks"][0]["said"]
+    truth = ev._truth(case, str(study))
+    assert ev.judge(case, turns, truth=truth).passed is True
+
+
+def test_without_the_context_the_page_says_only_its_name_and_study(tmp_path):
+    study = str(tmp_path / "ubq")
+    case = BY_NAME["ctx_file_open"]
+    assert case.hints(study) == {"page": "files", "study": study,
+                                 "file": "analysis/rg/options.json"}
+    assert case.hints(study, context=False) == {"page": "files", "study": study}
+    named = BY_NAME["ctx_mention_study"]
+    assert named.messages(study)[0].startswith("What mean radius of gyration did @ubq record?")
+
+
+def test_a_far_case_is_asked_with_its_earlier_turns_kept_or_by_first_sentence():
+    case = BY_NAME["ctx_far_forcefield"]
+    config = {"systems": [{"system": "1UBQ"}], "setup": {"forcefield": "charmm36"},
+              "simulation": {"duration_ns": 10}}
+    for context in (True, False):
+        complete = _ctx_turns(Turn(text="", calls=(ToolCall(
+            "c1", "propose_config", {"config": config}),), usage=Usage()))
+        turns = ev.ask_case(case, complete, context=context)
+        first = complete.seen[0][0]["text"]
+        assert first.startswith("## Earlier in this conversation")
+        assert ("Use charmm36 for the force field." in first) is context
+        assert ev.judge(case, turns).passed is True
+
+
+def test_an_open_question_passes_asked_and_fails_where_the_ai_model_chooses():
+    case = BY_NAME["ctx_open_question"]
+    asked = [{"outcome": "question", "question": "Hen egg-white or T4?", "choices": [],
+              "looks": []}]
+    assert ev.judge(case, asked).passed is True
+    chose = [{"outcome": "config", "config": {"systems": [{"system": "1AKI"}]}, "looks": []}]
+    verdict = ev.judge(case, chose)
+    assert verdict.passed is False and "chose for the person" in verdict.why
+    vague = [{"outcome": "question", "question": "Which one?", "choices": [], "looks": []}]
+    assert ev.judge(case, vague).passed is False
+
+
+def test_a_context_case_that_reads_a_study_is_not_asked_without_one():
+    def never(prompt: str, **_: object) -> str:
+        raise AssertionError("asked")
+
+    trials = ev.run(never, repeats=1, cases=["ctx_report_section"])["trials"]
+    assert trials[0]["verdict"]["passed"] is None and trials[0]["skipped"]
+
+
+def test_a_run_says_whether_it_was_asked_with_the_context():
+    def never(prompt: str, **_: object) -> str:
+        raise AssertionError("asked")
+
+    result = ev.run(never, repeats=1, cases=["ctx_report_section"], context=False)
+    assert result["context"] is False
+    assert "asked without the Agent's context" in ev._table(result)
+    assert ev.build_parser().parse_args(["--without-context"]).without_context is True
+
+
+def test_a_version_1_recording_replays_and_another_version_does_not():
+    from fastmdxplora.refusals import StudyError
+
+    assert 1 in ev.REPLAYS_VERSIONS and ev.SET_VERSION in ev.REPLAYS_VERSIONS
+    with pytest.raises(StudyError, match="version 1 or 2"):
+        ev.replay({"set": ev.SET_NAME, "version": 9, "trials": []})
+    assert json.dumps(ev.replay({"set": ev.SET_NAME, "version": 1, "trials": []}))
