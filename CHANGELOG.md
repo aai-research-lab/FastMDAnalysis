@@ -7,6 +7,18 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### A file of several molecules is several ligands
+
+A list of ligand files has always been several ligands; one SDF or MOL2 file
+holding several molecules was refused, with a message that called multi-ligand
+support "not yet implemented". It is divided in setup now into the files it
+would otherwise have been supplied as, so the molecules are parameterised,
+placed and clash-checked exactly as separate files are. Each takes its title as
+its residue name where that is one to three letters or digits and unique in the
+file, and `L01`, `L02` ... otherwise. Names that would collide are refused with
+`setup.ligand.names_collide`. Giving the ligands no `ligand_name` no longer
+counts the default `LIG` as a name given to all of them.
+
 ### A ligand is given its charges on a fresh install
 
 **A fresh conda-forge install of 2.5.7 could not parameterize any ligand.**

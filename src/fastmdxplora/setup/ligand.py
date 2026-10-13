@@ -19,6 +19,7 @@ opaque ImportError, so the setup phase can degrade gracefully.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -334,6 +335,88 @@ def _hydrogen_parents(molecule: Any, positions: Any,
     return parents
 
 
+_NAME = re.compile(r"[A-Za-z0-9]{1,3}")
+
+
+def _split_records(text: str, suffix: str) -> list[str]:
+    """The molecules of an SDF or MOL2 text, each as its own record.
+
+    Done on the text rather than through the toolkit, so a file is divided
+    before OpenFF is needed and each record reaches the toolkit exactly as it
+    was written.
+    """
+    if suffix == ".sdf":
+        records = [r for r in re.split(r"(?m)^\$\$\$\$[ \t]*\r?\n?", text)
+                   if r.strip()]
+        return [r.rstrip("\n") + "\n$$$$\n" for r in records]
+    parts = re.split(r"(?m)^(?=@<TRIPOS>MOLECULE)", text)
+    return [r for r in parts if "@<TRIPOS>MOLECULE" in r]
+
+
+def _record_title(record: str, suffix: str) -> str:
+    lines = record.splitlines()
+    if suffix == ".sdf":
+        return lines[0].strip() if lines else ""
+    return lines[1].strip() if len(lines) > 1 else ""
+
+
+def expand_ligand_files(ligands: Any, out_dir: str | Path) -> Any:
+    """Give every molecule its own file, so a file of several reads as several.
+
+    A list of N files is already N ligands; one file holding N molecules is
+    the same thing written differently, and is divided here into the files it
+    would otherwise have been supplied as. Everything after this sees one
+    molecule per file, which is what :func:`load_ligand` and the system build
+    expect.
+
+    Each new file is named for its molecule's title where that is a usable
+    residue name (one to three letters or digits, and not shared with another
+    molecule in the file), and ``L01``, ``L02`` ... otherwise. The file stem
+    becomes the residue name, so the names have to differ.
+
+    Returns ``ligands`` itself, unchanged, when no file holds more than one
+    molecule.
+    """
+    as_list = [ligands] if isinstance(ligands, (str, Path)) else list(ligands)
+    out: list[str] = []
+    changed = False
+    for entry in as_list:
+        path = Path(entry).expanduser()
+        suffix = path.suffix.lower()
+        if suffix not in (".sdf", ".mol2") or not path.is_file():
+            out.append(str(entry))     # load_ligand says what is wrong with it
+            continue
+        records = _split_records(path.read_text(encoding="utf-8", errors="replace"),
+                                 suffix)
+        if len(records) < 2:
+            out.append(str(entry))
+            continue
+        titles = [_record_title(r, suffix) for r in records]
+        usable = [t.upper() for t in titles if _NAME.fullmatch(t)]
+        out_dir = Path(out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for index, (record, title) in enumerate(zip(records, titles), start=1):
+            name = (title.upper() if _NAME.fullmatch(title)
+                    and usable.count(title.upper()) == 1 else f"L{index:02d}")
+            target = out_dir / f"{name}{suffix}"
+            target.write_text(record, encoding="utf-8")
+            out.append(str(target))
+        logger.info("Ligand file %s holds %d molecules; each is prepared as its "
+                    "own ligand.", path.name, len(records))
+        changed = True
+    if not changed:
+        return ligands
+    stems = [Path(f).stem.upper() for f in out]
+    if len(set(stems)) != len(stems):
+        raise LigandError(
+            "The ligand files, once a file of several molecules is divided, "
+            f"give some molecules the same name ({sorted(set(s for s in stems if stems.count(s) > 1))}). "
+            "Two molecules cannot share a residue name. Rename them, or "
+            "supply `ligand_name` as a list with one name per molecule."
+        , code="setup.ligand.names_collide", names=sorted(stems))
+    return out
+
+
 def load_ligand(
     ligand_file: str | Path,
     *,
@@ -398,15 +481,14 @@ def load_ligand(
             f"Ensure the SDF/MOL2 has explicit hydrogens and bond orders."
         , code="setup.ligand.unreadable", path=str(path)) from exc
 
-    # Molecule.from_file may return a list when the file holds multiple
-    # molecules; a single ligand is parameterized for now (the config is
-    # list-shaped so multi-ligand support can layer on later).
+    # A file of several molecules is divided by :func:`expand_ligand_files`
+    # before it gets here, so a list means a caller reached this directly.
     if isinstance(molecule, list):
         if len(molecule) != 1:
             raise LigandError(
                 f"Ligand file {path.name!r} contains {len(molecule)} "
-                f"molecules; provide a single-molecule SDF/MOL2 (multi-ligand "
-                f"support is not yet implemented)."
+                f"molecules, and this loads one at a time; pass it through the "
+                f"setup phase, or divide it with expand_ligand_files."
             , code="setup.ligand.multiple_molecules", path=str(path), count=len(molecule))
         molecule = molecule[0]
 
