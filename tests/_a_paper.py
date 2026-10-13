@@ -41,8 +41,19 @@ RESULTS_TABLE = (
 )
 
 
-def jats(methods: str = METHODS, *, table: str = RESULTS_TABLE) -> bytes:
-    """The paper as JATS XML."""
+#: Runs the paper describes apart from the others, after them: what they
+#: share with the others is not said of them.
+RESTRAINED = (
+    "Restrained runs of the wild type (50 ns) were run with a similar setup as "
+    "described above; however, the protein heavy atoms were held by harmonic "
+    "restraints of 1000 kJ/mol/nm2, at 310 K."
+)
+
+
+def jats(methods: str = METHODS, *, table: str = RESULTS_TABLE, restrained: str = "") -> bytes:
+    """The paper as JATS XML; with ``restrained``, its methods have a second
+    part, on the restrained runs."""
+    apart = f"<sec><title>Restrained runs</title><p>{restrained}</p></sec>" if restrained else ""
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <article xmlns:xlink="http://www.w3.org/1999/xlink">
 <front><article-meta>
@@ -54,7 +65,7 @@ def jats(methods: str = METHODS, *, table: str = RESULTS_TABLE) -> bytes:
 <body>
 <sec><title>Introduction</title><p>A protein is studied.</p></sec>
 <sec><title>Methods</title>
-<sec><title>Molecular dynamics simulations</title><p>{methods}</p></sec>
+<sec><title>Molecular dynamics simulations</title><p>{methods}</p></sec>{apart}
 </sec>
 <sec><title>Results</title><p>The root-mean-square deviation of the wild type was
 0.12 ± 0.01 nm (Table 1).</p>{table}</sec>

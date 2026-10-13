@@ -59,6 +59,22 @@ hold it:
 | The paper's words, without the value in them | Not used (`unread`): a total divided by the replicas, a unit misread, a number from elsewhere |
 | Words that send the reader to another paper | Not used (`by_reference`), and said |
 | Words that put it in the supporting information | Not used (`in_si`): give the supporting information |
+| A protocol's words, where the paper describes another protocol's studies and not this one | Not used (`of_another`): you set it, shown the words of both, where this software sets it |
+
+A study takes its protocol's settings where it states none of its own.
+Some papers describe a few runs apart, after the others ("run with a
+similar setup as described above; however, ..."): a similar setup is not
+the same setup, so the paper may not mean every setting for them. Where a
+setting's words are in the part of the paper that describes another
+protocol's studies, and not in the part that describes this study, the
+setting is not used for it. Each such setting this software sets then needs
+you: it is shown with its words and the study's own, and you set it as it
+holds for this study. Any other (the engine, the barostat) is said and not
+used. Where the study's own words give the setting by reference or in the
+supporting information, that is said instead. A paper whose studies share
+one protocol gives its settings to every study, wherever the studies are
+described. A paper with a general section of settings and a section for
+each method may ask you to confirm the shared settings for its biased runs.
 
 A force field, a water model, a thermostat or a box is held only where every
 one the reading names is named by the words too, however each spells it

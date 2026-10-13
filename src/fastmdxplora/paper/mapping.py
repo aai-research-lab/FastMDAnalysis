@@ -11,7 +11,8 @@ one of five words (:data:`LABELS`):
                   thermostats by Langevin dynamics; a GROMACS force switch is
                   a potential switch here), with how
 ``needs_you``     what the paper gives cannot be set from its words alone:
-                  a structure from a model, a method's collective variables
+                  a structure from a model, a method's collective variables,
+                  a setting said where the paper describes other studies
 ``not_possible``  this software cannot run it (a force field OpenMM does not
                   ship, coarse-grained models, free-energy perturbation)
 
@@ -875,6 +876,82 @@ _ALWAYS = (
 )
 
 
+#: Where the person sets each setting the paper may give: the field, and
+#: the config's setting ("" where this software sets it more than one way).
+_SET_IN = {
+    "pdb_id": "systems", "structure_source": "systems", "chains": "setup.chains",
+    "mutations": "setup.mutations", "ligands": "", "membrane": "setup.membrane",
+    "copies": "systems", "protein_forcefield": "setup.force_field",
+    "nucleic_forcefield": "setup.force_field", "lipid_forcefield": "setup.force_field",
+    "ligand_forcefield": "setup.ligand_forcefield", "ligand_charges": "",
+    "water_model": "setup.water_model", "box_shape": "setup.box_shape",
+    "padding": "setup.solvent_padding_nm", "salt_concentration": "setup.ion_concentration_M",
+    "ions": "", "neutralized": "setup.neutralize", "protonation": "setup.ph",
+    "temperature": "simulation.temperature_K", "pressure": "simulation.pressure_bar",
+    "ensemble": "simulation.ensemble", "thermostat": "simulation.integrator",
+    "timestep": "simulation.timestep_fs", "constraints": "setup.constraints",
+    "hydrogen_mass": "setup.hydrogen_mass_amu", "cutoff": "setup.nonbonded_cutoff_nm",
+    "switch": "setup.switch_distance_nm", "electrostatics": "setup.nonbonded_method",
+    "nvt_equilibration": "simulation.nvt_duration_ns",
+    "npt_equilibration": "simulation.npt_duration_ns",
+    "equilibration_restraints": "simulation.restrain",
+    "production": "simulation.duration_ns", "replicas": "sweep", "method": "",
+}
+
+#: Each setting as a person names it, where its field's name does not read so.
+_NAMED = {"pdb_id": "PDB entry", "protein_forcefield": "protein force field",
+          "nucleic_forcefield": "nucleic acid force field",
+          "lipid_forcefield": "lipid force field", "ligand_forcefield": "ligand force field",
+          "neutralized": "neutralisation", "nvt_equilibration": "NVT equilibration",
+          "npt_equilibration": "NPT equilibration"}
+
+
+def _of_another(plan: _Plan) -> None:
+    """Each protocol's setting the paper gives where it describes another
+    protocol's studies, not where it describes this one (``of_another``):
+    not used, and said with the words of both, the study's in full once.
+    One the person can set needs them, to set it as it holds for this
+    study; any other (the engine, the barostat, a description) is said and
+    not used. A choice this study's own words led to stays (a method this
+    cannot run, a step that needs heavier hydrogens); this software's own
+    value, or a question asked as if the paper had not given it, gives way."""
+    shown = False
+    for field, record in plan.fields.items():
+        if not isinstance(record, dict) or record.get("status") != "of_another":
+            continue
+        its = record.get("its_study") or {}
+        why = (f"The paper gives the {_NAMED.get(field, field.replace('_', ' '))} where it "
+               f"describes another protocol's studies ({record.get('where')}: "
+               f"\"{_short(record.get('quote') or '', 120)}\"), not where it describes this "
+               f"study")
+        asked = field in _SET_IN
+        if its.get("where"):
+            why += f" ({its['where']}"
+            if its.get("quote") and asked and not shown:
+                why += f": \"{_short(its['quote'], 160)}\""
+                shown = True
+            why += ")"
+        # What was said of the setting as not given (no words, or these
+        # words) gives way; what other words led to stays.
+        defaults = [c for c in plan.choices if c.field == field and c.label != "not_possible"
+                    and (not c.quote or c.quote == record.get("quote"))]
+        plan.choices = [c for c in plan.choices if not any(c is d for d in defaults)]
+        if asked:
+            setting = _SET_IN[field]
+            where_set = (f"`{setting}` (the force field's files) or `setup.forcefield` (a "
+                         "force field this software names)" if setting == "setup.force_field"
+                         else f"`{setting}`" if setting else "the config")
+            why += (f": if it holds for this study, set it in {where_set}; if not, set this "
+                    "study's value instead.")
+            plan.note(field, "needs_you", why, record, setting=setting)
+            for setting_given in {setting} | {c.setting for c in defaults}:
+                if setting_given in plan.decisions:
+                    # This software's value stays until the person sets theirs.
+                    plan.decisions[setting_given] = {"why": why, "source": plan.source}
+        else:
+            plan.note(field, "not_stated", f"{why}: not used.", record)
+
+
 def _unstated(plan: _Plan) -> None:
     """Each setting a study always has that nothing above has said: this
     software's value, said to be, and where the paper gave one this could
@@ -926,6 +1003,7 @@ def plan_study(study: dict[str, Any], reading: dict[str, Any], *,
     _physics(plan)
     _protocol(plan)
     method = _method(plan)
+    _of_another(plan)
     _unstated(plan)
     state = _state_of(plan)
 
@@ -1498,7 +1576,7 @@ def _physics(plan: _Plan) -> None:
         plan.note("hydrogen_mass", "needs_you",
                   f"A {float(step['value']):g} fs step needs hydrogen mass repartitioning, "
                   "and the paper does not say the mass: set `setup.hydrogen_mass_amu` "
-                  "(AMBER's is 3.024 amu).", setting="setup.hydrogen_mass_amu")
+                  "(AMBER's is 3.024 amu).", step, setting="setup.hydrogen_mass_amu")
     cutoff = plan.stated("cutoff")
     if cutoff:
         plan.set("setup.nonbonded_cutoff_nm", float(cutoff["value"]), "cutoff", "as_stated",

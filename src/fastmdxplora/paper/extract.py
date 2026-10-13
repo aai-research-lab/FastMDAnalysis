@@ -14,7 +14,10 @@ the paper (:class:`~fastmdxplora.paper.quotes.QuoteIndex`) and the value is
 read from them here (:mod:`fastmdxplora.paper.values`); a value whose words
 are not the paper's, or which its words do not hold, is kept as it was read
 and marked so, and never used. A study's settings are its own
-where it states them, else its protocol's.
+where it states them, else its protocol's; but a protocol's setting whose
+words are where the paper describes another protocol's studies, and not
+where it describes this one, is not used for it: the person chooses, shown
+the words of both (``of_another``).
 
 A reading is kept under the paper's digest, the AI model it was read with
 and the version of the questions, so choosing other studies of the same
@@ -48,7 +51,7 @@ from fastmdxplora.paper.text import PaperText
 from fastmdxplora.paper.values import CANONICAL, WORD_NUMBERS, numbers_in, plain, read_value
 
 __all__ = ["read_studies", "check_reading", "PROMPT_VERSION", "BUDGET_CHARS",
-           "kept_reading", "cache_root", "STATUSES"]
+           "kept_reading", "cache_root", "STATUSES", "tie_to_studies"]
 
 #: The questions' version: a reading kept from other questions is not reused.
 PROMPT_VERSION = "3"
@@ -79,7 +82,10 @@ MALFORMED = "environment.paper.answer_malformed"
 #: ``in_si``         the paper says it is in its supporting information, not given here
 #: ``not_found``     the AI model gave words the paper does not contain
 #: ``unread``        the words are the paper's, and do not hold the value given
-STATUSES = ("stated", "not_stated", "by_reference", "in_si", "not_found", "unread")
+#: ``of_another``    the words are the study's protocol's, where the paper
+#:                   describes other studies, not where it describes this one
+STATUSES = ("stated", "not_stated", "by_reference", "in_si", "not_found", "unread",
+            "of_another")
 
 Complete = Callable[[str], str]
 
@@ -103,7 +109,12 @@ def kept_reading(paper: PaperText, model: str) -> dict[str, Any] | None:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    return data if isinstance(data, dict) and data.get("version") == PROMPT_VERSION else None
+    if not isinstance(data, dict) or data.get("version") != PROMPT_VERSION:
+        return None
+    if isinstance(data.get("studies"), list):
+        # Kept before a protocol's settings were tied to their studies.
+        tie_to_studies([study for study in data["studies"] if isinstance(study, dict)])
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -503,8 +514,12 @@ def check_reading(paper: PaperText, raw: dict[str, Any], *, model: str = "",
                 theirs if theirs and theirs["status"] == "stated" else (mine or theirs))
             if chosen is not None:
                 fields[field.name] = {**chosen, "from": "study" if chosen is mine else "protocol"}
+                if mine is not None and chosen is not mine:
+                    # Kept in case the protocol's is not this study's.
+                    fields[field.name]["own"] = mine
         studies_out.append({"id": sid, "label": str(study.get("label") or sid)[:160],
                             "protocol": pid, "fields": fields, "claims": []})
+    tie_to_studies(studies_out)
     by_id = {study["id"]: study for study in studies_out}
     for claim in raw.get("claims") or []:
         if not isinstance(claim, dict):
@@ -531,6 +546,67 @@ def check_reading(paper: PaperText, raw: dict[str, Any], *, model: str = "",
                       for p in raw.get("protocols") or [] if isinstance(p, dict)],
         "studies": studies_out,
     }
+
+
+def _described_in(study: dict[str, Any]) -> set[str]:
+    """Where the paper describes ``study``: the part most of its own checked
+    words are in, or each of the parts that hold as many."""
+    parts: dict[str, int] = {}
+    for record in (study.get("fields") or {}).values():
+        if isinstance(record, dict) and record.get("from") == "study" \
+                and record.get("status") == "stated" and record.get("where"):
+            parts[record["where"]] = parts.get(record["where"], 0) + 1
+    most = max(parts.values(), default=0)
+    return {part for part, count in parts.items() if count == most}
+
+
+def _own_words(study: dict[str, Any], parts: set[str]) -> dict[str, str]:
+    """The study's own words where the paper describes it: its system's,
+    else its method's, else the first of its settings there."""
+    fields = study.get("fields") or {}
+    for name in ["system", "method"] + [field.name for field in FIELDS]:
+        record = fields.get(name)
+        if isinstance(record, dict) and record.get("from") == "study" \
+                and record.get("status") == "stated" and record.get("where") in parts:
+            return {"quote": str(record.get("quote") or ""), "where": record["where"]}
+    return {}
+
+
+def tie_to_studies(studies: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Each protocol's settings left to the studies the paper says them of.
+
+    A study takes its protocol's setting where the study states none of its
+    own (:func:`check_reading`). Where the setting's words are in a part of
+    the paper that describes studies of another protocol, and not in the
+    part that describes this study, the paper may not mean the setting for
+    this study: it is marked ``of_another``, not used, and kept with the
+    study's own words (``its_study``) so the person sees both and chooses.
+    Where the study's own words for the setting give it by reference or in
+    the supporting information (``own``), those are used instead.
+    A study with none of its own words checked takes its protocol's as
+    before. Marking twice changes nothing, so a reading kept from before is
+    marked when it is used."""
+    described = [_described_in(study) for study in studies]
+    for study, parts in zip(studies, described):
+        if not parts:
+            continue
+        others: set[str] = set()
+        for other, their_parts in zip(studies, described):
+            if other.get("protocol") != study.get("protocol"):
+                others |= their_parts
+        fields = study.get("fields") or {}
+        for name, record in list(fields.items()):
+            if isinstance(record, dict) and record.get("from") == "protocol" \
+                    and record.get("status") == "stated" \
+                    and record.get("where") not in parts and record.get("where") in others:
+                own = record.get("own")
+                if isinstance(own, dict) and own.get("status") in ("by_reference", "in_si"):
+                    # The study's own words send the reader elsewhere: said so.
+                    fields[name] = {**own, "from": "study"}
+                    continue
+                record["status"] = "of_another"
+                record["its_study"] = _own_words(study, parts)
+    return studies
 
 
 def check_field(index: QuoteIndex, name: str, given: Any) -> dict[str, Any]:

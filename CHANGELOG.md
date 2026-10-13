@@ -88,6 +88,12 @@ cut off at one is refused as `environment.paper.answer_cut_off`, and one
 not in the form asked for, twice, as `environment.paper.answer_malformed`,
 so neither is taken for a provider's refusal.
 
+A study no longer takes a protocol's setting the paper gives only where it
+describes another protocol's studies (`of_another`): each such setting this
+software sets needs you, shown with its words and the study's own, and any
+other is said and not used. Readings kept from before are marked the same
+way when used.
+
 ### The Agent page, as the Agent
 
 **Changed:** the Agent page and `fastmdx agent` speak as the Agent: its AI
