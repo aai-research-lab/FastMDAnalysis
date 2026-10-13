@@ -431,13 +431,112 @@ class TestAFinishedStudyExtendedAndStoppedIsCarriedOn(unittest.TestCase):
         self.assertTrue(self.refused["error"].startswith(
             "The study's last piece, segment-001, stopped with an answer, not an "
             "interruption: simulation: "), self.refused["error"])
+        # The study had finished: moved out, the piece is asked for again
+        # as the extension it was, not by a resume.
         self.assertIn("To run it again anyway, move segment-001 out of the study's folder "
-                      "and resume.", self.refused["error"])
+                      "and extend the study by 0.0008 ns again (`simulation.resume_from: "
+                      f"{self.study}` with `extra_ns: 0.0008` in a config given to fastmdx "
+                      "explore).", self.refused["error"])
         self.assertTrue(self.left)
 
     def test_once_carried_on_it_is_finished(self):
         self.assertEqual((self.again["ok"], self.again["did"]), (True, "nothing"),
                          self.again.get("error"))
+
+
+@unittest.skipUnless(HAS_BACKENDS, "OpenMM, PDBFixer and MDTraj are needed")
+class TestAPieceThatStoppedWithAnAnswerRunsAgainAsItSays(unittest.TestCase):
+    """The advice for a finished study's extension that stopped with an
+    error, followed: moved out and resumed, the study read as finished and
+    the extension was never run again. Moved out and extended as it says,
+    the extension runs."""
+
+    @classmethod
+    def setUpClass(cls):
+        from unittest import mock
+
+        pytest.importorskip("openmm.app")
+        import openmm.app
+
+        from fastmdxplora import FastMDXplora
+        from fastmdxplora.simulation.resume import (
+            extend_study,
+            production_done_ns,
+            resume_study,
+        )
+
+        root = _folder()
+        cls.addClassCleanup(shutil.rmtree, root, True)
+        pdb = root / "tri-ala.pdb"
+        pdb.write_text(TRI_ALANINE)
+        cls.study = root / "study"
+        taken = {"steps": 0, "limit": 10 ** 9}
+        with mock.patch.object(openmm.app.Simulation, "step", _stepping(taken)):
+            FastMDXplora(config_data=_config(pdb, telemetry_interval=25),
+                         output_dir=str(cls.study)).explore()
+            taken.update(steps=0, limit=40)
+            extend_study(cls.study, more_ns=0.0008)
+        cls.refused = resume_study(cls.study)
+        (cls.study / "segment-001").rename(root / "segment-001-moved-out")
+        cls.extended = extend_study(cls.study, more_ns=0.0008)
+        cls.done = production_done_ns(cls.study)
+        cls.again = resume_study(cls.study)
+
+    def test_the_advice_followed_runs_the_extension(self):
+        self.assertIn("extend the study by 0.0008 ns again", self.refused["error"])
+        self.assertTrue(self.extended["ok"], self.extended.get("error"))
+        # 300 steps of 2 fs, and the 0.0008 ns asked again.
+        self.assertAlmostEqual(self.done, 0.0014, places=6)
+        self.assertEqual((self.again["ok"], self.again["did"]), (True, "nothing"),
+                         self.again.get("error"))
+
+
+@unittest.skipUnless(HAS_BACKENDS, "OpenMM, PDBFixer and MDTraj are needed")
+class TestAnExtensionKilledAsItsCheckpointWasWrittenIsCarriedOn(unittest.TestCase):
+    """A finished study's extension killed as it wrote its first checkpoint:
+    the checkpoint and its seal on disk, its record of itself not. Not set
+    aside, it was said to have no checkpoint left to carry the study on
+    from, and the fix offered was the resume that said so."""
+
+    @classmethod
+    def setUpClass(cls):
+        from unittest import mock
+
+        pytest.importorskip("openmm.app")
+        import openmm.app
+
+        from fastmdxplora import FastMDXplora
+        from fastmdxplora.simulation.resume import (
+            extend_study,
+            production_done_ns,
+            resume_study,
+        )
+
+        root = _folder()
+        cls.addClassCleanup(shutil.rmtree, root, True)
+        pdb = root / "tri-ala.pdb"
+        pdb.write_text(TRI_ALANINE)
+        cls.study = root / "study"
+        taken = {"steps": 0, "limit": 10 ** 9}
+        with mock.patch.object(openmm.app.Simulation, "step", _stepping(taken)):
+            FastMDXplora(config_data=_config(pdb, telemetry_interval=25),
+                         output_dir=str(cls.study)).explore()
+            taken.update(steps=0, limit=150)
+            extend_study(cls.study, more_ns=0.0008)
+        _as_killed(cls.study)
+        simulation = cls.study / "segment-001" / "simulation"
+        cls.torn = (simulation / "checkpoint.chk").is_file()
+        (simulation / "checkpoint.chk.json").unlink()
+        cls.answer = resume_study(cls.study)
+        cls.done = production_done_ns(cls.study)
+
+    def test_it_is_set_aside_and_carried_on_to_the_length_asked(self):
+        self.assertTrue(self.torn)
+        self.assertEqual((self.answer["ok"], self.answer["did"]), (True, "continued"),
+                         self.answer.get("error") or self.answer.get("detail"))
+        aside = self.study / "segment-001-stopped-before-its-checkpoint"
+        self.assertEqual(self.answer.get("set_aside"), str(aside))
+        self.assertAlmostEqual(self.done, 0.0014, places=6)
 
 
 @unittest.skipUnless(HAS_BACKENDS, "OpenMM, PDBFixer and MDTraj are needed")

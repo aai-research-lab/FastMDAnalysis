@@ -54,6 +54,15 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   does: under one as fewer than one, and one as one sample. The start
   banner gives a precision beside a GPU platform, and beside `auto` as the
   one a GPU would use; beside the CPU it gives none.
+- `fastmdx resume` carries on a finished study's extension that was stopped
+  before it was joined, to the length the extension asked, past the plan
+  too. A piece stopped before its first checkpoint, or killed as it wrote it,
+  counts nothing and is run again from the checkpoint before it; production
+  off the frame grid is carried on rather than refused; and a piece that
+  stopped with an error is said, not run again, with how to run it again
+  anyway. A study is carried on by one process at a time: a resume or an
+  extension of a study another process is carrying on is refused. The
+  Overview's speed is read from the last piece run.
 
 ### Security
 

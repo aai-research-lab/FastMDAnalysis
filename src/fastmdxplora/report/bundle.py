@@ -29,8 +29,10 @@ logger = get_logger("report.bundle")
 
 
 # Paths inside the project root that should be excluded from the bundle
+# The study's carrying-on lock (simulation/resume.py) is held while the
+# report is made; on Windows a locked file cannot be read, even here.
 EXCLUDE_NAMES: frozenset[str] = frozenset(
-    {"project_bundle.zip", "fastmdxplora.log", ".DS_Store"}
+    {"project_bundle.zip", "fastmdxplora.log", ".DS_Store", ".fastmdxplora-carrying-on"}
 )
 EXCLUDE_DIR_NAMES: frozenset[str] = frozenset(
     {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".cache", ".ipynb_checkpoints"}

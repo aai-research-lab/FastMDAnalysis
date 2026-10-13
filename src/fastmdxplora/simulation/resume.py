@@ -42,11 +42,14 @@ it.
 
 from __future__ import annotations
 
+import contextlib
+import threading
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from fastmdxplora.refusals import Refusal, StudyError
+from fastmdxplora.refusals import CodedError, Refusal, StudyError
 from fastmdxplora.simulation.ensembles import NPT, resolve_ensemble
 
 __all__ = [
@@ -651,10 +654,13 @@ def extended_production(study: str | Path) -> tuple[float, int] | None:
 
 
 def production_done_ns(study: str | Path) -> float:
-    """Production across every finished segment of this study."""
+    """Production across the pieces of this study: each finished piece at
+    its length, each stopped one as far as its checkpoint, and a piece
+    stopped before its first checkpoint not at all."""
     import yaml
 
     from fastmdxplora.analysis.joining import survey_segments
+    from fastmdxplora.simulation.runner import read_checkpoint_sidecar
 
     root = Path(study)
     total = 0.0
@@ -665,7 +671,14 @@ def production_done_ns(study: str | Path) -> float:
         # Stopped before its first checkpoint, a piece kept nothing: what it
         # ran is run again from the checkpoint before it. It was counted at
         # the length it was asked for.
-        if not found.finished and not (folder / "simulation" / "checkpoint.chk").is_file():
+        checkpoint = folder / "simulation" / "checkpoint.chk"
+        if not found.finished and not checkpoint.is_file():
+            continue
+        # Killed between writing the checkpoint and its record of itself:
+        # nothing says how far it got, so it counts nothing, as one killed
+        # just before the checkpoint does.
+        if not found.finished and str((read_checkpoint_sidecar(checkpoint) or {})
+                                      .get("stage") or "") != "production":
             continue
         resolved = folder / "resolved_config.yml"
         try:
@@ -735,6 +748,9 @@ def extend_study(study: str | Path, *, total_ns: float | None = None,
                  device_index: str | int | None = None) -> dict[str, Any]:
     """Run the next segment, join the study, and analyse the whole.
 
+    A study being carried on by another process is said, not carried on
+    twice.
+
     Three steps, so that asking for more sampling is one instruction
     rather than three: simulate the segment into the study; join every
     finished segment into one trajectory; rerun the analyses and the
@@ -743,6 +759,20 @@ def extend_study(study: str | Path, *, total_ns: float | None = None,
     rather than being worked around -- an automatic join that papers over
     a discontinuity is worse than one that never ran.
     """
+    root = Path(study).expanduser().resolve()
+    try:
+        with _carrying_on(root):
+            return _extend_study(root, total_ns=total_ns, more_ns=more_ns, analyse=analyse,
+                                 device_index=device_index)
+    except _CarriedOnElsewhere:
+        return {"ok": False, "stage": "planning", "error": _STILL_GOING_TO_EXTEND}
+
+
+def _extend_study(study: str | Path, *, total_ns: float | None = None,
+                  more_ns: float | None = None,
+                  analyse: bool = True,
+                  device_index: str | int | None = None) -> dict[str, Any]:
+    """The work of :func:`extend_study`, under the study's lock."""
     import yaml
 
     root = Path(study).expanduser().resolve()
@@ -1159,10 +1189,17 @@ def _set_aside_a_segment_never_checkpointed(root: Path) -> Path | None:
     last = max(pieces, key=lambda piece: piece.index)
     if last.index < 1 or last.directory == root:
         return None
+    from fastmdxplora.simulation.runner import read_checkpoint_sidecar
+
     simulation = last.directory / "simulation"
+    checkpoint = simulation / "checkpoint.chk"
     # A checkpoint to go on from, or the state of a segment that ran to
     # its end with its last checkpoint not written: neither is set aside.
-    if (simulation / "checkpoint.chk").is_file() or (simulation / "state_final.xml").is_file():
+    # A checkpoint whose record of itself was never written (the piece
+    # killed as it wrote it) is none to go on from, as it counts nothing.
+    said = str((read_checkpoint_sidecar(checkpoint) or {}).get("stage") or "")
+    if ((checkpoint.is_file() and said == "production")
+            or (simulation / "state_final.xml").is_file()):
         return None
     # Asked again just before it is moved: a run begun since the first ask.
     if _still_running(last.directory):
@@ -1263,11 +1300,13 @@ def _owed_by_the_last_piece(root: Path) -> float | None:
     return owed if owed > 0 else None
 
 
-def _the_last_piece_s_answer(root: Path) -> tuple[str, str] | None:
-    """(its folder's name, why it stopped) where the study's last numbered
-    piece stopped with an answer, not an interruption: its own Manifest
-    says an error the registry does not mark as worth retrying. A piece
-    killed writes no Manifest, and reads as an interruption."""
+def _the_last_piece_s_answer(root: Path) -> tuple[str, str, float, float] | None:
+    """(its folder's name, why it stopped, the length it was asked to run
+    and how far past the study's plan that reaches, in ns) where the
+    study's last numbered piece stopped
+    with an answer, not an interruption: its own Manifest says an error the
+    registry does not mark as worth retrying. A piece killed writes no
+    Manifest, and reads as an interruption."""
     import yaml
 
     from fastmdxplora.analysis.joining import survey_segments
@@ -1275,13 +1314,37 @@ def _the_last_piece_s_answer(root: Path) -> tuple[str, str] | None:
     pieces = [piece for piece in survey_segments(root) if piece.directory != root]
     if not pieces:
         return None
-    last = max(pieces, key=lambda each: each.index).directory
+    found = max(pieces, key=lambda each: each.index)
+    last = found.directory
     try:
         config = yaml.safe_load((last / "resolved_config.yml").read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError):
         config = {}
-    _finished, stopped = _finished_record(last, config if isinstance(config, dict) else {})
-    return (last.name, stopped) if stopped is not None else None
+    config = config if isinstance(config, dict) else {}
+    _finished, stopped = _finished_record(last, config)
+    if stopped is None:
+        return None
+    # Where the piece was asked to end, against the plan: the production
+    # of every piece before it, and its own length.
+    past = asked = 0.0
+    try:
+        asked = float((config.get("simulation") or {})["duration_ns"])
+        plan = yaml.safe_load((root / "resolved_config.yml").read_text(encoding="utf-8")) or {}
+        planned = float((plan.get("simulation") or {})["duration_ns"])
+        from fastmdxplora.simulation.runner import read_checkpoint_sidecar
+
+        before = production_done_ns(root)
+        # Taken off as production_done_ns counted it: a piece not finished
+        # counts only from a checkpoint written in production.
+        checkpoint = last / "simulation" / "checkpoint.chk"
+        if found.finished or (checkpoint.is_file() and str(
+                (read_checkpoint_sidecar(checkpoint) or {}).get("stage") or "") == "production"):
+            own = continuation_of(last).production_done_ns
+            before -= own if own else asked
+        past = round(max(0.0, before + asked - planned), 9)
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, yaml.YAMLError):
+        past = 0.0
+    return last.name, stopped, asked, past
 
 
 def _extended_since_it_finished(root: Path) -> bool:
@@ -1453,9 +1516,61 @@ def _finished_record(root: Path, config: dict[str, Any]) -> tuple[bool, str | No
     return all(states.get(p) in ("ok", "skipped") for p in planned), None
 
 
+# Held by the process carrying a study on, for as long as it does: a second
+# resume or extension of the same study, from another process, is refused
+# rather than running the same stretch into the same next piece.
+CARRYING_ON_FILE = ".fastmdxplora-carrying-on"
+# Held once per process, not per thread: a second thread of the process
+# carrying the same study on is let in (none does today).
+_CARRYING = threading.RLock()
+_carried_here: dict[Path, int] = {}
+
+
+class _CarriedOnElsewhere(CodedError, Exception):
+    """Another process holds the study's lock: a run of it is still going."""
+
+    default_code = "environment.workspace.run_going"
+
+
+@contextlib.contextmanager
+def _carrying_on(root: Path) -> Iterator[None]:
+    """The study's own lock, held in this process (a resume that extends
+    takes it again); one held by another process raises
+    :class:`_CarriedOnElsewhere`. Where the folder holds no lock (not
+    there, not writable, a file system without locks), nothing is held."""
+    from fastmdxplora.runs_here import StartRefused, _lock, _unlock
+
+    with _CARRYING:
+        handle = None
+        # Only a study is locked: a folder that is not one is said to be
+        # so, with nothing left in it.
+        if not _carried_here.get(root) and (root / "resolved_config.yml").is_file():
+            try:
+                handle = _lock(root / CARRYING_ON_FILE)
+            except StartRefused:
+                raise _CarriedOnElsewhere() from None
+        _carried_here[root] = _carried_here.get(root, 0) + 1
+    try:
+        yield
+    finally:
+        with _CARRYING:
+            _carried_here[root] -= 1
+            if not _carried_here[root]:
+                _carried_here.pop(root)
+            if handle is not None:
+                _unlock(handle)
+
+
+_STILL_GOING = "A run of this study is still going. Resume it once it has stopped."
+_STILL_GOING_TO_EXTEND = "A run of this study is still going. Extend it once it has stopped."
+
+
 def resume_study(study: str | Path, *,
                  device_index: str | int | None = None) -> dict[str, Any]:
     """Carry a study that stopped part-way on to the end of its plan.
+
+    A study being carried on by another process is said, not carried on
+    twice.
 
     Reads how far it got and does what is left, once:
 
@@ -1483,6 +1598,17 @@ def resume_study(study: str | Path, *,
     (:func:`resume_batch`). ``device_index`` puts a run's simulation on the
     device given, where a campaign shares out its cards again.
     """
+    root = Path(study).expanduser().resolve()
+    try:
+        with _carrying_on(root):
+            return _resume_study(root, device_index=device_index)
+    except _CarriedOnElsewhere:
+        return {"study": str(root), "ok": False, "did": RESUMED_NOTHING, "error": _STILL_GOING}
+
+
+def _resume_study(study: str | Path, *,
+                  device_index: str | int | None = None) -> dict[str, Any]:
+    """The work of :func:`resume_study`, under the study's lock."""
     import yaml
 
     from fastmdxplora import FastMDXplora
@@ -1500,8 +1626,7 @@ def resume_study(study: str | Path, *,
     if _still_running(root) or any(_still_running(piece) for piece in root.glob("segment-*")
                                    if piece.is_dir()):
         return {**base, "ok": False, "did": RESUMED_NOTHING,
-                "error": "A run of this study is still going. Resume it once it "
-                         "has stopped."}
+                "error": _STILL_GOING}
     try:
         config = yaml.safe_load(resolved.read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError) as exc:
@@ -1523,15 +1648,30 @@ def resume_study(study: str | Path, *,
     if extended:
         finished = False
     if piece_said is not None:
-        name, why = piece_said
+        name, why, asked, past = piece_said
         why = why.splitlines()[0].strip()
         if not why.endswith((".", "!", "?")):
             why += "."
+
+        def extend(more: float) -> str:
+            return (f"(`simulation.resume_from: {root}` with `extra_ns: {more:g}` "
+                    "in a config given to fastmdx explore)")
+
+        # Moved out, the piece is not asked for again by a resume: a
+        # finished study reads as finished, so its extension is asked for
+        # again whole; past an unfinished plan, what reached past it is.
+        if extended and asked > 1e-9:
+            again = (f"move {name} out of the study's folder and extend the study by "
+                     f"{asked:g} ns again {extend(asked)}")
+        elif past > 1e-9:
+            again = (f"move {name} out of the study's folder, resume it, and extend it "
+                     f"by {past:g} ns {extend(past)}")
+        else:
+            again = f"move {name} out of the study's folder and resume"
         return {**base, "ok": False, "did": RESUMED_NOTHING,
                 "error": f"The study's last piece, {name}, stopped with an answer, not an "
                          f"interruption: {why} Running it again "
-                         f"would give the same one. To run it again anyway, move {name} "
-                         "out of the study's folder and resume."}
+                         f"would give the same one. To run it again anyway, {again}."}
     if stopped is not None:
         return {**base, "ok": False, "did": RESUMED_NOTHING,
                 "error": f"The study stopped with an answer, not an interruption "
@@ -1560,7 +1700,9 @@ def resume_study(study: str | Path, *,
         # a piece that did not finish at every resume after.
         owed = _owed_by_the_last_piece(root)
         left = (plan.production_planned_ns - plan.production_done_ns) if plan.possible else 0.0
-        if owed is not None and owed > left + 1e-9:
+        # A piece's length is written to 6 places (a fraction of one step at
+        # any timestep the software runs): within that, it is the plan's.
+        if owed is not None and owed > left + 1e-6:
             asked = owed
             plan = extension_of(root, more_ns=asked)
     if plan.possible:
