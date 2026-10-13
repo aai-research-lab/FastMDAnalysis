@@ -172,8 +172,8 @@ def _retrieve(url: str, dest: Path) -> None:
             _sleep(wait)
 
 
-def _not_fetched(pdb_id: str, url: str, exc: BaseException) -> StudyError:
-    """The refusal for a fetch that failed, by what failed."""
+def _not_fetched(pdb_id: str, url: str, exc: BaseException) -> str:
+    """What a study is told of a fetch that failed, by what failed."""
     if _passes(exc):
         said = (f"Could not fetch {pdb_id.upper()} from RCSB in "
                 f"{len(_FETCH_WAITS_S) + 1} tries: {exc}.\n\n"
@@ -191,11 +191,9 @@ def _not_fetched(pdb_id: str, url: str, exc: BaseException) -> StudyError:
                 "Where the machine has no route to the internet -- a cluster "
                 "compute node, commonly -- fetch the structure somewhere that "
                 "does and pass the file:\n\n")
-    return StudyError(
-        said + f"    curl -O {url}\n\n"
-        "then name it in place of the identifier. The path is read from "
-        "where fastmdx was run."
-    , code="environment.service.unreachable")
+    return (said + f"    curl -O {url}\n\n"
+            "then name it in place of the identifier. The path is read from "
+            "where fastmdx was run.")
 
 
 def _fetch_pdb_from_rcsb(pdb_id: str, dest: Path) -> Path:
@@ -212,7 +210,8 @@ def _fetch_pdb_from_rcsb(pdb_id: str, dest: Path) -> Path:
     except urllib.error.HTTPError as exc:
         if exc.code != 404:
             if _passes(exc):
-                raise _not_fetched(pdb_id, url, exc) from exc
+                raise StudyError(_not_fetched(pdb_id, url, exc),
+                                 code="environment.service.unreachable") from exc
             raise StudyError(f"RCSB refused {url}: {exc}.",
                              code="environment.service.unreachable") from exc
         # Entries too large for the PDB format are deposited as mmCIF only.
@@ -225,14 +224,17 @@ def _fetch_pdb_from_rcsb(pdb_id: str, dest: Path) -> Path:
             _retrieve(cif_url, cif)
         except urllib.error.HTTPError as cif_exc:
             if _passes(cif_exc):
-                raise _not_fetched(pdb_id, cif_url, cif_exc) from cif_exc
+                raise StudyError(_not_fetched(pdb_id, cif_url, cif_exc),
+                                 code="environment.service.unreachable") from cif_exc
             raise StudyError(f"Could not fetch {pdb_id.upper()} from RCSB as PDB or mmCIF: "
                              f"{cif_exc}.", code="environment.service.unreachable") from cif_exc
         except (OSError, http.client.HTTPException) as cif_exc:
-            raise _not_fetched(pdb_id, cif_url, cif_exc) from cif_exc
+            raise StudyError(_not_fetched(pdb_id, cif_url, cif_exc),
+                             code="environment.service.unreachable") from cif_exc
         _write_mmcif_as_pdb(cif, dest)
     except (OSError, http.client.HTTPException) as exc:
-        raise _not_fetched(pdb_id, url, exc) from exc
+        raise StudyError(_not_fetched(pdb_id, url, exc),
+                         code="environment.service.unreachable") from exc
     return dest
 
 
