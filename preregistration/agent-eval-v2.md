@@ -288,5 +288,10 @@ whose text names it, and differs by what was written anew (the home folder,
 the folders listed) after the run's digests were taken. The first request
 of the two @ cases with the context differs only for the reason given
 above: what an @ names is resolved from the folders on the machine
-replaying. Their `fastmdxplora` version, `2.5.9.dev475+gb091679ad`, is the
-editable install's, as in version 1's run.
+replaying. The suite holds the verdicts and, as for version 1's run, a
+digest of what is sent (the Agent's own words and the config schema's
+structure, not its prose); it reports these counts and does not hold them.
+Once what is sent changes, a replayed verdict shows that the same replies
+are judged the same, not what the Agent would reply now. Their
+`fastmdxplora` version, `2.5.9.dev475+gb091679ad`, is the editable
+install's, as in version 1's run.

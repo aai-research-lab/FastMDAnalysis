@@ -53,6 +53,14 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   the study was refused. A study run again from its own `resolved_config.yml`
   is named the same way.
 
+- A setting's description reworded in the config schema no longer fails the
+  suite. The suite replays the Agent's recorded runs and fails on a verdict
+  turned, on a replay that diverges from the run, or on a change to what it
+  holds of what is sent: the Agent's own words (its instructions, its tools,
+  how a message is put together) and the schema's structure (names, types,
+  choices, bounds, defaults), not the schema's prose. The replay's table
+  counts the exchanges asked differently since a run. See
+  `docs/validation.md`, The run kept in the suite.
 - A structure fetched from RCSB is tried up to three times when the connection
   is dropped, the transfer is cut short, or RCSB answers 429 or 5xx. A study
   stopped by such a failure is told so, not that the machine may have no route

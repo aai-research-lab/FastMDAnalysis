@@ -1047,38 +1047,81 @@ def test_a_study_named_from_here_is_named_whole_in_the_message(tmp_path, monkeyp
 RECORDED = Path(__file__).resolve().parent / "data" / "agent_eval" / "run_2026-10-13.json.gz"
 
 
-#: What the Agent sends for the recorded run's 440 requests and looks, as
-#: the code asks them now: a digest of their digests, in order. A change to
-#: what the Agent is told (its instructions, its tools, a message's parts)
-#: changes it, and the round that makes the change sets it here, so no
-#: change to what is sent goes unseen. Set by `agent-context` (its plan, the
-#: look at a study's file): every request of the run changed with it, and
-#: the run was not asked again; its verdicts replay as recorded.
-ASKED_NOW = "3d7944f817a5a1cf4d9ee2ff381321093464d4bfbd1d5e42b482945148fd4cfc"
+#: What the Agent sends for the recorded run's 440 requests and 222 looks,
+#: as the code asks them now, with the config schema's prose left out: a
+#: digest of their digests, in order. A change to the Agent's own words (its
+#: instructions, its tools, how a message is put together) or to the
+#: schema's structure (a setting's name, type, choices, bounds or default)
+#: changes it, and the round that makes the change sets it here, so none
+#: goes unseen. The schema's prose (a setting's description, a phase's, and
+#: the text of `systems` and `sweep`) is in every request too, but not in
+#: this: a round that rewords it changes every request and fails nothing
+#: unless a verdict turns, and the replay counts the exchanges asked
+#: differently. Set by `agent-context` (its plan, the look at a study's
+#: file), against which the run was not asked again; its verdicts replay as
+#: recorded.
+ASKED_NOW = "849612a2de6527e96a405cf9e716e0e021a5fd31cb612e8cc84302e0a05906b9"
 
 
-def _replayed_recording(monkeypatch) -> tuple[dict, dict, list[str]]:
+def _asked_in_own_words(monkeypatch) -> list[str]:
+    """What each request and look is asked as now, the schema's prose left
+    out and its structure kept, in order; and a tool run in a replay fails
+    the test."""
     import fastmdxplora.agent.tools as tools
+    import fastmdxplora.config.describe as describe
 
     def no_tool(self, name, asked):
         raise AssertionError(f"{name} was run in a replay")
 
+    # As `describe._phase_section` and `describe._study_keys_section` lay a
+    # section out, less their prose: kept in step with them by hand.
+    def section_without_prose(name, schema, *, verbose):
+        return "\n".join([f"## {name}"] + [
+            describe.describe_field(field, verbose=False) for field in schema.fields])
+
+    def keys_without_prose():
+        from fastmdxplora.config.schema import BATCH_KEY_HELP
+
+        return "\n".join(["", "## systems and sweep"]
+                         + [f"  - {key}" for key in BATCH_KEY_HELP])
+
     asked_now: list[str] = []
     taped = ev._Tape.next
+    turn = ev._Replayed._turn
 
     def next_asked(self, kind, asked=None):
         asked_now.append(f"{kind}:{asked}")
         return taped(self, kind, asked)
 
+    def turn_with_tools(self, system, messages, tools_, *args, **kwargs):
+        # A request's digest names its tools; what each is said to be for
+        # and takes is the Agent's own words too.
+        asked_now.append("tools:" + ev._digest([
+            [getattr(t, "name", t), getattr(t, "description", None),
+             getattr(t, "parameters", None)] for t in tools_]))
+        return turn(self, system, messages, tools_, *args, **kwargs)
+
     monkeypatch.setattr(tools.Toolbox, "use", no_tool)
     monkeypatch.setattr(ev._Tape, "next", next_asked)
+    monkeypatch.setattr(ev._Replayed, "_turn", turn_with_tools)
+    monkeypatch.setattr(describe, "_phase_section", section_without_prose)
+    monkeypatch.setattr(describe, "_study_keys_section", keys_without_prose)
+    return asked_now
+
+
+def _replayed_recording(monkeypatch) -> tuple[dict, dict, list[str]]:
+    asked_now = _asked_in_own_words(monkeypatch)
     recorded = ev.read_recording(RECORDED)
     return recorded, ev.replay(recorded), asked_now
 
 
-def test_the_recorded_run_replays_to_every_verdict_it_was_recorded_with(monkeypatch) -> None:
+def _digest_of(asked_now: list[str]) -> str:
     import hashlib
 
+    return hashlib.sha256("\n".join(asked_now).encode()).hexdigest()
+
+
+def test_the_recorded_run_replays_to_every_verdict_it_was_recorded_with(monkeypatch) -> None:
     recorded, replayed, asked_now = _replayed_recording(monkeypatch)
     # A run of version 1, whose cases version 2 keeps as they were.
     assert recorded["set"] == ev.SET_NAME and recorded["version"] == 1
@@ -1089,13 +1132,12 @@ def test_the_recorded_run_replays_to_every_verdict_it_was_recorded_with(monkeypa
     for old, new in zip(recorded["trials"], replayed["trials"]):
         assert (new["case"], new["repeat"]) == (old["case"], old["repeat"])
         assert new["verdict"] == old["verdict"], (old["case"], old["repeat"])
-    # What the Agent sends now, against what the last round that changed it
-    # set: a change to it fails here until it is set again.
-    assert len(asked_now) == 440 + 222
-    # Each of the 440 requests to the AI model is sent differently since the
-    # run (the instructions and tools grew); the 222 looks are asked as they were.
-    assert replayed["tally"]["changed_since_recorded"] == 440
-    assert hashlib.sha256("\n".join(asked_now).encode()).hexdigest() == ASKED_NOW
+    # What the Agent sends now in its own words, against what the last round
+    # that changed them set: a change to them fails here until it is set
+    # again. How many requests differ from the run's is reported, not held.
+    # Each request, its tools as declared, and each look.
+    assert len(asked_now) == 440 + 440 + 222
+    assert _digest_of(asked_now) == ASKED_NOW
     same = {k: v for k, v in replayed["tally"].items() if k != "changed_since_recorded"}
     assert same == {k: v for k, v in recorded["tally"].items()
                     if k != "changed_since_recorded"}
@@ -1374,21 +1416,25 @@ def test_a_version_1_recording_replays_and_another_version_does_not():
 
 # -- the context kind, asked with and without the Agent's context ---------------------------
 
-def _replayed_context_run(monkeypatch, context: bool) -> tuple[dict, dict]:
+#: As ASKED_NOW, for each context run: what is asked now in the Agent's own
+#: words and the schema's structure, the schema's prose left out. The two @
+#: cases resolve what is named from the folders here, where the study the
+#: run was asked against is not.
+CONTEXT_ASKED_NOW = {
+    True: "ef3b28509b54c1d94adfcd3d689f8e57bc74ad72560813e14eb1d8bc356dfac3",
+    False: "39128bdc0a71b923f4a21b18950c77a53adc771f8a1aad11e816cc4a9dbe0bc5"}
+
+
+def _replayed_context_run(monkeypatch, context: bool) -> tuple[dict, dict, list[str]]:
+    asked_now = _asked_in_own_words(monkeypatch)
     recorded = ev.read_recording(CONTEXT_RUNS[context])
-    import fastmdxplora.agent.tools as tools
-
-    def no_look(self, name, asked):
-        raise AssertionError(f"{name} was run in a replay")
-
-    monkeypatch.setattr(tools.Toolbox, "use", no_look)
-    return recorded, ev.replay(recorded)
+    return recorded, ev.replay(recorded), asked_now
 
 
 @pytest.mark.parametrize("context", [True, False], ids=["with", "without"])
 def test_each_context_run_replays_to_every_verdict_it_was_recorded_with(
         monkeypatch, context) -> None:
-    recorded, replayed = _replayed_context_run(monkeypatch, context)
+    recorded, replayed, asked_now = _replayed_context_run(monkeypatch, context)
     assert recorded["set"] == ev.SET_NAME and recorded["version"] == 2
     assert recorded["context"] is context and replayed["context"] is context
     assert recorded["ai_model"] == "anthropic/claude-opus-5-5"
@@ -1399,18 +1445,113 @@ def test_each_context_run_replays_to_every_verdict_it_was_recorded_with(
         assert (new["case"], new["repeat"]) == (old["case"], old["repeat"])
         assert new["verdict"] == old["verdict"], (old["case"], old["repeat"])
     assert ("asked without the Agent's context" in ev._table(replayed)) is not context
-    # What the context is made of, asked as it was: the trials that name no
-    # study's folder send every request and look as recorded. Like ASKED_NOW,
-    # a round that changes what the Agent is sent sets this anew, and says so
-    # under version 2's Results. The others differ by the home folder written
-    # anew after the run's digests were taken, and by what an @ resolves to.
-    alike = {"ctx_far_forcefield", "ctx_far_temperature", "ctx_far_ph", "ctx_open_question"}
-    if not context:
-        alike.add("ctx_mention_study")
-    changed = {(t["case"], t["repeat"]): t["changed"] for t in replayed["trials"]}
-    assert {k: v for k, v in changed.items() if k[0] in alike} == {
-        (case, r): 0 for case in alike for r in (1, 2, 3)}
-    assert replayed["tally"]["changed_since_recorded"] == (38 if context else 11)
+    # What the context is made of, as the Agent puts it now in its own words:
+    # a change to how the earlier turns, the page or a name with @ are put
+    # fails here until the round that makes it sets it again.
+    assert _digest_of(asked_now) == CONTEXT_ASKED_NOW[context]
+
+
+class _Reworded:
+    """The schema's prose reworded in place, and put back: each setting's
+    description, each phase's, and the text of `systems` and `sweep`."""
+
+    def __enter__(self):
+        from fastmdxplora.config import schema
+
+        self.fields = [f for phase in schema.all_schemas().values() for f in phase.fields]
+        self.phases = list(schema.all_schemas().values())
+        self.saved = ([f.help for f in self.fields], [p.description for p in self.phases],
+                      dict(schema.BATCH_KEY_HELP))
+        try:
+            for field in self.fields:  # frozen: reworded in place, put back below
+                object.__setattr__(field, "help", "Reworded. " + (field.help or ""))
+            for phase in self.phases:
+                object.__setattr__(phase, "description",
+                                   "Reworded. " + (phase.description or ""))
+            for key in schema.BATCH_KEY_HELP:
+                schema.BATCH_KEY_HELP[key] = "Reworded. " + schema.BATCH_KEY_HELP[key]
+        except BaseException:
+            self.__exit__()  # what was reworded before it stopped is put back
+            raise
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        from fastmdxplora.config import schema
+
+        helps, descriptions, keys = self.saved
+        for field, help_ in zip(self.fields, helps):
+            object.__setattr__(field, "help", help_)
+        for phase, description in zip(self.phases, descriptions):
+            object.__setattr__(phase, "description", description)
+        schema.BATCH_KEY_HELP.clear()
+        schema.BATCH_KEY_HELP.update(keys)
+
+
+@pytest.mark.parametrize("recording", [RECORDED, CONTEXT_RUNS[True]], ids=["v1", "context"])
+def test_the_schema_s_prose_reworded_turns_no_verdict_and_fails_nothing(
+        monkeypatch, recording) -> None:
+    """A round that rewords the schema's prose changes every request the
+    recorded runs replay, but neither a verdict nor what the suite holds;
+    the replay counts the exchanges asked differently."""
+    import fastmdxplora.agent.tools as tools
+    from fastmdxplora.config import schema
+    from fastmdxplora.config.describe import describe_field, describe_schema
+
+    def no_tool(self, name, asked):
+        raise AssertionError(f"{name} was run in a replay")
+
+    monkeypatch.setattr(tools.Toolbox, "use", no_tool)
+    pinned = ASKED_NOW if recording == RECORDED else CONTEXT_ASKED_NOW[True]
+    recorded = ev.read_recording(recording)
+    field = schema.SIMULATION.get("temperature_K")
+    with _Reworded():
+        # Sent as reworded: every request carries the new prose.
+        assert describe_schema().count("Reworded. ") > 100
+        reworded = ev.replay(recorded)
+    assert [t["verdict"] for t in reworded["trials"]] == [
+        t["verdict"] for t in recorded["trials"]]
+    requests = sum(e.get("kind") == "turn" for t in recorded["trials"]
+                   for e in t["exchanges"])
+    assert reworded["tally"]["changed_since_recorded"] >= requests
+    assert "exchanges asked differently since recorded" in ev._table(reworded)
+    # And what the suite holds is as pinned, the prose left out.
+    asked_now = _asked_in_own_words(monkeypatch)
+    with _Reworded():
+        assert describe_field(field).count("Reworded. ") == 1
+        ev.replay(recorded)
+    assert _digest_of(asked_now) == pinned
+    assert "Reworded. " not in field.help
+
+
+@pytest.mark.parametrize("change", ["default", "tool"])
+def test_the_schema_s_structure_and_a_tool_s_words_are_held(monkeypatch, change) -> None:
+    """What the suite holds keeps the schema's structure (a default changed
+    changes what the Agent can be told to write) and what each tool is said
+    to be for: either changed fails here until set again."""
+    from fastmdxplora.agent import conversation
+    from fastmdxplora.config import schema
+
+    asked_now = _asked_in_own_words(monkeypatch)
+    if change == "default":
+        field = schema.SIMULATION.get("temperature_K")
+        saved = field.default
+        object.__setattr__(field, "default", 301.0)
+        try:
+            ev.replay(ev.read_recording(CONTEXT_RUNS[True]))
+        finally:
+            object.__setattr__(field, "default", saved)
+    else:
+        import dataclasses
+
+        specs = conversation.reply_specs
+
+        def reworded_specs(*args, **kwargs):
+            return [dataclasses.replace(s, description="Reworded. " + s.description)
+                    if s.name == "ask_person" else s for s in specs(*args, **kwargs)]
+
+        monkeypatch.setattr(conversation, "reply_specs", reworded_specs)
+        ev.replay(ev.read_recording(CONTEXT_RUNS[True]))
+    assert _digest_of(asked_now) != CONTEXT_ASKED_NOW[True]
 
 
 def test_the_person_s_other_folders_are_not_kept_in_a_recording() -> None:
@@ -1447,7 +1588,7 @@ def test_the_context_runs_meet_each_claim_as_reported(monkeypatch) -> None:
     by_case = {}
     replays = {}
     for context in (True, False):
-        _, replayed = _replayed_context_run(monkeypatch, context)
+        _, replayed, _ = _replayed_context_run(monkeypatch, context)
         replays[context] = replayed
         tally = replayed["tally"]
         assert tally["all"]["not_judged"] == 0 and tally["asked_again"] == 0

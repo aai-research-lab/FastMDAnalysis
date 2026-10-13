@@ -203,12 +203,32 @@ whatever is checked out since.
 (`tests/data/agent_eval/run_2026-10-13.json.gz`, version 1, which replays
 under version 2) is replayed in the suite, with no AI model and no network,
 in a few seconds: a change to the loop, the validator or the judging that
-would turn one of its 216 verdicts fails the suite. So does a change to
-what the Agent sends, until the round that makes it sets the suite's
-digest of what is sent now (`ASKED_NOW`): the round that added the Agent's
-context changed all 440 requests (its plan and the look at a study's file
-are in every one), and the recorded replies replay to every verdict
-against them. They were not asked again of the AI model.
+would turn one of its 216 verdicts fails the suite, and so does a replay
+that asks for an exchange the run did not record. A replayed verdict is
+the AI model's reply to the request as it was sent then: once what is sent
+changes, the replay shows that the loop, the validator and the judging
+give the same replies the same verdicts, not what the Agent would do now.
+
+So the suite also holds what is sent, as a digest of what each request,
+its tools as declared and each look are asked as now (`ASKED_NOW`, and
+`CONTEXT_ASKED_NOW` for the two runs of the `context` kind, below). It
+keeps the Agent's own words (its instructions, what each tool is said to
+be for and takes, how a message is put together) and the config schema's
+structure (each setting's name, type, choices, bounds and default), and
+leaves out the schema's prose (each setting's description, each phase's,
+and the text of `systems` and `sweep`; the opening paragraph of the
+description is held). A round that rewords that prose
+changes every request, turns no verdict and fails nothing; the replay's
+table says how many exchanges are asked differently since the run (`N
+exchanges asked differently since recorded`). A round that changes what
+is held sets the three digests again, and says under the set's Results
+what changed and whether the runs still stand. A run is asked again with
+an AI model when the change touches what a case's verdict rests on (the
+reply's form, the `ANSWER:` line, a tool a case needs), when the AI model
+changes, or when the set's version does. The round that added the Agent's
+context changed all 440 requests of the first run (its plan and the look
+at a study's file are in every one); the recorded replies replay to every
+verdict against them, and the run was not asked again.
 
 | Claim | `anthropic/claude-opus-5-5`, 2026-10-13, 3 repeats (the Agent before its context) | Met |
 |---|---|---|
