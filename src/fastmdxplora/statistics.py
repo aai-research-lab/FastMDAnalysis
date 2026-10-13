@@ -64,6 +64,7 @@ __all__ = [
     "mean_record",
     "shared_start",
     "with_its_error",
+    "independent_samples_said",
     "four_figures",
     "convergence_of",
 ]
@@ -89,6 +90,26 @@ RESOLVED_SAMPLES = 25.0
 #: :data:`RESOLVED_SAMPLES`: their error may be given at fewer independent
 #: samples than that, never fewer than :data:`MINIMUM_EFFECTIVE_SAMPLES`.
 UNCORRELATED_INEFFICIENCY = 2.0
+
+
+def independent_samples_said(count: float, *, about: bool = False) -> str:
+    """A count of independent samples in words, the same on every page: a
+    count under one is "fewer than one independent sample", never rounded
+    to 0; any other is a whole number, and one is a sample, not samples. A
+    count under :data:`MINIMUM_EFFECTIVE_SAMPLES` is never rounded up to
+    it: 9.6 is said as 9, beside a rule that withholds an error under 10.
+    ``about`` hedges it, as an estimate is."""
+    count = float(count)
+    if not np.isfinite(count):
+        return "a number of independent samples that could not be counted"
+    if count < 1:
+        return "fewer than one independent sample"
+    whole = int(round(count))
+    if count < MINIMUM_EFFECTIVE_SAMPLES <= whole:
+        whole = int(np.floor(count))
+    return (("about " if about else "") + f"{whole} independent "
+            + ("sample" if whole == 1 else "samples"))
+
 
 #: Equilibration is detected as the latest start that keeps at least this
 #: share of the most independent samples any start keeps. The start that

@@ -908,7 +908,17 @@ class SessionPresenter:
         kv("Output", output, "green")
         kv("Version", version, "green")
         kv("Started", started, "green")
-        kv("Platform", f"{platform} ({precision} precision)", "green")
+        from fastmdxplora.simulation.runner import PRECISION_PLATFORMS
+
+        # The platform asked for, before one is chosen: a precision applies
+        # only on the GPU platforms, so "CPU (mixed precision)" said one that
+        # is never applied.
+        if platform in PRECISION_PLATFORMS:
+            kv("Platform", f"{platform} ({precision} precision)", "green")
+        elif platform == "auto":
+            kv("Platform", f"auto ({precision} precision if a GPU is chosen)", "green")
+        else:
+            kv("Platform", platform, "green")
         # How to watch it. The banner computed this address and threw it away,
         # on the reasoning that the GUI prints its own -- true when a server
         # is running, and no help to somebody who has just started a run and

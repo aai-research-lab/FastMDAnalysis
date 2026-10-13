@@ -49,6 +49,11 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   is not started the field keeps the focus and the refusal stays said.
   "Saved" plays once for each save that changed the draft, not again when the
   page is shown, and not for a save made while the page was hidden.
+- The slides and the reweighted averages, in their own text and in the
+  Report, say a count of independent samples as the rest of the Report
+  does: under one as fewer than one, and one as one sample. The start
+  banner gives a precision beside a GPU platform, and beside `auto` as the
+  one a GPU would use; beside the CPU it gives none.
 
 ### Security
 

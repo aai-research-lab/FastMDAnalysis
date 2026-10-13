@@ -117,8 +117,10 @@ def _rests_on(record: dict[str, Any]) -> str:
     frames = record.get("n_frames")
     said = f"{_count(ess)} weight-concentration effective frames of {frames}"
     independent = record.get("independent_samples")
-    if isinstance(independent, (int, float)):
-        said += f", about {_count(independent)} independent samples"
+    if isinstance(independent, (int, float)) and not isinstance(independent, bool):
+        from fastmdxplora.statistics import independent_samples_said
+
+        said += ", " + independent_samples_said(independent, about=True)
     return said
 
 
@@ -137,7 +139,7 @@ def reweighted_line(record: dict[str, Any] | None, analysis: str) -> str | None:
         withheld = item.get("not_a_measurement")
         return (
             f"**Reweighted mean: {_with_spread(item.get('reweighted_mean'), item.get('reweighted_std'), item.get('reweighted_standard_error'))}**"
-            f" — the equilibrium average, recovered from the deposited bias on "
+            f", the equilibrium average, recovered from the deposited bias on "
             f"{_rests_on(record)}. "
             + (f"No error is given: {withheld} " if withheld else "")
             + f"The average over the biased frames themselves is "
@@ -209,7 +211,7 @@ def reweighted_section(project_root: Path,
         "Production was biased, so the trajectory is not a Boltzmann "
         "ensemble and an average over its frames is not an estimate for the "
         "unbiased system. Each frame is weighted by exp((V − c(t))/RT), where V is the "
-        "bias it was actually sampled under and c(t) is the Tiwary–Parrinello "
+        "bias it was actually sampled under and c(t) is the Tiwary-Parrinello "
         "offset, which recovers the unbiased average. **The reweighted column "
         "is the result; the biased column is shown so the size of the "
         "correction is visible.**")

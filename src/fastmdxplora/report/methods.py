@@ -29,11 +29,6 @@ from typing import Any
 
 __all__ = ["methods_paragraphs", "missing_from_methods", "CHECKLIST"]
 
-#: The OpenMM platforms that take a `Precision` setting, as the runner sets it
-#: (``simulation/runner.py``, ``_make_props``); on any other the precision
-#: asked for is not applied.
-_TAKES_PRECISION = ("CUDA", "OpenCL", "HIP")
-
 #: What each integrator is called in the literature. The identifiers are FastMDXplora's
 #: and a reader looking one up needs the published name.
 _INTEGRATOR_NAMES = {
@@ -529,7 +524,9 @@ def methods_paragraphs(
         # Precision is a setting of the GPU platforms only (the runner sets it
         # there and nowhere else), so a run on the CPU is not said to have used
         # the precision it asked for.
-        precision = _get(sim, "precision") if platform in _TAKES_PRECISION else None
+        from fastmdxplora.simulation.runner import PRECISION_PLATFORMS
+
+        precision = _get(sim, "precision") if platform in PRECISION_PLATFORMS else None
         seed = _get(sim, "random_seed")
 
         protocol = []

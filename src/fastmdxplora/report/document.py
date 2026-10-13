@@ -1056,12 +1056,10 @@ def _findings_notes(findings: dict[str, Any]) -> list[str]:
             value += f" {measured['unit']}"
         independent = measured.get("effective_samples")
         said = f"Mean over the equilibrated part of the run: {value}"
-        if isinstance(independent, (int, float)) and independent < 1:
-            # Rounded to a whole, 0.42 read as "from 0 independent samples".
-            said += ", from fewer than one independent sample"
-        elif isinstance(independent, (int, float)):
-            said += (f", from {independent:.0f} independent "
-                     + ("sample" if round(independent) == 1 else "samples"))
+        if isinstance(independent, (int, float)) and not isinstance(independent, bool):
+            from fastmdxplora.statistics import independent_samples_said
+
+            said += ", from " + independent_samples_said(independent)
         discarded = measured.get("discard")
         if isinstance(discarded, int) and discarded:
             said += f" after discarding {discarded:,} " + (
