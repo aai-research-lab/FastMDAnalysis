@@ -86,6 +86,7 @@ from fastmdxplora.remote.inputs import (
     gather_inputs,
     link_out_of,
     private_in,
+    refuse_home_or_above,
     size_of,
 )
 from fastmdxplora.remote.jobs import (
@@ -453,6 +454,9 @@ def prepare(config_path: str | Path, machine_name: str, *,
                 f"{value!r} cannot be given as {said}: letters, digits and . , : + _ - "
                 "only, as SLURM writes them.", code="config.option.not_permitted",
                 setting=said)
+    # Before your defaults are looked for, up to the home folder: where
+    # none can be found, or the config is in it, nothing travels.
+    refuse_home_or_above(config_path.resolve().parent)
     defaults_note = ""
     if isinstance(raw, dict):
         raw, defaults_note = _with_your_defaults(raw, config_path)

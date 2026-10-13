@@ -46,7 +46,7 @@ from typing import Any
 from fastmdxplora.refusals import StudyError
 
 __all__ = ["Inputs", "fingerprint_of", "gather_inputs", "link_out_of", "outside_said",
-           "private_in", "size_of"]
+           "private_in", "refuse_home_or_above", "size_of"]
 
 #: Settings that name where results go rather than something to read.
 _NOT_INPUTS = frozenset({"output"})
@@ -436,6 +436,25 @@ def outside_said(where: str, given: str, found: Path, folder: Path,
     return said
 
 
+def refuse_home_or_above(folder: Path) -> None:
+    """Refuse (``remote.input.outside``) a config whose folder, which is
+    what travels with it, is the top of the file system or the home folder,
+    or where no home folder can be found, so that cannot be told."""
+    folder = folder.resolve()
+    if not _home_or_above(folder):
+        return
+    said = (f"The config is in {folder}, and a study's folder is what travels with "
+            "it; that cannot be the top of the file system or your home folder. "
+            "Put the config and its files in a folder of their own.")
+    if folder != Path(folder.anchor) and not home_folders():
+        said = (f"The config is in {folder}, and a study's folder is what travels "
+                "with it. No home folder was found, so FastMDXplora cannot tell whether "
+                "that is your home folder, which never travels. Set `HOME` to your "
+                "home folder and send it again.")
+    raise StudyError(said, code="remote.input.outside", given=str(folder), where="",
+                     folder=str(folder))
+
+
 def gather_inputs(config: Any, base: Path) -> Inputs:
     """``config`` with local paths renamed under ``inputs/``, and the files.
 
@@ -444,17 +463,7 @@ def gather_inputs(config: Any, base: Path) -> Inputs:
     ``setup_from`` or ``resume_from``, as the module says.
     """
     folder = base.resolve()
-    if _home_or_above(folder):
-        said = (f"The config is in {folder}, and a study's folder is what travels with "
-                "it; that cannot be the top of the file system or your home folder. "
-                "Put the config and its files in a folder of their own.")
-        if folder != Path(folder.anchor) and not home_folders():
-            said = (f"The config is in {folder}, and a study's folder is what travels "
-                    "with it. No home folder was found, so whether that is your home "
-                    "folder, which never travels, cannot be told. Set `HOME` to your "
-                    "home folder and send it again.")
-        raise StudyError(said, code="remote.input.outside", given=str(folder), where="",
-                         folder=str(folder))
+    refuse_home_or_above(folder)
     found = Inputs(config=None)
     by_source: dict[Path, str] = {}
 
