@@ -207,13 +207,19 @@ def build_config(state: dict[str, Any], *, full: bool = False) -> dict[str, Any]
     # shape. The page offers a single system; the file it writes is the same
     # file a batch would use, with one entry in the list.
     system = state.get("system")
-    if system:
+    if state.get("systems"):
+        # The form's list of systems, each with its name and any settings
+        # for it alone. Before, the form held one structure, and a study of
+        # several opened here came back as its first, its names and its
+        # per-system settings gone without a word.
+        config["systems"] = [entry for entry in (
+            _system_entry(raw) for raw in state["systems"] if isinstance(raw, dict))
+            if entry]
+    elif system:
         entry: dict[str, Any] = {"system": system}
         if state.get("system_id"):
             entry["id"] = state["system_id"]
         config["systems"] = [entry]
-    elif state.get("systems"):
-        config["systems"] = state["systems"]
 
     # A full config records what the run will use, so it names every phase the
     # run includes -- not only the ones the form happened to touch. A phase
@@ -327,6 +333,38 @@ def build_config(state: dict[str, Any], *, full: bool = False) -> dict[str, Any]
     return config
 
 
+def _system_entry(raw: dict[str, Any]) -> dict[str, Any] | None:
+    """One row of the form's systems as the config writes it: the
+    structure, its name where given, and its own settings, each brought in
+    from text as the study's settings are."""
+    structure = str(raw.get("system") or "").strip()
+    if not structure:
+        return None
+    entry: dict[str, Any] = {"system": structure}
+    name = str(raw.get("id") or "").strip()
+    if name:
+        entry["id"] = name
+    for phase, group in PHASE_SCHEMAS.items():
+        block = raw.get(phase)
+        if not isinstance(block, dict):
+            continue
+        fields = {f.name: f for f in group.fields}
+        kept = {}
+        for key, value in block.items():
+            field = fields.get(key)
+            coerced = _coerce(value, field) if field is not None else value
+            if coerced is not None:
+                kept[key] = coerced
+        if kept:
+            entry[phase] = kept
+    # Anything else a row carries (a key a later release adds) is passed on
+    # for the validator to judge, not dropped here.
+    for key, value in raw.items():
+        if key not in entry and key not in ("system", "id", *PHASE_SCHEMAS):
+            entry[key] = value
+    return entry
+
+
 def config_yaml(state: dict[str, Any], *, full: bool = False) -> dict[str, Any]:
     """The config as text, from the builder's form state. A sweep row that
     cannot be read is said under the form rather than failing the request."""
@@ -336,8 +374,29 @@ def config_yaml(state: dict[str, Any], *, full: bool = False) -> dict[str, Any]:
         config = build_config(state, full=full)
         short = build_config(state, full=False) if full else None
     except SweepError as exc:
-        return {"ok": False, "error": str(exc), "yaml": ""}
-    return render_config(config, full=full, short=short)
+        return {"ok": False, "error": str(exc), "yaml": "", **refused(exc)}
+    answer = render_config(config, full=full, short=short)
+    if answer.get("ok"):
+        from fastmdxplora.gui.applicable import not_applicable
+
+        # Which analyses this study leaves nothing for, and why, from its
+        # config alone; the preview adds what the structure holds.
+        answer["not_applicable"] = not_applicable(config)
+    return answer
+
+
+def refused(exc: BaseException) -> dict[str, Any]:
+    """A refusal as the form reads it: its record, and what would fix it,
+    naming the setting so the form can say it on that setting's field."""
+    from fastmdxplora.refusals import refusal_of
+    from fastmdxplora.remedies import remedy_for
+
+    found = refusal_of(exc)
+    try:
+        remedy = remedy_for(found, where="the config").as_record()
+    except Exception:  # noqa: BLE001 - the refusal stands without its fix
+        remedy = None
+    return {"refusal": found.as_dict(), "remedy": remedy}
 
 
 def render_config(config: dict[str, Any], *, full: bool = False,
@@ -364,6 +423,7 @@ def render_config(config: dict[str, Any], *, full: bool = False,
         return {
             "ok": False,
             "error": str(exc),
+            **refused(exc),
             "yaml": None,
             "settings_changed": sum(
                 len(v) for k, v in config.items() if isinstance(v, dict)
@@ -426,9 +486,18 @@ def render_config(config: dict[str, Any], *, full: bool = False,
         header += f"# ({why})\n#\n"
 
     body = yaml.safe_dump(config, sort_keys=False, default_flow_style=False)
+    from fastmdxplora.gui.plan import plan_of
+
+    try:
+        plan = plan_of(decided)
+    except Exception:  # noqa: BLE001 - the plan is said beside the file, never instead of it
+        plan = []
     return {
         "ok": True,
         "error": None,
+        # The study said in lines, as the Agent's plan says it, defaults
+        # marked: what the form's review shows.
+        "plan": plan,
         "command": command,
         "script": python_script(decided),
         "yaml": header + body,
@@ -492,6 +561,29 @@ def _lists_as_lists(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+def phases_it_runs(data: dict[str, Any], *, in_the_form: bool = False) -> list[str]:
+    """The phases a config runs, as `fastmdx explore` plans them: its
+    `include_phase`, else all but its `exclude_phase`, else all. The form,
+    which asks a config naming a trajectory to analyse one, leaves setup and
+    simulation out of it (`in_the_form`); a study's own resolved config
+    names its trajectory too, and runs all four."""
+    ordered = [str(p) for p in PHASE_SCHEMAS]
+    include = data.get("include_phase")
+    exclude = data.get("exclude_phase")
+    if isinstance(include, list) and include:
+        running = [p for p in ordered if p in {str(x) for x in include}]
+    elif isinstance(exclude, list) and exclude:
+        running = [p for p in ordered if p not in {str(x) for x in exclude}]
+    else:
+        running = ordered
+    analysis = data.get("analysis") if isinstance(data.get("analysis"), dict) else {}
+    if in_the_form and analysis.get("trajectory"):
+        # A config that names a trajectory was written to analyse one;
+        # setup and simulation have nothing to do there even if unstated.
+        running = [p for p in running if p not in ("setup", "simulation")]
+    return running
+
+
 def check_config(data: dict[str, Any]) -> dict[str, Any]:
     """The same verdict, for a config that is not on disk.
 
@@ -510,13 +602,27 @@ def check_config(data: dict[str, Any]) -> dict[str, Any]:
     except ConfigError as exc:
         return {"ok": False, "error": str(exc)}
 
-    phases = data.get("include_phase")
-    if not isinstance(phases, list) or not phases:
-        phases = [name for name in PHASE_SCHEMAS if isinstance(data.get(name), dict)]
+    # The phases it runs, as the form ticks them: "simulation" alone was
+    # said of a config that runs all four, its blocks read for its phases.
+    phases = phases_it_runs(data)
     systems = data.get("systems") or []
+    # What the form says under Worth knowing, said for a file too: a 10 fs
+    # timestep checked here as "Runs." and ran, to fail in NVT.
+    from fastmdxplora.advisories import advise
+
+    settings = {**(data.get("setup") if isinstance(data.get("setup"), dict) else {}),
+                **(data.get("simulation") if isinstance(data.get("simulation"), dict) else {})}
+    try:
+        # Each with what to do about it: a summary alone said what was
+        # wrong and not what would run.
+        knowing = [" ".join(str(part).strip() for part in (a.summary, a.remedy) if part)
+                   for a in advise({}, settings)]
+    except Exception:  # noqa: BLE001 - advice, never a verdict
+        knowing = []
     return {
         "ok": True,
         "error": None,
+        "worth_knowing": knowing,
         "phases": [str(p) for p in phases],
         "systems": len(systems) if isinstance(systems, list) else 0,
         "settings_named": sum(
@@ -564,7 +670,14 @@ def state_from_config(
 
     data = _lists_as_lists(canonical_phase_keys(dict(data)))
     if checked is None:
-        checked = check_config(data)
+        # Checked on a copy, as a file's is: the validator expands an
+        # umbrella block into a run per window in place, and the form was
+        # then filled from the first window, so an umbrella study opened
+        # here (an Agent's, through its Download config or Open in the
+        # builder) came back as one plain run with the umbrella gone.
+        import copy
+
+        checked = check_config(copy.deepcopy(data))
         if not checked["ok"]:
             return checked
 
@@ -573,6 +686,9 @@ def state_from_config(
     analysis = data.get("analysis") if isinstance(data.get("analysis"), dict) else {}
 
     state: dict[str, Any] = {
+        # Every system, whole: its structure, its name and its own settings.
+        "systems": [dict(entry) for entry in systems if isinstance(entry, dict)]
+        if isinstance(systems, list) else [],
         "system": str(first.get("system") or "") if isinstance(first, dict) else "",
         "system_id": str(first.get("id") or "") if isinstance(first, dict) else "",
         "output": str(data.get("output") or ""),
@@ -617,19 +733,7 @@ def state_from_config(
     # is the same shape as npt_steps deciding both how long to equilibrate
     # and whether there was a barostat. A config the validator accepts and
     # `fastmdx explore` runs then arrived in the form unrunnable.
-    ordered = [str(p) for p in PHASE_SCHEMAS]
-    include = data.get("include_phase")
-    exclude = data.get("exclude_phase")
-    if isinstance(include, list) and include:
-        running = [p for p in ordered if p in {str(x) for x in include}]
-    elif isinstance(exclude, list) and exclude:
-        running = [p for p in ordered if p not in {str(x) for x in exclude}]
-    else:
-        running = ordered
-    if state["start"] == "trajectory":
-        # A config that names a trajectory was written to analyse one;
-        # setup and simulation have nothing to do there even if unstated.
-        running = [p for p in running if p not in ("setup", "simulation")]
+    running = phases_it_runs(data, in_the_form=True)
 
     for phase in running:
         block = data.get(phase)

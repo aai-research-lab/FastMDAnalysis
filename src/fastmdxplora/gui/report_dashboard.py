@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import os
 import re
 from dataclasses import dataclass
@@ -21,29 +22,74 @@ if TYPE_CHECKING:
 
 logger = get_logger("gui.report_dashboard")
 
-# Each analysis gets its own section, in the order the analysis phase runs
-# them. Grouping several analyses under invented headings ("Core Metrics",
-# "Additional Analysis") made the placement look arbitrary: whether SASA got
-# its own heading depended on how many figures it happened to produce.
-SECTION_ORDER: tuple[str, ...] = (
-    "RMSD",
-    "RMSF",
-    "Radius of Gyration",
-    "Hydrogen Bonds",
-    "Secondary Structure",
-    "Solvent Accessible Surface Area",
-    "Dihedrals",
-    "Q-value",
-    "Clustering",
-    "Dimensionality Reduction",
-    "Ligand Pose RMSD",
-    "Ligand RMSF",
-    "Protein-Ligand Contacts",
-    "Protein-Ligand Hydrogen Bonds",
-    "Region Highlights",
-    "Apo/Holo Comparison",
-    "Other",
+# Each analysis gets its own section. Grouping several analyses under
+# invented headings ("Core Metrics", "Additional Analysis") made the
+# placement look arbitrary: whether SASA got its own heading depended on how
+# many figures it happened to produce. The sections are ordered, and the
+# page's index grouped, by what each analysis studies: the run's ensemble
+# first (whether the run held what it was asked to), then the protein's
+# structure, its flexibility, its backbone, its contacts and solvent, the
+# states it visited, a ligand, a bilayer and a free energy. This is the one
+# list: every registered analysis is in it, and a test keeps it so. An
+# analysis left out of it fell into one "Other" section with every other
+# left out: twelve of thirty, end-to-end distance beside lipid order.
+ANALYSIS_THEMES: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
+    ("The run's ensemble", (
+        ("thermodynamics", "Energy, temperature and density"),
+    )),
+    ("Structure and stability", (
+        ("rmsd", "RMSD"),
+        ("rg", "Radius of gyration"),
+        ("end_to_end", "End-to-end distance"),
+        ("moments_of_inertia", "Moments of inertia and shape"),
+        ("qvalue", "Q-value"),
+    )),
+    ("Flexibility", (
+        ("rmsf", "RMSF"),
+        ("bfactor_comparison", "Comparison with B-factors"),
+        ("order_parameters", "Backbone order parameters"),
+    )),
+    ("Secondary structure and backbone", (
+        ("ss", "Secondary structure"),
+        ("dihedrals", "Dihedrals"),
+    )),
+    ("Contacts and solvent", (
+        ("hbonds", "Hydrogen bonds"),
+        ("pair_distance", "Pair distance"),
+        ("sasa", "Solvent accessible surface area"),
+        ("rdf", "Radial distribution function"),
+        ("coordination_number", "Coordination number"),
+        ("water_sites", "Water sites"),
+    )),
+    ("Conformations", (
+        ("cluster", "Clustering"),
+        ("dimred", "Dimensionality reduction"),
+    )),
+    ("The ligand", (
+        ("ligand_rmsd", "Ligand pose RMSD"),
+        ("ligand_rmsf", "Ligand RMSF"),
+        ("pl_contacts", "Protein-ligand contacts"),
+        ("pl_hbonds", "Protein-ligand hydrogen bonds"),
+        ("pl_interactions", "Protein-ligand interactions"),
+    )),
+    ("The bilayer", (
+        ("area_per_lipid", "Area per lipid"),
+        ("bilayer_thickness", "Bilayer thickness"),
+        ("lipid_order", "Lipid chain order"),
+    )),
+    ("Free energy", (
+        ("pmf", "Potential of mean force"),
+        ("metad_surface", "Free-energy surface"),
+        ("steered_work", "Steered work"),
+    )),
 )
+
+#: Sections the report adds beside the analyses' own.
+_REPORT_SECTIONS: tuple[str, ...] = ("Region highlights", "Apo/holo comparison", "Other")
+
+SECTION_ORDER: tuple[str, ...] = tuple(
+    title for _, members in ANALYSIS_THEMES for _, title in members
+) + _REPORT_SECTIONS
 
 SECTION_ANCHORS: dict[str, str] = {
     title: re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
@@ -51,23 +97,18 @@ SECTION_ANCHORS: dict[str, str] = {
 }
 
 ANALYSIS_SECTION_BY_FOLDER: dict[str, str] = {
-    "rmsd": "RMSD",
-    "rmsf": "RMSF",
-    "rg": "Radius of Gyration",
-    "hbonds": "Hydrogen Bonds",
-    "ss": "Secondary Structure",
-    "sasa": "Solvent Accessible Surface Area",
-    "dihedrals": "Dihedrals",
-    "qvalue": "Q-value",
-    "cluster": "Clustering",
-    "dimred": "Dimensionality Reduction",
-    "ligand_rmsd": "Ligand Pose RMSD",
-    "ligand_rmsf": "Ligand RMSF",
-    "contacts": "Protein-Ligand Contacts",
-    "pl_hbonds": "Protein-Ligand Hydrogen Bonds",
-    "apo_holo": "Apo/Holo Comparison",
+    folder: title for _, members in ANALYSIS_THEMES for folder, title in members
 }
+# Studies analysed before the contacts analysis was named pl_contacts.
+ANALYSIS_SECTION_BY_FOLDER["contacts"] = "Protein-ligand contacts"
+ANALYSIS_SECTION_BY_FOLDER["apo_holo"] = "Apo/holo comparison"
 
+#: The theme each section belongs to, for the page's index.
+SECTION_THEME: dict[str, str] = {
+    title: theme for theme, members in ANALYSIS_THEMES for _, title in members
+}
+SECTION_THEME.update({title: "From the report" for title in _REPORT_SECTIONS[:2]})
+SECTION_THEME["Other"] = "Other"
 
 
 DASHBOARD_ASSET_TITLE_ALIASES: dict[str, tuple[str, ...]] = {
@@ -95,7 +136,7 @@ DASHBOARD_ASSET_TITLE_ALIASES: dict[str, tuple[str, ...]] = {
 # each of these; now it only reads them for a caption.
 DASHBOARD_SUMMARY_SPECS: tuple[tuple[str, str, str], ...] = (
     ("RMSD", "analysis/rmsd/rmsd.dat", "line"),
-    ("RMSF", "analysis/rmsf/rmsf.dat", "line"),
+    ("RMSF", "analysis/rmsf/rmsf.dat", "profile"),
     ("Radius of gyration", "analysis/rg/rg.dat", "line"),
     ("Hydrogen bonds", "analysis/hbonds/hbonds.dat", "line"),
     ("Total SASA", "analysis/sasa/sasa.dat", "line"),
@@ -153,6 +194,7 @@ class DashboardSection:
     title: str
     anchor: str
     panels: list[DashboardPanel]
+    theme: str = ""
 
 
 @dataclass(frozen=True)
@@ -164,10 +206,17 @@ class PhaseRow:
 
 @dataclass(frozen=True)
 class MetricRow:
+    """One line of the Overview's table of what the analyses determined."""
+
     metric: str
+    #: The mean to the place its error allows, with its unit and error.
     average: str
-    stddev: str
-    unit: str
+    #: Independent samples behind the mean.
+    samples: str
+    #: Determined, Not determined, or what kind of result it is.
+    status: str
+    #: Why a mean was not determined.
+    why: str = ""
 
 
 def _system_label(system: object) -> str:
@@ -189,8 +238,13 @@ def build_dashboard(
     output_dir: Path,
     title: str,
     include_bundle_link: bool = False,
+    not_produced: list[tuple[str, str]] | None = None,
 ) -> list[str]:
-    """Write ``dashboard.html`` and return artifact paths relative to output_dir."""
+    """Write ``dashboard.html`` and return artifact paths relative to output_dir.
+
+    ``not_produced`` is what the report phase could not make, with why, said
+    on the Report page as the GUI says it.
+    """
     project_root = orchestrator.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -213,22 +267,24 @@ def build_dashboard(
     )
     dashboard_assets = _dashboard_summaries(project_root)
     sections = _analysis_sections(project_root, output_dir, dashboard_assets)
-    links = _artifact_links(
-        project_root,
-        output_dir,
-        sections=sections,
-        include_bundle_link=include_bundle_link,
-    )
-    phase_rows = _phase_rows(manifest)
+    from fastmdxplora.gui.telemetry import read_study_status, run_stages
+
+    # The live record too, as the GUI reads it: the manifest is written when
+    # the run ends, after this page, so a first run's page had every phase
+    # "Not run" beside cards saying which had finished.
+    live_status = read_study_status(project_root) or {}
+    phase_rows = _phase_rows(manifest, live_status)
     metrics = _metric_rows(project_root, analysis_manifest)
     status = _project_status(manifest)
-    live_html = _render_static_live_panel(project_root)
     phase_notice = ""
     if phase_context.is_analysis_from_existing_trajectory:
         phase_notice = (
             "Analysis/report workflow from existing trajectory. Setup and "
             "simulation were not run in this workflow."
         )
+    # The health card is about a simulation; with none in this workflow and
+    # no live record, the GUI does not show it, and nor does this page.
+    live_html = "" if phase_notice and not live_status else _render_static_live_panel(project_root)
 
     html = _render_dashboard(
         title=title,
@@ -238,11 +294,21 @@ def build_dashboard(
         phase_notice=phase_notice,
         cards=cards,
         sections=sections,
-        links=links,
         phase_rows=phase_rows,
         metrics=metrics,
         output_folder=project_root.as_posix(),
         live_html=live_html,
+        stages=_stage_steps(manifest, live_status, run_stages(project_root)),
+        study_state=_study_state(manifest, live_status),
+        platform=str(live_status.get("platform") or ""),
+        report=_report_for_page(project_root, output_dir,
+                                include_bundle_link=include_bundle_link,
+                                not_produced=not_produced),
+        methods=_methods_for_page(project_root),
+        series=_series_for_page(project_root, sections),
+        files_html=_files_page(project_root, output_dir,
+                               include_bundle_link=include_bundle_link,
+                               not_produced=not_produced),
     )
 
     dashboard_path = output_dir / "dashboard.html"
@@ -271,9 +337,9 @@ def _live_phase_progress(
     there is no telemetry at all, which is a different claim from a run that
     has finished nothing.
     """
-    from fastmdxplora.gui.telemetry import PHASE_STAGES, STAGE_ORDER, read_status
+    from fastmdxplora.gui.telemetry import PHASE_STAGES, STAGE_ORDER, read_study_status
 
-    status = read_status(project_root)
+    status = read_study_status(project_root)
     if not status:
         return {}, []
 
@@ -354,11 +420,20 @@ def _summary_cards(
 
     n_frames = analysis_manifest.get("n_frames")
     if n_frames is not None:
-        cards.append(DashboardCard("Frames", _format_number(n_frames), "analysis metadata"))
+        cards.append(DashboardCard("Frames", _format_number(n_frames), "analysed"))
 
+    # The system simulated, and what of it the trajectory kept. The card gave
+    # the trajectory's count alone, "47" for a peptide simulated in 6,560
+    # atoms of water, beside a report saying 6,560.
     n_atoms = analysis_manifest.get("n_atoms")
-    if n_atoms is not None:
-        cards.append(DashboardCard("Atom count", _format_number(n_atoms), "topology metadata"))
+    setup = _load_json_file(project_root / "setup" / "setup_parameters.json")
+    simulated = setup.get("n_atoms_solvated") if isinstance(setup, dict) else None
+    if isinstance(simulated, int) and simulated > 0:
+        kept = (f"simulated; {_format_number(n_atoms)} kept in the trajectory"
+                if isinstance(n_atoms, int) and n_atoms != simulated else "simulated")
+        cards.append(DashboardCard("Atom count", _format_number(simulated), kept))
+    elif n_atoms is not None:
+        cards.append(DashboardCard("Atom count", _format_number(n_atoms), "in the trajectory"))
 
     # Imported here rather than at module scope: `report` imports this
     # module to build the dashboard, so a top-level import would be
@@ -367,17 +442,32 @@ def _summary_cards(
 
     phase_context = load_phase_context(project_root)
     if phase_context.simulation_present:
+        from fastmdxplora.gui.simulated_time import (
+            equilibration_said,
+            say_length,
+            simulated_times,
+        )
+
         sim_params = sim_manifest.get("parameters", {})
-        if isinstance(sim_params, dict):
-            duration = sim_params.get("duration_ns")
-            if duration is not None:
-                cards.append(
-                    DashboardCard(
-                        "Simulation time",
-                        f"{_format_number(duration)} ns",
-                        "simulation parameters",
-                    )
-                )
+        # The production, which the analyses average, with its
+        # equilibration said beside it (or the pieces it ran in): what the
+        # run recorded it ran, else how far its live record says it got,
+        # else what it was asked to run, said as planned.
+        try:
+            live = json.loads((project_root / "simulation" / "live_status.json").read_text(
+                encoding="utf-8"))
+        except (OSError, ValueError):
+            live = {}
+        times = simulated_times(project_root, live if isinstance(live, dict) else {})
+        before = equilibration_said(times)
+        if times["production_ns"] is not None:
+            cards.append(DashboardCard("Production", say_length(times["production_ns"]),
+                                       before or "as the run recorded it"))
+        else:
+            planned = sim_params.get("duration_ns") if isinstance(sim_params, dict) else None
+            if isinstance(planned, (int, float)) and not isinstance(planned, bool):
+                cards.append(DashboardCard("Production", say_length(planned),
+                                           "planned; the run recorded none"))
         temperature = _average_temperature(project_root / "simulation" / "energy.csv")
         if temperature is not None:
             cards.append(
@@ -388,9 +478,9 @@ def _summary_cards(
                 )
             )
 
-    wall_time = _wall_time(phases)
+    wall_time = _wall_time(project_root, phases)
     if wall_time:
-        cards.append(DashboardCard("Wall time", wall_time, "recorded phase timestamps"))
+        cards.append(DashboardCard("Wall time", wall_time, "the phases' own times, added"))
 
     # No Output folder card. Every other card here is something measured
     # about the run -- frames, atoms, temperature, wall time -- and a
@@ -437,8 +527,16 @@ def _phase_rows(
     order = ("setup", "simulation", "analysis", "report")
     # A run that is simulating has finished preparing, whatever the manifest
     # says: it could not have started otherwise. So the phases before the one
-    # in progress are complete, not pending.
-    live_at = order.index("simulation") if running else None
+    # in progress are complete, not pending. The phase in progress is the
+    # one its stage belongs to: this was always the simulation, so a run
+    # writing its report read "Simulation: report", analysis not yet done.
+    live_at = None
+    if running:
+        from fastmdxplora.gui.telemetry import PHASE_STAGES
+
+        phase_of = {stage: phase for phase, stages in PHASE_STAGES.items() for stage in stages}
+        stage_now = _normalise_stage((live_status or {}).get("stage"))
+        live_at = order.index(phase_of.get(stage_now, "simulation"))
 
     rows: list[PhaseRow] = []
     for position, name in enumerate(order):
@@ -470,87 +568,110 @@ def _phase_rows(
 
 
 def _metric_rows(project_root: Path, analysis_manifest: dict[str, Any]) -> list[MetricRow]:
-    specs: tuple[tuple[str, str, str, str], ...] = (
-        ("RMSD", "analysis/rmsd/rmsd.dat", "nm", "rmsd"),
-        ("RMSF", "analysis/rmsf/rmsf.dat", "nm", "rmsf"),
-        ("Radius of gyration", "analysis/rg/rg.dat", "nm", "rg"),
-        ("H-bonds", "analysis/hbonds/hbonds.dat", "count", "hbonds"),
-        ("SASA", "analysis/sasa/sasa.dat", "nm^2", "sasa"),
-    )
+    """The study's main means, as the Analysis page's table gives them.
 
-    # On a biased run the mean of a .dat file is an average over a
-    # distribution the bias flattened, and this table is the first thing a
-    # reader looks at. Where the analysis phase recovered the equilibrium
-    # value, that is the one shown, and where it could not the row says so
-    # rather than presenting a biased average as a measurement.
+    Read from the record the Analysis page reads (`analysis_overview`): each
+    mean after equilibration with its standard error, the independent
+    samples behind it, and whether it was determined. The table computed its
+    own mean and standard deviation over the frames, so the Overview said
+    "RMSD 0.0988, std. dev. 0.0095" where the Analysis page said
+    "0.0988 ± 0.0017 nm": a spread over the frames where the reader looks
+    for the mean's error. RMSF is one value per residue, not a series over
+    time, so it is said over its residues, with their range, and no error.
+    """
+    from fastmdxplora.gui.analysis_overview import _reweighted, overview_of
     from fastmdxplora.report.reweighted import load_reweighted
 
+    specs: tuple[tuple[str, str, str], ...] = (
+        ("RMSD", "rmsd", "nm"),
+        ("RMSF", "rmsf", "nm"),
+        ("Radius of gyration", "rg", "nm"),
+        ("Hydrogen bonds", "hbonds", ""),
+        ("SASA", "sasa", "nm²"),
+    )
+    overview = overview_of(project_root)
+    by_name = {row["analysis"]: row for row in overview.get("rows", [])}
+    biased = bool(overview.get("biased"))
     reweighted = load_reweighted(project_root)
-    corrected = {
-        item.get("analysis"): item
-        for item in ((reweighted or {}).get("quantities") or [])
-    }
-
-    def formatted(value: Any) -> str:
-        """A dash where there is no number, rather than a crash or a 'nan'.
-
-        The weighted spread is nan when the weights carry one effective
-        frame, which is a real outcome of a badly converged run and not an
-        error to raise in the middle of building a page.
-        """
-        try:
-            number = float(value)
-        except (TypeError, ValueError):
-            return "—"
-        if number != number:
-            return "—"
-        return _format_metric_value(number)
-
+    corrected = {item.get("analysis"): item
+                 for item in ((reweighted or {}).get("quantities") or [])
+                 if isinstance(item, dict)}
     rows: list[MetricRow] = []
-    for label, rel, unit, name in specs:
-        values = _numeric_series(project_root / rel)
-        if not values:
+    for label, name, unit in specs:
+        if name == "rmsf":
+            values = _numeric_series(project_root / "analysis" / "rmsf" / "rmsf.dat")
+            # One value a residue, or one an atom where the analysis was
+            # asked for atoms.
+            try:
+                options = json.loads((project_root / "analysis" / "rmsf" / "options.json")
+                                     .read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                options = {}
+            asked = (options.get("options") if isinstance(options, dict) else None) or {}
+            each = "residue" if not isinstance(asked, dict) or asked.get(
+                "per_residue", True) else "atom"
+            if values:
+                rows.append(MetricRow(
+                    metric=f"{label} (biased ensemble)" if biased else label,
+                    average=(f"{_format_metric_value(_mean(values))} nm over "
+                             f"{len(values):,} {each}s ({_format_metric_value(min(values))} "
+                             f"to {_format_metric_value(max(values))})"),
+                    samples="—",
+                    status=f"per {each}",
+                ))
             continue
-        item = corrected.get(name)
-        if item is not None:
-            rows.append(
-                MetricRow(
-                    metric=f"{label} (reweighted)",
-                    average=formatted(item.get("reweighted_mean")),
-                    stddev=formatted(item.get("reweighted_std")),
-                    unit=unit,
-                )
-            )
+        row = by_name.get(name)
+        quantity = next((q for q in (row or {}).get("quantities", []) if q.get("key") == "mean"),
+                        None)
+        if quantity is None and name in corrected:
+            # Reweighted, with no record of the analysis's own beside it.
+            quantity = {"key": "mean", **_reweighted(name, corrected[name], None)}
+        if quantity is None:
+            # Analysed before a mean and its error were recorded: the mean of
+            # every frame, said as such, and no error.
+            values = _numeric_series(project_root / "analysis" / name / f"{name}.dat")
+            if values:
+                rows.append(MetricRow(
+                    metric=f"{label} (biased ensemble)" if biased else label,
+                    average=f"{_format_metric_value(_mean(values))}{f' {unit}' if unit else ''}"
+                            " over all frames",
+                    samples="—",
+                    status="Not determined",
+                    why=("Analysed before the mean's error was recorded; analyse the "
+                         "study again for it."),
+                ))
             continue
-        rows.append(
-            MetricRow(
-                metric=f"{label} (biased ensemble)" if reweighted else label,
-                average=_format_metric_value(_mean(values)),
-                stddev=_format_metric_value(_stddev(values)),
-                unit=unit,
-            )
-        )
+        suffix = (" (reweighted)" if quantity.get("reweighted")
+                  else " (biased ensemble)" if biased else "")
+        samples = quantity.get("samples")
+        rows.append(MetricRow(
+            metric=label + suffix,
+            average=str(quantity.get("said") or "—"),
+            samples="< 1" if samples == 0 else (f"{samples:,}" if isinstance(samples, int) else "—"),
+            status="Determined" if quantity.get("determined") else "Not determined",
+            why=str(quantity.get("why") or ""),
+        ))
 
     if reweighted and reweighted.get("applies", True):
-        rows.append(
-            MetricRow(
-                metric="Effective frames after reweighting",
-                average=formatted(reweighted.get("effective_sample_size")),
-                stddev="—",
-                unit=f"of {reweighted.get('n_frames')}",
-            )
-        )
-
-    # A count is one number, not a sample: there is no standard deviation to
-    # report, which is a different thing from one that could not be obtained. The
-    # column said "not available", which reads as a measurement that failed.
-    n_frames = analysis_manifest.get("n_frames")
-    if n_frames is not None:
-        rows.append(MetricRow("Frame count", _format_number(n_frames), "—", "frames"))
-    n_atoms = analysis_manifest.get("n_atoms")
-    if n_atoms is not None:
-        rows.append(MetricRow("Atom count", _format_number(n_atoms), "—", "atoms"))
+        effective = reweighted.get("effective_sample_size")
+        try:
+            frames = _format_metric_value(float(effective))
+        except (TypeError, ValueError):
+            frames = "—"
+        rows.append(MetricRow(
+            metric="Effective frames after reweighting",
+            average=f"{frames} of {reweighted.get('n_frames')}",
+            samples="—",
+            status="",
+        ))
     return rows
+
+
+def _load_json_file(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
 
 
 def _numeric_series(path: Path) -> list[float]:
@@ -597,6 +718,21 @@ def _format_metric_value(value: float) -> str:
 
 
 def _average_temperature(path: Path) -> float | None:
+    # A study carried on in pieces: the mean over every piece, not the
+    # first one's.
+    from fastmdxplora.analysis.thermodynamics import (
+        read_pieces_state_table, state_record_pieces)
+
+    try:
+        pieces = state_record_pieces(path.parent.parent)
+    except Exception:  # noqa: BLE001 - a piece without its record: no mean
+        return None
+    if pieces:
+        try:
+            joined = read_pieces_state_table(pieces).get("Temperature (K)")
+        except (OSError, ValueError):
+            return None
+        return float(joined.mean()) if joined is not None and joined.size else None
     if not path.is_file():
         return None
     values: list[float] = []
@@ -623,19 +759,12 @@ def _strip_comment_prefix(lines):
         yield line[1:] if line.startswith("#") else line
 
 
-def _wall_time(phases: list[dict[str, Any]]) -> str:
-    starts: list[datetime] = []
-    finishes: list[datetime] = []
-    for phase in phases:
-        start = _parse_datetime(phase.get("started_at"))
-        finish = _parse_datetime(phase.get("finished_at"))
-        if start:
-            starts.append(start)
-        if finish:
-            finishes.append(finish)
-    if not starts or not finishes:
+def _wall_time(project_root: Path, phases: list[dict[str, Any]]) -> str:
+    from fastmdxplora.gui.simulated_time import phases_wall_seconds
+
+    seconds = phases_wall_seconds(project_root, phases)
+    if seconds is None:
         return ""
-    seconds = max(0, int((max(finishes) - min(starts)).total_seconds()))
     if seconds < 60:
         return f"{seconds}s"
     minutes, rem = divmod(seconds, 60)
@@ -661,19 +790,138 @@ def _dashboard_summaries(project_root: Path) -> dict[str, DashboardAsset]:
     returned the captions it computed along the way. The copies are no longer
     shown anywhere, so only the captions remain.
     """
+    from fastmdxplora.report.reweighted import load_reweighted
+
+    biased = load_reweighted(project_root)
+    corrected = {item.get("analysis"): item
+                 for item in ((biased or {}).get("quantities") or [])}
     summaries: dict[str, DashboardAsset] = {}
     for title, rel_data, kind in DASHBOARD_SUMMARY_SPECS:
         data_path = project_root / rel_data
         if not data_path.is_file():
             continue
         try:
-            summary = _summarise_data_file(data_path, kind)
+            summary = (_biased_caption(data_path, corrected) if biased else None) \
+                or (_what_the_analysis_found(data_path) if kind == "line" else None) \
+                or _summarise_data_file(data_path, kind)
         except Exception as exc:  # noqa: BLE001 - a caption must never fail a report
             logger.debug("dashboard: no summary for %s: %s", title, exc)
             continue
         summaries[title] = DashboardAsset(rel_path=rel_data, summary=summary)
     return summaries
 
+
+
+#: What each time series is measured in, for its caption.
+#: As each analysis's own axis states it (`Analysis._recorded_unit`).
+_UNITS = {"rmsd": "nm", "rmsf": "nm", "rg": "nm", "sasa": "nm\u00b2", "hbonds": "",
+          "qvalue": "", "end_to_end": "nm", "pair_distance": "nm", "ligand_rmsd": "nm",
+          "area_per_lipid": "nm\u00b2", "bilayer_thickness": "nm",
+          "moments_of_inertia": "amu nm\u00b2", "coordination_number": ""}
+
+
+def unit_of(name: str, found: dict[str, Any] | None = None) -> str:
+    """What an analysis's mean is measured in: the unit it recorded beside
+    the mean, or, for a study analysed before units were recorded, the one
+    known for its name."""
+    recorded = found.get("unit") if isinstance(found, dict) else None
+    if isinstance(recorded, str):
+        return unit_as_written(recorded)
+    return _UNITS.get(name, "")
+
+
+#: Powers as a page writes them: the thermodynamics records its volume in
+#: "nm^3", which the Overview said beside the SASA's "nm\u00b2".
+_POWERS = {"^-1": "\u207b\u00b9", "^-2": "\u207b\u00b2", "^-3": "\u207b\u00b3",
+           "^2": "\u00b2", "^3": "\u00b3"}
+
+
+def unit_as_written(unit: str) -> str:
+    """A unit with its powers raised: "nm^3" as "nm\u00b3"."""
+    for caret, raised in _POWERS.items():
+        unit = unit.replace(caret, raised)
+    return unit
+
+
+def _what_the_analysis_found(data_path: Path) -> str | None:
+    """The mean the analysis determined, as its figure shows it.
+
+    The caption was the mean of every row of the data file, equilibration
+    included, beneath a figure giving the mean after equilibration with its
+    error: an RMSD card read "avg 0.0157" under "mean after equilibration
+    0.01297 \u00b1 0.0021 nm". The analysis records which frames it kept and
+    what the mean is worth (`findings.mean` in its options.json); that is
+    what is said here, and a series too short to measure says so.
+    """
+    try:
+        record = json.loads((data_path.parent / "options.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    found = (record.get("findings") or {}).get("mean") if isinstance(record, dict) else None
+    if not isinstance(found, dict):
+        return None
+    mean = found.get("mean")
+    unit = unit_of(data_path.parent.name, found)
+    unit = f" {unit}" if unit else ""
+    if not _finite(mean):
+        return "no mean: too short to determine" if found.get("not_a_measurement") else None
+    if found.get("not_a_measurement"):
+        return f"mean {_format_metric_value(mean)}{unit}, too short to be determined"
+    error = found.get("standard_error")
+    text = (f"mean {_with_its_error(mean, error)}{unit}" if _finite(error) and error > 0
+            else f"mean {_format_metric_value(mean)}{unit}")
+    discard = found.get("discard")
+    if isinstance(discard, int) and discard > 0:
+        text += " after equilibration"
+    samples = found.get("effective_samples")
+    if _finite(samples):
+        from fastmdxplora.statistics import MINIMUM_EFFECTIVE_SAMPLES
+
+        count = int(round(samples))
+        text += f", {count} independent sample{'s' if count != 1 else ''}"
+        if samples < MINIMUM_EFFECTIVE_SAMPLES:
+            text += ", too few to determine the mean"
+    return text
+
+
+def _biased_caption(data_path: Path, corrected: dict[Any, Any]) -> str:
+    """On a biased run the mean of a series is an average over the
+    distribution the bias flattened. Where the analysis phase recovered the
+    equilibrium value that is the one given; where it could not, no mean is."""
+    name = data_path.parent.name
+    item = corrected.get(name)
+    unit = _UNITS.get(name, "")
+    unit = f" {unit}" if unit else ""
+    if item is not None and _finite(item.get("reweighted_mean")):
+        return f"reweighted mean {_format_metric_value(item['reweighted_mean'])}{unit}"
+    if name in _UNITS:
+        return "biased ensemble: no unbiased mean"
+    return ""
+
+
+def _recorded_mean(project_root: Path, name: str) -> dict[str, Any] | None:
+    """What an analysis recorded about its mean: the value after
+    equilibration, or why the series cannot give one."""
+    try:
+        record = json.loads((project_root / "analysis" / name / "options.json")
+                            .read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    found = (record.get("findings") or {}).get("mean") if isinstance(record, dict) else None
+    return found if isinstance(found, dict) else None
+
+
+def _finite(value: object) -> bool:
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value))
+
+
+def _with_its_error(mean: float, error: float) -> str:
+    """A mean to the precision its error allows
+    (:func:`fastmdxplora.statistics.with_its_error`)."""
+    from fastmdxplora.statistics import with_its_error
+
+    return with_its_error(mean, error)
 
 
 def _summarise_data_file(data_path: Path, kind: str) -> str:
@@ -719,7 +967,11 @@ def _summarise_data_file(data_path: Path, kind: str) -> str:
 
     values = [row[0] for row in rows] if all(len(row) == 1 for row in rows) \
         else [row[-1] for row in rows]
-    return f"avg {_format_metric_value(_mean(values))}"
+    # Said for what it is: a plain mean, of every frame or every residue.
+    # A time series whose analysis recorded its mean is captioned from that.
+    over = "residues" if kind == "profile" else "all frames"
+    unit = _UNITS.get(data_path.parent.name, "")
+    return f"mean over {over} {_format_metric_value(_mean(values))}{' ' + unit if unit else ''}"
 
 
 
@@ -826,9 +1078,9 @@ def _analysis_sections(
         seen_sources.add(rel)
         title = _figure_title_from_path(source)
         section = (
-            "Region Highlights"
+            "Region highlights"
             if "region" in source.stem.lower()
-            else "Apo/Holo Comparison"
+            else "Apo/holo comparison"
             if "apo" in source.stem.lower() or "holo" in source.stem.lower()
             else "Other"
         )
@@ -855,6 +1107,7 @@ def _analysis_sections(
                     title=title,
                     anchor=SECTION_ANCHORS[title],
                     panels=panels,
+                    theme=SECTION_THEME.get(title, "Other"),
                 )
             )
     return sections
@@ -961,7 +1214,7 @@ def _figure_title_from_path(path: Path) -> str:
         "hierarchical_dendrogram": "Hierarchical dendrogram",
         "region_highlight_summary": "Region highlights",
         "structure_region_highlights": "Structure region highlights",
-        "apo_holo_comparison": "Apo/Holo comparison",
+        "apo_holo_comparison": "Apo/holo comparison",
         "qvalue": "Fraction of native contacts",
         "dihedrals": "Dihedrals",
     }
@@ -1110,9 +1363,345 @@ def _theme_tokens() -> str:
     """
     theme = Path(__file__).resolve().parent / "static" / "theme.css"
     try:
-        return theme.read_text(encoding="utf-8")
+        tokens = theme.read_text(encoding="utf-8")
     except OSError:  # pragma: no cover - only if the installed package is incomplete
         return ":root { color-scheme: dark; }"
+    return _FONT_FILE.sub(_font_inlined, tokens)
+
+
+#: A font the stylesheet names by the GUI's address, which a page opened
+#: from a file cannot reach.
+_FONT_FILE = re.compile(r'url\("/static/fonts/([a-z0-9-]+\.woff2)(?:\?[^"]*)?"\)')
+
+
+def _font_inlined(found: "re.Match[str]") -> str:
+    """The font itself, so the page reads in the GUI's type away from it;
+    the address left as it was if the file is missing, which the browser
+    passes over to the next font of the stack."""
+    import base64
+
+    try:
+        data = (Path(__file__).resolve().parent / "static" / "fonts" / found.group(1)).read_bytes()
+    except OSError:  # pragma: no cover - only if the installed package is incomplete
+        return found.group(0)
+    return 'url("data:font/woff2;base64,' + base64.b64encode(data).decode("ascii") + '")'
+
+
+def _lab_logo_uri() -> str:
+    """The lab's logo the GUI shows as its avatar (``static/lab-logo.png``),
+    inlined so the page stands alone; empty if the file is missing."""
+    import base64
+
+    from fastmdxplora.gui.server import LAB_LOGO
+
+    try:
+        data = (Path(__file__).resolve().parent / "static" / LAB_LOGO).read_bytes()
+    except OSError:  # pragma: no cover - only if the installed package is incomplete
+        return ""
+    return "data:image/png;base64," + base64.b64encode(data).decode("ascii")
+
+
+def _product_mark_uri() -> str:
+    """FastMDXplora's mark as the tab's icon (``static/fastmdx-mark.svg``),
+    inlined so the page stands alone; empty if the file is missing."""
+    import base64
+
+    from fastmdxplora.gui.server import PRODUCT_MARK
+
+    try:
+        data = (Path(__file__).resolve().parent / "static" / PRODUCT_MARK).read_bytes()
+    except OSError:  # pragma: no cover - only if the installed package is incomplete
+        return ""
+    return "data:image/svg+xml;base64," + base64.b64encode(data).decode("ascii")
+
+
+def _files_script() -> str:
+    """The GUI's Files page script (``static/files-page.js``): finding,
+    filtering, sorting, folding and a file's menu, as there."""
+    try:
+        found = (Path(__file__).resolve().parent / "static" / "files-page.js").read_text(encoding="utf-8")
+    except OSError:  # pragma: no cover - only if the installed package is incomplete
+        return ""
+    return f"<script>{found}</script>\n"
+
+
+def _tooltips_script() -> str:
+    """The GUI's tooltips (``static/tooltips.js``), so a hint here is shown
+    as it is there; nothing if the file is missing."""
+    try:
+        found = (Path(__file__).resolve().parent / "static" / "tooltips.js").read_text(encoding="utf-8")
+    except OSError:  # pragma: no cover - only if the installed package is incomplete
+        return ""
+    return f"<script>{found}</script>\n"
+
+
+def _gui_stylesheet() -> str:
+    """The GUI's own stylesheet, for inlining after the tokens.
+
+    The page is laid out as the GUI is, in the GUI's classes, so it is
+    styled by the GUI's own rules rather than by a second set written to
+    look like them: the two looked different for as long as there were two.
+    """
+    sheet = Path(__file__).resolve().parent / "static" / "dashboard.css"
+    try:
+        return sheet.read_text(encoding="utf-8")
+    except OSError:  # pragma: no cover - only if the installed package is incomplete
+        return ""
+
+
+DASH = "\u2014"
+
+#: The GUI's Progress list, in its order and with its words.
+STAGE_LABELS: tuple[tuple[str, str], ...] = (
+    ("setup", "Setup"),
+    ("minimization", "Minimisation"),
+    ("nvt", "NVT"),
+    ("npt", "NPT"),
+    ("production", "Production"),
+    ("analysis", "Analysis"),
+    ("report", "Report"),
+)
+
+#: The pages, in the sidebar's order.
+PAGES: tuple[tuple[str, str], ...] = (
+    ("overview", "Overview"),
+    ("analysis", "Analysis"),
+    ("report", "Report"),
+    ("files", "Files"),
+)
+
+
+@dataclass(frozen=True)
+class StageStep:
+    stage: str
+    label: str
+    state: str
+    hidden: bool = False
+
+
+def _normalise_stage(value: object) -> str:
+    """A stage as the GUI names it (``normaliseStage`` in dashboard.js)."""
+    stage = str(value or "").lower()
+    for part, name in (("minim", "minimization"), ("nvt", "nvt"), ("npt", "npt"),
+                       ("production", "production"), ("analysis", "analysis"),
+                       ("report", "report")):
+        if part in stage:
+            return name
+    if "setup" in stage or "loading" in stage:
+        return "setup"
+    return stage
+
+
+def _phase_state(value: object) -> str:
+    """A recorded state as the GUI paints it (``phaseVisualState``)."""
+    status = str(value or "").lower()
+    if status in {"ok", "complete", "completed", "success", "succeeded"}:
+        return "completed"
+    if status in {"error", "failed"}:
+        return "failed"
+    if status in {"skipped", "not run"}:
+        return "skipped"
+    if status in {"running", "active", "current"}:
+        return "current"
+    return "waiting"
+
+
+def _stage_steps(
+    manifest: dict[str, Any],
+    live_status: dict[str, Any] | None,
+    reachable: list[str] | None,
+) -> list[StageStep]:
+    """The sidebar's Progress list, by the rule the GUI paints it with
+    (``renderStageTimeline`` in dashboard.js): the live record's state of
+    each stage, the manifest's where the live record says nothing, and the
+    stages before the one in progress done. Stages this run cannot reach are
+    left out, as the GUI leaves them out."""
+    phase_map = {
+        str(p.get("name") or "").lower(): str(p.get("status") or "").lower()
+        for p in manifest.get("phases", []) if isinstance(p, dict)
+    }
+    live = live_status or {}
+    live_states = live.get("stage_states") if isinstance(live.get("stage_states"), dict) else {}
+    order = [stage for stage, _ in STAGE_LABELS]
+    current = _normalise_stage(live.get("stage"))
+    current_index = order.index(current) if current in order else -1
+    simulation_done = phase_map.get("simulation") in {"ok", "complete", "completed", "success"}
+    steps: list[StageStep] = []
+    for index, (stage, label) in enumerate(STAGE_LABELS):
+        if reachable and stage not in reachable:
+            steps.append(StageStep(stage, label, "waiting", hidden=True))
+            continue
+        state = _phase_state(live_states.get(stage))
+        if state == "waiting":
+            if stage == "setup":
+                state = _phase_state(phase_map.get("setup"))
+            if stage in {"minimization", "nvt", "npt", "production"} and simulation_done:
+                state = "completed"
+            if stage in {"analysis", "report"}:
+                state = _phase_state(phase_map.get(stage))
+        if current_index >= 0 and state == "waiting":
+            if index < current_index:
+                state = "completed"
+            elif index == current_index:
+                state = "current"
+        if stage == current and _phase_state(live_states.get(stage)) == "current":
+            state = "current"
+        steps.append(StageStep(stage, label, state))
+    return steps
+
+
+def _study_state(manifest: dict[str, Any], live_status: dict[str, Any] | None) -> tuple[str, str]:
+    """What the sidebar's dot and word say: the manifest's verdict, or,
+    before it is written, the live record's."""
+    recorded = _project_status(manifest)
+    if manifest.get("phases"):
+        if recorded == "ok":
+            return "completed", "completed"
+        if recorded == "error":
+            return "failed", "error"
+        return "recorded", "stale"
+    status = str((live_status or {}).get("status") or "").lower()
+    if status in {"failed", "error"}:
+        return "failed", "error"
+    if status in {"completed", "complete", "ok"}:
+        return "completed", "completed"
+    if status:
+        return status, "waiting"
+    return "not run", "stale"
+
+
+def _files_page(
+    project_root: Path,
+    output_dir: Path,
+    *,
+    include_bundle_link: bool,
+    not_produced: list[tuple[str, str]] | None = None,
+) -> str:
+    """The GUI's Files page, rendered as the GUI renders it
+    (``files_page.render``) from the GUI's own listing
+    (``server._artifact_records``), so the two pages offer the same files
+    under the same names, laid out the same way; its links are made
+    relative to this page, and what needs the server (a zip, a deposit,
+    the side panel) is left out.
+
+    This page and the bundle are written after the listing is read, so they
+    are added by name. The scratch, what was set aside and deposits are not
+    listed: this page travels in the bundle, which leaves them out.
+    """
+    from fastmdxplora.gui import server
+    from fastmdxplora.gui.files_page import Links, files_model, render
+
+    from fastmdxplora.study_files import place
+
+    # Not what the bundle and a deposit leave out: in either, this page
+    # goes with them, and their rows would be links to nothing.
+    records = [dict(record) for record in server._artifact_records(project_root)
+               if place(record["path"])[0] not in ("scratch", "previous", "deposit")]
+    have = {record["path"] for record in records}
+    later = [output_dir / "dashboard.html"]
+    if include_bundle_link:
+        later.append(output_dir / "project_bundle.zip")
+    for path in later:
+        try:
+            rel = path.relative_to(project_root).as_posix()
+        except ValueError:
+            continue
+        if rel in have:
+            continue
+        records.append({"path": rel, "size": None, "mtime": None})
+    records.sort(key=lambda record: record["path"])
+    for record in records:
+        record["absolute_path"] = (project_root / record["path"]).as_posix()
+    # What the report could not produce is said by the report phase as it
+    # writes, not read from a record an earlier run may have left.
+    model = files_model(project_root, records,
+                        values=server._determined_values(project_root, records),
+                        not_produced=[{"artifact": artifact, "reason": reason}
+                                      for artifact, reason in not_produced or []])
+    links = Links(standalone=True,
+                  here=lambda rel: _href(project_root / rel, output_dir))
+    return render(model, links, view="both")
+
+
+def _report_for_page(
+    project_root: Path,
+    output_dir: Path,
+    *,
+    include_bundle_link: bool,
+    not_produced: list[tuple[str, str]] | None,
+) -> dict[str, Any]:
+    """The Report page's document and downloads, by the GUI's own
+    ``report_payload``, its links made relative to this page.
+
+    What the report phase could not produce is said only when the phase
+    hands it over: ``not_produced.json`` is written after this page, and one
+    left by an earlier run may no longer be true.
+    """
+    from fastmdxplora.gui.report_page import report_payload
+
+    try:
+        payload = report_payload(project_root)
+    except Exception as exc:  # noqa: BLE001 - the page stands without its report
+        logger.debug("dashboard: no report for the page: %s", exc)
+        return {"ok": False}
+    if not payload.get("ok") or "downloads" not in payload:
+        return {"ok": False}
+    downloads: dict[str, str] = {}
+    for key, address in (payload.get("downloads") or {}).items():
+        rel = str(address).split("?", 1)[0]
+        if rel.startswith("/artifacts/"):
+            downloads[key] = _href(project_root / rel[len("/artifacts/"):], output_dir)
+    if include_bundle_link and "bundle" not in downloads:
+        downloads["bundle"] = _href(output_dir / "project_bundle.zip", output_dir)
+    return {
+        "ok": True,
+        "html": str(payload.get("html") or ""),
+        "generated": str(payload.get("generated") or ""),
+        "downloads": downloads,
+        "not_produced": [(str(name), str(why)) for name, why in (not_produced or [])],
+    }
+
+
+def _methods_for_page(project_root: Path) -> tuple[str, str]:
+    """The methods paragraphs as the Overview's Methods card gives them."""
+    from fastmdxplora.gui.report_page import methods_payload
+
+    try:
+        said = methods_payload(project_root)
+    except Exception as exc:  # noqa: BLE001 - the page stands without them
+        logger.debug("dashboard: no methods for the page: %s", exc)
+        return "", ""
+    if not said.get("ok"):
+        return "", ""
+    return str(said.get("html") or ""), str(said.get("plain") or "")
+
+
+#: An analysis's own figure, ``analysis/rmsd/rmsd.png``: the one the GUI
+#: also plots from its numbers (``renderAnalysisSections``).
+_OWN_FIGURE = re.compile(r"(?:^|/)analysis/([a-z][a-z0-9_]*)/\1\.png$")
+
+
+def _series_for_page(project_root: Path, sections: list[DashboardSection]) -> dict[str, Any]:
+    """Each plotted series as the GUI's ``/api/series`` gives it, for the
+    GUI's own chart script to plot on this page as it does there."""
+    from fastmdxplora.gui.series import series_payload
+
+    found: dict[str, Any] = {}
+    for section in sections:
+        for panel in section.panels:
+            own = _OWN_FIGURE.search(panel.original_source)
+            if not own or own.group(1) in found:
+                continue
+            try:
+                payload = series_payload(project_root, own.group(1))
+                # Checked here: a value JSON cannot hold leaves the figure.
+                json.dumps(payload, allow_nan=False)
+            except Exception as exc:  # noqa: BLE001 - the figure stands without its chart
+                logger.debug("dashboard: no series for %s: %s", own.group(1), exc)
+                continue
+            if payload.get("ok"):
+                found[own.group(1)] = payload
+    return found
 
 
 def _render_dashboard(
@@ -1124,1014 +1713,516 @@ def _render_dashboard(
     phase_notice: str,
     cards: list[DashboardCard],
     sections: list[DashboardSection],
-    links: list[DashboardLink],
     phase_rows: list[PhaseRow],
     metrics: list[MetricRow],
     output_folder: str,
     live_html: str,
+    stages: list[StageStep] | None = None,
+    study_state: tuple[str, str] | None = None,
+    platform: str = "",
+    report: dict[str, Any] | None = None,
+    methods: tuple[str, str] = ("", ""),
+    files_html: str = "",
+    series: dict[str, Any] | None = None,
 ) -> str:
-    theme_tokens = _theme_tokens()
-    # The report and the slides both print this and the dashboard did not,
-    # although it is the file somebody opens first. Taken from the same
-    # constant, so the three cannot drift apart.
-    from fastmdxplora import __citation__, __doi__
+    """The page, laid out as the GUI is: its sidebar, and its Overview,
+    Analysis, Report and Files pages, with the Cite page its settings menu
+    opens. What the GUI does live (the Viewer, the Agent, the Config builder,
+    live charts) needs the server, and stays in ``fastmdx gui``."""
+    from fastmdxplora import (
+        __bibtex__,
+        __citation__,
+        __copyright__,
+        __doi__,
+        __expansion__,
+        __version__,
+    )
 
-    citation_html = (
-        f"{escape(__citation__)} "
-        f'<a href="https://doi.org/{escape(__doi__)}">'
-        f"doi:{escape(__doi__)}</a>"
-    )
-    nav_html = _render_sidebar(sections, links)
-    card_html = "\n".join(_render_card(card) for card in cards)
-    sections_html = "\n".join(_render_section(section) for section in sections)
-    if not sections_html:
-        sections_html = (
-            '<section class="empty-state panel-block">'
-            "<h2>Analysis panels</h2>"
-            "<p>No analysis figures are available in this run output.</p>"
-            "</section>"
-        )
-    link_html = _render_output_list(links)
-    quick_html = "\n".join(_render_quick_action(link) for link in _quick_action_links(links))
-    phase_html = "\n".join(_render_phase_row(row) for row in phase_rows)
-    metrics_html = "\n".join(_render_metric_row(row) for row in metrics)
-    if not metrics_html:
-        # What is absent, not the fact of absence. This table is filled from
-        # the analysis outputs, so an empty one means the analysis phase has
-        # not produced them yet -- which is worth saying.
-        metrics_html = (
-            '<tr><td colspan="4" class="table-empty">'
-            "No analysis outputs to summarise yet."
-            "</td></tr>"
-        )
-    notice_html = (
-        f'<div class="notice"><strong>Existing trajectory analysis</strong>'
-        f"{escape(phase_notice)}</div>" if phase_notice else ""
-    )
     generated = generated_at.strftime("%Y-%m-%d %H:%M UTC")
+    word, dot = study_state or ((status, "completed") if status == "ok" else (status, "stale"))
+    stage_steps = stages if stages is not None else _stage_steps({}, None, None)
+    system_label = _system_label(system) if system else "study"
 
-    return f"""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{escape(title)} - FastMDXplora Dashboard</title>
-  <style>
-    {theme_tokens}
-    * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      background:
-        radial-gradient(circle at top left, rgba(57, 183, 201, 0.12), transparent 34rem),
-        linear-gradient(180deg, var(--background-primary) 0%, var(--background-secondary) 100%);
-      color: var(--text-primary);
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-        "Segoe UI", sans-serif;
-      line-height: 1.5;
-    }}
-    a {{ color: inherit; }}
-    .layout {{
-      display: grid;
-      grid-template-columns: 260px minmax(0, 1fr);
-      min-height: 100vh;
-    }}
-    .sidebar {{
-      position: sticky;
-      top: 0;
-      height: 100vh;
-      overflow-y: auto;
-      border-right: 1px solid var(--border-primary);
-      background: linear-gradient(180deg, rgba(7, 19, 33, 0.98), rgba(5, 13, 23, 0.98));
-      padding: 22px 16px;
-    }}
-    .logo {{
-      display: grid;
-      grid-template-columns: 42px 1fr;
-      gap: 12px;
-      align-items: center;
-      padding-bottom: 22px;
-      border-bottom: 1px solid var(--border-primary);
-      margin-bottom: 20px;
-    }}
-    .mark {{
-      display: grid;
-      place-items: center;
-      width: 42px;
-      height: 42px;
-      border-radius: 12px;
-      border: 1px solid rgba(77, 157, 247, 0.5);
-      background: rgba(77, 157, 247, 0.12);
-      color: var(--accent-cyan);
-      font-weight: 800;
-    }}
-    .logo-title {{
-      font-size: 1.08rem;
-      font-weight: 800;
-      line-height: 1.1;
-    }}
-    .logo-subtitle {{
-      color: var(--text-muted);
-      font-size: 0.72rem;
-      margin-top: 3px;
-    }}
-    .nav-section {{ margin: 18px 0; }}
-    .nav-heading {{
-      color: var(--text-muted);
-      font-size: 0.72rem;
-      font-weight: 800;
-      letter-spacing: 0.07em;
-      text-transform: uppercase;
-      margin: 0 0 8px;
-    }}
-    .nav-link {{
-      display: flex;
-      align-items: center;
-      gap: 9px;
-      min-height: 34px;
-      padding: 7px 10px;
-      border-radius: 8px;
-      color: var(--text-secondary);
-      text-decoration: none;
-      font-size: 0.9rem;
-    }}
-    .nav-link.active {{
-      background: linear-gradient(90deg, rgba(77, 157, 247, 0.32), rgba(57, 183, 201, 0.14));
-      color: white;
-    }}
-    .nav-link:hover, .output-link:hover, .action-link:hover {{
-      border-color: rgba(77, 157, 247, 0.6);
-      background-color: rgba(77, 157, 247, 0.08);
-    }}
-    .nav-icon {{
-      width: 1.35em;
-      text-align: center;
-      color: var(--accent-cyan);
-    }}
-    .shell {{
-      width: min(1480px, calc(100% - 36px));
-      margin: 0 auto;
-      padding: 18px 0 40px;
-    }}
-    header {{
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 20px;
-      align-items: end;
-      padding: 20px 0 24px;
-      border-bottom: 1px solid var(--border-primary);
-    }}
-    .breadcrumb {{
-      color: var(--text-muted);
-      font-size: 0.86rem;
-      margin-top: 5px;
-    }}
-    .brand {{
-      color: var(--accent-cyan);
-      font-size: 0.82rem;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }}
-    h1 {{
-      margin: 6px 0;
-      font-size: clamp(1.8rem, 3vw, 3.2rem);
-      line-height: 1.05;
-      letter-spacing: 0;
-    }}
-    .subtle {{ color: var(--text-muted); }}
-    .status {{
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      border: 1px solid var(--border-primary);
-      border-radius: 8px;
-      background: rgba(255, 255, 255, 0.04);
-      color: var(--text-muted);
-      white-space: nowrap;
-    }}
-    .dot {{
-      width: 9px;
-      height: 9px;
-      border-radius: 99px;
-      background: var(--accent-orange);
-    }}
-    .dot.ok {{ background: var(--accent-green); }}
-    .dot.error {{ background: var(--accent-red); }}
-    .dot.unknown {{ background: var(--accent-orange); }}
-    .notice {{
-      margin: 20px 0 0;
-      padding: 14px 16px;
-      border: 1px solid rgba(57, 183, 201, 0.38);
-      border-radius: 8px;
-      background: rgba(57, 183, 201, 0.09);
-      color: var(--accent-cyan);
-    }}
-    .notice strong {{
-      display: block;
-      color: white;
-      margin-bottom: 3px;
-    }}
-    .live-panel {{
-      margin: 20px 0 0;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(220px, 0.36fr);
-      gap: 14px;
-      align-items: stretch;
-    }}
-    .live-panel .panel-block {{
-      margin: 0;
-    }}
-    .live-status-grid {{
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 10px;
-      margin-top: 12px;
-    }}
-    .live-mini-card {{
-      border: 1px solid rgba(148, 163, 184, 0.16);
-      border-radius: 8px;
-      background: var(--background-elevated);
-      padding: 10px;
-    }}
-    .live-mini-card span {{
-      display: block;
-      color: var(--text-muted);
-      font-size: 0.75rem;
-      margin-bottom: 4px;
-    }}
-    .live-mini-card strong {{
-      overflow-wrap: anywhere;
-    }}
-    .cards {{
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 14px;
-      margin: 22px 0;
-    }}
-    .card, .plot-card, .output-link, .empty-state, .panel-block, .action-link {{
-      border: 1px solid var(--border-primary);
-      border-radius: 8px;
-      background: linear-gradient(180deg, rgba(19, 35, 56, 0.92), rgba(16, 27, 41, 0.96));
-      box-shadow: var(--shadow-card);
-    }}
-    .card {{
-      min-height: 124px;
-      padding: 18px;
-    }}
-    .card .label {{
-      color: var(--text-muted);
-      font-size: 0.88rem;
-      margin-bottom: 10px;
-    }}
-    .card .value {{
-      font-size: 1.55rem;
-      font-weight: 760;
-      overflow-wrap: anywhere;
-    }}
-    .card.good .value {{ color: var(--accent-green); }}
-    .card.warn .value {{ color: var(--accent-orange); }}
-    .card .detail {{
-      color: var(--text-muted);
-      font-size: 0.86rem;
-      margin-top: 8px;
-      overflow-wrap: anywhere;
-    }}
-    .status-card {{
-      border-color: rgba(57, 183, 201, 0.35);
-      background: linear-gradient(180deg, rgba(57, 183, 201, 0.11), rgba(16, 27, 41, 0.96));
-    }}
-    .section-heading {{
-      display: flex;
-      justify-content: space-between;
-      gap: 16px;
-      align-items: baseline;
-      margin: 26px 0 12px;
-    }}
-    h2 {{
-      margin: 0;
-      font-size: 1.08rem;
-      letter-spacing: 0;
-    }}
-    .plot-grid {{
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      grid-auto-rows: 8px;
-      grid-auto-flow: dense;
-      column-gap: 18px;
-      row-gap: 8px;
-      align-items: stretch;
-    }}
-    .plot-card {{
-      overflow: hidden;
-      min-width: 0;
-      min-height: 0;
-      padding: 14px;
-      display: flex;
-      flex-direction: column;
-      position: relative;
-      grid-column: span var(--col-span, 1);
-      grid-row: span var(--row-span, 20);
-    }}
-    .plot-card.card-sm {{ --col-span: 1; --row-span: 16; }}
-    .plot-card.card-md {{ --col-span: 1; --row-span: 20; }}
-    .plot-card.card-lg {{ --col-span: 2; --row-span: 38; }}
-    .plot-card.card-wide {{ --col-span: 2; --row-span: 24; }}
-    .plot-header {{
-      display: flex;
-      justify-content: space-between;
-      gap: 10px;
-      align-items: flex-start;
-      margin-bottom: 12px;
-    }}
-    .plot-header h3 {{
-      margin: 0;
-      font-size: 1rem;
-    }}
-    .plot-title-group {{
-      min-width: 0;
-    }}
-    .size-controls {{
-      display: inline-flex;
-      gap: 4px;
-      align-items: center;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }}
-    .size-button, .reset-layout {{
-      border: 1px solid rgba(148, 163, 184, 0.28);
-      background: rgba(15, 26, 42, 0.88);
-      color: var(--text-muted);
-      border-radius: 6px;
-      padding: 3px 6px;
-      font: inherit;
-      font-size: 0.68rem;
-      line-height: 1.2;
-      cursor: pointer;
-    }}
-    .size-button:hover, .size-button.active, .reset-layout:hover {{
-      color: white;
-      border-color: rgba(57, 183, 201, 0.72);
-      background: rgba(57, 183, 201, 0.18);
-    }}
-    .plot-frame {{
-      flex: 1 1 auto;
-      min-height: 180px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      overflow: hidden;
-      background: var(--background-elevated);
-      border-radius: 12px;
-      padding: 8px;
-      border: 1px solid rgba(148, 163, 184, 0.18);
-    }}
-    .plot-card.fallback .plot-frame {{
-      background: var(--background-elevated);
-      padding: 12px;
-    }}
-    .plot-frame a {{
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 100%;
-      height: 100%;
-      text-decoration: none;
-      min-width: 0;
-    }}
-    .plot-frame img {{
-      display: block;
-      max-width: 100%;
-      max-height: 100%;
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-      border-radius: 6px;
-      background: var(--background-soft);
-    }}
-    .plot-card.fallback .plot-frame img {{
-      background: white;
-    }}
-    .resize-handle {{
-      position: absolute;
-      right: 8px;
-      bottom: 8px;
-      width: 16px;
-      height: 16px;
-      cursor: nwse-resize;
-      opacity: 0.75;
-      touch-action: none;
-    }}
-    .resize-handle::before {{
-      content: "";
-      position: absolute;
-      inset: 0;
-      background:
-        linear-gradient(135deg, transparent 0 45%, rgba(148, 163, 184, 0.9) 46% 52%, transparent 53%),
-        linear-gradient(135deg, transparent 0 65%, rgba(148, 163, 184, 0.7) 66% 72%, transparent 73%);
-    }}
-    .tag {{
-      display: inline-flex;
-      align-items: center;
-      padding: 3px 7px;
-      border-radius: 999px;
-      border: 1px solid rgba(57, 183, 201, 0.32);
-      color: var(--accent-cyan);
-      background: rgba(57, 183, 201, 0.10);
-      font-size: 0.72rem;
-      white-space: nowrap;
-    }}
-    .summary-value {{
-      color: var(--text-primary);
-      font-size: 0.84rem;
-      margin-top: 9px;
-    }}
-    .source {{
-      padding: 10px 2px 0;
-      color: var(--text-muted);
-      font-size: 0.82rem;
-      overflow-wrap: anywhere;
-      word-break: break-word;
-      line-height: 1.35;
-    }}
-    .plot-meta {{
-      overflow-wrap: anywhere;
-      font-size: 0.82rem;
-    }}
-    .category-label {{
-      color: var(--text-muted);
-      font-size: 0.78rem;
-      margin-top: 8px;
-    }}
-    .lower-grid {{
-      display: grid;
-      grid-template-columns: minmax(280px, 0.95fr) minmax(320px, 1.15fr)
-        minmax(280px, 0.95fr) minmax(250px, 0.8fr);
-      gap: 14px;
-      align-items: start;
-      margin-top: 26px;
-    }}
-    .panel-block {{
-      padding: 16px;
-    }}
-    .panel-block h2 {{
-      margin-bottom: 14px;
-    }}
-    .phase-row {{
-      display: grid;
-      grid-template-columns: 22px 1fr auto;
-      gap: 9px;
-      align-items: center;
-      padding: 9px 0;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-    }}
-    .phase-row:last-child {{ border-bottom: 0; }}
-    .phase-dot {{
-      display: grid;
-      place-items: center;
-      width: 22px;
-      height: 18px;
-      border-radius: 99px;
-      background: var(--border-strong);
-      color: white;
-      font-size: 0.58rem;
-      font-weight: 800;
-    }}
-    .phase-row.ok .phase-dot {{ background: var(--accent-green); }}
-    .phase-row.error .phase-dot {{ background: var(--accent-red); }}
-    .phase-row.skipped .phase-dot {{ background: var(--accent-orange); }}
-    .phase-row.not-run .phase-dot {{ background: var(--text-muted); }}
-    .phase-row.pending .phase-dot {{ background: var(--text-muted); opacity: .5; }}
-    .phase-row.running .phase-dot {{ background: var(--accent-cyan);
-                                     animation: phase-pulse 1.6s ease-in-out infinite; }}
-    @keyframes phase-pulse {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: .35; }} }}
-    .phase-detail {{
-      color: var(--text-muted);
-      font-size: 0.84rem;
-    }}
-    table {{
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.88rem;
-    }}
-    th, td {{
-      padding: 9px 8px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-      text-align: left;
-      vertical-align: top;
-    }}
-    th {{
-      color: var(--text-muted);
-      font-weight: 700;
-    }}
-    td.num {{ text-align: right; }}
-    .table-empty {{
-      color: var(--text-muted);
-      text-align: center;
-    }}
-    .outputs {{
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 10px;
-    }}
-    .output-link {{
-      display: block;
-      padding: 9px 10px;
-      text-decoration: none;
-      box-shadow: none;
-    }}
-    .output-link strong {{
-      display: block;
-      margin-bottom: 3px;
-    }}
-    .output-link span {{
-      display: block;
-      color: var(--text-muted);
-      font-size: 0.78rem;
-      overflow-wrap: anywhere;
-      word-break: break-word;
-      line-height: 1.35;
-    }}
-    .outputs-extra {{
-      margin-top: 10px;
-    }}
-    .outputs-extra summary {{
-      cursor: pointer;
-      color: var(--accent-cyan);
-      font-size: 0.84rem;
-      margin-bottom: 10px;
-    }}
-    .actions {{
-      display: grid;
-      gap: 10px;
-    }}
-    .action-link {{
-      display: block;
-      padding: 12px 13px;
-      text-decoration: none;
-      box-shadow: none;
-    }}
-    .action-title {{
-      display: block;
-      font-weight: 700;
-    }}
-    .action-subtitle {{
-      display: block;
-      margin-top: 4px;
-      color: var(--text-muted);
-      font-size: 0.9rem;
-    }}
-    .artifact-path {{
-      overflow-wrap: anywhere;
-      word-break: break-word;
-      line-height: 1.35;
-    }}
-    .folder-note {{
-      margin-top: 12px;
-      color: var(--text-muted);
-      font-size: 0.82rem;
-      overflow-wrap: anywhere;
-    }}
-    .empty-state {{
-      padding: 20px;
-      color: var(--text-muted);
-    }}
-    footer {{
-      margin-top: 30px;
-      color: var(--text-muted);
-      font-size: 0.82rem;
-    }}
-    @media (max-width: 720px) {{
-      .layout {{ grid-template-columns: 1fr; }}
-      .sidebar {{
-        position: relative;
-        height: auto;
-        border-right: 0;
-        border-bottom: 1px solid var(--border-primary);
-      }}
-      .shell {{ width: min(100% - 20px, 1480px); padding-top: 14px; }}
-      header {{ grid-template-columns: 1fr; align-items: start; }}
-      .plot-grid {{ grid-template-columns: 1fr; }}
-      .plot-card,
-      .plot-card.card-lg,
-      .plot-card.card-wide {{ --col-span: 1 !important; }}
-      .lower-grid {{ grid-template-columns: 1fr; }}
-      .live-panel {{ grid-template-columns: 1fr; }}
-    }}
-    @media (min-width: 721px) and (max-width: 1320px) {{
-      .lower-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
-    }}
-  </style>
-</head>
-<body>
-  <div class="layout">
-    <aside class="sidebar">
-      {nav_html}
-    </aside>
-    <main class="shell">
-      <header id="dashboard">
-        <div>
-          <div class="brand">FastMDXplora Results</div>
-          <h1>Dashboard</h1>
-          <div class="subtle">{escape(title)}</div>
-          <div class="breadcrumb">Project / Results / Dashboard</div>
-          <div class="subtle">System: {escape(_system_label(system) if system else "—")}</div>
-        </div>
-        <div class="status">
-          <span class="dot {escape(status)}"></span>{escape(status.title())} -
-          Last generated {escape(generated)}
-          <button class="reset-layout" type="button" data-reset-layout>Reset layout</button>
-        </div>
-      </header>
-      {notice_html}
-      {live_html}
-      <section class="cards" aria-label="Summary metrics">
-        {card_html}
-      </section>
-      {sections_html}
-      <section class="lower-grid">
-        <div class="panel-block" id="run-status">
-          <h2>Run Progress</h2>
-          {phase_html}
-        </div>
-        <div class="panel-block" id="top-metrics">
-          <h2>Top Metrics</h2>
-          <table>
-            <thead>
-              <tr><th>Metric</th><th>Average</th><th>Std. Dev.</th><th>Unit</th></tr>
-            </thead>
-            <tbody>{metrics_html}</tbody>
-          </table>
-        </div>
-        <div class="panel-block" id="recent-outputs">
-          <h2>Recent Outputs</h2>
-          {link_html}
-        </div>
-        <div class="panel-block" id="quick-actions">
-          <h2>Quick Actions</h2>
-          <div class="actions">
-            {quick_html}
-          </div>
-          <div class="folder-note">
-            Output folder: {escape(output_folder)}.
-            Some browsers block direct local folder opening from static pages.
-          </div>
-        </div>
-      </section>
-      <footer>
-        Generated by FastMDXplora from recorded run artifacts.
-        Missing metrics are omitted.
-        <br><br>
-        If this software contributed to your work, please cite:
-        <br>{citation_html}
-      </footer>
-    </main>
+    pages = "\n".join((
+        _render_overview(
+            title=title, generated=generated, phase_notice=phase_notice, cards=cards,
+            phase_rows=phase_rows, metrics=metrics, live_html=live_html, methods=methods,
+            has_report=bool(report and report.get("ok"))),
+        _render_analysis_page(sections, series or {}),
+        _render_report_page(report or {"ok": False}),
+        _render_files_page(files_html),
+    ))
+    mark = _product_mark_uri()
+    icon = f'<link rel="icon" type="image/svg+xml" href="{mark}">\n' if mark else ""
+    sidebar = _render_sidebar(
+        title=title, system_label=system_label, word=word, dot=dot, platform=platform,
+        output_folder=output_folder, stages=stage_steps, cards=cards,
+        generated=generated, generated_epoch=f"{generated_at.timestamp():.0f}",
+        expansion=__expansion__, logo=_lab_logo_uri())
+    settings = (_render_settings(__version__) + "\n"
+                + _render_cite_dialog(__citation__, __doi__, __version__, __bibtex__,
+                                      __copyright__, __expansion__))
+
+    return "".join((
+        "<!doctype html>\n<html lang=\"en\" data-page=\"overview\">\n<head>\n",
+        "<meta charset=\"utf-8\">\n",
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n",
+        "<meta name=\"color-scheme\" content=\"dark light\">\n",
+        f"<title>{escape(title)} - FastMDXplora</title>\n", icon,
+        f"<script>{_THEME_FIRST_JS}</script>\n",
+        "<style>\n", _theme_tokens(), "\n", _gui_stylesheet(), "\n",
+        _STATIC_ONLY_CSS, "\n</style>\n</head>\n",
+        "<body class=\"panel-collapsed static-dashboard\">\n",
+        settings, "\n",
+        "<div class=\"app-shell\">\n",
+        "<aside class=\"sidebar\" aria-label=\"Dashboard navigation\">\n", sidebar,
+        "\n</aside>\n",
+        "<div class=\"col-handle\" aria-hidden=\"true\"></div>\n",
+        "<div class=\"main\">\n<main class=\"page-shell\" role=\"main\">\n", pages,
+        "\n</main>\n</div>\n</div>\n",
+        _render_series_scripts(series or {}),
+        f"<script>{_PAGE_JS}</script>\n{_files_script()}{_tooltips_script()}</body>\n</html>\n",
+    ))
+
+
+def _render_sidebar(
+    *,
+    title: str,
+    system_label: str,
+    word: str,
+    dot: str,
+    platform: str,
+    output_folder: str,
+    stages: list[StageStep],
+    cards: list[DashboardCard],
+    generated: str,
+    generated_epoch: str,
+    expansion: str,
+    logo: str = "",
+) -> str:
+    """The GUI's sidebar, as a page with no server can have it: the study as
+    its card (no studies to switch to), its pages, where a run stood when it
+    stopped short, and what the page was written from."""
+    from fastmdxplora.gui.sidebar_icons import icon
+
+    by_label = {card.label: card for card in cards}
+    facts = [("Written", f'<span data-when="{escape(generated_epoch)}">{escape(generated)}</span>')]
+    for label in ("Production", "Wall time"):
+        card = by_label.get(label)
+        if card is not None:
+            facts.append((label, escape(card.value)))
+    current = ' aria-current="page"'
+    nav = "\n".join(
+        f'<a href="#{key}" class="nav-link{" active" if key == "overview" else ""}" '
+        f'data-view-link="{key}"{current if key == "overview" else ""}>'
+        f'{icon(key)}<span>{label}</span></a>'
+        for key, label in PAGES)
+    steps = "\n".join(
+        f'<li class="stage-step" data-stage="{escape(step.stage)}" '
+        f'data-state="{escape(step.state)}"{" hidden" if step.hidden else ""}>'
+        f'<span class="stage-marker"></span><span class="stage-label">{escape(step.label)}</span></li>'
+        for step in stages)
+    mark = f'<img class="sidebar-account-logo" src="{logo}" alt="">' if logo else ""
+    metrics = "\n".join(
+        f'<span class="metric-label">{escape(label)}</span>'
+        f'<span class="metric-value mono">{value}</span>' for label, value in facts)
+    # The progress card as the GUI shows it: for a run that was going on,
+    # stopped short or failed when the page was written; none once it
+    # finished.
+    state = str(word or "").lower()
+    run = ("failed" if state in {"failed", "error"} else
+           "stopped" if state == "stopped" else
+           "running" if state in {"running", "starting", "paused"} else "")
+    shown = [step for step in stages if not step.hidden]
+    at = next((k for k, step in enumerate(shown) if step.state in {"current", "failed"}), -1)
+    stage = shown[at].label if at >= 0 else ""
+    heading = (f"{stage} failed" if run == "failed" and stage else
+               f"{stage} stopped" if run == "stopped" and stage else stage or "Stopped")
+    count = f"Stage {at + 1} of {len(shown)}" if at >= 0 else ""
+    said = {"completed": "Completed", "failed": "Failed", "recorded": "Recorded",
+            "not run": "Not run"}.get(state, state[:1].upper() + state[1:])
+    platform_line = (f'<span class="status-divider" aria-hidden="true">&middot;</span>'
+                     f'<span class="status-platform" title="Platform">{escape(platform)}</span>'
+                     if platform else "")
+    return f"""<div class="sidebar-brand">
+  <div class="brand-text">
+    <div class="brand-product" title="{escape(expansion)}">FastMDXplora</div>
   </div>
-  <script>
-    (() => {{
-      const key = "fastmdx-dashboard-card-layout:" + window.location.pathname;
-      const presets = {{
-        sm: {{ cols: 1, rows: 16 }},
-        md: {{ cols: 1, rows: 20 }},
-        lg: {{ cols: 2, rows: 38 }},
-        wide: {{ cols: 2, rows: 24 }},
-      }};
-      let saved = {{}};
-      try {{ saved = JSON.parse(localStorage.getItem(key) || "{{}}"); }}
-      catch (_) {{ saved = {{}}; }}
-      const cards = Array.from(document.querySelectorAll(".plot-card[data-card-key]"));
-      const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
-      const gridMetrics = (grid) => {{
-        const style = getComputedStyle(grid);
-        const columns = style.gridTemplateColumns.split(" ").filter(Boolean);
-        const firstColumn = parseFloat(columns[0]) || 280;
-        return {{
-          columns: Math.max(1, columns.length),
-          columnWidth: firstColumn,
-          columnGap: parseFloat(style.columnGap) || 18,
-          rowHeight: parseFloat(style.gridAutoRows) || 8,
-          rowGap: parseFloat(style.rowGap) || 8,
-        }};
-      }};
-      const applySpan = (card, cols, rows, persist = true) => {{
-        const grid = card.closest(".plot-grid");
-        const metrics = grid ? gridMetrics(grid) : {{ columns: 1 }};
-        cols = clamp(Math.round(cols || 1), 1, metrics.columns || 1);
-        rows = clamp(Math.round(rows || 20), 14, 64);
-        card.style.setProperty("--col-span", cols);
-        card.style.setProperty("--row-span", rows);
-        for (const name of Object.keys(presets)) card.classList.remove("card-" + name);
-        for (const button of card.querySelectorAll("[data-card-size]")) {{
-          const preset = presets[button.dataset.cardSize];
-          button.classList.toggle(
-            "active",
-            Boolean(preset && preset.cols === cols && preset.rows === rows)
-          );
-        }}
-        if (persist) {{
-          saved[card.dataset.cardKey] = {{ cols, rows }};
-          try {{ localStorage.setItem(key, JSON.stringify(saved)); }}
-          catch (_) {{}}
-        }}
-      }};
-      const applySize = (card, size, persist = true) => {{
-        const preset = presets[size] || presets.md;
-        applySpan(card, preset.cols, preset.rows, persist);
-      }};
-      for (const card of cards) {{
-        const restored = saved[card.dataset.cardKey];
-        if (restored && Number.isFinite(restored.cols) && Number.isFinite(restored.rows)) {{
-          applySpan(card, restored.cols, restored.rows, false);
-        }} else {{
-          applySize(card, "md", false);
-        }}
-        for (const button of card.querySelectorAll("[data-card-size]")) {{
-          button.addEventListener("click", () => applySize(card, button.dataset.cardSize));
-        }}
-        const handle = card.querySelector(".resize-handle");
-        if (handle) {{
-          handle.addEventListener("pointerdown", (event) => {{
-            event.preventDefault();
-            handle.setPointerCapture(event.pointerId);
-            const grid = card.closest(".plot-grid");
-            const metrics = gridMetrics(grid);
-            const start = {{
-              x: event.clientX,
-              y: event.clientY,
-              cols: parseInt(getComputedStyle(card).getPropertyValue("--col-span"), 10) || 1,
-              rows: parseInt(getComputedStyle(card).getPropertyValue("--row-span"), 10) || 20,
-            }};
-            const move = (moveEvent) => {{
-              const colUnit = metrics.columnWidth + metrics.columnGap;
-              const rowUnit = metrics.rowHeight + metrics.rowGap;
-              const cols = start.cols + Math.round((moveEvent.clientX - start.x) / colUnit);
-              const rows = start.rows + Math.round((moveEvent.clientY - start.y) / rowUnit);
-              applySpan(card, cols, rows, false);
-            }};
-            const done = () => {{
-              handle.removeEventListener("pointermove", move);
-              handle.removeEventListener("pointerup", done);
-              handle.removeEventListener("pointercancel", done);
-              const cols = parseInt(getComputedStyle(card).getPropertyValue("--col-span"), 10) || 1;
-              const rows = parseInt(getComputedStyle(card).getPropertyValue("--row-span"), 10) || 20;
-              applySpan(card, cols, rows, true);
-            }};
-            handle.addEventListener("pointermove", move);
-            handle.addEventListener("pointerup", done);
-            handle.addEventListener("pointercancel", done);
-          }});
-        }}
-      }}
-      const reset = document.querySelector("[data-reset-layout]");
-      if (reset) {{
-        reset.addEventListener("click", () => {{
-          saved = {{}};
-          try {{ localStorage.removeItem(key); }} catch (_) {{}}
-          for (const card of cards) applySize(card, "md", false);
-        }});
-      }}
-    }})();
-  </script>
-</body>
-</html>
-"""
+</div>
+<div class="sidebar-study">
+  <div class="sidebar-study-card" title="{escape(system_label)}">
+    <span class="study-card-body">
+      <span class="study-kicker">Study</span>
+      <span class="study-name" title="{escape(title)}">{escape(title)}</span>
+      <span class="study-status" role="status">
+        <span class="status-dot status-dot-{escape(dot)}"></span>
+        <span class="status-text">{escape(said)}</span>{platform_line}
+        <span class="status-divider" aria-hidden="true">&middot;</span>
+        <span title="Written by the report phase; it does not update">Snapshot</span>
+      </span>
+    </span>
+  </div>
+</div>
+<nav class="sidebar-nav" role="navigation" aria-label="Dashboard sections">
+  <div class="nav-heading">This study</div>
+  {nav}
+</nav>
+<div class="sidebar-snapshot">
+  <div class="sidebar-metrics">
+  {metrics}
+  </div>
+  <button class="ghost-btn" type="button" data-copy-text="{escape(output_folder)}" title="Copy the output folder's path">Copy the folder's path</button>
+</div>
+<div class="sidebar-progress" data-run="{run}">
+  <div class="progress-head"><span class="progress-stage">{escape(heading)}</span></div>
+  <ol class="sidebar-stages" aria-label="Stages">
+  {steps}
+  </ol>
+  <div class="sidebar-metrics"><span class="metric-label">{escape(count)}</span></div>
+</div>
+<div class="sidebar-foot">
+  <button type="button" class="sidebar-account" id="settings-open" aria-haspopup="dialog" aria-expanded="false" title="Settings">
+    <span class="sidebar-account-avatar" aria-hidden="true">{mark}</span>
+    <span class="sidebar-account-text"><span class="sidebar-account-name">FastMDXplora</span></span>
+    {icon("gear", "sidebar-account-gear")}
+  </button>
+</div>"""
 
 
-def _render_card(card: DashboardCard) -> str:
-    detail = f'<div class="detail">{escape(card.detail)}</div>' if card.detail else ""
-    classes = f"card {card.kind}"
-    if card.label == "Project status":
-        classes += " status-card"
+def _render_settings(version: str) -> str:
+    """The settings menu at the foot of the sidebar, with what a page with
+    no server can offer: the scheme, the citation and the links."""
+    return f"""<div class="settings-popup" id="settings-popup" hidden role="dialog" aria-label="Settings">
+  <div class="settings-section">Appearance</div>
+  <div class="settings-row">
+    <span>Theme</span>
+    <div class="seg" role="group" aria-label="Theme">
+      <button type="button" class="seg-btn active" data-theme="system" aria-pressed="true" title="As the computer is set, light or dark">System</button>
+      <button type="button" class="seg-btn" data-theme="light" aria-pressed="false">Light</button>
+      <button type="button" class="seg-btn" data-theme="dark" aria-pressed="false">Dark</button>
+    </div>
+  </div>
+  <div class="settings-divider"></div>
+  <button type="button" class="settings-item" data-dialog-open="cite-dialog" aria-haspopup="dialog">Cite FastMDXplora&hellip; <span class="mono settings-hint">{escape(version)}</span></button>
+  <a href="https://fastmdxplora.readthedocs.io/en/latest/gui.html" class="settings-item" target="_blank" rel="noopener">Documentation <span class="mono settings-hint">&#8599;</span></a>
+  <a href="https://github.com/aai-research-lab/FastMDXplora" class="settings-item" target="_blank" rel="noopener">GitHub <span class="mono settings-hint">&#8599;</span></a>
+</div>"""
+
+
+def _page_header(title: str, subtitle: str, actions: str = "") -> str:
     return (
-        f'<article class="{escape(classes)}">'
-        f'<div class="label">{escape(card.label)}</div>'
-        f'<div class="value">{escape(card.value)}</div>'
-        f"{detail}"
-        "</article>"
+        '<div class="page-header"><div>'
+        f'<h1 class="page-title">{escape(title)}</h1>'
+        f'<div class="page-subtitle">{escape(subtitle)}</div>'
+        f'</div><div class="page-header-actions">{actions}</div></div>'
     )
 
 
-def _render_section(section: DashboardSection) -> str:
-    panels = "\n".join(_render_panel(panel) for panel in section.panels)
-    count = f"{len(section.panels)} artifact" + ("" if len(section.panels) == 1 else "s")
-    classes = f"analysis-section section-{section.anchor}"
-    return (
-        f'<section class="{escape(classes)}" id="{escape(section.anchor)}">'
-        '<div class="section-heading">'
-        f"<h2>{escape(section.title)}</h2>"
-        f'<span class="subtle">{escape(count)}</span>'
-        "</div>"
-        '<div class="plot-grid">'
-        f"{panels}"
-        "</div>"
-        "</section>"
-    )
+def _render_overview(
+    *,
+    title: str,
+    generated: str,
+    phase_notice: str,
+    cards: list[DashboardCard],
+    phase_rows: list[PhaseRow],
+    metrics: list[MetricRow],
+    live_html: str,
+    methods: tuple[str, str],
+    has_report: bool,
+) -> str:
+    from fastmdxplora.gui.sidebar_icons import icon
 
-
-def _render_panel(panel: DashboardPanel) -> str:
-    # Every panel now shows the figure the analysis wrote, so there is no
-    # "fallback" case left to style differently.
-    card_class = "plot-card card-md"
-    summary = (
-        f'<div class="summary-value">{escape(panel.summary)}</div>'
-        if panel.summary else ""
-    )
-    category = (
-        f'<div class="category-label">{escape(panel.category)}</div>'
-        if panel.category else ""
-    )
-    original = ""
-    if panel.original_source != panel.source:
-        original = (
-            f' - original: <a href="{escape(panel.original_href)}">'
-            f"{escape(panel.original_source)}</a>"
-        )
-    card_key = _anchor(panel.original_source)
-    return (
-        f'<article class="{escape(card_class)}" id="{escape(_anchor(panel.title))}" '
-        f'data-card-key="{escape(card_key)}">'
-        '<div class="plot-header">'
-        '<div class="plot-title-group">'
-        f"<h3>{escape(panel.title)}</h3>"
-        f'<span class="tag">{escape(panel.category or panel.mode)}</span>'
-        "</div>"
-        '<div class="size-controls" aria-label="Card size">'
-        '<button type="button" class="size-button" data-card-size="sm">S</button>'
-        '<button type="button" class="size-button active" data-card-size="md">M</button>'
-        '<button type="button" class="size-button" data-card-size="lg">L</button>'
-        '<button type="button" class="size-button" data-card-size="wide">Wide</button>'
-        "</div>"
-        "</div>"
-        '<div class="plot-frame">'
-        f'<a href="{escape(panel.href)}">'
-        f'<img src="{escape(panel.href)}" alt="{escape(panel.title)} plot">'
-        "</a>"
-        "</div>"
-        f"{summary}"
-        f"{category}"
-        f'<div class="source plot-meta artifact-path">{escape(panel.source)}{original}</div>'
-        '<div class="resize-handle" title="Drag to resize"></div>'
-        "</article>"
-    )
-
-
-def _render_link(link: DashboardLink) -> str:
-    detail = escape(link.detail) if link.detail else escape(link.href)
-    return (
-        f'<a class="output-link" href="{escape(link.href)}">'
-        f'<strong class="output-title">{escape(link.label)}</strong>'
-        f'<span class="output-subtitle artifact-path">{detail}</span>'
-        "</a>"
-    )
-
-
-def _render_output_list(links: list[DashboardLink]) -> str:
-    visible = links[:10]
-    hidden = links[10:]
-    visible_html = "\n".join(_render_link(link) for link in visible)
-    html = f'<div class="outputs output-list">{visible_html}</div>'
-    if hidden:
-        hidden_html = "\n".join(_render_link(link) for link in hidden)
-        html += (
-            '<details class="outputs-extra">'
-            f"<summary>Show all outputs ({len(hidden)} more)</summary>"
-            f'<div class="outputs output-list">{hidden_html}</div>'
-            "</details>"
-        )
-    return html
-
-
-def _render_static_live_panel(project_root: Path) -> str:
-    from fastmdxplora.gui.telemetry import analyze_health, read_metrics, read_status
-
-    serve_command = f"fastmdx gui --output {project_root.as_posix()}"
-    escaped_command = escape(serve_command)
-    status = read_status(project_root)
-    metrics = read_metrics(project_root)
-    health = analyze_health(status, metrics)
-    if not status:
-        # Naming the real cause. This used to advise starting the dashboard
-        # during a run, which is what somebody looking at this page has just
-        # done: telemetry is written only when the run asks for it, and it is
-        # off by default, so the advice sent them to repeat what had already
-        # failed.
-        body = (
-            "This run did not record live telemetry, so there is nothing for "
-            "this page to read. It is written only when a run asks for it, "
-            "and that is off by default: set <code>live_telemetry: true</code> "
-            "under <code>simulation</code> in the config, or pass "
-            "<code>--live-telemetry</code>, and this page fills as the run "
-            "goes."
-        )
-        # The prose above has already said why there is nothing here; a dash
-        # says the same without three more verdicts. This page describes a
-        # finished run, so an unreported stage is not "starting" the way it is
-        # on the live page -- it is simply not recorded.
-        stage = "—"
-        updated = "—"
-        platform = "—"
-    else:
-        body = escape(str(health.get("explanation") or "—"))
-        stage = escape(str(status.get("stage") or "—"))
-        updated = escape(str(status.get("last_update_timestamp") or "—"))
-        platform = escape(str(status.get("platform") or "—"))
-    health_state = escape(str(health.get("state") or "unknown"))
-    health_message = escape(str(health.get("message") or "Live telemetry is not available."))
-    return (
-        '<section class="live-panel" id="live-simulation">'
-        '<div class="panel-block">'
-        "<h2>Live Simulation</h2>"
-        f"<p>{body}</p>"
-        '<div class="live-status-grid">'
-        f'<div class="live-mini-card"><span>Status</span><strong>{health_state}</strong></div>'
-        f'<div class="live-mini-card"><span>Stage</span><strong>{stage}</strong></div>'
-        f'<div class="live-mini-card"><span>Platform</span><strong>{platform}</strong></div>'
-        f'<div class="live-mini-card"><span>Last update</span><strong>{updated}</strong></div>'
-        "</div>"
-        "</div>"
-        '<div class="panel-block">'
-        "<h2>Monitoring</h2>"
-        f"<p>{health_message}</p>"
-        '<p class="subtle">For real-time charts and events, run '
-        f"<code>{escaped_command}</code>.</p>"
-        "</div>"
-        "</section>"
-    )
-
-
-def _render_sidebar(sections: list[DashboardSection], links: list[DashboardLink]) -> str:
-    analysis_links = {section.title: f"#{section.anchor}" for section in sections}
-    report_links = {link.label: link.href for link in links}
+    actions = ('<a href="#analysis" class="ghost-btn" data-view-link="analysis">Analysis</a>'
+               + ('<a href="#report" class="ghost-btn" data-view-link="report">Report</a>'
+                  if has_report else ""))
     parts = [
-        '<div class="logo">',
-        '<div class="mark">FX</div>',
-        '<div><div class="logo-title">FastMDXplora</div>',
-        '<div class="logo-subtitle">Explore. Analyze. Visualize. Share.</div></div>',
-        '</div>',
-        '<nav aria-label="Dashboard navigation">',
-        '<div class="nav-section"><p class="nav-heading">Overview</p>',
-        _nav_link("#dashboard", "Dashboard", "active", "D"),
-        _nav_link("#live-simulation", "Live Simulation", "", "L"),
-        _nav_link("#top-metrics", "System Info", "", "I"),
-        _nav_link("#run-status", "Run Status", "", "S"),
-        '</div>',
-        '<div class="nav-section"><p class="nav-heading">Analysis</p>',
+        '<section class="page" data-page="overview" id="dashboard">',
+        _page_header("Study Overview",
+                     f"{title}, as recorded when this page was written ({generated}).", actions),
     ]
-    for label in SECTION_ORDER:
-        href = analysis_links.get(label)
-        if href:
-            parts.append(_nav_link(href, label, "", "-"))
-    parts.extend(
-        [
-            '</div>',
-            '<div class="nav-section"><p class="nav-heading">Reports</p>',
-        ]
-    )
-    for label in ("Markdown report", "Slide deck", "Dashboard HTML", "Project bundle"):
-        href = report_links.get(label)
-        if href:
-            display = {
-                "Markdown report": "Markdown Report",
-                "Slide deck": "Slides PPTX",
-                "Dashboard HTML": "Dashboard HTML",
-                "Project bundle": "Bundle",
-            }[label]
-            parts.append(_nav_link(href, display, "", "R"))
-    parts.extend(["</div>", "</nav>"])
+    if phase_notice:
+        parts.append(
+            '<div class="card"><div class="card-header">'
+            '<h2 class="card-title">Existing trajectory analysis</h2></div>'
+            f'<div class="card-body">{escape(phase_notice)}</div></div>')
+    parts.append('<div id="live-panels">')
+    if live_html:
+        parts.append(live_html)
+    if cards:
+        parts.append('<div class="grid overview-summary metric-cards" id="overview-summary-cards">'
+                     + "".join(_render_card(card) for card in cards) + "</div>")
+    if phase_rows:
+        parts.append(
+            '<div class="card" id="overview-phase-card"><div class="card-header">'
+            '<h2 class="card-title">Phases</h2></div><table class="phase-table">'
+            "<thead><tr><th>Phase</th><th>Status</th><th>Detail</th></tr></thead>"
+            '<tbody id="overview-phase-rows">'
+            + "".join(_render_phase_row(row) for row in phase_rows) + "</tbody></table></div>")
+    parts.append(
+        '<div class="card" id="overview-stats-card"><div class="card-header">'
+        '<h2 class="card-title">What the analyses determined</h2></div><table class="phase-table">'
+        "<thead><tr><th>Analysis</th><th>Mean ± standard error</th>"
+        "<th>Independent samples</th><th>Status</th></tr></thead>"
+        '<tbody id="overview-stat-rows">'
+        + ("".join(_render_metric_row(row) for row in metrics) or
+           # What is absent, not the fact of absence: the table is filled
+           # from the analysis outputs, so empty means none yet.
+           '<tr><td colspan="4" class="muted">No analysis outputs to summarise yet.</td></tr>')
+        + "</tbody></table></div>")
+    methods_html, methods_plain = methods
+    if methods_html:
+        parts.append(
+            '<div class="card" id="overview-methods-card"><div class="card-header">'
+            '<h2 class="card-title">Methods</h2>'
+            '<button class="line-btn" type="button" data-copy-from="overview-methods-plain" '
+            f'aria-label="Copy the methods" title="Copy the methods, as plain text">{icon("copy", "line-icon")}'
+            "</button></div>"
+            f'<div class="card-body methods-text" id="overview-methods-text">{methods_html}</div>'
+            f'<pre id="overview-methods-plain" hidden>{escape(methods_plain)}</pre></div>')
+    parts.append("</div></section>")
     return "\n".join(parts)
 
 
-def _nav_link(href: str, label: str, classes: str, icon: str) -> str:
-    class_attr = f"nav-link {classes}".strip()
+def _render_series_scripts(series: dict[str, Any]) -> str:
+    """The series, and the GUI's chart script reading them as it reads
+    ``/api/series``: its requests for a series answered from the page, so the
+    script is the GUI's own, unchanged."""
+    if not series:
+        return ""
+    script = Path(__file__).resolve().parent / "static" / "series-chart.js"
+    try:
+        chart = script.read_text(encoding="utf-8")
+    except OSError:  # pragma: no cover - only if the installed package is incomplete
+        return ""
+    data = json.dumps(series, allow_nan=False, separators=(",", ":")).replace("</", "<\\/")
+    return (f'<script type="application/json" id="fmx-series">{data}</script>\n'
+            f"<script>{_SERIES_FROM_THE_PAGE_JS}</script>\n<script>{chart}</script>\n")
+
+
+def _render_analysis_page(sections: list[DashboardSection], series: dict[str, Any]) -> str:
+    count = sum(len(section.panels) for section in sections)
+    meta = (f'<div class="muted small mono" id="analysis-meta">'
+            f'{count} figure{"" if count == 1 else "s"}</div>' if count
+            else '<div class="muted small mono" id="analysis-meta">no analyses yet</div>')
+    charted: set[str] = set()
+    body = "\n".join(_render_section(section, charted, series) for section in sections) or (
+        '<div class="empty-state" id="analysis-empty">'
+        '<div class="empty-title">No analysis figures in this study</div>'
+        '<div class="empty-detail muted">The analysis phase writes them; '
+        "this page was written without any.</div></div>")
+    return ('<section class="page" data-page="analysis" hidden>'
+            + _page_header("Analysis", "Trajectory analyses and protein-ligand interactions", meta)
+            + f'<div id="analysis-sections">{body}</div></section>')
+
+
+_DOWNLOAD_LABELS: tuple[tuple[str, str], ...] = (
+    ("pdf", "PDF"), ("slides", "Slides"), ("bundle", "Bundle"),
+    ("markdown", "Markdown"), ("summary", "Summary figure"),
+)
+
+
+def _render_report_page(report: dict[str, Any]) -> str:
+    if not report.get("ok"):
+        return ('<section class="page" data-page="report" hidden>'
+                + _page_header("Report", "The study, written up.")
+                + '<div class="empty-state" id="report-empty">'
+                "<p>No report yet. The report phase writes one at the end of a run.</p>"
+                "</div></section>")
+    downloads = report.get("downloads") or {}
+    actions = "".join(
+        f'<a class="{"primary-btn" if key == "pdf" else "ghost-btn"}" '
+        f'href="{escape(downloads[key])}" download>{escape(label)}</a>'
+        for key, label in _DOWNLOAD_LABELS if downloads.get(key))
+    notices = "".join(
+        '<div class="report-notice"><span class="report-notice-kind mono">'
+        f"not produced · {escape(name)}</span>{escape(why)}</div>"
+        for name, why in report.get("not_produced") or [])
+    subtitle = (f"Generated {report['generated']}" if report.get("generated")
+                else "The study, written up.")
+    return ('<section class="page" data-page="report" hidden>'
+            + _page_header("Report", subtitle, actions)
+            + (f'<div class="report-notices" id="report-notices">{notices}</div>' if notices else "")
+            + f'<article class="card report-document" id="report-document">{report.get("html", "")}'
+            "</article></section>")
+
+
+def _render_files_page(files_html: str) -> str:
+    body = files_html or '<div class="files-empty">This study has not written any files yet.</div>'
+    return ('<section class="page" data-page="files" hidden>'
+            + _page_header("Files", "Everything the study wrote, in the order it ran")
+            + f'<div id="files-page" class="files-page">{body}</div></section>')
+
+
+def _render_cite_dialog(citation: str, doi: str, version: str, bibtex: str,
+                        copyright_: str, expansion: str) -> str:
+    """The citation as the GUI gives it: a dialog over the page, the
+    reference and its BibTeX each copied in one click. The report, the
+    slides and the GUI all say it, from the same constants."""
+    from fastmdxplora.gui.sidebar_icons import icon
+
+    return f"""<div id="cite-dialog" class="agent-dialog" hidden>
+  <div class="agent-dialog-panel dialog-narrow" role="dialog" aria-modal="true" aria-labelledby="cite-title">
+    <div class="agent-dialog-head">
+      <div>
+        <div class="builder-label" id="cite-title">Cite FastMDXplora</div>
+        <div class="builder-card-note">If this software contributed to your work, please cite it.</div>
+      </div>
+      <button type="button" class="line-btn dialog-x" data-dialog-close aria-label="Close" title="Close">{icon("close", "line-icon")}</button>
+    </div>
+    <div class="agent-dialog-body cite-body">
+      <p class="cite-name"><strong>FastMDXplora</strong>: {escape(expansion)}</p>
+      <div class="cite-block">
+        <p id="cite-reference">{escape(citation)}</p>
+        <button type="button" class="line-btn" data-copy-from="cite-reference" aria-label="Copy the reference" title="Copy the reference">{icon("copy", "line-icon")}</button>
+      </div>
+      <p class="subtle">DOI: <a href="https://doi.org/{escape(doi)}" target="_blank" rel="noopener">{escape(doi)}</a> &nbsp;&middot;&nbsp; version <span id="cite-version">{escape(version)}</span></p>
+      <div class="cite-bibtex-head">
+        <span class="builder-label">BibTeX</span>
+        <button type="button" class="line-btn" data-copy-from="cite-bibtex" aria-label="Copy the BibTeX" title="Copy the BibTeX">{icon("copy", "line-icon")}</button>
+      </div>
+      <pre class="mono" id="cite-bibtex">{escape(bibtex)}</pre>
+      <p class="subtle">&copy; Copyright {escape(copyright_)}.</p>
+    </div>
+  </div>
+</div>"""
+
+
+def _render_card(card: DashboardCard) -> str:
+    value = card.value or DASH
+    # Paths in monospace at a smaller size, as the GUI's Overview sets them.
+    kind = "path" if ("/" in value or "\\" in value) else "text"
     return (
-        f'<a class="{escape(class_attr)}" href="{escape(href)}">'
-        f'<span class="nav-icon">{escape(icon)}</span>{escape(label)}</a>'
+        '<div class="metric-card">'
+        f'<div class="metric-card-label">{escape(card.label)}</div>'
+        f'<div class="metric-card-value mono" data-kind="{kind}" title="{escape(value)}">'
+        f"{escape(value)}</div>"
+        f'<div class="metric-card-unit" title="{escape(card.detail)}">{escape(card.detail)}</div>'
+        "</div>"
+    )
+
+
+def _render_section(
+    section: DashboardSection,
+    charted: set[str] | None = None,
+    series: dict[str, Any] | None = None,
+) -> str:
+    charted = set() if charted is None else charted
+    named: set[str] = set()
+    cards = []
+    for panel in section.panels:
+        folder = re.search(r"(?:^|/)analysis/([a-z][a-z0-9_]*)/", panel.original_source)
+        name = folder.group(1) if folder and folder.group(1) not in named else ""
+        if name:
+            named.add(name)
+        # An analysis's own figure is also plotted from its numbers, once.
+        own = _OWN_FIGURE.search(panel.original_source)
+        plotted = own.group(1) if own and own.group(1) not in charted else ""
+        if plotted and plotted in (series or {}):
+            charted.add(plotted)
+        else:
+            plotted = ""
+        cards.append(_render_panel(panel, section.title, name, plotted))
+    count = len(section.panels)
+    return (
+        f'<section class="analysis-section" id="{escape(section.anchor)}">'
+        '<div class="analysis-section-heading">'
+        f'<h2 class="analysis-section-title">{escape(section.title)}</h2>'
+        f'<span class="analysis-section-count">{count} figure{"" if count == 1 else "s"}</span>'
+        f'</div><div class="analysis-grid">{"".join(cards)}</div></section>'
+    )
+
+
+def _render_panel(panel: DashboardPanel, section_title: str = "", analysis: str = "",
+                  plotted: str = "") -> str:
+    figure = panel.original_href or panel.href
+    named = f' data-analysis="{escape(analysis)}"' if analysis else ""
+    series = f' data-series="{escape(plotted)}"' if plotted else ""
+    toggle = ('<a class="file-action" href="#" data-series-toggle hidden>Show the figure</a>'
+              if plotted else "")
+    return (
+        f'<article class="analysis-card" data-state="complete" id="{escape(_anchor(panel.title))}"'
+        f"{named}>"
+        '<div class="ac-header">'
+        f'<div class="ac-title">{escape(panel.title)}</div>'
+        f'<div class="ac-status">{escape(section_title or panel.category)}</div></div>'
+        f'<div class="ac-frame"{series}><img src="{escape(figure)}" alt="{escape(panel.title)}" '
+        'loading="lazy"></div>'
+        f'<div class="ac-body">{escape(panel.summary)}</div>'
+        f'<div class="ac-footer"><a class="file-action" href="{escape(figure)}" target="_blank" '
+        f'rel="noopener">Open full size</a>{toggle}</div>'
+        "</article>"
+    )
+
+
+def _render_static_live_panel(project_root: Path) -> str:
+    """The Overview's health card and strip, from the live record the run
+    left, worded as the GUI words them (``renderHealth``)."""
+    from fastmdxplora.gui.telemetry import analyze_health, read_metrics, read_study_status
+
+    serve_command = f"fastmdx gui --output {project_root.as_posix()}"
+    status = read_study_status(project_root)
+    metrics = read_metrics(project_root)
+    health = analyze_health(status, metrics)
+    state = str(health.get("state") or "unknown").lower()
+    headline = str(health.get("headline") or health.get("message") or state.title())
+    said = ([health.get("message"), health.get("explanation")] if health.get("headline")
+            else [health.get("explanation")])
+    # The explanation names commands in backticks; set them as code.
+    explanation = re.sub(r"`([^`]+)`", r"<code>\1</code>",
+                         escape(" ".join(str(part) for part in said if part)))
+    items = health.get("items") if isinstance(health.get("items"), list) else []
+    listed = "".join(
+        f'<li data-state="{escape(str(item.get("severity") or "ok"))}">'
+        f'<strong>{escape(str(item.get("title") or item.get("severity") or "info"))}</strong>'
+        f'<span class="muted small"> {DASH} {escape(str(item.get("detail") or ""))}</span></li>'
+        for item in items[:4] if isinstance(item, dict))
+    # This page describes the run as it was written, so a stage never
+    # reported is not "starting" as on the live page: it is not recorded.
+    facts = (
+        ("Status", str(status.get("status") or DASH) if status else DASH),
+        ("Stage", str(status.get("stage") or DASH) if status else DASH),
+        ("Platform", str(status.get("platform") or DASH) if status else DASH),
+        ("Last update", str(status.get("last_update_timestamp") or DASH) if status else DASH),
+    )
+    def said(label: str, value: str) -> str:
+        # A time is put in the reader's own zone, as the GUI's strip does.
+        moment = _parse_datetime(value) if label == "Last update" else None
+        when = f' data-when="{moment.timestamp():.0f}"' if moment else ""
+        return f'<div><dt>{escape(label)}</dt><dd class="mono"{when}>{escape(value)}</dd></div>'
+
+    strip = "".join(said(label, value) for label, value in facts)
+    return (
+        '<div class="overview-facts card" id="live-simulation">'
+        f'<div class="hero-card" id="hero-health" data-state="{escape(state)}">'
+        '<div class="hero-card-top"><div><div class="hero-label">Simulation health</div>'
+        f'<div class="hero-status" id="health-headline">{escape(headline)}</div></div>'
+        f'<span class="stage-pill" id="health-pill" data-state="{escape(state)}">{escape(state)}</span>'
+        f'</div><p class="muted" id="health-explanation">{explanation or DASH}</p>'
+        + (f'<ul class="health-list" role="list">{listed}</ul>' if listed else "")
+        + f'</div><dl class="overview-strip">{strip}</dl>'
+        '<p class="muted small">For live charts and the structure as it is written, open the '
+        f"study in the GUI: <code>{escape(serve_command)}</code></p></div>"
     )
 
 
 def _render_phase_row(row: PhaseRow) -> str:
-    symbol = {
-        "ok": "OK",
-        "error": "!",
-        "skipped": "-",
-        "not-run": "-",
-    }.get(row.status, "?")
     return (
-        f'<div class="phase-row {escape(row.status)}">'
-        f'<span class="phase-dot">{escape(symbol)}</span>'
-        f"<span>{escape(row.name)}</span>"
-        f'<span class="phase-detail">{escape(row.detail)}</span>'
-        "</div>"
+        "<tr>"
+        f"<td>{escape(row.name)}</td>"
+        f'<td><span class="stage-pill">{escape(row.status)}</span></td>'
+        f'<td class="muted">{escape(row.detail)}</td>'
+        "</tr>"
     )
 
 
 def _render_metric_row(row: MetricRow) -> str:
+    why = f' title="{escape(row.why)}"' if row.why else ""
     return (
         "<tr>"
         f"<td>{escape(row.metric)}</td>"
-        f'<td class="num">{escape(row.average)}</td>'
-        f'<td class="num">{escape(row.stddev)}</td>'
-        f"<td>{escape(row.unit)}</td>"
+        f'<td class="mono">{escape(row.average)}</td>'
+        f'<td class="mono">{escape(row.samples)}</td>'
+        f'<td class="muted"{why}>{escape(row.status)}</td>'
         "</tr>"
     )
 
@@ -2151,15 +2242,6 @@ def _quick_action_links(links: list[DashboardLink]) -> list[DashboardLink]:
     return actions
 
 
-def _render_quick_action(link: DashboardLink) -> str:
-    return (
-        f'<a class="action-link" href="{escape(link.href)}">'
-        f'<span class="action-title">{escape(link.label)}</span>'
-        f'<span class="action-subtitle">{escape(link.detail)}</span>'
-        "</a>"
-    )
-
-
 def _anchor(value: str) -> str:
     chars = []
     for char in value.lower():
@@ -2169,3 +2251,223 @@ def _anchor(value: str) -> str:
             chars.append("-")
     anchor = "".join(chars).strip("-")
     return anchor or "section"
+
+
+#: What only this page needs beside the GUI's rules: its pages are shown by
+#: the address rather than by the GUI's router, and its column has no side
+#: panel to share the width with.
+_STATIC_ONLY_CSS = """
+.static-dashboard .col-handle { cursor: default; }
+.static-dashboard .col-handle::after { display: none; }
+.static-dashboard .methods-text p:first-child { margin-top: 0; }
+.static-dashboard .report-document img { max-width: 100%; height: auto; }
+"""
+
+#: The scheme before the first paint, as the GUI chooses it (frame.js): the
+#: one chosen, kept under the GUI's own key, or the system's light or dark.
+_THEME_FIRST_JS = """
+(function () {
+  var kept = null, former = {graphite: "dark", ink: "dark", paper: "light"};
+  try { kept = localStorage.getItem("fmx.theme"); } catch (e) {}
+  kept = former[kept] || kept;
+  if (kept !== "light" && kept !== "dark") {
+    try { kept = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"; }
+    catch (e) { kept = "dark"; }
+  }
+  document.documentElement.dataset.theme = kept;
+})();
+"""
+
+#: The GUI's chart script asks ``/api/series`` for a series; on this page
+#: the answer is the one the page carries. Every other request goes on.
+_SERIES_FROM_THE_PAGE_JS = """
+(function () {
+  "use strict";
+  var held = {};
+  try { held = JSON.parse(document.getElementById("fmx-series").textContent) || {}; } catch (e) {}
+  var ask = window.fetch ? window.fetch.bind(window) : null;
+  window.fetch = function (address, options) {
+    var found = /^\\/api\\/series\\?analysis=([^&]+)$/.exec(String(address));
+    if (found) {
+      var said = held[decodeURIComponent(found[1])] || { ok: false };
+      return Promise.resolve({ ok: true, json: function () { return Promise.resolve(said); } });
+    }
+    return ask ? ask(address, options) : Promise.reject(new Error("no fetch"));
+  };
+})();
+"""
+
+_PAGE_JS = """
+(function () {
+  "use strict";
+  var PAGES = ["overview", "analysis", "report", "files"];
+  function $$(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
+
+  /* As the GUI's (frame.js): System, Light or Dark, System following the
+   * computer as it changes; a former scheme's name read as its scheme. */
+  var FORMER = { graphite: "dark", ink: "dark", paper: "light" };
+  function chosenScheme() {
+    var kept = null;
+    try { kept = localStorage.getItem("fmx.theme"); } catch (e) {}
+    kept = FORMER[kept] || kept;
+    return kept === "light" || kept === "dark" ? kept : "system";
+  }
+  function systemScheme() {
+    try { return matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"; }
+    catch (e) { return "dark"; }
+  }
+  function applyTheme(choice, chosen) {
+    choice = FORMER[choice] || choice;
+    if (choice !== "light" && choice !== "dark") choice = "system";
+    var name = choice === "system" ? systemScheme() : choice;
+    document.documentElement.dataset.theme = name;
+    document.body.dataset.theme = name;
+    $$(".seg-btn[data-theme]").forEach(function (b) {
+      b.classList.toggle("active", b.dataset.theme === choice);
+      b.setAttribute("aria-pressed", String(b.dataset.theme === choice));
+    });
+    if (chosen) { try { localStorage.setItem("fmx.theme", choice); } catch (e) {} }
+    document.dispatchEvent(new CustomEvent("fmx:theme", { detail: name }));
+  }
+  applyTheme(chosenScheme(), false);
+  try {
+    var query = matchMedia("(prefers-color-scheme: light)");
+    var follow = function () { if (chosenScheme() === "system") applyTheme("system", false); };
+    if (query.addEventListener) query.addEventListener("change", follow);
+  } catch (e) { /* no media queries */ }
+  $$(".seg-btn[data-theme]").forEach(function (b) {
+    b.addEventListener("click", function () { applyTheme(b.dataset.theme, true); });
+  });
+
+  function show(name, target) {
+    if (PAGES.indexOf(name) < 0) name = "overview";
+    document.documentElement.setAttribute("data-page", name);
+    $$("section.page").forEach(function (page) { page.hidden = page.getAttribute("data-page") !== name; });
+    $$(".sidebar-nav .nav-link").forEach(function (link) {
+      var on = link.getAttribute("data-view-link") === name;
+      link.classList.toggle("active", on);
+      if (on) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
+    });
+    if (name === "analysis" && window.FastMDXSeries) {
+      window.FastMDXSeries.hydrate(document.getElementById("analysis-sections"));
+    }
+    if (target) target.scrollIntoView(); else window.scrollTo(0, 0);
+  }
+  /* Dialogs over the page, as in the GUI: Escape, Close or a click on the
+   * dimmed page closes one, and focus goes back to what opened it. */
+  var opener = null;
+  function openDialog(id, from) {
+    var dialog = document.getElementById(id);
+    if (!dialog) return;
+    opener = from || document.activeElement;
+    dialog.hidden = false;
+    var first = dialog.querySelector("button, [href]");
+    if (first) first.focus();
+  }
+  function closeDialogs() {
+    var open = $$(".agent-dialog").filter(function (d) { return !d.hidden; });
+    open.forEach(function (d) { d.hidden = true; });
+    if (open.length && opener && opener.offsetParent !== null) opener.focus();
+    return open.length > 0;
+  }
+  document.addEventListener("click", function (event) {
+    var target = event.target;
+    if (target.classList.contains("agent-dialog") || target.closest("[data-dialog-close]")) {
+      closeDialogs();
+      return;
+    }
+    var trigger = target.closest("[data-dialog-open]");
+    if (trigger) {
+      var gear = document.getElementById("settings-open");
+      if (popup && popup.contains(trigger)) closeSettings();
+      openDialog(trigger.getAttribute("data-dialog-open"), popup && popup.contains(trigger) ? gear : trigger);
+    }
+  }, true);
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && closeDialogs()) event.stopImmediatePropagation();
+  }, true);
+
+  function route() {
+    var id = "";
+    try { id = decodeURIComponent((location.hash || "").slice(1)); } catch (e) {}
+    // A link to the citation, which was a page, opens its dialog.
+    if (id === "cite") { show("overview"); openDialog("cite-dialog"); return; }
+    if (!id || PAGES.indexOf(id) >= 0) { show(id || "overview"); return; }
+    var target = document.getElementById(id);
+    var page = target && target.closest("section.page");
+    show(page ? page.getAttribute("data-page") : "overview", target);
+  }
+  window.addEventListener("hashchange", route);
+  route();
+
+  var popup = document.getElementById("settings-popup");
+  var opener = document.getElementById("settings-open");
+  function closeSettings() {
+    if (!popup || popup.hidden) return;
+    popup.hidden = true;
+    if (opener) opener.setAttribute("aria-expanded", "false");
+  }
+  if (popup && opener) {
+    opener.addEventListener("click", function (event) {
+      event.stopPropagation();
+      popup.hidden = !popup.hidden;
+      opener.setAttribute("aria-expanded", String(!popup.hidden));
+    });
+    document.addEventListener("click", function (event) {
+      if (!popup.contains(event.target)) closeSettings();
+    });
+    document.addEventListener("keydown", function (event) { if (event.key === "Escape") closeSettings(); });
+    $$("a", popup).forEach(function (a) { a.addEventListener("click", closeSettings); });
+  }
+
+  $$("[data-when]").forEach(function (el) {
+    var seconds = parseFloat(el.getAttribute("data-when"));
+    if (isFinite(seconds)) el.textContent = new Date(seconds * 1000).toLocaleString();
+  });
+
+  function toast(message, kind) {
+    var el = document.getElementById("dashboard-toast");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "dashboard-toast";
+      el.className = "dashboard-toast";
+      el.setAttribute("role", "status");
+      document.body.appendChild(el);
+    }
+    el.textContent = message;
+    el.setAttribute("data-kind", kind || "ok");
+    el.classList.add("show");
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(function () { el.classList.remove("show"); }, 3500);
+  }
+  function copy(text, said) {
+    var done = function () { toast(said); };
+    var failed = function () { toast("Select the text to copy it.", "warning"); };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(done, failed);
+      return;
+    }
+    var area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) {}
+    document.body.removeChild(area);
+    if (ok) done(); else failed();
+  }
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest("[data-copy-text], [data-copy-from]");
+    if (!button) return;
+    if (button.hasAttribute("data-copy-text")) {
+      copy(button.getAttribute("data-copy-text") || "", "Output folder path copied.");
+    } else {
+      var source = document.getElementById(button.getAttribute("data-copy-from"));
+      copy(source ? source.textContent : "", "Copied.");
+    }
+  });
+})();
+"""

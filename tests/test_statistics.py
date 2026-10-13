@@ -82,7 +82,10 @@ class TestCountingIndependentSamples:
 class TestFindingWhereARunSettled:
     def test_a_relaxation_is_discarded(self) -> None:
         """Several relaxation times of it, which is what leaves the average
-        describing the equilibrium rather than the approach to it."""
+        describing the equilibrium rather than the approach to it. The start
+        is the latest that keeps within a tenth of the most independent
+        samples, so it may lie up to a tenth of the run past the start that
+        keeps the most: past the relaxation, not short of it."""
         rng = np.random.RandomState(0)
         tau = 200.0
         frames = np.arange(6000)
@@ -90,7 +93,7 @@ class TestFindingWhereARunSettled:
 
         discard, _g, _n = detect_equilibration(series)
 
-        assert 2 * tau < discard < 6 * tau
+        assert 2 * tau < discard < 6 * tau + 0.1 * frames.size
 
     def test_an_already_equilibrated_run_keeps_its_frames(self) -> None:
         rng = np.random.RandomState(0)
@@ -267,7 +270,7 @@ class TestARunTooShortToMeasureItsOwnCorrelation:
         equilibrated, _ = summarise(_correlated(0.5, 20000, seed=8))
         assert set(equilibrated.as_record()) == {
             "discard", "statistical_inefficiency", "effective_samples",
-            "mean", "standard_error", "standard_deviation"}
+            "mean", "standard_error", "standard_deviation", "degrees_of_freedom", "rules"}
 
     def test_the_threshold_is_a_judgement_a_study_can_make(self) -> None:
         rng = np.random.RandomState(0)
@@ -427,12 +430,61 @@ class TestOneRunGetsOneVerdict:
             .correlation_is_measurable
 
     def test_the_report_and_the_analyses_agree(self) -> None:
+        """Resolved as the analyses' record resolves it: after the
+        equilibration, by `summarise`. The report asked the whole series,
+        transient and all, and called unresolved a correlation the record
+        had resolved."""
         from fastmdxplora.report.convergence import assess_series
+        from fastmdxplora.statistics import mean_record
 
         rng = np.random.RandomState(0)
         for series in (rng.normal(size=5000),
                        _correlated(0.9, 20000, seed=1),
                        _correlated(0.999, 4000, seed=2),
                        _correlated(0.999, 20000, seed=3)):
+            withheld = mean_record(series).get("not_a_measurement")
+            code = getattr(getattr(withheld, "refusal", None), "code", "")
             assert (assess_series("cv", series).correlation_is_measurable
-                    == correlation_is_resolved(series))
+                    == (code != "analysis.sampling.correlation_unresolved"))
+
+
+class TestOneMissingValueDoesNotMakeFramesIndependent:
+    """One NaN made every autocorrelation NaN, no pair of lags compared as
+    non-positive, and ``max(1.0, nan)`` is 1.0: an AR(1) series with g = 39
+    read g = 1, and its bootstrap block was 2 frames instead of 83."""
+
+    @staticmethod
+    def _with_a_hole():
+        values = _correlated(0.95, n=20000, seed=0)
+        holed = values.copy()
+        holed[123] = np.nan
+        holed[4567] = np.inf
+        return values, holed
+
+    def test_the_inefficiency_ignores_it(self) -> None:
+        values, holed = self._with_a_hole()
+        assert statistical_inefficiency(holed) == pytest.approx(
+            statistical_inefficiency(values), rel=0.02)
+        assert statistical_inefficiency(holed) > 30.0
+
+    def test_the_error_of_the_mean_ignores_it(self) -> None:
+        from fastmdxplora.statistics import _for_the_mean
+
+        values, holed = self._with_a_hole()
+        assert _for_the_mean(holed)[0] == pytest.approx(
+            _for_the_mean(values)[0], rel=0.02)
+
+    def test_the_bootstrap_block_ignores_it(self) -> None:
+        from fastmdxplora.uncertainty import block_length_for
+
+        values, holed = self._with_a_hole()
+        assert block_length_for(holed) == pytest.approx(
+            block_length_for(values), abs=2)
+        assert block_length_for(holed) > 60
+
+    def test_resolution_and_equilibration_ignore_it(self) -> None:
+        values, holed = self._with_a_hole()
+        short = holed[:600]
+        assert correlation_is_resolved(short) == correlation_is_resolved(
+            values[:600][np.isfinite(short)])
+        assert detect_equilibration(holed)[1] > 30.0

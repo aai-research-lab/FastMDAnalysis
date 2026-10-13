@@ -1,7 +1,7 @@
 # The FastMDXplora Config
 
 A FastMDXplora Config is the whole description of a study: the system, how it
-is prepared, how it is simulated, what is measured, and how it is written up.
+is prepared, how it is simulated, how it is analysed, and how it is written up.
 Capture that and the four phases run themselves.
 
 It is written as YAML, which is the format rather than the thing. The same Config
@@ -9,7 +9,7 @@ drives the [GUI](gui.md), the [CLI](cli.md) and the [API](api.md), and each of
 them can write one — as can the [Agent](agent.md).
 
 ```bash
-fastmdx init-config -o study.yml      # a commented template with every setting
+fastmdx config -f study.yml      # a commented template with every setting
 fastmdx explore --config study.yml
 ```
 
@@ -54,7 +54,7 @@ output: runs/ubiquitin
 
 ---
 
-## The fourteen top-level keys
+## The sixteen top-level keys
 
 Nothing else is accepted at the top level; an unknown key is refused with the
 nearest match.
@@ -65,16 +65,16 @@ nearest match.
 |---|---|---|
 | `systems` | list | **Required.** One entry per system. See below |
 | `output` | str | Where everything goes. Defaults to `./fastmdxplora_<system>_study_<UTC timestamp>` |
-| `include` | list | Which phases to run: `setup`, `simulation`, `analysis`, `report` |
-| `exclude` | list | Which phases to skip. Mutually exclusive with `include` |
+| `include` | list | Which phases to run: `setup`, `simulation`, `analysis`, `report`. Also accepted as `include_phase`, which is the spelling `resolved_config.yml` writes |
+| `exclude` | list | Which phases to skip. Mutually exclusive with `include`. Also accepted as `exclude_phase` |
 
 ### The phases
 
 | Key | What it holds |
 |---|---|
-| `setup` | 43 settings — structure, ligand, membrane, solvent, force field, forces |
-| `simulation` | 41 settings — length, conditions, integrator, platform, enhanced sampling |
-| `analysis` | 13 settings — which measures, over which atoms, over which frames |
+| `setup` | 48 settings — structure, ligand, membrane, solvent, force field, forces |
+| `simulation` | 45 settings — length, conditions, integrator, platform, enhanced sampling |
+| `analysis` | 14 settings — which analyses, over which atoms, over which frames |
 | `report` | 11 settings — title, formats, highlighted regions |
 
 Every setting in each is in the [Config reference](config_reference.md).
@@ -93,10 +93,99 @@ Every setting in each is in the [Config reference](config_reference.md).
 | `explain` | bool | `true` | Say why each step is happening, as it happens |
 | `verbose` | bool | `false` | Stream debug logging to the terminal |
 | `agent` | str | — | Records that the [Agent](agent.md) wrote this study: `assisted`, `autonomous` or `unvalidated` |
-| `agent_model` | str | — | Which model wrote it, as `provider/model` |
+| `agent_model` | str | — | Which AI model wrote it, as `provider/model` |
+| `budget_hours` | float | — | A ceiling on GPU hours for the whole study, every run of it. Checked after setup, where the solvated particle count and so the cost are first known, and the study refuses rather than overrunning it. Required by `--autonomous` |
+| `decisions` | mapping | none | Why a setting has its value, keyed by the setting's dotted name: `why`, and optionally `source` and `alternatives` |
 
 `agent` and `agent_model` are provenance, not behaviour. They are described in
 [The FastMDXplora Agent](agent.md).
+
+`decisions` is a record too: no run reads it. Each entry says why one setting
+has the value it has, who or what decided it, and what was set aside:
+
+```yaml
+setup:
+  ph: 7.0
+decisions:
+  setup.ph:
+    why: the assay buffer is pH 7.0
+    source: person        # or agent, or a reference such as a DOI
+    alternatives: [7.4]
+```
+
+A name that is not a setting is refused, as a misspelled setting is, and so
+is an entry without a `why`. The resolved config every run writes carries the
+block, and the report gives each reason beside its value, under **Why these
+settings** in the methods. The Config Builder writes it from **Why this
+value?** under a changed setting; on the command line it is `--decisions`
+with the same mapping as YAML or JSON.
+
+---
+
+## Your defaults: `fastmdx-defaults.yml`
+
+FastMDXplora's own defaults (300 K, a 2 fs timestep, pH 7.4) are written in
+the schema. A lab has its usual choices too: its assays run at 310 K, it
+prepares at pH 7.0, it always uses one force field. Written once in a file
+called `fastmdx-defaults.yml` in the folder your studies are kept in, they
+fill what a new study leaves unset:
+
+```yaml
+# fastmdx-defaults.yml, beside your studies
+simulation:
+  temperature_K: 310
+setup:
+  ph: 7.0
+decisions:
+  simulation.temperature_K:
+    why: Our assays run at body temperature.
+```
+
+The file holds the blocks that say how a study is simulated (`setup`,
+`simulation`, `analysis`, `report`, `execution`), each setting checked as
+a Config's is, and a `why` for any of them. It never says what is
+simulated: `systems`, `output`, `sweep` and the study's own keys are
+refused in it.
+
+**Which file.** The nearest `fastmdx-defaults.yml` in the study's folder or
+a folder above it, as git finds its repository, stopping at your home
+folder. A study written to `~/lab/studies/trpcage` reads
+`~/lab/studies/fastmdx-defaults.yml`, or `~/lab/fastmdx-defaults.yml`
+where there is none closer.
+
+**What it fills, and what it leaves.**
+
+- Only a setting the Config does not give. A value the Config gives is the
+  study's, `null` included (FastMDXplora's default, chosen).
+- Not a setting the study sweeps: the sweep gives it.
+- Not a study that continues another (`simulation.resume_from`): it keeps
+  that study's settings. A study prepared from another
+  (`simulation.setup_from`) keeps that one's `setup`.
+- Not a phase run again on a study that has run, from its record or from
+  a Config: its record holds every value it ran with, and the terminal says
+  your defaults were not filled in.
+- Not one of two settings that answer one question where the Config gives
+  the other: the file's `analysis.include` is not filled beside the
+  study's `analysis.exclude`.
+
+**Each value it fills is said.** The terminal names each one as the run
+starts. The study's `decisions` records it with `source:
+fastmdx-defaults.yml` and the file's `why` (or "Your usual value, from
+fastmdx-defaults.yml."), so the report's **Why these settings** says
+which values were your lab's. The resolved config records the value itself,
+so the study runs the same again without the file.
+
+**Everywhere a study starts.** `fastmdx explore` and the phase commands,
+the GUI's Run (which runs `fastmdx explore`), the Config Builder (which
+marks such a field **Your default**), the Agent (which is told them, cites
+them, and has them filled in what it writes) and an AI app (`check_study`
+and `save_study` fill them). `fastmdx config` names them under the template
+it writes, since the template shows FastMDXplora's own. A file that is
+there and wrong is said and the study does not start; it is never passed
+over. A Config the validator accepts that your defaults would make it
+refuse is refused with the file named, before anything runs.
+
+To run one study without them, `fastmdx explore --no-defaults`.
 
 ---
 
@@ -203,6 +292,33 @@ than ignored.
 
 ---
 
+## A residue's protonation, set by hand
+
+Setup chooses each residue's protonation from its usual pKa at `setup.ph`, and a
+histidine's tautomer from its hydrogen bonds. For a residue where that is
+known to be wrong (a catalytic histidine, a metal ligand, an aspartate buried
+in a pocket), name it by chain and number, as the structure numbers it:
+
+```yaml
+setup:
+  residue_states:
+    A:57: HIP     # both nitrogens protonated, charged
+    A:102: ASH    # neutral
+```
+
+| residue | states |
+|---|---|
+| HIS | `HID` (hydrogen on ND1), `HIE` (on NE2), `HIP` (both) |
+| ASP | `ASH` (neutral), `ASP` |
+| GLU | `GLH` (neutral), `GLU` |
+| LYS | `LYN` (neutral), `LYS` |
+
+A residue the structure does not hold, or a state it cannot take, stops setup
+before anything is built. What was set is in `setup/setup_parameters.json`'s
+notes, and said by the Agent's plan.
+
+---
+
 ## Validation
 
 Every Config is validated before anything reaches a GPU — whether it was
@@ -300,14 +416,14 @@ description of what it may write.
 Four generated views of the same declaration:
 
 ```bash
-fastmdx init-config -o study.yml   # every setting, with its help as a comment
+fastmdx config -f study.yml   # every setting, with its help as a comment
 fastmdx explore --help             # the same settings, as flags
 fastmdx gui                        # the same settings, as a form
 ```
 
 ```python
 from fastmdxplora.config.describe import describe_schema
-print(describe_schema())          # the same settings, as prose for a model
+print(describe_schema())          # the same settings, as prose for an AI model
 ```
 
 The template is the most useful of the four when writing a Config: it carries
@@ -316,11 +432,11 @@ are commented out, so the file is valid as written and defaults apply until you
 opt in.
 
 ```bash
-fastmdx init-config -o study.yml --minimal     # a short starter instead
+fastmdx config -f study.yml --minimal     # a short starter instead
 ```
 
-`init-config` refuses to overwrite an existing file; pass `--force` if you mean
-to.
+`config` refuses to overwrite an existing file; pass `--force-overwrite` if
+you mean to.
 
 ---
 
@@ -346,7 +462,7 @@ leaves a `resolved_config.yml` saying `ph: 6.0`, not the `7.0` the file said.
 **It carries every setting the run used, defaults included.** That is what the
 file is for: a study you can repeat from what the run left behind rather than
 from what somebody remembers typing. Every phase gets a block whether or not
-you touched it, and every option in that block is named — 111 settings for a
+you touched it, and every option in that block is named — 118 settings for a
 study that set two. The block is exactly the dictionary the phase was handed,
 not a reconstruction of it.
 
@@ -366,7 +482,8 @@ setup:
   forcefield: auto
   force_field: [amber14-all.xml, amber14/tip3p.xml]   # what `auto` chose
   water_model: tip3p
-  switch_distance_nm: 0.9   # nine tenths of the cutoff, worked out
+  nonbonded_cutoff_nm: 1.0  # the force field's own, as nothing was stated
+  use_switching_function: false   # AMBER is not switched
 analysis:
   include: [rmsd, rmsf, rg, cluster]   # the default set, named
 ```
@@ -388,11 +505,11 @@ chain. `null` is the value, not a question the file failed to answer.
 The one setting the run derives without recording is `report.title`, which falls
 back to `FastMDXplora Study — <system>`. That is a heading on the report, not a
 property of the study: replay it on any version and you get the same
-trajectory, the same measurements and the same numbers, under a title that may
+trajectory, the same analyses and the same numbers, under a title that may
 be worded differently. It is in the first group, not a gap in the second.
 
 The test for whether a derived value has to be written down is whether losing it
-changes the science. `analysis.include` decides which measures run;
+changes the science. `analysis.include` decides which analyses run;
 `simulation.production_steps` decides how long. Both are recorded, above. A
 title decides what the first line says.
 ```
@@ -400,26 +517,36 @@ title decides what the first line says.
 The phases' own records go further than a config can, and are still worth
 reading for what a study actually *did* rather than what it set out to do —
 the atom count after solvation, the platform, the frames written, the
-per-measure findings: `setup/setup_parameters.json`,
+per-analysis findings: `setup/setup_parameters.json`,
 `simulation/simulation_parameters.json`, `analysis/analysis_manifest.json`,
 `analysis/<name>/options.json`. See
 [The FastMDXplora Manifest](manifest.md).
 
 ### What "reproduces" means
 
-Re-running `resolved_config.yml` gives an **equivalent** study, not an
-identical one. Solvation places water by a procedure that does not give the
-same answer twice, so two preparations of the same molecule have different atom
-counts. Fixing the seed fixes the dynamics, not the solvent:
+Re-running `resolved_config.yml` prepares the **same** system. Setup places
+the hydrogens it adds and the ions it swaps for water at random, and the
+hydrogens set the solute's extent, so the box and its water follow: unseeded,
+one decapeptide came out at 4,265 to 4,556 atoms in six preparations. Setup
+therefore seeds those choices with `setup.random_seed`, draws a seed where none
+is given, and records it, so the resolved config carries it and the
+preparation repeats: the same atoms, at the same positions. A bilayer is
+packed by a short simulation OpenMM runs itself, and setup seeds it from the
+same stream; the seed it was packed with is recorded in `setup_parameters.json`
+(`bilayer.packing_seed`), and a packing that runs away to a NaN is tried again with
+the next seed, up to three times. Setup's minimisations run on one CPU thread
+for this, since several threads add forces in whatever order they finish.
+
+The dynamics repeat only with a fixed integrator seed, on the same platform:
 
 ```yaml
 simulation:
   random_seed: 42
 ```
 
-The report's methods section states whether a seed was fixed, because its
-absence is what makes a run irreproducible. To repeat a study on the *same*
-prepared system rather than an equivalent one, point at the finished setup:
+The report's methods section states both seeds; an integrator seed left unset
+is what makes the dynamics irreproducible. To use the prepared files themselves
+rather than prepare them again, point at the finished setup:
 
 ```yaml
 simulation:

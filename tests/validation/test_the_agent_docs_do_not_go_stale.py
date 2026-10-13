@@ -53,18 +53,18 @@ class TestTheGuiDocsMatchTheFrame:
         import fastmdxplora.gui as gui
 
         page = (Path(gui.__file__).parent / "templates" / "dashboard.html").read_text(encoding="utf-8")
-        for tab in ("Agent", "Config", "Overview", "Viewer", "Analysis", "Report", "Files"):
+        for tab in ("Agent", "New study", "Overview", "Viewer", "Analysis", "Report", "Files"):
             assert f"<span>{tab}</span>" in page, tab
             assert f"| **{tab}** |" in GUI, f"gui.md has no row for the {tab} tab"
         assert "| **Builder** |" not in GUI
         assert "| **New Exploration** |" not in GUI
 
-    def test_the_study_block_and_load_available_study(self):
+    def test_the_study_card_and_its_menu(self):
         import fastmdxplora.gui as gui
 
         page = (Path(gui.__file__).parent / "templates" / "dashboard.html").read_text(encoding="utf-8")
-        assert ">Load available study<" in page
-        assert "Load available study" in GUI
+        assert ">Open another folder&hellip;<" in page and 'id="study-card"' in page
+        assert "**Open\nanother folder**" in GUI and "study card" in GUI
         assert "id=\"study-elsewhere\"" in page
         assert "RUNNING" in GUI
 
@@ -78,7 +78,10 @@ class TestTheGuiDocsMatchTheFrame:
     def test_a_run_outlives_the_server_and_the_docs_say_so(self):
         from fastmdxplora.gui import exploration
 
-        assert "start_new_session=True" in inspect.getsource(exploration.DashboardRuntime._spawn)
+        # The process itself is started in `_spawn_now`; `_spawn` holds the
+        # workspace's one-study-at-a-time rule around it.
+        assert "start_new_session=True" in inspect.getsource(
+            exploration.DashboardRuntime._spawn_now)
         assert "The run outlives the server" in GUI
         assert hasattr(exploration.DashboardRuntime, "_adopt_if_running")
         assert "adopts" in GUI and "Stop reaches it" in GUI

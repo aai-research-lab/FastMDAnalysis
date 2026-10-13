@@ -16,6 +16,14 @@ So an autonomous run goes in two parts:
     estimate              -- from that count, on this machine
     simulation onwards    -- the expensive part, if the estimate fits
 
+The estimate is for the platform the simulation phase will choose, read
+from the config as that phase reads it. A machine not yet measured for that
+platform, or measured under other settings, is measured on the spot, on the
+study's own prepared system: a new container or a fresh GPU has never been
+measured, and refusing there made the budget unusable exactly where it is
+meant for. Only when that measurement cannot be made either does the study
+stop for want of a number.
+
 The gate sits where the information first exists and before the cost is
 incurred. Anywhere earlier and it would be guessing; anywhere later and
 there would be nothing left to stop.
@@ -54,6 +62,8 @@ class StagedRun:
     output_dir: Path
     setup_done: bool = False
     particles: int | None = None
+    #: How many runs the study makes; ``particles`` is the largest of them.
+    runs: int = 1
     estimate_seconds: float | None = None
     simulated: bool = False
     refusal: Refusal | None = None
@@ -70,6 +80,7 @@ class StagedRun:
             "output_dir": str(self.output_dir),
             "setup_done": self.setup_done,
             "particles": self.particles,
+            "runs": self.runs,
             "estimate_hours": (None if self.estimate_seconds is None
                                else self.estimate_seconds / 3600),
             "simulated": self.simulated,
@@ -80,6 +91,8 @@ class StagedRun:
     def __str__(self) -> str:
         if self.refusal is not None:
             return f"stopped at {self.stopped_at}: {self.refusal.message}"
+        if self.simulated and self.runs > 1:
+            return f"ran, {self.runs} runs of up to {self.particles:,} particles"
         if self.simulated:
             return f"ran, {self.particles:,} particles"
         return "nothing ran"
@@ -104,8 +117,12 @@ def particles_after_setup(output_dir: Path | str) -> int | None:
     from fastmdxplora.simulation.pipeline import setup_records_of
 
     # The named system's, for a study given `setup_from`: nothing was
-    # prepared here, and that is the system the rest would simulate.
-    prepared = setup_records_of(output_dir)
+    # prepared here, and that is the system the rest would simulate. A
+    # prepared system's own directory is read as it is: an umbrella study's
+    # windows share `shared_setup/setup`.
+    prepared = (Path(output_dir)
+                if (Path(output_dir) / "setup_parameters.json").is_file()
+                else setup_records_of(output_dir))
     if prepared is None:
         return None
     record = prepared / "setup_parameters.json"
@@ -123,8 +140,9 @@ def run_in_stages(
     *,
     budget_hours: float | None = None,
     platform_name: str = "",
-    precision: str = "mixed",
+    precision: str = "",
     explore: Any = None,
+    measure: Any = None,
 ) -> StagedRun:
     """Run setup, price the rest, and continue only if it fits.
 
@@ -134,11 +152,17 @@ def run_in_stages(
         The ceiling. ``None`` runs without one, which is right for a
         caller who is watching and wrong for one who is not -- so
         `--autonomous` supplies it and refuses without it.
+    platform_name, precision
+        The platform and precision to price, when not the config's own
+        (`simulation.platform`, default auto, and `simulation.precision`).
     explore
         Substituted in tests. Not so a caller can substitute the science:
         whatever this is, the config still goes through the validator.
+    measure
+        Substituted in tests: times the prepared system when the machine
+        has no usable measurement (:func:`measure_prepared_system`).
     """
-    from fastmdxplora.cost import estimate_study
+    from fastmdxplora.cost import estimate_runs
 
     out = Path(output_dir)
     staged = StagedRun(output_dir=out)
@@ -153,29 +177,65 @@ def run_in_stages(
         return staged
     staged.setup_done = True
 
-    staged.particles = particles_after_setup(out)
-    if staged.particles is None:
+    runs, simulate_from = _runs_of(config, out)
+    counted = [(name, particles_after_setup(where), steps)
+               for name, where, steps in runs]
+    unknown = [name for name, particles, _ in counted if particles is None]
+    if unknown:
+        which = ("" if len(runs) == 1 else
+                 f" ({', '.join(unknown[:5])}{' and more' if len(unknown) > 5 else ''})")
         staged.refusal = Refusal(
             code="setup.structure.undetermined",
             message=(
                 "Setup finished without recording how many particles the "
-                "solvated system holds, so there is nothing to price the "
-                "rest of the study from. Running on regardless would spend "
-                "an unknown amount, which is the one thing an unattended "
-                "run must not do."),
+                f"solvated system holds{which}, so there is nothing to price "
+                "the rest of the study from. Running on regardless would "
+                "spend an unknown amount, which is the one thing an "
+                "unattended run must not do."),
         )
         return staged
+    priced = [(int(particles), steps) for _, particles, steps in counted]
+    staged.particles = max(particles for particles, _ in priced)
+    staged.runs = len(runs)
+    prepared_first = runs[0][1]
 
+    platform_name, precision = _what_it_will_run_on(config, platform_name, precision)
     try:
-        estimate = estimate_study(
-            config, particles=staged.particles,
-            platform_name=platform_name, precision=precision)
+        estimate = estimate_runs(
+            priced, platform_name=platform_name, precision=precision)
     except StudyError as exc:
-        # An unmeasured machine, or one measured under other settings. Both
-        # mean there is no ceiling, and no ceiling is the thing the budget
-        # exists to provide.
-        staged.refusal = refusal_of(exc)
-        return staged
+        refused = refusal_of(exc)
+        if refused.code not in ("environment.calibration.absent",
+                                "environment.calibration.stale"):
+            staged.refusal = refused
+            return staged
+        # An unmeasured machine, or one measured under other settings: time
+        # the prepared system here, on that platform, and price from that.
+        from fastmdxplora.cost import measure_prepared_system
+        from fastmdxplora.simulation.pipeline import setup_records_of
+
+        timer = measure or measure_prepared_system
+        try:
+            prepared = (prepared_first
+                        if (prepared_first / "setup_parameters.json").is_file()
+                        else setup_records_of(prepared_first) or prepared_first / "setup")
+            calibration = timer(prepared, platform_name=platform_name, precision=precision)
+        except Exception as why:  # noqa: BLE001 - said, with the first refusal
+            # Nothing measured means no ceiling, and no ceiling is the thing
+            # the budget exists to provide.
+            staged.refusal = Refusal(
+                code=refused.code,
+                message=(f"{refused.message} Timing the prepared system here did not "
+                         f"work either ({why}), so there is still no number."),
+                details=dict(refused.details))
+            return staged
+        staged.notes.append(
+            f"Measured this machine on the prepared system: {calibration.steps:,} steps "
+            f"of {calibration.particles:,} particles in {calibration.seconds:.1f} s on "
+            f"{calibration.machine.get('platform')}.")
+        estimate = estimate_runs(priced,
+                                 platform_name=calibration.machine.get("platform", ""),
+                                 precision=precision, calibration=calibration)
     staged.estimate_seconds = estimate.seconds
     staged.notes.append(str(estimate))
 
@@ -190,7 +250,8 @@ def run_in_stages(
                 "which is why the number is here."),
             details={"estimate_hours": estimate.hours,
                      "budget_hours": budget_hours,
-                     "particles": staged.particles},
+                     "particles": staged.particles,
+                     "runs": staged.runs},
         )
         return staged
 
@@ -201,9 +262,11 @@ def run_in_stages(
     # the guardrail working on the code that was written to use it.
     simulation = dict(rest.get("simulation") or {})
     # A system the study named stays named: the first stage prepared nothing
-    # when it had one, so its own `setup/` holds nothing to simulate.
-    if not (simulation.get("setup_from") or simulation.get("prepared_from")):
-        simulation["setup_from"] = str(out / "setup")
+    # when it had one, so its own `setup/` holds nothing to simulate. A study
+    # of several systems names none: each run simulates the one it prepared.
+    if simulate_from is not None and not (
+            simulation.get("setup_from") or simulation.get("prepared_from")):
+        simulation["setup_from"] = str(simulate_from)
     rest["simulation"] = simulation
     try:
         runner(config=rest, output_dir=str(out))
@@ -212,6 +275,89 @@ def run_in_stages(
         return staged
     staged.simulated = True
     return staged
+
+
+def _runs_of(config: dict[str, Any], out: Path
+             ) -> tuple[list[tuple[str, Path, int]], Path | None]:
+    """Each run the study makes, as the batch layer expands it: its name,
+    where its prepared system sits once setup has run, and the steps it will
+    integrate; and the system the simulation stage is to be pointed at.
+
+    A study of several runs was priced as one, on ``setup/`` beside the
+    study, which a study of several runs does not have: setup had prepared
+    each run's system under ``runs/`` (an umbrella study's once, under
+    ``shared_setup/``), found no count, and refused every umbrella study,
+    replica sweep and campaign whatever its budget.
+    """
+    import copy
+
+    from fastmdxplora.cost import total_steps
+
+    single = ([("the study", out, total_steps(config.get("simulation")))], out / "setup")
+    try:
+        from fastmdxplora.batch.sweep import expand_runs, normalize_sweep, normalize_systems
+        from fastmdxplora.config import phase_options, validate_config
+        from fastmdxplora.simulation.umbrella import plan_from_expanded
+
+        data = copy.deepcopy(config)
+        validate_config(data, require_systems=True)
+        specs = expand_runs(
+            systems=normalize_systems(data["systems"]),
+            sweep=normalize_sweep(data["sweep"]) if data.get("sweep") is not None else None,
+            base_options=phase_options(data))
+        umbrella = plan_from_expanded(data) is not None
+    except Exception:  # noqa: BLE001 - setup has already said what is wrong with it
+        return single
+    if len(specs) <= 1:
+        return single
+
+    def steps_of(spec: Any) -> int:
+        return total_steps(spec.options.get("simulation"))
+
+    if not umbrella:
+        return [(spec.run_id, out / "runs" / spec.run_id, steps_of(spec)) for spec in specs], None
+
+    study = data.get("simulation") or {}
+    named = study.get("setup_from") or study.get("prepared_from")
+    if named:
+        from fastmdxplora.simulation.pipeline import where_a_prepared_system_sits
+
+        shared = where_a_prepared_system_sits(Path(named))
+        simulate_from = None
+    else:
+        shared = out / "shared_setup" / "setup"
+        simulate_from = shared
+    runs = [(spec.run_id, shared, steps_of(spec)) for spec in specs]
+    first = (specs[0].options.get("simulation") or {}).get("umbrella") or {}
+    if study.get("steered") and not first.get("seed_from"):
+        # The pull that seeds the windows is a run of its own, in the same
+        # system, as long as the study's production.
+        pull = {k: v for k, v in study.items() if k not in ("umbrella", "steered")}
+        runs.append(("the pull that seeds the windows", shared, total_steps(pull)))
+    return runs, simulate_from
+
+
+def _what_it_will_run_on(config: dict[str, Any], platform_name: str,
+                         precision: str) -> tuple[str, str]:
+    """The platform and precision the simulation phase would use, as it
+    reads them from the config, with `auto` resolved as it resolves it.
+
+    Pricing "unknown" against a measurement taken on CUDA refused as a
+    different machine, so a budget from the command line could never pass,
+    however the machine had been measured.
+    """
+    simulation = config.get("simulation") or {}
+    precision = precision or str(simulation.get("precision") or "mixed")
+    requested = platform_name or str(simulation.get("platform") or "auto")
+    if requested != "auto":
+        return requested, precision
+    try:
+        from fastmdxplora.simulation.runner import _import_openmm, select_platform
+
+        return select_platform(_import_openmm(), requested="auto",
+                               precision=precision)[2], precision
+    except Exception:  # noqa: BLE001 - no OpenMM here: nothing to resolve it with
+        return "", precision
 
 
 def _explore(*, config: dict[str, Any], output_dir: str) -> Any:

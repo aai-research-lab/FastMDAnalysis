@@ -1,7 +1,7 @@
 # Protein-ligand interactions: implementation
 
 *How FastMDXplora's interaction analysis is built, why it is built that way,
-and what it was checked against. For what it measures and how to use it, see
+and what it was checked against. For what it computes and how to use it, see
 [Protein-ligand interactions](interactions.md).*
 
 ---
@@ -34,14 +34,14 @@ one analysis and another elsewhere.
 
 **PLIP re-protonates every frame with OpenBabel.** That is not deterministic
 between runs, and it discards the protonation FastMDXplora's setup phase
-settled at the simulated pH — which is the protonation the trajectory was
+determined at the simulated pH — which is the protonation the trajectory was
 actually generated under. A tool that re-decides it per frame is answering a
 different question from the one the simulation asked.
 
 That is also why PLIP does not appear in the checking below. Its published
 criteria are adopted and cited throughout — the hydrophobic threshold, the
 π-stacking and π-cation geometry, metal coordination, the water bridge — but a
-non-deterministic re-protonation cannot serve as a reference measurement for a
+non-deterministic re-protonation cannot serve as a reference for a
 trajectory whose protonation was fixed at setup. Citing a tool's criteria and
 running it are different claims, and only the first is made here.
 
@@ -73,15 +73,14 @@ which they have.
 ## When the trajectory came from somewhere else
 
 FastMDXplora also analyses trajectories it did not produce, where none of the
-above holds. Four routes are tried in order, and which one succeeded is
+above holds. Three routes are tried in order, and which one succeeded is
 recorded in `options.json`:
 
 1. an SDF supplied with `ligand_chemistry`
 2. the run's own `setup/ligands/<resname>.sdf`, if setup produced it
-3. the Chemical Component Dictionary, by residue name
-4. inference from the coordinates, with RDKit
+3. inference from the coordinates, with RDKit
 
-Route 4 is the general tool's only route. It is available and it is labelled.
+Route 3 is the general tool's only route. It is available and it is labelled.
 
 **Charge is refused rather than guessed.** Perceiving a formal charge from
 coordinates is ambiguous more often than not: for guanidinium both +1 and −1
@@ -91,7 +90,7 @@ charge — are not reported, and the reason is recorded. The rest continues: a
 ligand whose charge is unknown still has hydrogen bonds.
 
 **A topology without bonds is refused outright**, for the reason and with the
-message given in [Protein-ligand interactions](interactions.md#some-measurements-are-refused).
+message given in [Protein-ligand interactions](interactions.md#some-interactions-are-refused).
 What belongs here is why that refusal is the right behaviour rather than a
 gap.
 
@@ -105,7 +104,7 @@ interaction the result named would rest on a guess the caller could not see.
 
 | Interaction | Criterion | Source |
 |---|---|---|
-| Hydrogen bond | H···A < 3.5 Å, D-H···A > 120° | Baker & Hubbard (1984); McDonald & Thornton (1994) |
+| Hydrogen bond | D···A < 3.5 Å, D-H···A > 120° | McDonald & Thornton (1994) |
 | Hydrophobic | C···C < 4.0 Å, both bonded only to C or H | PLIP (Adasme et al. 2021) |
 | Salt bridge | charged group centres < 4.5 Å | ProLIF (Bouysset & Fiorucci 2021) |
 | π-stacking | ring centres < 5.5 Å, planes within 30° of parallel or perpendicular, offset < 2.0 Å | PLIP |

@@ -161,9 +161,14 @@ class ProteinLigandInteractions(Analysis):
         self.kinds = list(chosen)
         self.minimum_occupancy = float(minimum_occupancy)
         self.periodic = bool(periodic)
+        from fastmdxplora.analysis.interactions import HBOND_CRITERION
+
         self.options.update(
             ligand_resname=self.ligand_resname,
             protein_selection=self.protein_selection,
+            # Named, because `hbonds` and `pl_hbonds` count hydrogen bonds by
+            # other criteria and a reader comparing them should see so.
+            hydrogen_bond_criterion=HBOND_CRITERION,
             kinds=self.kinds,
             minimum_occupancy=self.minimum_occupancy,
             periodic=self.periodic,
@@ -239,8 +244,13 @@ class ProteinLigandInteractions(Analysis):
             traj, chemistry, ligand, protein, periodic=self.periodic))
         attempt("halogen_bond", lambda: rules.halogen_bonds(
             traj, chemistry, ligand, protein, periodic=self.periodic))
+        # The ions on the protein's side as well: an ion is its own residue
+        # and in neither selection, so the rule given the protein alone had
+        # no metal to find and never fired.
+        ions = rules.metal_ions(traj.topology, exclude=ligand)
         attempt("metal_coordination", lambda: rules.metal_coordination(
-            traj, ligand, protein, periodic=self.periodic))
+            traj, ligand, np.union1d(protein, ions).astype(int),
+            periodic=self.periodic))
         attempt("water_bridge", lambda: rules.water_bridges(
             traj, ligand, protein, water, periodic=self.periodic))
 
@@ -270,9 +280,24 @@ class ProteinLigandInteractions(Analysis):
         # still in hand. Written beside the pair table rather than replacing
         # it: the pairs say which atoms touch, and this says how often the
         # residue does, and neither can be derived from the other.
+        # Named by chain and insertion code as well where the structure has
+        # them, as `pl_contacts` names its rows: by name and number alone,
+        # the same residue of two chains of a dimer was one row, and its
+        # frames were added together.
+        from fastmdxplora.analysis.residues import named, several_chains
+
+        qualified = several_chains(traj.topology)
+
+        def residue_of(index: int) -> str:
+            return named(traj.topology.atom(index).residue, qualified=qualified)
+
         self._by_residue = summary.residue_occupancies(
-            found, traj.n_frames,
-            lambda index: str(traj.topology.atom(index).residue))
+            found, traj.n_frames, residue_of)
+        # And the frames each pair was present in, for the Viewer to show
+        # what holds the ligand in the frame shown, and when each contact
+        # formed and broke.
+        self._episodes = summary.episodes_of(found, traj.n_frames)
+        self._n_frames = int(traj.n_frames)
 
         if not occupancies:
             return pd.DataFrame(columns=[
@@ -285,7 +310,7 @@ class ProteinLigandInteractions(Analysis):
         rows = []
         for entry in occupancies:
             record = entry.as_record()
-            record["residue"] = str(traj.topology.atom(entry.protein_atom).residue)
+            record["residue"] = residue_of(entry.protein_atom)
             # The atom names, because the indices are the only thing that
             # distinguishes one row from another and an index is not
             # readable. A trypsin run puts four hydrogen bonds to ASP189 and
@@ -318,6 +343,25 @@ class ProteinLigandInteractions(Analysis):
 
             beside = Path(path).with_name("pl_interactions_by_residue.dat")
             _pd.DataFrame(rows).to_csv(beside, index=False)
+
+        episodes = getattr(self, "_episodes", None)
+        if episodes is not None and isinstance(result, pd.DataFrame):
+            import json
+
+            pairs = []
+            for row in result.itertuples(index=False):
+                key = (row.kind, int(row.ligand_atom), int(row.protein_atom))
+                pairs.append({
+                    "kind": row.kind, "ligand_atom": key[1], "protein_atom": key[2],
+                    "residue": row.residue, "ligand_atom_name": row.ligand_atom_name,
+                    "protein_atom_name": row.protein_atom_name,
+                    "occupancy": float(row.occupancy), "episodes": episodes.get(key, []),
+                })
+            Path(path).with_name("pl_interactions_frames.json").write_text(json.dumps({
+                "about": "Each interaction's runs of analysed frames, [first, last], both "
+                         "included; atoms are indices into the topology analysed.",
+                "n_frames": getattr(self, "_n_frames", 0), "pairs": pairs,
+            }), encoding="utf-8")
         return written
 
     def _run_directory(self) -> Path | None:

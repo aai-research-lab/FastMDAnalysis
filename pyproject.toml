@@ -1,5 +1,7 @@
 [build-system]
-requires = ["setuptools>=64", "setuptools-scm>=8"]
+# 77 is the first setuptools to read `license` as an SPDX expression and
+# `license-files` (PEP 639).
+requires = ["setuptools>=77", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -13,7 +15,19 @@ readme = "README.md"
 # a 3.9 install could not simulate, and 3.9 reached end of life in October
 # 2025. Refusing at install is clearer than installing what cannot run.
 requires-python = ">=3.10, <3.14"
-license = { text = "MIT" }
+# FastMDXplora's own code is MIT. The package also ships the viewer build of
+# Mol* (MIT), which bundles React, rxjs and others whose licences are MIT,
+# Apache-2.0, ISC and 0BSD, and the interface's fonts, Inter and JetBrains
+# Mono (SIL OFL 1.1), so the distribution is declared as all five, as the
+# conda recipe declares it, and their texts ship with it.
+license = "MIT AND Apache-2.0 AND ISC AND 0BSD AND OFL-1.1"
+license-files = [
+    "LICENSE",
+    "src/fastmdxplora/gui/static/molstar/LICENSE",
+    "src/fastmdxplora/gui/static/molstar/THIRD-PARTY-NOTICES.txt",
+    "src/fastmdxplora/gui/static/fonts/OFL-Inter.txt",
+    "src/fastmdxplora/gui/static/fonts/OFL-JetBrainsMono.txt",
+]
 authors = [
     { name = "Adekunle Aina" },
     { name = "Derrick Kwan" },
@@ -36,7 +50,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "Intended Audience :: Education",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: POSIX :: Linux",
     "Operating System :: MacOS",
     "Programming Language :: Python :: 3",
@@ -65,6 +78,10 @@ dependencies = [
     # it, but relying on another package's dependency is how a working install
     # becomes a broken one after an upstream release.
     "pillow>=10.0",
+    # The report as a page: the GUI's Report page and the report's HTML. It
+    # was in the [pdf] extra, so a pip install without it showed the report
+    # in the GUI as plain Markdown, with no figure in it. Pure Python, small.
+    "markdown>=3.4",
 ]
 
 [project.optional-dependencies]
@@ -80,7 +97,6 @@ agent = []
 # conda distribution is the easier route.
 pdf = [
     "weasyprint>=60",
-    "markdown>=3.4",
 ]
 md = [
     "pdbfixer",
@@ -118,6 +134,14 @@ amber = [
 # needing a package of its own.
 umap = [
     "umap-learn>=0.5",
+]
+# A movie made without the GUI open (`fastmdx movie`, `make_movie` from an
+# AI app) is rendered by the Viewer in a browser with no window, driven by
+# Playwright. Its browser comes apart from it (`playwright install
+# chromium`), or Chrome or Edge is used where installed; ffmpeg encodes the
+# movie, as it does in the GUI.
+movies = [
+    "playwright>=1.40",
 ]
 # There is deliberately no `plumed` extra. Enhanced sampling needs
 # openmm-plumed, which has no PyPI distribution at all -- it is a conda-forge
@@ -157,6 +181,10 @@ test = [
     "tomli>=2.0; python_version < '3.11'",
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    # Three tests run the build step that copies the docs into the package.
+    # Python 3.12 and later make a virtual environment without setuptools,
+    # so without it those tests fail on the import on CI's 3.13 legs.
+    "setuptools>=77",
     # The suite may fail; it may not hang. A per-test ceiling turns a wall
     # into a named red test with every thread's stack attached.
     "pytest-timeout>=2.1",
@@ -172,6 +200,10 @@ test = [
     # and without it every protonation-settling test skips where coverage is
     # measured.
     "propka>=3.5",
+    # `fastmdx mcp` is written without the MCP SDK; the SDK's own client is
+    # what checks it speaks the protocol, in both eras. Without it here that
+    # test would skip on CI, and a skip is invisible in a green run.
+    "mcp>=2.2",
 ]
 docs = [
     "sphinx>=7.0",
@@ -191,7 +223,7 @@ dev = [
 
 [project.urls]
 Homepage = "https://github.com/aai-research-lab/FastMDXplora"
-Documentation = "https://fastmdxplora.readthedocs.io/en/latest/"
+Documentation = "https://fastmdxplora.readthedocs.io/en/stable/"
 Repository = "https://github.com/aai-research-lab/FastMDXplora"
 Issues = "https://github.com/aai-research-lab/FastMDXplora/issues"
 Changelog = "https://github.com/aai-research-lab/FastMDXplora/blob/main/CHANGELOG.md"
@@ -212,6 +244,10 @@ fastmdxplora = [
     "gui/static/**/*",
     "gui/templates/*.html",
     "gui/templates/**/*",
+    # The config the demo study is made from, and where the study is fetched
+    # from (it is not in the package: fastmdxplora/demo).
+    "demo/*.yml",
+    "demo/*.json",
 ]
 
 [tool.setuptools_scm]

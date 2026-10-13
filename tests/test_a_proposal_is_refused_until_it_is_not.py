@@ -133,7 +133,9 @@ class TestTheLoopStops(unittest.TestCase):
 
 
 class TestTheRepairPromptWithholds(unittest.TestCase):
-    """It says what the schema permits. It never says what chemistry needs."""
+    """It says what the refusal registry lets be said: the permitted set,
+    the setting's name, the remedy within the same rule (decided
+    2026-10-07). It never says what chemistry needs."""
 
     def test_a_structural_refusal_offers_the_permitted_set(self):
         refusal = Refusal(
@@ -163,9 +165,8 @@ class TestTheRepairPromptWithholds(unittest.TestCase):
         self.assertIn("protonation depends on pH", prompt)
 
     def test_no_remedy_is_volunteered_beyond_the_schema(self):
-        # A validator that hands over the fix turns every rejection into a
-        # well-specified task, which flatters the measurement and moves the
-        # domain reasoning out of the part being measured.
+        # Where the software does not know the answer, the remedy says so
+        # and offers nothing: no value, no direction to try.
         refusal = Refusal(
             code="setup.structure.undetermined",
             message="This structure does not determine what should be simulated.",
@@ -267,7 +268,7 @@ class TestTheBoundaryHolds(unittest.TestCase):
 
         This began as a ban on the strings `api_key` and `anthropic`
         anywhere in `agent/`, which was right while the agent only ever
-        took a caller-supplied function. `fastmdx agent set` changed that:
+        took a caller-supplied function. Choosing a model changed that:
         somebody has to hold a key, and `models.py` is where.
 
         The property worth keeping is narrower. `propose_config` and its
@@ -480,14 +481,19 @@ class TestTheAgentIsAConversation(unittest.TestCase):
         self.assertIn("last error: no structure", prompt)
 
     def test_the_conversation_is_bounded(self):
-        # The last twelve turns. A conversation of a hundred is a prompt
-        # of a hundred, and the early ones are not what a change refers to.
+        # The last twelve turns whole and the 48 before them by their first
+        # sentence. A conversation of a hundred is not a prompt of a
+        # hundred, and what was settled early in it is not lost.
         from fastmdxplora.agent.propose import prompt_for
 
-        turns = [{"role": "user", "text": f"turn {i}"} for i in range(40)]
+        turns = [{"role": "user", "text": f"turn {i}. And more."} for i in range(100)]
         prompt = prompt_for("x", history=turns)
-        self.assertNotIn("turn 0\n", prompt)
-        self.assertIn("turn 39", prompt)
+        self.assertNotIn("turn 0.", prompt)
+        self.assertNotIn("turn 39.", prompt)
+        self.assertIn("- Person: turn 40.\n", prompt)
+        self.assertNotIn("turn 87. And more.", prompt)
+        self.assertIn("Person: turn 88. And more.", prompt)
+        self.assertIn("Person: turn 99. And more.", prompt)
 
     def test_the_instructions_say_to_modify_not_restart(self):
         from fastmdxplora.agent.propose import prompt_for
@@ -584,7 +590,9 @@ class TestTheAgentIsAConversation(unittest.TestCase):
         self.assertIn("history: history.slice(0, -1),", script)
         self.assertIn("current_config: currentConfig", script)
         self.assertIn("if (data.answer) {", script)
-        self.assertIn('history.push({ role: "agent", text: "Wrote a config:\\n" + data.yaml });', script)
+        # What the Agent said beside the config is kept in the thread with it.
+        self.assertIn('+ "Wrote a config:\\n" + data.yaml });', script)
+        self.assertIn("saidBeside(box, data.note);", script)
 
 
 class TestTheAgentReadsTheResults(unittest.TestCase):
@@ -628,6 +636,21 @@ class TestTheAgentReadsTheResults(unittest.TestCase):
         root = self.run_dir({"hbonds": {"mean": 0.0, "effective_samples": 1.0,
                                         "discard": 0, "n_frames": 200}})
         self.assertIn("too few for the mean to describe the system", _results_summary(root))
+
+    def test_a_mean_that_is_not_a_measurement_says_why(self):
+        """As the analyses record it: a series too short gives no mean and
+        the reason; one with a mean the analysis doubts gives both."""
+        from fastmdxplora.gui.agent_panel import _results_summary
+
+        root = self.run_dir({
+            "rmsd": {"not_a_measurement": "12 frames: too short to find where it equilibrates",
+                     "n_frames": 12},
+            "rg": {"mean": 1.2, "standard_error": 0.01, "effective_samples": 6.0,
+                   "not_a_measurement": "6 independent samples, fewer than 10"}})
+        text = _results_summary(root)
+        self.assertIn("rmsd: no mean: 12 frames: too short", text)
+        self.assertIn("rg: mean 1.2", text)
+        self.assertIn("not determined: 6 independent samples", text)
 
     def test_no_analysis_no_summary(self):
         import tempfile
@@ -746,12 +769,14 @@ class TestThePersonsInstructionIsTheClick(unittest.TestCase):
 
         script = (pathlib.Path(gui.__file__).parent / "static"
                   / "agent-panel.js").read_text(encoding="utf-8")
-        self.assertIn('note(box, "Stop the run" + (where ? " at " + where : "") + "? Say yes.");', script)
+        self.assertIn('confirmCard(box, stopQuestion(where), STOP_FACTS, "Stop it", "Keep running");',
+                      script)
         self.assertIn("function confirmStop(typed, box)", script)
         self.assertIn('fetch("/api/explore/stop", { method: "POST" })', script)
         # Run goes through the button's own handler, so the mode's gates
         # apply to a word in the thread as they do to a press.
-        self.assertIn('runBtn.click();', script)
+        self.assertIn('newest().launch(box, entry);', script)
+        self.assertIn("made.launch(box, null);", script)
         # And "no" is anything that is not yes.
         self.assertIn('note(box, "Not stopped.");', script)
 
@@ -770,9 +795,10 @@ class TestRunItKnowsWhatIsAlreadyRunning(unittest.TestCase):
         # Run here pressed by hand, then "run it" typed: the Agent said
         # "Starting the run" while clicking a disabled button.
         script = self.script()
-        self.assertIn('note(box, "It is already running.");', script)
+        self.assertIn('note(box, "A study is already running here.");', script)
         run = script[script.index('if (action === "run") {'):script.index('if (action === "stop") {')]
-        self.assertLess(run.index("runBtn.disabled"), run.index("Starting the run"))
+        # By the server's word as well as the button's (10-07).
+        self.assertLess(run.index("runGoing || runBtn.disabled"), run.index("newest().launch("))
 
     def test_a_stopped_study_can_run_again(self):
         script = self.script()

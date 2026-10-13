@@ -67,11 +67,11 @@ def test_static_dashboard_discovers_sections_links_and_dark_assets(tmp_path: Pat
     # One section per analysis; the old pooled headings are gone.
     for section in (
         "RMSD",
-        "Solvent Accessible Surface Area",
-        "Secondary Structure",
-        "Dimensionality Reduction",
+        "Solvent accessible surface area",
+        "Secondary structure",
+        "Dimensionality reduction",
         "Clustering",
-        "Region Highlights",
+        "Region highlights",
     ):
         assert section in html
     for link in (
@@ -83,8 +83,10 @@ def test_static_dashboard_discovers_sections_links_and_dark_assets(tmp_path: Pat
         "../analysis/cluster/cluster_kmeans_counts.png",
     ):
         assert link in html
-    # Every panel shows the analysis figure, tagged with its section.
-    assert '<span class="tag">' in html
+    # Every panel shows the analysis figure as the GUI's Analysis page does,
+    # in its card, named by its section.
+    assert '<article class="analysis-card"' in html
+    assert '<div class="ac-status">Clustering</div>' in html
     assert "Analysis/report workflow from existing trajectory." in html
 
 
@@ -138,7 +140,7 @@ def test_region_highlight_artifacts_and_dashboard_metadata(tmp_path: Path) -> No
         title="Region Dashboard",
     )
     html = (report / "dashboard.html").read_text(encoding="utf-8")
-    assert "Region Highlights" in html
+    assert "Region highlights" in html
     assert "region_highlight_summary.png" in html
     assert "rmsf_region_highlights.png" in html
 

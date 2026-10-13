@@ -28,6 +28,8 @@ from __future__ import annotations
 
 import json
 import shutil
+import time
+from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -43,6 +45,11 @@ if TYPE_CHECKING:
 
 logger = get_logger("setup")
 
+#: The recorder of this preparation, where `setup.preparation_audit` asks for
+#: one (`setup/audit.py`); read by the repair however deep it is called, so
+#: it never rides in the parameters the manifest records.
+_RECORDER: ContextVar[Any] = ContextVar("preparation_recorder", default=None)
+
 
 # Default parameters. The CHARMM36 + CHARMM36 water choice matches
 # sensible protein-only defaults so users
@@ -52,6 +59,16 @@ logger = get_logger("setup")
 #: default was 7.4 in the schema and 7.0 here. There is one declaration
 #: now, and a phase reads it rather than restating it.
 DEFAULTS: dict[str, Any] = SETUP.defaults()
+
+
+def _the_list_is_the_name(name: Any, xmls: Any) -> bool:
+    """Whether a raw force-field list is exactly what a named one resolves to."""
+    from fastmdxplora.setup.forcefields import resolve_forcefield
+
+    try:
+        return list(resolve_forcefield(str(name)).xmls) == [str(x) for x in xmls]
+    except Exception:  # noqa: BLE001 - an unknown name is refused below
+        return False
 
 
 def _classify_input(system: str | None) -> str:
@@ -98,46 +115,126 @@ def _classify_input(system: str | None) -> str:
     , code="setup.input.unrecognised")
 
 
-def _fetch_pdb_from_rcsb(pdb_id: str, dest: Path) -> Path:
-    """Fetch ``{pdb_id}.pdb`` from RCSB to ``dest``. Raises on HTTP error."""
+#: The waits before each try after the first, in seconds. RCSB dropped one
+#: connection in the nightly validation on 2.6.0 (6B73, setup over in 0.1 s,
+#: as the fetch was made once); a request that drops is now made again
+#: before the study stops on it.
+_FETCH_WAITS_S = (2.0, 8.0)
+_sleep = time.sleep
+
+
+def _passes(exc: BaseException) -> bool:
+    """Whether a failed request is one that a later try can get past: the
+    connection reset, aborted or cut off once it was made, the transfer cut
+    short, or the service busy (429) or failing (5xx). Not a name that does
+    not resolve, no route, a connection refused or never answered (a
+    firewalled cluster node times out this way, and would wait out every
+    try), or an entry that is not there."""
+    import http.client
+    import ssl
+    import urllib.error
+
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code == 429 or exc.code >= 500
+    if isinstance(exc, (urllib.error.ContentTooShortError, http.client.HTTPException)):
+        return True
+    if isinstance(exc, urllib.error.URLError):
+        # Raised while connecting or sending: a timeout there is a request
+        # nothing answered, and is not tried again.
+        reason = exc.reason
+        if isinstance(reason, TimeoutError):
+            return False
+    else:
+        reason = exc
+    if isinstance(reason, ConnectionRefusedError):
+        return False
+    return isinstance(reason, (ConnectionError, TimeoutError, ssl.SSLEOFError))
+
+
+def _retrieve(url: str, dest: Path) -> None:
+    """Fetch ``url`` to ``dest``, tried again while the failure is one that
+    passes; the last failure is raised, and nothing is left at ``dest``."""
+    import http.client
     import urllib.request
 
+    for wait in (*_FETCH_WAITS_S, None):
+        try:
+            urllib.request.urlretrieve(url, dest)  # noqa: S310 -- trusted URL
+            return
+        except (OSError, http.client.HTTPException) as exc:
+            try:
+                dest.unlink(missing_ok=True)
+            except OSError:
+                pass
+            if wait is None or not _passes(exc):
+                raise
+            logger.info("The request to RCSB failed (%s); trying again in %.0f s", exc, wait)
+            _sleep(wait)
+
+
+def _not_fetched(pdb_id: str, url: str, exc: BaseException) -> str:
+    """What a study is told of a fetch that failed, by what failed."""
+    if _passes(exc):
+        said = (f"Could not fetch {pdb_id.upper()} from RCSB in "
+                f"{len(_FETCH_WAITS_S) + 1} tries: {exc}.\n\n"
+                "Each time the connection was dropped or RCSB answered that "
+                "it could not serve the file. Carry the study on later, or "
+                "fetch the structure on a machine that reaches RCSB and pass "
+                "the file:\n\n")
+    else:
+        # A machine with no route out raises this as `[Errno -3] Temporary
+        # failure in name resolution`, which is Python's words for a
+        # situation the reader can act on and cannot act on from that
+        # sentence. Clusters are commonly airgapped and this is the first
+        # thing a run does there, so it is worth saying plainly.
+        said = (f"Could not fetch {pdb_id.upper()} from RCSB: {exc}.\n\n"
+                "Where the machine has no route to the internet -- a cluster "
+                "compute node, commonly -- fetch the structure somewhere that "
+                "does and pass the file:\n\n")
+    return (said + f"    curl -O {url}\n\n"
+            "then name it in place of the identifier. The path is read from "
+            "where fastmdx was run.")
+
+
+def _fetch_pdb_from_rcsb(pdb_id: str, dest: Path) -> Path:
+    """Fetch ``{pdb_id}.pdb``, or its mmCIF read as PDB, from RCSB to
+    ``dest``, trying again a failure that passes; raises StudyError."""
+    import http.client
     import urllib.error
 
     url = f"https://files.rcsb.org/download/{pdb_id.upper()}.pdb"
     logger.info("Fetching PDB from RCSB: %s", url)
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:
-        urllib.request.urlretrieve(url, dest)  # noqa: S310 -- trusted URL
+        _retrieve(url, dest)
     except urllib.error.HTTPError as exc:
         if exc.code != 404:
+            if _passes(exc):
+                raise StudyError(_not_fetched(pdb_id, url, exc),
+                                 code="environment.service.unreachable") from exc
             raise StudyError(f"RCSB refused {url}: {exc}.",
                              code="environment.service.unreachable") from exc
         # Entries too large for the PDB format are deposited as mmCIF only.
         cif_url = f"https://files.rcsb.org/download/{pdb_id.upper()}.cif"
         logger.info("RCSB has no PDB-format file for %s; fetching %s", pdb_id.upper(), cif_url)
-        cif = dest.with_name("input.cif")
+        # Beside the file asked for, by its name (input.cif for setup's
+        # input.pdb), so two entries fetched at once keep apart.
+        cif = dest.with_suffix(".cif")
         try:
-            urllib.request.urlretrieve(cif_url, cif)  # noqa: S310 -- trusted URL
-        except OSError as cif_exc:
+            _retrieve(cif_url, cif)
+        except urllib.error.HTTPError as cif_exc:
+            if _passes(cif_exc):
+                raise StudyError(_not_fetched(pdb_id, cif_url, cif_exc),
+                                 code="environment.service.unreachable") from cif_exc
             raise StudyError(f"Could not fetch {pdb_id.upper()} from RCSB as PDB or mmCIF: "
                              f"{cif_exc}.", code="environment.service.unreachable") from cif_exc
+        except (OSError, http.client.HTTPException) as cif_exc:
+            raise StudyError(_not_fetched(pdb_id, cif_url, cif_exc),
+                             code="environment.service.unreachable") from cif_exc
         _write_mmcif_as_pdb(cif, dest)
-    except OSError as exc:
-        # A machine with no route out raises this as `[Errno -3] Temporary
-        # failure in name resolution`, which is Python's words for a
-        # situation the reader can act on and cannot act on from that
-        # sentence. Clusters are commonly airgapped and this is the first
-        # thing a run does there, so it is worth saying plainly.
-        raise StudyError(
-            f"Could not fetch {pdb_id.upper()} from RCSB: {exc}.\n\n"
-            "Where the machine has no route to the internet -- a cluster "
-            "compute node, commonly -- fetch the structure somewhere that "
-            "does and pass the file:\n\n"
-            f"    curl -O {url}\n\n"
-            "then name it in place of the identifier. The path is read from "
-            "where fastmdx was run."
-        , code="environment.service.unreachable") from exc
+    except (OSError, http.client.HTTPException) as exc:
+        raise StudyError(_not_fetched(pdb_id, url, exc),
+                         code="environment.service.unreachable") from exc
     return dest
 
 
@@ -201,6 +298,49 @@ def _the_chains_to_simulate(orchestrator: Any, input_pdb: Path, input_form: str,
             "; ".join(f"chain {source} as {', '.join(targets)}"
                       for source, targets in copies.items()))
     return input_pdb
+
+
+def _with_opm_s_thickness(membrane: dict[str, Any] | None,
+                          opm: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The bilayer record, with the hydrophobic thickness OPM published."""
+    if not membrane or not opm or not opm.get("half_thickness_nm"):
+        return membrane
+    return {**membrane,
+            "opm_hydrophobic_thickness_nm": round(2 * float(opm["half_thickness_nm"]), 2)}
+
+
+def _take_out_opm_markers(input_pdb: Path) -> dict[str, Any] | None:
+    """Remove the `DUM` pseudo-atoms an OPM file marks its membrane with.
+
+    Returns what the file said -- how many markers, and the half-thickness
+    from its header -- or None where it is not an OPM file. Only a file
+    that has the markers is rewritten.
+    """
+    path = Path(input_pdb)
+    try:
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines(keepends=True)
+    except OSError:
+        return None
+    markers = [i for i, line in enumerate(lines)
+               if line.startswith(("HETATM", "ATOM")) and line[17:20].strip() == "DUM"]
+    if not markers:
+        return None
+    half = None
+    for line in lines[:20]:
+        if "1/2 of bilayer thickness" in line:
+            try:
+                half = float(line.split(":")[-1].split()[0]) / 10.0
+            except (ValueError, IndexError):
+                half = None
+    serials = {lines[i][6:11].strip() for i in markers}
+    dropped = set(markers)
+    kept = [line for i, line in enumerate(lines)
+            if i not in dropped
+            and not (line.startswith("CONECT")
+                     and any(line[j:j + 5].strip() in serials
+                             for j in range(6, min(len(line), 31), 5)))]
+    path.write_text("".join(kept), encoding="utf-8")
+    return {"markers": len(markers), "half_thickness_nm": half}
 
 
 def _select_chains(
@@ -347,6 +487,27 @@ def _select_chains(
     return target
 
 
+def _the_model(input_pdb: Path, params: dict[str, Any], notes: list[str]) -> None:
+    """Keep only the model `setup.model` names (`setup.ensemble`), in place."""
+    from fastmdxplora.setup.ensemble import models_in, one_model
+
+    lines = input_pdb.read_text(encoding="utf-8", errors="replace").splitlines()
+    available = models_in(lines)
+    wanted = params.get("model")
+    if wanted is None:
+        if len(available) > 1:
+            said = (f"The structure holds {len(available)} models; model {available[0]} "
+                    "is prepared. `setup.model` chooses another, and sweeping it gives "
+                    "replicas that start from different structures.")
+            logger.info(said)
+            notes.append(said)
+        return
+    input_pdb.write_text("\n".join(one_model(lines, wanted)) + "\n", encoding="utf-8")
+    said = f"Model {wanted} of the {len(available)} the structure holds is prepared."
+    logger.info(said)
+    notes.append(said)
+
+
 def _resolve_input(
     system: str, input_form: str, setup_dir: Path
 ) -> Path:
@@ -483,7 +644,7 @@ def _refuse_without_a_charge_provider(params: dict) -> None:
     from fastmdxplora.setup.forcefields import resolve_forcefield
 
     small_molecule = (params.get("ligand_forcefield")
-                      or resolve_forcefield(params["forcefield"])
+                      or resolve_forcefield(params.get("forcefield"))
                       .small_molecule_forcefield)
     if not ligand_module.takes_am1bcc_charges(small_molecule):
         return
@@ -510,59 +671,79 @@ def _refuse_without_a_charge_provider(params: dict) -> None:
 
 
 
-#: One repaired complex per (structure, setup directory, pH), because that is
-#: what determines it. `_repaired_complex` is called once per ligand copy and
-#: writes a fixed path from unchanging arguments, so every call after the first
-#: rebuilt a file identical to the one already on disk. On 5WYZ -- TLR8, a
-#: homodimer carrying the same ligand in both chains -- PDBFixer takes 475 s,
-#: and it ran twice; 6B73, with three ligands, ran it four times. The key holds
-#: the setup directory, so runs in one batch process do not see each other's.
-_REPAIRED_COMPLEXES = {}
+def _repair_arguments(params: dict, input_pdb) -> dict[str, Any]:
+    """What the repair is given, from the setup settings: the same for the
+    ligand's pKa as for `prepared.pdb`, since they are now one repair."""
+    retained = params.get("_retained_pdb")
+    return {
+        "input_pdb": str(retained or input_pdb),
+        "ph": float(params["ph"]),
+        "keep_heterogens": True if retained else _keep_heterogens(params, input_pdb),
+        "keep_water": bool(params["keep_water"]),
+        "reinstated": tuple(params.get("_reinstated_heterogens", ())),
+        "explained": tuple(params.get("_explained_heterogens", ())),
+        "replace_nonstandard": bool(params["replace_nonstandard_residues"]),
+        "build_missing_termini": bool(params.get("build_missing_termini", False)),
+        "mutations": tuple(params.get("mutations") or ()),
+        "mutation_chain": params.get("mutation_chain"),
+        "residue_states": params.get("residue_states"),
+        "seed": params.get("_random_seed"),
+    }
 
 
-def _repaired_complex(input_pdb, setup_dir, ph: float):
-    """A structure with missing atoms rebuilt, for the pKa calculation.
+def _repaired_complex(params: dict, input_pdb, setup_dir):
+    """The repaired structure with its ligands in place, for their pKa.
 
-    Crystal structures routinely leave surface side chains unmodelled where
-    the density is poor. Computing a pKa in a structure with those gaps means
-    computing it in the wrong electrostatic environment, so the ligand and the
-    protein are repaired first. Falls back to the deposition if repair fails,
-    since a less accurate pKa is better than none.
+    Crystal structures routinely leave side chains and loops unmodelled where
+    the density is poor, and a pKa computed with those gaps is computed in
+    the wrong electrostatic environment. The structure is repaired as it will
+    be simulated, with the ligands in place while what is missing is built,
+    and the same repair gives `prepared.pdb` once the ligands are taken out.
 
-    Repaired once per structure rather than once per ligand: the result
-    depends on the structure and the pH, and neither changes between the
-    copies of a ligand in one complex.
+    It was two repairs: one of the deposition with every heterogen kept, for
+    the pKa, and one with the ligands stripped, for `prepared.pdb`. Building
+    missing residues is most of a repair's time, and on 5WYZ (TLR8, a dimer
+    with 79 residues missing in five gaps) each took 475 s on several CPU
+    threads and 992 s on the one thread setup runs on, so a structure
+    was repaired for half an hour. The second repair also built its loops
+    with the ligand's site empty, and one of 5WYZ's ends 7 Angstrom from it.
+
+    Repaired once per setup, whatever the number of ligand copies. A repair
+    that fails is remembered too, and the pKa is then computed in the
+    deposition as given, since a less accurate pKa is better than none;
+    `prepared.pdb` is then repaired on its own, and fails or not there. A
+    refusal is an answer and is raised.
     """
     from fastmdxplora.setup.pdbfix import fix_pdb_with_pdbfixer
 
-    # setup_dir is already the setup directory, as it is for the ligand
-    # files: appending "setup" again buried this in setup/setup/.
+    done = params.get("_repaired")
+    if done is not None:
+        return done["complex"]
+    arguments = _repair_arguments(params, input_pdb)
+    # setup_dir is already the setup directory: appending "setup" again
+    # buried this in setup/setup/.
     repaired = Path(setup_dir) / "complex_for_pka.pdb"
-    key = (str(input_pdb), str(repaired), float(ph))
-
-    remembered = _REPAIRED_COMPLEXES.get(key)
-    if remembered is not None and Path(remembered).is_file():
-        return remembered
-
+    prepared = Path(setup_dir) / "prepared.pdb"
     repaired.parent.mkdir(parents=True, exist_ok=True)
     try:
-        fix_pdb_with_pdbfixer(
-            str(input_pdb), str(repaired), ph=ph,
-            keep_heterogens=True,   # the ligand must be present to be assessed
-            keep_water=False,
-        )
-        _REPAIRED_COMPLEXES[key] = repaired
-        return repaired
+        settings = dict(arguments)
+        set_by_hand = fix_pdb_with_pdbfixer(
+            settings.pop("input_pdb"), str(prepared), complex_pdb=str(repaired),
+            audit=_RECORDER.get(),
+            **settings)
+    except StudyError:
+        raise
     except Exception as exc:  # noqa: BLE001 - fall back rather than fail
         logger.warning(
             "Could not repair the structure for the pKa calculation (%s); "
             "using the deposition as given, which may have unmodelled side "
             "chains near the site.", exc,
         )
-        # Remembered too. A repair that failed will fail the same way for the
-        # next copy of the same ligand, and saying so once is enough.
-        _REPAIRED_COMPLEXES[key] = input_pdb
+        params["_repaired"] = {"complex": input_pdb, "arguments": None}
         return input_pdb
+    params["_repaired"] = {"complex": repaired, "arguments": arguments,
+                           "prepared": str(prepared), "set_by_hand": set_by_hand}
+    return repaired
 
 
 
@@ -572,7 +753,9 @@ def _retain_in_structure(input_pdb, setup_dir, keep_decisions):
     PDBFixer keeps heterogens all or nothing, so selecting a few means
     filtering the input first. Everything the classifier discarded is dropped
     here; what remains is prepared by the protein force field, in place, under
-    its own residue name, at its own coordinates.
+    its own residue name, at its own coordinates. A ligand to simulate is kept
+    too, so the repair builds around it; the repair takes it out again, and
+    it is re-added with its own parameters.
 
     What is kept is the atoms the decisions hold, record by record, not every
     residue carrying a kept name: a zinc written at two alternate locations
@@ -665,7 +848,7 @@ def _keep_in_place(params: dict, input_pdb, setup_dir, decisions) -> list:
     nothing when there is no ion to keep, and PDBFixer then strips the
     heterogens itself.
     """
-    from fastmdxplora.setup.heterogens import ION_NAMES, WATER_NAMES, Action
+    from fastmdxplora.setup.heterogens import WATER_NAMES, Action
 
     simulate = [d for d in decisions if d.action is Action.SIMULATE]
 
@@ -714,13 +897,15 @@ def _keep_in_place(params: dict, input_pdb, setup_dir, decisions) -> list:
     # out to an SDF and re-added came back renamed, in a different chain, and
     # at coordinates that were not its coordination site. Retained water
     # goes into the same structure, because PDBFixer keeps all it is given
-    # from it and does not read its own water option.
-    in_place = ions + [d for d in simulate
-                       if not d.is_monatomic and d.resname in ION_NAMES]
+    # from it and does not read its own water option. A copy of an ion's
+    # name holding several atoms is not kept: the classifier stops on it.
+    in_place = ions
     if not in_place:
         return []
+    ligands = [d for d in simulate
+               if not d.is_monatomic and d.resname not in WATER_NAMES]
     params["_retained_pdb"] = str(
-        _retain_in_structure(input_pdb, setup_dir, in_place + waters)
+        _retain_in_structure(input_pdb, setup_dir, in_place + waters + ligands)
     )
     # Which copies, for the setup record: the log says it once, and the
     # record is what is read afterwards.
@@ -762,6 +947,7 @@ def _ions_beside_a_supplied_ligand(params: dict, input_pdb, setup_dir):
     if not ions:
         return None
     refuse_undetermined(ions)
+    params["_heterogen_decisions"] = decision_records(ions)
     logger.info("Ion decisions beside the supplied ligand:\n%s",
                 summarize(ions))
     waters = [d for d in decisions if d.resname in WATER_NAMES]
@@ -770,6 +956,15 @@ def _ions_beside_a_supplied_ligand(params: dict, input_pdb, setup_dir):
         return None
     return {d.resname: d.count for d in decisions
             if not any(d is k for k in kept)}
+
+
+def decision_records(decisions: list[Any]) -> list[dict[str, Any]]:
+    """Each heterogen decision as the setup record keeps it: the component,
+    what was done with it, why, and which copies. The methods section said
+    these were recorded, and they were only logged."""
+    return [{"component": d.resname, "action": getattr(d.action, "value", str(d.action)),
+             "reason": d.reason, "copies": [h.label for h in d.instances]}
+            for d in decisions]
 
 
 def _auto_ligands(params: dict, input_pdb, setup_dir, entry_id: str | None) -> list[str]:
@@ -789,7 +984,7 @@ def _auto_ligands(params: dict, input_pdb, setup_dir, entry_id: str | None) -> l
         resolve_forcefield,
     )
     from fastmdxplora.setup.heterogens import (
-        ION_NAMES, WATER_NAMES, Action, resolve, summarize,
+        WATER_NAMES, Action, resolve, summarize,
     )
     from fastmdxplora.setup.protonation import (
         POISED_MARGIN, apply_settled_state, settle,
@@ -797,6 +992,7 @@ def _auto_ligands(params: dict, input_pdb, setup_dir, entry_id: str | None) -> l
 
     decisions = resolve(input_pdb, keep_water=bool(params.get("keep_water")))
     logger.info("Heterogen decisions:\n%s", summarize(decisions))
+    params["_heterogen_decisions"] = decision_records(decisions)
 
     # Settled here, before anything below can return: a structure with
     # nothing else to simulate returns next, and PDBFixer then strips every
@@ -842,19 +1038,20 @@ def _auto_ligands(params: dict, input_pdb, setup_dir, entry_id: str | None) -> l
             "heterogens policy to 'drop' to exclude them."
         , code="setup.structure.undetermined")
 
-    ions = [d for d in wanted if d.resname in ION_NAMES]
-    molecules = [d for d in wanted if d.resname not in ION_NAMES]
-    if ions:
-        logger.info(
-            "Keeping %s in the structure; the protein force field provides "
-            "ion parameters.",
-            ", ".join(f"{d.resname} x{d.count}" if d.count > 1 else d.resname
-                      for d in ions),
-        )
-    if not molecules:
-        return []
-
-    copies = [(d, het) for d in molecules for het in d.instances]
+    copies = [(d, het) for d in wanted for het in d.instances]
+    # Known before the first copy's pKa, which repairs the structure. The
+    # ligands are re-added with their own parameters, so preparation reports
+    # them as that rather than as removed, and they stay in the structure
+    # while what is missing is built. Every component the classifier judged
+    # has been reported with its reason, so preparation does not warn about
+    # it again.
+    params["_reinstated_heterogens"] = tuple(
+        sorted({decision.resname for decision, _ in copies})
+    )
+    params["_explained_heterogens"] = tuple(sorted({d.resname for d in decisions}))
+    # And before that repair: it is most of setup's time, and a ligand that
+    # cannot be given charges stops setup whatever the repair gives.
+    _refuse_without_a_charge_provider(params)
     # setup_dir is already the setup directory: input.pdb and prepared.pdb
     # sit directly in it. Appending "setup" again buried the ligands in
     # setup/setup/ligands.
@@ -876,12 +1073,12 @@ def _auto_ligands(params: dict, input_pdb, setup_dir, entry_id: str | None) -> l
         )
         # A pKa is a property of the environment, so the environment should be
         # the one that will be simulated: repaired, with the missing side
-        # chains rebuilt. The raw deposition has gaps that would bias the
-        # answer. Only built when the ligand is actually titratable, since
-        # repairing costs a second and otherwise changes nothing.
+        # chains and loops rebuilt. The raw deposition has gaps that would
+        # bias the answer. Only repaired here when the ligand is titratable;
+        # otherwise the repair waits for `prepared.pdb`.
         pka_structure = input_pdb
         if chemistry.titratable_groups:
-            pka_structure = _repaired_complex(input_pdb, setup_dir, float(params["ph"]))
+            pka_structure = _repaired_complex(params, input_pdb, setup_dir)
 
         state = settle(
             pka_structure,
@@ -901,7 +1098,7 @@ def _auto_ligands(params: dict, input_pdb, setup_dir, entry_id: str | None) -> l
             chemistry.path.read_text(encoding="utf-8"), chemistry, state
         )
 
-        # Files are per copy, because two copies can settle into different
+        # Files are per copy, because two copies can be determined in different
         # protonation states and each needs its own chemistry on disk.
         suffix = "" if len(copies) == 1 else f"_{instance.chain}{instance.resseq}"
         target = ligand_dir / f"{decision.resname}{suffix}.sdf"
@@ -920,14 +1117,6 @@ def _auto_ligands(params: dict, input_pdb, setup_dir, entry_id: str | None) -> l
         names.append(decision.resname)
         charges.append(net_charge)
 
-    # Remembered so preparation can report these as re-added with parameters
-    # rather than warning that they were removed.
-    params["_reinstated_heterogens"] = tuple(
-        sorted({decision.resname for decision, _ in copies})
-    )
-    # Every component the classifier judged, so preparation does not warn
-    # about ones whose fate has already been reported with a reason.
-    params["_explained_heterogens"] = tuple(sorted({d.resname for d in decisions}))
     params["ligand_name"] = names[0] if len(names) == 1 else names
     if params.get("ligand_net_charge") is None:
         params["ligand_net_charge"] = charges[0] if len(charges) == 1 else charges
@@ -935,6 +1124,83 @@ def _auto_ligands(params: dict, input_pdb, setup_dir, entry_id: str | None) -> l
 
 
 def run(
+    *,
+    orchestrator: "FastMDXplora",
+    output_dir: Path,
+    **options: Any,
+) -> list[str]:
+    """Run the setup phase, with its random choices seeded.
+
+    OpenMM's Modeller places the hydrogens it adds at random before
+    minimising them, and picks at random which waters become ions, both
+    from Python's `random`. Unseeded, preparing one structure twice gave
+    two systems: a decapeptide came out at 4,265 to 4,556 atoms in boxes
+    2.855 to 2.916 nm wide, because the hydrogens' positions set the
+    solute's extent and the box is sized from it. The seed is the one
+    asked for (`setup.random_seed`) or one drawn here and recorded, so any
+    preparation can be repeated; Python's own random state is put back
+    afterwards, since it is not this phase's to keep.
+    """
+    import random
+    import secrets
+
+    params: dict[str, Any] = {**DEFAULTS, **options}
+    given = params.get("random_seed")
+    seed = int(given) if given is not None else secrets.randbelow(2**31 - 1) + 1
+    kept = random.getstate()
+    random.seed(seed)
+    threads = _one_cpu_thread()
+    audit = None
+    if params.get("preparation_audit"):
+        from fastmdxplora.setup.audit import PreparationRecorder
+
+        audit = PreparationRecorder(Path(output_dir))
+    # This preparation's recorder, or none, and never another's afterwards.
+    recording = _RECORDER.set(audit)
+    try:
+        return _run(orchestrator=orchestrator, output_dir=output_dir,
+                    **{**options, "_random_seed": seed,
+                       "_random_seed_drawn": given is None})
+    except BaseException as exc:
+        if audit is not None:
+            audit.stopped(exc)
+        raise
+    finally:
+        _RECORDER.reset(recording)
+        random.setstate(kept)
+        threads()
+
+
+def _one_cpu_thread():
+    """The CPU platform on one thread while setup runs, and a function that
+    puts it back.
+
+    The hydrogens are minimised after they are placed, and on the CPU
+    platform several threads add up the forces in whatever order they
+    finish: seeded alike, two preparations of one decapeptide placed a
+    hydrogen 0.03 Angstrom apart, the box came out 0.0006 nm wider, and one
+    of four held nine more atoms of water. On one thread they were the same
+    to the last digit. The GPU platforms add forces in fixed point, which
+    does not depend on the order, and are left alone.
+    """
+    try:
+        from openmm import Platform
+
+        cpu = Platform.getPlatformByName("CPU")
+        before = cpu.getPropertyDefaultValue("Threads")
+        cpu.setPropertyDefaultValue("Threads", "1")
+    except Exception:  # noqa: BLE001 - no OpenMM, or no CPU platform
+        return lambda: None
+
+    def restore() -> None:
+        try:
+            cpu.setPropertyDefaultValue("Threads", before)
+        except Exception:  # noqa: BLE001 - nothing to put back
+            pass
+    return restore
+
+
+def _run(
     *,
     orchestrator: "FastMDXplora",
     output_dir: Path,
@@ -964,6 +1230,7 @@ def run(
     setup_dir = output_dir
 
     params: dict[str, Any] = {**DEFAULTS, **options}
+    audit = _RECORDER.get()
 
     # One ligand, either spelling. The collective-variable blocks call this
     # `ligand_resname` and setup has always called it `ligand_name`, and a
@@ -977,7 +1244,18 @@ def run(
     # Force-field selection is either the named selector OR a raw XML list,
     # not both. Check the user-supplied options (not merged defaults), since
     # `forcefield` always has a default.
-    if options.get("forcefield") is not None and options.get("force_field"):
+    #
+    # Except where the list is what the name resolves to. A study's
+    # resolved_config.yml records both, the name as asked and the files it
+    # became, and says it can be fed back to reproduce the study; fed back,
+    # it was refused here, and a resume that had to start a run again failed
+    # on it. The name decides then, as it did the first time: it also
+    # decides the cutoff and whether a ligand can be parameterized, which a
+    # bare list cannot.
+    if (options.get("forcefield") is not None and options.get("force_field")
+            and _the_list_is_the_name(options["forcefield"], options["force_field"])):
+        params["force_field"] = None
+    elif options.get("forcefield") is not None and options.get("force_field"):
         raise StudyError(
             "Specify either `forcefield` (a named force field) or "
             "`force_field` (a raw list of OpenMM XML files), not both. "
@@ -1008,9 +1286,17 @@ def run(
     # and a fetch that never landed both end here, and both are honest.
     orchestrator._structure_provenance = None
     orchestrator._assembly = None
+    opm: dict[str, Any] | None = None
 
     # ---- Stage 1: resolve input ----------------------------------------
     try:
+        if audit and input_form == "pdb_file":
+            audit.capture_file(
+                orchestrator.system,
+                "original_supplied_source",
+                details={"input_form": input_form},
+                reason="Supplied structure before existing conversion or selection operations.",
+            )
         input_pdb = _resolve_input(orchestrator.system, input_form, setup_dir)
 
         # Recorded here rather than at the manifest, because this is the last
@@ -1019,9 +1305,55 @@ def run(
         # from, not what this run then did to it.
         orchestrator._structure_provenance = structure_provenance(
             orchestrator.system, input_form, input_pdb)
+        if audit:
+            audit.capture_file(
+                input_pdb,
+                "resolved_input",
+                details={"provenance": orchestrator._structure_provenance},
+                reason="Input delivered by the existing resolver.",
+            )
+
+        # An OPM file marks its membrane with pseudo-atoms, which are not a
+        # molecule: read as one they were a component to parameterise. Taken
+        # out, and the file's frame -- oriented, centred at z = 0 -- kept for
+        # a bilayer.
+        opm = _take_out_opm_markers(input_pdb)
+        if opm is not None:
+            if audit:
+                audit.capture_file(
+                    input_pdb,
+                    "remove_opm_markers",
+                    details=opm,
+                    reason="Existing OPM marker removal and membrane frame retention.",
+                )
+            params["_membrane_frame"] = "opm"
+            logger.info(
+                "OPM file: %d membrane marker pseudo-atoms taken out; its frame "
+                "(membrane normal along z, centre at z = 0%s) is kept.",
+                opm["markers"],
+                (f", hydrophobic thickness {opm['half_thickness_nm'] * 2:.1f} nm"
+                 if opm.get("half_thickness_nm") else ""))
+
+        # One model of an ensemble, where the study names one; where it does
+        # not and the file holds several, which one is prepared is said.
+        _the_model(input_pdb, params, notes)
+        if audit:
+            audit.capture_file(
+                input_pdb,
+                "model_selection",
+                details={"requested_model": params.get("model"), "notes": list(notes)},
+                reason="Existing model selection result.",
+            )
 
         input_pdb = _the_chains_to_simulate(
             orchestrator, input_pdb, input_form, params, presenter=presenter)
+        if audit:
+            audit.capture_file(
+                input_pdb,
+                "assembly_chain_selection",
+                details={"assembly": orchestrator._assembly},
+                reason="Existing assembly and chain selection result.",
+            )
 
         artifacts.append("input.pdb")
         if presenter:
@@ -1093,6 +1425,10 @@ def run(
             setup_dir,
             orchestrator.system if input_form == "pdb_id" else None,
         )
+        # Said beneath the decisions just listed, which are what it explains;
+        # a structure with nothing beside the polymer has nothing to explain.
+        if presenter and params.get("_heterogen_decisions"):
+            presenter.explanation("heterogens")
         if discovered:
             params["ligand"] = discovered
             _validate_ligand_forcefield(params)
@@ -1100,6 +1436,11 @@ def run(
                 "Prepared %d ligand file(s) from the structure: %s",
                 len(discovered), ", ".join(Path(d).name for d in discovered),
             )
+            if presenter:
+                presenter.step(
+                    "Ligand chemistry from the Chemical Component Dictionary: "
+                    + ", ".join(Path(d).stem for d in discovered),
+                    explain="ligand_chemistry")
     elif params.get("ligand"):
         params["_reinstated_heterogens"] = _explicit_ligand_resnames(params)
         if auto:
@@ -1112,6 +1453,17 @@ def run(
         _refuse_without_a_charge_provider(params)
 
     # ---- Stage 2: PDBFixer (or skip via fixed_pdb) ---------------------
+    if audit:
+        audit.decision(
+            "heterogen_policy",
+            {
+                "requested": params.get("heterogens"),
+                "decisions": params.get("_heterogen_decisions"),
+                "reinstated": params.get("_reinstated_heterogens"),
+                "explained": params.get("_explained_heterogens"),
+            },
+            reason="Existing heterogen classifier outputs. No unavailable reason is inferred.",
+        )
     prepared_pdb = setup_dir / "prepared.pdb"
     fixed_pdb = params.get("fixed_pdb")
     if fixed_pdb:
@@ -1137,7 +1489,6 @@ def run(
             # When ions are being kept, PDBFixer runs on a structure already
             # filtered to the polymer plus those ions, so "keep heterogens"
             # retains exactly them and nothing else.
-            retained = params.get("_retained_pdb")
             if filtered_out is not None:
                 # PDBFixer keeps all of a filtered structure and so reports
                 # no removal; beside a supplied ligand nothing else names
@@ -1146,24 +1497,30 @@ def run(
                     filtered_out,
                     reinstated=tuple(params.get("_reinstated_heterogens", ())),
                 )
-            fix_pdb_with_pdbfixer(
-                retained or str(input_pdb),
-                str(prepared_pdb),
-                ph=float(params["ph"]),
-                keep_heterogens=(True if params.get("_retained_pdb")
-                                 else _keep_heterogens(params, input_pdb)),
-                keep_water=bool(params["keep_water"]),
-                reinstated=tuple(params.get("_reinstated_heterogens", ())),
-                explained=tuple(params.get("_explained_heterogens", ())),
-                replace_nonstandard=bool(params["replace_nonstandard_residues"]),
-                build_missing_termini=bool(params.get("build_missing_termini", False)),
-                mutations=tuple(params.get("mutations") or ()),
-                mutation_chain=params.get("mutation_chain"),
-            )
+            arguments = _repair_arguments(params, input_pdb)
+            done = params.get("_repaired") or {}
+            if (done.get("arguments") == arguments
+                    and Path(done.get("prepared", "")).is_file()):
+                # Repaired already, for a ligand's pKa, with these settings.
+                set_by_hand = done["set_by_hand"]
+                logger.info("prepared.pdb is the repair made for the ligands' "
+                            "pKa, with the ligands taken out.")
+            else:
+                settings = dict(arguments)
+                set_by_hand = fix_pdb_with_pdbfixer(
+                    settings.pop("input_pdb"), str(prepared_pdb), audit=audit, **settings)
             artifacts.append("prepared.pdb")
+            if set_by_hand:
+                # In the record's notes and on screen: a state chosen by hand
+                # is a decision a reader of the methods needs to see.
+                notes.append("Protonation states set by hand (setup.residue_states): "
+                             + "; ".join(set_by_hand) + ".")
             if presenter:
                 presenter.step(f"Fixed PDB with PDBFixer (pH={params['ph']})",
                                   explain="protonation")
+                if set_by_hand:
+                    presenter.step("Protonation states set by hand: "
+                                   + "; ".join(set_by_hand))
         except ImportError as exc:
             missing = missing_dependencies()
             notes.append(
@@ -1181,6 +1538,13 @@ def run(
             return artifacts
 
     # ---- Stage 3: Solvate, ionize, parameterize, serialize -------------
+    if audit:
+        audit.capture_file(
+            prepared_pdb,
+            "prepared_solute",
+            details={"provided_fixed_pdb": bool(params.get("fixed_pdb"))},
+            reason="Prepared solute passed to the existing system builder.",
+        )
     try:
         from fastmdxplora.setup.prepare import prepare_system
 
@@ -1210,15 +1574,20 @@ def run(
             membrane_orient=bool(params.get("membrane_orient", False)),
             membrane_orientation_checked=bool(
                 params.get("membrane_orientation_checked", False)),
+            membrane_frame=params.get("_membrane_frame"),
+            membrane_center_z_nm=(None if params.get("membrane_center_z_nm") is None
+                                  else float(params["membrane_center_z_nm"])),
             box_shape=str(params["box_shape"]),
             ion_positive=str(params["ion_positive"]),
             ion_negative=str(params["ion_negative"]),
             ion_concentration_M=float(params["ion_concentration_M"]),
             neutralize=bool(params["neutralize"]),
             nonbonded_method=str(params["nonbonded_method"]),
-            nonbonded_cutoff_nm=float(params["nonbonded_cutoff_nm"]),
+            nonbonded_cutoff_nm=(None if params.get("nonbonded_cutoff_nm") is None
+                                 else float(params["nonbonded_cutoff_nm"])),
             ewald_error_tolerance=float(params["ewald_error_tolerance"]),
-            use_switching_function=bool(params["use_switching_function"]),
+            use_switching_function=(None if params.get("use_switching_function") is None
+                                    else bool(params["use_switching_function"])),
             switch_distance_nm=params["switch_distance_nm"],
             dispersion_correction=bool(params["dispersion_correction"]),
             remove_cm_motion=bool(params["remove_cm_motion"]),
@@ -1234,6 +1603,18 @@ def run(
         for _key, path in produced.items():
             if isinstance(path, (str, Path)):
                 artifacts.append(Path(path).relative_to(setup_dir).as_posix())
+        if audit and produced.get("topology_pdb"):
+            audit.capture_file(
+                produced["topology_pdb"],
+                "prepared_system",
+                details={
+                    "n_atoms_solvated": produced.get("n_atoms_solvated"),
+                    "resolved_forcefield": produced.get("resolved_forcefield"),
+                    "box": produced.get("box"),
+                    "membrane": produced.get("membrane"),
+                },
+                reason="System saved by the existing preparation path.",
+            )
         if presenter:
             # What it resolved to, not what was asked for: "auto" tells a
             # reader nothing, and the run recorded the answer.
@@ -1254,6 +1635,13 @@ def run(
             presenter.step(f"Solvated and parameterized ({ff_label})",
                            explain=("membrane" if params.get("membrane")
                                     else "solvation"))
+            if params.get("ligand"):
+                small = (((produced.get("resolved_forcefield") or {}).get("ligand")
+                          or {}).get("forcefield")
+                         or params.get("ligand_forcefield"))
+                presenter.step(
+                    "Ligand parameters generated" + (f" ({small})" if small else ""),
+                    explain="ligand_parameters")
             presenter.step("Wrote system.xml, state.xml, topology.pdb")
     except ImportError as exc:
         missing = missing_dependencies()
@@ -1292,7 +1680,9 @@ def run(
     _write_manifest(setup_dir, orchestrator, input_form, params, artifacts, notes,
                     n_atoms_solvated=(produced or {}).get("n_atoms_solvated"),
                     box=(produced or {}).get("box"),
-                    resolved=(produced or {}).get("resolved"))
+                    resolved=(produced or {}).get("resolved"),
+                    membrane=_with_opm_s_thickness(
+                        (produced or {}).get("membrane"), opm))
     artifacts.append("setup_parameters.json")
 
     if presenter:
@@ -1321,6 +1711,12 @@ def _resolved_settings(
     question already had.
     """
     settings: dict[str, Any] = dict(from_preparation or {})
+
+    # A seed drawn for the random choices setup made, so the preparation
+    # can be repeated from the resolved config. One asked for is already in
+    # the config that asked.
+    if params.get("_random_seed_drawn") and params.get("_random_seed") is not None:
+        settings["random_seed"] = int(params["_random_seed"])
 
     # The force field, as a list of XMLs, is what `force_field` means --
     # and it is the resolution of `forcefield: auto`, which names a family
@@ -1355,6 +1751,7 @@ def _write_manifest(
     n_atoms_solvated: int | None = None,
     box: dict[str, Any] | None = None,
     resolved: dict[str, Any] | None = None,
+    membrane: dict[str, Any] | None = None,
 ) -> None:
     """Write ``setup_parameters.json`` with the full provenance record.
 
@@ -1434,12 +1831,28 @@ def _write_manifest(
         # it was only ever logged -- so the report had to say it was not
         # recorded, of a number the run had printed to the terminal.
         "n_atoms_solvated": n_atoms_solvated,
+        # The seed the hydrogens and ions were placed with, and whether it
+        # was asked for or drawn: the same seed, structure and settings
+        # give the same system again.
+        "random_seed": ({"seed": int(params["_random_seed"]),
+                         "drawn": bool(params.get("_random_seed_drawn"))}
+                        if params.get("_random_seed") is not None else None),
         # The periodic cell, in the terms the cutoff is judged against: the
         # vectors, their perpendicular widths, the smallest of them and the
         # volume. Computed on every setup and, until now, read by nothing,
         # so a methods section had to take it from CRYST1 by hand.
         "box": box,
+        # For a bilayer: how the protein was placed for it (OPM's frame, the
+        # fitted orientation, or its own), the fitted hydrophobic thickness,
+        # and what was built -- the lipid, how many, per leaflet. Absent for
+        # a box of water.
+        # Under its own name: `membrane` in `parameters` is the lipid asked for.
+        **({"bilayer": membrane} if membrane else {}),
         "resolved_forcefield": resolved_ff,
+        # What was decided about each heterogen, and why: kept, discarded,
+        # or re-added with its own chemistry. Empty where no decision was
+        # taken per component (the `drop` and `keep` policies).
+        "heterogen_decisions": list(params.get("_heterogen_decisions") or []),
         # Settings this phase decided, under their config names, for
         # `resolved_config.yml` to carry. The force field resolution above
         # answers the same question in its own shape and stays where it is;
@@ -1451,3 +1864,6 @@ def _write_manifest(
     }
     with (setup_dir / "setup_parameters.json").open("w", encoding="utf-8") as fh:
         json.dump(manifest, fh, indent=2, default=str)
+    audit = _RECORDER.get()
+    if audit is not None:
+        audit.manifest(manifest)

@@ -3,7 +3,7 @@
 The GUI's form, the CLI's flags and the Python API all come from
 :mod:`fastmdxplora.config.schema`, so none of them can drift from the
 others or from what validation accepts. This is the fourth reader of that
-same declaration, and it exists because a language model proposing a
+same declaration, and it exists because an AI model proposing a
 config needs to be told what the language is, and being told by hand is
 how the four become five things that disagree.
 
@@ -15,10 +15,10 @@ cannot offer a setting that does not exist, and a config built from it
 still has to survive :func:`~fastmdxplora.config.loader.validate_config`
 before anything reaches a GPU.
 
-So this renders, and it does not parse. What comes back from a model is
+So this renders, and it does not parse. What comes back from an AI model is
 a config like any other, and it goes through the same door.
 
-Nothing here imports a model client, and nothing here holds a key. The
+Nothing here imports an AI model client, and nothing here holds a key. The
 caller supplies whatever it wants to talk to; this package's business is
 saying what a study may contain.
 """
@@ -28,6 +28,7 @@ from __future__ import annotations
 from typing import Any, Iterable
 
 from fastmdxplora.config.schema import (
+    EXECUTION,
     PHASE_SCHEMAS,
     TOP_LEVEL,
     Field,
@@ -55,6 +56,25 @@ def _type_name(declared: type | tuple[type, ...]) -> str:
     }.get(declared, getattr(declared, "__name__", str(declared)))
 
 
+def _bounds(field: Field) -> str:
+    """The range validation holds a number to, in words; "" where none.
+    Shown because a value outside it is refused, and a reader told the
+    range does not propose one."""
+    low, high = field.minimum, field.maximum
+    if low is not None and high is not None:
+        return f"from {low:g} to {high:g}"
+    if low is not None:
+        return f"at least {low:g}"
+    if high is not None:
+        return f"at most {high:g}"
+    return ""
+
+
+def _schema(name: str) -> PhaseSchema | None:
+    """A phase's schema, or `execution`'s, which is not a phase."""
+    return EXECUTION if name == "execution" else PHASE_SCHEMAS.get(name)
+
+
 def describe_field(field: Field, *, verbose: bool = True) -> str:
     """One setting, as a line.
 
@@ -64,12 +84,15 @@ def describe_field(field: Field, *, verbose: bool = True) -> str:
     the audience here. ``membrane_orientation_checked`` explains that the
     bilayer is built in the xy plane, that a deposited entry is rarely
     aligned to z, and that setup refuses rather than embedding a protein
-    sideways. A model that has read that will not propose a membrane
+    sideways. An AI model that has read that will not propose a membrane
     study without it; one given only the field's name will.
     """
     parts = [f"{field.name} ({_type_name(field.type)})"]
     if field.choices:
         parts.append("one of: " + ", ".join(str(c) for c in field.choices))
+    bounds = _bounds(field)
+    if bounds:
+        parts.append(bounds)
     if field.default is not None:
         parts.append(f"default {field.default!r}")
     head = "  - " + "; ".join(parts)
@@ -81,10 +104,23 @@ def describe_field(field: Field, *, verbose: bool = True) -> str:
 
 def _phase_section(name: str, schema: PhaseSchema, *, verbose: bool) -> str:
     lines = [f"## {name}"]
-    if getattr(schema, "help", None):
-        lines.append(" ".join(str(schema.help).split()))
+    # `description`, which every schema has: this read `help`, which none
+    # has, so no section ever said what it was for.
+    if schema.description:
+        lines.append(" ".join(str(schema.description).split()))
     for field in schema.fields:
         lines.append(describe_field(field, verbose=verbose))
+    return "\n".join(lines)
+
+
+def _study_keys_section() -> str:
+    """`systems` and `sweep`, which have a shape of their own and are not
+    fields: as the batch layer reads them."""
+    from fastmdxplora.config.schema import BATCH_KEY_HELP
+
+    lines = ["", "## systems and sweep"]
+    for key, said in BATCH_KEY_HELP.items():
+        lines.append(f"  - {key}\n      {' '.join(said.split())}")
     return "\n".join(lines)
 
 
@@ -93,18 +129,22 @@ def describe_schema(
     phases: Iterable[str] | None = None,
     verbose: bool = True,
 ) -> str:
-    """The whole config language, as text to put in front of a model.
+    """The whole config language, as text to put in front of an AI model.
 
     Parameters
     ----------
     phases
-        Which phase blocks to include. All of them by default. A caller
+        Which phase blocks to include. The four phases by default. A caller
         working on setup alone can leave the other three out, which is
-        worth doing: a shorter description is a cheaper call and a model
-        cannot propose a setting it was never shown.
+        worth doing: a shorter description is a cheaper call and an AI model
+        cannot propose a setting it was never shown. ``execution``, how a
+        campaign's runs are scheduled on this machine, is described only
+        when named: it is about the machine rather than the study, and an
+        AI model proposing GPU indices for a machine it cannot see would be
+        guessing.
     verbose
         Include each setting's help text. On by default, because the help
-        is where the refusals are explained and a model that has read them
+        is where the refusals are explained and an AI model that has read them
         proposes fewer studies that will be refused.
 
     Notes
@@ -124,9 +164,10 @@ def describe_schema(
         "stops the study instead of silently running with a default.",
         "",
         _phase_section("top level", TOP_LEVEL, verbose=verbose),
+        _study_keys_section(),
     ]
     for phase in wanted:
-        schema = PHASE_SCHEMAS.get(phase)
+        schema = _schema(phase)
         if schema is not None:
             sections.append("")
             sections.append(_phase_section(phase, schema, verbose=verbose))
@@ -139,7 +180,7 @@ def schema_as_json(*, phases: Iterable[str] | None = None) -> dict[str, Any]:
     For a caller building a tool schema, a JSON-schema document, or a
     structured-output constraint. The point of returning this rather than
     only the text is that the constraint and the description then come
-    from one source: a model told about a setting is a model permitted to
+    from one source: an AI model told about a setting is an AI model permitted to
     set it, and neither list can gain an entry the other lacks.
     """
     def block(schema: PhaseSchema) -> dict[str, Any]:
@@ -150,6 +191,10 @@ def schema_as_json(*, phases: Iterable[str] | None = None) -> dict[str, Any]:
                 entry["enum"] = list(field.choices)
             if field.default is not None:
                 entry["default"] = field.default
+            if field.minimum is not None:
+                entry["minimum"] = field.minimum
+            if field.maximum is not None:
+                entry["maximum"] = field.maximum
             if field.help:
                 entry["description"] = " ".join(str(field.help).split())
             out[field.name] = entry
@@ -158,7 +203,7 @@ def schema_as_json(*, phases: Iterable[str] | None = None) -> dict[str, Any]:
     wanted = list(phases) if phases is not None else list(PHASE_SCHEMAS)
     document = {"top_level": block(TOP_LEVEL)}
     for phase in wanted:
-        schema = PHASE_SCHEMAS.get(phase)
+        schema = _schema(phase)
         if schema is not None:
             document[phase] = block(schema)
     return document

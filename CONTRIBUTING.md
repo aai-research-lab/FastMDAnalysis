@@ -30,16 +30,18 @@ pytest
 
 ### The browser tests
 
-The tests that check the GUI page itself, such as the composer's layout and
-the study frame, drive a real browser through Playwright and skip when it is
-not installed. To run them locally:
+The tests that check the GUI page itself, such as the composer's layout, the
+study frame, the molecule viewer and the charts, drive a real browser through
+Playwright and skip when it is not installed. The viewer's tests also need
+WebGL, which headless Chromium provides in software. To run them locally:
 
 ```bash
 pip install playwright
 python -m playwright install chromium
 ```
 
-CI runs them on one job, Ubuntu with Python 3.11.
+CI runs them on one job, Ubuntu with Python 3.11. Every job checks that each
+script the GUI serves parses, with Node where it is installed.
 
 ### If you install a released version into the same environment
 
@@ -242,7 +244,30 @@ Please include:
 By participating in this project, you agree to abide by our
 [Code of Conduct](CODE_OF_CONDUCT.md).
 
-## License
+## Contributor License Agreement
 
-By contributing, you agree that your contributions will be licensed under
-the project's [MIT License](LICENSE).
+FastMDXplora is released under the [MIT License](LICENSE), and so are the
+contributions to it. Before a pull request is merged, each of its authors
+signs the [FastMDXplora Contributor License Agreement](CLA.md) once. You
+keep the copyright in your work; you grant Adekunle Aina, who maintains the
+project, a licence to use it, including under any patents of yours it uses,
+so that FastMDXplora can go on being released under the MIT License and under
+other terms where that is needed.
+
+- **To sign**, post the comment the check asks for on your pull request:
+  `I have read the FastMDXplora Contributor License Agreement and I hereby sign it`.
+  The check records it in the `cla-signatures` branch, and later pull
+  requests pass.
+- **Work that is not all yours.** Where a commit includes someone else's
+  work, end its message with a `Co-authored-by: Name <address>` line for
+  them (or keep the `(cherry picked from commit ...)` line
+  `git cherry-pick -x` writes). They sign the agreement too: a second check
+  asks each of them on the pull request, as the first asks the authors.
+  Someone with no GitHub account linked to that address signs a copy, which
+  the maintainer records.
+- **If you are under 18**, a parent or guardian also signs a copy of the
+  agreement; the form is at its end.
+- **If you contributed before the agreement existed**, sign a copy of it too:
+  it covers past contributions as well as later ones.
+- **If your employer or university has rights in what you write**, get their
+  permission before you contribute, as the agreement asks.

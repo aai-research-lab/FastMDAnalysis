@@ -80,8 +80,20 @@ the platform it *actually ran on* rather than the one that was asked for, since
 a constant labelled CUDA that was measured on CPU would understate a real CUDA
 run enormously.
 
-The calibration is stored beside the model choice, in
+The calibration is stored beside the AI model choice, in
 `$XDG_CONFIG_HOME/fastmdxplora/calibration.json`.
+
+**A budget measures the machine itself when it has to.** A study given
+`--budget-hours` is priced for the platform the simulation phase will choose
+(`simulation.platform`, with `auto` resolved as that phase resolves it) and
+the config's precision. Where the machine has no measurement for that
+platform, or one taken under other settings, the study's own prepared system
+is timed there, just after setup: a brief minimisation, then 2,000 steps at
+1 fs after a warm-up. That constant covers PME and the study's own force
+field, which argon leaves out, and it is stored for the next study. A new
+container, a fresh cloud GPU or a new cluster node therefore prices its first
+study instead of refusing it. Only when that timing cannot be made either
+does the study stop with `environment.calibration.absent`.
 
 ### Three refusals rather than three guesses
 
@@ -184,11 +196,118 @@ will tell you whether you got there. Its convergence section reports how many
 count, because consecutive frames are nearly the same structure.
 
 A useful pattern: run something, read the convergence section, and extend if it
-says the measures have not settled or rest on too little. That is more reliable
+says the observables have not equilibrated or rest on too little. That is more reliable
 than choosing a number in advance.
 
 `sampling_shortfall` turns that into a figure — see
 [Reading the results](results.md#not-enough-data-is-a-refusal-too).
+
+### Running until it is determined
+
+The pattern above can be the study's own. `simulation.stop_when` says what the
+study is for and how well it must be known, and a ceiling; the study then runs
+in pieces, reads its analyses after each, and extends every run by what the
+numbers say is still needed:
+
+```yaml
+systems:
+  - {system: 1UAO}
+sweep:
+  simulation.random_seed: [1, 2, 3]
+simulation:
+  duration_ns: 5                 # the first piece
+  stop_when:
+    measures:
+      - {analysis: rmsd, standard_error: 0.01}
+      - {analysis: sasa, relative_error: 0.05}
+    max_duration_ns: 50
+```
+
+After each piece:
+
+- **A mean the analysis withheld** (too few independent samples, or not
+  equilibrated) asks for its own shortfall, where the analysis worked one out,
+  and otherwise for as long again.
+- **A mean with an error** asks for enough production that its error falls to
+  what was asked: the error of a mean goes as one over the root of the frames
+  after equilibration, so twice the error allowed asks for four times those
+  frames. The error judged is the standard error widened by Student's t at
+  its own degrees of freedom, so that it holds the truth as often as one
+  standard error should.
+- **Replicas average from the start they share.** Replicas over a seed begin
+  in one structure and share its relaxation, which each run's own
+  equilibration detection sees through that run's noise. Before replicas are
+  judged, the start is found again on their frame-by-frame average, and each
+  run's mean is taken from the later of its own start and that one; its
+  record says so (`start_shared_with_replicas`).
+- **One run is judged alone** only once its mean rests on 50 independent
+  samples, and until then asks for the production that would give them. An
+  error estimated from one run is itself uncertain, and stopping where it first
+  falls within the target keeps the looks where it read low; replicas need no
+  such floor, since their spread checks what each claims.
+- **Every run is extended by the most any quantity asks** (side by side in a
+  parallel study, as its runs were), at least a quarter and at most three
+  times what has run so far, in whole frames, and never past
+  `max_duration_ns`. The bounds are there because an error estimated from a
+  short run is itself uncertain.
+
+**Why replicas are required.** A run can look equilibrated while trapped: if the molecule
+never visits a second state, its average stops moving and its error bar
+shrinks, and it is still wrong. Block averaging and the count of independent
+samples say how precise one run is; only runs started independently can show
+that it is trapped. So by default the study must be one system swept over
+`random_seed`, and the rule is met only when the replicas' means agree within
+their own errors (their scatter no more than twice what those errors predict).
+The error judged is then the larger of what the runs claim together and what
+their spread shows. Replicas that each look precise and disagree are extended,
+not accepted.
+
+Replicas over a seed share one structure, so they test trapping only as far
+as their dynamics carry them apart. Where the structure is an ensemble (an NMR
+entry's models), sweep `setup.model` instead, and each replica starts from a
+different structure the data allow; the rule counts them as independent starts
+the same way:
+
+```yaml
+sweep:
+  setup.model: [1, 8, 15]
+```
+
+`independent_starts: not_required` accepts one run's own precision, and the
+record says that it was not checked against independent starts. Replicas that
+differ only by seed start from one structure (each prepared with a setup seed
+of its own unless `setup.random_seed` is given), so
+they test trapping only as far as their dynamics carry them apart; runs from
+different starting structures, or replica exchange, test it further.
+
+**What comes out.** `stopping.json` beside the study records every round: the
+production, each quantity with its error and what was asked, whether the
+replicas agreed, and what was decided. The report (for one run) or the
+comparison report (for replicas) has a section, *How long it ran, and why*,
+built from it, and the Agent is given it. A budget prices the study at its
+ceiling, since that is what it may spend.
+
+**How far to trust the precision it states.** Stopping as soon as an error
+falls below a target favours a round whose error came out small by chance.
+The rule was calibrated on series with a known mean
+([pre-registered](https://github.com/aai-research-lab/FastMDXplora/blob/main/preregistration/stopping-calibration.md)),
+and as first written its stated precision did not hold: a single run that
+stopped reported an error about half the size the truth needed, the truth
+within one error in 43% of studies where an honest error gives 68%. With the
+error's estimate corrected, the start discarded chosen with the relaxation in
+mind, an unresolved correlation judged on 25 independent samples, and the
+rule's two judgements above, single runs and replicas of stationary series
+held the truth within one error in 65% to 70% of studies and within two in
+91% to 97%, on the set these were chosen on and again on a held-out set.
+With replicas averaged from the start they share, so did replicas sharing a
+relaxation from their one structure (68.6% and 94.3% on a second held-out
+set). What is not in the error is a state no replica left: studies trapped in
+one of two slowly exchanging states looked determined in 3% to 6%. Replicas
+from different structures, or replica exchange, test that.
+
+The rule needs a study that can be run in pieces (not metadynamics, steered
+or PLUMED runs), is not applied to umbrella windows, and is refused before
+anything runs where the study cannot keep it.
 
 ---
 
@@ -254,9 +373,11 @@ splitting, not about the method.
 Measured on the CPU platform with argon in a periodic box, because the answer
 differs between constant volume and constant pressure.
 
-A **constant-volume** run resumed from a checkpoint reproduces the run it
-continued to within 8×10⁻⁸ nm. Positions, velocities and box vectors all come
-back exactly.
+A **constant-volume** run resumed from a checkpoint at the same thread count
+reproduces the run it continued to within about 1×10⁻⁹ nm over fifty steps.
+Positions, velocities and box vectors all come back exactly. At another thread
+count the thermostat draws different noise, so the resumed run continues the
+ensemble rather than the trajectory.
 
 A **constant-pressure** run does not, and seeding the barostat does not fix it.
 The Monte Carlo barostat's adaptive volume-move size is not in the checkpoint
@@ -347,12 +468,22 @@ Concatenation is four lines. The refusals are the module:
 single piece. See
 [What a joined run needs read differently](results.md#what-a-joined-run-needs-read-differently).
 
+**After an extension the study's config is still the study's.** The join's
+analyses run from the last piece's config, which names that piece's
+checkpoint, its own length and no equilibration. The study's
+`resolved_config.yml` is put back as it was, with `duration_ns` the production
+of every piece, so `fastmdx diff`, the All studies comparison and a study run
+again from the file read the study and not its last extension. Analysing the
+study again in place reads `joined/production.dcd`, found from the study's own
+folder rather than from a path in the config, and only while it is newer than
+the first piece's `simulation/production.dcd`.
+
 ---
 
 ## Running a campaign with a budget
 
 For an unattended campaign — many candidates, one card, a fixed allowance —
-`fastmdxplora.agent` carries a queue. It has nothing to do with a language
+`fastmdxplora.agent` carries a queue. It has nothing to do with an AI
 model; it lives there because
 [`--autonomous`](agent.md#autonomous--draft-it-and-run-it) needs something that
 can stop a run.
@@ -445,10 +576,72 @@ recorded with its refusal rather than stopping the rest.
 
 ## When it stops early
 
-Every run writes checkpoints. If it dies, the checkpoint is in the simulation
-directory and the [Manifest](manifest.md) records how far it got.
+Every run writes checkpoints during production, each sealed as it is written
+and placed on a frame. A run that is killed, whether by a machine restarting, a
+job reaching its time limit or a rented GPU taken back, leaves its last one
+behind.
 
-**Recovery is at phase boundaries.** A finished setup or trajectory in a
+**A run asked to stop ends on a frame.** SIGTERM, which a scheduler, a cloud
+provider, a container platform and the GUI's Stop button all send, and Ctrl-C
+at a terminal, are noted during production rather than obeyed at once. The run
+steps on to its next frame, writes a checkpoint there, and ends; `fastmdx
+resume` carries it on from that frame, so nothing after the last interval
+checkpoint is run twice and the joined trajectory keeps its spacing. It does
+so only when the next frame can be reached within 20 seconds, which leaves
+time inside the 30 or so a scheduler allows before it kills; otherwise the last
+interval checkpoint stands. `FASTMDX_STOP_GRACE_SECONDS` sets the 20 for a
+platform that allows more or less. A second signal is obeyed at once. A
+second SIGTERM within two seconds of the first is the same request arriving
+twice, as it does when sent to a whole process group, and counts once; a
+second Ctrl-C, however quick, means now. Either way the study records where
+it stopped (the retryable `simulation.run.stopped`), the GUI says Stopped
+with what would fix it, `fastmdx resume` carries it on, and the command
+exits 130.
+
+**A study of several runs stops as one.** Running its runs in parallel, the
+study passes SIGTERM on to each of them (Ctrl-C reaches them from the terminal
+itself): a run in production ends on a frame as
+above, and one in setup, equilibration or its analyses ends with the same
+retryable refusal, so the phase it was in runs again on resume. No further run
+starts, and those not started say so. The GUI's Stop, which signals the study
+alone, reaches every run this way. Run one at a time, a study stopped in one
+run does not start the next.
+
+**`fastmdx resume` carries the study on to the end of its plan.** It reads how
+far the study got and does what is left, once:
+
+```bash
+fastmdx resume runs/study
+```
+
+| What the study holds | What is run |
+|---|---|
+| Every phase of its plan recorded as done | Nothing |
+| All of production, and not its analyses or report | The analyses and the report, over the whole trajectory |
+| Part of production | The rest of it, from the last sealed checkpoint, then the join and the analyses, as [extending a study](#long-runs-and-segments) does; a segment that stopped before its first checkpoint is set aside (`segment-001-stopped-before-its-checkpoint`, its frames kept) and run again from the piece before it |
+| No production yet, or none as far as its first checkpoint | The whole study again: nothing it wrote can be continued from |
+
+**A study of several runs is carried on run by run.** A sweep, several systems
+or an umbrella study's windows: each run that started is carried on as above,
+each that never started is run, they share out the workers and devices the
+study asked for, and the aggregate, an umbrella study's free energy and the
+comparison across runs are rebuilt once every run has its answer. A structure
+the study named by a relative path is found beside the study's folder, so the
+resume need not be run from where the study was. The study says, when it
+stops, the one command that carries all of it on.
+
+It refuses a folder that is not a study, and a study any run of which is still
+running. A study that stopped with a
+refusal is not run again, since that was its answer; one the refusal registry
+marks as worth retrying, such as a GPU that went away, counts as an
+interruption. Production that is written and cannot be continued, a checkpoint
+off the frame grid for instance, or an extended study with no checkpoint left
+to carry it on, is not thrown away by starting again: the reason is said
+instead. Running `fastmdx resume` twice does the work once, so a service can
+run it every time a job restarts; `--json` prints the outcome as one line for
+a program to read.
+
+**By hand, recovery is at phase boundaries.** A finished setup or trajectory in a
 directory is reused rather than redone, and `--include` picks up from the phase
 that stopped:
 
@@ -461,6 +654,19 @@ checkpoint — valid only for the exact system, platform and precision it was
 written from, and refusing rather than proceeding on a mismatch. That is the
 mechanism segments are built on, and the table above says which methods may use
 it.
+
+Naming a study directory instead continues that study in place: its next
+segment runs inside it, every segment is joined, and the analyses and report
+are rerun over the whole. `duration_ns` is then the total production the study
+should end with, and `extra_ns` an amount more. The same config does this from
+the command line, from Python and from the GUI:
+
+```python
+from fastmdxplora import FastMDXplora
+
+FastMDXplora(config_data={"simulation": {"resume_from": "runs/study",
+                                         "extra_ns": 5}}).explore()
+```
 
 If the run became unstable rather than being killed, the message says which
 atoms went wrong and what that points at — see

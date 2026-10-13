@@ -56,7 +56,7 @@ def run(
         Paths (relative to ``output_dir``) of artifacts produced.
     """
     params = {**DEFAULTS, **options}
-    title = params["title"] or f"FastMDXplora Study — {_system_label(orchestrator.system)}"
+    title = params["title"] or f"FastMDXplora Study: {_system_label(orchestrator.system)}"
 
     presenter = getattr(orchestrator, "_presenter", None)
     artifacts: list[str] = []
@@ -123,6 +123,7 @@ def run(
             orchestrator=orchestrator,
             output_dir=output_dir,
             title=title,
+            not_produced=not_produced,
         )
         artifacts.extend(slide_artifacts)
         if presenter:
@@ -134,6 +135,7 @@ def run(
         output_dir=output_dir,
         title=title,
         include_bundle_link=bool(params["bundle"]),
+        not_produced=not_produced,
     )
     artifacts.extend(dashboard_artifacts)
     if presenter:
@@ -152,7 +154,8 @@ def run(
     if not_produced:
         (output_dir / "not_produced.json").write_text(
             json.dumps(
-                [{"artifact": name, "reason": why} for name, why in not_produced],
+                [{"artifact": name, "code": "report.format.unavailable",
+                  "reason": why} for name, why in not_produced],
                 indent=2),
             encoding="utf-8")
         artifacts.append("not_produced.json")

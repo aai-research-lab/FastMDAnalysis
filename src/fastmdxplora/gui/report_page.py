@@ -16,7 +16,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-__all__ = ["report_payload"]
+__all__ = ["methods_payload", "report_payload"]
 
 
 def report_payload(root: Path | str) -> dict[str, Any]:
@@ -31,7 +31,8 @@ def report_payload(root: Path | str) -> dict[str, Any]:
         return {"ok": False, "reason": "no report yet",
                 "html": "", "not_produced": [], "downloads": {}}
 
-    text = source.read_text(encoding="utf-8", errors="replace")
+    text = _links_from_the_report(source.read_text(encoding="utf-8", errors="replace"),
+                                  report_dir, base)
     # The markdown library lives in the `pdf` extra, not the base
     # install, and a base install still has a report to show. With it,
     # the report is rendered; without it, the same text is shown as it
@@ -63,6 +64,15 @@ def report_payload(root: Path | str) -> dict[str, Any]:
         if (report_dir / name).is_file():
             downloads[key] = f"/artifacts/report/{name}?download=1"
 
+    # What made each analysis's figures, for a chip under each figure the
+    # report shows, as the Analysis page has one (figure_provenance.py).
+    try:
+        from fastmdxplora.gui.figure_provenance import figure_provenance
+
+        provenance = figure_provenance(base)
+    except Exception:  # noqa: BLE001 - the report stands without its chips
+        provenance = {}
+
     return {
         "ok": True,
         "html": html,
@@ -70,7 +80,79 @@ def report_payload(root: Path | str) -> dict[str, Any]:
         "downloads": downloads,
         "generated": _generated_line(text),
         "rendered": rendered,
+        "figure_provenance": provenance,
     }
+
+
+def methods_payload(root: Path | str, *, may_read: Any = None) -> dict[str, Any]:
+    """The study's methods paragraphs, to read and to copy into a
+    manuscript: as the report gives them, written from the records as they
+    stand, so they are there before the report is and follow an extension.
+
+    ``html`` is for the page; ``plain`` is for the clipboard, without the
+    Markdown, since a manuscript is not Markdown. ``may_read`` is a hosted
+    GUI's rule for what is read outside the study.
+    """
+    import re
+
+    base = Path(root)
+    if (base / "batch_manifest.json").is_file():
+        return {"ok": False, "reason": "a study of several runs: each run's report "
+                                       "gives its own methods"}
+    if not any((base / name).exists() for name in ("manifest.json", "simulation", "setup")):
+        return {"ok": False, "reason": "nothing has run yet"}
+    from fastmdxplora.report.document import methods_prose
+
+    try:
+        prose = methods_prose(base, may_read=may_read)
+    except PermissionError as exc:
+        return {"ok": False, "reason": str(exc)}
+    if not prose:
+        return {"ok": False, "reason": "nothing recorded yet"}
+    plain = re.sub(r"\*\*([^*]+)\*\*", r"\1", prose).replace("`", "")
+    return {"ok": True, "html": render_markdown(prose)[0], "plain": plain}
+
+
+def _links_from_the_report(text: str, report_dir: Path, base: Path) -> str:
+    """Each relative link as it resolves from report/, where the report is.
+
+    A report written before 1085 links each figure from the study's root,
+    `analysis/rmsd/rmsd.png`, though it sits in report/; every study made
+    with 2.5.8 is one. On the Report page each of those figures failed to
+    load. A link that names nothing from report/ but names a file from the
+    study's root is read as the second, and the report's file is left as it
+    was written.
+
+    A link to a file the study does not hold is shown as its words alone:
+    a study shared without its standalone page (the demo is one) linked
+    `dashboard.html` from its first lines, and the link went nowhere. The
+    report's line naming that page goes with it.
+    """
+    import re
+    from urllib.parse import unquote
+
+    def held(path: str) -> bool:
+        return (report_dir / path).exists() or (base / path).exists()
+
+    def resolved(found: "re.Match[str]") -> str:
+        image, words, target = found.group(1), found.group(2), found.group(3)
+        rest = found.group(4) or ""
+        if re.match(r"^([a-z][a-z0-9+.-]*:|/|#|\.\./)", target, re.IGNORECASE):
+            return found.group(0)
+        path = unquote(target.split("#")[0].split("?")[0])
+        if not path or (report_dir / path).exists():
+            return found.group(0)
+        if (base / path).is_file():
+            return f"{image}[{words}]({'../' + target}{rest})"
+        return found.group(0) if image or (base / path).exists() else words
+
+    lines = []
+    for line in text.splitlines(keepends=True):
+        named = re.fullmatch(r"\s*_Dashboard: \[[^\]]*\]\(([^)\s]+)\)_\s*", line)
+        if named and not held(unquote(named.group(1))):
+            continue
+        lines.append(line)
+    return re.sub(r'(!?)\[([^\]]*)\]\(([^)\s]+)(\s+"[^"]*")?\)', resolved, "".join(lines))
 
 
 def _generated_line(text: str) -> str:
@@ -92,13 +174,15 @@ def render_markdown(text: str) -> tuple[str, str]:
     installed. One renderer for the report page and the Files tab's
     preview, so a .md file reads the same on both and there is nothing
     vendored: the browser has no Markdown of its own, and the Python
-    library is the one this software already trusts for its report."""
+    library is the one this software already trusts for its report.
+    Raw HTML in the text is shown as written, and a link goes only to the
+    web, to mail or within the study: see `fastmdxplora.report.markdown_html`."""
+    from fastmdxplora.report.markdown_html import markdown_as_html
+
     try:
-        import markdown
+        return markdown_as_html(text), "html"
     except ImportError:
         return '<pre class="report-plain">' + _escape(text) + "</pre>", "plain"
-    return (markdown.markdown(text, extensions=["tables", "fenced_code", "toc"],
-                              output_format="html5"), "html")
 
 
 def _study_of_runs_payload(base: Path) -> dict[str, Any]:
@@ -123,7 +207,8 @@ def _study_of_runs_payload(base: Path) -> dict[str, Any]:
                 downloads[key] = f"/artifacts/comparison/{name}?download=1"
         return {"ok": True, "html": html, "not_produced": [], "downloads": downloads,
                 "generated": _generated_line(text), "rendered": rendered,
-                "figures_under": "comparison", "runs": len(runs), "pending": pending}
+                "figures_under": "comparison", "runs": len(runs), "pending": pending,
+                "figure_provenance": _comparison_provenance(comparison.parent)}
     if not completed:
         return {"ok": False, "reason": f"none of {len(runs)} runs completed yet",
                 "html": "", "not_produced": [], "downloads": {},
@@ -134,12 +219,40 @@ def _study_of_runs_payload(base: Path) -> dict[str, Any]:
             "runs": len(runs), "pending": pending}
 
 
+def _comparison_provenance(folder: Path) -> dict[str, dict[str, Any]]:
+    """What each comparison figure was plotted from, by its file's stem, as
+    the comparison recorded it (`figures.json`): the runs, the release that
+    analysed each, and the release that plotted them. Empty for a comparison
+    plotted before it was recorded."""
+    from fastmdxplora import __version__
+
+    try:
+        record = json.loads((folder / "figures.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    figures = record.get("figures") if isinstance(record, dict) else None
+    if not isinstance(figures, dict):
+        return {}
+    return {str(name): {**figure, "version": record.get("version"),
+                        "host": record.get("host"), "made": record.get("made"),
+                        "this_version": str(__version__)}
+            for name, figure in figures.items() if isinstance(figure, dict)}
+
+
 def _so_far(base: Path, runs: list[dict[str, Any]], completed: list[dict[str, Any]]) -> str:
-    """A table of what each completed run settled on, one row per run and
+    """A table of the means each completed run determined, one row per run and
     one column per measure with a mean, read from the runs' own findings.
     The comparison across them, with its figures, comes when the last run
-    finishes."""
+    finishes.
+
+    Each mean is given with its standard error and unit, and a mean the
+    analysis said is not a measurement is marked as one. The table read an
+    `uncertainty` and a `unit` that no analysis writes (its test's fixture
+    wrote them), so every mean stood without its error, and a series too
+    short to measure stood among them as though it were a result."""
     from fastmdxplora.batch.aggregate import read_member_findings
+    from fastmdxplora.gui.report_dashboard import _format_metric_value, unit_of
+    from fastmdxplora.statistics import with_its_error
 
     axes: list[str] = sorted({axis for r in runs for axis in (r.get("values") or {})})
     short = {axis: axis.split(".")[-1] for axis in axes}
@@ -161,20 +274,33 @@ def _so_far(base: Path, runs: list[dict[str, Any]], completed: list[dict[str, An
         lines += [f"_{pending} still to run. The comparison across all of them, with its "
                   "figures, is written when the last one finishes._", ""]
     if not measures:
-        lines += ["No run has reported a settled mean yet.", ""]
+        lines += ["No run has recorded a mean yet.", ""]
         return "\n".join(lines)
-    head = [short[a] for a in axes] + [f"{m} mean" for m in measures]
+    units = {m: next((unit_of(m, row[m]) for row in means.values() if m in row), "")
+             for m in measures}
+    head = [short[a] for a in axes] + [
+        f"{m} mean" + (f" ({units[m]})" if units[m] else "") for m in measures]
     lines.append("| run | " + " | ".join(head) + " |")
     lines.append("|---|" + "---|" * len(head))
+    qualified = False
     for run in completed:
         cells = [str((run.get("values") or {}).get(axis, "")) for axis in axes]
         for measure in measures:
             record = means[run["run_id"]].get(measure)
             if record is None:
                 cells.append("")
-            else:
-                sd = record.get("uncertainty") or record.get("sem") or record.get("std")
-                unit = f" {record['unit']}" if record.get("unit") else ""
-                cells.append(f"{record['mean']:.4g}" + (f" ± {sd:.2g}" if isinstance(sd, (int, float)) else "") + unit)
+                continue
+            error = record.get("standard_error")
+            cell = (with_its_error(record["mean"], error)
+                    if isinstance(error, (int, float)) and not isinstance(error, bool)
+                    else _format_metric_value(record["mean"]))
+            if record.get("not_a_measurement"):
+                cell += " \\*"
+                qualified = True
+            cells.append(cell)
         lines.append(f"| {run['run_id']} | " + " | ".join(cells) + " |")
+    lines += ["", "Each mean is over the frames after equilibration, with its standard error."]
+    if qualified:
+        lines += ["", "\\* Not determined: the analysis found the series too short, or "
+                  "with too few independent samples, for its mean to be determined."]
     return "\n".join(lines) + "\n"

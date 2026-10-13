@@ -48,14 +48,30 @@ def _a_sweep_study(where: Path, temperatures=(300, 310)) -> Path:
         run = study._run_output_dir(spec)
         shutil.copytree(finished, run, dirs_exist_ok=True)
         (run / "simulation" / "live_status.json").write_text(json.dumps(status), encoding="utf-8")
-        # What each run settled on, as an analysis records it.
+        # What each run settled on, as an analysis records it: the record
+        # `summarise` makes of a series, which is what the analyses write.
         for name, mean in (("rmsd", 0.15 + 0.01 * spec.sweep_values["simulation.temperature_K"] / 300),
                            ("rg", 1.2)):
             (run / "analysis" / name / "options.json").write_text(json.dumps({
                 "analysis": name, "options": {},
-                "findings": {"mean": {"mean": mean, "uncertainty": 0.005, "unit": "nm"}}}),
-                encoding="utf-8")
+                "findings": {"mean": _recorded(mean)}}), encoding="utf-8")
     return root
+
+
+def _recorded(mean: float, frames: int = 400) -> dict:
+    """A series about ``mean``, summarised by the analyses' own function."""
+    import numpy as np
+
+    from fastmdxplora.statistics import summarise
+
+    series = mean + 0.002 * np.random.default_rng(0).standard_normal(frames)
+    series = series - series.mean() + mean
+    equilibrated, reason = summarise(series)
+    record = dict(equilibrated.as_record()) if equilibrated is not None else {}
+    if reason is not None:
+        record["not_a_measurement"] = reason
+    record["n_frames"] = frames
+    return record
 
 
 class TestTheBrowserTellsThemApart(unittest.TestCase):
@@ -129,7 +145,12 @@ class TestTheDashboardShowsTheRuns(unittest.TestCase):
                                         ["temperature_K = 300", "completed", "completed"]])
                 self.assertIn("1 of 2 completed", page.text_content("#study-runs-label"))
                 self.assertTrue(page.eval_on_selector("#study-run-of", "e => e.hidden"))
-                # Into the running run, and back.
+                # Into the running run, by its icon, and back.
+                view = page.eval_on_selector(
+                    "#study-runs .study-run-row:nth-child(1) button",
+                    "b => [b.getAttribute('aria-label'), b.title, !!b.querySelector('svg.line-icon'),"
+                    " b.textContent.trim()]")
+                self.assertEqual(view, ["View this run", "View this run", True, ""])
                 page.click("#study-runs .study-run-row:nth-child(1) button")
                 page.wait_for_selector("#study-run-of:not([hidden])", timeout=20000)
                 self.assertEqual(page.text_content("#study-run-of-name"), "sweep")
@@ -157,9 +178,28 @@ class TestTheRootReportsTheCollective(unittest.TestCase):
         self.assertEqual((page["runs"], page["pending"]), (2, 1))
         self.assertIn("1 of 2 runs completed", page["html"])
         self.assertIn("1 still to run", page["html"])
-        self.assertIn("rmsd mean", page["html"])
-        self.assertIn("0.16", page["html"])          # the finished run's mean, 300 K
+        self.assertIn("rmsd mean (nm)", page["html"])
+        # The finished run's mean, 300 K, with its error, to the place it allows.
+        self.assertIn("0.16001 ± 0.00011", page["html"])
         self.assertNotIn("0.1603", page["html"])     # the running one's is not there
+        self.assertIn("after equilibration, with its standard error", page["html"])
+        self.assertNotIn("Not a measurement", page["html"])
+
+    def test_a_mean_that_is_not_a_measurement_is_marked(self):
+        import sys
+        import tempfile
+
+        sys.path.insert(0, "src")
+        from fastmdxplora.gui.report_page import report_payload
+
+        root = _a_sweep_study(Path(tempfile.mkdtemp()))
+        finished = next(p for p in (root / "runs").iterdir()
+                        if "completed" in (p / "simulation" / "live_status.json").read_text())
+        (finished / "analysis" / "rg" / "options.json").write_text(json.dumps({
+            "analysis": "rg", "options": {},
+            "findings": {"mean": _recorded(1.2, frames=12)}}), encoding="utf-8")
+        page = report_payload(root)
+        self.assertIn("Not determined", page["html"])
 
     def test_once_every_run_has_finished_it_is_the_comparison(self):
         import sys
@@ -297,3 +337,42 @@ class TestTheSidebarShowsSevenThenThreeMoreAtATime(unittest.TestCase):
                 browser.close()
         finally:
             session.server.shutdown()
+
+
+def test_a_study_of_several_runs_records_its_process_at_its_top(tmp_path, monkeypatch):
+    """Found by the third review (10-07): only each run inside it recorded
+    a process (a worker, in parallel), so a GUI opened on the study after a
+    restart could not tell it was still going between two runs, or while
+    its comparison was written."""
+    import os
+
+    from fastmdxplora.batch.explorer import BatchExplorer
+    from fastmdxplora.orchestrator import RUN_PROCESS_FILE
+
+    root = tmp_path / "sweep"
+    study = BatchExplorer(config_data={"systems": [{"system": "1UBQ"}],
+                                       "simulation": {"duration_ns": 1.0},
+                                       "sweep": {"simulation.temperature_K": [300, 310]}},
+                          output_dir=str(root))
+    seen = {}
+
+    def runs(self, include, exclude):
+        record = root / RUN_PROCESS_FILE
+        seen["pid"] = json.loads(record.read_text(encoding="utf-8")).get("pid")
+        return []
+
+    def prepare(self, include, exclude):
+        # An umbrella study prepares once, for hours, before any run.
+        record = root / RUN_PROCESS_FILE
+        seen["preparing"] = json.loads(record.read_text(encoding="utf-8")).get("pid")
+        return None
+
+    monkeypatch.setattr(BatchExplorer, "_maybe_prepare_once", prepare)
+    monkeypatch.setattr(BatchExplorer, "_run_sequential", runs)
+    monkeypatch.setattr(BatchExplorer, "_run_parallel", runs)
+    monkeypatch.setattr(BatchExplorer, "_write_comparison", lambda self: None, raising=False)
+    try:
+        study.run()
+    except Exception:  # noqa: BLE001 - what follows the runs is not this test's
+        pass
+    assert seen.get("pid") == seen.get("preparing") == os.getpid()

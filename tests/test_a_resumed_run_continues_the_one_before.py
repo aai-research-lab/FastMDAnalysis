@@ -704,8 +704,9 @@ class TestContinuingAStudyThatStopped(unittest.TestCase):
 
         status = _run_status(Runtime())
         self.assertIn("continuing this study: production done 0.442 ns", status)
-        self.assertIn("resume_from:", status)
-        self.assertIn("minimize: false", status)
+        self.assertIn(f"resume_from: {s.resolve()}", status)
+        self.assertIn("duration_ns is the TOTAL", status)
+        self.assertIn("no minimisation or equilibration", status)
         from fastmdxplora.agent.propose import prompt_for
 
         self.assertIn("never write `resume_from` from scratch", prompt_for("x"))
@@ -783,13 +784,14 @@ class TestTheAgentIsToldWhatTheBlockAnswers(unittest.TestCase):
 
     def test_a_system_named_in_words_is_written_as_its_identifier(self):
         # "trpcage" became 1UAO, which is chignolin. The identifier is
-        # named back so a wrong one is visible.
+        # looked up, never recalled, and named back so a wrong one is
+        # visible.
         from fastmdxplora.agent.propose import prompt_for
 
         prompt = prompt_for("simulate trpcage")
-        self.assertIn("trp-cage is 1L2Y", prompt)
-        self.assertIn("chignolin is 1UAO", prompt)
-        self.assertIn("say so\nand ask rather than picking one", prompt)
+        self.assertIn("the PDB identifier find_structure\nfinds for it, never one "
+                      "recalled", prompt)
+        self.assertIn("ask the person which, naming the entries found", prompt)
 
 
 class TestAContinuationAnalysesWhatItWrote(unittest.TestCase):

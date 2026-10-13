@@ -83,8 +83,9 @@ EXPLANATIONS: dict[str, Explanation] = {
         why=(
             "The protein force field knows the twenty amino acids and "
             "nothing else, so a bound ligand has no parameters until "
-            "somebody makes them. OpenFF generates them from the ligand's "
-            "chemistry, which is why the chemistry had to be settled first."
+            "somebody makes them. A small-molecule force field (OpenFF's, "
+            "by default) generates them from the ligand's chemistry, which "
+            "is why the chemistry had to be determined first."
         ),
         reference="Qiu et al., OpenFF 2.0.0 Sage, J Chem Theory Comput 2021",
     ),
@@ -118,13 +119,16 @@ EXPLANATIONS: dict[str, Explanation] = {
             "motion. Minimisation walks the structure downhill to a nearby "
             "arrangement with no such forces in it, before anything moves."
         ),
+        reference=(
+            "Braun et al., Best Practices for Foundations in Molecular "
+            "Simulations, LiveCoMS 2019 (doi:10.33011/livecoms.1.1.5957)"),
     ),
     "restraints": Explanation(
         why=(
             "A minimised structure is not at equilibrium, and heating it "
             "lets the solute move as well as the solvent -- side chains "
             "relax into the space crystal packing left, and a ligand drifts "
-            "out of the pose that was measured. Holding the solute while the "
+            "out of the experimental pose. Holding the solute while the "
             "water arranges itself around it, then letting go in stages, "
             "means production starts from the structure somebody determined."
         ),
@@ -147,7 +151,7 @@ EXPLANATIONS: dict[str, Explanation] = {
     ),
     "npt": Explanation(
         why=(
-            "P replaces V: the box is now free to change size, and settles "
+            "P replaces V: the box is now free to change size, and equilibrates "
             "to the density real water has at this temperature and pressure. "
             "This is not a formality. Solvation leaves a gap around the "
             "solute, and in a small box that gap is a large share of the "
@@ -155,7 +159,7 @@ EXPLANATIONS: dict[str, Explanation] = {
             "packs near 0.90 g/mL against water's 1.0, while the same "
             "solvation at 2.0 nm reaches 0.96. Only a barostat closes it. A "
             "box that short has voids in it, which is wrong for anything you "
-            "measure and a route to the run falling over. How far off your "
+            "compute from it and a route to the run falling over. How far off your "
             "own box is gets reported rather than assumed."
         ),
         reference=(
@@ -197,11 +201,15 @@ EXPLANATIONS: dict[str, Explanation] = {
     "production": Explanation(
         why=(
             "This is the part that is analysed. Everything before it was "
-            "getting the system into a state worth measuring; from here the "
+            "getting the system into a state worth sampling; from here the "
             "trajectory is a sample of how the system behaves at "
             "equilibrium, and the frames written now are the ones every "
             "later number comes from."
         ),
+        reference=(
+            "Grossfield et al., Best Practices for Quantification of "
+            "Uncertainty and Sampling Quality in Molecular Simulations, "
+            "LiveCoMS 2018 (doi:10.33011/livecoms.1.1.5067)"),
     ),
     "metadynamics": Explanation(
         why=(

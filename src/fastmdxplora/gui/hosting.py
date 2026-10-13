@@ -1,0 +1,407 @@
+"""The GUI served to someone else, behind a proxy that signs them in.
+
+On a person's own machine the GUI trusts loopback: whoever can reach
+127.0.0.1 is the person at the keyboard, and a page on another site is
+refused by its `Host` and `Origin` (B24). Served for somebody else, none
+of that holds. The request arrives from a proxy under a public name, the
+person has signed in there and not here, and the machine is not theirs.
+
+Hosted mode is one switch, `fastmdx gui --hosted`, and it changes four
+things together, because any one of them alone is a way in:
+
+- **Only the proxy is answered.** Every request must carry the secret the
+  proxy was given (`X-FastMDX-Proxy-Secret`); anything else is refused
+  before it is read. Whoever reaches the port without passing through the
+  sign-in gets nothing, whatever the network in between allows.
+- **The names it answers to are listed.** `Host` must be one of
+  `--allowed-host` (or a loopback name, for the container's own health
+  check), and a POST's `Origin` must be one of them, over http or https.
+- **One folder is the whole world.** Every path a request names is read
+  inside the workspace, and a path outside it, a link out of it included,
+  is refused. The file browser starts there and cannot go above it.
+- **No path on the server is shown.** Answers carry paths inside the
+  workspace as ``~/...``, and paths given back are read the same way, so
+  the person sees their own folder and never the machine's layout.
+
+What a study's own settings name (a structure file, a trajectory) is read
+by the run, not by the GUI; in a hosted service each workspace runs in a
+container of its own, and that is the boundary for those. The proxy must
+remove any `X-FastMDX-Proxy-Secret` a caller sends before adding its own.
+
+A service shows its own name and its person. `--product-name` replaces the
+name at the top of the sidebar, on the loading screen and in the window's
+title, `--product-tagline` the line under it (the citation and the links
+to this software stay), and `--product-logo` FastMDXplora's mark as the
+tab's icon and over the folded sidebar, and the lab's logo as the avatar
+where nobody is signed in. The proxy names
+the person on each request in `X-FastMDX-Account-Name` (UTF-8,
+percent-encoded), shown with their initials at the foot of the sidebar; it
+must remove any copy a caller sends, as it does the secret's. Only a
+request that carries the secret is read at all, so the header is the
+proxy's word.
+"""
+
+from __future__ import annotations
+
+import hmac
+import os
+import re
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from fastmdxplora.refusals import CodedError
+
+#: The header the proxy sets on every request it forwards.
+SECRET_HEADER = "X-FastMDX-Proxy-Secret"
+
+#: Where the secret is read from. An environment variable rather than a
+#: flag, so it is not in the process list, and removed from the environment
+#: once read, so the runs this server starts do not inherit it.
+SECRET_ENV = "FASTMDX_PROXY_SECRET"
+
+#: A secret shorter than this is refused: it would be guessable.
+SHORTEST_SECRET = 32
+
+#: How a path inside the workspace is shown, and read back.
+HOME_MARK = "~"
+
+#: The header naming the person, set by the proxy on every request.
+ACCOUNT_HEADER = "X-FastMDX-Account-Name"
+
+#: Where a host keeps the person's Agent memory, where its command line
+#: does not say (`--memory-dir`, `--memory-store`): a folder, or the name
+#: of a store an installed package offers.
+MEMORY_DIR_ENV = "FASTMDX_MEMORY_DIR"
+MEMORY_STORE_ENV = "FASTMDX_MEMORY_STORE"
+#: What the person is told of where their memory is kept: never a path on
+#: the server.
+MEMORY_SHOWN = "Kept for you by this service"
+
+#: The longest product name, tagline and person's name shown; the sidebar
+#: is narrow.
+LONGEST_PRODUCT_NAME = 40
+LONGEST_PRODUCT_TAGLINE = 80
+#: The largest logo a service may give, read once when the GUI starts and
+#: put into every page it serves.
+LARGEST_PRODUCT_LOGO = 256 * 1024
+LONGEST_ACCOUNT_NAME = 80
+
+#: Control characters, read as a space in a person's name and refused in
+#: a product's.
+_CONTROL = re.compile("[\x00-\x1f\x7f-\x9f]")
+#: Characters not shown, or that reorder what is shown: invisible marks and
+#: direction overrides, dropped from a name and refused in a product's. The
+#: joiners (U+200C, U+200D) are kept: Persian and some Indic names need them.
+_HIDDEN = re.compile("[\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]")
+
+
+class HostingError(CodedError, ValueError):
+    """Hosted mode was asked for without what it needs to be safe."""
+
+
+def _name_of(host: str) -> str:
+    """A host name without its port, lower case, brackets kept for IPv6."""
+    value = host.strip().lower()
+    if value.startswith("["):
+        end = value.find("]")
+        return value[: end + 1] if end != -1 else value
+    return value.rsplit(":", 1)[0] if value.count(":") == 1 else value
+
+
+#: A path on the GUI's own site: one leading slash (two would be another
+#: site), then plain characters. Nothing a browser would read as a scheme.
+_SAME_SITE_PATH = re.compile(r"^/(?!/)[A-Za-z0-9._~/-]*$")
+
+
+def _same_site(value: str, flag: str, example: str) -> str:
+    """A link to the service, as a path on this site, or HostingError."""
+    value = (value or "").strip()
+    if value and not _SAME_SITE_PATH.match(value):
+        raise HostingError(
+            f"{flag} {value!r} is not a path on this site. Give the service's page as a "
+            f"path, such as {example}.",
+            code="config.option.not_permitted", setting=flag)
+    return value
+
+
+def _logo(path: str) -> str:
+    """The service's logo as a data address for the page, or empty for none.
+
+    PNG, JPEG, GIF, WebP, ICO or SVG, told by its content rather than its
+    name, at most `LARGEST_PRODUCT_LOGO` bytes. It is shown as a picture
+    (an `<img>` and the tab's icon), where an SVG's scripts do not run.
+    """
+    import base64
+
+    if not str(path or "").strip():
+        return ""
+    file = Path(path).expanduser()
+    try:
+        data = file.read_bytes()
+    except OSError as exc:
+        raise HostingError(f"--product-logo {file} cannot be read: {exc}.",
+                           code="environment.path.not_found", path=str(file)) from exc
+    if len(data) > LARGEST_PRODUCT_LOGO:
+        raise HostingError(
+            f"--product-logo {file} is {len(data):,} bytes; at most "
+            f"{LARGEST_PRODUCT_LOGO:,} are put into every page. A 128 px PNG is enough.",
+            code="config.option.not_permitted", setting="--product-logo")
+    kinds = ((b"\x89PNG\r\n\x1a\n", "image/png"), (b"\xff\xd8\xff", "image/jpeg"),
+             (b"GIF8", "image/gif"), (b"\x00\x00\x01\x00", "image/x-icon"))
+    kind = next((name for start, name in kinds if data.startswith(start)), "")
+    if not kind and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        kind = "image/webp"
+    if not kind and b"<svg" in data[:2048].lower():
+        kind = "image/svg+xml"
+    if not kind:
+        raise HostingError(
+            f"--product-logo {file} is not a PNG, JPEG, GIF, WebP, ICO or SVG picture.",
+            code="config.option.not_permitted", setting="--product-logo")
+    return f"data:{kind};base64," + base64.b64encode(data).decode("ascii")
+
+
+def _one_line(value: str, flag: str, longest: int) -> str:
+    """Text to show, with runs of white space as one space, or HostingError
+    for one too long or holding a control character."""
+    text = " ".join((value or "").split())
+    if _CONTROL.search(text) or _HIDDEN.search(text) or len(text) > longest:
+        raise HostingError(
+            f"{flag} {text[:60]!r} is not text to show: at most {longest} characters, "
+            "on one line.", code="config.option.not_permitted", setting=flag)
+    return text
+
+
+@dataclass(frozen=True)
+class Hosting:
+    """What a hosted GUI trusts, and the one folder it may use."""
+
+    workspace: Path
+    allowed_hosts: frozenset[str]
+    secret: str
+    #: The service's own page for the person (their account, their runs,
+    #: signing out), linked from the GUI's sidebar. A path on the same site,
+    #: or empty for no link.
+    account_url: str = ""
+    #: The service's page that sends a study to compute elsewhere (a GPU it
+    #: rents). With it, the builder offers **Run on a GPU**: the config is
+    #: saved in the workspace and that page opens with it filled in, for the
+    #: person to confirm there. A path on the same site, or empty.
+    runs_url: str = ""
+    #: The service's name for what the person uses, shown in place of this
+    #: software's at the top of the sidebar; empty keeps this software's.
+    product_name: str = ""
+    #: The line under it. Empty with a product name shows none, since this
+    #: software's tagline is not the service's.
+    product_tagline: str = ""
+    #: The service's logo, as a data address, shown as the tab's icon and the
+    #: avatar where nobody is signed in, in place of the lab's; empty keeps
+    #: the lab's.
+    product_logo: str = ""
+    #: Where the Agent's memory of the person is kept
+    #: (:class:`fastmdxplora.agent.memory.MemoryStore`), or None for no
+    #: memory. One hosted GUI serves one person, so it is theirs.
+    memory: Any = None
+
+    @classmethod
+    def from_environment(cls, workspace: str | Path,
+                         allowed_hosts: list[str] | tuple[str, ...],
+                         account_url: str = "", runs_url: str = "",
+                         product_name: str = "", product_tagline: str = "",
+                         product_logo: str = "", memory_dir: str = "",
+                         memory_store: str = "") -> Hosting:
+        """Hosted mode as the command line starts it.
+
+        Refuses to start rather than start open: without a secret the proxy
+        is not the only caller, and without a name no browser page can post.
+        The Agent's memory of the person is kept where ``memory_dir`` or
+        ``memory_store`` says (or :data:`MEMORY_DIR_ENV`,
+        :data:`MEMORY_STORE_ENV`), and nowhere without one.
+        """
+        secret = os.environ.pop(SECRET_ENV, "")
+        if len(secret) < SHORTEST_SECRET:
+            raise HostingError(
+                f"--hosted needs the proxy's secret in {SECRET_ENV}, at least "
+                f"{SHORTEST_SECRET} characters (for example "
+                "`python -c 'import secrets; print(secrets.token_urlsafe(32))'`). "
+                "Without it anyone who reaches the port is answered.",
+                code="config.option.missing_companion", setting=SECRET_ENV)
+        names = frozenset(_name_of(h) for h in allowed_hosts if h.strip())
+        if not names:
+            raise HostingError(
+                "--hosted needs at least one --allowed-host: the name the "
+                "proxy serves this GUI under, such as app.example.org.",
+                code="config.option.missing_companion", setting="--allowed-host")
+        root = Path(workspace).expanduser().resolve()
+        if not root.is_dir():
+            raise HostingError(f"--workspace {root} is not a folder.",
+                               code="environment.path.not_found", path=str(root))
+        if root == Path(root.anchor):
+            raise HostingError(
+                "--workspace cannot be the top of the file system; give the "
+                "one folder this person's studies live in.",
+                code="config.option.not_permitted", setting="--workspace")
+        account_url = _same_site(account_url, "--account-url", "/account/")
+        runs_url = _same_site(runs_url, "--runs-url", "/runs")
+        product_name = _one_line(product_name, "--product-name", LONGEST_PRODUCT_NAME)
+        product_tagline = _one_line(product_tagline, "--product-tagline",
+                                    LONGEST_PRODUCT_TAGLINE)
+        return cls(workspace=root, allowed_hosts=names, secret=secret,
+                   account_url=account_url, runs_url=runs_url, product_name=product_name,
+                   product_tagline=product_tagline, product_logo=_logo(product_logo),
+                   memory=memory_kept(memory_dir, memory_store, workspace=root))
+
+    # ---- who is shown ----
+    @staticmethod
+    def account_name(header_value: str | None) -> str:
+        """The person's name as the proxy sent it: decoded, on one line,
+        shortened to fit; empty when none was sent."""
+        from urllib.parse import unquote
+
+        text = unquote(str(header_value or ""), errors="replace")
+        text = " ".join(_CONTROL.sub(" ", _HIDDEN.sub("", text)).split())
+        if len(text) > LONGEST_ACCOUNT_NAME:
+            text = text[: LONGEST_ACCOUNT_NAME - 1].rstrip() + "\u2026"
+        return text
+
+    # ---- who is answered ----
+    def admits(self, presented: str | None) -> bool:
+        """Whether a request came through the proxy."""
+        return bool(presented) and hmac.compare_digest(
+            str(presented).encode("utf-8"), self.secret.encode("utf-8"))
+
+    def answers_to(self, host_header: str) -> bool:
+        """Whether a `Host` header names this GUI: a listed name, or
+        loopback for a check from inside the container."""
+        from fastmdxplora.gui.server import _names_this_machine
+
+        if not host_header:
+            return False
+        return (_name_of(host_header) in self.allowed_hosts
+                or _names_this_machine(host_header))
+
+    def own_origin(self, origin: str) -> bool:
+        """Whether a POST's `Origin` is a page this GUI served."""
+        scheme, _, rest = origin.strip().lower().partition("://")
+        return scheme in {"http", "https"} and _name_of(rest.split("/", 1)[0]) in self.allowed_hosts
+
+    # ---- paths ----
+    def inside(self, given: Any) -> Path | None:
+        """A path a request named, read inside the workspace, or None.
+
+        ``~/x``, ``x`` and an absolute path already inside the workspace all
+        mean the same file. Anything that leaves it, by ``..`` or by a link,
+        is None. An empty path is the workspace itself.
+        """
+        text = str(given or "").strip()
+        if text in ("", HOME_MARK):
+            return self.workspace
+        if text.startswith(HOME_MARK + "/"):
+            candidate = self.workspace / text[len(HOME_MARK) + 1:]
+        else:
+            candidate = Path(text)
+            if not candidate.is_absolute():
+                candidate = self.workspace / candidate
+        try:
+            resolved = candidate.resolve()
+        except (OSError, RuntimeError):
+            return None
+        if resolved == self.workspace or self.workspace in resolved.parents:
+            return resolved
+        return None
+
+    def shown(self, path: str | Path) -> str:
+        """A path as the person sees it: ``~/...`` inside the workspace."""
+        return self.scrub(str(path))
+
+    def scrub(self, value: Any) -> Any:
+        """An answer with every path on the server written as ``~/...``.
+
+        Applied to every JSON answer, so a route added later cannot leak a
+        path by forgetting to. Both spellings of the workspace are replaced,
+        as typed and as resolved, since a link in its path (``/tmp`` on
+        macOS) gives two.
+        """
+        if isinstance(value, str):
+            return self._scrub_text(value)
+        if isinstance(value, os.PathLike):
+            return self._scrub_text(os.fspath(value))
+        if isinstance(value, dict):
+            return {key: self.scrub(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [self.scrub(item) for item in value]
+        return value
+
+    def _scrub_text(self, text: str) -> str:
+        # The interpreter first: a run's command line names it, and it is
+        # the machine's layout, not the person's folder.
+        text = text.replace(sys.executable, "python")
+        for prefix in self._prefixes():
+            if text == prefix:
+                return HOME_MARK
+            text = text.replace(prefix + "/", HOME_MARK + "/")
+        return text
+
+    def _prefixes(self) -> tuple[str, ...]:
+        spellings = {str(self.workspace), os.path.realpath(self.workspace),
+                     os.path.abspath(self.workspace)}
+        # Longest first, so a spelling that contains another is replaced whole.
+        return tuple(sorted(spellings, key=len, reverse=True))
+
+
+def memory_kept(memory_dir: str = "", memory_store: str = "", *,
+                workspace: Path | None = None) -> Any:
+    """Where a hosted GUI keeps the Agent's memory of its person: a folder
+    (``memory_dir``), a store an installed package offers (``memory_store``),
+    each read from the environment where not given, or None for no memory.
+
+    The person's memory there learns from their chats only once they turn
+    that on: a service reading what its people write for a memory is the
+    person's to choose. Refuses to start with both, with a folder that
+    cannot be made, or with a store that is not there.
+    """
+    from fastmdxplora.agent.memory import FileStore, MemoryRefused, store_named
+
+    folder = str(memory_dir or os.environ.get(MEMORY_DIR_ENV, "")).strip()
+    named = str(memory_store or os.environ.get(MEMORY_STORE_ENV, "")).strip()
+    if folder and named:
+        raise HostingError(
+            "Give --memory-dir or --memory-store, not both: one person's memory is kept "
+            "in one place.", code="config.option.not_permitted", setting="--memory-store")
+    if named:
+        try:
+            return store_named(named, workspace=workspace)
+        except MemoryRefused as exc:
+            raise HostingError(str(exc), code=exc.code, setting="--memory-store") from exc
+    if not folder:
+        return None
+    root = Path(folder).expanduser().resolve()
+    if root == Path(root.anchor):
+        raise HostingError("--memory-dir cannot be the top of the file system; give the "
+                           "folder this person's memory is kept in.",
+                           code="config.option.not_permitted", setting="--memory-dir")
+    try:
+        root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    except OSError as exc:
+        raise HostingError(f"--memory-dir {root} cannot be made: {exc}.",
+                           code="environment.path.not_found", path=str(root)) from exc
+    if not root.is_dir():
+        raise HostingError(f"--memory-dir {root} is not a folder.",
+                           code="environment.path.not_found", path=str(root))
+    return FileStore(root, learns_at_first=False, shown=MEMORY_SHOWN)
+
+
+def initials(name: str) -> str:
+    """One or two letters for an avatar: the first of each of the first two
+    words of a name, or the first of an address's own part."""
+    text = (name or "").strip()
+    address = "@" in text and " " not in text
+    if address:
+        text = text.split("@", 1)[0]
+    words = [w for w in re.split(r"[\s._-]+", text) if w and w[0].isalnum()]
+    if not words:
+        return ""
+    # Cut after upper-casing, which can lengthen a letter (a ligature, a sharp s).
+    letters = (words[0][0] if address else "".join(w[0] for w in words[:2])).upper()
+    return letters[: 1 if address else 2]

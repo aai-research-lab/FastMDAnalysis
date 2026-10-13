@@ -15,8 +15,8 @@
 [![codecov](https://img.shields.io/codecov/c/github/aai-research-lab/FastMDXplora/main?labelColor=black)](https://codecov.io/gh/aai-research-lab/FastMDXplora)
 [![Docs](https://img.shields.io/readthedocs/fastmdxplora?label=docs&labelColor=black)](https://fastmdxplora.readthedocs.io)
 
-[**Quick start**](https://fastmdxplora.readthedocs.io/en/latest/first_study.html) ·
-[**Agent**](https://fastmdxplora.readthedocs.io/en/latest/agent.html) ·
+[**Quick start**](https://fastmdxplora.readthedocs.io/en/stable/first_study.html) ·
+[**Agent**](https://fastmdxplora.readthedocs.io/en/stable/agent.html) ·
 [**Cite**](#citation)
 
 </div>
@@ -60,8 +60,8 @@ fastmdx info
 | | |
 |---|---|
 | **A protein on its own** | Fold, flexibility, secondary structure, native contacts, conformational clustering — from a PDB code. Fluctuations can be set against the crystal's own B-factors, and backbone order parameters against what NMR relaxation measures. |
-| **A protein with a ligand** | The ligand is found, its chemistry resolved, its protonation settled in the binding site. Eight interaction types against published criteria tell you what *holds* it, not just what it touches. |
-| **A membrane protein** | Embedded in one of seven bilayers, with the orientation checked rather than assumed and pressure coupling that suits a lipid system. |
+| **A protein with a ligand** | The ligand is found, its chemistry resolved, its protonation determined in the binding site. Eight interaction types against published criteria tell you what *holds* it, not just what it touches. |
+| **A membrane protein** | Embedded in one of seven bilayers, oriented by a fit checked against OPM, with pressure coupling that suits a lipid system and the bilayer's area, thickness and chain order analysed. |
 | **Free energy along a coordinate** | Umbrella sampling, metadynamics and steered MD from a named collective variable — nine of them, one or two at a time — without writing PLUMED input. Each says what its output is and is not: a surface if the bias converged, a pathway and the work along it, a potential of mean force if the windows overlap. |
 | **A trajectory from another engine** | Skip the simulation and analyse what you already have — GROMACS `.xtc` and `.trr`, Amber `.nc`, NAMD and CHARMM `.dcd`, LAMMPS `.lammpstrj`, or `.pdb`, `.cif` and `.h5` that carry their own topology. |
 | **Many systems at once** | Mutants against wild type — named as `L99A`, and checked against the residue actually there — a sweep across a setting, runs pinned one per GPU, and a comparison report across all of them. Where the members differ only by seed, the spread of their means is set against the error each run claimed for itself. |
@@ -76,7 +76,7 @@ can defend; what you cannot is marked.
 ## The config is the study
 
 A FastMDXplora config is the whole description of a molecular dynamics study:
-the system, how it is prepared, how it is simulated, what is measured, and how
+the system, how it is prepared, how it is simulated, how it is analysed, and how
 it is written up. Capture that, and the four phases — setup, simulation,
 analysis, report — run themselves.
 
@@ -97,7 +97,7 @@ that one file.
 | | |
 |---|---|
 | **The GUI** | `fastmdx gui`. A form generated from the schema, so every setting is reachable. Worth using even for a command-line or Python workflow: build the study where the options are visible and explained, then take the file away. |
-| **The CLI** | `fastmdx explore --config study.yml`, or `fastmdx init-config` for a commented template, or a flag for any setting. |
+| **The CLI** | `fastmdx explore --config study.yml`, or `fastmdx config` for a commented template, or a flag for any setting. |
 | **The Python API** | `FastMDXplora(config="study.yml").explore()`, or the same blocks passed as options. |
 
 None of these is the primary interface and none is a subset of another —
@@ -116,6 +116,11 @@ It gets no special treatment. What it writes goes through exactly the same
 validator, by the same code, with the same refusals, as a config typed by hand
 — and a proposal that did not validate carries no config at all.
 
+An AI app that speaks the Model Context Protocol reaches the same checks with
+`fastmdx mcp`: the AI app's model writes a study and the same validator judges
+it, it reads and compares studies, and it starts one only from a checked file,
+with your go-ahead.
+
 ## The manifest is the result
 
 What a config is to a study, `manifest.json` is to its result: every phase that
@@ -125,32 +130,33 @@ decide numbers. A run directory is readable by somebody who was not there.
 
 ## Documentation
 
-**Start here** — [Install](https://fastmdxplora.readthedocs.io/en/latest/installation.html) ·
-[Your first study](https://fastmdxplora.readthedocs.io/en/latest/first_study.html) ·
-[How FastMDXplora works](https://fastmdxplora.readthedocs.io/en/latest/how_it_works.html)
+**Start here** — [Install](https://fastmdxplora.readthedocs.io/en/stable/installation.html) ·
+[Your first study](https://fastmdxplora.readthedocs.io/en/stable/first_study.html) ·
+[How FastMDXplora works](https://fastmdxplora.readthedocs.io/en/stable/how_it_works.html)
 
-**The Config** — [The FastMDXplora Config](https://fastmdxplora.readthedocs.io/en/latest/config.html) ·
-[Config reference](https://fastmdxplora.readthedocs.io/en/latest/config_reference.html) ·
-[Selections](https://fastmdxplora.readthedocs.io/en/latest/selections.html) ·
-[Examples](https://fastmdxplora.readthedocs.io/en/latest/examples.html)
+**The Config** — [The FastMDXplora Config](https://fastmdxplora.readthedocs.io/en/stable/config.html) ·
+[Config reference](https://fastmdxplora.readthedocs.io/en/stable/config_reference.html) ·
+[Selections](https://fastmdxplora.readthedocs.io/en/stable/selections.html) ·
+[Examples](https://fastmdxplora.readthedocs.io/en/stable/examples.html)
 
-**Writing a Config** — [GUI](https://fastmdxplora.readthedocs.io/en/latest/gui.html) ·
-[CLI](https://fastmdxplora.readthedocs.io/en/latest/cli.html) ·
-[API](https://fastmdxplora.readthedocs.io/en/latest/api.html) ·
-[Agent](https://fastmdxplora.readthedocs.io/en/latest/agent.html)
+**Writing a Config** — [GUI](https://fastmdxplora.readthedocs.io/en/stable/gui.html) ·
+[CLI](https://fastmdxplora.readthedocs.io/en/stable/cli.html) ·
+[API](https://fastmdxplora.readthedocs.io/en/stable/api.html) ·
+[Agent](https://fastmdxplora.readthedocs.io/en/stable/agent.html) ·
+[From your AI app](https://fastmdxplora.readthedocs.io/en/stable/mcp.html)
 
-**Going further** — [Restraints, membranes, enhanced sampling](https://fastmdxplora.readthedocs.io/en/latest/studies.html) ·
-[Production and GPUs](https://fastmdxplora.readthedocs.io/en/latest/production.html) ·
-[Running elsewhere](https://fastmdxplora.readthedocs.io/en/latest/clusters.html)
+**Going further** — [Restraints, membranes, enhanced sampling](https://fastmdxplora.readthedocs.io/en/stable/studies.html) ·
+[Production and GPUs](https://fastmdxplora.readthedocs.io/en/stable/production.html) ·
+[Running elsewhere](https://fastmdxplora.readthedocs.io/en/stable/clusters.html)
 
-**Results** — [The FastMDXplora Manifest](https://fastmdxplora.readthedocs.io/en/latest/manifest.html) ·
-[Reading the results](https://fastmdxplora.readthedocs.io/en/latest/results.html) ·
-[The analyses](https://fastmdxplora.readthedocs.io/en/latest/analyses.html) ·
-[Protein-ligand interactions](https://fastmdxplora.readthedocs.io/en/latest/interactions.html) ·
-[Refusals](https://fastmdxplora.readthedocs.io/en/latest/refusals.html)
+**Results** — [The FastMDXplora Manifest](https://fastmdxplora.readthedocs.io/en/stable/manifest.html) ·
+[Reading the results](https://fastmdxplora.readthedocs.io/en/stable/results.html) ·
+[The analyses](https://fastmdxplora.readthedocs.io/en/stable/analyses.html) ·
+[Protein-ligand interactions](https://fastmdxplora.readthedocs.io/en/stable/interactions.html) ·
+[Refusals](https://fastmdxplora.readthedocs.io/en/stable/refusals.html)
 
-**For developers** — [Developing FastMDXplora](https://fastmdxplora.readthedocs.io/en/latest/developers.html) ·
-[How it is validated](https://fastmdxplora.readthedocs.io/en/latest/validation.html)
+**For developers** — [Developing FastMDXplora](https://fastmdxplora.readthedocs.io/en/stable/developers.html) ·
+[How it is validated](https://fastmdxplora.readthedocs.io/en/stable/validation.html)
 
 ## Citation
 
@@ -171,19 +177,22 @@ decide numbers. A run directory is readable by somebody who was not there.
 
 ## Contributing
 
-Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). FastMDXplora
+Contributions welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). Each
+contributor signs the [Contributor License Agreement](CLA.md) once. FastMDXplora
 follows the [Contributor Covenant](CODE_OF_CONDUCT.md).
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+FastMDXplora is released under the MIT License. See [LICENSE](LICENSE).
 
 ---
 
 <div align="center">
 
-Built in the [AAI Research Lab](https://aai-research-lab.github.io) at
-California State University Dominguez Hills, on MDTraj, OpenMM, PDBFixer,
-OpenFF, RDKit, NumPy, SciPy, scikit-learn and Matplotlib.
+Built in the [AAI Research Lab](https://aai-research-lab.github.io) on MDTraj,
+OpenMM, PDBFixer, OpenFF, RDKit, NumPy, SciPy, scikit-learn, Matplotlib and
+Mol\*.
+
+© Copyright 2026, Adekunle Aina, Derrick Kwan, and FastMDXplora contributors.
 
 </div>

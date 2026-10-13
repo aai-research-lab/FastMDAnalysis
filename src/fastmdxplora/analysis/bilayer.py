@@ -1,0 +1,593 @@
+"""What the bilayer analyses share: where the bilayer is, and its geometry.
+
+`area_per_lipid`, `bilayer_thickness` and `lipid_order` measure a lipid
+bilayer, and each needs the same three things first: which atoms are its
+lipids and their heads, where its centre is, and which leaflet each lipid is
+in. They are worked out here once.
+
+**The membrane normal is z.** A bilayer built by OpenMM lies in the xy plane,
+and so does one from CHARMM-GUI or GROMACS; the membrane barostat couples x
+and y together for that reason. The head groups are checked to form two
+layers along z before anything is measured, and a system whose lipids do not
+is refused rather than measured along the wrong axis.
+
+**The centre of the bilayer is found across the periodic boundary.** A
+bilayer can sit anywhere in z, including across the box face, so its centre
+is not the mean of the lipid coordinates. The lipids fill one slab of the
+periodic cell and the water the rest; the centre is the middle of the lipid
+slab, found from the largest stretch of z that holds no lipid. Each head is
+assigned to a leaflet by which side of that centre it is on, frame by frame.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+import matplotlib.pyplot as plt
+import mdtraj as md
+import numpy as np
+import pandas as pd
+
+from fastmdxplora.analysis.base import Analysis
+from fastmdxplora.lipids import (
+    BILAYER_MINIMUM_LIPIDS,
+    has_no_phosphate,
+    is_lipid,
+    lipid_count,
+)
+from fastmdxplora.refusals import StudyError
+
+__all__ = [
+    "Bilayer",
+    "BilayerSeries",
+    "Leaflets",
+    "box_vectors",
+    "leaflets",
+    "CROSS_SECTION_PLANES_NM",
+    "LIPID_PROBE_NM",
+    "cross_section",
+    "find_bilayer",
+    "bilayer_centre",
+    "density_profile",
+    "PROFILE_BIN_NM",
+    "PROFILE_COMPONENTS",
+]
+
+#: Heights, relative to the bilayer centre, at which the protein's cross
+#: section is taken. They span the hydrophobic core, where the protein
+#: displaces acyl chains rather than head groups, so the area the lipids do
+#: not have is the mean of the protein's section across it.
+CROSS_SECTION_PLANES_NM = (-1.0, -0.5, 0.0, 0.5, 1.0)
+
+#: Spacing of the grid the cross section is counted on.
+GRID_SPACING_NM = 0.05
+
+#: The radius of what approaches the protein in the hydrophobic core: an
+#: acyl chain's methylene group. A lipid cannot reach a crevice narrower
+#: than this, so the protein's area is what lies inside the outline such a
+#: probe traces round it.
+LIPID_PROBE_NM = 0.20
+
+#: Van der Waals radii (Bondi 1964; H after Rowland and Taylor 1996), nm.
+_VDW_NM = {"H": 0.110, "C": 0.170, "N": 0.155, "O": 0.152, "S": 0.180,
+           "P": 0.180, "SE": 0.190}
+_VDW_DEFAULT_NM = 0.170
+
+#: Covalent radii (Cordero et al. 2008), nm, for finding bonds by distance.
+_COVALENT_NM = {"H": 0.031, "C": 0.076, "N": 0.071, "O": 0.066, "P": 0.107,
+                "S": 0.105}
+_BOND_TOLERANCE_NM = 0.045
+
+#: Phosphate heads closer than this to the bilayer centre are not in a
+#: leaflet; more than a tenth of them there, and the lipids are not a
+#: bilayer normal to z.
+_MID_PLANE_NM = 1.0
+
+#: Water residue names, which neither occupy the bilayer nor are counted:
+#: those OpenMM's force fields and its PDB name table use (HOH, WAT, SOL,
+#: TIP3, TP3, T4P, SPCE, OPC, TP4E, TP5E, ...), and those other packages
+#: write for the same models. Water under any other name is still found by
+#: MDTraj's own test or by its composition (:func:`_is_water`).
+_WATER = frozenset({
+    "HOH", "WAT", "H2O", "DOD", "SOL", "OH2", "HHO", "OHH",
+    "TIP", "TIP2", "TIP3", "TIP4", "TIP5", "TIP3P", "TIP4P", "TIP5P",
+    "TIP4PEW", "TIP4P2005", "TP3", "TP3B", "TP3F", "TP4", "TP4E", "TP45",
+    "TP5", "TP5E", "T3P", "T4P", "T4E", "T5P", "SPC", "SPCE", "SPC/E",
+    "OPC", "OPC3", "SWM4", "SWM6",
+})
+
+#: How water models' virtual sites are named, for a topology that gives
+#: them no element: TIP4P's and OPC's M or MW (EPW in AMBER), TIP5P's lone
+#: pairs LP or EP.
+_VIRTUAL_SITE_NAMES = ("M", "EP", "LP")
+
+
+def _symbol(atom: Any) -> str:
+    element = getattr(atom, "element", None)
+    symbol = getattr(element, "symbol", None)
+    if symbol:
+        return str(symbol).upper()
+    return "".join(ch for ch in atom.name if ch.isalpha())[:1].upper()
+
+
+@dataclass
+class Bilayer:
+    """Where the bilayer's lipids are in a topology."""
+
+    #: One head atom per lipid: the phosphorus of a phospholipid (found by
+    #: its element, since force fields name it P, P31 or P8), the hydroxyl
+    #: oxygen of a sterol or a ceramide.
+    heads: np.ndarray
+    #: Whether each head is a phosphorus.
+    phosphate: np.ndarray
+    #: Every heavy atom of every lipid, to find the centre from.
+    lipid_atoms: np.ndarray
+    #: Atoms of anything in the bilayer that is not lipid, water or an ion.
+    occupants: np.ndarray
+    #: How many of each lipid, by residue name.
+    composition: dict[str, int] = field(default_factory=dict)
+    #: The phosphorus of each occupant residue that has one, by residue name.
+    #: A lipid under a name not read as a lipid is one of these.
+    occupant_phosphorus: dict[str, list[int]] = field(default_factory=dict)
+
+
+def _is_water(residue: Any, atoms: list[Any]) -> bool:
+    """Whether a residue is a water molecule.
+
+    By name (:data:`_WATER`), by MDTraj's own test, or by what it is made of:
+    one oxygen, two hydrogens, and nothing else but massless virtual sites,
+    which is every rigid water model from TIP3P to OPC and TIP5P whatever
+    the residue is called. Water reaching the bilayer's core and read as
+    protein would be taken out of the area per lipid.
+    """
+    if residue.name.strip().upper() in _WATER or getattr(residue, "is_water", False):
+        return True
+    oxygen = hydrogen = 0
+    for atom in atoms:
+        element = getattr(atom, "element", None)
+        if element is not None and not getattr(element, "mass", 1.0):
+            continue  # a virtual site: OPC's and TIP4P's M, TIP5P's lone pairs
+        if element is None and atom.name.upper().startswith(_VIRTUAL_SITE_NAMES):
+            continue
+        symbol = _symbol(atom)
+        if symbol == "O":
+            oxygen += 1
+        elif symbol == "H":
+            hydrogen += 1
+        else:
+            return False
+    return oxygen == 1 and hydrogen == 2
+
+
+def _phosphorus(atoms: list[Any]) -> Any | None:
+    """A lipid's phosphate phosphorus, by element.
+
+    CHARMM36 names it P and AMBER's Lipid17 and Lipid21 name it P31, so a
+    name does not find it. Where a lipid has several (a cardiolipin, a
+    phosphoinositide), the one named P is the glycerol phosphate, and
+    otherwise the first is taken.
+    """
+    found = [a for a in atoms if _symbol(a) == "P"]
+    if not found:
+        return None
+    return next((a for a in found if a.name.upper() == "P"), found[0])
+
+
+def find_bilayer(topology: md.Topology) -> Bilayer:
+    """The heads, lipid atoms and occupants of the bilayer, or a refusal."""
+    names = [residue.name for residue in topology.residues]
+    if lipid_count(names) < BILAYER_MINIMUM_LIPIDS:
+        raise StudyError(
+            f"This system holds {lipid_count(names)} lipid molecule(s), and a "
+            f"bilayer has at least {BILAYER_MINIMUM_LIPIDS}. There is no "
+            "bilayer to analyse.",
+            code="analysis.system.inapplicable")
+    heads: list[int] = []
+    phosphate: list[bool] = []
+    lipid_atoms: list[int] = []
+    occupants: list[int] = []
+    composition: dict[str, int] = {}
+    occupant_phosphorus: dict[str, list[int]] = {}
+    for residue in topology.residues:
+        atoms = list(residue.atoms)
+        if is_lipid(residue.name):
+            lipid_atoms.extend(a.index for a in atoms if _symbol(a) != "H")
+            head = _phosphorus(atoms)
+            if head is not None:
+                heads.append(head.index)
+                phosphate.append(True)
+            elif has_no_phosphate(residue.name):
+                # A sterol or a ceramide: its hydroxyl oxygen on C3 (O3 in
+                # CHARMM36), else its first oxygen.
+                oxygens = [a for a in atoms if _symbol(a) == "O"]
+                named = [a for a in oxygens if a.name.upper() == "O3"]
+                if not oxygens:
+                    continue
+                heads.append((named or oxygens)[0].index)
+                phosphate.append(False)
+            else:
+                continue
+            composition[residue.name] = composition.get(residue.name, 0) + 1
+        elif len(atoms) > 1 and not _is_water(residue, atoms):
+            occupants.extend(a.index for a in atoms)
+            head = _phosphorus(atoms)
+            if head is not None:
+                occupant_phosphorus.setdefault(residue.name, []).append(head.index)
+    return Bilayer(np.asarray(heads, dtype=int), np.asarray(phosphate, dtype=bool),
+                   np.asarray(lipid_atoms, dtype=int),
+                   np.asarray(occupants, dtype=int), composition,
+                   occupant_phosphorus)
+
+
+def _wrapped(dz: np.ndarray, length: np.ndarray | float) -> np.ndarray:
+    """A displacement along z brought into [-L/2, L/2)."""
+    return dz - length * np.floor(dz / length + 0.5)
+
+
+def bilayer_centre(z: np.ndarray, length: float) -> float:
+    """The middle of the lipid slab in a periodic cell of height ``length``.
+
+    The water slab is the longest run of z that holds (nearly) no lipid
+    atom; the lipid slab is everything else, and its centre is the mean of
+    the lipid coordinates measured from the middle of the water. Without a
+    water slab (a box too thin to have one) the circular mean is used.
+    """
+    bins = max(16, int(np.floor(length / 0.1)))
+    width = length / bins
+    counts = np.bincount((np.mod(z, length) / width).astype(int) % bins,
+                         minlength=bins)
+    empty = counts <= 0.02 * counts.max()
+    if not empty.any():
+        angle = 2 * np.pi * z / length
+        mean = np.arctan2(np.sin(angle).mean(), np.cos(angle).mean())
+        return float(np.mod(mean * length / (2 * np.pi), length))
+    doubled = np.concatenate([empty, empty])
+    best_start, best_length, start = 0, 0, None
+    for index, is_empty in enumerate(doubled):
+        if is_empty and start is None:
+            start = index
+        if (not is_empty or index == len(doubled) - 1) and start is not None:
+            stop = index if not is_empty else index + 1
+            if min(stop - start, bins) > best_length:
+                best_start, best_length = start, min(stop - start, bins)
+            start = None
+    gap_middle = (best_start + best_length / 2) * width
+    shifted = np.mod(z - gap_middle, length)
+    return float(np.mod(gap_middle + shifted.mean(), length))
+
+
+def box_vectors(traj: md.Trajectory) -> np.ndarray:
+    """The unit cell vectors, or a refusal where there are none.
+
+    MDTraj builds them from lengths and angles with the first two in the xy
+    plane, which is the plane of a bilayer built with its normal along z.
+    """
+    vectors = traj.unitcell_vectors
+    if vectors is None:
+        raise StudyError(
+            "This trajectory carries no periodic box. A bilayer's area is the "
+            "area of the box it spans, so without one there is nothing to "
+            "divide.", code="analysis.system.inapplicable")
+    return np.asarray(vectors, dtype=np.float64)
+
+
+@dataclass
+class Leaflets:
+    centre: np.ndarray        # (frames,) bilayer centre in z, nm
+    dz: np.ndarray            # (frames, heads) height of each head above it
+    upper: np.ndarray         # (frames, heads) bool
+
+
+def leaflets(traj: md.Trajectory, bilayer: Bilayer) -> Leaflets:
+    vectors = box_vectors(traj)
+    heights = vectors[:, 2, 2]
+    z_lipid = traj.xyz[:, bilayer.lipid_atoms, 2].astype(np.float64)
+    centre = np.array([bilayer_centre(z_lipid[f], heights[f])
+                       for f in range(traj.n_frames)])
+    z_heads = traj.xyz[:, bilayer.heads, 2].astype(np.float64)
+    dz = _wrapped(z_heads - centre[:, None], heights[:, None])
+    phosphorus = dz[:, bilayer.phosphate]
+    if phosphorus.size:
+        near_middle = float(np.mean(np.abs(phosphorus) < _MID_PLANE_NM))
+        upper_share = float(np.mean(phosphorus > 0))
+        if near_middle > 0.1 or not 0.25 <= upper_share <= 0.75:
+            raise StudyError(
+                f"The lipids' phosphates do not form two layers normal to z: "
+                f"{near_middle:.0%} of them are within {_MID_PLANE_NM} nm of "
+                f"the middle of the lipid slab, and {upper_share:.0%} are above "
+                "it. A bilayer in the xy plane has almost none in the middle "
+                "and half above. Analysing this as a bilayer would report "
+                "numbers for a structure that is not there.",
+                code="analysis.system.inapplicable")
+    return Leaflets(centre, dz, dz > 0)
+
+
+def _area_xy(vectors: np.ndarray) -> np.ndarray:
+    return np.abs(vectors[:, 0, 0] * vectors[:, 1, 1]
+                  - vectors[:, 0, 1] * vectors[:, 1, 0])
+
+
+def _radii(topology: md.Topology, atoms: np.ndarray) -> np.ndarray:
+    return np.array([_VDW_NM.get(_symbol(topology.atom(int(i))), _VDW_DEFAULT_NM)
+                     for i in atoms])
+
+
+def cross_section(xy: np.ndarray, radii: np.ndarray, cell: np.ndarray,
+                  spacing: float = GRID_SPACING_NM, probe: float = 0.0) -> float:
+    """Area a disc of radius ``probe`` cannot reach, among discs at ``xy``, nm^2.
+
+    With ``probe`` zero, the area of the union of the discs. With a probe,
+    the area inside the outline the probe traces as it rolls round them
+    (a closing: the discs grown by the probe, then shrunk by it), with any
+    region the probe cannot get into filled: the gap between packed helices
+    is protein as far as a lipid is concerned.
+
+    ``cell`` holds the two in-plane box vectors as rows. Counted on a grid of
+    the cell's own fractional coordinates, so a disc across the box edge is
+    counted once, on both sides of it.
+    """
+    if len(xy) == 0:
+        return 0.0
+    matrix = cell.T                       # columns are the box vectors
+    inverse = np.linalg.inv(matrix)
+    total = abs(np.linalg.det(matrix))
+    lengths = np.linalg.norm(cell, axis=1)
+    counts = np.maximum(1, np.ceil(lengths / spacing).astype(int))
+    na, nb = int(counts[0]), int(counts[1])
+    grown = radii + probe
+    frac = xy @ inverse.T
+    frac -= np.floor(frac)
+    ci = np.floor(frac[:, 0] * na).astype(int)
+    cj = np.floor(frac[:, 1] * nb).astype(int)
+    # Grid lines along each vector are this far apart, measured across them.
+    across = np.array([total / lengths[1] / na, total / lengths[0] / nb])
+    reach = np.ceil(grown.max() / across).astype(int) + 1
+    di, dj = np.meshgrid(np.arange(-reach[0], reach[0] + 1),
+                         np.arange(-reach[1], reach[1] + 1), indexing="ij")
+    di, dj = di.ravel(), dj.ravel()
+    i = ci[:, None] + di[None, :]
+    j = cj[:, None] + dj[None, :]
+    centre = np.stack([(i + 0.5) / na - frac[:, 0, None],
+                       (j + 0.5) / nb - frac[:, 1, None]], axis=-1)
+    offset = centre @ matrix.T
+    inside = (offset ** 2).sum(axis=-1) < (grown ** 2)[:, None]
+    occupied = np.zeros(na * nb, dtype=bool)
+    occupied[(np.mod(i, na) * nb + np.mod(j, nb))[inside]] = True
+    if probe > 0:
+        occupied = _closed(occupied.reshape(na, nb), matrix, na, nb, probe).ravel()
+    return float(occupied.sum()) * total / (na * nb)
+
+
+def _closed(grid: np.ndarray, matrix: np.ndarray, na: int, nb: int,
+            probe: float) -> np.ndarray:
+    """Shrink a grown occupancy grid by ``probe`` and fill what it encloses."""
+    from scipy import ndimage
+
+    if grid.all() or not grid.any():
+        return grid
+    # Rolled so an empty row and column lie on the edges, and nothing
+    # occupied is cut by them: filling takes a hole that touches an edge for
+    # open space.
+    shifts = []
+    for axis in (0, 1):
+        empty = np.flatnonzero(~grid.any(axis=1 - axis))
+        shifts.append(-int(empty[0]) if len(empty) else 0)
+    grid = np.roll(grid, shifts, axis=(0, 1))
+    k = np.array([np.linalg.norm(matrix[:, 0]) / na,
+                  np.linalg.norm(matrix[:, 1]) / nb])
+    ra, rb = (np.ceil(probe / k).astype(int) + 1)
+    oi, oj = np.meshgrid(np.arange(-ra, ra + 1), np.arange(-rb, rb + 1), indexing="ij")
+    step = np.stack([oi / na, oj / nb], axis=-1) @ matrix.T
+    element = (step ** 2).sum(axis=-1) <= probe ** 2
+    padded = np.pad(grid, ((ra, ra), (rb, rb)), mode="wrap")
+    shrunk = ndimage.binary_erosion(padded, structure=element)[ra:-ra, rb:-rb]
+    return ndimage.binary_fill_holes(shrunk)
+
+
+#: Width of the slabs the mass density profile is counted in, nm.
+PROFILE_BIN_NM = 0.1
+
+#: One atomic mass unit per cubic nanometre, in g/cm^3.
+_AMU_PER_NM3_IN_G_PER_CM3 = 1.66053906660e-3
+
+#: The parts of the system the density profile separates, in column order.
+PROFILE_COMPONENTS = ("lipid_heads", "lipid_tails", "water", "protein", "ions")
+
+
+def _hydrocarbon(residue: Any, xyz: np.ndarray, cell: np.ndarray) -> np.ndarray:
+    """For each atom of a lipid residue, whether it belongs to the chains.
+
+    A carbon bonded to nothing but carbon and hydrogen is chain, and so is a
+    hydrogen on one; everything else (the phosphate, the choline, the
+    glycerol, the ester carbonyls, a sterol's hydroxyl and the carbon that
+    carries it) is head. Bonds are found within the residue by covalent
+    distance at the nearest image, so a split Lipid21 tail is all chain and
+    its head residue keeps its carbonyls.
+    """
+    atoms = list(residue.atoms)
+    symbols = [_symbol(a) for a in atoms]
+    delta = xyz[:, None, :] - xyz[None, :, :]
+    fractional = delta @ np.linalg.inv(cell)
+    delta = (fractional - np.round(fractional)) @ cell
+    distance = np.sqrt((delta ** 2).sum(axis=-1))
+    radius = np.array([_COVALENT_NM.get(s, 0.076) for s in symbols])
+    bonded = distance < radius[:, None] + radius[None, :] + _BOND_TOLERANCE_NM
+    np.fill_diagonal(bonded, False)
+    carbon = np.array([s == "C" for s in symbols])
+    hydrogen = np.array([s == "H" for s in symbols])
+    other = ~(carbon | hydrogen)
+    chain = carbon & ~(bonded & other[None, :]).any(axis=1)
+    owner = np.where(hydrogen, np.argmax(bonded & ~hydrogen[None, :], axis=1), -1)
+    return chain | (hydrogen & (owner >= 0) & chain[np.maximum(owner, 0)])
+
+
+def _component_of_each_atom(traj: md.Trajectory) -> np.ndarray:
+    """The index into :data:`PROFILE_COMPONENTS` of every atom."""
+    topology = traj.topology
+    vectors = box_vectors(traj)[0]
+    part = np.full(topology.n_atoms, PROFILE_COMPONENTS.index("protein"), dtype=int)
+    templates: dict[tuple, np.ndarray] = {}
+    for residue in topology.residues:
+        atoms = list(residue.atoms)
+        index = np.array([a.index for a in atoms], dtype=int)
+        if is_lipid(residue.name):
+            key = (residue.name, tuple(a.name for a in atoms))
+            if key not in templates:
+                templates[key] = _hydrocarbon(
+                    residue, traj.xyz[0, index].astype(np.float64), vectors)
+            part[index] = np.where(templates[key], PROFILE_COMPONENTS.index("lipid_tails"),
+                                   PROFILE_COMPONENTS.index("lipid_heads"))
+        elif _is_water(residue, atoms):
+            part[index] = PROFILE_COMPONENTS.index("water")
+        elif len(atoms) == 1:
+            part[index] = PROFILE_COMPONENTS.index("ions")
+    return part
+
+
+def _masses(topology: md.Topology) -> np.ndarray:
+    """Each atom's mass, amu; zero for a virtual site or an unknown element."""
+    return np.array([float(getattr(a.element, "mass", 0.0) or 0.0)
+                     if a.element is not None else 0.0 for a in topology.atoms])
+
+
+def density_profile(traj: md.Trajectory, sides: Leaflets,
+                    bin_nm: float = PROFILE_BIN_NM) -> pd.DataFrame:
+    """Mass density along the normal of each part of the system, g/cm^3.
+
+    Every atom's height above the bilayer centre is taken in each frame,
+    across the periodic boundary, and its mass counted in a slab of
+    thickness ``bin_nm``; the slabs are laid from the centre outwards, so
+    one is centred on it in every frame. The density of a slab is the mass
+    in it summed over the frames, over the volume it had summed over the
+    frames::
+
+        rho(z) = sum_f m_f(z) / sum_f (A_f w_f(z))
+
+    with ``A_f`` the box's area in xy and ``w_f(z)`` the part of the slab
+    inside the box (``bin_nm``, less at the two ends where the slab passes
+    the box's face). ``width_nm`` is that part, averaged over the frames,
+    so ``sum(rho * width_nm) * A`` is the mean mass of a component.
+    """
+    vectors = box_vectors(traj)
+    area = _area_xy(vectors)
+    heights = vectors[:, 2, 2]
+    # Slabs centred on -half ... +half bins, so the edges reach past both
+    # faces: with one slab fewer above the centre than below, the atoms
+    # beyond the last edge were clipped into the last slab, which then read
+    # up to 1.47 times bulk water at the top of a 6.00 nm box.
+    half = float(np.ceil(heights.max() / 2.0 / bin_nm - 1e-9))
+    edges = (np.arange(-half, half + 2) - 0.5) * bin_nm
+    centres = 0.5 * (edges[:-1] + edges[1:])
+    bins = len(centres)
+    part = _component_of_each_atom(traj)
+    masses = _masses(traj.topology)
+    mass = np.zeros((len(PROFILE_COMPONENTS), bins))
+    volume = np.zeros(bins)
+    width = np.zeros(bins)
+    for frame in range(traj.n_frames):
+        dz = _wrapped(traj.xyz[frame, :, 2].astype(np.float64) - sides.centre[frame],
+                      heights[frame])
+        slab = np.clip(np.floor((dz - edges[0]) / bin_nm).astype(int), 0, bins - 1)
+        mass += np.bincount(part * bins + slab, weights=masses,
+                            minlength=len(PROFILE_COMPONENTS) * bins
+                            ).reshape(len(PROFILE_COMPONENTS), bins)
+        inside = np.clip(np.minimum(edges[1:], heights[frame] / 2)
+                         - np.maximum(edges[:-1], -heights[frame] / 2), 0.0, None)
+        volume += area[frame] * inside
+        width += inside
+    with np.errstate(divide="ignore", invalid="ignore"):
+        density = np.where(volume > 0, mass / volume, np.nan) * _AMU_PER_NM3_IN_G_PER_CM3
+    table = pd.DataFrame({"z_nm": centres, "width_nm": width / traj.n_frames})
+    for index, name in enumerate(PROFILE_COMPONENTS):
+        table[f"{name}_g_cm3"] = density[index]
+    return table[table["width_nm"] > 0].reset_index(drop=True)
+
+
+class BilayerSeries(Analysis):
+    """What the two per-frame bilayer measures share."""
+
+    time_series = True
+    honours_selection = False
+    requires_bilayer = True
+    _traj_for_plot: md.Trajectory | None = None
+
+    def run(self, traj: md.Trajectory):
+        self._traj_for_plot = traj
+        return super().run(traj)
+
+    def plot(self, result: np.ndarray, ax: plt.Axes) -> None:
+        if self._traj_for_plot is not None:
+            x = self.frame_axis(self._traj_for_plot)[0]
+        else:
+            x = np.arange(len(result))
+        ax.plot(x, result, linewidth=1.2)
+
+    def default_xlabel(self) -> str | None:
+        if self._traj_for_plot is None:
+            return "Frame"
+        return self.frame_axis(self._traj_for_plot)[1]
+
+    def _note_composition(self, traj: md.Trajectory, bilayer: Bilayer,
+                          sides: Leaflets) -> None:
+        upper = sides.upper.sum(axis=1)
+        lower = (~sides.upper).sum(axis=1)
+        self.findings["bilayer"] = {
+            "lipids": int(len(bilayer.heads)),
+            "composition": dict(sorted(bilayer.composition.items())),
+            "per_leaflet_first_frame": [int(upper[0]), int(lower[0])],
+            "normal": "z",
+        }
+        self._note_unread_lipids(traj, bilayer, sides)
+        # Phospholipids and sterols apart: a phospholipid crosses the bilayer
+        # in hours, cholesterol in microseconds or less, so the same change
+        # in count means different things.
+        phospho = sides.upper[:, bilayer.phosphate].sum(axis=1)
+        if np.any(phospho != phospho[0]):
+            self.findings["leaflet_changes"] = (
+                f"The number of phospholipids in the upper leaflet ranges from "
+                f"{int(phospho.min())} to {int(phospho.max())} over the run. A "
+                "phospholipid crossing the bilayer (flip-flop) takes hours on "
+                "the experimental clock, so a change within a simulation is a "
+                "head group wandering near the middle, a bilayer that has "
+                "come apart, or a lipid that has left it.")
+        others = sides.upper[:, ~bilayer.phosphate].sum(axis=1)
+        if np.any(others != others[0]):
+            self.findings["sterol_leaflet_changes"] = (
+                f"The number of sterols and other lipids without a phosphate "
+                f"in the upper leaflet ranges from {int(others.min())} to "
+                f"{int(others.max())} over the run. Cholesterol crosses a "
+                "bilayer in microseconds or faster, and lies near its middle "
+                "on the way, so this is expected in a long run and is not a "
+                "sign of a damaged bilayer.")
+
+    def _note_unread_lipids(self, traj: md.Trajectory, bilayer: Bilayer,
+                            sides: Leaflets) -> None:
+        """Say so when something read as protein has a phosphorus among the
+        lipid heads: a lipid under a residue name not read as one.
+
+        It is counted as protein, so it takes area from the lipids and is
+        left out of their number. A phosphoserine or a bound nucleotide
+        carries a phosphorus too, which is why this is said, not acted on.
+        """
+        if not bilayer.occupant_phosphorus or not len(bilayer.heads):
+            return
+        # As far from the centre as the lipids' heads reach in the first
+        # frame, and a little more for a head under a name not read here.
+        reach = float(np.abs(sides.dz[0]).max()) + 0.3
+        height = box_vectors(traj)[0, 2, 2]
+        found = []
+        for name, atoms in sorted(bilayer.occupant_phosphorus.items()):
+            dz = _wrapped(traj.xyz[0, atoms, 2].astype(np.float64) - sides.centre[0],
+                          height)
+            inside = int(np.count_nonzero(np.abs(dz) <= reach))
+            if inside:
+                found.append(f"{inside} {name}")
+        if found:
+            self.findings["unread_lipids"] = (
+                f"{', '.join(found)} residue(s) carry a phosphorus within "
+                f"{reach:.1f} nm of the bilayer centre, among the lipids' "
+                "heads, and are not under a lipid name read here, so they are "
+                "counted as protein. If they are lipids, the "
+                "area per lipid is too large and the protein's share too "
+                "large: rename them to the lipid's CHARMM36 or AMBER name.")

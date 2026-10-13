@@ -119,7 +119,10 @@ def test_existing_config_launch_refuses_nonempty_output_directory(tmp_path: Path
     popen.assert_not_called()
 
 
-def test_runtime_stop_escalates_after_terminate_timeout(tmp_path: Path) -> None:
+def test_runtime_stop_escalates_after_terminate_timeout(tmp_path: Path, monkeypatch) -> None:
+    from fastmdxplora.simulation.runner import STOP_GRACE_ENV
+
+    monkeypatch.delenv(STOP_GRACE_ENV, raising=False)
     runtime = DashboardRuntime(
         workspace_root=tmp_path / "workspace",
         exploration_root=tmp_path / "runs",
@@ -144,7 +147,9 @@ def test_runtime_stop_escalates_after_terminate_timeout(tmp_path: Path) -> None:
     result = runtime.stop()
 
     assert result["stopped"] is True
-    assert calls == ["terminate", "wait:5", "kill", "wait:5"]
+    # Long enough for a run in production to reach its next frame and
+    # write a checkpoint there before it is killed.
+    assert calls == ["terminate", "wait:30", "kill", "wait:5"]
 
 
 def test_runtime_rejects_zero_exit_without_simulation_outputs(tmp_path: Path) -> None:
@@ -371,13 +376,14 @@ def test_the_sidebar_has_the_load_control():
     page = (pathlib.Path(gui.__file__).parent / "templates"
             / "dashboard.html").read_text(encoding="utf-8")
     assert 'id="load-study"' in page
-    # In the study block, not the controls row: which study this is, is
-    # that block's whole question, and the row holds three.
+    # In the study card's menu, not the progress card's row: which study
+    # this is, is the card's whole question, and the row holds two.
     study = page[page.index('class="sidebar-study"'):page.index('class="sidebar-progress"')]
-    assert 'id="load-study"' in study
+    menu = study[study.index('id="study-menu"'):]
+    assert 'id="load-study"' in menu and 'id="open-output"' in menu
     row = page[page.index('class="sidebar-controls"'):]
     row = row[:row.index("</div>")]
-    assert row.count("<button") == 3
+    assert row.count("<button") == 2
     # No data-picks on the hidden input: the picker would attach a second
     # "Browse" button for the same action.
     assert 'id="load-study-path" data-picks' not in page
@@ -421,10 +427,11 @@ def test_the_sidebar_reads_top_down():
     page = (pathlib.Path(gui.__file__).parent / "templates"
             / "dashboard.html").read_text(encoding="utf-8")
     study = page[page.index('class="sidebar-study"'):page.index('class="sidebar-progress"')]
-    # Status row, then Running, then Load available study.
-    assert study.index('id="topbar-status-text"') < study.index('id="study-elsewhere"') < study.index('id="load-study"')
+    # The card with its status line, then its menu of studies to switch to,
+    # then what is running elsewhere.
+    assert study.index('id="topbar-status-text"') < study.index('id="load-study"') < study.index('id="study-elsewhere"')
     assert 'id="study-elsewhere-pct"' in study
-    assert ">Load available study<" in study
+    assert ">Open another folder&hellip;<" in study
 
 
 def test_the_run_outlives_the_server(tmp_path: Path) -> None:
@@ -532,7 +539,8 @@ def test_a_fresh_server_adopts_a_running_study_and_can_stop_it(tmp_path):
         assert rt.process.pid == child.pid
         assert rt.stop()["stopped"] is True
         child.wait(timeout=5)
-        assert rt.snapshot()["status"] in {"failed", "completed"}
+        # Stopped here, as asked: said as stopped, not as failed.
+        assert rt.snapshot()["status"] == "stopped"
     finally:
         if child.poll() is None:
             child.kill()
@@ -640,6 +648,34 @@ def test_a_run_is_judged_by_what_it_runs_not_where_the_interpreter_lives():
         r'"C:\py\python.exe" "C:\x\fake.py" explore --output C:\Users\r\Temp\x\fastmdxplora_1UAO_study_1', win)
     assert _command_line_is_a_run(r'"C:\envs\fastmdxplora\Scripts\fastmdx.exe" explore', win)
     assert not _command_line_is_a_run(r'"C:\envs\fastmdxplora\python.exe" -c "import time"', win)
+
+
+def test_a_recorded_command_tells_two_runs_of_the_program_apart():
+    # Any `fastmdx` process was taken for the run: with two studies
+    # running, a stale record whose PID the other study's run had been
+    # given was adopted, and Stop would have stopped the other study.
+    from fastmdxplora.gui.exploration import _command_line_is_a_run
+
+    study = Path("/lab/a")
+    recorded = ["/env/bin/fastmdx", "explore", "-c", "/lab/a.yml"]
+    assert _command_line_is_a_run(
+        "/env/bin/python3 /env/bin/fastmdx explore -c /lab/a.yml", study, recorded)
+    assert not _command_line_is_a_run(
+        "/env/bin/python3 /env/bin/fastmdx explore -c /lab/b.yml", study, recorded)
+    # The program is written differently in sys.argv and on the command
+    # line when it runs as a module; the arguments are what identify it.
+    assert _command_line_is_a_run(
+        "/usr/bin/python3 -m fastmdxplora.cli.main explore --output /tmp/s", study,
+        ["/site/fastmdxplora/cli/main.py", "explore", "--output", "/tmp/s"])
+    # An argument holding a space, split the same way on both sides.
+    assert _command_line_is_a_run(
+        "/env/bin/fastmdx explore -c /My Lab/a.yml", study,
+        ["/env/bin/fastmdx", "explore", "-c", "/My Lab/a.yml"])
+    # Still the program: a recorded command does not make any process a run.
+    assert not _command_line_is_a_run(
+        "/usr/bin/python3 other.py explore -c /lab/a.yml", study, recorded)
+    # A record from before the command was kept is judged as before.
+    assert _command_line_is_a_run("/env/bin/fastmdx explore -c /lab/b.yml", study)
 
 
 def test_liveness_never_touches_the_process():

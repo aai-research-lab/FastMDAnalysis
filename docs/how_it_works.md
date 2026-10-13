@@ -27,7 +27,7 @@ parameterised, a crystallisation additive discarded, a coordinated metal kept.
 Then it solvates, adds ions, and writes a serialised system.
 
 **Where the structure does not say enough, it stops.** An unknown residue, a
-ligand whose charge cannot be settled, a clash that means the pose is wrong —
+ligand whose charge cannot be determined, a clash that means the pose is wrong —
 each produces a refusal naming what could not be decided and what would settle
 it, rather than a guess that runs.
 
@@ -39,8 +39,8 @@ succeeded is recorded, because an interaction computed from inferred bond
 orders is a weaker claim than one computed from chemistry that was known.
 
 **A chemistry file sets the protonation state.** The file is what gets
-parameterised, so the form it is drawn in is the form that is simulated. An
-ideal SDF from the Chemical Component Dictionary draws amidines and
+parameterised, so the form it is given in is the form that is simulated. An
+ideal SDF from the Chemical Component Dictionary gives amidines and
 carboxylates neutral, which is not their state at physiological pH, and a study
 that meant the charged form needs a file in that form. Stating
 `setup.ligand_net_charge` checks the file rather than overriding it: where the
@@ -74,8 +74,9 @@ of the truncation, and its other parameters compensate for that. CHARMM36 is
 developed at 1.2 nm with switching from 1.0; the AMBER force fields are
 developed with hard truncation near 1.0 and are not switched at all, since
 switching them moves a run away from the parameterisation rather than towards
-it. Setting `setup.nonbonded_cutoff_nm` or `setup.switch_distance_nm` overrides
-this, and the run records which it used.
+it. Setting `setup.nonbonded_cutoff_nm`, `setup.use_switching_function` or
+`setup.switch_distance_nm` overrides this, a stated 1.0 nm included, and the
+run records what it used in `setup_parameters.json`.
 
 The switching function is potential-based. A force-based switch is a different
 function and is not available here, so a protocol specifying one cannot be
@@ -96,7 +97,7 @@ The equilibration stages are independent of `simulation.duration_ns`, which
 sets the production length only. Defaults are 500 ps NVT, 1 ns NPT and 2 ns
 production, at a 2 fs timestep and 300 K.
 
-Beyond that it can hold parts of the system still while the solvent settles,
+Beyond that it can hold parts of the system still while the solvent equilibrates,
 embed a protein in a lipid bilayer, and bias the run along a coordinate you
 name. Those are in [Studies beyond a box of water](studies.md), along with what
 the phase says when a run fails.
@@ -117,7 +118,7 @@ the study root for umbrella sampling. Those three are what the
 
 ## analysis
 
-**Measures the trajectory.** Twenty-four analyses of the system, plus three
+**Analyses the trajectory.** Twenty-four analyses of the system, plus three
 that read what a biased run itself produced.
 
 Each writes its data, its figure, and the settings it actually used. The full
@@ -128,7 +129,7 @@ Two behaviours are worth knowing before you read any result:
 
 **Each analysis gets its own copy of the trajectory.** MDTraj's superposition
 rotates coordinates in place, so an analysis that aligns would otherwise change
-what the next one measures. An interaction analysis once reported 252
+what the next one computes. An interaction analysis once reported 252
 hydrophobic contacts after RMSF and ligand RMSD had aligned the frames, and 10
 when run alone. The 10 was right.
 
@@ -156,10 +157,18 @@ is already recorded, so the paragraph is assembled from them. Nothing is
 invented, and anything the run did not record is named as missing rather than
 filled in with what is usual.
 
+Its **Analysis** part says how every number in the report was determined:
+where averaging started and how that start was detected, how the correlation
+between frames enters each error, when no error is given, and, for a study run
+until it knew, the rule that set its length and how it ended. It is written
+from what each analysis recorded and with the thresholds the estimator
+applies, so a mean recorded by an earlier release is not described as this
+one's. A study extended in pieces is given the production of all of them.
+
 It then reports **convergence**, which is a statement about how much
 independent information the trajectory holds. A frame is not an observation:
 consecutive frames are nearly the same structure, so the number of independent
-observations depends on how quickly a measure forgets where it was, not on how
+observations depends on how quickly an observable forgets where it was, not on how
 often frames were written. On a five-thousand-frame trajectory of Trp-cage the
 RMSD holds about twenty independent observations, so its uncertainty is some
 sixteen times what counting frames would give. Where a run is too short to say
@@ -196,18 +205,24 @@ Regions attach to **RMSF** and nothing else, because RMSF is indexed by residue
 — RMSD is indexed by frame, so a residue range has no meaning on it. The RMSF
 analysis therefore has to have run.
 
-A range outside the residues RMSF measured is refused, with both ranges named:
+A range outside the residues RMSF was computed over is refused, with both ranges named:
 the one you asked for and the one that exists. That is usually an off-by-one
 between a paper's numbering and the structure's, and seeing both makes it
 obvious.
 
 The labels are yours. FastMDXplora does not work out that residues 84 to 92 are
-a binding loop; it draws what you tell it to and calls it what you call it.
+a binding loop; it plots what you tell it to and calls it what you call it.
 
 **Writes** `report.md`, `report.pdf`, `slides.pptx`, `slides_outline.md`,
 `dashboard.html`, `analysis_summary.png`, `project_bundle.zip`. The PDF needs
-WeasyPrint; where it is absent the run records that in `not_produced.json` and
-writes the rest.
+WeasyPrint; where it or the slide deck cannot be written, the run records which
+and why in `not_produced.json` (code `report.format.unavailable`) and writes the
+rest.
+
+Scenes written with the study (`scenes/*.mvsx`, from the GUI, `fastmdx
+scene` or an AI app) are listed in `report.md` under Scenes, each linked and
+said in a line; a scene opens as it was shown in any viewer built on Mol\*,
+dropped on molstar.org or opened in the GUI.
 
 `dashboard.html` is a self-contained file that opens in a browser with no
 server. It is not the [FastMDXplora GUI](gui.md), which is a live interface
@@ -251,7 +266,7 @@ line, turns them off.
 runs/study/
 ├── setup/                  prepared and solvated structures, and what was decided
 ├── simulation/             the trajectory, the energy log, the settings used
-├── analysis/               one directory per measure
+├── analysis/               one directory per analysis
 ├── report/                 the written report, slides, dashboard, bundle
 ├── manifest.json           what happened          ← the Manifest
 ├── resolved_config.yml     what was asked for     ← re-runnable
@@ -260,4 +275,4 @@ runs/study/
 
 [The FastMDXplora Manifest](manifest.md) covers `manifest.json` and the
 per-phase records beside it. [Reading the results](results.md) is the map: what
-to open first, and how a measure says whether its number is one.
+to open first, and how an analysis says whether its number is determined.

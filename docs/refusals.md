@@ -82,9 +82,10 @@ on.
 four that **more computing can fix**. A caller that can extend a run should be
 able to recognise that without reading prose.
 
-`retryable` is true only for transient external failures — a service that did
-not answer may answer next time. A missing package is not retryable: something
-has to be installed first, which is a change.
+`retryable` is true only where the identical study may succeed unchanged: a
+service that did not answer may answer next time, and a run stopped by a
+signal is carried on by `fastmdx resume`. A missing package is not retryable:
+something has to be installed first, which is a change.
 
 ---
 
@@ -153,7 +154,7 @@ runs[0].phase("setup").refusal["code"]
 ## Not enough data is a refusal too
 
 The `analysis.sampling.*` family is the one this software is most distinctive
-for. A mean over a trajectory is not a measurement until two things are known
+for. A mean over a trajectory is not determined until two things are known
 about it: whether the system had stopped changing by the time averaging
 started, and how many independent observations the average rests on.
 
@@ -179,16 +180,65 @@ print(sampling_shortfall(rmsd_series, target_independent=10, frame_interval_ns=0
 ```
 
 Both numbers come from the same statistical inefficiency the refusal used,
-measured from **this** series rather than assumed, so the answer is for this
+estimated from **this** series rather than assumed, so the answer is for this
 system rather than for a typical one. Two systems with the same trajectory
 length can need very different amounts of further sampling for the same claim,
 and the difference is not visible in the length.
 
 Where the frames in hand are too few to resolve the correlation time, the
 shortfall is a **lower bound**. It is a planning figure: run at least that much
-and measure again.
+and analyse again.
 
 See [Reading the results](results.md#how-a-number-tells-you-what-it-is-worth).
+
+---
+
+## What would fix it, and what it costs
+
+A study that stops says why. It also says what would fix it, the command
+that runs the fix, and how long that takes at the speed the study itself
+ran. The console prints this under **What would fix it** when a study or
+`fastmdx resume` stops, the Agent answers from it, and a program reads it:
+
+```python
+from fastmdxplora.remedies import remedies_of
+
+for remedy in remedies_of("runs/umbrella"):
+    print(remedy.as_text())
+# (paths shortened)
+# windows 1 and 3: 2 of 4 windows recorded fewer than 200 values after
+# equilibration was discarded. Fix: Run them again with 4 ns of production
+# each, which should record the 200 values a histogram needs, keeping every
+# other window. Run: `fastmdx explore -c study.yml --output runs/umbrella
+# --simulate-duration-ns 4 --rerun-window 1 3`. Costs 8 ns of production and
+# 0.4 ns of equilibration across 2 runs; at this study's own speed on CUDA,
+# about 7 h one after another.
+```
+
+| What stopped it | The fix | The price |
+|---|---|---|
+| A run stopped by a signal, or runs never started | `fastmdx resume STUDY`, one command for the whole study | What remains of each run's production; a run that never reached production is counted from the top |
+| A run that ended without recording its end (its machine restarted, or a scheduler ended it) | `fastmdx resume STUDY`, which the GUI runs only where the run's process was seen to be gone; after a day of silence with no process here to ask, look where it runs first | What remains of its production |
+| Umbrella windows that recorded too few values | Those windows again, longer, with `--rerun-window` and the length that gives the thinnest the values it needs | That production for each window named |
+| Windows that ran with settings the config no longer gives | Those windows again with `--rerun-window`, or the settings restored | The windows named, or nothing |
+| Gaps between windows | A new study with the windows these windows' sampling implies, as a config | Every window of it |
+| A window that failed | Its own fix, then it and every window it kept from starting, with `--rerun-window` | Those windows |
+| A withheld mean | The study extended in place by what the analyses asked for | That production |
+| Any other refusal | What its disclosure allows, below | The study again from the top |
+
+What the fix may say is bounded by the registry, exactly as the refusal is.
+A `permitted_values` refusal gives the setting and its values. A
+`field_only` one names the setting and leaves the value to you. An `action`
+one gives the step, such as the install command. A `nothing` one says the
+choice is yours and names where a choice of that kind is recorded
+(`setup.ligand`, `setup.ph` or `setup.heterogens` for a ligand's
+protonation), and never what it should be.
+
+The price is production and equilibration in nanoseconds, and the wall time
+at the speed recorded in the study's own `cost.json`, or in another run of
+the same study where the one that stopped recorded no speed. That speed
+includes minimisation and equilibration, so the time errs long. Where no
+speed was ever measured, no time is given.
 
 ---
 
@@ -231,7 +281,7 @@ except StudyError as exc:
     if r.kind == "structural" and r.permitted:
         ...          # answerable by reading the Config
     elif r.retryable:
-        ...          # a service did not answer; try again
+        ...          # a service did not answer, or the run was stopped; try again
     else:
         raise        # a decision, or the machine
 ```
@@ -254,16 +304,42 @@ A few you are likely to meet, and what each means.
 | `config.option.missing_companion` | A setting that needs another one. Most often: no `systems:` list |
 | `setup.structure.undetermined` | The structure does not determine what to simulate. Usually a ligand whose chemistry could not be looked up — supply an SDF |
 | `setup.chemistry.protonation_undetermined` | A ligand's pKa sits inside the pH margin. A decision about the science |
-| `environment.path.exists` | The output directory already holds results. `--force-overwrite` if you mean to |
+| `environment.path.exists` | The output directory already holds results: `--force-overwrite` if you mean to, or another output. Sending to a machine, `--force-overwrite` is itself refused while the job of that name is still waiting or running (here, on another machine, or in a cluster's queue), or while a process works in its folder: wait for it or cancel it, or give another `--output`. See [Remote machines](remote.md#sending-a-study) |
+| `environment.demo.absent` | The demo study has not been published for this release, or the folder named holds none |
+| `environment.demo.unverified` | What was fetched as the demo study does not hash to the SHA-256 this release records, or is not a demo study; nothing is kept |
+| `environment.share.not_finished` | A study asked to be shared is running, stopped short, or is a study of several runs (share one run's folder). See [Sharing a study](sharing.md) |
+| `environment.share.unscrubbed` | A packed text file still names the study's folder, a home folder or the computer after they were replaced; nothing is written |
+| `environment.share.not_a_study` | What was given to open is not a shared FastMDXplora study, or keeps a profile version this release does not read |
+| `environment.share.unsafe` | A shared study's archive names a path outside itself, a link or a device, or unpacks to more than the limit; nothing is opened |
+| `environment.share.too_large` | A shared study's archive is over the download limit; `--open-most-gb` allows more |
+| `environment.share.unverified` | A file of a shared study is missing, not listed, or not the size or SHA-256 its packing list gives, or the archive is not the one Zenodo recorded; nothing is opened |
+| `setup.membrane.no_belt` | A bilayer was asked for and the structure does not look like a membrane protein: no slab buries enough apolar surface. Check `chains`, or give an OPM file |
+| `setup.membrane.orientation_unchecked` | A bilayer was asked for and the structure lies at an angle to z. The tilt is stated; `membrane_orient: true` rotates it |
+| `setup.membrane.packing_failed` | OpenMM's packing of the bilayer ran away to a NaN in each of three packings, each from its own seed. The seeds are stated; another `setup.random_seed` packs from other random numbers, and a structure not oriented across the slab fails every time |
+| `setup.prepared.mismatch` | An umbrella study's shared prepared system was built from another structure or other setup settings. The settings are named; `--force-overwrite` prepares it again |
+| `setup.prepared.unverifiable` | A shared prepared system records neither what it was prepared from nor its setup, so it cannot be checked. `--force-overwrite` prepares it again |
 | `environment.path.not_found` | A named file is not where the run was started from |
 | `environment.service.unreachable` | RCSB did not answer. The message carries the exact `curl` to run elsewhere |
 | `environment.service.machine_unreachable` | `ssh` could not reach a machine. The message quotes `ssh`'s own reason; try `ssh <name>` in the same terminal |
 | `remote.machine.unknown` | A machine that has not been inspected here. `fastmdx remote --machine <name>` first |
 | `remote.machine.not_ready` | Nothing on the machine holds this computer's code with its backends loading. `fastmdx remote --machine <name>` says why |
+| `remote.machine.no_room` | The study needs more GPU memory than the workstation's GPU has free now, or has at all, for its runs at once; or a GPU the config names is not on the machine; or the GPU planned has gone, or the GPUs did not answer as the send started. The message gives the memory needed, how it was worked out from the runs measured there, and what is free (`need_mb`: the memory that did not fit on the GPU that refused it); send it once a run there has ended, plan the send again, or send it to another machine. See [Remote machines](remote.md#sending-a-study) |
+| `remote.send.unconfirmed` | An AI app that cannot ask you was to send a study to another machine; nothing is sent. Send it with `fastmdx remote send`, or from an AI app that asks. See [Running on another machine](mcp.md#running-on-another-machine) |
+| `remote.fetch.unconfirmed` | An AI app that cannot ask you was to fetch 100 MB or more; nothing is fetched. Fetch it with `fastmdx remote fetch` |
+| `remote.input.outside` | A study sent to another machine names a file outside the folder holding its config, or a folder with a link leading out of it, or something in a place keys and credentials are kept (`.ssh`, `.gnupg`, `.aws` and the like, or FastMDXplora's own settings), named or inside a folder that travels; nothing is sent. Copy the file into the study's folder, without the keys. A prepared study named by `setup_from` or `resume_from` may sit beside it. See [Remote machines](remote.md#what-travels) |
+| `remote.job.cancel_not_taken` | The cluster did not take a cancel (its controller did not answer, or refused it), or its queue did not answer about a job last read as failed, so the job may still be going and its record says what was last known. Nothing was stopped; cancel it again in a minute, or with `scancel` there |
+| `remote.job.gone` | A job's folder is no longer on its machine (removed there, or the scratch was cleared), so there is nothing to fetch |
+| `remote.job.unknown` | No job of that name was sent from this computer, or its record here is not one FastMDXplora wrote (damaged, or written by something else). `fastmdx remote` lists the jobs |
+| `remote.job.unusable_name` | A job takes the name of its results folder, and that name has more than letters, digits and `. _ -`, or starts with a dot or a dash. Set `output` in the Config, or give `--output` |
+| `remote.job.unfinished` | A job still waiting or running was to be fetched; fetch it once `fastmdx remote status` says it has ended |
 | `environment.calibration.absent` | This machine has not been measured — see [Production runs and GPUs](production.md#knowing-how-long-before-committing-the-card) |
 | `environment.budget.exhausted` | An [Agent](agent.md) study was priced above its `--budget-hours` |
 | `analysis.unknown` | An analysis name that does not exist. The message names the nearest match and the full list |
 | `analysis.option.inapplicable` | A per-analysis option that analysis does not take |
 | `analysis.data.absent` | The trajectory or prepared system named is not there. Every candidate path is listed |
+| `simulation.resume.segment_named_twice` | Two segment folders of one study read as the same number (`segment-1` and `segment-001`). Both are named |
+| `analysis.data.not_this_system` | The prepared system where a run's record points is not the one it simulated (its `system.xml` differs). Both paths are named |
 | `analysis.sampling.*` | The run is sound and too short. `sampling_shortfall` says by how much |
+| `simulation.run.stopped` | The run was asked to stop (SIGTERM or Ctrl-C): in production it ended on a frame, with a checkpoint there; in a parallel study's other phases, where it was; a second Ctrl-C, or one outside production, where it was. Retryable: `fastmdx resume` carries it on |
+| `simulation.run.interrupted` | The run ended without recording its end: its process is gone (the machine restarted, or a scheduler or a person ended it), or nothing has been written for a day with no process here to ask. Retryable: `fastmdx resume` carries it on from its last checkpoint, offered to run from the GUI only where its process was seen to be gone |
 | `simulation.resume.bias_not_carried` | A metadynamics or steered run cannot be split into segments |

@@ -9,7 +9,7 @@ of giving that up. \\cite{gilson1997}
     K = 4 pi * integral over the bound range of exp(-beta [A(r) - c]) dr
     dG = -kT ln(K / V0),   V0 = 1661 A^3
 
-with c the constant that A(r) + 2kT ln r settles to in bulk.
+with c the constant that A(r) + 2kT ln r tends to in bulk.
 
 **Which free energy A(r) is matters, and getting it wrong doubles an
 entropy.** Umbrella sampling recombined by histogram gives the free energy
@@ -211,6 +211,7 @@ def binding_free_energy(
         return {
             "delta_g_kjmol": None,
             "bulk_residual_kjmol": residual,
+            "bulk_from_nm": float(radius[-n_bulk]),
             "refused": (
                 f"The outer {n_bulk} points depart from a free ligand's "
                 f"shape by {residual:.2f} kJ/mol, against "
@@ -218,7 +219,7 @@ def binding_free_energy(
                 "curve should fall as -2kT ln r, because the only thing "
                 "changing there is how much room the shell holds. Where it "
                 "does not, the windows stopped while the ligand was still "
-                "being held, and there is no reference to measure binding "
+                "being held, and there is no reference state to define binding "
                 "against: the run would still give a smooth curve and a "
                 "plausible number, wrong by however much of the well was "
                 "left outside. Extend the range until the tail has that "
@@ -324,6 +325,9 @@ def binding_free_energy(
             float(np.max(spread) - np.min(spread)) if len(spread) > 1
             else None),
         "bulk_residual_kjmol": residual,
+        # Where the range taken as bulk begins: the reference is read beyond
+        # it, and what is checked about the reference is checked there.
+        "bulk_from_nm": float(radius[-n_bulk]),
         "minimum_at_nm": minimum_at,
         "standard_volume_nm3": STANDARD_VOLUME_NM3,
         "convention": (

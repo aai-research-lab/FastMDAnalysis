@@ -19,12 +19,15 @@ class SetupSettings(TypedDict, total=False):
     mutations: list[Any]
     mutation_chain: str
     protonation_margin: float
+    residue_states: dict[str, Any]
+    model: int
     replace_nonstandard_residues: bool
     chains: list[Any]
     build_missing_termini: bool
     keep_heterogens: bool
     keep_water: bool
     fixed_pdb: str
+    preparation_audit: bool
     forcefield: Literal['auto', 'amber-fb15', 'amber-openff', 'amber14', 'charmm36']
     force_field: list[Any]
     water_model: str
@@ -39,12 +42,14 @@ class SetupSettings(TypedDict, total=False):
     membrane: Literal['POPC', 'POPE', 'DLPC', 'DLPE', 'DMPC', 'DOPC', 'DPPC']
     membrane_orient: bool
     membrane_orientation_checked: bool
+    membrane_center_z_nm: float
     solvent_padding_nm: float
     box_shape: Literal['cube', 'dodecahedron', 'octahedron']
     ion_positive: str
     ion_negative: str
     ion_concentration_M: float
     neutralize: bool
+    random_seed: int
     nonbonded_method: Literal['NoCutoff', 'CutoffNonPeriodic', 'CutoffPeriodic', 'PME', 'Ewald']
     nonbonded_cutoff_nm: float
     ewald_error_tolerance: float
@@ -72,6 +77,7 @@ class SimulateSettings(TypedDict, total=False):
     setup_from: str
     prepared_from: str
     extra_ns: float
+    stop_when: dict[str, Any]
     resume_unsealed: bool
     resume_from: str
     minimize: bool
@@ -120,13 +126,15 @@ class AnalyzeSettings(TypedDict, total=False):
         'rmsd', 'rmsf', 'rg', 'hbonds', 'ss', 'sasa', 'dihedrals', 'qvalue', 'cluster', 'dimred',
         'water_sites', 'ligand_rmsd', 'ligand_rmsf', 'pl_contacts', 'pl_hbonds', 'pl_interactions',
         'order_parameters', 'bfactor_comparison', 'thermodynamics', 'rdf', 'pmf', 'metad_surface',
-        'steered_work', 'coordination_number', 'end_to_end', 'moments_of_inertia', 'pair_distance'
+        'steered_work', 'coordination_number', 'end_to_end', 'moments_of_inertia', 'pair_distance',
+        'area_per_lipid', 'bilayer_thickness', 'lipid_order'
     ]]
     exclude: list[Literal[
         'rmsd', 'rmsf', 'rg', 'hbonds', 'ss', 'sasa', 'dihedrals', 'qvalue', 'cluster', 'dimred',
         'water_sites', 'ligand_rmsd', 'ligand_rmsf', 'pl_contacts', 'pl_hbonds', 'pl_interactions',
         'order_parameters', 'bfactor_comparison', 'thermodynamics', 'rdf', 'pmf', 'metad_surface',
-        'steered_work', 'coordination_number', 'end_to_end', 'moments_of_inertia', 'pair_distance'
+        'steered_work', 'coordination_number', 'end_to_end', 'moments_of_inertia', 'pair_distance',
+        'area_per_lipid', 'bilayer_thickness', 'lipid_order'
     ]]
     select_atoms: str
     selection: str
@@ -135,6 +143,7 @@ class AnalyzeSettings(TypedDict, total=False):
     first: int
     last: int
     figure_colours: Literal['colour', 'greyscale', 'both']
+    figure_width: Literal['page', 'single_column', 'double_column']
     options: dict[str, Any]
 
 

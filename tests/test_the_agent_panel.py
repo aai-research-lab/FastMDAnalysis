@@ -217,7 +217,7 @@ class TestThePageCarriesIt(unittest.TestCase):
                   / "agent-panel.js").read_text(encoding="utf-8")
         server = (Path(gui.__file__).parent
                   / "server.py").read_text(encoding="utf-8")
-        for path in ("/api/agent/model", "/api/agent/propose"):
+        for path in ("/api/agent/model", "/api/agent/propose", "/api/agent/propose-stream"):
             with self.subTest(path=path):
                 self.assertIn(path, script)
                 self.assertIn(f'"{path}"', server)
@@ -368,13 +368,13 @@ class TestTheEndpointsNeedTheMachinesTrust(unittest.TestCase):
         # the routes left open, so these must be absent from it.
         from fastmdxplora.gui.server import POSTS_ANSWERED_BEYOND_LOOPBACK
 
-        for path in ("/api/agent/model", "/api/agent/propose"):
+        for path in ("/api/agent/model", "/api/agent/propose", "/api/agent/propose-stream"):
             with self.subTest(path=path):
                 self.assertNotIn(path, POSTS_ANSWERED_BEYOND_LOOPBACK)
 
     def test_bound_beyond_loopback_they_refuse(self):
         port = self.serve("0.0.0.0")
-        for path in ("/api/agent/model", "/api/agent/propose"):
+        for path in ("/api/agent/model", "/api/agent/propose", "/api/agent/propose-stream"):
             with self.subTest(path=path):
                 self.assertEqual(self.post(port, path), 403)
 
@@ -741,7 +741,7 @@ class TestThePageIsATextareaAndButtons(unittest.TestCase):
 
     def test_the_subtitle_says_what_to_do_and_not_how_it_works(self):
         panel = self.panel()
-        self.assertIn("Describe a study in natural language", panel)
+        self.assertIn("Describe a study, or ask about the one open", panel)
         for mechanism in ("corrects itself", "same rules as one you wrote",
                           "cannot ask for a study"):
             with self.subTest(phrase=mechanism):
@@ -765,7 +765,7 @@ class TestThePageIsATextareaAndButtons(unittest.TestCase):
             "* the page itself, as \"Ready. Drafting with <model>.\" -- a status line", ""))
 
     def test_the_gui_never_tells_you_to_run_a_command(self):
-        """A GUI that says "run `fastmdx agent set`" has given up.
+        """A GUI that says "run `fastmdx agent model`" has given up.
 
         The refusals are written for a terminal, which is right there. This
         surface has a Settings button, so it says that instead.
@@ -795,31 +795,33 @@ class TestThePageIsATextareaAndButtons(unittest.TestCase):
         self.assertIn('id="agent-propose"', panel)
         self.assertIn('title="Send (Enter). Shift+Enter for a new line."', panel)
         for action in ("Show the config", "Download config",
-                       "Copy the command", "Download a script", "Run here",
+                       "Copy the command", "Download a script", "Run on this machine",
                        "Write every setting"):
             with self.subTest(action=action):
                 self.assertIn(action, panel)
         self.assertIn('id="agent-load"', panel)
-        # "Draft" is not a word this page uses.
-        self.assertNotIn("draft", panel.lower())
+        # No action is called a draft; the Agent says it drafts a config
+        # (user, 10-06: "I draft a config").
+        self.assertNotRegex(panel, r">\s*Draft")
+        self.assertIn("I draft a config and the software validates it.", panel)
 
     def test_the_actions_are_the_builders_own(self):
         """One derivation, two doors.
 
         The file, the command and the script come from the builder's
-        exported actions, reading the builder's state -- which the panel
-        loads silently from the config it just wrote. So what the Agent
-        hands over is exactly what the builder would, rather than a
-        second rendering that could drift. The first version wrote the
-        YAML from the browser without a round trip; that matched the
-        screen but not the builder.
+        exported actions, on the config the panel just wrote, mapped to the
+        builder's state by the server. So what the Agent hands over is
+        exactly what the builder would, rather than a second rendering that
+        could drift. They no longer load that config into the builder to do
+        it: a reply overwrote somebody's draft there to price itself.
         """
         script = self.script()
         self.assertIn('post("/api/load-config", { config: data.config })', script)
         for action in ("download", "copyCommand", "downloadScript"):
             with self.subTest(action=action):
                 self.assertIn(f'viaBuilder("{action}")', script)
-        self.assertIn("window.FastMDXRun.fetchConfig()", script)
+        self.assertIn("window.FastMDXRun.forLoaded(loadedState", script)
+        self.assertIn("onItsConfig().fetchConfig()", script)
         import pathlib
 
         import fastmdxplora.gui as gui
@@ -832,15 +834,17 @@ class TestThePageIsATextareaAndButtons(unittest.TestCase):
         # It checks the budget an autonomous run needs and records the
         # mode, which the builder's start does not.
         script = self.script()
-        run = script[script.index("runBtn.onclick = function () {"):]
+        run = script[script.index("made.launch = function (here, entry) {"):]
         run = run[:run.index("};", run.index("post("))]
         self.assertIn('post("/api/agent/run"', run)
 
     def test_opening_the_builder_is_a_link_not_the_way_out(self):
         panel = self.panel()
-        load = panel[panel.index('id="agent-load"') - 40:panel.index('id="agent-load"') + 80]
+        load = panel[panel.index('id="agent-load"') - 60:panel.index('id="agent-load"') + 80]
         self.assertIn("<a href=", load)
-        self.assertIn("to change it first", panel)
+        # Beside Run, not the primary button (10-07): its icon, named.
+        self.assertIn('class="line-btn" data-role="load"', load)
+        self.assertIn('aria-label="Open in the builder"', load)
 
     def test_the_dialog_is_not_a_file_picker(self):
         # It borrows the shape and not the class: there is exactly one file
@@ -1114,12 +1118,14 @@ class TestAFailedRunSaysWhy(unittest.TestCase):
 
         import fastmdxplora.gui as gui
 
+        # Stop the run is offered by stop-run.js wherever the run is
+        # followed, the New study page among them.
         script = (pathlib.Path(gui.__file__).parent / "static"
-                  / "run-builder.js").read_text(encoding="utf-8")
-        watcher = script[script.index("function watchForARun"):
-                         script.index("async function start()")]
+                  / "stop-run.js").read_text(encoding="utf-8")
+        watcher = script[script.index('board.on("app-state"'):
+                         script.index('board.on("status-updated"')]
         self.assertIn("detail.process_running", watcher)
-        self.assertNotIn("Boolean(detail && detail.active_run)", watcher)
+        self.assertNotIn("active_run", watcher)
 
     def test_the_runtime_reports_both_separately(self):
         # The fix only works because the payload distinguishes them: a
@@ -1235,7 +1241,7 @@ class TestTheModelListIsAskedForRatherThanGuessed(unittest.TestCase):
 
         script = (pathlib.Path(gui.__file__).parent / "static"
                   / "agent-panel.js").read_text(encoding="utf-8")
-        self.assertIn("Type a model name", script)
+        self.assertIn("Type an AI model name", script)
         self.assertNotIn('? "Other\\u2026"', script)
 
 
@@ -1384,68 +1390,47 @@ class TestWhichPhasesRunIsReadFromTheConfig(unittest.TestCase):
 
 
 class TestARaceWithACorrectOutcomeIsNotAnError(unittest.TestCase):
-    """Two dashboard polls build the playback at once; one wins the rename.
+    """Two writers of the viewer's frames at once; both finish.
 
     Seen in the browser as "dashboard route failed: No such file or
-    directory: playback.pdb.tmp". The second request's `.tmp` was the one
-    the first had just renamed into place, so its own rename found nothing
-    -- while the destination sat there, complete and correct. An error for
-    a race whose outcome was right.
+    directory: playback.pdb.tmp": two dashboard polls built the playback at
+    once through one temporary name, so the second's rename found the file
+    the first had just renamed into place. Each writer of the frames now
+    writes under a name of its own (gui/trajectory_frames.py), so neither
+    can take the other's file, and the last rename wins whole.
     """
 
-    def test_the_losing_request_yields_when_the_file_is_there(self):
+    def test_each_writer_has_a_name_of_its_own(self):
         import tempfile
+        import threading
         from pathlib import Path
 
-        from fastmdxplora.gui.trajectory_playback import _replace_or_yield
+        from fastmdxplora.gui.trajectory_frames import _temporary, _write_text
 
         root = Path(tempfile.mkdtemp())
-        destination = root / "playback.pdb"
-        destination.write_text("the other request's work")
-        _replace_or_yield(root / "playback.pdb.tmp", destination)
-        self.assertEqual(destination.read_text(),
-                         "the other request's work")
+        target = root / "frames_topology.pdb"
+        names: list[Path] = []
+        errors: list[BaseException] = []
 
-    def test_a_genuine_miss_still_raises(self):
-        # No tmp and no destination is not a race, it is a failure, and
-        # swallowing it would hide the next real bug behind this fix.
-        import tempfile
-        from pathlib import Path
+        def write(text):
+            names.append(_temporary(target))
+            try:
+                for _ in range(50):
+                    _write_text(target, text)
+            except BaseException as error:  # noqa: BLE001 - the test says which
+                errors.append(error)
 
-        from fastmdxplora.gui.trajectory_playback import _replace_or_yield
+        writers = [threading.Thread(target=write, args=(f"writer {n}\n" * 2000,))
+                   for n in range(2)]
+        for writer in writers:
+            writer.start()
+        for writer in writers:
+            writer.join()
+        self.assertEqual(errors, [])
+        self.assertEqual(len(set(names)), 2)
+        self.assertIn(target.read_text(), {f"writer {n}\n" * 2000 for n in range(2)})
+        self.assertEqual(sorted(p.name for p in root.iterdir()), ["frames_topology.pdb"])
 
-        root = Path(tempfile.mkdtemp())
-        with self.assertRaises(FileNotFoundError):
-            _replace_or_yield(root / "x.tmp", root / "x")
-
-    def test_the_companion_pdb_makes_its_directory(self):
-        # `_atomic_text` did; the PDB writer beside it did not, and a
-        # playback built for a run whose simulation/ did not yet exist
-        # failed on the write rather than the rename. Written into a folder
-        # that is not there, from a real DCD.
-        import mdtraj as md
-        import numpy as np
-
-        from fastmdxplora.gui.trajectory_playback import _generate_from_dcd
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            topology = md.Topology()
-            residue = topology.add_residue("ALA", topology.add_chain())
-            for name in ("N", "CA", "C"):
-                topology.add_atom(name, md.element.carbon, residue)
-            xyz = np.random.default_rng(0).normal(size=(6, 3, 3)).astype(np.float32)
-            md.Trajectory(xyz, topology).save_dcd(str(root / "production.dcd"))
-            md.Trajectory(xyz[:1], topology).save_pdb(str(root / "topology.pdb"))
-            companion = root / "not" / "yet" / "there" / "playback.pdb"
-            _generate_from_dcd(md=md, topology_path=root / "topology.pdb",
-                               dcd_path=root / "production.dcd", companion_pdb=companion,
-                               companion_idx=companion.with_suffix(".json"),
-                               max_browser_frames=10, simulation_time_ns_total=None,
-                               source_signature="s")
-            self.assertTrue(companion.is_file())
-            self.assertFalse(companion.with_suffix(".pdb.tmp").exists())
-            self.assertEqual(md.load(str(companion)).n_frames, 6)
 
 class TestAConfigRemembersWhoWroteIt(unittest.TestCase):
     """The header names the author the config records.
@@ -1487,7 +1472,7 @@ class TestAConfigRemembersWhoWroteIt(unittest.TestCase):
         self.assertIn("function defaultOutput()", script)
         # The browser does not name the folder; the server does, by one rule.
         self.assertNotIn('"fastmdxplora_output_"', script)
-        self.assertIn('output: el("run-output").value.trim(),', script)
+        self.assertIn('output: (el("run-output") && el("run-output").value.trim()) || "",', script)
 
 
 class TestTheAgentsButtonsBehaveLikeTheBuilders(unittest.TestCase):
@@ -1515,7 +1500,7 @@ class TestTheAgentsButtonsBehaveLikeTheBuilders(unittest.TestCase):
 
     def test_the_two_actions_carry_the_builders_descriptions(self):
         page = self.page()
-        agent = page[page.index('id="agent-copy-command"'):page.index('id="agent-run"')]
+        agent = page[page.index('id="agent-copy-command"'):page.index('id="agent-full-config"')]
         self.assertIn("The fastmdx invocation that runs this study", agent)
         self.assertIn("The same study as a Python script", agent)
 
@@ -1525,7 +1510,7 @@ class TestTheAgentsButtonsBehaveLikeTheBuilders(unittest.TestCase):
         page = self.page()
         self.assertIn('id="agent-action-note"', page)
         script = self.script()
-        self.assertIn('noteEl.textContent = said ? said.textContent : "";', script)
+        self.assertIn('say: function (words) { noteEl.textContent = words || ""; }', script)
         self.assertNotIn("note(box, said.textContent", script)
 
     def test_downloads_ask_where(self):
@@ -1587,7 +1572,7 @@ class TestTheAgentIsAConversation(unittest.TestCase):
     def test_enter_sends_and_shift_enter_breaks(self):
         script = self.script()
         self.assertIn('e.key === "Enter" && !e.shiftKey', script)
-        self.assertIn("e.preventDefault();\n        draft();", script)
+        self.assertIn("e.preventDefault();\n        // A reply being written is stopped by the button, not by Enter.\n        if (!writing) draft();", script)
 
     def test_the_composer_grows(self):
         script = self.script()
@@ -1602,11 +1587,11 @@ class TestTheAgentIsAConversation(unittest.TestCase):
         self.assertIn("node.querySelector('[data-role=\"' + role + '\"]')", script)
 
     def test_a_question_carries_the_request_into_the_answer(self):
-        # The loop is stateless. "simulate chignolin for 2 ns" then "1UAO"
-        # goes back as one request the loop can write a study from.
+        # It was joined to the question, whatever it said; the conversation
+        # carries the question now, so a message goes as it is (10-07).
         script = self.script()
-        self.assertIn("var request = pending ? pending + \"\\n\" + typed : typed;", script)
-        self.assertIn("pending = request;", script)
+        self.assertIn("var request = typed;", script)
+        self.assertNotIn("pending = request;", script)
 
     def test_run_here_runs_once(self):
         # A second press started it again into the same folder and was
@@ -1723,17 +1708,16 @@ class TestTheBudgetIsAConfigKey(unittest.TestCase):
 
         import importlib
 
-        # By the module itself: `fastmdxplora.cli.main` also names the
-        # function re-exported from the package, and a dotted patch target
-        # resolves to that on some Pythons.
-        cli_module = importlib.import_module("fastmdxplora.cli.main")
+        # The class `explore` runs a study with, from the package, patched by
+        # the module object: a dotted target resolves to the wrong one on
+        # some Pythons.
         staged = []
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch("fastmdxplora.agent.run_in_stages",
                            side_effect=lambda config, output, *, budget_hours: staged.append(
                                (config.get("budget_hours"), budget_hours, Path(output)))
                            or SimpleNamespace(notes=[], refusal=None, setup_done=True)), \
-                mock.patch.object(cli_module, "FastMDXplora",
+                mock.patch.object(importlib.import_module("fastmdxplora"), "FastMDXplora",
                                   side_effect=AssertionError("ran without the staged runner")):
             # From a config file, where a whole number of hours is an int:
             # the staged runner is handed hours as a number of hours, 2.0.
@@ -1815,7 +1799,10 @@ class TestAMessageCanBeCopiedEditedAndRetried(unittest.TestCase):
         self.assertIn("function cutFrom(msg)", script)
         cut = script[script.index("function cutFrom(msg)"):script.index("function say(text, attached)")]
         self.assertIn("history.length = i;", cut)
-        self.assertIn("currentConfig = null;", cut)
+        # What the next message changes is the newest version left, none
+        # if every config went with the cut.
+        self.assertIn("currentConfig = versions.length ? "
+                      "versions[versions.length - 1].data.yaml : null;", cut)
 
 
 class TestTheLaunchedConfigIsTheWrittenConfig(unittest.TestCase):
@@ -1930,7 +1917,7 @@ class TestTheMessageToolsAndTheScrollbar(unittest.TestCase):
         rule = rule[:rule.index("}")]
         self.assertNotIn("position: absolute", rule)
         self.assertIn("margin-top: 4px", rule)
-        self.assertIn(".agent-msg-tools button { width: 40px;", css)
+        self.assertIn(".agent-msg-tools button { width: 24px; height: 24px; }", css)
 
     def test_the_scrollbar_has_its_own_gutter(self):
         # It was painting over the messages.
@@ -1951,26 +1938,33 @@ class TestTheLayoutAndTheVoice(unittest.TestCase):
         return (pathlib.Path(gui.__file__).parent / "static"
                 / "dashboard.css").read_text(encoding="utf-8")
 
-    def test_the_centre_has_a_reading_width_except_the_viewer(self):
+    def test_the_centre_has_a_reading_width_and_the_viewer_a_wider_one(self):
+        # Centred either way: the Viewer's canvas keeps one shape and no
+        # longer takes every pixel of width.
         css = self.css()
         self.assertIn(".page-shell { max-width: 900px; margin: 0 auto; width: 100%; }", css)
-        self.assertIn('html[data-page="viewer"] .page-shell { max-width: none; }', css)
+        self.assertIn('html[data-page="viewer"] .page-shell { max-width: 1480px; }', css)
 
-    def test_the_panel_starts_wide(self):
+    def test_the_panel_starts_at_a_width_that_leaves_the_page_the_most(self):
+        # 560 left the page 640 pixels of a 1440 window, and the viewer's
+        # canvas 240; it can still be dragged to 640.
         import pathlib
 
         import fastmdxplora.gui as gui
 
         css = self.css()
-        self.assertIn("--panel-width: 560px;", css)
+        self.assertIn("--panel-width: 420px;", css)
         frame = (pathlib.Path(gui.__file__).parent / "static"
                  / "frame.js").read_text(encoding="utf-8")
-        self.assertIn('store.get("panelWidth", "560")', frame)
+        self.assertIn("var PANEL_WIDTH = 420;", frame)
+        self.assertIn('store.get("panelWidth", String(PANEL_WIDTH))', frame)
         self.assertIn("panel: [280, 640]", frame)
 
-    def test_the_agents_prose_is_a_serif_and_the_persons_is_not(self):
+    def test_the_agents_prose_is_in_the_font_shipped(self):
         css = self.css()
-        self.assertIn(".agent-answer, .agent-msg-agent .agent-attempt {\n    font-family: Georgia", css)
+        # Inter, as the rest of the page (user, 10-07); it was Georgia.
+        self.assertIn(".agent-answer, .agent-msg-agent .agent-attempt {\n"
+                      "    font-family: var(--font-stack);", css)
         # No hosted font: this GUI runs without a route to the internet.
         self.assertNotIn("googleapis", css)
 
@@ -2119,7 +2113,8 @@ class TestSixMoreFromUsingIt(unittest.TestCase):
 
         script = (pathlib.Path(gui.__file__).parent / "static"
                   / "agent-panel.js").read_text(encoding="utf-8")
-        self.assertIn('note(box, "Thinking\\u2026");', script)
+        # What it is doing, a step at a time (10-07), not "Thinking...".
+        self.assertIn("function stepsIn(box)", script)
         self.assertNotIn('"Writing\\u2026"', script)
 
     def test_the_placeholder_is_as_general_as_the_agent(self):
@@ -2129,7 +2124,8 @@ class TestSixMoreFromUsingIt(unittest.TestCase):
 
         page = (pathlib.Path(gui.__file__).parent / "templates"
                 / "dashboard.html").read_text(encoding="utf-8")
-        self.assertIn('placeholder="Describe a study, ask a question, or tell me what to do."', page)
+        # The words then follow the situation (agent-panel.js `placeholder`).
+        self.assertIn('placeholder="Describe a study, or ask about one in this folder"', page)
 
     def test_a_page_opens_at_its_top(self):
         import pathlib
@@ -2234,7 +2230,7 @@ class TestSixFromLaunchingIt(unittest.TestCase):
 
         css = (pathlib.Path(gui.__file__).parent / "static"
                / "dashboard.css").read_text(encoding="utf-8")
-        self.assertIn("--panel-width: 560px;", css)
+        self.assertIn("--panel-width: 420px;", css)
         self.assertIn(".page-shell { max-width: 900px;", css)
         frame = (pathlib.Path(gui.__file__).parent / "static"
                  / "frame.js").read_text(encoding="utf-8")
@@ -2460,13 +2456,20 @@ class TestConversationsBelongToStudies(unittest.TestCase):
 
         script = (pathlib.Path(gui.__file__).parent / "static"
                   / "agent-panel.js").read_text(encoding="utf-8")
-        self.assertIn('post("/api/agent/conversation/open", { id: c.id, study: g.study })', script)
-        self.assertIn("if (o.loaded_study && !g.loaded) {", script)
-        self.assertIn('study: started.output, id: convId, from_study: fromStudy', script)
-        # Saved before the launch, so the move carries the last exchange.
-        run = script[script.index("runBtn.onclick = function () {"):]
+        self.assertIn('post("/api/agent/conversation/open", { id: id, study: study })', script)
+        self.assertIn("openConversation(c.id, g.study, g.loaded || g.chats);", script)
+        self.assertIn("if (o.loaded_study && (!loaded || (o.study || null) !== (study || null))) {",
+                      script)
+        # The launch names the conversation and its place; the server moves
+        # it as the run starts (tenth review, 10-08).
+        self.assertIn("conversation: c.id ? { id: c.id, study: c.study || null, "
+                      "run: entry.eid } : null", script)
+        # The run's entry saved before the launch, so the move carries the
+        # last exchange and the run itself.
+        run = script[script.index("made.launch = function (here, entry) {"):]
         run = run[:run.index("\n  }\n", run.index("started.error"))]
-        self.assertLess(run.index("persist().then("), run.index('post("/api/agent/run"'))
+        self.assertLess(run.index("persistOf(c, sent).then("),
+                        run.index('post("/api/agent/run"'))
         self.assertIn("This conversation now belongs to the new study.", script)
 
 
@@ -2566,7 +2569,7 @@ class TestAStopIsRecordedWhenItHappens(unittest.TestCase):
         script = self.script()
         block = script[script.index('if (data.action === "stop") {'):script.index("act(data.action, data.where")]
         self.assertIn('kind: "question"', block)
-        self.assertIn("? Say yes.", block)
+        self.assertIn('confirm: "stop"', block)
 
     def test_the_stop_is_recorded_on_confirmation(self):
         script = self.script()
@@ -2577,7 +2580,8 @@ class TestAStopIsRecordedWhenItHappens(unittest.TestCase):
     def test_a_reload_keeps_a_pending_stop(self):
         script = self.script()
         replay = script[script.index("function replay(entries)"):script.index("document.addEventListener")]
-        self.assertIn("stopPending = /^Stop the run.*\\? Say yes\\.$/.test(e.text", replay)
+        self.assertIn('stopPending = e.confirm === "stop" || /^Stop the run.*\\? Say yes\\.$/.test(e.text',
+                      replay)
         self.assertIn("var last = entries[entries.length - 1];", replay)
 
     def test_replay_never_says_did_stop(self):
@@ -2762,7 +2766,7 @@ class TestThePickerServesTheAgentToo(unittest.TestCase):
 
         script = (pathlib.Path(gui.__file__).parent / "static"
                   / "agent-panel.js").read_text(encoding="utf-8")
-        self.assertIn('start: convStudy || workspaceRoot || ""', script)
+        self.assertIn('start: conv.study || workspaceRoot || ""', script)
 
 class TestTheWordsAndTheRows(unittest.TestCase):
 
@@ -2823,7 +2827,8 @@ class TestTheWordsAndTheRows(unittest.TestCase):
                / "dashboard.css").read_text(encoding="utf-8")
         rule = css[css.index(".page-header {"):css.index("}", css.index(".page-header {"))]
         self.assertIn("align-items: center", rule)
-        self.assertIn("min-height: 44px", rule)
+        self.assertIn("min-height: var(--top-bar-height)", rule)
+        self.assertIn("flex-wrap: nowrap", rule)
         self.assertIn(".page-subtitle {\n    display: inline;", css)
 
 
@@ -2848,11 +2853,11 @@ class TestTheHeadersStayPut(unittest.TestCase):
 
         page = (pathlib.Path(gui.__file__).parent / "templates"
                 / "dashboard.html").read_text(encoding="utf-8")
-        self.assertIn("Select what you have, what should happen to it, and anything you want to change.", page)
+        self.assertIn('<div class="page-subtitle">Configure a new MD simulation and analysis</div>', page)
         self.assertNotIn("Nothing chosen yet", page)
         script = (pathlib.Path(gui.__file__).parent / "static"
                   / "run-builder.js").read_text(encoding="utf-8")
         # The reason is still said at the Run button; not in the header.
-        self.assertIn('return "Choose what this run starts from.";', script)
+        self.assertIn('return "Choose what this study starts from.";', script)
         summary = script[script.index('text(el("run-summary")'):script.index(";", script.index('text(el("run-summary")'))]
         self.assertNotIn("whyNotReady", summary)

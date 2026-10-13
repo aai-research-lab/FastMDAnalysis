@@ -9,7 +9,7 @@ arrangement.
 list is always generated:
 
 ```bash
-fastmdx init-config -o study.yml   # every setting, with its help, as a template
+fastmdx config -f study.yml   # every setting, with its help, as a template
 fastmdx explore --help             # every setting, as a flag
 fastmdx gui                        # every setting, as a form
 ```
@@ -30,14 +30,14 @@ For the flag spelling of any setting below, see
 | `explain` | bool | `true` | Say why each step is happening, as it happens |
 | `verbose` | bool | `false` | Stream debug logging to the terminal |
 | `agent` | str | — | `assisted`, `autonomous`, `unvalidated` — see [the Agent](agent.md) |
-| `agent_model` | str | — | Which model wrote it, as `provider/model` |
+| `agent_model` | str | — | Which AI model wrote it, as `provider/model` |
 
 `systems`, `sweep` and `execution` are also top-level; they are described in
 [The FastMDXplora Config](config.md).
 
 ---
 
-## `setup` — 43 settings
+## `setup` — 47 settings
 
 ### How this phase was written
 
@@ -52,14 +52,17 @@ What is kept, what is repaired, and how it is protonated.
 | Setting | Type | Default | What it does |
 |---|---|---|---|
 | `ph` | float | `7.4` | pH for hydrogen placement, which sets protonation states. Bounds 0–14 |
+| `residue_states` | map | none | Protonation states in place of setup's own, by chain and number: `{A:57: HIP}`. HIS takes HID, HIE or HIP; ASP ASH or ASP; GLU GLH or GLU; LYS LYN or LYS |
+| `model` | int | none | Which model of a file holding several (an NMR ensemble) to prepare, as the file numbers them; unset, the first. Swept, replicas that start from different structures, which a stopping rule counts as independent starts |
 | `protonation_margin` | float | `1.0` | How close a ligand's pKa may come to the pH before setup stops rather than pick a charge state |
 | `heterogens` | str | `auto` | `auto` decides per component; `drop` removes them all; `keep` retains them |
 | `keep_heterogens` | bool | `false` | Equivalent to `heterogens: keep` |
 | `keep_water` | bool | `false` | Retain crystallographic waters |
 | `replace_nonstandard_residues` | bool | `true` | Substitute selenomethionine, oxidised cysteine and the like with their standard equivalents |
-| `chains` | list | every chain | Chains to simulate, by deposited ID — `[A, B]` |
+| `chains` | list | the declared assembly | Chains to simulate, by deposited ID, as `[A, B]`. Unset, the biological assembly the file declares, or every chain where it declares none |
 | `build_missing_termini` | bool | `false` | Build unresolved residues past the ends of a chain, not only the gaps between resolved ones |
 | `fixed_pdb` | str | — | An already-fixed PDB to use directly, skipping PDBFixer |
+| `preparation_audit` | bool | `false` | Keep a record of each step of the preparation in `setup/preparation_audit.json`: the structure's SHA-256 and counts after each, and a copy within 16 MB a file and 64 MB in all. It only observes: the system prepared is the same with it and without it |
 | `mutations` | list | — | Point substitutions, as `L99A` or `LEU-99-ALA` |
 | `mutation_chain` | str | first chain | Which chain the mutations apply to |
 
@@ -82,8 +85,9 @@ with one end free.
 | `ligand_clash_threshold_nm` | float | `0.15` | What counts as a clash |
 
 `ligand_pose: auto` takes the pose from the structure where it holds a residue
-of that name, and from the supplied file where it does not. That is usually
-right, and [Worked examples](examples.md#a-protein-with-a-ligand) covers the
+of that name, and from the supplied file where it does not. Where the structure
+holds the residue and its atoms cannot be matched to the file's, it refuses
+rather than start the ligand away from the site. That is usually right, and [Worked examples](examples.md#a-protein-with-a-ligand) covers the
 two cases and how to pin either.
 
 `ligand_pose` accepts any string — the three values above are the ones it acts
@@ -93,12 +97,14 @@ on.
 
 | Setting | Type | Default | What it does |
 |---|---|---|---|
-| `membrane` | str | — | `POPC`, `POPE`, `DLPC`, `DLPE`, `DMPC`, `DOPC` or `DPPC` |
-| `membrane_orient` | bool | `false` | Rotate the structure so its longest axis lies along the membrane normal |
-| `membrane_orientation_checked` | bool | `false` | Proceed with the structure's orientation as it is |
+| `membrane` | str | — | `POPC`, `POPE`, `DLPC`, `DLPE`, `DMPC`, `DOPC` or `DPPC`. The bilayer is built in the xy plane at z = 0 around the placed protein |
+| `membrane_orient` | bool | `false` | Rotate the structure onto its fitted membrane normal and centre it on the fitted bilayer |
+| `membrane_orientation_checked` | bool | `false` | Keep the structure's orientation; its centre along z is fitted |
+| `membrane_center_z_nm` | float | — | The bilayer centre along z in the structure's frame, in nm. Needs `membrane_orientation_checked` |
 
-See [Studies beyond a box of water](studies.md#membrane-systems) — the
-orientation check has two refusals and a barostat that is chosen for you.
+An OPM file is recognised and keeps its own frame, with none of these set.
+See [Membrane proteins](membranes.md) for how the protein is placed, what is
+refused, and the barostat that is chosen for you.
 
 ### Solvent, ions and the box
 
@@ -111,6 +117,7 @@ orientation check has two refusals and a barostat that is chosen for you.
 | `ion_positive` | str | `Na+` | Counter-ion cation |
 | `ion_negative` | str | `Cl-` | Counter-ion anion |
 | `ion_concentration_M` | float | `0.15` | Ionic strength in molar. Bounds 0–20 |
+| `random_seed` | int | drawn and recorded | Seeds where hydrogens and ions are placed, so the same seed prepares the same system. Unset, one is drawn and written to the resolved config |
 
 A dodecahedron holds the same clearance around the solute in roughly 71% of a
 cube's volume, so about a third of the water a cube would need is saved.
@@ -139,19 +146,20 @@ Defaults suit a solvated protein. Changing one changes the physics.
 | Setting | Type | Default | What it does |
 |---|---|---|---|
 | `nonbonded_method` | str | `PME` | `NoCutoff`, `CutoffNonPeriodic`, `CutoffPeriodic`, `PME`, `Ewald` |
-| `nonbonded_cutoff_nm` | float | `1.0` | Real-space cutoff |
+| `nonbonded_cutoff_nm` | float | the force field's | Real-space cutoff |
 | `ewald_error_tolerance` | float | `0.0005` | Ewald/PME error tolerance |
-| `use_switching_function` | bool | `true` | Apply a switching function near the cutoff |
-| `switch_distance_nm` | int or float | 0.9 × cutoff | Where the switching function turns on |
+| `use_switching_function` | bool | the force field's | Apply a switching function near the cutoff |
+| `switch_distance_nm` | int or float | the force field's, else 0.9 × cutoff | Where the switching function turns on |
 | `dispersion_correction` | bool | `true` | Long-range dispersion (vdW tail) correction |
 | `remove_cm_motion` | bool | `true` | Add a centre-of-mass motion remover |
 
-The cutoff is taken from the force field when you do not set it —
-see [How FastMDXplora works](how_it_works.md#the-nonbonded-cutoff-comes-from-the-force-field).
+The cutoff and the switch are taken from the force field when you do not set
+them, and what you set is kept, even where it equals the force field's own. See
+[How FastMDXplora works](how_it_works.md#the-nonbonded-cutoff-comes-from-the-force-field).
 
 ---
 
-## `simulation` — 42 settings
+## `simulation` — 45 settings
 
 ### How this phase was written
 
@@ -163,16 +171,39 @@ see [How FastMDXplora works](how_it_works.md#the-nonbonded-cutoff-comes-from-the
 
 Production length, and the equilibration before it. **Equilibration is
 independent of production length** — a 500 ns production run gets the same
-1.5 ns of equilibration as a 2 ns one unless you say otherwise.
+1.5 ns of equilibration as a 2 ns one unless you say otherwise. Each default
+is a time, so the number of steps follows the timestep: at 4 fs, 1.5 ns is
+375,000 steps, where it is 750,000 at 2 fs.
 
 | Setting | Type | Default | What it does |
 |---|---|---|---|
-| `duration_ns` | int or float | 2 ns | Production length |
+| `duration_ns` | int or float | 2 ns | Production length; 0 equilibrates and stops |
 | `nvt_duration_ns` | int or float | 500 ps | NVT equilibration |
 | `npt_duration_ns` | int or float | 1 ns | NPT equilibration |
-| `production_steps` | int | 1,000,000 | Overrides `duration_ns` |
-| `nvt_steps` | int | 250,000 | Overrides `nvt_duration_ns` |
-| `npt_steps` | int | 500,000 | Overrides `npt_duration_ns` |
+| `production_steps` | int | what 2 ns is at the timestep | Overrides `duration_ns` |
+| `nvt_steps` | int | what 500 ps is at the timestep | Overrides `nvt_duration_ns` |
+| `npt_steps` | int | what 1 ns is at the timestep | Overrides `npt_duration_ns` |
+| `ensemble` | str | from `npt_steps` | `npt` or `nvt` production. Set `nvt` to equilibrate at constant pressure and then produce at constant volume |
+| `stop_when` | map | — | Run until what the study is for is known, rather than for a fixed length. See below |
+
+`stop_when` states the quantities the study is for, how well each must be determined,
+and a ceiling; `duration_ns` is then the first piece:
+
+```yaml
+sweep:
+  simulation.random_seed: [1, 2, 3]
+simulation:
+  duration_ns: 5
+  stop_when:
+    measures:
+      - {analysis: rmsd, standard_error: 0.01}   # in the analysis's own unit
+      - {analysis: sasa, relative_error: 0.05}   # a fraction of its mean
+    max_duration_ns: 50                          # the most any run may reach
+    independent_starts: required                 # the default
+```
+
+By default the runs must be replicas and must agree with each other. See
+[Running until it is determined](production.md#running-until-it-is-determined).
 
 ### Where it starts
 
@@ -180,16 +211,18 @@ independent of production length** — a 500 ns production run gets the same
 |---|---|---|---|
 | `setup_from` | str | — | A finished study or setup directory to simulate from instead of running setup again |
 | `prepared_from` | str | — | The earlier name for `setup_from`, still accepted |
-| `resume_from` | str | — | A checkpoint this run continues from |
+| `resume_from` | str | — | A checkpoint this run continues from, or a study directory to extend in place |
+| `extra_ns` | float | — | With `resume_from` naming a study: production to add to what it has |
+| `resume_unsealed` | bool | `false` | Accept a checkpoint with no seal beside it |
 | `minimize` | bool | `true` | Run energy minimisation before equilibration |
 | `minimize_tolerance_kjmol_per_nm` | int or float | `10.0` | Minimisation force tolerance |
 | `minimize_max_iterations` | int | `0` | `0` means until convergence |
 
 `setup_from` accepts the study directory — `runs/reference` — and finds the
-`setup/` inside. **Naming one turns preparation off**, because solvation does
-not place water the same way twice: preparing a second system gives a second
-set of atoms, and anything taken from the named one then belongs to a different
-molecule.
+`setup/` inside. **Naming one turns preparation off**, because a second
+preparation is the same system only with the same settings and
+`setup.random_seed`: otherwise it is a second set of atoms, and anything taken
+from the named one then belongs to a different molecule.
 
 `resume_from` is only valid for the exact system, platform and precision the
 checkpoint was written from; loading refuses rather than proceeding on a
@@ -255,7 +288,7 @@ Every key each block takes is in
 | `restraint_release` | list | `[1000, 500, 100, 0]` | Force constants stepped through during equilibration, in kJ/mol/nm² |
 | `restrain_production` | bool | `false` | Keep restraints on during production |
 
-`restrain_production` is off because a biased production run measures the bias:
+`restrain_production` is off because a biased production run samples the bias:
 RMSF, clustering and dimensionality reduction would describe the restraint as
 much as the system. Turning it on logs what it costs and records it with the
 results.
@@ -302,7 +335,7 @@ Nothing leaves the machine: these are files in the run directory that the
 | `telemetry_interval` | int | `1000` | Minimum step interval between telemetry updates |
 | `dashboard_ligand_resname` | str | auto-detected | Which residue the viewer treats as the ligand |
 | `dashboard_binding_pocket_cutoff_A` | float | `5.0` | How near counts as the pocket |
-| `dashboard_max_playback_frames` | int | `200` | Frames the playback panel will load |
+| `dashboard_max_playback_frames` | int | `2000` | Most frames of the trajectory the viewer is sent (fewer for a system over 5,000 atoms) |
 
 ---
 
@@ -314,7 +347,7 @@ Nothing leaves the machine: these are files in the run directory that the
 |---|---|---|---|
 | `agent` | str | — | This phase's [Agent](agent.md) mode |
 
-### What to measure
+### What to analyse
 
 | Setting | Type | Default | What it does |
 |---|---|---|---|
@@ -322,32 +355,33 @@ Nothing leaves the machine: these are files in the run directory that the
 | `exclude` | list | — | Everything but these. Mutually exclusive with `include` |
 | `options` | mapping | — | Per-analysis settings, keyed by analysis name |
 
-The 27 names `include` and `exclude` accept:
+The 30 names `include` and `exclude` accept:
 
 ```
 rmsd  rmsf  rg  hbonds  ss  sasa  dihedrals  qvalue  cluster  dimred
 water_sites  ligand_rmsd  ligand_rmsf  pl_contacts  pl_hbonds  pl_interactions
 order_parameters  bfactor_comparison  thermodynamics  rdf  coordination_number
 end_to_end  moments_of_inertia  pair_distance  pmf  metad_surface  steered_work
+area_per_lipid  bilayer_thickness  lipid_order
 ```
 
 Several do not run by default and are gated on what the run contains — a
-ligand, water, a periodic box, a biased run. Naming one in `include` runs it
-anyway. [The FastMDXplora analyses](analyses.md) has what each measures and
+ligand, water, a periodic box, a bilayer, a biased run. Naming one in `include` runs it
+anyway. [The FastMDXplora analyses](analyses.md) has what each computes and
 what gates it.
 
-### What to measure it on
+### What to analyse it on
 
 | Setting | Type | Default | What it does |
 |---|---|---|---|
-| `trajectory` | str | `simulation/production.dcd` | The trajectory to measure |
+| `trajectory` | str | `simulation/production.dcd` | The trajectory to analyse |
 | `topology` | str | `simulation/trajectory_topology.pdb`, else `simulation/topology.pdb` | The topology that matches it |
 | `select_atoms` | str | — | Which atoms. Overrides `scope` |
 | `selection` | str | — | The earlier name for `select_atoms`. `selection` wins if both |
 | `scope` | str | `solute` | `solute`, `protein`, `ligand`, `all` |
 
 `scope` is shorthand that resolves to a real selection — see
-[Selections in a Config](selections.md#what-an-analysis-measures).
+[Selections in a Config](selections.md#what-an-analysis-reads).
 
 ### Which frames
 
@@ -362,9 +396,12 @@ what gates it.
 | Setting | Type | Default | What it does |
 |---|---|---|---|
 | `figure_colours` | str | `colour` | `colour`, `greyscale` or `both` |
+| `figure_width` | str | `page` | `page` (6.5 in), `single_column` (89 mm) or `double_column` (183 mm) |
 
 `both` writes `<name>_greyscale.png` beside each figure. American spellings of
-the values are accepted.
+the values are accepted. `figure_width` plots every figure at the width it will
+be printed at, with its type sized for it: 7 to 8 pt at one column, where a
+page-width figure scaled down would take its 9 pt ticks to about 5 pt.
 
 ---
 

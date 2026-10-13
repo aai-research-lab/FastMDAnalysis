@@ -13,7 +13,7 @@ series' biology as noise; quoting the first kind as a finding reports noise
 as biology. This tells them apart from the campaign's own sweep record
 rather than from the shape of the numbers, and says which it decided.
 
-**Replicas are what makes a reported uncertainty checkable.** Every settled
+**Replicas are what makes a reported uncertainty checkable.** Every recorded
 mean carries a standard error estimated from one trajectory's
 autocorrelation. Ten trajectories give the same quantity a second way, as
 the spread of ten means, and the two should agree. Where the single-run
@@ -34,6 +34,7 @@ import numpy as np
 __all__ = [
     "SEED_AXES",
     "aggregate_members",
+    "member_directory",
     "read_member_findings",
 ]
 
@@ -43,6 +44,13 @@ __all__ = [
 SEED_AXES = frozenset({
     "simulation.random_seed",
     "random_seed",
+    # Prepared from different random placements of hydrogens and ions,
+    # and otherwise the same study: repeats of one measurement.
+    "setup.random_seed",
+    # Prepared from different models of one ensemble: the same molecule
+    # started from different structures, which is what independent starts
+    # are.
+    "setup.model",
 })
 
 #: How far the single-run error estimate may sit from the spread of the
@@ -50,6 +58,22 @@ SEED_AXES = frozenset({
 #: two: the estimate is a variance, so agreeing to better than a factor of
 #: two on ten replicas is already at the limit of what ten can resolve.
 CALIBRATION_FACTOR = 2.0
+
+
+def member_directory(batch_dir: str | Path, run: dict[str, Any]) -> Path:
+    """Where a member's results are: relative to the batch where the
+    manifest says so and the folder is there, so a campaign that was moved
+    or copied reads its own members; otherwise the path recorded. A
+    campaign moved without that record found every member missing, or, with
+    another campaign at the old path, read that one's."""
+    root = Path(batch_dir)
+    relative = run.get("output_dir_relative")
+    if relative and (root / str(relative)).is_dir():
+        return root / str(relative)
+    run_id = run.get("run_id")
+    if run_id and (root / "runs" / str(run_id)).is_dir():
+        return root / "runs" / str(run_id)
+    return Path(str(run.get("output_dir", "")))
 
 
 def read_member_findings(run_dir: str | Path) -> dict[str, dict[str, Any]]:
@@ -81,7 +105,7 @@ def _members_are_replicas(manifest: dict[str, Any]) -> tuple[bool, str]:
     if len(systems) > 1:
         return False, (
             f"the members cover {len(systems)} different systems, so the "
-            "spread between them is what the campaign set out to measure"
+            "spread between them is what the campaign set out to compare"
         )
     if not axes:
         return False, (
@@ -91,7 +115,7 @@ def _members_are_replicas(manifest: dict[str, Any]) -> tuple[bool, str]:
     if axes <= SEED_AXES:
         return True, (
             "the members differ only by random seed, so they are repeats of "
-            "one measurement and the spread of their means is its error"
+            "one estimate and the spread of their means is its error"
         )
     return False, (
         "the members differ by "
@@ -100,11 +124,26 @@ def _members_are_replicas(manifest: dict[str, Any]) -> tuple[bool, str]:
     )
 
 
+def _share_the_start(root: Path, runs: list[dict[str, Any]]) -> None:
+    """Replicas' means from the start they share, as the stopping rule takes
+    them (:func:`fastmdxplora.simulation.stopping.share_the_start`): each
+    run's own equilibration detection keeps a little of the relaxation they
+    share from their one structure, and the replicas' spread and pooled
+    mean then carry it. Written into each member's record, which says so."""
+    from fastmdxplora.simulation.stopping import share_the_start
+
+    members = [member_directory(root, run) for run in runs]
+    names = set.intersection(*[
+        {p.parent.name for p in member.glob("analysis/*/options.json")} for member in members])
+    for name in sorted(names):
+        share_the_start(members, name)
+
+
 def aggregate_members(batch_dir: str | Path) -> dict[str, Any]:
     """Collect a campaign's members into one comparison.
 
     Returns the per-member values for every analysis that reported a
-    settled mean, and, where the members are replicas, the comparison
+    recorded mean, and, where the members are replicas, the comparison
     between the error each run estimated for itself and the spread the
     replicas actually show.
     """
@@ -125,10 +164,12 @@ def aggregate_members(batch_dir: str | Path) -> dict[str, Any]:
         )}
 
     replicas, why = _members_are_replicas(manifest)
+    if replicas:
+        _share_the_start(root, runs)
 
     per_analysis: dict[str, list[dict[str, Any]]] = {}
     for run in runs:
-        findings = read_member_findings(run.get("output_dir", ""))
+        findings = read_member_findings(member_directory(root, run))
         for analysis, record in findings.items():
             mean = record.get("mean") or {}
             if "mean" not in mean:
@@ -157,7 +198,7 @@ def aggregate_members(batch_dir: str | Path) -> dict[str, Any]:
             "mean_of_means": float(np.mean(means)),
             "spread_of_means": float(np.std(means, ddof=1)),
             "spread_is": (
-                "the error on one measurement" if replicas
+                "the error on one estimate" if replicas
                 else "the difference between the studies compared"),
         }
 
@@ -201,7 +242,7 @@ def aggregate_members(batch_dir: str | Path) -> dict[str, Any]:
         "why": why,
         "analyses": table,
         "refused": None if table else (
-            "No analysis reported a settled mean in two or more members, so "
+            "No analysis recorded a mean in two or more members, so "
             "there is nothing to compare across them."
         ),
     }

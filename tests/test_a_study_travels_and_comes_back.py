@@ -32,6 +32,7 @@ from fastmdxplora.remote.machines import REQUIRED_BACKENDS, save_machine
 from fastmdxplora.remote.plan import backends_plan
 from fastmdxplora.remote.send import cancel, fetch, job_script, prepare, send, status
 from fastmdxplora.remote.transport import Transport
+from fastmdxplora.simulation.pipeline import setup_records_of
 
 pytestmark = pytest.mark.skipif(
     os.name == "nt" or not shutil.which("sh") or not shutil.which("rsync"),
@@ -54,9 +55,12 @@ def _tool(path: Path, body: str) -> None:
 #: has installed: a scheduler, a GPU, conda, a container runtime, or a
 #: FastMDXplora of its own. With sbatch on PATH the stand-in would be a
 #: cluster, and a test runner with SLURM installed would fail these.
+#: `sha256sum` too: macOS has none, and a stand-in using it passed on Linux
+#: and failed only on the macOS runners.
 _NOT_ON_THE_MACHINE = frozenset({
     "sbatch", "sinfo", "squeue", "sacct", "scancel", "nvidia-smi",
     "conda", "mamba", "micromamba", "apptainer", "singularity", "fastmdx",
+    "sha256sum",
 })
 
 
@@ -88,7 +92,9 @@ class Here:
     def ssh(self, command, input=None, **kwargs):
         remote = command[-1]
         self.commands.append(remote)
-        return subprocess.run(["sh", "-c", remote], input=input, text=True,
+        # As ssh is run: bytes in and out, decoded by the caller.
+        return subprocess.run(["sh", "-c", remote], input=input,
+                              text=kwargs.get("text", False),
                               capture_output=kwargs.get("capture_output", True),
                               env=self.env, timeout=60, check=False)
 
@@ -218,6 +224,8 @@ def _alive(pid: str) -> bool:
 
 def test_a_second_send_of_the_same_name_is_refused(machine):
     _send(machine)
+    # Finished first: one still running is refused as the machine's one study.
+    _until_finished(machine, "trial")
     with pytest.raises(ValueError) as caught:
         _send(machine)
     assert refusal_of(caught.value).code == "environment.path.exists"
@@ -272,7 +280,7 @@ def test_the_job_script_asks_slurm_for_a_gpu():
     assert "#SBATCH --partition=gpu" in script
     assert "#SBATCH --time=24:00:00" in script
     assert "/e/fastmdx-1.0/bin/fastmdx explore -c study.yml --output run" in script
-    assert script.rstrip().endswith("echo $? > exit_code")
+    assert script.rstrip().endswith('rc=$?; cd / && echo "$rc" > /scratch/me/j/exit_code')
 
 
 def test_an_image_runs_with_the_gpu_passed_through():
@@ -294,7 +302,7 @@ def test_missing_backends_are_added_to_the_environment_that_needs_them():
     assert plan.route == "backends"
     assert plan.steps[0].command == (
         '/m/bin/mamba install -y -p /e/fastmdx-gpu -c conda-forge '
-        '"openmm" "openff-toolkit" "cuda-version=12.6"')
+        'openmm openff-toolkit cuda-version=12.6')
 
 
 def test_nothing_is_installed_without_a_yes(machine, tmp_path):
@@ -331,3 +339,84 @@ def test_the_code_that_ran_is_checked_against_the_code_that_sent_it(machine):
     manifest = json.loads((machine.back / "manifest.json").read_text())
     assert same_code(RELEASE, CodeIdentity(manifest["version"]))[0]
     assert not any("does not name the code" in w for w in warnings)
+
+
+# ---------------------------------------------------------------------------
+# A fetched study finds the prepared system it was sent with
+# ---------------------------------------------------------------------------
+# A study given `setup_from` travels with the prepared system under
+# `inputs/<name>`, and its run records that name. Fetched back, the name meant
+# nothing on this computer: re-analysis and the report found no setup record
+# for the run, and `fetch` said nothing. The fetch now records where each
+# input was sent from (`fetched.json`), the run's own record decides whether
+# what is there is still it, and `fetch` says which runs cannot find theirs.
+#: The stand-in installation, recording the prepared system it was given as
+#: the simulation phase does: as named there, resolved there, relative to
+#: the run and by the SHA-256 of its `system.xml`.
+RUNS_FROM_A_PREPARED_SYSTEM = '''
+out=run; while [ $# -gt 0 ]; do [ "$1" = --output ] && out=$2; shift; done
+mkdir -p "$out/simulation"
+echo '{"version": "1.0"}' > "$out/manifest.json"
+digest=$(shasum -a 256 inputs/prepared/setup/system.xml | cut -d' ' -f1)
+there=$(cd inputs/prepared/setup && pwd -P)
+printf '{"prepared_system": {"given": "inputs/prepared", "resolved": "%s", "relative_to_run": "../inputs/prepared/setup", "system_xml_sha256": "%s"}}' "$there" "$digest" > "$out/simulation/simulation_parameters.json"
+echo "working"'''
+
+
+@pytest.fixture
+def sent(machine):
+    """A study naming a prepared system on this computer, run there."""
+    _tool(machine.home / ".conda" / "envs" / "fastmdx-1.0" / "bin" / "fastmdx",
+          RUNS_FROM_A_PREPARED_SYSTEM)
+    prepared = machine.study.parent / "prepared" / "setup"
+    prepared.mkdir(parents=True)
+    for name in ("system.xml", "state.xml", "topology.pdb"):
+        (prepared / name).write_text(f"<{name}/>", encoding="utf-8")
+    (prepared / "setup_parameters.json").write_text("{}", encoding="utf-8")
+    machine.study.write_text(
+        "systems:\n  - system: top.pdb\ninclude_phase: [simulation]\n"
+        "simulation:\n  setup_from: prepared\n", encoding="utf-8")
+    job = _send(machine)
+    assert job.extra["inputs"]["prepared"] == str(prepared.parent.resolve())
+    assert _until_finished(machine, "trial").state == "done"
+    # The machine's folders are not on this computer; here they would be,
+    # since the machine is this computer, and would be found by their path.
+    shutil.rmtree(Path(job.remote_dir) / "inputs")
+    machine.prepared = prepared
+    return machine
+
+
+def _fetch(here):
+    return fetch("trial", transport=here.transport(), local_runner=here.local,
+                 code=RELEASE)
+
+
+def test_it_finds_the_prepared_system_it_was_sent_from(sent) -> None:
+    _, warnings = _fetch(sent)
+    assert not warnings
+    record = json.loads((sent.back / "fetched.json").read_text(encoding="utf-8"))
+    assert record["inputs"]["prepared"] == str(sent.prepared.parent.resolve())
+    assert setup_records_of(sent.back) == sent.prepared.resolve()
+
+
+def test_one_prepared_again_since_is_said_and_not_read(sent) -> None:
+    (sent.prepared / "system.xml").write_text("<another/>", encoding="utf-8")
+    _, warnings = _fetch(sent)
+    assert len(warnings) == 1 and "different system" in warnings[0]
+
+
+def test_one_gone_since_is_said(sent) -> None:
+    shutil.rmtree(sent.prepared.parent)
+    _, warnings = _fetch(sent)
+    assert len(warnings) == 1
+    assert "'inputs/prepared'" in warnings[0] and "not on this computer" in warnings[0]
+    assert setup_records_of(sent.back) is None
+
+
+def test_a_study_sent_without_one_is_fetched_as_before(machine) -> None:
+    _send(machine)
+    _until_finished(machine, "trial")
+    _, warnings = _fetch(machine)
+    assert len(warnings) == 1 and "1 trajectory" in warnings[0]
+    assert json.loads((Path(machine.back) / "fetched.json").read_text())["inputs"] == {
+        "top.pdb": str((machine.study.parent / "top.pdb").resolve())}

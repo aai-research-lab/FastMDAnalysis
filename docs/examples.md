@@ -34,9 +34,9 @@ fastmdx explore --system 181L \
 ```
 
 `amber-openff` is what parameterises the ligand. The setup phase finds it,
-looks its chemistry up, settles its protonation in the binding site, and
+looks its chemistry up, determines its protonation in the binding site, and
 discards crystallisation additives. The analysis phase adds the protein–ligand
-measures automatically.
+analyses automatically.
 
 The ligand's charges are AM1-BCC, computed by AmberTools, which the conda-forge
 package brings. Where nothing can compute them, the study refuses before setup
@@ -83,16 +83,20 @@ wrong will simulate perfectly well.
 
 ### Choosing between them
 
-Nothing has to be declared. If the structure holds a residue of that name with
-a matching count of heavy atoms, its coordinates are used; if it does not, the
-file's are. The files already say which situation it is.
+Nothing has to be declared. If the structure holds a residue of that name
+whose heavy atoms match the file's, element for element and bond for bond, its
+coordinates are used, each atom on its own crystal position whatever order the
+two files list them in. If it holds no residue of that name, the file's are.
+If it holds one that cannot be matched (another atom count, other bonds, too
+few copies), setup refuses rather than guess, and says so. The files already
+say which situation it is.
 
 The choice can also be pinned, as `setup.ligand_pose`:
 
 | Value | What it does |
 |---|---|
 | `auto` | The rule above. The default |
-| `structure` | Refuse the fallback — a complex whose ligand is somehow absent becomes an error rather than a benzene floating in solvent |
+| `structure` | Refuse the fallback too: a complex whose ligand is somehow absent becomes an error rather than a benzene floating in solvent |
 | `file` | The supplied pose stands whether or not the structure holds one. This is how a deliberately unbound run — a negative control — differs from a bound study by a line of configuration rather than an accident of coordinates |
 
 Either way the run states which pose stood and why.
@@ -111,17 +115,18 @@ fastmdx explore --system 1AFO \
   --output runs/glycophorin
 ```
 
-`--setup-membrane-orient` turns the structure so its longest axis lies along
-the membrane normal, which a PDB entry usually does not. It is checked both
-ways — before, that there is a longest axis worth using; after, that the result
-has the hydrophobic belt a bilayer-spanning protein has.
+`--setup-membrane-orient` turns the structure onto the membrane normal fitted
+from where its lipid-facing surface is apolar, which a PDB entry's frame has
+no relation to. A structure that is not a membrane protein is refused rather
+than embedded. An OPM file needs no flag: its frame is recognised and kept.
 
-The restraint holds the protein while the lipids pack around it. See
-[Membrane systems](studies.md#membrane-systems).
+The restraint holds the protein while the lipids pack around it. The area per
+lipid, thickness and chain order of the bilayer are analysed after the run.
+See [Membrane proteins](membranes.md).
 
 ---
 
-## Holding a structure still while it settles
+## Holding a structure still while it equilibrates
 
 ```bash
 fastmdx explore --system 4LYT --output runs/lysozyme \
@@ -214,7 +219,7 @@ and neighbours further apart than about twice that share too little for the
 stitching to join them. The study reports every overlap and refuses below a
 threshold rather than returning a curve nobody should read.
 
-**A torsion is a circle.** Windows covering part of a turn measure one of the
+**A torsion is a circle.** Windows covering part of a turn sample one of the
 two paths between the states and say nothing about the other — which may be the
 higher. The example above tiles the full turn, from −π to +2.618 radians at
 30-degree spacing, so the last window's neighbour is the first.
@@ -257,7 +262,7 @@ refused rather than guessed, because a pull that begins somewhere the molecule
 is not spends its first half hauling the system to the anchor and reports work
 that means nothing.
 
-Measure it before writing the Config:
+Compute it before writing the Config:
 
 ```bash
 fastmdx analyze --trajectory equilibrated.dcd --topology system.pdb --analyses rg
@@ -297,7 +302,7 @@ analysis:
 
 ---
 
-## Choosing what gets measured
+## Choosing what gets analysed
 
 ```bash
 fastmdx explore --system 1UBQ --output runs/focused \
@@ -363,7 +368,7 @@ what you want overnight — the failures are in the
 [Manifest](manifest.md).
 
 A study with more than one run writes a cross-run comparison as well as the
-individual reports — the same measures overlaid, so a difference between
+individual reports — the same quantities overlaid, so a difference between
 systems is visible rather than inferred from reading two reports side by side.
 It is on by default; `report.comparison: false` turns it off. See
 [Comparing runs](results.md#comparing-runs).
@@ -470,7 +475,7 @@ See [The FastMDXplora API](api.md).
 ## From a sentence
 
 ```bash
-fastmdx agent set                                      # choose a model, once
+fastmdx agent model                                    # choose an AI model, once
 fastmdx agent "T4 lysozyme L99A with benzene bound, 100 ns at 310 K" \
   -o lysozyme.yml
 fastmdx explore --config lysozyme.yml

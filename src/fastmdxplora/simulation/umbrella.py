@@ -183,7 +183,7 @@ class Cone:
                      else (self.axis_atoms or ()))
         if not atoms:
             raise StudyError(
-                "A cone's angle is measured against a group of atoms, and "
+                "A cone's angle is defined against a group of atoms, and "
                 f"none reached it. `axis_selection` is {self.axis_selection!r} "
                 "-- resolve it against the topology and pass the result, or "
                 "give the cone `axis_atoms`.", code="simulation.cv.selection_empty")
@@ -317,7 +317,7 @@ def narrowest_cone(direction: Any, keep: float = 98.0,
             f"{direction.shape} was given.", code="simulation.bias.dimension_mismatch")
     if direction.shape[0] < 3:
         raise StudyError(
-            "Measuring a cone needs a path to measure; "
+            "Determining a cone needs a path to read it from; "
             f"{direction.shape[0]} frames were given.", code="analysis.sampling.too_few_frames")
     lengths = np.linalg.norm(direction, axis=1)
     direction = direction / np.where(lengths == 0.0, 1.0, lengths)[:, None]
@@ -345,7 +345,7 @@ def cone_from_config(spec: "dict[str, Any] | None"
     if isinstance(spec, str):
         if spec.strip().lower() not in ("auto", "measured", "measure"):
             raise StudyError(
-                f"`cone` is {spec!r}. It is either `auto` -- measured from "
+                f"`cone` is {spec!r}. It is either `auto` -- determined from "
                 "the pull that seeds the windows -- or a block with "
                 "`half_angle_deg`.", code="config.option.not_permitted")
         return ConeToMeasure()
@@ -409,7 +409,7 @@ class Window:
         restraint through equilibration as well, and the two belong in
         different files. `COLVAR` is production and nothing else, which is
         what it has always been and what everything downstream reads; the
-        settling goes to `COLVAR.equilibration`.
+        equilibration goes to `COLVAR.equilibration`.
 
         `restart` makes PLUMED append rather than truncate. Equilibration
         needs it: adding the barostat reinitialises the context, PLUMED is
@@ -475,6 +475,13 @@ class UmbrellaPlan:
     #: recombination's bulk reference assumes the ligand visits all of that
     #: sphere -- which a run of any affordable length does not.
     cone: "Cone | None" = None
+    #: Resamples behind the free energy's interval, and a binding free
+    #: energy's. The curve itself takes a fraction of a second; two hundred
+    #: resamples of seventeen windows took 13.6 s, and a study of thirty-five
+    #: windows minutes before any curve could be looked at. Fewer give a
+    #: rougher interval; none gives the curve with no interval, and the
+    #: record says so.
+    bootstrap_resamples: int = DEFAULT_RESAMPLES
 
     def as_record(self) -> dict[str, Any]:
         forces = [w.force_constant for w in self.windows]
@@ -499,6 +506,7 @@ class UmbrellaPlan:
             "minimum_overlap": self.minimum_overlap,
             "minimum_samples": self.minimum_samples,
             "cone": self.cone.as_record() if self.cone else None,
+            "bootstrap_resamples": self.bootstrap_resamples,
         }
 
 
@@ -509,6 +517,7 @@ _UMBRELLA_OWN_KEYS: frozenset[str] = frozenset({
     "force_constant", "centres", "centers", "from", "to", "n_windows",
     "equilibration_fraction",
     "minimum_overlap", "minimum_samples",
+    "bootstrap_resamples",
     # A finished pull to take starting structures from, instead of running
     # another. Documented in the schema before it was accepted here, which
     # is a config error waiting for the first person to follow the
@@ -543,7 +552,7 @@ _READING_ORDER: tuple[str, ...] = (
     "collective_variable", "from", "to", "n_windows", "centres", "centers",
     "force_constant",
     "equilibration_fraction", "minimum_overlap", "minimum_samples",
-    "seed_from",
+    "bootstrap_resamples", "seed_from",
 )
 
 
@@ -584,7 +593,7 @@ def check_umbrella_keys(spec: dict[str, Any]) -> None:
             "recorded in pmf.json and read by nothing, so a study asking for "
             "it discarded only the default fraction. Use "
             "`equilibration_fraction` instead -- a fraction of each window's "
-            "production, which is what the discard is actually measured in."
+            "production, which is what the discard is actually expressed in."
         , code="config.option.inapplicable")
     named = ", ".join(
         f"'{key}'{_suggest(key, set(accepted))}" for key in unknown)
@@ -612,10 +621,22 @@ def _checked_fraction(value: Any) -> float:
     if not 0.0 < fraction < 1.0:
         raise StudyError(
             f"equilibration_fraction is {fraction:g}; it must be above 0 and "
-            "below 1. A window begins away from where it settles, so some of "
+            "below 1. A window begins away from where it equilibrates, so some of "
             "it has to be discarded, and discarding all of it leaves no "
             "histogram to place.", code="config.option.wrong_type")
     return fraction
+
+
+def _checked_resamples(value: Any) -> int:
+    """The resample count, refused where it is not a count."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) \
+            or float(value) != int(value) or int(value) < 0:
+        raise StudyError(
+            f"bootstrap_resamples is {value!r}; it is a whole number of "
+            "resamples, 0 or more. 0 recombines without an interval; two "
+            "hundred, the default, determines one to a few per cent.",
+            code="config.option.wrong_type")
+    return int(value)
 
 
 def plan_windows(spec: dict[str, Any]) -> UmbrellaPlan:
@@ -676,6 +697,8 @@ def plan_windows(spec: dict[str, Any]) -> UmbrellaPlan:
         minimum_overlap=float(spec.get("minimum_overlap", 0.03)),
         minimum_samples=int(spec.get("minimum_samples", 200)),
         cone=cone_from_config(spec.get("cone")),
+        bootstrap_resamples=_checked_resamples(
+            spec.get("bootstrap_resamples", DEFAULT_RESAMPLES)),
     )
 
 
@@ -724,6 +747,69 @@ def _a_force_for_every_window(force: Any, count: int) -> list[float]:
                 "the place the window exists to sample."
             , code="config.option.wrong_type")
     return values
+
+
+def windows_held_at(config: dict[str, Any], indices: "list[int]",
+                    force_constant: float) -> dict[str, Any]:
+    """The config with the windows named held at ``force_constant``.
+
+    Every other window keeps the constant the config gives it, so a study
+    whose windows ran is changed in the windows run again and nowhere else:
+    the kept windows are still unbiased with the springs they ran with,
+    which `windows_run_otherwise` checks before anything moves. A window
+    that did not stay near its centre is held harder; the constant is in
+    kJ/mol per unit of the collective variable squared (nm^2 for a
+    distance, rad^2 for an angle). Only the config is changed; the windows
+    run again with ``--rerun-window``.
+
+    Takes a config as written (an ``umbrella`` block) or as loaded, where
+    the block is already a run per window.
+    """
+    held = float(force_constant)
+    if not math.isfinite(held):
+        raise StudyError(
+            f"A window's force constant has to be a finite number; {force_constant!r} "
+            "was given.", code="config.option.wrong_type")
+    simulation = config.get("simulation") if isinstance(config, dict) else None
+    spec = simulation.get("umbrella") if isinstance(simulation, dict) else None
+    expanded = plan_from_expanded(config) if isinstance(config, dict) else None
+    if expanded is not None:
+        count = len(expanded.windows)
+        forces = [w.force_constant for w in expanded.windows]
+    elif isinstance(spec, dict) and spec:
+        planned = plan_windows(spec)
+        count = len(planned.windows)
+        forces = [w.force_constant for w in planned.windows]
+    else:
+        raise StudyError(
+            "A force constant for windows run again needs an umbrella study, "
+            "and this config has no `simulation.umbrella`.",
+            code="config.option.inapplicable")
+    known = {w.index for w in expanded.windows} if expanded is not None else set(range(count))
+    unknown = sorted({int(i) for i in indices if int(i) not in known})
+    if unknown:
+        raise StudyError(
+            f"This study has no window {', '.join(str(i) for i in unknown)}. "
+            f"Its windows are numbered {min(known)} to {max(known)}.",
+            code="config.option.not_permitted")
+    named = {int(i) for i in indices}
+    order = [w.index for w in expanded.windows] if expanded is not None else list(range(count))
+    forces = [held if index in named else k for index, k in zip(order, forces)]
+    # The same checks as a list written by hand: each pulls towards its centre.
+    _a_force_for_every_window(forces, count)
+    if expanded is None:
+        return {**config, "simulation": {**simulation,
+                                         "umbrella": {**spec, "force_constant": forces}}}
+    systems = []
+    for entry in config.get("systems") or []:
+        block = ((entry.get("simulation") or {}).get("umbrella")
+                 if isinstance(entry, dict) else None)
+        if isinstance(block, dict) and block.get("centre") is not None \
+                and int(block.get("index", -1)) in named:
+            entry = {**entry, "simulation": {**entry["simulation"],
+                                             "umbrella": {**block, "force_constant": held}}}
+        systems.append(entry)
+    return {**config, "systems": systems}
 
 
 def expand_umbrella(config: dict[str, Any]) -> dict[str, Any]:
@@ -805,6 +891,7 @@ def plan_from_expanded(config: dict[str, Any]) -> UmbrellaPlan | None:
     fraction = 0.2
     minimum = 0.03
     fewest = 200
+    resamples = DEFAULT_RESAMPLES
     cone: "Cone | None" = None
     for entry in systems:
         block = ((entry.get("simulation") or {}).get("umbrella")
@@ -816,6 +903,7 @@ def plan_from_expanded(config: dict[str, Any]) -> UmbrellaPlan | None:
             block.get("equilibration_fraction", fraction))
         minimum = float(block.get("minimum_overlap", minimum))
         fewest = int(block.get("minimum_samples", fewest))
+        resamples = _checked_resamples(block.get("bootstrap_resamples", resamples))
         if block.get("cone"):
             cone = cone_from_config(block["cone"])
         windows.append(Window(
@@ -832,6 +920,7 @@ def plan_from_expanded(config: dict[str, Any]) -> UmbrellaPlan | None:
         minimum_overlap=minimum,
         minimum_samples=fewest,
         cone=cone,
+        bootstrap_resamples=resamples,
     )
 
 
@@ -912,6 +1001,73 @@ def cone_the_windows_ran_under(directories: "dict[int, Any]") -> "Cone | None":
     return Cone.from_record(next(iter(records.values())))
 
 
+def windows_run_otherwise(directories: "dict[int, Any]",
+                          plan: "UmbrellaPlan") -> list[str]:
+    """Windows whose own record disagrees with the plan, described.
+
+    The plan is rebuilt from the config, and a window is recombined with the
+    centre and force constant the plan gives it. A window that ran with
+    another, because the config was edited after it ran, would be unbiased
+    by the wrong spring and the free energy shifted by the difference, with
+    nothing on the curve to show it. A window that recorded nothing is not
+    judged.
+    """
+    return [said for _, said in windows_off_the_plan(directories, plan)]
+
+
+def windows_off_the_plan(directories: "dict[int, Any]",
+                         plan: "UmbrellaPlan") -> list[tuple[int, str]]:
+    """:func:`windows_run_otherwise` with each window's index, so what would
+    fix it can name the windows to run again."""
+    import json
+    from pathlib import Path
+
+    planned = {w.index: w for w in plan.windows}
+    differ: list[tuple[int, str]] = []
+    for index, directory in sorted(directories.items()):
+        window = planned.get(int(index))
+        written = Path(directory) / "simulation" / "umbrella_window.json"
+        if window is None or not written.is_file():
+            continue
+        try:
+            record = json.loads(written.read_text(encoding="utf-8"))
+            centre = float(record["centre"])
+            force = float(record["force_constant"])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if not (math.isclose(centre, window.centre, rel_tol=1e-9, abs_tol=1e-9)
+                and math.isclose(force, window.force_constant, rel_tol=1e-9)):
+            at = variable_unit(plan.collective_variable)
+            at = f" {at}" if at else ""
+            differ.append((int(index),
+                f"window {index} ran at {centre:g}{at} with {force:g} "
+                f"{spring_unit(plan.collective_variable)}, and the config gives "
+                f"it {window.centre:g}{at} with {window.force_constant:g}"))
+    return differ
+
+
+#: The unit each variable is measured in: lengths in nm, angles in rad, and
+#: a count or a fraction in none.
+_VARIABLE_UNITS = {"ligand_distance": "nm", "ligand_rmsd": "nm", "radius_of_gyration": "nm",
+                   "membrane_depth": "nm", "torsion": "rad", "angle": "rad",
+                   "coordination": "", "q": ""}
+
+
+def variable_unit(variable: Any) -> str | None:
+    """The unit a collective variable is measured in, "" for one without,
+    or None for a variable not known here."""
+    return _VARIABLE_UNITS.get(str(variable or "").lower())
+
+
+def spring_unit(variable: Any) -> str:
+    """The unit of an umbrella window's force constant on this variable:
+    kJ/mol per unit of the variable squared."""
+    unit = variable_unit(variable)
+    if unit is None:
+        return "kJ/mol per unit of the variable squared"
+    return f"kJ/mol/{unit}^2" if unit else "kJ/mol"
+
+
 def wall_bias_where_the_bound_state_is(
     directories: "dict[int, Any]", plan: "UmbrellaPlan",
     bound_below: float, *, equilibration_fraction: float | None = None,
@@ -987,7 +1143,7 @@ def collect_samples(
     sampling. They are dropped before the fraction is applied, so
     `equilibration_fraction` keeps meaning a fraction of the production run.
 
-    A held window writes its settling to `COLVAR.equilibration` and its
+    A held window writes its equilibration to `COLVAR.equilibration` and its
     production to `COLVAR`, so this reads `COLVAR` and gets production, which
     is what it has always got.
 
@@ -1194,7 +1350,7 @@ def _how_hard_they_needed_holding(drifted: list[dict[str, Any]]) -> str:
         "gradient divided by the gate. A softer one will make this worse -- "
         "it is the remedy for windows that never reach each other, and these "
         "have gone somewhere else. Both columns are upper bounds where the "
-        "surface steepens inward, because the gradient is measured where the "
+        "surface steepens inward, because the gradient is estimated where the "
         "window stopped rather than at its centre.\n\n"
         "`at spacing` is not optional. Sigma falls as sqrt(kT/k), so a "
         "stiffer window is a narrower one -- raising the constant and "
@@ -1245,7 +1401,7 @@ def design_from_a_pilot(
     """The windows a study needs, from a short run of the ones it has.
 
     Every window is a measurement of the free energy's slope wherever it came
-    to rest: it settles where the restraint's pull matches the surface's, so
+    to rest: it equilibrates where the restraint's pull matches the surface's, so
     ``k`` times its displacement is the gradient there. That is true of a
     window that held its centre as much as one that did not -- the drift gate
     decides whether to complain, not whether the number exists.
@@ -1292,7 +1448,7 @@ def design_from_a_pilot(
     Two things the caller must get right, both learned the hard way. The
     pilot has to hold each window from its first step, or it measures where
     the seeds relaxed to rather than the surface. And the arrival has to be
-    discarded before the median is taken, or a window still settling reports
+    discarded before the median is taken, or a window still equilibrating reports
     its starting position as a gradient.
 
     `coarsest` and `softest` bound the answer to what was already tried, so
@@ -1684,7 +1840,7 @@ def warn_if_a_circle_is_left_open(plan: "UmbrellaPlan") -> str | None:
         f"The windows cover {np.degrees(covered):.0f} degrees of a "
         f"{variable}, leaving {np.degrees(gap):.0f} degrees with no window "
         "on it. A periodic coordinate has no ends, so that arc is a gap and "
-        "not a boundary: the free energy across it is not measured, and the "
+        "not a boundary: the free energy across it is not sampled, and the "
         "barrier between the minima either side of it is unknown. Tile the "
         "full turn, or read the result as the one path it covers.")
 
@@ -1959,8 +2115,8 @@ def compute_pmf(
             f"computed across the gap: {described}. Recombination "
             "stitches histograms together, and where two neighbours never "
             "visit the same value there is nothing to stitch -- a curve "
-            "drawn through the gap would be interpolation presented as a "
-            "measurement.\n\n"
+            "continued across the gap would be interpolation presented as a "
+            "result.\n\n"
         )
         if drifted:
             # The windows are not where they were told to be, so the gap is
@@ -1982,7 +2138,7 @@ def compute_pmf(
                 "the first thing to check is where each window began: seed "
                 "them from a steered run near their own centres. Where they "
                 "did begin there and still slid, the surface is steeper than "
-                "the restraint, and each window measured how much:\n\n"
+                "the restraint, and each window's displacement says how much:\n\n"
                 + _how_hard_they_needed_holding(drifted)
             )
         else:

@@ -238,16 +238,17 @@ class TestEverythingThatReadsTheTrajectoryAgrees:
             encoding="utf-8"))
         assert manifest["results"]["rmsd"]["status"] == "ok"
 
-    def test_the_playback_prefers_it_too(self, tmp_path):
+    def test_the_viewer_s_frames_prefer_it_too(self, tmp_path):
         # The browser's copy holds the eight atoms that were written.
         import mdtraj as md
 
-        from fastmdxplora.gui.trajectory_playback import playback_info
+        from fastmdxplora.gui.trajectory_frames import frames_info
 
         root = _a_study_that_saved_a_subset(tmp_path)
-        info = playback_info(root)
+        info = frames_info(root)
         assert info["playback_available"], info.get("reason")
-        shown = md.load(str(root / "simulation" / info["companion_pdb"]))
+        shown = md.load_dcd(str(root / "simulation" / info["coordinates"]),
+                            top=str(root / "simulation" / info["topology"]))
         assert shown.n_atoms == 8 and {a.name for a in shown.topology.atoms} == {"CA"}
 
     def test_every_known_reader_prefers_it(self, tmp_path):
@@ -259,7 +260,7 @@ class TestEverythingThatReadsTheTrajectoryAgrees:
         reads its own input. A check with three false positives out of four
         is one that gets deleted rather than fixed, so the readers are
         listed and a new one joins this list. The two above run the analysis
-        phase and the playback; the command line's and the cross-tool
+        phase and the viewer's frames; the command line's and the cross-tool
         benchmark's lookups are asked here, with the subset topology and
         without it.
         """
@@ -295,3 +296,36 @@ def _a_study_that_saved_a_subset(root):
     md.Trajectory(moved.astype(np.float32), subset.topology).save_dcd(
         str(simulation / "production.dcd"))
     return root
+
+
+def test_saving_a_subset_prints_nothing_of_mdtraj_s(tmp_path):
+    """MDTraj's reporter hands its DCD writer double precision and the writer
+    warns about the cast, on the console of every default run."""
+    import warnings
+
+    openmm = pytest.importorskip("openmm")
+    from openmm import app, unit
+
+    from fastmdxplora.simulation.runner import _subset_dcd_reporter
+
+    topology = app.Topology()
+    chain = topology.addChain()
+    system = openmm.System()
+    for _ in range(3):
+        residue = topology.addResidue("AR", chain)
+        topology.addAtom("AR", app.element.argon, residue)
+        system.addParticle(39.9)
+    box = [openmm.Vec3(2, 0, 0), openmm.Vec3(0, 2, 0), openmm.Vec3(0, 0, 2)]
+    topology.setPeriodicBoxVectors(box)
+    system.setDefaultPeriodicBoxVectors(*box)
+    simulation = app.Simulation(topology, system, openmm.VerletIntegrator(0.001),
+                                openmm.Platform.getPlatformByName("Reference"))
+    simulation.context.setPositions([openmm.Vec3(0.2 + 0.5 * i, 1, 1) for i in range(3)]
+                                    * unit.nanometer)
+    simulation.reporters.append(_subset_dcd_reporter()(
+        str(tmp_path / "t.dcd"), 1, atomSubset=[0, 2]))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        simulation.step(2)
+    simulation.reporters[0].close()
+    assert (tmp_path / "t.dcd").stat().st_size > 0

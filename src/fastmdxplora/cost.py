@@ -55,12 +55,14 @@ __all__ = [
     "calibration_path",
     "calibrate",
     "measure_this_machine",
+    "measure_prepared_system",
     "calibrate_from_runs",
     "costs_under",
     "Fit",
     "load_calibration",
     "estimate_seconds",
     "estimate_study",
+    "estimate_runs",
     "describe_machine",
 ]
 
@@ -141,6 +143,12 @@ class Estimate:
     particles: int
     steps: int
     calibration: Calibration
+    #: A study of several runs (umbrella windows, replicas, several
+    #: systems) is priced as the sum of its runs: ``steps`` is then every
+    #: step of every run, ``particles`` the largest system and
+    #: ``fewest_particles`` the smallest.
+    runs: int = 1
+    fewest_particles: int | None = None
 
     @property
     def hours(self) -> float:
@@ -159,6 +167,7 @@ class Estimate:
             "seconds_per_particle_step":
                 self.calibration.seconds_per_particle_step,
             "measured_at": self.calibration.measured_at,
+            "runs": self.runs,
         }
 
     def __str__(self) -> str:
@@ -170,8 +179,14 @@ class Estimate:
             rough = f"{self.hours:.1f} hours"
         else:
             rough = f"{self.days:.1f} days"
-        return (f"about {rough} for {self.steps:,} steps on "
-                f"{self.particles:,} particles")
+        if self.runs == 1:
+            return (f"about {rough} for {self.steps:,} steps on "
+                    f"{self.particles:,} particles")
+        fewest = self.particles if self.fewest_particles is None else self.fewest_particles
+        on = (f"{self.particles:,} particles each" if fewest == self.particles
+              else f"{fewest:,} to {self.particles:,} particles")
+        return (f"about {rough} for {self.runs} runs, {self.steps:,} steps in all, "
+                f"on {on}")
 
 
 def calibration_path() -> Path:
@@ -281,7 +296,7 @@ def estimate_seconds(
     if particles <= 0:
         raise StudyError(
             "The particle count is not known yet, so there is nothing to "
-            "estimate from. Particle count is settled when the system is "
+            "estimate from. The particle count is fixed when the system is "
             "solvated, so estimate after setup rather than before it.",
             code="setup.structure.undetermined",
         )
@@ -317,33 +332,40 @@ def estimate_seconds(
 #: Defaults the simulation phase applies when a config leaves them out.
 #: Read here so an estimate describes the run that would actually happen
 #: rather than the subset of it the config happened to mention.
-_DEFAULT_TIMESTEP_FS = 2.0
-_DEFAULT_PRODUCTION_STEPS = 1_000_000
-_DEFAULT_NVT_STEPS = 250_000
-_DEFAULT_NPT_STEPS = 500_000
 
 
 def total_steps(simulation: dict[str, Any] | None) -> int:
     """Every step a study would integrate, equilibration included.
 
     Counting production alone understates a short study badly: the
-    default equilibration is 750,000 steps, which is most of the work in
-    anything under a couple of nanoseconds.
+    default equilibration is 1.5 ns, which is most of the work in anything
+    under a couple of nanoseconds. A study with
+    `simulation.stop_when` is priced at its ceiling.
     """
-    block = simulation or {}
-    timestep = float(block.get("timestep_fs") or _DEFAULT_TIMESTEP_FS)
+    from fastmdxplora.simulation.lengths import (
+        DEFAULT_NPT_NS, DEFAULT_NVT_NS, DEFAULT_PRODUCTION_NS, DEFAULT_TIMESTEP_FS, steps_in,
+    )
 
-    def steps_for(explicit: str, duration: str, fallback: int) -> int:
+    block = simulation or {}
+    timestep = float(block.get("timestep_fs") or DEFAULT_TIMESTEP_FS)
+    stop_when = block.get("stop_when")
+    ceiling = stop_when.get("max_duration_ns") if isinstance(stop_when, dict) else None
+    if isinstance(ceiling, (int, float)) and not isinstance(ceiling, bool) and ceiling > 0:
+        # A study run until it is determined may run to its ceiling, and a budget
+        # has to allow for what it may spend, not for the first piece.
+        block = {**block, "duration_ns": ceiling, "production_steps": None}
+
+    def steps_for(explicit: str, duration: str, fallback_ns: float) -> int:
         if block.get(explicit) is not None:
             return int(block[explicit])
         if block.get(duration) is not None:
-            return int(float(block[duration]) * 1e6 / timestep)
-        return fallback
+            return steps_in(block[duration], timestep)
+        return steps_in(fallback_ns, timestep)
 
     return (
-        steps_for("production_steps", "duration_ns", _DEFAULT_PRODUCTION_STEPS)
-        + steps_for("nvt_steps", "nvt_duration_ns", _DEFAULT_NVT_STEPS)
-        + steps_for("npt_steps", "npt_duration_ns", _DEFAULT_NPT_STEPS)
+        steps_for("production_steps", "duration_ns", DEFAULT_PRODUCTION_NS)
+        + steps_for("nvt_steps", "nvt_duration_ns", DEFAULT_NVT_NS)
+        + steps_for("npt_steps", "npt_duration_ns", DEFAULT_NPT_NS)
     )
 
 
@@ -370,6 +392,41 @@ def estimate_study(
         precision=precision,
         calibration=calibration,
         path=path,
+    )
+
+
+def estimate_runs(
+    runs: list[tuple[int, int]],
+    *,
+    platform_name: str = "",
+    precision: str = "",
+    calibration: Calibration | None = None,
+    path: Path | None = None,
+) -> Estimate:
+    """The whole of a study of several runs: each run's ``(particles,
+    steps)``, priced on the one measurement and summed.
+
+    A study's cost is every run it makes: 35 umbrella windows are 35
+    equilibrations and 35 productions, and three replicas are three.
+    """
+    if not runs:
+        raise StudyError(
+            "There are no runs to price.", code="setup.structure.undetermined")
+    first = estimate_seconds(particles=runs[0][0], steps=runs[0][1],
+                             platform_name=platform_name, precision=precision,
+                             calibration=calibration, path=path)
+    parts = [first] + [
+        estimate_seconds(particles=particles, steps=steps,
+                         platform_name=platform_name, precision=precision,
+                         calibration=first.calibration)
+        for particles, steps in runs[1:]]
+    return Estimate(
+        seconds=sum(part.seconds for part in parts),
+        particles=max(part.particles for part in parts),
+        steps=sum(part.steps for part in parts),
+        calibration=first.calibration,
+        runs=len(parts),
+        fewest_particles=min(part.particles for part in parts),
     )
 
 
@@ -481,6 +538,70 @@ def measure_this_machine(
     return calibrate(particles=particles, steps=steps, seconds=elapsed,
                      platform_name=measured_on, precision=precision,
                      path=path, save=save)
+
+
+def measure_prepared_system(
+    setup_dir: Path | str,
+    *,
+    platform_name: str = "auto",
+    precision: str = "mixed",
+    steps: int = 2000,
+    path: Path | None = None,
+    save: bool = True,
+) -> Calibration:
+    """Time the study's own prepared system here, and record what it cost.
+
+    Where :func:`measure_this_machine` times argon with a plain cutoff,
+    this times the system the study is about to simulate: its own
+    particles, force field, constraints and PME, on the platform the
+    simulation phase would choose. That is the better constant, and it is
+    available exactly when a budget needs one, just after setup. Argon
+    leaves out the reciprocal-space sum, so a constant from it prices a
+    solvated protein low; a budget checked against it would pass studies
+    that do not fit.
+
+    The system is minimised briefly and integrated at 1 fs, which keeps an
+    unrelaxed box stable for a few thousand steps; the cost of a step does
+    not depend on its length. The first steps are not timed, since they
+    pay for kernel compilation.
+
+    Raises
+    ------
+    BackendUnavailable
+        Where OpenMM is not installed, or no platform asked for is usable.
+    OSError
+        Where setup left no ``system.xml`` or ``state.xml``.
+    """
+    import time as _time
+
+    from fastmdxplora.simulation.runner import _import_openmm, select_platform
+
+    omm = _import_openmm()
+    mm, unit = omm["openmm"], omm["unit"]
+    setup_dir = Path(setup_dir)
+    system = mm.XmlSerializer.deserialize(
+        (setup_dir / "system.xml").read_text(encoding="utf-8"))
+    state = mm.XmlSerializer.deserialize(
+        (setup_dir / "state.xml").read_text(encoding="utf-8"))
+    platform, properties, measured_on = select_platform(
+        omm, requested=platform_name or "auto", precision=precision)
+    integrator = mm.LangevinMiddleIntegrator(
+        300 * unit.kelvin, 1 / unit.picosecond, 1 * unit.femtosecond)
+    context = mm.Context(system, integrator, platform, properties)
+    context.setPeriodicBoxVectors(*state.getPeriodicBoxVectors())
+    context.setPositions(state.getPositions())
+    mm.LocalEnergyMinimizer.minimize(context, 10.0, 100)
+    context.setVelocitiesToTemperature(300 * unit.kelvin, 1)
+
+    integrator.step(max(100, steps // 10))
+    context.getState(getEnergy=True)
+    started = _time.perf_counter()
+    integrator.step(steps)
+    context.getState(getEnergy=True)  # make the queue drain
+    elapsed = _time.perf_counter() - started
+
+    return calibrate(particles=system.getNumParticles(), steps=steps, seconds=elapsed,
+                     platform_name=measured_on, precision=precision, path=path, save=save)
 
 
 @dataclass(frozen=True)

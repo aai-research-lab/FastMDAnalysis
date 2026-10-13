@@ -153,8 +153,12 @@ def image_whole(trajectory: md.Trajectory, *, inplace: bool) -> md.Trajectory:
         anchors = trajectory.topology.guess_anchor_molecules()
     except ValueError:
         molecules = trajectory.topology.find_molecules()
-        anchors = [max(molecules, key=len)] if molecules else None
-    return trajectory.image_molecules(inplace=inplace, anchor_molecules=anchors)
+        anchors = [max(molecules, key=len)] if molecules else []
+    from fastmdxplora.analysis.imaging import image_trajectory
+
+    result = trajectory if inplace else trajectory[:]
+    image_trajectory(result, anchors)
+    return result
 
 
 def _made_whole(trajectory: md.Trajectory) -> md.Trajectory:
@@ -169,12 +173,23 @@ def _made_whole(trajectory: md.Trajectory) -> md.Trajectory:
     every one of them succeeds, writes its file, draws its figure and
     reports ``status="ok"``.
 
-    Anchored on the solute where there is one, so the protein stays whole
-    and the ligand is imaged into the protein's copy rather than each being
-    made whole in its own. The benchmark helper in ``validation/cross_tool``
-    had been imaging these trajectories before the pipeline did, with
-    MDTraj's own choice of anchor through :func:`image_whole` rather than
-    this one.
+    Anchored on the macromolecules where there are any, so the protein
+    stays whole, and every other solute molecule is then moved to the copy
+    of it nearest them (:func:`_nearest_copies`). The ligand and ions were
+    anchors too, and MDTraj keeps an anchor in whichever copy it was stored
+    in: a ligand that had left the pocket was measured in the copy the
+    engine wrote, up to a box length away, and a radius of gyration of
+    protein and ligand came out that much too large. MDTraj's own placement
+    of the others rounds fractional coordinates, which is exact only for a
+    rectangular box and misses in the dodecahedron and octahedron setup
+    builds by default, hence the exact search. Where there is no
+    macromolecule, every solute molecule anchors, as before.
+
+    The imaging is MDTraj's, computed over every frame at once
+    (:mod:`fastmdxplora.analysis.imaging`): MDTraj compared every atom of
+    one chain with every atom of the other to place a dimer, about a
+    quarter of a second a frame for 1AKE, and the same coordinates now take
+    a few milliseconds.
 
     Failure is not fatal: a topology without bonds cannot be made whole, and
     an analysis of what was loaded beats refusing to load it. The reason is
@@ -183,23 +198,73 @@ def _made_whole(trajectory: md.Trajectory) -> md.Trajectory:
     """
     if trajectory.unitcell_vectors is None:
         return trajectory
+    from fastmdxplora.analysis.residues import _is_polymer
+
     try:
-        solute = trajectory.topology.select("not water and not resname HOH")
-        anchors = None
-        if solute is not None and len(solute):
-            molecules = trajectory.topology.find_molecules()
-            wanted = set(int(i) for i in solute)
-            anchors = [m for m in molecules
-                       if any(a.index in wanted for a in m)]
-        trajectory.image_molecules(inplace=True, anchor_molecules=anchors or None)
+        topology = trajectory.topology
+        molecules = topology.find_molecules()
+        solute = [m for m in molecules
+                  if not all(a.residue.is_water for a in m)]
+        # Older MDTraj raises from ``is_nucleic``; _is_polymer answers anyway.
+        large = [m for m in solute if any(_is_polymer(a.residue) for a in m)]
+        anchors = large or solute or topology.guess_anchor_molecules()
+        from fastmdxplora.analysis.imaging import image_trajectory
+
+        image_trajectory(trajectory, anchors, [m for m in molecules if m not in anchors])
     except Exception as exc:  # MDTraj raises a variety of types
         logger.warning(
             "Could not image molecules across the periodic boundary (%s); "
             "the trajectory is analysed as stored. If it was written without "
-            "molecules made whole, contacts and shape measures will be wrong "
-            "in ways that do not announce themselves.", exc,
+            "molecules made whole, contacts and shape descriptors will be wrong "
+            "in ways that do not announce themselves.", _named(exc),
         )
+        return trajectory
+    if large:
+        anchored = {id(m) for m in large}
+        try:
+            _nearest_copies(trajectory, large,
+                            [m for m in solute if id(m) not in anchored])
+        except Exception as exc:  # the molecules are whole; only placement is lost
+            logger.warning(
+                "Molecules were made whole, but could not be moved to the copy "
+                "nearest the macromolecule (%s); a ligand or ion may be analysed "
+                "in a periodic copy up to a box length away.", _named(exc),
+            )
     return trajectory
+
+
+def _named(exc: Exception) -> str:
+    """An exception as its type and message, so an empty message still says something."""
+    return f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+
+
+def _nearest_copies(trajectory: md.Trajectory, anchors: list, others: list) -> None:
+    """Move each molecule in ``others`` to its copy nearest the anchors.
+
+    Nearest by centre: the lattice vector that puts the molecule's centroid
+    closest to the anchors' centroid, frame by frame. Searched exactly, over
+    every lattice vector within two cells of the fractional-rounding guess,
+    which covers the reduced boxes OpenMM writes whatever their shape.
+    Molecules are moved whole, so they stay made whole.
+    """
+    if not others:
+        return
+    xyz = trajectory.xyz
+    box = np.asarray(trajectory.unitcell_vectors, dtype=np.float64)   # (F, 3, 3), rows
+    inverse = np.linalg.inv(box)
+    shifts = np.array(list(np.ndindex(5, 5, 5)), dtype=np.float64) - 2.0   # (125, 3)
+    lattice = np.einsum("kj,fji->fki", shifts, box)                      # (F, 125, 3)
+    anchor_atoms = np.fromiter((a.index for m in anchors for a in m), dtype=np.int64)
+    centre = xyz[:, anchor_atoms, :].astype(np.float64).mean(axis=1)    # (F, 3)
+    for molecule in others:
+        atoms = np.fromiter((a.index for a in molecule), dtype=np.int64)
+        offset = xyz[:, atoms, :].astype(np.float64).mean(axis=1) - centre
+        guess = -np.rint(np.einsum("fi,fij->fj", offset, inverse))
+        offset = offset + np.einsum("fj,fji->fi", guess, box)
+        candidates = offset[:, None, :] + lattice                        # (F, 125, 3)
+        best = np.argmin(np.einsum("fki,fki->fk", candidates, candidates), axis=1)
+        move = np.einsum("fj,fji->fi", guess, box) + lattice[np.arange(len(best)), best]
+        xyz[:, atoms, :] += move[:, None, :].astype(xyz.dtype)
 
 
 def _with_one_clock(trajectory: md.Trajectory, n_files: int) -> md.Trajectory:
@@ -240,11 +305,70 @@ def _with_one_clock(trajectory: md.Trajectory, n_files: int) -> md.Trajectory:
     return trajectory
 
 
+def _frames_in(path: Path, top: Path | None) -> int | None:
+    """How many frames one trajectory file holds, or None where it cannot say."""
+    from fastmdxplora.utils import suppress_native_output
+
+    try:
+        with suppress_native_output(), md.open(str(path)) as handle:
+            return int(len(handle))
+    except Exception:  # noqa: BLE001 - a format without a length; count instead
+        pass
+    try:
+        with suppress_native_output():
+            loaded = (md.load(str(path), top=str(top)) if top is not None
+                      else md.load(str(path)))
+        return int(loaded.n_frames)
+    except Exception:  # noqa: BLE001 - the caller falls back and says so
+        return None
+
+
+def written_frames(
+    paths: list[Path], top: Path | None, stride: int | None, n_loaded: int
+) -> np.ndarray:
+    """Which frame of the run, counted across every file, each loaded frame is.
+
+    MDTraj strides each file on its own from that file's first frame, so
+    with several files the loaded frames are not every ``stride``-th frame
+    of the run: two files of five frames at stride 2 give frames 0, 2, 4 of
+    the first and 0, 2, 4 of the second, which are frames 0, 2, 4, 5, 7, 9
+    of the run, not 0 to 10. Built from each file's own length; where a
+    length cannot be read, the frames are taken as one stream and the log
+    says so.
+    """
+    step = int(stride) if stride and int(stride) > 0 else 1
+    one_stream = np.arange(n_loaded, dtype=np.int64) * step
+    if step == 1 or len(paths) < 2:
+        return one_stream
+    frames: list[np.ndarray] = []
+    offset = 0
+    for path in paths:
+        length = _frames_in(path, top)
+        if length is None:
+            logger.warning(
+                "Could not read how many frames %s holds, so the %d files are "
+                "taken as one stream strided by %d. With several files that "
+                "is only right where every file's length is a multiple of the "
+                "stride.", path.name, len(paths), step)
+            return one_stream
+        frames.append(offset + np.arange(0, length, step, dtype=np.int64))
+        offset += length
+    joined = np.concatenate(frames)
+    if joined.size != n_loaded:
+        logger.warning(
+            "The %d files hold %d frames at stride %d by their own lengths, "
+            "and %d were loaded, so they are taken as one stream.",
+            len(paths), joined.size, step, n_loaded)
+        return one_stream
+    return joined
+
+
 def _with_a_real_clock(
     trajectory: md.Trajectory,
     paths: list[Path],
     saving_interval_ps: float | None,
     stride: int | None,
+    written: np.ndarray | None = None,
 ) -> md.Trajectory:
     """The run's own clock, or none at all -- never the frame index.
 
@@ -270,7 +394,9 @@ def _with_a_real_clock(
     * The format carries a clock and it varies -- trust it, touch nothing.
     * The interval is known -- build the clock from it. Frame ``k`` was
       written at ``(k + 1) * interval`` because a reporter fires after its
-      first interval, not at step zero.
+      first interval, not at step zero. ``written`` gives ``k`` for each
+      loaded frame (:func:`written_frames`); without it, every
+      ``stride``-th frame of one stream.
     * Neither -- **fill ``time`` with NaN.** A frame axis is honest and a
       wrong nanosecond axis is not, and NaN is the one marker that survives
       slicing, joining and ``atom_slice`` (checked, not assumed), so it still
@@ -300,8 +426,10 @@ def _with_a_real_clock(
     if saving_interval_ps and float(saving_interval_ps) > 0:
         step = int(stride) if stride and int(stride) > 0 else 1
         interval = float(saving_interval_ps)
+        if written is None or len(written) != n:
+            written = np.arange(n, dtype=np.float64) * step
         trajectory.time = (
-            (np.arange(n, dtype=np.float64) * step + 1.0) * interval
+            (np.asarray(written, dtype=np.float64) + 1.0) * interval
         ).astype(np.float32)
         logger.info(
             "Time axis set from the run's own record: %.4g ps between saved "
@@ -317,7 +445,7 @@ def _with_a_real_clock(
     logger.warning(
         "No saving interval is recorded for this trajectory and %s does not "
         "carry one, so there is no way to know how much simulated time a "
-        "frame represents. Time-series figures will be drawn against frame "
+        "frame represents. Time-series figures will be plotted against frame "
         "number rather than against a nanosecond axis that would be invented. "
         "Pass saving_interval_ps to label them in time.",
         ", ".join(sorted(suffixes)) or "the format",
@@ -392,12 +520,13 @@ def load_trajectory(
             raise TrajectoryLoadError(f"Trajectory file not found: {p}")
 
     top_path = _resolve_topology(traj_paths, top)
-    if top_path is not None:
-        # Insertion codes, which MDTraj does not keep: trypsin's 184A and 184
-        # otherwise load as two residues numbered 184 in one chain.
-        from fastmdxplora.analysis.residues import remember_insertion_codes
+    # Insertion codes, which MDTraj does not keep: trypsin's 184A and 184
+    # otherwise load as two residues numbered 184 in one chain. Read from
+    # whichever file gives the topology, the trajectory itself where it is a
+    # PDB or an mmCIF file.
+    from fastmdxplora.analysis.residues import remember_insertion_codes
 
-        remember_insertion_codes(top_path)
+    remember_insertion_codes(top_path if top_path is not None else traj_paths[0])
 
     logger.debug(
         "Loading %d trajectory file(s) with topology=%s, stride=%s",
@@ -436,8 +565,10 @@ def load_trajectory(
     # Last, so it wins: where the interval is known it supersedes both what
     # the file said and what the seam-mender inferred, and where it is not
     # known the clock is marked absent rather than left as a frame index.
+    written = (written_frames(traj_paths, top_path, stride, trajectory.n_frames)
+               if saving_interval_ps else None)
     trajectory = _with_a_real_clock(
-        trajectory, traj_paths, saving_interval_ps, stride)
+        trajectory, traj_paths, saving_interval_ps, stride, written)
 
     if first is not None or last is not None:
         n = trajectory.n_frames

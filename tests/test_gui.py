@@ -58,10 +58,7 @@ from fastmdxplora.gui.telemetry import (
     read_metrics,
     read_status,
 )
-from fastmdxplora.gui.trajectory_playback import (
-    neighborhood_residues,
-    playback_info,
-)
+from fastmdxplora.gui.trajectory_frames import frames_info
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +239,7 @@ def test_gui_command_parses() -> None:
 
 
 # ---------------------------------------------------------------------------
-# New dashboards: structure_info, ligand_detection, live_frames, trajectory_playback
+# New dashboards: structure_info, ligand_detection, live_frames, trajectory_frames
 # ---------------------------------------------------------------------------
 def test_count_structure_basic_protein(tmp_path: Path) -> None:
     (tmp_path / "topology.pdb").write_text(_tiny_pdb(), encoding="utf-8")
@@ -386,35 +383,18 @@ def test_write_live_frame_handles_missing_directory_safely(tmp_path: Path) -> No
 
 
 def test_playback_returns_unavailable_when_missing(tmp_path: Path) -> None:
-    info = playback_info(tmp_path)
+    info = frames_info(tmp_path)
     assert info["playback_available"] is False
 
 
-def test_playback_generation_failure_is_safe(tmp_path: Path, monkeypatch) -> None:
-    # Force a failure inside the writer.
-    import fastmdxplora.gui.trajectory_playback as mod
-    monkeypatch.setattr(mod, "_import_mdtraj", lambda: None)
+def test_playback_generation_failure_is_safe(tmp_path: Path) -> None:
+    # A trajectory that cannot be read is said, not raised.
     (tmp_path / "simulation").mkdir(parents=True)
     (tmp_path / "simulation" / "topology.pdb").write_text(_tiny_pdb(), encoding="utf-8")
     (tmp_path / "simulation" / "production.dcd").write_bytes(b"\x00\x00")
-    info = playback_info(tmp_path)
+    info = frames_info(tmp_path)
     assert info["playback_available"] is False
-    assert info["reason"] == "mdtraj-not-installed"
-
-
-def test_neighborhood_residues_per_atom_check(tmp_path: Path) -> None:
-    # Atom-wide coordinates in standard PDB column widths so the parser
-    # finds the values in the right slots (cols 31-38, 39-46, 47-54).
-    pdb = "\n".join([
-        "HETATM    1  C1  EPE A 100       4.000   4.000   4.000  1.00 10.00           C",
-        "ATOM      2  N   ALA A   1       4.500   4.500   4.500  1.00  0.00           N",  # near
-        "ATOM      3  N   ALA A   2      30.000  30.000  30.000  1.00  0.00           N",  # far
-        "END",
-    ])
-    (tmp_path / "topology.pdb").write_text(pdb, encoding="utf-8")
-    residues = neighborhood_residues(topology_path=tmp_path / "topology.pdb", ligand_resname="EPE", cutoff_angstrom=5.0)
-    assert ("A", 1) in residues
-    assert ("A", 2) not in residues
+    assert info["reason"].startswith("The frames could not be written")
 
 
 
@@ -453,12 +433,14 @@ def test_live_frame_history_builds_playback(tmp_path: Path) -> None:
     )
     history = read_live_frame_history(sim)
     assert history["count"] == 2
-    info = playback_info(tmp_path, max_browser_frames=20)
+    info = frames_info(tmp_path, most_frames=20)
     assert info["playback_available"] is True
     assert info["source_kind"] == "live-history"
     assert info["n_frames_browser"] == 2
-    text = (sim / "playback.pdb").read_text(encoding="utf-8")
-    assert text.count("MODEL") == 2
+    import mdtraj as md
+
+    sent = md.load_dcd(str(sim / "frames.dcd"), top=str(sim / "frames_topology.pdb"))
+    assert sent.n_frames == 2
 
 
 def test_dashboard_display_pdb_strips_solvent_and_keeps_ligand() -> None:
@@ -517,12 +499,16 @@ def test_dashboard_html_has_aai_branding(tmp_path: Path) -> None:
     assert "/static/dashboard.js" in html
     assert "/static/charts.js" in html
     assert "/static/molecule-viewer.js" in html
-    assert "/static/3Dmol-min.js" in html
+    assert "/static/molstar/molstar.js" in html
+    assert "/static/viewer-engine.js" in html
+    assert "3Dmol" not in html
 
     # Pages
     # "live" was a page of its own; its panels are on the overview now.
-    for page in ("overview", "viewer", "analysis", "files", "settings", "cite"):
+    for page in ("overview", "viewer", "analysis", "files"):
         assert f'data-page="{page}"' in html
+    # Preferences and the citation are dialogs over any page.
+    assert 'id="prefs-dialog"' in html and 'id="cite-dialog"' in html
 
     # Loading screen + branded particles
     assert "loading-screen" in html
@@ -596,7 +582,7 @@ def test_dashboard_server_serves_new_routes(tmp_path: Path) -> None:
             "/api/ligands",
             "/api/live-frame-index",
             "/api/live-coordinates",
-            "/api/playback-info",
+            "/api/frames-info",
             "/structure/topology.pdb",
             "/structure/live-frame.pdb",
         ):
@@ -656,12 +642,12 @@ def test_live_frame_endpoint_404_when_missing(tmp_path: Path) -> None:
         server.server_close()
 
 
-def test_playback_info_unavailable_when_no_trajectory(tmp_path: Path) -> None:
+def test_frames_info_unavailable_when_no_trajectory(tmp_path: Path) -> None:
     run = tmp_path / "run"
     run.mkdir()
     server, base_url = start_test_server(run)
     try:
-        payload = json.loads(urlopen(f"{base_url}/api/playback-info", timeout=HTTP_TIMEOUT).read())
+        payload = json.loads(urlopen(f"{base_url}/api/frames-info", timeout=HTTP_TIMEOUT).read())
     finally:
         server.shutdown()
         server.server_close()
@@ -757,20 +743,63 @@ def test_live_server_does_not_serve_static_path_traversal(tmp_path: Path) -> Non
         server.server_close()
 
 
-def test_static_3dmol_asset_is_served_locally(tmp_path: Path) -> None:
+def test_a_file_compressed_is_compressed_again_once_it_changes(tmp_path: Path) -> None:
+    """One copy kept for each file, the one for what it now holds."""
+    import gzip
+    import os
+
+    from fastmdxplora.gui import server
+
+    script = tmp_path / "big.js"
+    script.write_text("var a = 1;\n" * 10000, encoding="utf-8")
+    first = server._gzipped(script, script.read_bytes())
+    assert server._gzipped(script, script.read_bytes()) is first
+    script.write_text("var b = 2;\n" * 10000, encoding="utf-8")
+    later = script.stat().st_mtime_ns + 1_000_000_000
+    os.utime(script, ns=(later, later))
+    second = server._gzipped(script, script.read_bytes())
+    assert gzip.decompress(second).startswith(b"var b")
+    assert [key for key in server._GZIPPED if key[0] == str(script)] == [
+        (str(script), later, script.stat().st_size)]
+
+
+def test_static_molstar_asset_is_served_locally(tmp_path: Path) -> None:
+    """Mol* is served from the package, compressed where the browser takes
+    it so (5.2 MB as 1.5 MB), and kept by the browser: the page names it by
+    its version. FastMDXplora's own scripts are asked for afresh."""
+    import gzip
+    from urllib.request import Request
+
     run = tmp_path / "run"
     run.mkdir()
     server, base_url = start_test_server(run)
     try:
-        response = urlopen(f"{base_url}/static/3Dmol-min.js", timeout=HTTP_TIMEOUT)
+        response = urlopen(f"{base_url}/static/molstar/molstar.js?v=5.12.0",
+                           timeout=HTTP_TIMEOUT)
         body = response.read().decode("utf-8", errors="ignore")
+        packed = urlopen(Request(f"{base_url}/static/molstar/molstar.js",
+                                 headers={"Accept-Encoding": "gzip"}), timeout=HTTP_TIMEOUT)
+        packed_body = packed.read()
+        engine = urlopen(f"{base_url}/static/viewer-engine.js", timeout=HTTP_TIMEOUT)
+        engine_body = engine.read()
     finally:
         server.shutdown()
         server.server_close()
-    assert response.headers["Cache-Control"] == "no-store"
-    assert "$3Dmol" in body
+    assert response.headers["Cache-Control"] == "public, max-age=31536000, immutable"
+    assert response.headers.get("Content-Encoding") is None
+    assert packed.headers["Content-Encoding"] == "gzip" and len(packed_body) < len(body) / 2
+    assert gzip.decompress(packed_body).decode("utf-8", errors="ignore") == body
+    assert engine.headers["Cache-Control"] == "no-store"
+    assert "molstar" in body and b"FastMDXViewerEngine" in engine_body
     assert "http://" not in body[:1000]
     assert "https://" not in body[:1000]
+    html = (Path(__file__).resolve().parents[1] / "src" / "fastmdxplora" / "gui" / "templates"
+            / "dashboard.html").read_text(encoding="utf-8")
+    # The version the bundle itself says, so a new Mol* is a new name.
+    import re
+
+    version = re.search(r'="(\d+\.\d+\.\d+)",\w+=new Date\(', body).group(1)
+    assert f"/static/molstar/molstar.js?v={version}" in html
 
 
 def test_live_json_endpoints_are_no_store(tmp_path: Path) -> None:
@@ -782,7 +811,7 @@ def test_live_json_endpoints_are_no_store(tmp_path: Path) -> None:
         for endpoint in (
             "status", "metrics", "events", "artifacts", "results", "files",
             "protein-preview", "structure-info", "ligands",
-            "live-frame-index", "live-coordinates", "playback-info",
+            "live-frame-index", "live-coordinates", "frames-info",
             "analyses",
         ):
             response = urlopen(f"{base_url}/api/{endpoint}", timeout=HTTP_TIMEOUT)
@@ -1000,13 +1029,11 @@ def test_frontend_assets_wire_functional_dashboard_sections() -> None:
     charts_js = (root / "static" / "charts.js").read_text(encoding="utf-8")
     viewer_js = (root / "static" / "molecule-viewer.js").read_text(encoding="utf-8")
 
-    assert 'id="reports-files"' in html
-    assert 'id="simulation-files"' in html
-    assert 'id="analysis-files"' in html
+    assert 'id="files-page" class="files-page" data-source="/api/files-page"' in html
+    assert '<script src="/static/files-page.js"></script>' in html
     assert 'id="mini-preview-canvas"' in html
     assert "[hidden]" in css and "display: none !important" in css
     assert "/api/results" in dashboard_js
-    assert "renderFiles" in dashboard_js
     assert "renderAnalysis" in dashboard_js
     assert "ResizeObserver" in charts_js
     assert "mini-preview-canvas" in viewer_js
@@ -1025,8 +1052,10 @@ def test_dashboard_refresh_seconds_are_injected_into_html(tmp_path: Path) -> Non
     finally:
         server.shutdown()
         server.server_close()
+    # The poll the page falls back to where it is not told of changes; no
+    # longer a preference, since the page follows a run as it changes.
     assert 'data-refresh-seconds="1.5"' in html
-    assert 'id="setting-refresh-seconds" min="1" max="60" step="1" value="1.5"' in html
+    assert "setting-refresh-seconds" not in html
 
 
 def test_runner_live_frame_helper_calls_writer_with_valid_keyword(
@@ -1142,61 +1171,9 @@ def test_dashboard_assets_include_svg_download_and_first_model_miniviewer_fix() 
 
     assert 'id="download-all-svg"' in html
     assert "Download SVG" in dashboard_js
+    # The preview's first model is rendered and framed: run in a browser by
+    # test_the_overview_shows_the_molecule.py.
     assert "const hadModel" in viewer_js
-    assert "opts.center !== false || !hadModel" in viewer_js
-    assert "resolveProteinSelection" in viewer_js
-
-
-def test_viewer_visibility_controls_render_solvent_and_hydrogen_atoms() -> None:
-    root = Path(__file__).resolve().parents[1]
-    viewer_js = (root / "src" / "fastmdxplora" / "gui" / "static" / "molecule-viewer.js").read_text(encoding="utf-8")
-
-    assert '"TIP3P"' in viewer_js
-    assert 'if (STATE.visibility.hydrogens)' in viewer_js
-    assert 'addStyle(viewer, {elem: "H"' in viewer_js
-    assert 'sphere: {scale: 0.28' in viewer_js
-    assert 'color: "#4da3ff"' in viewer_js
-    assert 'line: {color: "#4da3ff"' in viewer_js
-    assert 'sphere: {scale: 0.55' in viewer_js
-    assert "forceFit" in viewer_js
-
-
-def test_viewer_solvent_toggles_preserve_playback_with_static_environment_overlay() -> None:
-    """Water/ion visibility must not replace an animated trajectory model."""
-    root = Path(__file__).resolve().parents[1]
-    viewer_js = (root / "src" / "fastmdxplora" / "gui" / "static" / "molecule-viewer.js").read_text(encoding="utf-8")
-    toggle_start = viewer_js.index('if (which === "water" || which === "ions" || which === "box")')
-    toggle_end = viewer_js.index("restyleViewers();", toggle_start)
-    toggle_handler = viewer_js[toggle_start:toggle_end]
-
-    assert 'if (STATE.mode === "playback")' in toggle_handler
-    assert "ensurePlaybackEnvironment" in toggle_handler
-    assert 'STATE.mode = "structure"' not in toggle_handler
-    assert "function ensurePlaybackEnvironment" in viewer_js
-    assert "STATE.environmentPdb" in viewer_js
-    assert "STATE.environmentModel" in viewer_js
-    assert "alignPlaybackEnvironment" in viewer_js
-    assert "function drawPeriodicBox" in viewer_js
-    assert "viewer.addLine" in viewer_js
-    assert "environmentModel.getID()" in viewer_js
-
-
-def test_viewer_environment_overlay_keeps_the_solute_legible() -> None:
-    """Dense solvent and the periodic-cell guide must not dominate the protein."""
-    root = Path(__file__).resolve().parents[1]
-    viewer_js = (root / "src" / "fastmdxplora" / "gui" / "static" / "molecule-viewer.js").read_text(encoding="utf-8")
-
-    environment_style = viewer_js.split("function stylePlaybackEnvironment", 1)[1].split(
-        "\n  function resolveProteinSelection", 1
-    )[0]
-    periodic_box = viewer_js.split("function drawPeriodicBox", 1)[1].split(
-        "\n  function stylePlaybackEnvironment", 1
-    )[0]
-
-    assert 'resn: WATERS, elem: "O"' in environment_style
-    assert "opacity: 0.42" in environment_style
-    assert "const boxOpacity = STATE.visibility.water ? 0.55 : 0.38" in periodic_box
-    assert "linewidth: 1.2, opacity: boxOpacity" in periodic_box
 
 
 def test_dashboard_resets_run_dependent_state_when_active_run_changes() -> None:
@@ -1258,7 +1235,7 @@ def test_runtime_does_not_expose_old_telemetry_after_failed_reuse(tmp_path: Path
 def test_dashboard_assets_do_not_pause_playback_for_live_history_appends() -> None:
     """A new rolling live frame is not a replacement trajectory.
 
-    ``/api/playback-info`` changes its signature as the bounded live history
+    ``/api/frames-info`` changes its signature as the bounded live history
     grows. That must not pause an already playing viewer every poll.
     """
     root = Path(__file__).resolve().parents[1]
@@ -1326,7 +1303,6 @@ def test_live_gui_and_static_report_share_one_theme(tmp_path: Path) -> None:
         phase_notice="",
         cards=[],
         sections=[],
-        links=[],
         phase_rows=[],
         metrics=[],
         output_folder=str(tmp_path),
@@ -1392,8 +1368,9 @@ def test_results_payload_carries_report_panels(tmp_path: Path) -> None:
     assert phases["Setup"] == "ok"
     assert phases["Analysis"] == "not-run"
 
+    # The counts are the cards'; the table is what the analyses determined.
     metrics = {row["metric"] for row in payload["metric_rows"]}
-    assert "Frame count" in metrics
+    assert "Frame count" not in metrics
 
 
 def test_report_panels_never_break_the_dashboard(tmp_path: Path) -> None:
@@ -1410,10 +1387,13 @@ def test_report_panels_never_break_the_dashboard(tmp_path: Path) -> None:
 
 
 def test_overview_hosts_the_report_panels(tmp_path: Path) -> None:
-    """Overview has containers for the summary cards, phases, and statistics.
+    """Overview has places for what the analyses determined, the run's
+    phases and its facts, filled from the records the report and the
+    Analysis page read (overview.js, /api/overview).
 
-    These mirror what the generated report shows, so the browser is no longer
-    the poorer of the two surfaces.
+    The seven summary cards repeated the health card's numbers, and the
+    phases were a table each marked "Ok"; both are gone, said once in the
+    run's card.
     """
     run = tmp_path / "run"
     run.mkdir()
@@ -1424,27 +1404,21 @@ def test_overview_hosts_the_report_panels(tmp_path: Path) -> None:
         server.shutdown()
         server.server_close()
 
-    for container in (
-        'id="overview-summary-cards"',
-        'id="overview-phase-rows"',
-        'id="overview-stat-rows"',
-    ):
+    for container in ('id="overview-tiles"', 'id="overview-phases"', 'id="overview-run"',
+                      'id="overview-verdict"'):
         assert container in html
-
-    # Both tables carry the statistics columns the report shows.
-    assert "Std. dev." in html
-    assert "Trajectory statistics" in html
-    # Renamed when the live panels joined this page: one card is a bar for the
-    # running stage and the other a table of phases, and both were "progress".
-    assert "Phases" in html
+    for gone in ('id="overview-summary-cards"', 'id="overview-phase-rows"',
+                 'id="overview-stat-rows"', "Std. dev."):
+        assert gone not in html
+    assert "What the analyses determined" in html
+    assert '<script src="/static/overview.js"></script>' in html
 
     import fastmdxplora.gui as gui_pkg
 
     script = (Path(gui_pkg.__file__).with_name("static") / "dashboard.js").read_text(
         encoding="utf-8"
     )
-    assert "function renderReportPanels(" in script
-    assert "renderReportPanels(payload);" in script
+    assert "function renderReportPanels(" not in script
 
 
 def test_results_payload_carries_categorised_sections(tmp_path: Path) -> None:
@@ -1471,7 +1445,7 @@ def test_results_payload_carries_categorised_sections(tmp_path: Path) -> None:
 
     titles = {section["title"] for section in sections}
     # Each analysis keeps its own heading rather than being pooled.
-    assert {"RMSD", "Clustering", "Dimensionality Reduction"} <= titles
+    assert {"RMSD", "Clustering", "Dimensionality reduction"} <= titles
 
     panels = [panel for section in sections for panel in section["panels"]]
     assert any(panel["title"] == "RMSD" for panel in panels)
@@ -1490,7 +1464,7 @@ def test_data_files_are_summarised_without_plotting(tmp_path: Path) -> None:
     series = tmp_path / "rmsd.dat"
     series.write_text("\n".join(f"{i} {0.2 + i * 0.01:.4f}" for i in range(10)),
                       encoding="utf-8")
-    assert _summarise_data_file(series, "line").startswith("avg ")
+    assert _summarise_data_file(series, "line").startswith("mean over all frames ")
 
     clusters = tmp_path / "clusters.dat"
     clusters.write_text("\n".join(f"{i} {i % 3}" for i in range(30)), encoding="utf-8")
@@ -1565,7 +1539,7 @@ def test_analysis_cards_show_the_publication_figure() -> None:
     # A 180px-tall frame scaled a 1950px-wide figure to about 14%, which made
     # axis labels illegible regardless of source DPI.
     assert "aspect-ratio: 6.5 / 4.2;" in css
-    assert "minmax(440px, 1fr)" in css
+    assert "minmax(min(440px, 100%), 1fr)" in css
 
 
 def test_pressure_is_not_advertised_as_a_live_metric(tmp_path: Path) -> None:
@@ -1608,7 +1582,7 @@ def test_each_analysis_gets_its_own_section(tmp_path: Path) -> None:
     sections = {s["title"]: s for s in _results_payload(run)["analysis_sections"]}
 
     # A one-figure analysis keeps its own heading.
-    assert "Solvent Accessible Surface Area" in sections
+    assert "Solvent accessible surface area" in sections
     assert "RMSD" in sections
     assert "Clustering" in sections
     assert "Additional Analysis" not in sections
@@ -1619,7 +1593,7 @@ def test_each_analysis_gets_its_own_section(tmp_path: Path) -> None:
     assert len(sections["Clustering"]["panels"]) == 3
 
     # Anchors are derived from the title, so new analyses need no extra entry.
-    assert sections["Solvent Accessible Surface Area"]["anchor"] == (
+    assert sections["Solvent accessible surface area"]["anchor"] == (
         "solvent-accessible-surface-area"
     )
 
@@ -1667,11 +1641,13 @@ def test_summary_card_values_truncate_long_paths() -> None:
     assert "text-overflow: ellipsis" in body
     assert "white-space: nowrap" in body
 
-    script = (Path(gui_pkg.__file__).with_name("static") / "dashboard.js").read_text(
+    # The live Overview leads with what was determined now; the cards stay
+    # in the dashboard a study writes beside its report.
+    written = (Path(gui_pkg.__file__).with_name("report_dashboard.py")).read_text(
         encoding="utf-8"
     )
-    assert 'title="${escapeAttr(value)}"' in script
-    assert 'data-kind="${kind}"' in script
+    assert 'title="{escape(value)}"' in written
+    assert 'data-kind="{kind}"' in written
 
 
 class TestTheBrowserCanReachEverySetting:
@@ -2562,22 +2538,24 @@ class TestBothKindsOfConfigFile:
         from fastmdxplora.gui import server
 
         root = pathlib.Path(server.__file__).parent
-        page = (root / "templates" / "dashboard.html").read_text(encoding="utf-8")
         script = (root / "static" / "run-builder.js").read_text(encoding="utf-8")
-        assert 'id="run-full-config"' in page
+        # Built in the Review step, read when the config is asked for.
+        assert 'box.id = "run-full-config"' in script
         assert 'el("run-full-config")' in script
 
 
 class TestItIsCalledTheGUI:
     """A dashboard is the live view inside it, not the thing itself."""
 
-    def test_the_page_is_titled_that_way(self) -> None:
-        import pathlib
-
-        from fastmdxplora.gui import server
-
-        page = (pathlib.Path(server.__file__).parent / "templates"
-                / "dashboard.html").read_text(encoding="utf-8")
+    def test_the_page_is_titled_that_way(self, tmp_path: Path) -> None:
+        # As served on a person's own machine; a hosted service may give
+        # its own name (test_a_hosted_gui_shows_its_service).
+        server, base_url = start_test_server(tmp_path)
+        try:
+            page = urlopen(f"{base_url}/", timeout=HTTP_TIMEOUT).read().decode("utf-8")
+        finally:
+            server.shutdown()
+            server.server_close()
         assert "<title>FastMDXplora GUI</title>" in page
 
     def test_the_config_it_writes_says_so(self) -> None:
@@ -3072,10 +3050,13 @@ class TestPanelsForPhasesThatAreNotRunning:
             block = re.search(rf'<div[^>]*id="{element_id}"[^>]*>', page)
             assert block, f"{element_id} is gone; check this test"
             assert 'data-needs-phase="simulation"' in block.group(0)
-        for cls in ("overview-facts card", "overview-stack"):
-            block = re.search(rf'<div class="{cls}"[^>]*>', page)
-            assert block, cls
+        for element_id in ("overview-health-card", "overview-run", "overview-charts"):
+            block = re.search(rf'<(?:div|section)[^>]*id="{element_id}"[^>]*>', page)
+            assert block, element_id
             assert 'data-needs-phase="simulation"' in block.group(0)
+        # What the analyses determined does not need a simulation.
+        results = re.search(r'<section[^>]*id="overview-results"[^>]*>', page)
+        assert results and "data-needs-phase" not in results.group(0)
 
     def test_the_page_hides_them_when_it_knows(self) -> None:
         import pathlib
@@ -3236,14 +3217,16 @@ class TestTheStartingPointIsOneChoice:
         )
 
     def test_it_is_a_single_control(self) -> None:
-        page, _ = self._files()
-        assert '<select id="run-start">' in page
+        """One group of choices, one of which is chosen: cards that are
+        radio buttons, so the keyboard and a reader take them as one."""
+        page, script = self._files()
+        assert '<div class="builder-start" id="run-start" role="radiogroup"' in page
+        assert 'radio.name = "run-start"' in script
 
     def test_the_description_belongs_to_the_option(self) -> None:
-        """It is what the option means, so it changes as the option does."""
-        page, script = self._files()
-        assert 'id="run-start-detail"' in page
-        assert "STARTING_POINTS[state.start].detail" in script
+        """It is what the option means, so it is on the option."""
+        _, script = self._files()
+        assert 'node("span", "builder-start-what", point.detail)' in script
 
     def test_a_config_already_written_is_one_of_them(self) -> None:
         _, script = self._files()
@@ -3342,9 +3325,9 @@ class TestNothingPromisesASequence:
 
         from fastmdxplora.gui import server
 
-        page = (pathlib.Path(server.__file__).parent / "templates"
-                / "dashboard.html").read_text(encoding="utf-8")
-        marker = page[page.index('id="run-system"'):][:220]
+        script = (pathlib.Path(server.__file__).parent / "static"
+                  / "run-builder.js").read_text(encoding="utf-8")
+        marker = script[script.index("structure.placeholder"):][:120]
         assert "sequence" not in marker.lower()
 
     def test_nor_does_the_config_template(self) -> None:
@@ -3692,9 +3675,9 @@ class TestTheWordsOnTheRunPage:
 
     def test_the_navigation_says_what_the_page_says(self) -> None:
         page, _ = self._files()
-        # The tab says Config; the page says Config Builder. The tab is the
-        # thing, the page is the thing and what it does to it.
-        assert "<span>Config</span>" in page
+        # The sidebar says New study; the page says Config Builder, the
+        # thing and what it does to it.
+        assert "<span>New study</span>" in page
         assert "<h1 class=\"page-title\">Config Builder</h1>" in page
         assert "<span>Builder</span>" not in page
         assert "New run" not in page
@@ -3714,8 +3697,8 @@ class TestTheWordsOnTheRunPage:
 
     def test_the_structure_field_asks_for_what_it_accepts(self) -> None:
         """Not for one particular protein."""
-        page, _ = self._files()
-        field = page[page.index('id="run-system"'):][:220]
+        _, script = self._files()
+        field = script[script.index("structure.placeholder"):][:120]
         assert "PDB ID" in field
         assert "1L2Y" not in field
 
@@ -3798,7 +3781,7 @@ class TestTheOldPagesAreGone:
 
         page = self._page()
         script = (pathlib.Path(server.__file__).parent / "static"
-                  / "run-builder.js").read_text(encoding="utf-8")
+                  / "stop-run.js").read_text(encoding="utf-8")
         assert 'id="run-stop"' in page
         assert "/api/explore/stop" in script
 
@@ -3964,10 +3947,12 @@ class TestFifteenAnalysesReadAsAFewKinds:
         )
 
     def test_the_protein_ligand_analyses_are_together(self) -> None:
+        """Under the Analysis page's own theme for them."""
         payload = self._options()
         together = {name for name, group in payload["categories"].items()
-                    if group == "Protein and ligand together"}
-        assert {"pl_contacts", "pl_hbonds", "pl_interactions"} <= together
+                    if group == "The ligand"}
+        assert {"pl_contacts", "pl_hbonds", "pl_interactions",
+                "ligand_rmsd", "ligand_rmsf"} <= together
 
     def test_the_page_groups_them(self) -> None:
         import pathlib
@@ -4172,7 +4157,7 @@ class TestTheProteinLigandAnalysesShareANaming:
             import pytest
 
             pytest.skip(payload["reason"])
-        assert payload["categories"]["pl_contacts"] == "Protein and ligand together"
+        assert payload["categories"]["pl_contacts"] == payload["categories"]["pl_hbonds"]
 
 
 class TestASettingsBlockCanBeWrittenInTheBrowser:
@@ -4205,7 +4190,11 @@ class TestASettingsBlockCanBeWrittenInTheBrowser:
 
         script = (pathlib.Path(server.__file__).parent / "static"
                   / "run-builder.js").read_text(encoding="utf-8")
-        block = script[script.index('field.control === "mapping"'):][:700]
+        block = script[script.index("function mappingControl"):]
+        block = block[:block.index("function yamlScalar")]
+        # A field for each setting the example names, and the block as
+        # YAML for anything the fields do not hold.
+        assert "Object.keys(field.example)" in block
         assert 'createElement("textarea")' in block
 
     def test_each_block_shows_what_one_looks_like(self) -> None:
@@ -4394,7 +4383,7 @@ class TestTheGUICitesTheSoftware:
             server.shutdown()
             server.server_close()
 
-        assert 'data-page="cite"' in html
+        assert 'id="cite-dialog"' in html
         assert __doi__ in html
         assert __citation__.split(".")[0] in html
 
@@ -4408,12 +4397,34 @@ class TestTheGUICitesTheSoftware:
         assert "Aina" not in template, (
             "the citation is filled by the server, not stored in the page")
 
+    def test_the_copyright_is_the_licence_s_everywhere(self, tmp_path: Path) -> None:
+        """The licence's holders, on the Cite page, in the README and on the
+        documentation's pages, from one statement of it."""
+        from fastmdxplora import __copyright__
+        from fastmdxplora.gui.server import _load_template
+
+        root = Path(__file__).resolve().parents[1]
+        year, holders = __copyright__.split(", ", 1)
+        assert f"Copyright (c) {year} {holders}" in (root / "LICENSE").read_text()
+        assert f"© Copyright {__copyright__}." in (root / "README.md").read_text()
+        assert f'copyright = "{__copyright__}"' in (root / "docs" / "conf.py").read_text()
+        assert "__FASTMDX_COPYRIGHT__" in _load_template()
+        run = tmp_path / "run"
+        TelemetryWriter(run / "simulation").write_status(stage="NVT")
+        server, base_url = start_test_server(run)
+        try:
+            html = urlopen(f"{base_url}/", timeout=HTTP_TIMEOUT).read().decode("utf-8")
+        finally:
+            server.shutdown()
+            server.server_close()
+        assert f"&copy; Copyright {__copyright__}." in html
+
     def test_the_bibtex_is_there_to_be_taken(self) -> None:
         from fastmdxplora.gui.server import _load_template
 
         template = _load_template()
         assert "__FASTMDX_BIBTEX__" in template
-        assert 'id="cite-copy"' in template
+        assert 'data-copy-from="cite-bibtex"' in template
 
     def test_one_bibtex_entry_serves_every_surface(self) -> None:
         """There were two copies, in the report and in the GUI, and a third
@@ -4481,7 +4492,7 @@ class TestTheGUIAsksToBeCited:
         # The popup is on every page, and Cite is in it, one click away.
         markup = self._markup()
         popup = markup[markup.index('id="settings-popup"'):markup.index('<div class="app-shell">')]
-        assert 'data-view-link="cite">Cite FastMDXplora' in popup
+        assert 'data-dialog-open="cite-dialog" aria-haspopup="dialog">Cite FastMDXplora' in popup
 
     def test_the_page_itself_carries_the_reference_and_the_doi(self) -> None:
         markup = self._markup()
@@ -4554,19 +4565,26 @@ class TestOnePageForOneRun:
     def test_what_is_happening_comes_before_what_was_recorded(self) -> None:
         """A page opened during a run answered "is it running, and how far"
         below a table of phases that had already finished."""
-        import re
-
         markup = self._markup()
         start = markup.index('<section class="page" data-page="overview"')
         end = markup.index('<section class="page"', start + 10)
-        cards = re.findall(r'card-title">([^<]+)<', markup[start:end])
+        page = markup[start:end]
 
-        # The bar-and-table progress card is gone; the sidebar carries the
-        # running stage. What is happening -- the charts, the structure --
-        # still comes before what was recorded.
-        assert cards.index("Structure") < cards.index("Live charts")
-        assert cards.index("Live charts") < cards.index("Phases")
-        assert cards.index("Live charts") < cards.index("Trajectory statistics")
+        # A running study shows its health, the run and its charts first;
+        # what the analyses determined leads once it has ended. Which comes
+        # first is put in the page by the run's state (dashboard.js
+        # `leadWith`, so Tab follows it); in the markup the run's card holds
+        # the molecule and comes before the charts.
+        assert page.index('id="overview-run"') < page.index('id="overview-charts"')
+        assert page.index('id="hero-health"') < page.index('id="overview-run"')
+        import pathlib
+
+        from fastmdxplora.gui import server
+
+        script = (pathlib.Path(server.__file__).parent / "static" / "dashboard.js").read_text(
+            encoding="utf-8")
+        assert "function leadWith(body, lead)" in script
+        assert "leadWith(body, body.dataset.lead);" in script
 
     def test_the_two_progress_cards_say_which_is_which(self) -> None:
         """One is a bar for the running stage, the other a table of phases.
@@ -4576,10 +4594,10 @@ class TestOnePageForOneRun:
         # and one table of phases, labelled Phases. The Overview's own
         # "Simulation progress" card repeated the sidebar and is gone.
         assert 'card-title">Simulation progress<' not in markup
-        assert 'card-title">Phases<' in markup
+        assert 'id="overview-phases" aria-label="Phases"' in markup
         assert 'card-title">Exploration progress<' not in markup
         sidebar = markup[markup.index('<aside class="sidebar"'):markup.index("</aside>")]
-        assert 'study-label mono">Progress<' in sidebar
+        assert 'class="sidebar-progress"' in sidebar and 'id="topbar-stage"' in sidebar
 
     def test_opening_the_overview_starts_the_polling(self) -> None:
         """It was keyed to opening a page that no longer exists, so nothing
@@ -4626,7 +4644,8 @@ class TestTheTrajectoryIsReadOnceAndQuietly:
     The noise was the symptom. The cause was the viewer asking for the
     playback payload with ``force=1`` whenever the browser did not already
     hold one -- so every mount and every reload re-streamed the whole
-    trajectory to rebuild a file already sitting beside it.
+    trajectory to rebuild a file already sitting beside it. The frames the
+    viewer is now sent are kept the same way.
     """
 
     def test_the_viewer_asks_for_the_cache_first(self) -> None:
@@ -4645,34 +4664,34 @@ class TestTheTrajectoryIsReadOnceAndQuietly:
     def test_a_second_request_does_not_reopen_the_file(self, tmp_path) -> None:
         """The disk cache is keyed on the trajectory's size and modification
         time, so an unchanged file is read once."""
-        import mdtraj as md
-
-        from fastmdxplora.gui import trajectory_playback as playback
+        from fastmdxplora.gui import trajectory_frames as frames
 
         run = _completed_run_with_trajectory(tmp_path)
-        opens = {"n": 0}
-        real = md.iterload
+        reads = {"n": 0}
+        real = frames._from_trajectory
 
         def counted(*args, **kwargs):
-            opens["n"] += 1
+            reads["n"] += 1
             return real(*args, **kwargs)
 
-        md.iterload = counted
+        frames._from_trajectory = counted
         try:
             for _ in range(4):
-                playback.playback_info(run, max_browser_frames=50, force=False)
+                frames.frames_info(run, most_frames=50, force=False)
         finally:
-            md.iterload = real
+            frames._from_trajectory = real
 
-        assert opens["n"] == 1, (
-            f"the trajectory was opened {opens['n']} times for four requests")
+        assert reads["n"] == 1, (
+            f"the trajectory was read {reads['n']} times for four requests")
 
     def test_the_reader_does_not_write_to_the_terminal(self, tmp_path,
                                                        capfd) -> None:
-        from fastmdxplora.gui import trajectory_playback as playback
+        from fastmdxplora.gui import trajectory_frames as frames
+        from fastmdxplora.gui.by_residue import secondary_structure
 
         run = _completed_run_with_trajectory(tmp_path)
-        playback.playback_info(run, max_browser_frames=50, force=False)
+        frames.frames_info(run, most_frames=50, force=False)
+        secondary_structure(run, "frames")
 
         captured = capfd.readouterr()
         assert "dcdplugin" not in captured.out
@@ -4807,8 +4826,8 @@ class TestTheSectionsThatAreNotPhasesReachTheConfig:
         assert "RUN_OPTIONS_KEY" in source
         # Emitted, not merely drawn: the sentinel has to appear where the
         # payload is assembled, not only where the controls are.
-        _, _, after = source.partition("function currentState()")
-        emitted, _, _ = after.partition("function ready()")
+        _, _, after = source.partition("function bodyOf(snap)")
+        emitted, _, _ = after.partition("function currentState()")
         assert "RUN_OPTIONS_KEY" in emitted
         assert "EXECUTION_KEY" in emitted
 

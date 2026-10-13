@@ -1,6 +1,6 @@
 /* The Agent panel.
  *
- * The subject of this page is the FastMDXplora Agent. Which language model
+ * The subject of this page is the FastMDXplora Agent. Which AI model
  * it drafts with is an engine setting -- chosen once, then out of the way.
  * An earlier version led with "Asking anthropic, claude-sonnet-4-6", which
  * put another company's product in the primary status line of this one.
@@ -21,13 +21,13 @@
 
   /* One line per mode, said where the mode is chosen: what stands between
    * it and a bad study. That is the only thing a reader needs at the
-   * moment of choosing. */
+   * moment of choosing. The Agent says it of itself. */
   var MODE_NOTES = {
-    assisted: "Drafted and shown to you. Nothing runs until you say so.",
-    autonomous: "Runs without being shown to you first, so a ceiling is " +
-                "required \u2014 it is the only thing left that can stop it.",
-    unvalidated: "Works outside the schema, so nothing checks the method. " +
-                 "Every figure it produces is stamped."
+    assisted: "I show you each one first. Nothing runs until you say so.",
+    autonomous: "I run it without showing it to you first, so a ceiling is " +
+                "required: it is the only thing left that can stop me.",
+    unvalidated: "I work outside the schema, so nothing validates the method. " +
+                 "Every figure I produce is stamped."
   };
 
   /* Where a key comes from, for the provider actually chosen. Said here
@@ -35,18 +35,18 @@
    * a command is a GUI that has given up. */
   var KEY_HELP = {
     anthropic: "Get one at platform.claude.com, under Settings \u2192 API " +
-               "keys. A developer account \u2014 a chat subscription is " +
+               "keys. A developer account: a chat subscription is " +
                "not the same thing.",
     openai: "Get one at platform.openai.com, under API keys.",
-    compatible: "A local server usually needs none \u2014 leave this blank."
+    compatible: "A local server usually needs none; leave this blank."
   };
 
   /* Refusals written for the command line, said the way this surface can
    * act on. `environment.model.unset` tells a terminal user to run
-   * `fastmdx agent set`; there is a Settings button here instead. */
+   * `fastmdx agent model`; there is a Settings button here instead. */
   var IN_THE_GUI = {
     "environment.model.unset":
-      "No model set yet. Open Settings and choose one.",
+      "I am not set up yet. Open Settings to set me up.",
     "environment.credentials.absent":
       "API key required. Open Settings and paste one."
   };
@@ -62,21 +62,552 @@
   }
 
   /* The little markdown a reply may carry -- bold, italic, code, a link --
-   * and nothing else. Escaped first, so the model cannot put markup in
-   * the page; then the four patterns, in an order that keeps code spans
-   * from being reinterpreted. Paragraphs are blank-line separated. */
+   * and nothing else. Escaped first, quotes included, so the AI model cannot
+   * put markup in the page or close the link's attribute; then the four
+   * patterns, in an order that keeps code spans from being reinterpreted.
+   * A link ends at a quote, as it would in prose, and a full stop or
+   * comma after it is the sentence's: "save https://x/BNZ_ideal.sdf." was
+   * linked to "BNZ_ideal.sdf.", which is not there. Paragraphs are
+   * blank-line separated. */
   function prose(text) {
     var s = String(text || "")
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     s = s.replace(/`([^`\n]+)`/g, function (_, c) { return "<code>" + c + "</code>"; });
     s = s.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
     /* Italic needs a non-space just inside each star, so "a * b * c" --
      * an arithmetic asterisk with spaces -- stays as typed. */
     s = s.replace(/(^|[^*])\*(\S(?:[^*\n]*\S)?)\*(?!\*)/g, "$1<em>$2</em>");
-    s = s.replace(/\bhttps?:\/\/[^\s<)]+/g, function (u) {
-      return '<a href="' + u + '" target="_blank" rel="noopener">' + u + "</a>";
+    s = s.replace(/\bhttps?:\/\/(?:(?!&quot;|&#39;|&lt;|&gt;)[^\s<)])+/g, function (u) {
+      var tail = "";
+      // An escaped character (&amp;) ends in a semicolon that is the URL's.
+      while (/[.,;:!?]$/.test(u) && !/&[a-z0-9#]+;$/i.test(u)) {
+        tail = u.slice(-1) + tail;
+        u = u.slice(0, -1);
+      }
+      return '<a href="' + u + '" target="_blank" rel="noopener">' + u + "</a>" + tail;
     });
     return s;
+  }
+
+  /* What an answer drew on: each analysis it names, with the mean the
+   * study recorded for it, opening its figure on the Analysis page. The
+   * value is the record's, so a number in the prose can be read against
+   * it. Built as elements, never as markup: a label is data. */
+  function cite(box, cites) {
+    if (!cites || !cites.length) return null;
+    var row = document.createElement("div");
+    row.className = "agent-cites";
+    var lead = document.createElement("span");
+    lead.className = "agent-cites-lead";
+    lead.textContent = "From the study";
+    row.appendChild(lead);
+    cites.forEach(function (c) {
+      if (!c || !c.analysis) return;
+      var chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "agent-cite" + (c.withheld ? " is-withheld" : "");
+      chip.setAttribute("data-analysis", c.analysis);
+      var name = document.createElement("span");
+      name.className = "agent-cite-name";
+      name.textContent = c.label || c.analysis;
+      chip.appendChild(name);
+      var value = document.createElement("span");
+      value.className = "agent-cite-value";
+      value.textContent = c.value
+        ? c.value + (c.withheld ? ", not determined" : "")
+        : "figure";
+      chip.appendChild(value);
+      chip.title = (c.withheld ? c.withheld + " " : "") +
+        "Open the " + (c.label || c.analysis) + " figure on the Analysis page.";
+      chip.addEventListener("click", function () {
+        var board = window.FastMDXDashboard;
+        if (board && board.showAnalysis) board.showAnalysis(c.analysis);
+        else window.location.hash = "#analysis";
+      });
+      row.appendChild(chip);
+    });
+    box.appendChild(row);
+    return row;
+  }
+
+  /* A scene an answer proposes, to show what it is about: said in words,
+   * named, and written with the study only when the button is pressed
+   * (POST /api/scenes); the Agent itself writes nothing. Once written it can
+   * be shown in the Viewer. Built as elements: every part is data. */
+  var SHOWN_AS = { ballAndStick: "ball and stick", spacefill: "spheres" };
+
+  function sceneSaid(scene) {
+    var parts = [];
+    if (scene.frame != null) parts.push("frame " + scene.frame);
+    if (scene.representation) parts.push(SHOWN_AS[scene.representation] || scene.representation);
+    if (scene.colour) {
+      parts.push("coloured by " + String(scene.colour).replace(/^result:/, "").replace(/_/g, " "));
+    }
+    if (scene.superposed) parts.push("superposed on the " + scene.superposed);
+    if (scene.highlight) {
+      parts.push(scene.highlight + " highlighted" + (scene.labels ? " and labelled" : ""));
+    }
+    return parts.join(", ") || "the study as it opens";
+  }
+
+  function sceneLigands() {
+    var state = window.FastMDXMoleculeViewer && window.FastMDXMoleculeViewer.STATE;
+    var names = state && state.structureInfo && Array.isArray(state.structureInfo.ligand_resnames)
+      ? state.structureInfo.ligand_resnames.filter(Boolean) : [];
+    return names.slice(0, 20);
+  }
+
+  function sceneCard(box, scene, entry) {
+    if (!scene) return null;
+    var card = document.createElement("div");
+    card.className = "agent-scene";
+    var lead = document.createElement("p");
+    lead.className = "agent-scene-said";
+    lead.textContent = "A scene to show this: " + sceneSaid(scene) + ".";
+    card.appendChild(lead);
+    var row = document.createElement("div");
+    row.className = "agent-scene-row";
+    var name = document.createElement("input");
+    name.type = "text";
+    name.maxLength = 60;
+    name.setAttribute("aria-label", "Name of the scene");
+    name.value = entry.scene_written || scene.name || "From the Agent";
+    var write = document.createElement("button");
+    write.type = "button";
+    write.className = "chip-btn";
+    write.textContent = "Write this scene";
+    write.title = "Write it with the study as a scene file (scenes/, MolViewSpec) and show it in the Viewer";
+    var show = window.FastMDXIcons.button("viewer", "Show it in the Viewer");
+    show.hidden = !entry.scene_written;
+    var said = document.createElement("span");
+    said.className = "agent-scene-status muted small";
+    said.setAttribute("role", "status");
+    row.append(name, write, show);
+    card.append(row, said);
+    function shown(written) {
+      window.location.hash = "#viewer";
+      var views = window.FastMDXViewerViews;
+      if (!views || !views.loadScenes || !views.showScene) return;
+      // Once the Viewer has a molecule: opened from here, it has none yet.
+      var tries = 0;
+      (function whenReady() {
+        var viewer = window.FastMDXMoleculeViewer;
+        if (viewer && viewer.STATE && viewer.STATE.engine && viewer.STATE.model) {
+          views.loadScenes(written).then(function () { return views.showScene(written); });
+        } else if (tries++ < 240) {
+          window.setTimeout(whenReady, 250);
+        }
+      }());
+    }
+    if (entry.scene_written) {
+      write.disabled = true;
+      write.textContent = "Written";
+      name.disabled = true;
+      said.textContent = "Written as scenes/" + entry.scene_written + ".mvsx.";
+    }
+    show.addEventListener("click", function () { shown(entry.scene_written); });
+    write.addEventListener("click", function () {
+      var named = name.value.trim();
+      /* Saved in the thread it was asked in, whatever is on screen when
+       * the server answers (seventeenth review, 10-08). */
+      var c = conv, t = transcript;
+      write.disabled = true;
+      said.textContent = "Writing the scene\u2026";
+      var view = {};
+      ["frame", "representation", "colour", "superposed"].forEach(function (key) {
+        if (scene[key] != null) view[key] = scene[key];
+      });
+      fetch("/api/scenes", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: named, view: view, highlight: scene.highlight || "",
+                               labels: !!scene.labels, ligands: sceneLigands() }),
+      }).then(function (r) {
+        return r.json().catch(function () { return { ok: false, reason: "HTTP " + r.status }; });
+      }).catch(function () { return { ok: false, reason: "The server did not answer." }; })
+        .then(function (done) {
+          if (!done || !done.ok) {
+            write.disabled = false;
+            said.textContent = "The scene was not written: " + ((done && done.reason) || "no reason given");
+            return;
+          }
+          entry.scene_written = done.name;
+          persistOf(c, t);
+          write.textContent = "Written";
+          name.disabled = true;
+          show.hidden = false;
+          said.textContent = "Written as scenes/" + done.name + ".mvsx"
+            + (done.notes && done.notes.length ? ". " + done.notes.join(" ") : ".");
+          shown(done.name);
+        });
+    });
+    box.appendChild(card);
+    return card;
+  }
+
+  /* What the Agent looked at with the software's own tools before it
+   * answered, folded under one line so the answer stays first: each look
+   * in words (`agent/tools.py` LOOK_WORDS, sent as `label`), what it found
+   * in a line, and what the software said in full under that. The words
+   * are the software's, put in as text: a tool's answer quotes a structure
+   * file's names. A conversation kept before the labels were sent is said
+   * from this list; a tool not in it by its name. */
+  var LOOKED = {
+    find_structure: "Looked up a name in the PDB",
+    inspect_structure: "Inspected the structure",
+    preview_setup: "Previewed what setup builds",
+    check_config: "Checked the config",
+    check_selection: "Checked a selection",
+    read_study: "Read a study's record",
+    list_studies: "Listed the studies here",
+    compare_studies: "Compared two studies",
+    methods_of_study: "Read a study's methods",
+    current_view: "Checked what the page shows",
+    read_docs: "Read the docs"
+  };
+
+  function lookLabel(l) {
+    return l.label || LOOKED[l.tool] || ("Used " + l.tool);
+  }
+
+  /* "Looked up "trp-cage" in the PDB, checked the config": the first as
+   * it is, the rest after a comma with a small first letter. */
+  function lookedSaid(looks) {
+    return looks.map(function (l, i) {
+      var said = lookLabel(l) + (l.ok ? "" : " (refused)");
+      return i ? said.charAt(0).toLowerCase() + said.slice(1) : said;
+    }).join(", ");
+  }
+
+  function looked(box, looks) {
+    if (!looks || !looks.length) return null;
+    var fold = document.createElement("details");
+    fold.className = "agent-looks";
+    var head = document.createElement("summary");
+    head.textContent = lookedSaid(looks);
+    fold.appendChild(head);
+    looks.forEach(function (l) {
+      var item = document.createElement("div");
+      item.className = "agent-look" + (l.ok ? "" : " is-refused");
+      item.setAttribute("data-tool", l.tool || "");
+      var name = document.createElement("div");
+      name.className = "agent-look-name";
+      name.textContent = lookLabel(l);
+      item.appendChild(name);
+      if (l.found) {
+        var found = document.createElement("div");
+        found.className = "agent-look-found";
+        found.textContent = l.found;
+        item.appendChild(found);
+      }
+      var whole = document.createElement("details");
+      var named = document.createElement("summary");
+      named.textContent = "What the software said";
+      whole.appendChild(named);
+      var said = document.createElement("pre");
+      said.className = "agent-look-said";
+      said.textContent = l.said || "";
+      whole.appendChild(said);
+      item.appendChild(whole);
+      fold.appendChild(item);
+    });
+    box.appendChild(fold);
+    return fold;
+  }
+
+  /* The software's refusals of what the Agent wrote, in view, as one line
+   * each; a reply the loop could not read as a config at all
+   * (`config.file.unparseable`) is a format repair and stays out of sight.
+   * Under an accepted config, that it was written again. */
+  var FORMAT_REPAIR = "config.file.unparseable";
+  /* A conversation kept before the code was kept with each refusal names
+   * its format repairs only by their words (agent/propose.py,
+   * agent/conversation.py). */
+  var FORMAT_REPAIRS_SAID = [
+    "The reply was not a YAML mapping.", "The config was not a mapping.",
+    "The question was empty.", "Two actions in one reply.", "A scene without an answer.",
+    "The reply was empty.", "No reply was made.",
+    "The looks for this reply are used up; answer from what the software said.",
+    "Name the windows to run again, by number, as `windows`."
+  ];
+  /* Said with the name the reply used, so matched by how they begin. */
+  var FORMAT_REPAIRS_BEGIN = /^There is no (tool called|action) /;
+
+  function isFormatRepair(refusal) {
+    var said = String(refusal.message || "");
+    return refusal.code ? refusal.code === FORMAT_REPAIR
+      : FORMAT_REPAIRS_SAID.indexOf(said) >= 0 || FORMAT_REPAIRS_BEGIN.test(said);
+  }
+
+  function refusals(box, attempts, accepted) {
+    var shown = 0;
+    (attempts || []).forEach(function (a) {
+      var refusal = a && a.refusal;
+      if (!refusal || isFormatRepair(refusal)) return;
+      var line = document.createElement("div");
+      line.className = "agent-refused";
+      var lead = document.createElement("b");
+      lead.textContent = "The software refused it: ";
+      line.appendChild(lead);
+      line.appendChild(document.createTextNode(String(refusal.message || "")
+        + (accepted ? " I wrote it again." : "")));
+      box.appendChild(line);
+      shown += 1;
+    });
+    return shown;
+  }
+
+  /* A question the Agent asks, with the candidates it named as buttons:
+   * "2VB1 hen egg-white, X-ray 0.65 A, 2007" shows its identifier first,
+   * and a press answers with it. Typing answers too. A question answered,
+   * or followed by anything else, keeps its candidates, not pressable. */
+  var PDB_ID = /^([0-9][A-Za-z0-9]{3})\b[\s,:;.-]*(.*)$/;
+
+  function asking(box, question, choices, spent) {
+    var said = document.createElement("div");
+    said.className = "agent-answer agent-question";
+    said.innerHTML = prose(question);
+    box.appendChild(said);
+    if (!choices || !choices.length) return said;
+    var grid = document.createElement("div");
+    grid.className = "agent-choices";
+    choices.forEach(function (choice) {
+      var text = String(choice || "");
+      var id = PDB_ID.exec(text);
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "agent-choice";
+      var name = document.createElement("span");
+      name.className = "agent-choice-name";
+      name.textContent = id ? id[1] : text;
+      button.appendChild(name);
+      if (id && id[2]) {
+        var facts = document.createElement("span");
+        facts.className = "agent-choice-facts";
+        facts.textContent = id[2];
+        button.appendChild(facts);
+      }
+      button.disabled = !!spent;
+      button.addEventListener("click", function () {
+        if (writing) return;
+        Array.prototype.forEach.call(grid.querySelectorAll("button"), function (b) {
+          b.disabled = true;
+        });
+        button.classList.add("is-chosen");
+        var area = el("agent-request");
+        area.value = id ? id[1] : text;
+        draft();
+      });
+      grid.appendChild(button);
+    });
+    box.appendChild(grid);
+    return said;
+  }
+
+  /* A question's candidates are spent once anything else is said. */
+  function spendChoices() {
+    Array.prototype.forEach.call(
+      document.querySelectorAll("#agent-thread .agent-choice, #agent-thread .agent-confirm-btn"),
+      function (b) { b.disabled = true; });
+    /* Nothing waits for the person once they have said something. */
+    Array.prototype.forEach.call(
+      document.querySelectorAll('#agent-thread .agent-msg-agent[data-state="waiting"]'),
+      function (n) { n.setAttribute("data-state", "done"); });
+  }
+
+  /* Under a reply, on one row with Copy: Useful or Wrong, kept with the
+   * conversation for the Agent's evaluation (a second press takes it back),
+   * and what the reply took, in tokens, shown only once its icon is pressed
+   * (user, 10-09: "a button that user needs to click first to reveal the
+   * token info ... on the same row with copy"). Each is a line icon named
+   * on hover and to a screen reader (user, 10-09: "those buttons should be
+   * line icons"), filled while pressed, so which is pressed is not said by
+   * its colour alone. */
+  var FEEDBACK = { useful: "Useful", wrong: "Wrong" };
+
+  function feedbackShown(b, pressed) {
+    b.setAttribute("aria-pressed", pressed ? "true" : "false");
+    var drawn = b.querySelector("svg");
+    if (drawn) drawn.setAttribute("fill", pressed ? "currentColor" : "none");
+  }
+
+  function usageSaid(u) {
+    if (!u || !(u.input_tokens || u.cache_read_tokens || u.cache_write_tokens)) return "";
+    var sent = (u.input_tokens || 0) + (u.cache_read_tokens || 0) + (u.cache_write_tokens || 0);
+    var kept = [];
+    if (u.cache_read_tokens) kept.push(u.cache_read_tokens.toLocaleString("en-US") + " from the cache");
+    if (u.cache_write_tokens) {
+      kept.push(u.cache_write_tokens.toLocaleString("en-US") + " written to the cache");
+    }
+    return sent.toLocaleString("en-US") + " tokens in" + (kept.length ? " (" + kept.join(", ") + ")" : "")
+      + " \u00b7 " + (u.output_tokens || 0).toLocaleString("en-US") + " out";
+  }
+
+  function meta(r, entry) {
+    var body = r.part("body") || r.node;
+    /* The reply's own row of tools, Copy first; one is made where a reply
+     * has none, so the marks are never on a row of their own. */
+    var row = body.querySelector(".agent-msg-tools");
+    if (!row) {
+      row = document.createElement("div");
+      row.className = "agent-msg-tools";
+      body.appendChild(row);
+    }
+    row.classList.add("agent-meta");
+    ["useful", "wrong"].forEach(function (kind) {
+      var b = window.FastMDXIcons.button(kind, FEEDBACK[kind], "agent-feedback");
+      b.setAttribute("data-feedback", kind);
+      feedbackShown(b, entry.feedback === kind);
+      b.addEventListener("click", function () {
+        entry.feedback = entry.feedback === kind ? null : kind;
+        Array.prototype.forEach.call(row.querySelectorAll(".agent-feedback"), function (x) {
+          feedbackShown(x, x.getAttribute("data-feedback") === entry.feedback);
+        });
+        persist();
+      });
+      row.appendChild(b);
+    });
+    var used = usageSaid(entry.usage);
+    if (used) {
+      var said = document.createElement("span");
+      said.className = "agent-usage";
+      said.id = "agent-usage-" + (++usageShown);
+      said.textContent = used;
+      said.hidden = true;
+      var show = window.FastMDXIcons.button("usage", "Tokens this reply took",
+                                            "agent-usage-toggle");
+      show.title = "Show the tokens this reply took";
+      show.setAttribute("aria-expanded", "false");
+      show.setAttribute("aria-controls", said.id);
+      show.addEventListener("click", function () {
+        said.hidden = !said.hidden;
+        show.setAttribute("aria-expanded", said.hidden ? "false" : "true");
+        show.title = (said.hidden ? "Show" : "Hide") + " the tokens this reply took";
+      });
+      row.appendChild(show);
+      row.appendChild(said);
+    }
+    return row;
+  }
+  var usageShown = 0;
+
+  /* What the Agent is doing, said by its icon beside the reply. */
+  var STATES = { working: "Working", waiting: "Waiting for you", done: "Done",
+                 stopped: "Could not finish" };
+
+  function whoIs(r, state) {
+    if (!r || !r.node) return;
+    r.node.setAttribute("data-state", state);
+    var who = r.part("who");
+    if (who) who.title = STATES[state] || "";
+  }
+
+  /* What the Agent read for this reply, kept beside the conversation
+   * (`/api/agent/receipt`), read only when opened: each step, the prompt in
+   * full, or its instructions, the tools it could use and the messages it
+   * had not been given before (a look's result among them). Said as the
+   * Agent says it: the AI model is its own, named only in Settings (user,
+   * 10-07: "no talk about the AI model as a separate entity"). */
+  function receiptPart(body, label, text) {
+    var name = document.createElement("div");
+    name.className = "agent-look-name";
+    name.textContent = label;
+    var said = document.createElement("pre");
+    said.className = "agent-look-said";
+    said.textContent = text;
+    body.appendChild(name);
+    body.appendChild(said);
+  }
+
+  function receiptMessage(body, message) {
+    var who = { user: "You", assistant: "I", results: "The software" };
+    var label = who[message.role] || message.role;
+    if (message.text) receiptPart(body, label, message.text);
+    (message.calls || []).forEach(function (call) {
+      receiptPart(body, label + " called " + call.name, JSON.stringify(call.arguments, null, 1));
+    });
+    (message.results || []).forEach(function (result) {
+      receiptPart(body, "What " + (result.name || "the call") + " gave back"
+                  + (result.is_error ? " (not taken)" : ""), String(result.content || ""));
+    });
+  }
+
+  function sent(box, brief) {
+    if (!brief || !brief.sha256 || !brief.asked) return null;
+    var fold = document.createElement("details");
+    fold.className = "agent-looks agent-sent";
+    var head = document.createElement("summary");
+    head.textContent = "What I read for this reply (" + brief.asked
+      + (brief.asked === 1 ? " step" : " steps") + ")"
+      + (brief.truncated ? ", long parts shortened" : "");
+    fold.appendChild(head);
+    var body = document.createElement("div");
+    fold.appendChild(body);
+    fold.addEventListener("toggle", function () {
+      if (!fold.open || fold.dataset.read) return;
+      fold.dataset.read = "1";
+      body.textContent = "Reading\u2026";
+      fetch("/api/agent/receipt?sha256=" + encodeURIComponent(brief.sha256),
+            { cache: "no-store" })
+        .then(function (r) { return r.json(); })
+        .catch(function () { return { ok: false, error: "The server did not answer." }; })
+        .then(function (said) {
+          body.textContent = "";
+          if (!said || !said.ok) {
+            body.textContent = (said && said.error) || "Not kept.";
+            delete fold.dataset.read;
+            return;
+          }
+          var shownSystem = null;
+          var shownTools = null;
+          (said.receipt.sent || []).forEach(function (entry, i) {
+            var asked = document.createElement("div");
+            asked.className = "agent-look-name";
+            asked.textContent = "Step " + (i + 1);
+            body.appendChild(asked);
+            if (entry.prompt != null) {
+              receiptPart(body, "What I was given", entry.prompt);
+              return;
+            }
+            if (entry.system !== shownSystem) {
+              shownSystem = entry.system;
+              var system = document.createElement("details");
+              var summary = document.createElement("summary");
+              summary.textContent = "My instructions (the same each step)";
+              system.appendChild(summary);
+              var text = document.createElement("pre");
+              text.className = "agent-look-said";
+              text.textContent = (said.receipt.systems || [])[entry.system] || "";
+              system.appendChild(text);
+              body.appendChild(system);
+            }
+            if (entry.tools !== shownTools) {
+              shownTools = entry.tools;
+              var declared = (said.receipt.toolsets || [])[entry.tools] || [];
+              var tools = document.createElement("details");
+              var named = document.createElement("summary");
+              named.textContent = "Tools I could use: " + declared.map(function (tool) {
+                return tool.name;
+              }).join(", ");
+              tools.appendChild(named);
+              var specs = document.createElement("pre");
+              specs.className = "agent-look-said";
+              specs.textContent = JSON.stringify(declared, null, 1);
+              tools.appendChild(specs);
+              body.appendChild(tools);
+            }
+            (entry.messages || []).forEach(function (message) {
+              receiptMessage(body, message);
+            });
+          });
+          var digest = document.createElement("div");
+          digest.className = "muted small agent-sent-digest";
+          digest.textContent = "SHA-256 " + said.receipt.sha256;
+          body.appendChild(digest);
+        });
+    });
+    box.appendChild(fold);
+    return fold;
   }
 
   function note(box, text, ok) {
@@ -87,7 +618,7 @@
     return line;
   }
 
-  /* Ready or not, and nothing else. The model is recorded on the study --
+  /* Ready or not, and nothing else. The AI model is recorded on the study --
    * `agent_model` in the config and the manifest -- which is where a
    * reader needs it. It does not belong in the chrome. */
   function describeEngine(current) {
@@ -99,10 +630,10 @@
 
   var OTHER = "__other__";
 
-  /* The models a provider is known to have, plus a way to name one that is
-   * not on the list. A closed list would lock out a model released next
+  /* The AI models a provider is known to have, plus a way to name one that is
+   * not on the list. A closed list would lock out an AI model released next
    * month; free text alone made somebody type a string exactly right with
-   * nothing to check it against, and left the previous provider's model
+   * nothing to check it against, and left the previous provider's AI model
    * sitting there when they switched. */
   function fillModels(spec, chosen) {
     var select = el("agent-model");
@@ -115,11 +646,11 @@
     });
     var other = document.createElement("option");
     other.value = OTHER;
-    /* Said outright rather than as "Other…". Somebody looking for a model
+    /* Said outright rather than as "Other…". Somebody looking for an AI model
      * the list does not have needs to see that typing one is possible;
      * reported as "I still can't choose any model, only prelisted ones"
      * while this option was sitting in the dropdown saying "Other…". */
-    other.textContent = "Type a model name\u2026";
+    other.textContent = "Type an AI model name\u2026";
     select.appendChild(other);
 
     var known = (spec.models || []).indexOf(chosen) !== -1;
@@ -144,8 +675,10 @@
     var spec = providers.filter(function (p) { return p.id === id; })[0];
     if (!spec) return;
     el("agent-url-field").hidden = !spec.needs_url;
-    /* The model follows the provider. It used to be filled only when the
-     * field was empty, so switching provider left the previous one's model
+    /* Only Anthropic is told how long to keep its cache. */
+    el("agent-cache-field").hidden = id !== "anthropic";
+    /* The AI model follows the provider. It used to be filled only when the
+     * field was empty, so switching provider left the previous one's AI model
      * in place -- OpenAI selected and claude-sonnet-4-6 still showing. */
     fillModels(spec, chosen || spec.default_model || "");
     el("agent-key-help").textContent =
@@ -153,16 +686,469 @@
       "by you, and never written into a config, a manifest or a log.";
     el("agent-url-examples").textContent =
       (spec.examples || []).map(function (e) {
-        return e.label + " \u2014 " + e.url;
+        return e.label + ": " + e.url;
       }).join("  \u00b7  ");
   }
 
   function engineIsSet(current) {
     el("agent-model-current").textContent = describeEngine(current);
+    engineChosen = !!current;
+    syncStart();
   }
 
-  function openSettings() { el("agent-settings").hidden = false; }
-  function closeSettings() { el("agent-settings").hidden = true; }
+  /* What can be asked, shown while the thread is empty: the study's own
+   * questions when one is open, and studies to start. A suggestion fills
+   * the composer; it does not send. */
+  var engineChosen = true;
+  var studyOpen = false;
+  function syncStart() {
+    var start = el("agent-start");
+    var thread = el("agent-thread");
+    if (!start || !thread) return;
+    start.hidden = thread.childElementCount > 0;
+    var engine = el("agent-start-engine");
+    if (engine) engine.hidden = engineChosen;
+    var study = el("agent-start-study");
+    if (study) study.hidden = !studyOpen;
+    var records = el("agent-start-records");
+    if (records) records.hidden = engineChosen || !studyOpen;
+    var note = el("agent-start-note");
+    var mode = el("agent-mode");
+    if (note && mode) {
+      note.textContent = "I draft a config and the software validates it. "
+        + (MODE_NOTES[mode.value] || "");
+    }
+  }
+
+  // As the page's other dialogs (preferences.js): Escape and a click
+  // outside close it, focus stays in it and goes back to what opened it.
+  function openSettings() {
+    if (window.FastMDXDialog) window.FastMDXDialog.open("agent-settings");
+    else el("agent-settings").hidden = false;
+    loadMemory();
+  }
+
+  /* What the Agent remembers of the person (agent/memory.py): shown and
+   * changed in its Settings, every line with where it came from, and said
+   * under a reply when a chat changed it, with Undo. The file is theirs
+   * too (agent_memory.md); this reads and changes it through
+   * /api/agent/memory, the same as `fastmdx agent memory`. */
+  var memoryState = null;
+
+  function memoryBox() {
+    var box = el("agent-memory");
+    if (box) return box;
+    var body = document.querySelector("#agent-settings .agent-dialog-body");
+    if (!body) return null;
+    box = document.createElement("section");
+    box.id = "agent-memory";
+    box.className = "agent-memory";
+    box.setAttribute("aria-label", "What the Agent remembers of you");
+    body.appendChild(box);
+    /* Made once, beside the section rather than in it, so a screen reader
+     * hears each change to it: a live region drawn anew is not heard. */
+    var status = memoryNode("p", "builder-card-note agent-memory-status");
+    status.id = "agent-memory-status";
+    status.setAttribute("role", "status");
+    body.appendChild(status);
+    return box;
+  }
+
+  function memoryStatus(said) {
+    var status = el("agent-memory-status");
+    if (!status) return;
+    status.textContent = "";
+    if (said) setTimeout(function () { status.textContent = said; }, 60);
+  }
+
+  /* Asked of the server, then the section drawn again with focus where
+   * the person was (`focus`: "add", "switch-use", "switch-from_chats",
+   * "line-N", "foot") and, where it was refused, what they typed kept. */
+  function memoryAsk(payload, focus, typed, done) {
+    return post("/api/agent/memory", payload).then(function (data) {
+      if (data && data.lines) memoryState = data;
+      // A refusal (a key, a line too long) is said where it was asked.
+      var refused = data && data.ok === false;
+      // A refusal is said in the status line too, so it is heard.
+      renderMemory(refused ? data : null, refused ? typed : "",
+                   refused ? (data.error || "") : done);
+      memoryFocus(refused && typed ? "add" : focus);
+      return data;
+    }).catch(function () {
+      var unreached = "The memory could not be reached; nothing was changed.";
+      renderMemory({ error: unreached }, typed, unreached);
+      memoryFocus(focus);
+      return null;
+    });
+  }
+
+  function memoryFocus(where) {
+    var box = el("agent-memory");
+    if (!box || !where) return;
+    var target = null;
+    if (where === "add") target = box.querySelector(".agent-memory-add input");
+    else if (where.indexOf("switch-") === 0) {
+      target = box.querySelector('[data-switch="' + where.slice(7) + '"]');
+    } else if (where.indexOf("line-") === 0) {
+      var rows = box.querySelectorAll(".agent-memory-lines:not(.agent-memory-held) " +
+                                      ".agent-memory-line");
+      var row = rows[Math.min(parseInt(where.slice(5), 10), rows.length - 1)];
+      target = row ? row.querySelector("button") : null;
+    } else if (where === "foot") target = box.querySelector(".agent-memory-foot button");
+    else if (where === "clear") {
+      target = box.querySelector('.agent-memory-foot button[aria-label="Forget everything"]');
+    }
+    (target || box.querySelector(".agent-memory-add input")).focus();
+  }
+
+  function loadMemory() {
+    var box = memoryBox();
+    if (!box) return Promise.resolve(null);
+    return fetch("/api/agent/memory").then(function (r) { return r.json(); })
+      .then(function (data) {
+        memoryState = data && data.lines ? data : null;
+        renderMemory(memoryState ? null : data);
+        return data;
+      }).catch(function () {
+        memoryState = null;
+        renderMemory({ error: "What the Agent remembers could not be read." });
+      });
+  }
+
+  function memoryNode(tag, cls, text) {
+    var made = document.createElement(tag);
+    if (cls) made.className = cls;
+    if (text !== undefined) made.textContent = text;
+    return made;
+  }
+
+  function memoryWhen(line) {
+    var when = (line.updated || line.added || "").slice(0, 10);
+    var from = line.source === "chat" ? "from a chat" : "yours";
+    return when ? from + ", " + when : from;
+  }
+
+  /* `done`: what the person just did, said in the section's status line
+   * for a screen reader as well as on the page. */
+  function renderMemory(problem, typed, done) {
+    var box = memoryBox();
+    if (!box) return;
+    box.innerHTML = "";
+    box.appendChild(memoryNode("div", "builder-label", "What I remember of you"));
+    var data = memoryState;
+    if (!data) {
+      box.appendChild(memoryNode("p", "builder-card-note",
+        (problem && problem.error) || "This GUI keeps no memory of you."));
+      return;
+    }
+    box.appendChild(memoryNode("p", "builder-card-note",
+      "Told to me with each message, so my answers suit you; never a setting's " +
+      "value (those go in your fastmdx-defaults.yml)."));
+    if (data.unreadable) {
+      box.appendChild(memoryNode("p", "builder-card-note agent-memory-problem",
+        "It could not be read: " + data.unreadable));
+    }
+    if (problem && problem.error) {
+      var said = memoryNode("p", "builder-card-note agent-memory-problem", problem.error);
+      said.id = "agent-memory-problem";
+      box.appendChild(said);
+    }
+    var switches = memoryNode("div", "agent-memory-switches");
+    [["use", "Use this memory"],
+     ["from_chats", "Learn from what you write to me (each message I read for it " +
+      "costs one more short call to your provider)"]].forEach(function (pair) {
+      var label = memoryNode("label", "agent-memory-switch");
+      var tick = document.createElement("input");
+      tick.type = "checkbox";
+      tick.checked = !!data[pair[0]];
+      tick.setAttribute("data-switch", pair[0]);
+      // Nothing is learnt for a memory that is not used.
+      if (pair[0] === "from_chats" && !data.use) {
+        tick.disabled = true;
+        label.classList.add("agent-memory-off");
+      }
+      tick.addEventListener("change", function () {
+        var ask = { op: "switches" };
+        ask[pair[0]] = tick.checked;
+        memoryAsk(ask, "switch-" + pair[0], "",
+                  pair[1].replace(/ \(.*$/, "") + (tick.checked ? ": on." : ": off."));
+      });
+      label.appendChild(tick);
+      label.appendChild(memoryNode("span", null, pair[1]));
+      switches.appendChild(label);
+    });
+    box.appendChild(switches);
+    box.appendChild(memoryNode("p", "builder-card-note",
+      data.use ? "Each change here is kept at once, in " + data.where + "."
+               : "Off: nothing here is told to me, and nothing is learnt from what you " +
+                 "write. What is here stays, in " + data.where + ", for when you turn it on."));
+
+    var list = memoryNode("ul", "agent-memory-lines");
+    if (!data.use) list.classList.add("agent-memory-off");
+    if (!data.lines.length) {
+      list.appendChild(memoryNode("li", "agent-memory-empty", "Nothing yet."));
+    }
+    var group = "";
+    data.lines.forEach(function (line, index) {
+      // The person's own groups in the file (### Systems), as they made them.
+      if ((line.heading || "") !== group) {
+        group = line.heading || "";
+        if (group) {
+          list.appendChild(memoryNode("li", "agent-memory-group",
+                                      group.replace(/^#+\s*/, "")));
+        }
+      }
+      var row = memoryNode("li", "agent-memory-line");
+      var words = memoryNode("span", "agent-memory-text", line.text);
+      var meta = memoryNode("span", "agent-memory-meta", memoryWhen(line));
+      var edit = window.FastMDXIcons.button("edit", "Change: " + line.text);
+      var bin = window.FastMDXIcons.button("bin", "Forget: " + line.text);
+      edit.addEventListener("click", function () { memoryEdit(row, line); });
+      bin.addEventListener("click", function () {
+        memoryAsk({ op: "forget", id: line.id }, "line-" + index, "",
+                  "Forgot: " + line.text);
+      });
+      row.appendChild(words);
+      row.appendChild(meta);
+      row.appendChild(edit);
+      row.appendChild(bin);
+      list.appendChild(row);
+    });
+    box.appendChild(list);
+
+    var add = memoryNode("div", "agent-memory-add");
+    var input = document.createElement("input");
+    input.type = "text";
+    input.maxLength = data.most_line || 300;
+    input.placeholder = "Something for me to remember, such as \"You are new to MD.\"";
+    input.setAttribute("aria-label", "A line to remember");
+    if (typed) input.value = typed;
+    if (typed && problem && problem.error) {
+      // What was typed is refused: the reason is the box's description.
+      input.setAttribute("aria-invalid", "true");
+      input.setAttribute("aria-describedby", "agent-memory-problem");
+    }
+    var keep = window.FastMDXIcons.button("new", "Remember this");
+    function remembered() {
+      var text = input.value.trim();
+      if (!text) return;
+      memoryAsk({ op: "add", text: text }, "add", text, "Remembered: " + text);
+    }
+    keep.addEventListener("click", remembered);
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); remembered(); }
+    });
+    add.appendChild(input);
+    add.appendChild(keep);
+    box.appendChild(add);
+
+    if (data.not_told && data.not_told.length) {
+      box.appendChild(memoryNode("div", "builder-label", "In your file, not told to me"));
+      box.appendChild(memoryNode("p", "builder-card-note",
+        "Lines I found in the file and do not tell myself, with why. To keep one, " +
+        "write it again above (a value for every study goes in your " +
+        "fastmdx-defaults.yml instead); to take one out, change the file itself, in " +
+        data.where + "."));
+      var held = memoryNode("ul", "agent-memory-lines agent-memory-held");
+      data.not_told.forEach(function (item) {
+        var row = memoryNode("li", "agent-memory-line");
+        row.appendChild(memoryNode("span", "agent-memory-text", item.text));
+        row.appendChild(memoryNode("span", "agent-memory-meta", item.why));
+        held.appendChild(row);
+      });
+      box.appendChild(held);
+    }
+
+    var foot = memoryNode("div", "agent-memory-foot");
+    var last = (data.changes || []).filter(function (c) { return !c.undone; }).pop();
+    if (last) {
+      foot.appendChild(memoryNode("span", "agent-memory-meta", "The last change. " +
+        memorySaid(last)));
+      var back = window.FastMDXIcons.button("undo", "Undo this. " + memorySaid(last));
+      back.addEventListener("click", function () {
+        memoryAsk({ op: "undo", change: last.id }, "foot", "", memoryUndone(last));
+      });
+      foot.appendChild(back);
+    }
+    if (data.lines.length || (data.not_told && data.not_told.length)) {
+      var clear = window.FastMDXIcons.button("erase", "Forget everything");
+      clear.addEventListener("click", function () { memoryClearAsked(foot); });
+      foot.appendChild(clear);
+    }
+    box.appendChild(foot);
+    memoryStatus(done || "");
+  }
+
+  /* Forget everything is asked in place, in the foot: a sentence saying
+   * what goes and what stays, then the two answers, the safe one first. */
+  function memoryClearAsked(foot) {
+    foot.innerHTML = "";
+    foot.classList.add("agent-memory-asking");
+    var ask = memoryNode("span", "agent-memory-meta",
+      "Forget every line I remember of you? Your own notes in the file stay, " +
+      "and this cannot be undone.");
+    ask.id = "agent-memory-clear-ask";
+    var keep = memoryNode("button", "ctl-btn", "Keep them");
+    var go = memoryNode("button", "ctl-btn agent-memory-clear", "Forget everything");
+    keep.type = go.type = "button";
+    go.setAttribute("aria-describedby", ask.id);
+    function kept() {
+      window.removeEventListener("keydown", escaped, true);
+      renderMemory(null);
+      memoryFocus("clear");
+    }
+    /* Escape answers the question as Keep them, and leaves the dialog open:
+     * caught on the window, before the dialog's own handler. */
+    function escaped(e) {
+      if (e.key === "Escape" && foot.contains(e.target)) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        kept();
+      }
+    }
+    window.addEventListener("keydown", escaped, true);
+    keep.addEventListener("click", kept);
+    go.addEventListener("click", function () {
+      window.removeEventListener("keydown", escaped, true);
+      memoryAsk({ op: "clear" }, "add", "", "Forgot everything I remembered of you.");
+    });
+    foot.appendChild(ask);
+    foot.appendChild(keep);
+    foot.appendChild(go);
+    keep.focus();
+  }
+
+  function memorySaid(change) {
+    if (change.what === "added") return "Remembered: " + change.text;
+    if (change.what === "changed") return "Changed what I remember: " + change.text;
+    return "Forgot: " + change.text;
+  }
+
+  /* What an undo did, said from the person's side of it. */
+  function memoryUndone(change) {
+    if (change.what === "added") return "Undone: I no longer remember " + change.text;
+    if (change.what === "changed") return "Undone: the line has its earlier words again.";
+    return "Undone: I remember again " + change.text;
+  }
+
+  function memoryEdit(row, line) {
+    row.innerHTML = "";
+    var input = document.createElement("input");
+    input.type = "text";
+    input.value = line.text;
+    input.maxLength = (memoryState && memoryState.most_line) || 300;
+    input.setAttribute("aria-label", "New words for this line");
+    var save = window.FastMDXIcons.button("check", "Keep these words");
+    var cancel = window.FastMDXIcons.button("close", "Leave it as it was");
+    var at = Array.prototype.indexOf.call(row.parentNode.children, row);
+    function left() {
+      window.removeEventListener("keydown", escaped, true);
+      renderMemory(null);
+      memoryFocus("line-" + at);
+    }
+    function kept() {
+      var text = input.value.trim();
+      if (!text || text === line.text) { left(); return; }
+      window.removeEventListener("keydown", escaped, true);
+      memoryAsk({ op: "change", id: line.id, text: text }, "line-" + at, "",
+                "Changed what I remember: " + text);
+    }
+    /* Escape in the edit box leaves the edit, not the dialog: caught on
+     * the window, before the dialog's own handler on the document. */
+    function escaped(e) {
+      if (e.key === "Escape" && e.target === input) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        left();
+      }
+    }
+    window.addEventListener("keydown", escaped, true);
+    save.addEventListener("click", kept);
+    cancel.addEventListener("click", left);
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); kept(); }
+    });
+    row.appendChild(input);
+    row.appendChild(save);
+    row.appendChild(cancel);
+    input.focus();
+  }
+
+  /* After a reply the server reads what the person wrote for the memory,
+   * in its own time (`memory: "reading"`): asked for a while what that one
+   * reply changed, and each change said under the reply, with Undo. */
+  function memoryUnder(node, replyKey) {
+    /* Asked until the server says the reading is done, however long the
+     * AI model takes (a local one may take minutes), and through a failed
+     * ask or two; given up after ten minutes. */
+    var began = Date.now();
+    var wait = 1500;
+    function again() {
+      if (Date.now() - began > 600000) return;
+      setTimeout(look, wait);
+      wait = Math.min(wait * 1.5, 15000);
+    }
+    function look() {
+      fetch("/api/agent/memory?reply=" + encodeURIComponent(replyKey))
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data && data.reading) { again(); return; }
+          var made = (data && data.changes) || [];
+          if (made.length) memoryNoted(node, made);
+        }).catch(again);
+    }
+    again();
+  }
+
+  function memoryNoted(node, made) {
+    var body = node.querySelector('[data-role="body"]') || node;
+    var note = memoryNode("div", "agent-memory-note");
+    note.setAttribute("role", "status");
+    note.tabIndex = -1;
+    made.forEach(function (change) {
+      var row = memoryNode("div", "agent-memory-note-row");
+      var said = memoryNode("span", null, memorySaid(change));
+      row.appendChild(said);
+      if (!change.undone) {
+        var back = window.FastMDXIcons.button("undo", "Undo: " + memorySaid(change));
+        back.addEventListener("click", function () {
+          post("/api/agent/memory", { op: "undo", change: change.id }).then(function (a) {
+            if (a && (a.ok || a.undone_already)) {
+              // Undone here, or in Settings or by the command since: said,
+              // not an error.
+              said.textContent = memoryUndone(change);
+            } else {
+              // Why not, after what it was about, so the line is still said.
+              said.textContent = memorySaid(change) + ". " +
+                ((a && a.error) || "It could not be undone.");
+            }
+            // The button goes; the focus stays in the note, not lost.
+            if (document.activeElement === back) note.focus();
+            back.remove();
+            // Settings, if it is open, shows the memory as it now is; only
+            // with the memory sent back, so nothing open there is lost.
+            if (a && a.lines) {
+              memoryState = a;
+              if (el("agent-memory")) renderMemory(null);
+            }
+          }).catch(function () {
+            said.textContent = memorySaid(change) + ". The memory could not be reached, " +
+              "so it is not undone yet.";
+          });
+        });
+        row.appendChild(back);
+      }
+      note.appendChild(row);
+    });
+    var edit = window.FastMDXIcons.button("gear", "What I remember, in Settings");
+    edit.addEventListener("click", openSettings);
+    note.lastChild.appendChild(edit);
+    body.appendChild(note);
+  }
+  function closeSettings() {
+    if (window.FastMDXDialog) window.FastMDXDialog.close("agent-settings");
+    else el("agent-settings").hidden = true;
+  }
 
   function loadEngine() {
     return post("/api/agent/model", {}).then(function (data) {
@@ -180,6 +1166,7 @@
         select.value = data.current.provider;
         el("agent-base-url").value = data.current.base_url || "";
       }
+      el("agent-cache").value = data.cache_for || "auto";
       showProvider(select.value, data.current && data.current.model);
       engineIsSet(data.current);
     });
@@ -192,7 +1179,8 @@
       provider: el("agent-provider").value,
       model: chosenModel(),
       base_url: el("agent-base-url").value,
-      api_key: el("agent-key").value
+      api_key: el("agent-key").value,
+      cache_for: el("agent-cache").value
     }).then(function (data) {
       button.disabled = false;
       if (!data.ok) {
@@ -217,27 +1205,47 @@
 
   /* ---- The conversation ---------------------------------------------- */
 
-  /* When the Agent asked a question, the next message answers it. The
-   * proposing loop is stateless, so the answer goes back with the request
-   * it answers, joined -- "simulate chignolin for 2 ns" plus "1UAO" is a
-   * request the loop can write a study from. */
-  var pending = null;
   /* The conversation, as the Agent sees it: what was said each way. And
    * the last config it wrote, so "make it 5 ns" is a change to it rather
    * than a study from nothing. */
   var history = [];
   var currentConfig = null;
   /* The transcript, as it can be replayed: every entry carries enough to
-   * draw it again without asking the model. Saved to the workspace after
+   * draw it again without asking the AI model. Saved to the workspace after
    * each exchange, restored when the page opens. The thread used to live
    * only in the browser's memory, and a refresh emptied it. */
   var transcript = [];
   /* Which conversation this is and where it lives, from the last save or
-   * restore, so a launch can name it exactly when moving it. */
-  var convId = null;
-  var convStudy = null;
+   * restore, so a launch can name it exactly when moving it. One object per
+   * thread, replaced (never changed) when another thread is shown: a save
+   * or a launch keeps the thread it was made for, and its late answer
+   * changes that thread alone (eleventh and twelfth reviews, 10-08: a
+   * thread switched while a save waited was written over). */
+  var conv = threadOf(null, null, []);
+
+  /* A thread's own record: where it lives, every entry it has held (by
+   * `eid`), how many of its saves are waiting, and whether it was deleted
+   * elsewhere. */
+  function threadOf(id, study, entries) {
+    var t = { id: id || null, study: study || null, known: {}, confirmed: {}, waiting: 0,
+              gone: false, key: newEid(), entries: null };
+    (entries || []).forEach(function (e) {
+      if (e && e.eid) { t.known[e.eid] = true; t.confirmed[e.eid] = JSON.stringify(e); }
+    });
+    return t;
+  }
+
+  /* Threads with saves still waiting, so a page closing sends them all. */
+  var waitingThreads = [];
+
+  var eids = 0;
+  function newEid() {
+    eids += 1;
+    return "e" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7) + eids;
+  }
   /* Files attached to the next message: what read_attachment returned. */
   var pendingFiles = [];
+  var fromStarter = null;
 
   function fmtSize(n) {
     return n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : (n / 1048576).toFixed(1) + " MB";
@@ -255,8 +1263,7 @@
       name.className = "name"; name.textContent = f.name; name.title = f.path;
       var size = document.createElement("span");
       size.className = "size"; size.textContent = fmtSize(f.size) + (f.truncated ? " \u00b7 cut" : "");
-      var rm = document.createElement("button");
-      rm.className = "rm"; rm.type = "button"; rm.textContent = "\u2715"; rm.title = "Remove";
+      var rm = window.FastMDXIcons.button("close", "Remove " + f.name, "rm");
       rm.addEventListener("click", function () { pendingFiles.splice(i, 1); renderChips(); });
       chip.appendChild(name); chip.appendChild(size); chip.appendChild(rm);
       host.appendChild(chip);
@@ -275,23 +1282,342 @@
     }).catch(function () { window.alert("Could not reach the server."); });
   }
 
-  function persist() {
-    return post("/api/agent/conversation", { entries: transcript }).then(function (d) {
-      if (d && d.ok) {
-        convId = d.id || convId;
-        if (d.study !== undefined) convStudy = d.study;
+  /* Saved where it lives: a chat of no study stays one while a study is
+   * open, and a study's conversation stays its study's. The server keeps
+   * the conversation and merges each save into it: the page sends its
+   * entries and every entry it has held, so another tab's entries, and
+   * where a run went, are kept, and what the page cut goes (tenth to
+   * fourteenth reviews, 10-08: whole lists written over each other lost
+   * entries). Saves, and opening or starting a thread, go one at a time:
+   * one sent before the first had named the thread made two. */
+  var saving = Promise.resolve();
+  function inTurn(job) {
+    var done = saving.then(job);
+    saving = done.catch(function () {});
+    return done;
+  }
+
+  function persist() { return persistOf(conv, transcript); }
+
+  function saveBody(c, entries) {
+    entries.forEach(function (e) {
+      if (!e.eid) e.eid = newEid();
+      c.known[e.eid] = true;
+    });
+    /* Current only for the thread on screen: a save of another made it
+     * the one a reload opened (sixteenth review, 10-08). */
+    var body = { entries: entries, seen: Object.keys(c.known), current: c === conv };
+    if (c.id) {
+      body.id = c.id; body.study = c.study || null;
+    } else {
+      body.key = c.key;
+      /* A thread begun in a place of its own (a chat of no study while a
+       * study is open) is made there by its first save too (nineteenth
+       * review, 10-08: made in the open study's folder). */
+      if (c.placed) body.study = c.study || null;
+    }
+    return body;
+  }
+
+  /* A thread saved: `c` is where it is, `entries` what it says. */
+  function persistOf(c, entries) {
+    /* Deleted: written again only as a new conversation, once the person
+     * has said something since (twentieth review, 10-08: a mark meeting the
+     * delete first left every later message unsaved). */
+    if (c.gone) return keptAsNew(c, entries) || Promise.resolve(null);
+    c.waiting += 1;
+    c.entries = entries;
+    if (waitingThreads.indexOf(c) < 0) waitingThreads.push(c);
+    return inTurn(function () {
+      if (c.gone) { keptAsNew(c, entries); return null; }
+      var body = saveBody(c, entries);
+      /* Each entry as it went: a field set on it while the save was on its
+       * way (a scene written, a mark) is not confirmed by this save
+       * (nineteenth review, 10-08). */
+      var sent = {}, as = {};
+      body.entries.forEach(function (e) {
+        sent[e.eid] = true;
+        as[e.eid] = JSON.parse(JSON.stringify(e));
+      });
+      return post("/api/agent/conversation", body).then(function (d) {
+        if (d && d.ok) {
+          c.id = d.id || c.id;
+          if (d.study !== undefined) c.study = d.study;
+          takeIn(c, entries, d.entries || [], sent, as, d.cut || []);
+          window.dispatchEvent(new CustomEvent("fmx:conversation-saved"));
+        } else if (d && d.gone) {
+          /* Deleted elsewhere: not written again, unless the person has
+           * said something since. What the deleted conversation held went
+           * with it, so it is not taken for that (twenty-fourth review,
+           * 10-08: a conversation kept anew, then deleted on purpose, came
+           * back). */
+          (d.held || []).forEach(function (eid) {
+            entries.forEach(function (e) {
+              if (e.eid === eid) c.confirmed[eid] = JSON.stringify(e);
+            });
+          });
+          c.gone = true;
+          keptAsNew(c, entries);
+        }
+        return d;
+      }).catch(function () {});
+    }).then(function (d) { settled(c); return d; }, function () { settled(c); });
+  }
+
+  function settled(c) {
+    c.waiting -= 1;
+    if (!c.waiting) waitingThreads = waitingThreads.filter(function (t) { return t !== c; });
+  }
+
+  /* A thread deleted in another window while the person went on in it:
+   * what they said since is not dropped. The thread is kept as a new
+   * conversation, where it was, and the thread says so (nineteenth review,
+   * 10-08: everything typed after the delete was lost without a word). A
+   * thread nobody spoke in since (a run's summary, a mark) stays deleted. */
+  /* The server's words for the same (`KEPT_AFTER_DELETE`): true whether
+   * the thread is kept whole, or, from a page closing first, only what was
+   * said after (twenty-second review, 10-08). */
+  var DELETED_ELSEWHERE = "This conversation was deleted in another window. " +
+    "What was said after is kept here, as a new conversation.";
+  /* Conversations this page deleted: nothing of theirs is kept as new
+   * (twentieth review, 10-08: one deleted here while its answer was
+   * written came back, said to be deleted "in another window"). */
+  var deletedHere = {};
+  /* Those whose delete was answered, and the keys of threads deleted
+   * before their first save named them. */
+  var deletedDone = {};
+  var deletedKeys = {};
+  var deletesWaiting = {};
+  /* The person's own word this page holds and no save has confirmed: a
+   * message, or a run they started. Another tab's entries are confirmed
+   * as they are taken in, so they are not this person's word here. */
+  function spokeSince(c, entries) {
+    return entries.some(function (e) {
+      return !(e.eid && e.eid in c.confirmed) &&
+        (e.role === "user" || (e.kind === "action" && e.action === "run"));
+    });
+  }
+  function keptAsNew(c, entries) {
+    if (deletedHere[c.id] || deletedKeys[c.key] || !spokeSince(c, entries)) return null;
+    /* What was confirmed stays so: a page closing before the new one is
+     * saved sends only what is new, not the whole thread (twenty-first
+     * review, 10-08). */
+    c.id = null;
+    /* The key its closing copy asked to keep it by, if a page restored
+     * from the cache had one: a later load may have used that copy, and
+     * the thread is then kept once, there (twenty-third review, 10-08). */
+    c.key = c.keepKey || newEid();
+    c.keepKey = null;
+    c.placed = true;
+    c.known = {};
+    c.gone = false;
+    /* The note the server writes when it keeps a closing page's words,
+     * with the same eid, so one thread holds one. */
+    entries.push({ eid: "kept-" + c.key, role: "agent", kind: "note", text: DELETED_ELSEWHERE });
+    if (c === conv && entries === transcript) {
+      var r = reply();
+      whoIs(r, "done");
+      note(r.part("attempts"), DELETED_ELSEWHERE);
+      scrollToEnd();
+    }
+    return persistOf(c, entries);
+  }
+
+  /* What the server kept, taken in: a field it wrote into an entry (where
+   * a run went), and the entries this page never held (another tab's),
+   * drawn when the thread is the one on screen. */
+  function takeIn(c, entries, merged, sent, as, cutThere) {
+    var mine = {};
+    entries.forEach(function (e) { if (e.eid) mine[e.eid] = e; });
+    var kept = {};
+    var others = false;
+    merged.forEach(function (e) {
+      if (!e || !e.eid) return;
+      kept[e.eid] = true;
+      var held = mine[e.eid];
+      if (held) {
+        var went = (as && as[e.eid]) || {};
+        Object.keys(e).forEach(function (k) {
+          if (!(k in held)) held[k] = e[k];
+          if (!(k in went)) went[k] = e[k];
+        });
+        c.confirmed[e.eid] = JSON.stringify(went);
+        c.known[e.eid] = true;
+      } else {
+        /* Another tab's, as the server keeps it. */
+        c.confirmed[e.eid] = JSON.stringify(e);
+        if (!c.known[e.eid]) others = true;
       }
-      return d;
-    }).catch(function () {});
+    });
+    /* Cut by another tab: sent, and cut there. Sent and not kept is not
+     * enough: past the length kept, the oldest go too, and every save
+     * then drew the thread again (nineteenth review, 10-08). */
+    var cutAt = {};
+    (cutThere || []).forEach(function (eid) { cutAt[eid] = true; });
+    var cut = entries.some(function (e) { return sent[e.eid] && !kept[e.eid] && cutAt[e.eid]; });
+    if (!others && !cut) return;
+    var onScreen = c === conv && entries === transcript;
+    if (onScreen && (writing || launching)) {
+      /* A reply or a run being started would be drawn into a thread
+       * redrawn under it: the redraw waits for it (seventeenth and
+       * eighteenth reviews, 10-08), and comes with the next save. */
+      c.redrawWanted = true;
+      return;
+    }
+    /* Another tab changed it: the thread as the server keeps it, in its
+     * order, then what was said here since this save went (fifteenth and
+     * sixteenth reviews, 10-08: drawn at the bottom, a cut here took the
+     * other tab's entries with it). What this page cut after the save
+     * went is not brought back (eighteenth review, 10-08). */
+    var since = entries.filter(function (e) { return !sent[e.eid] && !kept[e.eid]; });
+    var whole = merged.filter(function (e) {
+      return e && e.eid && !(sent[e.eid] && !mine[e.eid]);
+    }).map(function (e) { return mine[e.eid] || e; }).concat(since);
+    whole.forEach(function (e) { c.known[e.eid] = true; });
+    c.redrawWanted = false;
+    if (onScreen) {
+      redraw(whole);
+    } else {
+      entries.length = 0;
+      whole.forEach(function (e) { entries.push(e); });
+    }
+  }
+
+  /* A redraw put off for a reply or a launch: asked for again by a save
+   * once both have settled. */
+  function redrawIfWanted() {
+    if (conv.redrawWanted && !writing && !launching) {
+      conv.redrawWanted = false;
+      persist();
+    }
+  }
+
+  /* A page closed or reloaded with saves still waiting: the thread on
+   * screen sent as it is, so what was said is kept (thirteenth and
+   * fourteenth reviews, 10-08). Merged as any save is, so a save that
+   * also lands does no harm. */
+  /* The page is going: what comes back late (an answer, a launch's word)
+   * is not said, nor saved, by it (nineteenth review, 10-08: a reload
+   * during a launch saved "I could not read the software's answer"). */
+  var leaving = false;
+  /* Asked to go (a reload, a link followed, the tab closed): a request the
+   * going cuts off fails as the page is put away, in the same turn as
+   * pagehide and in Chromium sometimes just before it (CI on cd2818a9: a
+   * reload as a run started saved "I could not read the software's
+   * answer"). */
+  var askedToGo = false;
+  window.addEventListener("beforeunload", function () { askedToGo = true; });
+  window.addEventListener("pageshow", function (event) {
+    if (!event.persisted) return;
+    leaving = false;
+    askedToGo = false;
+    try { sessionStorage.removeItem(UNSENT); } catch (e) { /* none */ }
+  });
+  window.addEventListener("pagehide", function (event) {
+    if (!event.persisted) {
+      leaving = true;
+      /* A question whose answer is still being written: kept, with the
+       * answer said as stopped, as pressing Stop says it (nineteenth
+       * review, 10-08: the question was saved only with its answer, and a
+       * reload lost it). */
+      /* Or whose request failed before the page heard it was going (CI
+       * run #704 on 10-08: the reload cut the reply off first, and the
+       * question was kept with nothing after it), while nothing has been
+       * said after it. */
+      if (answering && transcript.indexOf(answering) >= 0 &&
+          (writing || transcript[transcript.length - 1] === answering)) {
+        history.push({ role: "agent", text: "(stopped before answering)" });
+        transcript.push({ role: "agent", kind: "answer", text: "Stopped before it finished." });
+        answering = null;
+      }
+    }
+    /* Only what the server has not confirmed, as additions that cut
+     * nothing: small enough to go as the page closes (a whole thread over
+     * 64 KB did not), and harmless if it lands late (fifteenth and
+     * sixteenth reviews, 10-08). Every thread with saves waiting, and the
+     * one on screen, which may hold what no save has carried yet. */
+    conv.entries = transcript;
+    var threads = waitingThreads.slice();
+    if (threads.indexOf(conv) < 0) threads.push(conv);
+    var unsent = [];
+    threads.forEach(function (c) {
+      if (!c.entries || deletedHere[c.id] || deletedKeys[c.key]) return;
+      var spoke = spokeSince(c, c.entries);
+      /* Deleted elsewhere, and nothing said since: stays deleted. Said
+       * since: sent as below, with its old id and a key to keep it by;
+       * the whole thread would be too large to go as the page closes
+       * (twenty-first review, 10-08). */
+      if (c.gone && !spoke) return;
+      var body = saveBody(c, c.entries);
+      body.entries = body.entries.filter(function (e) {
+        return c.confirmed[e.eid] !== JSON.stringify(e);
+      });
+      /* Which conversation a reload opens is left to the tabs still
+       * open; a thread with no id yet is the one this tab was in
+       * (twentieth review, 10-08: a tab closing took the current one from
+       * another). */
+      body.current = !c.id;
+      /* Deleted elsewhere before this was heard: what the person said
+       * here is kept as a new conversation all the same. A page kept to
+       * come back to does not ask it as it goes (it keeps its thread, and
+       * says it again as it goes on; twenty-first review, 10-08), but its
+       * copy for the next load does: dropped from the cache, the page
+       * comes back as a fresh load that sends it, and a page restored
+       * forgets the copy (twenty-second review, 10-08). */
+      /* One key for the thread until it is kept by it: a copy sent by an
+       * earlier load made its conversation by that key, and a page restored
+       * and closed again, or cached again, keeps its words there, not twice
+       * (twenty-fourth review, 10-08). */
+      /* A thread named only by its key is kept the same way (twenty-fourth
+       * review: one whose /new was answered gone closed with nothing to
+       * keep it by). */
+      var keep = (c.id || c.gone) && spoke ?
+        { keep: c.keepKey || newEid(), keep_current: c === conv } : null;
+      if (keep) c.keepKey = keep.keep;
+      if (keep && !event.persisted) Object.assign(body, keep);
+      /* What this page cut and the server may not know yet (a retry with
+       * its save still waiting; eighteenth review, 10-08). */
+      var held = {};
+      c.entries.forEach(function (e) { held[e.eid] = true; });
+      body.cut = Object.keys(c.known).filter(function (eid) { return !held[eid]; });
+      if (!body.entries.length && !body.cut.length) return;
+      body.append = true;
+      unsent.push(keep ? Object.assign({}, body, keep) : body);
+      try {
+        fetch("/api/agent/conversation", {
+          method: "POST", keepalive: true,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body)
+        }).catch(function () {});
+      } catch (e) { /* kept below for the page that comes next */ }
+    });
+    /* Kept for the page that comes next in this tab too: a request sent
+     * as a page goes can be held back by the browser. Sent again on load,
+     * before the thread is read; adding twice adds once. */
+    if (unsent.length) {
+      try { sessionStorage.setItem(UNSENT, JSON.stringify(unsent)); } catch (e) { /* none */ }
+    }
+  });
+
+  var UNSENT = "fmx-agent-unsent";
+  function sendUnsent() {
+    var raw = null;
+    try {
+      raw = sessionStorage.getItem(UNSENT);
+      sessionStorage.removeItem(UNSENT);
+    } catch (e) { return; }
+    var bodies = [];
+    try { bodies = JSON.parse(raw || "[]"); } catch (e) { return; }
+    bodies.forEach(function (body) {
+      inTurn(function () { return post("/api/agent/conversation", body).catch(function () {}); });
+    });
   }
 
   function tools(msg, items) {
     var bar = document.createElement("div");
     bar.className = "agent-msg-tools";
     items.forEach(function (it) {
-      var b = document.createElement("button");
-      b.type = "button";
-      b.textContent = it.label;
+      var b = window.FastMDXIcons.button(it.icon, it.label);
       b.title = it.title || it.label;
       b.addEventListener("click", it.run);
       bar.appendChild(b);
@@ -312,6 +1638,13 @@
     var nodes = Array.prototype.slice.call(thread.children);
     var at = nodes.indexOf(msg);
     if (at === -1) return;
+    /* A reply still being written is to a question cut here. */
+    stopWriting();
+    /* A run being started from what is cut started all the same: its
+     * entry stays, after what is left, so where it went is written into
+     * it (nineteenth review, 10-08: cut while it started, and an answer
+     * the page could not read, and the thread forgot the run). */
+    var starting = startingRuns.filter(function (e) { return transcript.indexOf(e) >= 0; });
     var userIndex = nodes.slice(0, at + 1).filter(function (n) {
       return n.classList.contains("agent-msg-user");
     }).length - 1;
@@ -326,18 +1659,16 @@
       if (transcript[k].role === "user") seenT += 1;
       if (seenT === userIndex) { transcript.length = k; break; }
     }
+    starting.forEach(function (e) { if (transcript.indexOf(e) < 0) transcript.push(e); });
     persist();
-    pending = null;
     stopPending = null;
-    lastReply = null;
-    currentConfig = null;
-    for (var j = history.length - 1; j >= 0; j--) {
-      var text = history[j].text || "";
-      if (history[j].role === "agent" && text.indexOf("Wrote a config:\n") === 0) {
-        currentConfig = text.slice("Wrote a config:\n".length);
-        break;
-      }
-    }
+    runPending = null;
+    fixPending = null;
+    keptVersions();
+    /* What the next message changes is the newest version left. Read from
+     * the history it missed a config written with a note beside it, and the
+     * Agent then edited an older version (review, 10-07). */
+    currentConfig = versions.length ? versions[versions.length - 1].data.yaml : null;
   }
 
   function say(text, attached) {
@@ -354,10 +1685,10 @@
     }
     msg.appendChild(body);
     tools(msg, [
-      { label: "Copy", run: function () { copyText(text); } },
-      { label: "Edit", title: "Edit this message in place and send it again",
+      { label: "Copy", icon: "copy", run: function () { copyText(text); } },
+      { label: "Edit", icon: "edit", title: "Edit this message in place and send it again",
         run: function () {
-          /* In place, as every assistant a person has used does it: the
+          /* In place, as every AI app a person has used does it: the
            * bubble becomes editable, Enter sends, Escape puts it back.
            * Copying the text down into the composer was a detour. */
           if (body.isContentEditable) return;
@@ -393,7 +1724,7 @@
           body.addEventListener("keydown", onKey);
           body.addEventListener("blur", onBlur);
         } },
-      { label: "Retry", title: "Send this again from here",
+      { label: "Retry", icon: "refresh", title: "Send this again from here",
         run: function () {
           cutFrom(msg);
           el("agent-request").value = text;
@@ -414,8 +1745,8 @@
     });
     el("agent-thread").appendChild(node);
     var part = function (role) { return node.querySelector('[data-role="' + role + '"]'); };
-    tools(node, [
-      { label: "Copy", title: "Copy this reply",
+    tools(part("body") || node, [
+      { label: "Copy", icon: "copy", title: "Copy this reply",
         run: function () {
           var result = part("result");
           var answer = node.querySelector(".agent-answer");
@@ -427,13 +1758,19 @@
   }
 
   function scrollToEnd() {
+    placeholder();
     /* The last message into view, whichever ancestor scrolls. Setting
      * scrollTop on the thread assumed the thread was the scroll
      * container, and when it was not, nothing moved. After a frame, so
      * the reply just appended has a height. */
     var thread = el("agent-thread");
-    var column = thread.closest(".main") || document.scrollingElement;
+    var column = thread.closest(".main, .agent-drawer-body") || document.scrollingElement;
     function toEnd() {
+      /* Only while the conversation is the page shown. The later passes
+       * outlived a move to another page: a cited figure opened from an
+       * answer just restored was scrolled to, and then the Analysis page
+       * was taken to its foot, the figure above the view (CI, 10-02). */
+      if (thread.offsetParent === null) return;
       /* Both: the thread when it is the scroller, the column when the
        * thread has grown to fit and the column is. Whichever overflows,
        * setting scrollTop past its end is harmless on the other. */
@@ -461,9 +1798,15 @@
   function draft() {
     var area = el("agent-request");
     var typed = area.value.trim();
-    if (!typed) return;
-    var request = pending ? pending + "\n" + typed : typed;
-    pending = null;
+    if (!typed || writing) return;
+    /* Not before the thread has been read: sent first, it went into a
+     * second conversation (seventeenth review, 10-08). Sent once it has. */
+    if (!threadRead) { firstRead.then(draft); return; }
+    /* Sent as typed. It used to be joined to a question the Agent had
+     * asked, whatever it said ("which lysozyme...?" and "Has it run long
+     * enough?" went as one request); the conversation goes with every
+     * message, the question in it, so an answer is read as one. */
+    var request = typed;
 
     var files = pendingFiles.slice();
     pendingFiles = [];
@@ -471,79 +1814,161 @@
     var record = files.map(function (f) {
       return { name: f.name, path: f.path, size: f.size, sha256: f.sha256, truncated: !!f.truncated };
     });
+    spendChoices();
     say(typed, record);
     var historyText = typed + (record.length ? "\n[attached: " + record.map(function (a) { return a.name; }).join(", ") + "]" : "");
     history.push({ role: "user", text: historyText });
-    transcript.push(record.length ? { role: "user", text: typed, attachments: record } : { role: "user", text: typed });
+    var said = record.length ? { role: "user", text: typed, attachments: record }
+      : { role: "user", text: typed };
+    transcript.push(said);
     area.value = "";
     autosize(area);
+    /* The thread this was said in. Another shown before the answer came
+     * stops the answer, which is said in this one, not the one on screen
+     * (sixteenth review, 10-08: it was written into the other thread). */
+    var mine = conv, saidHere = transcript, heardHere = history;
+    function elsewhere() {
+      if (conv === mine) return false;
+      heardHere.push({ role: "agent", text: "(stopped before answering)" });
+      saidHere.push({ role: "agent", kind: "answer", text: "Stopped before it finished." });
+      persistOf(mine, saidHere);
+      return true;
+    }
     var r = reply();
     var box = r.part("attempts");
+    if (stopPending || runPending || fixPending) whoIs(r, "done");
     if (stopPending) {
       confirmStop(typed, box);
       scrollToEnd();
       return;
     }
-    note(box, "Thinking\u2026");
+    if (runPending) {
+      confirmRun(typed, box);
+      scrollToEnd();
+      return;
+    }
+    if (fixPending) {
+      confirmFix(typed, box);
+      scrollToEnd();
+      return;
+    }
     scrollToEnd();
-    el("agent-propose").disabled = true;
 
-    post("/api/agent/propose", {
+    var asked = fromStarter && fromStarter.prompt === typed ? fromStarter.key : null;
+    fromStarter = null;
+    /* An answer is said only while its question stands: a retry or an
+     * edit above cut it, and the answer, coming after, was saved with no
+     * question (nineteenth review, 10-08). Nor once the page is going. */
+    function stands() {
+      if (answering === said) answering = null;
+      return !leaving && saidHere.indexOf(said) >= 0;
+    }
+    answering = said;
+    /* This reply's key: what the memory learns from the message is asked
+     * for by it, and said under this reply. */
+    var replyKey = "r-" + Date.now().toString(36) + "-" +
+      Math.random().toString(36).slice(2, 8);
+    propose({
       request: request,
+      reply_key: replyKey,
+      conversation: mine && mine.id ? String(mine.id) : null,
+      records_question: asked,
       agent: el("agent-mode").value,
       history: history.slice(0, -1),
       current_config: currentConfig,
-      attachments: files.map(function (f) { return { name: f.name, text: f.text, truncated: !!f.truncated }; })
-    }).then(function (data) {
-      el("agent-propose").disabled = false;
+      attachments: files.map(function (f) { return { name: f.name, text: f.text, truncated: !!f.truncated }; }),
+      current_view: window.FastMDXMoleculeViewer?.currentViewHints
+        ? window.FastMDXMoleculeViewer.currentViewHints() : null
+    }, box).then(function (data) {
+      if (!stands() || elsewhere()) return;
       box.innerHTML = "";
-      (data.attempts || []).forEach(function (attempt) {
-        if (attempt.refusal) note(box, "Refused: " + attempt.refusal.message);
-      });
+      if (data.memory === "reading") memoryUnder(r.node, replyKey);
+      looked(box, data.looks);
+      refusals(box, data.attempts, !!data.ok);
+      sent(box, data.context_receipt);
+      var receipt = data.context_receipt && data.context_receipt.kept
+        ? data.context_receipt : null;
       if (data.action) {
         /* An instruction, carried out through the same door the button
          * uses. The thread says what was done, so nothing happens
          * silently. */
         history.push({ role: "agent", text: "DO: " + data.action });
-        if (data.action === "stop") {
+        /* A run the person's own message did not plainly ask for is
+         * asked about first. The server says which from what they typed;
+         * without its word, ask. */
+        var confirmRunFirst = data.action === "run" && data.confirm !== false;
+        whoIs(r, confirmRunFirst || data.action === "stop" || data.fix ? "waiting" : "done");
+        if (data.action === "run the fix" || data.action === "rerun windows" ||
+            data.action === "analyze again" || data.action === "write the report again") {
+          /* Asked, not done, and not kept as waiting: a reloaded thread
+           * asks the Agent again rather than run a fix it no longer shows. */
+          transcript.push({ role: "agent", kind: "question",
+                            text: data.fix ? fixQuestion(data.fix)
+                                           : data.refused || "Nothing here to run." });
+        } else if (confirmRunFirst) {
+          transcript.push({ role: "agent", kind: "question", confirm: "run",
+                            text: runQuestion(), facts: runFacts() });
+        } else if (data.action === "stop") {
           /* Asked, not done. A stop is recorded when it is confirmed, so
            * a reloaded thread never says "Did: stop" about a run that was
            * never stopped -- which it did, and the person's "yes" then
-           * went to the model as a new message. */
-          transcript.push({ role: "agent", kind: "question",
-                            text: "Stop the run" + (data.where ? " at " + data.where : "") + "? Say yes." });
-        } else {
-          transcript.push({ role: "agent", kind: "action", action: data.action, where: data.where || "" });
+           * went to the AI model as a new message. */
+          transcript.push({ role: "agent", kind: "question", confirm: "stop",
+                            text: stopQuestion(data.where), facts: STOP_FACTS });
+        }
+        /* A run is kept once it has started (or said why not), by the
+         * launch: kept before, a run refused read back as "Did: run". */
+        var done = null;
+        if (data.action !== "stop" && data.action !== "run" && !data.fix && !data.refused &&
+            ["run the fix", "rerun windows", "analyze again", "write the report again"]
+              .indexOf(data.action) < 0) {
+          done = { role: "agent", kind: "action", action: data.action, where: data.where || "",
+                   receipt: receipt };
+          transcript.push(done);
         }
         persist();
-        act(data.action, data.where || "", box, r);
+        act(data.action, data.where || "", box, r, confirmRunFirst, data.fix || null,
+            data.refused || "", done);
         scrollToEnd();
         return;
       }
       if (data.answer) {
         /* A question, answered. No config, no actions. */
+        whoIs(r, "done");
         var p = document.createElement("div");
         p.className = "agent-answer";
         p.innerHTML = prose(data.answer);
         box.appendChild(p);
+        cite(box, data.cites);
         history.push({ role: "agent", text: data.answer });
-        transcript.push({ role: "agent", kind: "answer", text: data.answer });
+        var answered = { role: "agent", kind: "answer", text: data.answer,
+                         cites: data.cites || [], looks: data.looks || [], receipt: receipt,
+                         usage: data.usage || null };
+        if (data.scene) answered.scene = data.scene;
+        transcript.push(answered);
+        sceneCard(box, data.scene, answered);
+        meta(r, answered);
         persist();
         area.focus();
         scrollToEnd();
         return;
       }
       if (data.question) {
-        note(box, data.question);
+        whoIs(r, "waiting");
+        asking(box, data.asked || data.question, data.choices || []);
         history.push({ role: "agent", text: data.question });
-        transcript.push({ role: "agent", kind: "question", text: data.question });
+        var asked = { role: "agent", kind: "question", text: data.question,
+                      asked: data.asked || null, choices: data.choices || [],
+                      looks: data.looks || [], receipt: receipt, usage: data.usage || null };
+        transcript.push(asked);
+        meta(r, asked);
         persist();
-        pending = request;
         area.focus();
         scrollToEnd();
         return;
       }
       if (!data.ok) {
+        whoIs(r, "stopped");
         note(box, IN_THE_GUI[data.code] || data.error);
         transcript.push({ role: "agent", kind: "error", text: IN_THE_GUI[data.code] || data.error });
         persist();
@@ -551,55 +1976,460 @@
         scrollToEnd();
         return;
       }
-      note(box, data.cycles === 1
-        ? "Accepted first time."
-        : "Accepted after " + data.cycles + " attempts.", true);
-      history.push({ role: "agent", text: "Wrote a config:\n" + data.yaml });
+      /* No "Accepted first time": that the software checked it is said by
+       * the card's "passes the checks", and a refusal on the way above. */
+      whoIs(r, "done");
+      saidBeside(box, data.note);
+      history.push({ role: "agent", text: (data.note ? data.note + "\n\n" : "")
+                     + "Wrote a config:\n" + data.yaml });
       currentConfig = data.yaml;
-      transcript.push({ role: "agent", kind: "config", yaml: data.yaml, config: data.config,
+      var made = wireActions(r, data, box);
+      var wrote = { role: "agent", kind: "config", yaml: data.yaml, config: data.config,
+                        usage: data.usage || null,
+                        note: data.note || null, version: made.number,
+                        changes: data.changes || null,
+                        plan: data.plan || [], looks: data.looks || [], receipt: receipt,
                         cycles: data.cycles, attempts: (data.attempts || []).map(function (a) {
-                          return a.refusal ? { refusal: { message: a.refusal.message } } : {};
-                        }) });
+                          return a.refusal ? { refusal: { message: a.refusal.message,
+                                                          code: a.refusal.code || null } } : {};
+                        }) };
+      transcript.push(wrote);
+      meta(r, wrote);
       persist();
-      wireActions(r, data, box);
       scrollToEnd();
-    }).catch(function () {
-      el("agent-propose").disabled = false;
+    }).catch(function (error) {
+      if (!stands() || elsewhere()) return;
       box.innerHTML = "";
+      whoIs(r, "stopped");
+      if (error && error.name === "AbortError") {
+        /* Stopped by the person: what it had written is not kept, and the
+         * next message goes on from their last. */
+        note(box, "Stopped before it finished.");
+        history.push({ role: "agent", text: "(stopped before answering)" });
+        transcript.push({ role: "agent", kind: "answer", text: "Stopped before it finished." });
+        persist();
+        return;
+      }
+      /* Still waiting for its answer: if this failed because the page is
+       * going, the page says so as it goes (above). */
+      answering = said;
       note(box, "The Agent did not answer. Check Settings, then try again.");
+    });
+  }
+
+  /* What the Agent said beside a config it wrote (why it chose as it did),
+   * shown as an answer is. */
+  function saidBeside(box, text) {
+    if (!text) return;
+    var p = document.createElement("div");
+    p.className = "agent-answer";
+    p.innerHTML = prose(text);
+    box.appendChild(p);
+  }
+
+  /* ---- The reply as it is written ------------------------------------ */
+
+  /* The server sends the reply as the AI model writes it, one event a line
+   * (`/api/agent/propose-stream`): a `begin` each time the AI model is asked,
+   * its text in pieces, each look as it is taken, and the answer at the
+   * end, the same as `/api/agent/propose` gives. The send button stops it
+   * while it is written. A browser without streams asks for it whole. */
+  var writing = null;
+  /* The question whose answer is being written. */
+  var answering = null;
+
+  /* The reply being written stopped, and the box free at once: a retry or
+   * an edit sends its own straight after (nineteenth review, 10-08: it
+   * waited in the box). */
+  function stopWriting() {
+    if (!writing) return;
+    var was = writing;
+    writing = null;
+    writingState(false);
+    was.abort();
+  }
+
+  function writingState(on) {
+    setTimeout(placeholder, 0);
+    var button = el("agent-propose");
+    button.classList.toggle("is-writing", on);
+    button.setAttribute("aria-label", on ? "Stop" : "Send");
+    button.title = on ? "Stop the reply being written"
+      : "Send (Enter). Shift+Enter for a new line.";
+    button.textContent = on ? "\u25a0" : "\u2191";
+  }
+
+  /* What the Agent is writing, as a person reads it: a look is said as
+   * one, the reply's own marker is left off. */
+  function writtenSoFar(raw) {
+    if (/^\s*USE:/.test(raw)) return "";
+    // A scene proposed on the last line is shown as its card once written.
+    return raw.replace(/^\s*(SAY|ASK):\s*/, "").replace(/\n\s*SHOW:[^\n]*$/i, "");
+  }
+
+  /* What the Agent is doing while it does it, a line a step: each look as
+   * it begins ("Looking up "trp-cage" in the PDB...") and, once taken, as
+   * done; writing the config. Under them, its words as it writes them. */
+  function stepsIn(box) {
+    box.innerHTML = "";
+    var steps = document.createElement("div");
+    steps.className = "agent-steps";
+    steps.setAttribute("role", "status");
+    var shown = document.createElement("div");
+    shown.className = "agent-writing";
+    box.appendChild(steps);
+    box.appendChild(shown);
+    function finished() {
+      var now = steps.querySelector(".agent-step.is-now");
+      if (now) now.classList.remove("is-now");
+      return now;
+    }
+    return {
+      writing: shown,
+      begin: function (label) {
+        finished();
+        var line = document.createElement("div");
+        line.className = "agent-step is-now";
+        line.textContent = label;
+        steps.appendChild(line);
+      },
+      done: function (label) {
+        var now = finished();
+        if (now && label) now.textContent = label;
+      },
+      finished: finished
+    };
+  }
+
+  function propose(body, box) {
+    var steps = stepsIn(box);
+    if (!window.ReadableStream || !window.AbortController || !window.TextDecoder) {
+      writingState(true);
+      return post("/api/agent/propose", body).finally(function () { writingState(false); });
+    }
+    var mine = writing = new AbortController();
+    writingState(true);
+    var shown = steps.writing;
+    var raw = "";
+    var answer = null;
+    function handle(line) {
+      if (!line.trim()) return;
+      var event;
+      try { event = JSON.parse(line); } catch (e) { return; }
+      if (event.type === "begin") {
+        raw = "";
+        shown.textContent = "";
+      } else if (event.type === "text") {
+        raw += event.text || "";
+        shown.textContent = writtenSoFar(raw);
+        scrollToEnd();
+      } else if (event.type === "looking") {
+        steps.begin(String(event.label || "Looking") + "\u2026");
+        scrollToEnd();
+      } else if (event.type === "look" && event.look) {
+        steps.done(lookLabel(event.look) + (event.look.ok ? "" : " (refused)"));
+      } else if (event.type === "step") {
+        steps.begin(String(event.label || "") + "\u2026");
+        scrollToEnd();
+      } else if (event.type === "done") {
+        answer = event.answer;
+      }
+    }
+    return fetch("/api/agent/propose-stream", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body || {}),
+      signal: writing.signal
+    }).then(function (response) {
+      // A refusal before the reply began (a request from beyond this
+      // machine, a malformed body) is one JSON answer, not a stream.
+      if (!/ndjson/.test(response.headers.get("content-type") || "")) return response.json();
+      var reader = response.body.getReader();
+      var decoder = new TextDecoder();
+      var buffer = "";
+      function pump() {
+        return reader.read().then(function (part) {
+          if (part.done) {
+            if (buffer) handle(buffer);
+            return answer || { ok: false, error: "The Agent did not answer." };
+          }
+          buffer += decoder.decode(part.value, { stream: true });
+          var lines = buffer.split("\n");
+          buffer = lines.pop();
+          lines.forEach(handle);
+          return pump();
+        });
+      }
+      return pump();
+    }).finally(function () {
+      /* Not another reply's: one sent after this was stopped is writing. */
+      if (writing === mine) {
+        writing = null;
+        writingState(false);
+      }
+      setTimeout(redrawIfWanted, 0);
     });
   }
 
   /* ---- Acting -------------------------------------------------------- */
 
   /* The last reply that carried a config, so "run it" has something to
-   * run. And a stop that is waiting for a "yes". */
+   * run. And a stop, or a run, that is waiting for a "yes". */
   var lastReply = null;
   var stopPending = null;
+  var runPending = null;
+  var fixPending = null;
+  /* Asked before 10-07 as text to answer with yes; a conversation kept
+   * then is still read so. */
+  var RUN_QUESTION = "Run the study above? Say yes.";
+  var STOP_FACTS = "What it has written so far is kept.";
 
-  function act(action, where, box, r) {
+  function newest() { return versions[versions.length - 1] || null; }
+
+  /* Whether a study is running here, by the server's word (`app-state`). */
+  var runGoing = false;
+  /* Runs being started from this page, until each launch has answered. */
+  var launching = 0;
+  /* The run entries of launches not yet answered. */
+  var startingRuns = [];
+
+  /* The newest run of a version, from the transcript. */
+  function latestRunOf(number) {
+    for (var i = transcript.length - 1; i >= 0; i--) {
+      var e = transcript[i];
+      if (e.kind === "action" && e.action === "run" && e.version === number) return e;
+    }
+    return null;
+  }
+
+  /* A run ended: its version can be run again, and its line no longer
+   * offers Stop. With `only` (a run's transcript entry), that run's line
+   * alone, and its version's button unless the version was run again
+   * since (fifth and sixth reviews, 10-07). */
+  function runEnded(only) {
+    versions.forEach(function (v) {
+      if (only && (v.number !== only.version || latestRunOf(v.number) !== only)) return;
+      var button = v.r.part("run");
+      if (button && button.textContent === "Running") {
+        button.textContent = "Run again";
+        button.disabled = false;
+      }
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("#agent-thread .agent-running"),
+      function (line) {
+        if (only && line.getAttribute("data-started") !== String(only.started || "")) return;
+        var stop = line.querySelector(".agent-running-stop");
+        if (stop) stop.remove();
+        var light = line.querySelector(".recent-light");
+        if (light) light.setAttribute("data-state", "not started");
+        var said = line.querySelector(".agent-running-said");
+        if (said) said.textContent = said.textContent.replace(/^Running version/, "Ran version");
+      });
+  }
+
+  /* A run asked about: which version, and what it is, from its plan. */
+  function runQuestion() {
+    var v = newest();
+    return v ? "Run version " + v.number + " on this machine?" : "Run the study on this machine?";
+  }
+
+  function runFacts() {
+    var v = newest();
+    if (!v) return "";
+    var said = [];
+    Array.prototype.forEach.call(v.r.part("plan").querySelectorAll("dt"), function (term) {
+      var label = term.textContent;
+      if (["System", "Conditions", "Production", "Size", "Time here"].indexOf(label) < 0) return;
+      var value = term.nextElementSibling;
+      var shown = value && value.querySelector(".agent-plan-value");
+      said.push(label === "Time here" ? "time here: " + (shown || value).textContent
+                                      : (shown || value).textContent);
+    });
+    return said.join(" \u00b7 ");
+  }
+
+  function stopQuestion(where) {
+    return "Stop the run" + (where ? " at " + where : "") + "?";
+  }
+
+  /* A question that waits for the person, with its two answers as
+   * buttons. A press says the answer in the thread, as typing it does
+   * (typing "yes" or "no" still works). Spent once anything is said. */
+  function confirmCard(box, question, facts, yes, no, spent) {
+    var card = document.createElement("div");
+    card.className = "agent-confirm";
+    var asked = document.createElement("div");
+    asked.className = "agent-confirm-q";
+    asked.textContent = question;
+    card.appendChild(asked);
+    if (facts) {
+      var said = document.createElement("div");
+      said.className = "agent-confirm-facts";
+      said.textContent = facts;
+      card.appendChild(said);
+    }
+    var row = document.createElement("div");
+    row.className = "agent-confirm-row";
+    [[yes, "yes", "primary-btn"], [no, "no", "ctl-btn"]].forEach(function (b) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = b[2] + " agent-confirm-btn";
+      button.textContent = b[0];
+      button.setAttribute("data-answer", b[1]);
+      button.disabled = !!spent;
+      button.addEventListener("click", function () {
+        if (writing) return;
+        button.classList.add("is-chosen");
+        el("agent-request").value = b[1];
+        draft();
+      });
+      row.appendChild(button);
+    });
+    card.appendChild(row);
+    box.appendChild(card);
+    return card;
+  }
+
+  /* The study running, said under the message that started it: which
+   * version, since when, a way to watch it and to stop it. Read again from
+   * a kept conversation, it says when it started and nothing more. */
+  function runLine(box, number, started, live) {
+    var line = document.createElement("div");
+    line.className = "agent-running";
+    /* Whose line it is: a run's summary ends its own line alone. */
+    line.setAttribute("data-started", String(started || ""));
+    /* The study's own light, as Recent shows it. */
+    var light = document.createElement("span");
+    light.className = "recent-light";
+    light.setAttribute("data-state", live ? "running" : "not started");
+    light.setAttribute("aria-hidden", "true");
+    var said = document.createElement("span");
+    said.className = "agent-running-said";
+    var when = started ? new Date(started) : null;
+    var at = when && !isNaN(when.getTime())
+      ? when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+    said.textContent = (live ? "Running version " : "Started version ") + (number || "")
+      + (at ? (live ? ", started " : " at ") + at : "");
+    line.append(light, said);
+    var spacer = document.createElement("span");
+    spacer.className = "agent-spacer";
+    line.appendChild(spacer);
+    var watch = document.createElement("button");
+    watch.type = "button";
+    watch.className = "ctl-btn";
+    watch.textContent = "Watch on the Overview";
+    watch.addEventListener("click", function () {
+      if (window.FastMDXDashboard && window.FastMDXDashboard.navigate) {
+        window.FastMDXDashboard.navigate("overview");
+      } else {
+        window.location.hash = "#overview";
+      }
+    });
+    line.appendChild(watch);
+    if (live) {
+      var stop = document.createElement("button");
+      stop.type = "button";
+      stop.className = "ctl-btn agent-running-stop";
+      stop.textContent = "Stop";
+      stop.addEventListener("click", function () {
+        if (writing) return;
+        /* Asked first, as every stop is; nothing else still waits. */
+        runPending = null; fixPending = null;
+        var asked = "Stop the run";
+        spendChoices();
+        say(asked, []);
+        history.push({ role: "user", text: asked });
+        transcript.push({ role: "user", text: asked });
+        var r = reply();
+        whoIs(r, "waiting");
+        transcript.push({ role: "agent", kind: "question", confirm: "stop",
+                          text: stopQuestion(""), facts: STOP_FACTS });
+        persist();
+        act("stop", "", r.part("attempts"), r);
+        scrollToEnd();
+      });
+      line.appendChild(stop);
+    }
+    box.appendChild(line);
+    return line;
+  }
+
+  /* Yes, or the verb being confirmed: "stop it" confirms a stop and not
+   * a run, and "run it" a run and not a stop. */
+  function saidYes(typed, verb) {
+    return new RegExp("^\\s*(yes|y|yes please|do it|" + verb + " it|confirm)\\s*\\.?\\s*$", "i")
+      .test(typed);
+  }
+
+  function act(action, where, box, r, confirmFirst, fix, refused, entry) {
+    if (action === "analyze again" || action === "write the report again") {
+      /* The study's analyses or report run again in its folder, checked
+       * by the server against the study; asked, or said why not. */
+      if (!fix) {
+        note(box, refused || "This study cannot be run again here.");
+        return;
+      }
+      fixPending = fix;
+      fixCard(box, fix);
+      return;
+    }
+    if (action === "rerun windows") {
+      /* The windows and values the person named, checked by the server
+       * against the study; asked with the price, or said why not. */
+      if (!fix) {
+        note(box, refused || "Those windows cannot be run again here.");
+        return;
+      }
+      fixPending = fix;
+      fixCard(box, fix);
+      return;
+    }
+    if (action === "run the fix") {
+      /* The fix is the study's record's, not the reply's: its command and
+       * its price, shown before anything runs. Always asked. */
+      if (!fix) {
+        note(box, "Nothing here is a fix this software runs for you; the Overview " +
+                  "says what would fix it.");
+        return;
+      }
+      fixPending = fix;
+      fixCard(box, fix);
+      return;
+    }
     if (action === "run") {
       if (!lastReply) {
         note(box, "Nothing to run yet. Describe a study first.");
         return;
       }
       var runBtn = lastReply.part("run");
-      if (runBtn.disabled) {
-        /* Already pressed, by hand or by a word. Clicking a disabled
-         * button does nothing, and "Starting the run" over nothing was
-         * a lie -- reported after Run here had been pressed first. */
-        note(box, "It is already running.");
+      if (runGoing || runBtn.disabled) {
+        /* A study running here, by the server's word (`app-state`), or this
+         * one just pressed. The button alone went stale both ways: still
+         * "Running" after the run ended, and pressable again after a
+         * reload while it ran (review, 10-07). */
+        note(box, "A study is already running here.");
+        transcript.push({ role: "agent", kind: "answer", text: "A study is already running here." });
+        persist();
         return;
       }
-      note(box, "Starting the run.", true);
-      runBtn.click();
+      if (confirmFirst) {
+        /* The reply came from a model, which reads attached files and can
+         * be wrong or be told what to say. Starting work on this machine
+         * waits for the person, as a stop does. */
+        runPending = true;
+        confirmCard(box, runQuestion(), runFacts(), "Run it", "Not now");
+        return;
+      }
+      /* Started here, and said here, under the message that asked: it was
+       * said in the config's card, two messages up. */
+      newest().launch(box, entry);
       return;
     }
     if (action === "stop") {
       /* Irreversible, so it is confirmed in the thread. The next message
        * that says yes stops it; anything else is taken as no. */
       stopPending = true;
-      note(box, "Stop the run" + (where ? " at " + where : "") + "? Say yes.");
+      confirmCard(box, stopQuestion(where), STOP_FACTS, "Stop it", "Keep running");
       return;
     }
     if (action.indexOf("open ") === 0) {
@@ -629,8 +2459,213 @@
     note(box, "I do not know how to " + action + ".");
   }
 
+  /* When a run started here ends, what it found, from the study's records
+   * (`/api/agent/run-summary`), so it costs no tokens: said once, under the
+   * conversation, and kept with it. */
+  var SUMMARY_ROWS = [["found", "What it found"], ["long_enough", "Long enough?"],
+                      ["strengthen", "To strengthen it"]];
+
+  function summaryCard(box, s) {
+    var card = document.createElement("div");
+    card.className = "agent-summary";
+    var head = document.createElement("div");
+    head.className = "agent-summary-head";
+    var said = document.createElement("b");
+    said.textContent = s.head || "The run ended";
+    var from = document.createElement("span");
+    from.className = "agent-badge";
+    from.textContent = "from the study\u2019s records";
+    var spacer = document.createElement("span");
+    spacer.className = "agent-spacer";
+    head.append(said, spacer, from);
+    card.appendChild(head);
+    var rows = document.createElement("dl");
+    rows.className = "agent-summary-rows";
+    SUMMARY_ROWS.forEach(function (row) {
+      if (!s[row[0]]) return;
+      var term = document.createElement("dt");
+      term.textContent = row[1];
+      var value = document.createElement("dd");
+      value.className = "agent-answer";
+      value.innerHTML = prose(s[row[0]]);
+      rows.append(term, value);
+    });
+    card.appendChild(rows);
+    var foot = document.createElement("div");
+    foot.className = "agent-summary-foot";
+    [["Open the Overview", "overview"], ["Open the report", "report"]].forEach(function (b) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "ctl-btn";
+      button.textContent = b[0];
+      button.addEventListener("click", function () {
+        if (window.FastMDXDashboard && window.FastMDXDashboard.navigate) {
+          window.FastMDXDashboard.navigate(b[1]);
+        } else {
+          window.location.hash = "#" + b[1];
+        }
+      });
+      foot.appendChild(button);
+    });
+    card.appendChild(foot);
+    box.appendChild(card);
+    return card;
+  }
+
+  /* A run this conversation started whose summary is not said yet. */
+  function runAwaitingSummary() {
+    for (var i = transcript.length - 1; i >= 0; i--) {
+      var e = transcript[i];
+      if (e.kind === "summary") return null;
+      if (e.kind === "action" && e.action === "run" && e.output) {
+        return e.no_summary ? null : e;
+      }
+    }
+    return null;
+  }
+
+  var summaryAsked = false;
+  /* A run that did not finish; one whose record says nothing is not that. */
+  var STOPPED_AS = /^(failed|stopped|interrupted)$/;
+  function sayHowTheRunEnded() {
+    var run = runAwaitingSummary();
+    if (!run || summaryAsked) return;
+    summaryAsked = true;
+    /* The thread the run is in: another may be shown before the answer
+     * (seventeenth and eighteenth reviews, 10-08). */
+    var c = conv, t = transcript, h = history;
+    post("/api/agent/run-summary", { study: run.output }).then(function (s) {
+      summaryAsked = false;
+      if (s && !s.ok) {
+        // No study there any more: not asked again.
+        run.no_summary = true;
+        persistOf(c, t);
+        return;
+      }
+      if (!s || !s.ended) return;
+      /* One summary of a run, whichever tab asked: two tabs' copies are
+       * one entry (eighteenth review, 10-08: both kept their own). */
+      var eid = "sum-" + (run.eid || run.started || run.output);
+      /* The server's word for that folder: this run has ended, whatever
+       * else runs. A run that ended before a poll saw it going stayed
+       * "Running", with Stop, and the next run was refused (second
+       * review, 10-07); its own line alone, as a later run may be going
+       * (third to sixth reviews, 10-07). */
+      var entry = { eid: eid, role: "agent", kind: "summary", study: run.output, head: s.head,
+                    status: s.status, found: s.found, long_enough: s.long_enough,
+                    strengthen: s.strengthen };
+      if (conv !== c) {
+        /* Not on screen: kept with its thread, not drawn. */
+        if (!t.some(function (e) { return e.eid === eid; })) t.push(entry);
+        persistOf(c, t);
+        return;
+      }
+      runEnded(run);
+      if (runAwaitingSummary() !== run) return;
+      var r = reply();
+      whoIs(r, STOPPED_AS.test(s.status || "") ? "stopped" : "done");
+      summaryCard(r.part("attempts"), s);
+      t.push(entry);
+      h.push({ role: "agent", text: s.head + ".\n" + [s.found, s.long_enough,
+               s.strengthen].filter(Boolean).join("\n") });
+      persistOf(c, t);
+      placeholder();
+      scrollToEnd();
+    }).catch(function () { summaryAsked = false; });
+  }
+
+  /* The message box's words follow the situation (user, 10-07: "This
+   * default should be adaptive"). */
+  var studyState = "none";
+  function placeholder() {
+    var area = el("agent-request");
+    if (!area) return;
+    var thread = el("agent-thread");
+    var nodes = thread ? thread.querySelectorAll(".agent-msg") : [];
+    var last = nodes.length ? nodes[nodes.length - 1] : null;
+    var words;
+    if (writing) {
+      words = "I am working on it; you can write your next message";
+    } else if (stopPending || runPending || fixPending) {
+      words = "Answer above, or type yes or no";
+    } else if (last && last.querySelector(".agent-choice:not(:disabled)")) {
+      words = "Pick one above, or type your answer";
+    } else if (last && last.querySelector(".agent-question")) {
+      words = "Type your answer";
+    } else if (last && last.querySelector(".agent-study:not([hidden]):not(.is-replaced)")) {
+      words = "Change something, or say run it";
+    } else if (studyState === "running") {
+      words = "Ask how it is going, or tell me to stop it";
+    } else if (studyState === "stopped") {
+      words = "Ask why it stopped, or what would fix it";
+    } else if (studyState === "finished") {
+      words = "Ask about this study, or describe the next one";
+    } else {
+      words = "Describe a study, or ask about one in this folder";
+    }
+    area.placeholder = words;
+  }
+
+  /* A fix asked about with its price, as the two buttons. */
+  function fixCard(box, fix) {
+    var what = fix.request ? String(fix.fix || "").replace(/\.$/, "") : "Run " + fix.command;
+    confirmCard(box, what + "?", fix.price_said ? "It costs " + fix.price_said + "." : "",
+                "Run it", "Not now");
+  }
+
+  function fixQuestion(fix) {
+    /* Windows named by the person are said as what will run, with the
+     * values; a fix from the record as its command. */
+    var what = fix.request ? String(fix.fix || "").replace(/\.$/, "") : "Run " + fix.command;
+    return what + "?" +
+      (fix.price_said ? " It costs " + fix.price_said + "." : "");
+  }
+
+  function confirmFix(typed, box) {
+    var fix = fixPending;
+    fixPending = null;
+    if (!saidYes(typed, "run")) {
+      note(box, "Not run.");
+      transcript.push({ role: "agent", kind: "answer", text: "Not run." });
+      persist();
+      return;
+    }
+    var c = conv, t = transcript, h = history;
+    fetch(fix.route || "/api/fix", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fix.request || { index: fix.index })
+    }).then(function (res) { return res.json(); }).then(function (d) {
+      var started = d && d.ok;
+      var said = started ? "Started: " + fix.command + "." : (d && d.error) || "Could not start it.";
+      note(box, said, started);
+      h.push({ role: "agent", text: said });
+      t.push(started ? { role: "agent", kind: "action",
+                         action: fix.action || (fix.request ? "rerun windows" : "run the fix"),
+                         where: "" }
+                     : { role: "agent", kind: "error", text: said });
+      persistOf(c, t);
+      if (started && window.FastMDXDashboard && window.FastMDXDashboard.navigate) {
+        window.FastMDXDashboard.navigate("overview");
+      }
+    }).catch(function () { note(box, "Could not reach the server to run it."); });
+  }
+
+  function confirmRun(typed, box) {
+    runPending = null;
+    if (!saidYes(typed, "run")) {
+      note(box, "Not run.");
+      transcript.push({ role: "agent", kind: "answer", text: "Not run." });
+      persist();
+      return;
+    }
+    history.push({ role: "agent", text: "DO: run" });
+    persist();
+    act("run", "", box, null, false, null, null, null);
+  }
+
   function confirmStop(typed, box) {
-    var yes = /^\s*(yes|y|yes please|do it|stop it|confirm)\s*\.?\s*$/i.test(typed);
+    var yes = saidYes(typed, "stop");
     stopPending = null;
     if (!yes) {
       note(box, "Not stopped.");
@@ -638,16 +2673,19 @@
       persist();
       return;
     }
+    /* Said in the thread it was asked in, whatever is on screen when the
+     * stop answers (eighteenth review, 10-08). */
+    var c = conv, t = transcript, h = history;
     fetch("/api/explore/stop", { method: "POST" })
       .then(function (r) { return r.json(); })
       .then(function (d) {
         var stopped = d && d.ok !== false;
         note(box, stopped ? "Stopped the run." : (d && d.error) || "Could not stop it.", true);
-        history.push({ role: "agent", text: stopped ? "Stopped the run." : "Could not stop the run." });
-        transcript.push(stopped ? { role: "agent", kind: "action", action: "stop", where: "" }
-                                : { role: "agent", kind: "error", text: "Could not stop the run." });
-        persist();
-        if (stopped && lastReply) {
+        h.push({ role: "agent", text: stopped ? "Stopped the run." : "Could not stop the run." });
+        t.push(stopped ? { role: "agent", kind: "action", action: "stop", where: "" }
+                       : { role: "agent", kind: "error", text: "Could not stop the run." });
+        persistOf(c, t);
+        if (stopped && lastReply && conv === c) {
           /* The same config can run again; each launch gets its own
            * timestamped folder, so the stopped run's output stays. */
           var again = lastReply.part("run");
@@ -658,8 +2696,203 @@
       .catch(function () { note(box, "Could not reach the server to stop it."); });
   }
 
-  function wireActions(r, data, box) {
+  /* What the config will do, said in lines rather than left in the YAML:
+   * the values the run will take, with the ones it takes by default marked,
+   * so a two-nanosecond run nobody asked for is seen before it is run. */
+  function addPlanLines(host, lines) {
+    if (!host) return;
+    lines.forEach(function (line) {
+      var term = document.createElement("dt");
+      term.textContent = line.label;
+      term.className = "agent-plan-cost";
+      var value = document.createElement("dd");
+      value.textContent = line.value;
+      value.className = "agent-plan-cost";
+      host.appendChild(term);
+      host.appendChild(value);
+    });
+    host.hidden = false;
+  }
+
+  /* Where a value came from (`gui/plan.py` `sourced`, from the config's
+   * `decisions`): the person's request, their fastmdx-defaults.yml, the
+   * Agent's choice with its reason, or FastMDXplora's default. A value set
+   * with no decision recorded says nothing rather than a guess. */
+  var SOURCES = {
+    asked: ["you asked", "is-asked", "Your message said it."],
+    yours: ["your default", "is-yours", "From fastmdx-defaults.yml, your defaults."],
+    agent: ["Agent\u2019s choice", "is-agent", "I chose it; why is under it."],
+    "default": ["default", "is-default",
+                "Not set in the config: the value the run takes when nothing is said."]
+  };
+
+  function showPlan(host, plan) {
+    if (!host) return;
+    host.innerHTML = "";
+    var lines = Array.isArray(plan) ? plan : [];
+    lines.forEach(function (line) {
+      var term = document.createElement("dt");
+      term.textContent = line.label;
+      var value = document.createElement("dd");
+      var said = document.createElement("span");
+      said.className = "agent-plan-value";
+      said.textContent = line.value;
+      value.appendChild(said);
+      var source = SOURCES[line.source || (line["default"] ? "default" : "")];
+      if (source) {
+        var tag = document.createElement("span");
+        tag.className = "agent-source " + source[1];
+        tag.textContent = source[0];
+        tag.title = source[2];
+        value.appendChild(document.createTextNode(" "));
+        value.appendChild(tag);
+      }
+      if (line.why) {
+        var why = document.createElement("div");
+        why.className = "agent-plan-why";
+        why.textContent = line.why;
+        value.appendChild(why);
+      }
+      host.appendChild(term);
+      host.appendChild(value);
+    });
+    host.hidden = !lines.length;
+  }
+
+  /* What changed from the version before (`gui/plan.py`
+   * `changes_between`): "Temperature 310 K -> 330 K", and that the rest
+   * is as it was. */
+  function showChanges(r, changes, before) {
+    var host = r.part("change");
+    var count = r.part("count");
+    if (!host || !Array.isArray(changes) || !before) return;
+    host.innerHTML = "";
+    changes.forEach(function (c) {
+      var row = document.createElement("div");
+      row.className = "agent-change-row";
+      row.appendChild(document.createTextNode(c.label + " "));
+      var was = document.createElement("span");
+      was.className = "was";
+      was.textContent = c.before;
+      var arrow = document.createElement("span");
+      arrow.className = "arrow";
+      arrow.textContent = "\u2192";
+      var now = document.createElement("span");
+      now.className = "now";
+      now.textContent = c.after;
+      row.append(was, arrow, now);
+      host.appendChild(row);
+    });
+    var rest = document.createElement("div");
+    rest.className = "agent-change-rest";
+    rest.textContent = changes.length ? "Everything else as version " + before + "."
+      : "The same study as version " + before + ".";
+    host.appendChild(rest);
+    host.hidden = false;
+    count.textContent = changes.length === 1 ? "1 change" : changes.length + " changes";
+    count.hidden = !changes.length;
+  }
+
+  /* The versions of the study written in this conversation, oldest first;
+   * the newest is the one Run, "run it" and the next edit act on. */
+  var versions = [];
+
+  /* An older version folded to its head: no Run, Show to read it, and Use
+   * this version to make it the newest again. */
+  function fold(v, by) {
+    var r = v.r;
+    var study = r.part("study");
+    study.classList.add("is-replaced");
+    study.classList.remove("is-unfolded");
+    r.part("checks").hidden = true;
+    var replaced = r.part("replaced");
+    replaced.textContent = "replaced by version " + by;
+    replaced.hidden = false;
+    r.part("count").hidden = true;
+    r.part("change").hidden = true;
+    r.part("whole").hidden = true;
+    r.part("actions").hidden = true;
+    var unfold = r.part("unfold");
+    unfold.hidden = false;
+    unfold.textContent = "Show";
+    r.part("use").hidden = false;
+  }
+
+  /* The newest version as it was written: whole, with its actions. */
+  function unfolded(v) {
+    var r = v.r;
+    var study = r.part("study");
+    study.classList.remove("is-replaced", "is-unfolded");
+    r.part("checks").hidden = false;
+    r.part("replaced").hidden = true;
+    r.part("unfold").hidden = true;
+    r.part("use").hidden = true;
+    r.part("whole").hidden = false;
+    r.part("actions").hidden = false;
+    if (v.changes) showChanges(r, v.changes, v.number - 1);
+  }
+
+  function newVersion(r, data, number) {
+    var v = { r: r, data: data, number: number || versions.length + 1,
+              changes: data.changes || null };
+    var previous = versions[versions.length - 1];
+    if (previous) fold(previous, v.number);
+    versions.push(v);
+    r.part("version").textContent = "Study, version " + v.number;
+    r.part("study").hidden = false;
+    if (v.changes && previous) showChanges(r, v.changes, previous.number);
+    r.part("unfold").onclick = function () {
+      var study = r.part("study");
+      var opening = !study.classList.contains("is-unfolded");
+      study.classList.toggle("is-unfolded", opening);
+      r.part("whole").hidden = !opening;
+      r.part("unfold").textContent = opening ? "Hide" : "Show";
+    };
+    r.part("use").onclick = function () { useVersion(v); };
+    return v;
+  }
+
+  /* An older version made the newest again: written into the conversation
+   * as the person's choice and as a new version of the same config, so the
+   * next "make it 5 ns" changes it, and Run runs it. Nothing is asked of
+   * the Agent's AI model. */
+  function useVersion(v) {
+    if (writing) return;
+    /* A new choice, so nothing still waiting for a yes takes it. */
+    stopPending = null; runPending = null; fixPending = null;
+    spendChoices();
+    var asked = "Use version " + v.number;
+    say(asked, []);
+    history.push({ role: "user", text: asked });
+    transcript.push({ role: "user", text: asked });
+    var r = reply();
+    whoIs(r, "done");
+    var again = { yaml: v.data.yaml, config: v.data.config, plan: v.data.plan,
+                  note: "Version " + v.number + ", again.", changes: null };
+    saidBeside(r.part("attempts"), again.note);
+    history.push({ role: "agent", text: again.note + "\n\nWrote a config:\n" + again.yaml });
+    currentConfig = again.yaml;
+    var made = wireActions(r, again, r.part("attempts"));
+    transcript.push({ role: "agent", kind: "config", yaml: again.yaml, config: again.config,
+                      note: again.note, plan: again.plan || [], cycles: 1, attempts: [],
+                      version: made.number, again: v.number });
+    persist();
+    scrollToEnd();
+  }
+
+  /* After an edit or a retry cut the thread, the newest version left is the
+   * one to run: unfolded, with its actions. */
+  function keptVersions() {
+    var thread = el("agent-thread");
+    versions = versions.filter(function (v) { return thread.contains(v.r.node); });
+    var newest = versions[versions.length - 1];
+    if (newest) unfolded(newest);
+    lastReply = newest ? newest.r : null;
+  }
+
+  function wireActions(r, data, box, number) {
     lastReply = r;
+    var made = newVersion(r, data, number);
     var result = r.part("result");
     var actions = r.part("actions");
     var showBtn = r.part("show");
@@ -670,32 +2903,56 @@
     result.textContent = data.yaml;
     result.hidden = true;
     actions.hidden = false;
+    showPlan(r.part("plan"), data.plan);
 
     /* Load the config into the builder's state without going there. The
      * builder's actions read that state, so the file, the command and
      * the script are exactly what the builder would produce. One
      * derivation, two doors. */
+    /* The reply's config as the builder reads it, without putting it in
+     * the builder: the file, the command, the script and the cost come
+     * from the builder's own derivation on this config, and somebody's
+     * draft in the builder is left as it is until they open this one. */
+    var loadedState = null;
     var loaded = post("/api/load-config", { config: data.config }).then(function (m) {
       if (!m || !m.ok) {
         noteEl.textContent = (m && m.error) || "Could not prepare the config for the builder.";
         return false;
       }
       var run = window.FastMDXRun;
-      if (!run || !run.applyLoadedState) return false;
-      run.applyLoadedState(m.state, {});
+      if (!run || !run.forLoaded) return false;
+      loadedState = m.state;
       return true;
+    });
+    function onItsConfig() {
+      return window.FastMDXRun.forLoaded(loadedState, {
+        full: function () { return fullBox.checked; },
+        say: function (words) { noteEl.textContent = words || ""; }
+      });
+    }
+
+    /* What the proposal would build and how long it would take here, added
+     * to its plan: the cost read before the run, not learned from setup's
+     * log. A moment after the reply, because a structure named by its
+     * identifier is fetched to be inspected. */
+    loaded.then(function (ok) {
+      if (!ok) return;
+      var wants = (data.config && data.config.include_phase) || null;
+      if (wants && wants.indexOf("setup") < 0) return;
+      onItsConfig().previewCost().then(function (cost) {
+        if (!cost) return;
+        addPlanLines(r.part("plan"), [
+          { label: "Size", value: cost.size },
+          { label: "Time here", value: cost.time },
+        ]);
+      });
     });
 
     function viaBuilder(action) {
       return function () {
         loaded.then(function (ok) {
           if (!ok) return;
-          var full = el("run-full-config");
-          if (full) full.checked = fullBox.checked;
-          Promise.resolve(window.FastMDXRun[action]()).then(function () {
-            var said = document.getElementById("run-note");
-            noteEl.textContent = said ? said.textContent : "";
-          });
+          onItsConfig()[action]();
         });
       };
     }
@@ -715,9 +2972,7 @@
       }
       loaded.then(function (ok) {
         if (!ok) return;
-        var full = el("run-full-config");
-        if (full) full.checked = true;
-        window.FastMDXRun.fetchConfig().then(function (built) {
+        onItsConfig().fetchConfig().then(function (built) {
           if (built && built.ok && built.yaml) {
             result.textContent = built.yaml;
             result.hidden = false;
@@ -737,61 +2992,265 @@
     r.part("script").onclick = viaBuilder("downloadScript");
     r.part("load").onclick = function (e) {
       e.preventDefault();
-      loaded.then(function (ok) { if (ok) window.location.hash = "#run"; });
+      loaded.then(function (ok) {
+        if (!ok) return;
+        Promise.resolve(window.FastMDXRun.applyLoadedState(loadedState, {
+          note: "Opened the Agent's study here. Changes are saved as a new config."
+        })).then(function () { window.location.hash = "#run"; });
+      });
     };
-    runBtn.onclick = function () {
+    /* Started from the card's button, or from a message ("run it", a "yes"):
+     * said in `here`, the reply to that message, or the card's own. The
+     * conversation records it with the version and when it started. */
+    made.launch = function (here, entry) {
+      here = here || box;
       runBtn.disabled = true;
       /* The thread is saved before the launch, and the launch is told
-       * which conversation to move and where it is now. The launch
-       * switches the loaded study before the move runs, so "the current
-       * conversation" is the new study's -- none -- and the first version
-       * moved nothing; the next save then started a fresh thread in the
-       * new study from whatever the browser held, minus a race. */
-      var fromStudy = convStudy;
-      persist().then(function () {
+       * which conversation to move and where it is now: the server moves
+       * it as the run starts, and says where it went (tenth review, 10-08:
+       * moved by the page afterwards, it raced the page's own saves and
+       * its switch to the new study, and a slow disk lost the thread).
+       * The thread that started it is the one it is said in: the person
+       * may open another, or a new one, before the launch answers. */
+      var c = conv, sent = transcript, said = history;
+      /* The run's entry goes in first, saved before the run is asked for;
+       * the server writes where the run went into it as it moves the
+       * thread, so a reload while the run starts keeps the run. Other
+       * saves do not wait for the launch (twelfth to fourteenth reviews,
+       * 10-08). */
+      if (!entry) {
+        entry = { role: "agent", kind: "action", action: "run", where: "" };
+        sent.push(entry);
+      }
+      entry.version = made.number;
+      entry.eid = entry.eid || newEid();
+      launching += 1;
+      startingRuns.push(entry);
+      function answered() {
+        launching -= 1;
+        startingRuns = startingRuns.filter(function (e) { return e !== entry; });
+        /* Said where the person can see it: the reply it was asked in may
+         * have been cut by a retry while it started. */
+        if (!here.isConnected && c === conv && sent === transcript) {
+          var again = reply();
+          whoIs(again, "done");
+          here = again.part("attempts");
+        }
+      }
+      persistOf(c, sent).then(function () {
+        /* After the saves queued behind it: a thread deleted elsewhere is
+         * kept anew by one, and the run takes that one with it
+         * (twenty-first review, 10-08). One of them may open another
+         * study: its reload waits for the run (`reloadOnceLaunched`). */
+        return saving;
+      }).then(function () {
         return post("/api/agent/run", {
           config: data.config,
-          budget_hours: el("agent-budget").value
+          budget_hours: el("agent-budget").value,
+          conversation: c.id ? { id: c.id, study: c.study || null, run: entry.eid } : null
         });
       }).then(function (started) {
+        answered();
+        var moved = started && started.conversation;
+        if (moved && moved.ok && moved.id) {
+          c.id = moved.id;
+          c.study = moved.study || started.output;
+        }
         if (started.ok) {
           /* Started once. A second press started it again into the same
            * folder and was refused for the folder being occupied. The
            * button says what happened and stays put. */
           runBtn.textContent = "Running";
-          note(box, "Started. Watch it in the sidebar and the Overview.", true);
-          /* The conversation that launched a study belongs with it. Without
-           * this the thread would vanish from view the moment the page
-           * switched to the new study's empty list. */
-          if (started.output) {
-            post("/api/agent/conversation/attach", {
-              study: started.output, id: convId, from_study: fromStudy
-            }).then(function (m) {
-              if (m && m.ok && m.id) { convId = m.id; convStudy = m.study || started.output; }
-              if (m && m.moved) note(box, "This conversation now belongs to the new study.", true);
-            }).catch(function () {});
+          var at = new Date().toISOString();
+          runLine(here, made.number, at, true);
+          said.push({ role: "agent", text: "Started version " + made.number + "." });
+          entry.started = at;
+          entry.output = started.output || null;
+          if (sent.indexOf(entry) < 0) {
+            /* An edit or a retry above it cut the run's entry while the
+             * run started: the run started all the same, so it is said
+             * again, under a new eid (the cut one stays cut; eighteenth
+             * review, 10-08). */
+            entry.eid = newEid();
+            sent.push(entry);
+          }
+          persistOf(c, sent);
+          if (moved && moved.moved) {
+            note(here, "This conversation now belongs to the new study.", true);
           }
         } else {
+          /* Not started: no run in the thread, and why. */
+          var placed = sent.indexOf(entry);
+          if (placed >= 0) sent.splice(placed, 1);
           runBtn.disabled = false;
           noteEl.textContent = started.error;
+          if (here !== box) note(here, started.error || "It did not start.");
+          sent.push({ role: "agent", kind: "error", text: started.error || "It did not start." });
+          persistOf(c, sent);
+          runFix(r.part("fix"), started, data);
         }
+        redrawIfWanted();
+      }, function () {
+        /* No answer the page could read (an error page, a dropped
+         * connection): the run may have started, so it is not said that
+         * it did not; where it went is filled in by the server if it did
+         * (thirteenth and fourteenth reviews, 10-08). A page going as it
+         * started (a reload) has nothing to say: the next one reads where
+         * the run went (nineteenth review, 10-08). */
+        function cannotRead() {
+          if (leaving) { launching -= 1; return; }
+          answered();
+          runBtn.disabled = false;
+          var why = "I could not read the software's answer to starting the run. " +
+                    "If it started, the Overview shows it running.";
+          note(here, why);
+          sent.push({ role: "agent", kind: "answer", text: why });
+          persistOf(c, sent);
+          redrawIfWanted();
+        }
+        /* Failed as the page was asked to go: said only if the page is
+         * still here a moment later (a leave cancelled, a download), never
+         * once it has gone. */
+        if (askedToGo && !leaving) {
+          setTimeout(function () { askedToGo = false; cannotRead(); }, 3000);
+          return;
+        }
+        cannotRead();
       });
     };
+    runBtn.onclick = function () {
+      /* A press is the person's own word: nothing still waiting for a yes
+       * takes the next message. */
+      stopPending = null; runPending = null; fixPending = null;
+      spendChoices();
+      made.launch(box, null);
+    };
+    /* More: a menu, put away by a choice in it, a click elsewhere or Escape. */
+    var more = r.part("more");
+    if (more) {
+      more.addEventListener("click", function (e) {
+        if (e.target.closest(".agent-more-menu button")) more.open = false;
+      });
+      more.addEventListener("keydown", function (e) {
+        if (e.key === "Escape" && more.open) {
+          more.open = false;
+          more.querySelector("summary").focus();
+        }
+      });
+    }
+    return made;
+  }
+
+  /* A refused run with what would fix it (remedies.py): the fix, and the
+   * command that does it where there is one. Nothing has run, so there is
+   * no price. Where the fix is a setting of the
+   * study, the Agent is offered it: pressing the button sends the refusal
+   * into the thread as the person's next message, and the Agent rewrites
+   * the config it wrote. A choice only the person can make, a budget, an
+   * install and a machine's state are said and not handed on: the
+   * software does not choose them, so neither does the AI model. Built as
+   * elements; a refusal's text is data. */
+  function runFix(host, started, data) {
+    if (!host) return;
+    host.innerHTML = "";
+    var remedy = started && started.remedy;
+    host.hidden = !remedy;
+    if (!remedy) return;
+    var fix = document.createElement("div");
+    fix.className = "fix-fix";
+    fix.innerHTML = prose("Fix: " + (remedy.fix || ""));
+    host.appendChild(fix);
+    if (remedy.command) {
+      var cmd = document.createElement("pre");
+      cmd.className = "fix-command";
+      cmd.textContent = remedy.command;
+      host.appendChild(cmd);
+    }
+    var theStudys = (remedy.settings || []).length && !remedy.decision &&
+      String(remedy.code || "").indexOf("environment.") !== 0;
+    if (!theStudys) return;
+    var ask = document.createElement("button");
+    ask.type = "button";
+    ask.className = "ctl-btn agent-fix-ask";
+    ask.textContent = "Ask the Agent to fix it";
+    ask.addEventListener("click", function () {
+      ask.disabled = true;
+      /* A new instruction, so nothing still waiting for a yes takes it. */
+      stopPending = null; runPending = null; fixPending = null;
+      currentConfig = data.yaml;
+      var area = el("agent-request");
+      area.value = "Running it was refused: " + (started.error || remedy.why || "") +
+        "\nWhat would fix it: " + (remedy.fix || "") + "\nChange the config so it runs.";
+      draft();
+    });
+    host.appendChild(ask);
+  }
+
+  /* Another thread on screen: a reply still being written for this one is
+   * stopped (and said in this one), and saves still waiting keep the
+   * thread they were for. */
+  function clearThread() {
+    stopWriting();
+    el("agent-thread").innerHTML = "";
+    conv = threadOf(null, conv.study, []);
+    history = []; transcript = []; currentConfig = null;
+    stopPending = null; runPending = null; fixPending = null; lastReply = null;
+    versions = [];
+    placeholder();
+  }
+
+  /* The same thread drawn again, as the server keeps it: the arrays stay
+   * the ones the thread's saves and launches hold. */
+  function redraw(entries) {
+    var keep = entries.slice();
+    el("agent-thread").innerHTML = "";
+    transcript.length = 0;
+    history.length = 0;
+    currentConfig = null;
+    stopPending = null; runPending = null; fixPending = null; lastReply = null;
+    versions = [];
+    replay(keep);
+    placeholder();
   }
 
   /* Draw a saved thread again. Each entry renders the way it rendered
    * the first time; a config gets its actions back, wired to the stored
-   * config, so Run here on a restored thread runs what was written. */
-  function restore() {
-    fetch("/api/agent/conversation").then(function (r) { return r.json(); }).then(function (d) {
-      if (d && d.ok) { convId = d.id || null; convStudy = d.study || null; }
-      replay((d && d.entries) || []);
-    }).catch(function () {});
+   * config, so Run on this machine on a restored thread runs what was written. */
+  var threadRead = false;
+  var readFirst;
+  var firstRead = new Promise(function (done) { readFirst = done; });
+  function restore(swap) {
+    /* After the saves still waiting: read before them, the thread on
+     * screen missed what they said (fourteenth review, 10-08). With
+     * `swap`, the thread on screen is replaced only when the other has
+     * come, so what is typed meanwhile is said in the one it was typed in
+     * (fifteenth review, 10-08). */
+    var was = conv;
+    return inTurn(function () {
+      return fetch("/api/agent/conversation").then(function (r) { return r.json(); });
+    }).then(function (d) {
+      var entries = (d && d.entries) || [];
+      /* Another thread put on screen while this was read (New pressed
+       * as the page opened) stays (nineteenth review, 10-08: the old one
+       * was drawn over it). */
+      if (!swap && conv !== was) return;
+      if (swap) clearThread();
+      if (d && d.ok) conv = threadOf(d.id, d.study, entries);
+      replay(entries);
+    }).catch(function () {}).then(function () { threadRead = true; readFirst(); });
   }
 
   function replay(entries) {
       if (!entries.length) return;
       entries.forEach(function (e) {
+        /* A run asked for with no word yet that it started (the page went
+         * as it was asked for): kept, and not said, nor told to the Agent,
+         * until the server writes where it went (sixteenth review, 10-08:
+         * one never started read as asked, and as done to the Agent). */
+        if (e.kind === "action" && e.action === "run" && !e.started && !e.output) {
+          transcript.push(e);
+          return;
+        }
         if (e.role === "user") {
           say(e.text || "", e.attachments || []);
           var htext = (e.text || "") + ((e.attachments || []).length
@@ -802,29 +3261,51 @@
         }
         var r = reply();
         var box = r.part("attempts");
+        whoIs(r, e.kind === "error" ? "stopped" : "done");
+        looked(box, e.looks);
+        sent(box, e.receipt);
         if (e.kind === "config") {
-          (e.attempts || []).forEach(function (a) {
-            if (a.refusal) note(box, "Refused: " + a.refusal.message);
-          });
-          note(box, e.cycles === 1 ? "Accepted first time."
-               : "Accepted after " + (e.cycles || "several") + " attempts.", true);
-          history.push({ role: "agent", text: "Wrote a config:\n" + e.yaml });
+          refusals(box, e.attempts, true);
+          saidBeside(box, e.note);
+          history.push({ role: "agent", text: (e.note ? e.note + "\n\n" : "")
+                         + "Wrote a config:\n" + e.yaml });
           currentConfig = e.yaml;
-          wireActions(r, { yaml: e.yaml, config: e.config, cycles: e.cycles }, box);
+          wireActions(r, { yaml: e.yaml, config: e.config, cycles: e.cycles,
+                           plan: e.plan || [], changes: e.changes || null }, box, e.version);
+          if (e.again == null) meta(r, e);
         } else if (e.kind === "answer") {
           var p = document.createElement("div");
           p.className = "agent-answer";
           p.innerHTML = prose(e.text);
           box.appendChild(p);
+          cite(box, e.cites);
+          sceneCard(box, e.scene, e);
+          if (e.cites !== undefined || e.usage) meta(r, e);
           history.push({ role: "agent", text: e.text });
         } else if (e.kind === "question") {
-          note(box, e.text);
+          // Waiting for you only while it is the last thing said; its
+          // candidates pressable only then.
+          var last = e === entries[entries.length - 1];
+          if (last) whoIs(r, "waiting");
+          if (e.asked) { asking(box, e.asked, e.choices || [], !last); meta(r, e); }
+          else if (e.confirm === "run") confirmCard(box, e.text, e.facts, "Run it", "Not now", !last);
+          else if (e.confirm === "stop") {
+            confirmCard(box, e.text, e.facts, "Stop it", "Keep running", !last);
+          } else note(box, e.text);
           history.push({ role: "agent", text: e.text });
-          // A stop confirmation that was the last thing said is still
+          // A stop or run confirmation that was the last thing said is still
           // waiting for its yes after a reload.
-          stopPending = /^Stop the run.*\? Say yes\.$/.test(e.text || "") ? true : null;
+          stopPending = e.confirm === "stop" || /^Stop the run.*\? Say yes\.$/.test(e.text || "")
+            ? true : null;
+          runPending = e.confirm === "run" || e.text === RUN_QUESTION ? true : null;
+        } else if (e.kind === "summary") {
+          whoIs(r, STOPPED_AS.test(e.status || "") ? "stopped" : "done");
+          summaryCard(box, e);
+          history.push({ role: "agent", text: (e.head || "") + ".\n" + [e.found, e.long_enough,
+                         e.strengthen].filter(Boolean).join("\n") });
         } else if (e.kind === "action") {
-          note(box, e.action === "stop" ? "Stopped the run." : "Did: " + e.action + ".", true);
+          if (e.action === "run" && e.started) runLine(box, e.version, e.started, false);
+          else note(box, e.action === "stop" ? "Stopped the run." : "Did: " + e.action + ".", true);
           history.push({ role: "agent", text: "DO: " + e.action });
         } else {
           note(box, e.text || "");
@@ -834,111 +3315,361 @@
       // Only a stop question that is the final entry keeps its pending
       // state; anything said after it answered or superseded it.
       var last = entries[entries.length - 1];
-      if (!(last && last.kind === "question" && /^Stop the run.*\? Say yes\.$/.test(last.text || ""))) {
+      if (!(last && last.kind === "question" && (last.confirm === "stop" ||
+            /^Stop the run.*\? Say yes\.$/.test(last.text || "")))) {
         stopPending = null;
       }
+      if (!(last && last.kind === "question" && (last.confirm === "run" ||
+            last.text === RUN_QUESTION))) {
+        runPending = null;
+      }
+      // A run started here that ended while the page was closed.
+      sayHowTheRunEnded();
       scrollToEnd();
   }
 
   document.addEventListener("DOMContentLoaded", function () {
+    sendUnsent();
     restore();
+    if (window.FastMDXDashboard && window.FastMDXDashboard.on) {
+      window.FastMDXDashboard.on("app-state", function (s) {
+        var going = !!(s && (s.process_running || s.status === "running" || s.running_elsewhere));
+        if (runGoing && !going) runEnded();
+        runGoing = going;
+      });
+    }
+    /* A study's More menu is put away by a click anywhere else. */
+    document.addEventListener("click", function (e) {
+      Array.prototype.forEach.call(document.querySelectorAll(".agent-more[open]"), function (m) {
+        if (!m.contains(e.target)) m.open = false;
+      });
+    });
     /* Start fresh: the thread on screen is already saved and stays in
      * the list. Nothing is lost, so nothing is confirmed. */
-    function resetThread() {
-      el("agent-thread").innerHTML = "";
-      history = []; transcript = []; currentConfig = null; pending = null;
-      stopPending = null; lastReply = null;
+    function resetThread() { clearThread(); }
+    /* A fresh thread: where the GUI is, or, given `study` (null for a
+     * chat of no study), there. */
+    function freshConversation(study) {
+      var body = study === undefined ? {} : { study: study };
+      /* The new thread is on screen at once, so what is typed next is
+       * said in it; it takes its id when the server has made it, after
+       * the saves still waiting (fourteenth review, 10-08). */
+      resetThread();
+      var c = conv;
+      if (study !== undefined) { c.study = study; c.placed = true; }
+      /* The thread's key: a page closing before /new is sent saves into
+       * the same conversation /new makes (eighteenth review, 10-08). */
+      body.key = c.key;
+      hideList();
+      return inTurn(function () {
+        return post("/api/agent/conversation/new", body);
+      }).then(function (d) {
+        if (d && d.ok && !c.id) {
+          c.id = d.id || null;
+          if (d.study !== undefined) c.study = d.study;
+        } else if (d && d.gone && !c.id) {
+          /* Its key's conversation was deleted: so is this thread, kept
+           * anew once the person says something in it; what the deleted
+           * one held went with it. */
+          var held = c === conv ? transcript : (c.entries || []);
+          (d.held || []).forEach(function (eid) {
+            held.forEach(function (e) {
+              if (e.eid === eid) c.confirmed[eid] = JSON.stringify(e);
+            });
+          });
+          c.gone = true;
+        }
+        told();
+        return d;
+      });
     }
     var fresh = el("agent-new");
     if (fresh) {
       fresh.addEventListener("click", function () {
-        post("/api/agent/conversation/new", {}).then(function (d) {
-          if (d && d.ok) convId = d.id || null;
-          resetThread();
-          hideList();
-          el("agent-request").focus();
-        }).catch(function () {});
+        freshConversation().then(function () { el("agent-request").focus(); })
+          .catch(function () {});
       });
     }
 
-    /* The list of conversations, newest first. Click a title to reopen
-     * it; the cross deletes that one, and only that one, after asking. */
+    /* One conversation opened, from the list or the sidebar. Another
+     * study's loads that study: the page reloads so every panel reads it,
+     * and the conversation is current there on return. */
+    /* A reload waits for a run being started: it would stop the page
+     * before the run was asked for, or before its answer was heard
+     * (twenty-second review, 10-08). */
+    function reloadOnceLaunched(waited) {
+      waited = waited || 0;
+      /* A run with no answer in a minute does not hold the page. */
+      if (launching && waited < 60000) {
+        setTimeout(function () { reloadOnceLaunched(waited + 100); }, 100);
+        return;
+      }
+      location.reload();
+    }
+
+    function openConversation(id, study, loaded) {
+      /* After the saves still waiting, so a reload keeps them and the
+       * thread opened says all they said (thirteenth and fourteenth
+       * reviews, 10-08). */
+      return inTurn(function () {
+        return post("/api/agent/conversation/open", { id: id, study: study });
+      }).then(function (o) {
+        if (!o || !o.ok) { window.alert((o && o.error) || "Could not open it."); return o; }
+        /* Loaded elsewhere than the list said (a run took it with it):
+         * the page reads that study too. */
+        if (o.loaded_study && (!loaded || (o.study || null) !== (study || null))) {
+          reloadOnceLaunched();
+          return o;
+        }
+        resetThread();
+        conv = threadOf(o.id, o.study, o.entries || []);
+        hideList();
+        replay(o.entries || []);
+        told();
+        return o;
+      });
+    }
+
+    /* The list of conversations: this study's, the chats of no study, and
+     * each other study's folded under its ID; found by typing, the one
+     * talked in last first. A title opens it; the pencil names it; the bin
+     * deletes it, and only it, after asking. */
     var list = el("agent-conv-list");
     function hideList() { if (list) list.hidden = true; }
-    function showList() {
-      fetch("/api/agent/conversations").then(function (r) { return r.json(); }).then(function (d) {
-        list.innerHTML = "";
-        var groups = (d && d.groups) || [];
-        var any = false;
-        groups.forEach(function (g) {
-          if (!g.conversations.length && !g.loaded) return;
-          var head = document.createElement("div");
-          head.className = "agent-conv-group" + (g.loaded ? " loaded" : "");
-          head.textContent = g.label + (g.loaded ? "  \u00b7 loaded" : "");
-          list.appendChild(head);
-          if (!g.conversations.length) {
-            var e = document.createElement("div");
-            e.className = "agent-conv-empty";
-            e.textContent = "No conversations yet.";
-            list.appendChild(e);
+    var PENCIL = window.FastMDXIcons.svg("edit");
+    var BIN = window.FastMDXIcons.svg("bin");
+    var SEARCH = window.FastMDXIcons.svg("search");
+
+    function node(tag, cls, text) {
+      var made = document.createElement(tag);
+      if (cls) made.className = cls;
+      if (text != null) made.textContent = text;
+      return made;
+    }
+
+    function ago(when) {
+      var t = new Date(when).getTime();
+      if (isNaN(t)) return "";
+      var minutes = Math.round((Date.now() - t) / 60000);
+      if (minutes < 1) return "just now";
+      if (minutes < 60) return minutes + " min ago";
+      if (minutes < 24 * 60) return Math.round(minutes / 60) + " h ago";
+      return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    }
+
+    function row(c, g) {
+      var here = c.id === conv.id && (c.study || null) === (conv.study || null);
+      var line = node("div", "agent-conv-row" + (here ? " current" : ""));
+      line.dataset.id = c.id;
+      var title = node("button", "title", c.title);
+      title.type = "button";
+      title.title = c.entries + (c.entries === 1 ? " message" : " messages")
+        + (g.loaded || g.chats ? "" : " · opens this study");
+      if (here) title.setAttribute("aria-current", "true");
+      title.addEventListener("click", function () {
+        openConversation(c.id, g.study, g.loaded || g.chats);
+      });
+      var meta = node("span", "when", ago(c.updated) || c.started);
+      var name = node("button", "line-btn conv-rename");
+      name.type = "button";
+      name.title = "Name it";
+      name.setAttribute("aria-label", "Name “" + c.title + "”");
+      name.innerHTML = PENCIL;
+      name.addEventListener("click", function () { renaming(line, title, c, g); });
+      var del = node("button", "line-btn conv-delete");
+      del.type = "button";
+      del.title = "Delete it";
+      del.setAttribute("aria-label", "Delete “" + c.title + "”");
+      del.innerHTML = BIN;
+      del.addEventListener("click", function () {
+        if (!window.confirm("Delete “" + c.title + "”? This cannot be undone.")) return;
+        /* Deleted by the person here: a save of it still on its way is
+         * not taken for words said after a delete elsewhere. */
+        deletedHere[c.id] = true;
+        deletesWaiting[c.id] = (deletesWaiting[c.id] || 0) + 1;
+        var shown = conv;
+        post("/api/agent/conversation/delete",
+             { id: c.id, study: g.study, key: shown.key }).then(function (d) {
+          deletesWaiting[c.id] -= 1;
+          if (!d || !d.ok) {
+            /* Not deleted, unless this page deleted it already, or may yet:
+             * a second press on a row not yet drawn again, whose answer can
+             * come first (twenty-third and twenty-fourth reviews). */
+            if (deletedDone[c.id] || deletesWaiting[c.id]) return;
+            delete deletedHere[c.id];
+            window.alert((d && d.error) || "Could not delete it.");
+            return;
           }
-          g.conversations.forEach(function (c) {
-            any = true;
-            var row = document.createElement("div");
-            row.className = "agent-conv-row" + (c.current && g.loaded ? " current" : "");
-            var title = document.createElement("span");
-            title.className = "title";
-            title.textContent = c.title + (c.current && g.loaded ? "  (open)" : "");
-            title.title = c.entries + " messages" + (g.loaded ? "" : " \u00b7 opens this study");
-            title.addEventListener("click", function () {
-              post("/api/agent/conversation/open", { id: c.id, study: g.study }).then(function (o) {
-                if (!o || !o.ok) { window.alert((o && o.error) || "Could not open it."); return; }
-                if (o.loaded_study && !g.loaded) {
-                  /* Another study: the page reloads so every panel reads it,
-                   * and the conversation is current there on return. */
-                  location.reload();
-                  return;
-                }
-                convId = o.id || null; convStudy = o.study || null;
-                resetThread();
-                hideList();
-                replay(o.entries || []);
-              });
-            });
-            var when = document.createElement("span");
-            when.className = "when";
-            when.textContent = c.started;
-            var del = document.createElement("button");
-            del.className = "del";
-            del.type = "button";
-            del.title = "Delete this conversation";
-            del.textContent = "\u2715";
-            del.addEventListener("click", function () {
-              if (!window.confirm("Delete \u201c" + c.title + "\u201d? This cannot be undone.")) return;
-              post("/api/agent/conversation/delete", { id: c.id, study: g.study }).then(function () {
-                if (c.current && g.loaded) resetThread();
-                showList();
-              });
-            });
-            row.appendChild(title); row.appendChild(when); row.appendChild(del);
-            list.appendChild(row);
-          });
+          deletedDone[c.id] = true;
+          /* The thread on screen, by its id, or, before its first save
+           * has named it, by its key, which the server knows: decided at
+           * once (twenty-first to twenty-third reviews, 10-08: left on
+           * screen, or reset late, what was typed next was dropped). */
+          if (d.on_screen) deletedKeys[shown.key] = true;
+          /* Or opened again while the delete was on its way (twenty-fourth
+           * review, 10-08: left on screen, what was typed next was lost). */
+          if (c.id === conv.id || (conv === shown && d.on_screen)) resetThread();
+          told();
+          showList();
         });
-        if (!any && !groups.length) {
-          var none = document.createElement("div");
-          none.className = "agent-conv-empty";
-          none.textContent = "No conversations yet.";
-          list.appendChild(none);
+      });
+      line.append(title, meta, name, del);
+      return line;
+    }
+
+    /* Named in place: Enter keeps it, Escape leaves it as it was; empty,
+     * it is its first question again. */
+    function renaming(line, title, c, g) {
+      var input = node("input", "conv-name");
+      input.value = c.named ? c.title : "";
+      input.placeholder = c.title;
+      input.maxLength = 80;
+      input.setAttribute("aria-label", "A name for this conversation");
+      title.replaceWith(input);
+      input.focus();
+      var done = false;
+      function finish(keep) {
+        if (done) return;
+        done = true;
+        if (!keep) { showList(); return; }
+        post("/api/agent/conversation/rename", { id: c.id, study: g.study, title: input.value })
+          .then(function (d) {
+            if (!d || !d.ok) window.alert((d && d.error) || "Could not name it.");
+            told();
+            showList();
+          });
+      }
+      input.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); finish(true); }
+        else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finish(false); }
+      });
+      input.addEventListener("blur", function () { finish(true); });
+    }
+
+    function showList() {
+      return fetch("/api/agent/conversations").then(function (r) { return r.json(); }).then(function (d) {
+        var groups = (d && d.groups) || [];
+        var wanted = list.querySelector(".conv-search input");
+        var typed = wanted ? wanted.value : "";
+        list.replaceChildren();
+        var search = node("label", "search-field conv-search");
+        search.innerHTML = SEARCH.replace('class="line-icon"', 'class="search-icon"');
+        var box = node("input");
+        box.type = "search";
+        box.placeholder = "Find a conversation";
+        box.setAttribute("aria-label", "Find a conversation");
+        box.value = typed;
+        search.appendChild(box);
+        list.appendChild(search);
+        var body = node("div", "conv-groups");
+        list.appendChild(body);
+
+        function fill() {
+          var words = box.value.toLowerCase().split(/\s+/).filter(Boolean);
+          var hits = function (c, g) {
+            var text = (c.title + " " + (g.label || "") + " " + (g.folder || "")).toLowerCase();
+            return words.every(function (w) { return text.indexOf(w) >= 0; });
+          };
+          body.replaceChildren();
+          var shown = 0;
+          var others = groups.filter(function (g) { return !g.loaded && !g.chats; });
+          groups.filter(function (g) { return g.loaded || g.chats; })
+            .sort(function (a, b) { return a.loaded === b.loaded ? 0 : a.loaded ? -1 : 1; })
+            .forEach(function (g) {
+              var rows = g.conversations.filter(function (c) { return hits(c, g); });
+              var head = node("div", "agent-conv-group" + (g.loaded ? " loaded" : ""));
+              head.textContent = g.chats ? "Chats · no study"
+                : "This study · " + g.label;
+              if (!g.chats && g.folder && g.folder !== g.label) head.title = g.folder;
+              body.appendChild(head);
+              if (!rows.length) {
+                body.appendChild(node("div", "agent-conv-empty",
+                  words.length ? "None by that name." : g.chats ? "No chats yet."
+                    : "No conversations about this study yet."));
+              }
+              rows.forEach(function (c) { body.appendChild(row(c, g)); shown += 1; });
+            });
+          if (others.length) {
+            body.appendChild(node("div", "agent-conv-group", "Other studies"));
+            others.forEach(function (g) {
+              var rows = g.conversations.filter(function (c) { return hits(c, g); });
+              if (!rows.length) return;
+              var fold = node("details", "agent-conv-study");
+              // Folded, unless what is typed found something in it.
+              fold.open = words.length > 0;
+              var head = node("summary", "", "");
+              head.appendChild(node("span", "conv-study-id", g.label));
+              head.appendChild(node("span", "conv-study-folder", g.folder));
+              head.appendChild(node("span", "conv-study-count", String(rows.length)));
+              fold.appendChild(head);
+              rows.forEach(function (c) { fold.appendChild(row(c, g)); shown += 1; });
+              body.appendChild(fold);
+            });
+          }
+          return shown;
         }
+        fill();
+        box.addEventListener("input", fill);
         list.hidden = false;
+        if (typed) box.focus();
       }).catch(function () {});
+    }
+    /* The phone bar's conversations icon: the Agent page, its list open. */
+    var phoneConvs = el("phone-convs");
+    if (phoneConvs && list) {
+      phoneConvs.addEventListener("click", function () {
+        if (window.FastMDXDashboard && window.FastMDXDashboard.navigate) {
+          window.FastMDXDashboard.navigate("agent");
+        } else {
+          window.location.hash = "#agent";
+        }
+        showList().then(function () {
+          var head = list.querySelector("input");
+          if (head) head.focus();
+        });
+      });
     }
     var convs = el("agent-conversations");
     if (convs && list) {
       convs.addEventListener("click", function () {
         if (list.hidden) showList(); else hideList();
       });
+      list.addEventListener("keydown", function (e) {
+        if (e.key === "Escape" && !list.hidden && e.target.className !== "conv-name") {
+          hideList();
+          convs.focus();
+        }
+      });
     }
+
+    /* The sidebar's lists are told when a conversation is begun, opened,
+     * written, named or deleted (chats.js). */
+    function told() {
+      window.dispatchEvent(new CustomEvent("fmx:conversations", {
+        detail: { id: conv.id, study: conv.study } }));
+    }
+    window.addEventListener("fmx:conversation-saved", told);
+
+    /* Another study opened: its own conversation is shown, as the page
+     * opened on it would show it. A chat of no study goes on as it is. */
+    window.addEventListener("dashboard:run-changed", function (event) {
+      var detail = event.detail || {};
+      if (detail.first || !conv.study) return;
+      /* A run starting: the GUI has switched to its folder, and the
+       * conversation is on its way there (tenth review, 10-08). */
+      if (launching) return;
+      if (String(detail.activeRun || "") === String(conv.study)) return;
+      hideList();
+      restore(true).then(told);
+    });
+
+    window.FastMDXAgentPanel = {
+      open: function (id, study, loaded) { return openConversation(id, study, loaded); },
+      fresh: freshConversation,
+      list: function () { return showList(); },
+      get current() { return { id: conv.id, study: conv.study }; },
+    };
+
     if (!el("agent-provider")) return;
     loadEngine();
 
@@ -949,7 +3680,10 @@
     el("agent-save-model").addEventListener("click", saveEngine);
     el("agent-settings-open").addEventListener("click", openSettings);
     el("agent-settings-close").addEventListener("click", closeSettings);
-    el("agent-propose").addEventListener("click", draft);
+    el("agent-propose").addEventListener("click", function () {
+      if (writing) writing.abort();
+      else draft();
+    });
     var plus = el("agent-attach");
     var attachPath = el("agent-attach-path");
     /* The workspace, from the app state, so the picker can open there
@@ -965,7 +3699,7 @@
         /* Open where this conversation lives: the study's own folder for
          * a thread about a study, the workspace for a general one. */
         window.FastMDXPicker.open({ into: "agent-attach-path", mode: "file",
-                                    start: convStudy || workspaceRoot || "" });
+                                    start: conv.study || workspaceRoot || "" });
       });
       attachPath.addEventListener("change", function () {
         var p = attachPath.value.trim();
@@ -978,7 +3712,8 @@
     area.addEventListener("keydown", function (e) {
       if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
-        draft();
+        // A reply being written is stopped by the button, not by Enter.
+        if (!writing) draft();
       }
     });
     autosize(area);
@@ -994,7 +3729,80 @@
         : "Optional. Stops a study that would cost more than you meant.";
     }
     el("agent-mode").addEventListener("change", modeChanged);
+    el("agent-mode").addEventListener("change", syncStart);
     modeChanged();
+
+    Array.prototype.forEach.call(document.querySelectorAll(".agent-starter"), function (b) {
+      b.addEventListener("click", function () {
+        // Not over a reply still being written.
+        if (writing) return;
+        area.value = b.getAttribute("data-prompt") || b.textContent;
+        /* A question about the study open, which its records answer where
+         * no AI model is set: asked as it was offered, it says which. */
+        fromStarter = b.getAttribute("data-records")
+          ? { key: b.getAttribute("data-records"), prompt: area.value } : null;
+        autosize(area);
+        /* Sent as it is pressed. Written into the box to be changed
+         * first, a question asked by a press read as not asked, and the
+         * box sat waiting with the question in it. In autonomous mode a
+         * study the Agent writes is started without being shown, so there
+         * a suggestion waits in the box to be read and sent. */
+        if (el("agent-mode").value === "autonomous") {
+          area.focus();
+          area.setSelectionRange(area.value.length, area.value.length);
+        } else {
+          draft();
+        }
+      });
+    });
+    var chooseEngine = el("agent-start-settings");
+    if (chooseEngine) chooseEngine.addEventListener("click", openSettings);
+    if (window.MutationObserver) {
+      new MutationObserver(syncStart).observe(el("agent-thread"), { childList: true });
+    }
+    /* A study to ask about is one that has run: a folder is served as the
+     * active run before anything is in it. */
+    if (window.FastMDXDashboard && window.FastMDXDashboard.on) {
+      var ran = { status: false, results: false };
+      var served = false;
+      var decide = function () {
+        studyOpen = served && (ran.status || ran.results);
+        syncStart();
+      };
+      var ended = "";
+      var processState = "idle";
+      var said = function () {
+        studyState = processState === "running" ? "running"
+          : /^(failed|stopped|interrupted)$/.test(ended) ? "stopped"
+          : studyOpen ? "finished" : "none";
+        placeholder();
+      };
+      window.FastMDXDashboard.on("app-state", function (s) {
+        served = !!(s && s.active_run);
+        processState = (s && s.status) || "idle";
+        decide();
+        said();
+        /* The run the Agent started has ended: what it found. Asked on any
+         * state not running while one waits for it, not only on a change
+         * seen from running: a run that ended between two of the page's
+         * polls was missed (review, 10-07). The server says not yet while
+         * it goes on. */
+        if (processState !== "running") sayHowTheRunEnded();
+      });
+      window.FastMDXDashboard.on("status-updated", function (u) {
+        var status = (u && u.status) || {};
+        ran.status = !!(status.stage || status.current_step != null);
+        ended = String(status.status || "").toLowerCase();
+        decide();
+        said();
+      });
+      window.FastMDXDashboard.on("results-updated", function (r) {
+        ran.results = !!(r && (r.has_analysis || r.has_report));
+        decide();
+        said();
+      });
+    }
+    syncStart();
   });
 
   /* For the settings popup: "Agent settings…" should open this dialog,

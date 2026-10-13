@@ -243,3 +243,14 @@ class TestEveryDeclarationOfTheFloorAgrees:
         for doc in ("docs/installation.md", "docs/api.md"):
             assert f"Python {floor} to " in (ROOT / doc).read_text(encoding="utf-8"), doc
         assert f"Python ≥ {floor}." in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+
+
+class TestTheTestExtraHoldsWhatTheTestsImport:
+
+    def test_setuptools_is_in_it(self) -> None:
+        """Three tests run the build step that copies the docs into the
+        package, through setuptools. Python 3.12 and later make a virtual
+        environment without it, so unless this extra names it they fail on
+        CI's 3.13 legs."""
+        test = _pyproject()["project"]["optional-dependencies"]["test"]
+        assert any(re.match(r"setuptools\s*(>=|$)", r) for r in test), test

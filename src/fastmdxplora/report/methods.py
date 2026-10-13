@@ -66,6 +66,41 @@ CHECKLIST: tuple[tuple[str, str], ...] = (
 )
 
 
+#: How the Methods names each phase in a sentence about its software.
+_PHASE_WORDS = {"setup": "system setup", "simulation": "simulation",
+                "analysis": "analysis"}
+
+
+def _made_with_sentence(made_with: list[tuple[str, list[str]]]) -> str:
+    """Which FastMDXplora produced which phases, as one sentence.
+
+    A study simulated under one release and analysed under another says so,
+    rather than crediting the release that wrote the report with all of it.
+    """
+    def words(phases: list[str]) -> str:
+        named = [_PHASE_WORDS.get(phase, phase) for phase in phases]
+        return named[0] if len(named) == 1 else (
+            ", ".join(named[:-1]) + " and " + named[-1])
+
+    said = [(version, phases) for version, phases in made_with if phases]
+    if not said:
+        from fastmdxplora import __version__
+
+        return (f"This report was written with FastMDXplora {__version__}; "
+                "the run does not record which version produced it.")
+    first_version, first_phases = said[0]
+    verb = "was" if len(first_phases) == 1 else "were"
+    clauses = [f"{words(first_phases)} {verb} performed with FastMDXplora "
+               f"{first_version}"]
+    clauses.extend(f"{words(phases)} with FastMDXplora {version}"
+                   for version, phases in said[1:])
+    if len(clauses) == 1:
+        sentence = clauses[0]
+    else:
+        sentence = ", ".join(clauses[:-1]) + ", and " + clauses[-1]
+    return sentence[0].upper() + sentence[1:] + "."
+
+
 def _get(params: dict[str, Any], *names: str, default: Any = None) -> Any:
     for name in names:
         if name in params and params[name] not in (None, ""):
@@ -122,6 +157,71 @@ def missing_from_methods(setup: dict[str, Any], sim: dict[str, Any]) -> list[str
     return gaps
 
 
+#: How each placement reads in a methods section.
+_PLACED_BY = {
+    "OPM frame": "in the orientation and position published by the OPM database",
+    "fitted orientation and centre": (
+        "on the membrane normal and centre fitted to its apolar lipid-facing "
+        "surface"),
+    "structure's own orientation; centre fitted along z": (
+        "in its own orientation, at the membrane centre fitted to its apolar "
+        "lipid-facing surface"),
+    "stated orientation; centre fitted along z": (
+        "in the orientation supplied, at the membrane centre fitted to its "
+        "apolar lipid-facing surface"),
+    "stated orientation and centre": "in the orientation and position supplied",
+}
+
+
+#: The lipid force field each file OpenMM ships carries, by the name its
+#: developers publish it under.
+_LIPID_FORCE_FIELDS = {
+    "amber14-all.xml": "AMBER Lipid17",
+    "amber14/lipid17.xml": "AMBER Lipid17",
+    "charmm36.xml": "CHARMM36",
+}
+
+
+def _lipid_parameters_clause(source: Any) -> str:
+    """Which force field described the lipids, where it was recorded."""
+    if not source:
+        return ""
+    named = _LIPID_FORCE_FIELDS.get(str(source))
+    return (f", described by {named} ({source})" if named
+            else f", described by {source}")
+
+
+def _bilayer_sentence(bilayer: dict[str, Any], padding: Any, positive: str,
+                      negative: str, concentration: Any) -> str:
+    """The protein embedded in its bilayer, as a sentence: how it was placed,
+    the fitted hydrophobic thickness, which lipid, how many and per leaflet,
+    and the water and ions around it."""
+    lipid = bilayer.get("lipid") or "lipid"
+    count = bilayer.get("lipids")
+    leaflets = bilayer.get("lipids_per_leaflet") or []
+    placed = _PLACED_BY.get(str(bilayer.get("placed_by")),
+                            str(bilayer.get("placed_by") or "as given"))
+    published = bilayer.get("opm_hydrophobic_thickness_nm")
+    thickness = bilayer.get("hydrophobic_thickness_nm")
+    if bilayer.get("placed_by") == "OPM frame" and published:
+        said = f" (hydrophobic thickness {float(published):.1f} nm in OPM)"
+    elif thickness:
+        said = f" (fitted hydrophobic thickness {float(thickness):.1f} nm)"
+    else:
+        said = ""
+    text = (f"The protein was placed {placed}" + said
+            + f" and embedded in a {lipid} bilayer"
+            + (f" of {count} lipids ({leaflets[0]} and {leaflets[1]} per leaflet)"
+               if count and len(leaflets) == 2 else "")
+            + _lipid_parameters_clause(bilayer.get("lipid_parameters"))
+            + " built with OpenMM's Modeller, in a rectangular box")
+    if padding is not None:
+        text += f" with at least {_nm(padding)} of padding"
+    if concentration is not None:
+        text += f", and {positive}/{negative} ions at {concentration} M"
+    return text + "."
+
+
 def _flatten(manifest: dict[str, Any]) -> dict[str, Any]:
     """One mapping from a manifest that nests.
 
@@ -162,6 +262,13 @@ def methods_paragraphs(
     *,
     system_name: str | None = None,
     versions: dict[str, str] | None = None,
+    made_with: list[tuple[str, list[str]]] | None = None,
+    tools_recorded: bool = True,
+    extended: tuple[float, int] | None = None,
+    means: dict[str, dict[str, Any]] | None = None,
+    stopping: dict[str, Any] | None = None,
+    written: dict[str, Any] | None = None,
+    conversations: int = 0,
 ) -> str:
     """The methods text, as prose rather than a list of settings.
 
@@ -169,6 +276,22 @@ def methods_paragraphs(
     reader needs, and they are not the same document. The list is still
     written elsewhere in the report -- this is the part somebody pastes into a
     manuscript.
+
+    ``extended`` is the production of a study extended in pieces and how
+    many (:func:`fastmdxplora.simulation.resume.extended_production`): the
+    simulation record is the first piece's, and a methods section reading
+    it alone gives that piece's length for the whole study.
+
+    ``means`` are the analyses' mean records by name (``findings.mean`` in
+    each ``analysis/<name>/options.json``) and ``stopping`` the record of a
+    study run until it knew (``stopping.json``); from them the Analysis
+    paragraph says how each mean and error was determined, and why the
+    production is as long as it is.
+
+    ``written`` is the manifest's record of how the study was written
+    (``agent``: the mode of the study and of each phase, and the AI model) and
+    ``conversations`` how many of the Agent's conversations are kept with
+    it; from them a paragraph discloses the use of an AI model.
     """
     from fastmdxplora.simulation.ensembles import NPT, recorded_ensemble
 
@@ -177,6 +300,8 @@ def methods_paragraphs(
     # From the whole record, before it is flattened: the runner's own answer
     # where it gave one, and its resolver over what it recorded where not.
     production_ensemble = recorded_ensemble(sim)
+    bilayer = setup.get("bilayer") if isinstance(setup.get("bilayer"), dict) else None
+    barostat_kind = sim.get("barostat") if isinstance(sim, dict) else None
     setup = _flatten(setup)
     sim = _flatten(sim)
 
@@ -248,14 +373,15 @@ def methods_paragraphs(
                         "prepared, crystallographic water and buffer were "
                         "removed, and setup stopped rather than guess where "
                         "the structure did not determine what to simulate",
-                "drop": "all non-standard residues were removed, and what "
-                        "went is recorded",
+                "drop": "all non-standard residues were removed",
                 "keep": "all non-standard residues were retained",
             }.get(str(heterogens), f"heterogens were handled under the `{heterogens}` policy")
-            preparation.append(
-                f"Heterogens: {policy}. The decision taken for each is "
-                "recorded in `setup/setup_parameters.json`."
-            )
+            # Said only where it is true: the record holds a decision per
+            # component under `auto`, and none under `drop` or `keep`.
+            recorded = (" The decision taken for each, with its reason, is "
+                        "recorded in `setup_parameters.json`."
+                        if _get(setup, "heterogen_decisions") else "")
+            preparation.append(f"Heterogens: {policy}.{recorded}")
 
         resolved = setup.get("resolved_forcefield")
         resolved = resolved if isinstance(resolved, dict) else {}
@@ -305,16 +431,53 @@ def methods_paragraphs(
                      "n_atoms", "atom_count")
 
         solvation = []
-        if padding is not None:
+        if bilayer:
+            solvation.append(_bilayer_sentence(bilayer, padding, positive,
+                                               negative, concentration))
+        elif padding is not None:
+            # What the padding measures, since the word does not say: OpenMM
+            # sizes a box as the solute's bounding sphere plus the padding,
+            # so it is the least distance to the nearest periodic image. A
+            # reader used to padding measured to the box's wall would read
+            # the box as twice as large as it was.
+            resolved = setup.get("resolved") if isinstance(setup.get("resolved"), dict) else {}
+            grown = resolved.get("solvent_padding_nm")
+            was_grown = isinstance(grown, (int, float)) and grown != padding
+            used = grown if was_grown else padding
             solvation.append(
-                f"The complex was solvated in a {box or 'cubic'} box with "
-                f"{_nm(padding)} of padding"
-                + (f", and {positive}/{negative} ions at {concentration} M"
+                f"The complex was solvated in a {box or 'cubic'} box sized to "
+                f"leave at least {_nm(used)} between the solute and its nearest "
+                f"periodic image"
+                + (f" (grown from the {_nm(padding)} asked for, so that the box "
+                   f"is at least twice the cutoff across)" if was_grown else "")
+                + (f", with {positive}/{negative} ions at {concentration} M"
                    if concentration is not None else "")
                 + "."
             )
         if atoms:
             solvation.append(f"The solvated system contained {int(atoms):,} atoms.")
+        # Read from what the phase used: `random_seed` here is the setting,
+        # and it is absent where a seed was drawn.
+        seed = _get(setup, "_random_seed")
+        if seed is not None:
+            # The one thing a reader needs to repeat the preparation rather
+            # than make an equivalent one: hydrogens and ions are placed at
+            # random, and so is a bilayer's packing. A bilayer prepared
+            # before its packing was seeded records no packing seed.
+            packed = bilayer.get("packing_seed") if bilayer else None
+            if bilayer and packed is not None:
+                solvation.append(
+                    f"Hydrogens, ions and the bilayer's packing were placed with "
+                    f"random seed {int(seed)} (`setup.random_seed`; the packing "
+                    f"with seed {int(packed)} taken from it), which reproduces "
+                    "the solvated system.")
+            else:
+                solvation.append(
+                    f"Hydrogens and ions were placed with random seed {int(seed)} "
+                    "(`setup.random_seed`)"
+                    + (", which reproduces the solvated system except the bilayer's "
+                       "packing" if bilayer else ", which reproduces the solvated system")
+                    + ".")
 
         method = _get(setup, "nonbonded_method", default="PME")
         cutoff = _get(setup, "nonbonded_cutoff_nm")
@@ -365,7 +528,7 @@ def methods_paragraphs(
         if _get(sim, "minimize", default=True):
             protocol.append("The system was energy-minimized before dynamics.")
 
-        # What was held while the solvent settled. A restrained equilibration
+        # What was held while the solvent equilibrated. A restrained equilibration
         # is part of a protocol, and a reader cannot repeat one that held the
         # protein at a thousand kilojoules and released it in four steps
         # unless the paragraph says so.
@@ -382,8 +545,8 @@ def methods_paragraphs(
             if _get(sim, "restrain_production", default=False):
                 protocol.append(
                     "**The restraints were retained during production**, so "
-                    "the trajectory is biased: measures of flexibility "
-                    "computed from it describe the restraint as well as the "
+                    "the trajectory is biased: flexibility analyses run "
+                    "on it describe the restraint as well as the "
                     "system."
                 )
             else:
@@ -420,8 +583,8 @@ def methods_paragraphs(
             ("umbrella",
              "This run is one window of an umbrella study, held at its own "
              "position on the coordinate by a harmonic restraint. Its "
-             "trajectory analyses describe a system held there and are not "
-             "measurements of the unrestrained system; they are also not "
+             "trajectory analyses describe a system held there and do not "
+             "describe the unrestrained system; they are also not "
              "comparable between windows, which differ because the "
              "restraints differ. What combines the windows is the potential "
              "of mean force, computed from their overlapping distributions "
@@ -444,12 +607,22 @@ def methods_paragraphs(
             stages.append(f"{_steps_to_ns(npt, timestep)} in the NPT ensemble")
         if stages:
             protocol.append("Equilibration comprised " + " followed by ".join(stages) + ".")
-        if production:
+        if production and extended:
+            total, pieces = extended
+            length = f"{total:.3g} ns" if total >= 1 else f"{total * 1000:.3g} ps"
+            protocol.append(
+                f"Production dynamics were run for {length} in the "
+                f"{production_ensemble.upper()} ensemble, in {pieces} pieces, "
+                "each continuing from the checkpoint of the one before."
+            )
+        elif production:
             protocol.append(
                 f"Production dynamics were run for "
                 f"{_steps_to_ns(production, timestep)} in the "
                 f"{production_ensemble.upper()} ensemble."
             )
+        elif production == 0:
+            protocol.append("No production was run: the study equilibrated only.")
         if integrator and timestep:
             protocol.append(
                 f"Equations of motion were integrated with the {integrator} "
@@ -469,13 +642,18 @@ def methods_paragraphs(
         # production. Stated without saying which, it reads as production's.
         barostat = (f", with the barostat applied every {barostat_every} steps"
                     if barostat_every else "")
-        if pressure is not None and production_ensemble == NPT:
+        if barostat_kind == "membrane":
+            # A bilayer's area and thickness move separately; an isotropic
+            # barostat would couple them and squeeze it.
+            barostat += (" (a membrane barostat: x and y coupled, z "
+                         "independent, zero surface tension)")
+        if pressure is not None and production_ensemble == NPT and production != 0:
             protocol.append(f"Pressure was maintained at {pressure} bar{barostat}.")
         elif pressure is not None and npt:
             protocol.append(
                 f"Pressure was maintained at {pressure} bar during NPT "
                 f"equilibration{barostat}.")
-        if interval and timestep:
+        if interval and timestep and production != 0:
             protocol.append(
                 f"Coordinates were written every "
                 f"{_steps_to_ns(interval, timestep)}."
@@ -494,22 +672,39 @@ def methods_paragraphs(
         )
         parts.append("**Simulation protocol.** " + " ".join(protocol))
 
+    # ---- analysis -----------------------------------------------------
+    analysis = _analysis_paragraph(means or {}, stopping)
+    if analysis:
+        parts.append("**Analysis.** " + analysis)
+
+    # ---- an AI model ---------------------------------------------------
+    label, disclosed = _model_paragraph(written, conversations)
+    if disclosed:
+        parts.append(f"**{label}.** " + disclosed)
+
     # ---- software -----------------------------------------------------
-    if versions:
+    if versions or made_with is not None:
         # FastMDXplora did the work -- setup, simulation and analysis -- and
         # the libraries it calls are the record of what it stood on. The
         # two are not the same kind of thing and were listed as one.
         ours = versions.get("FastMDXplora")
         tools = {k: v for k, v in versions.items() if k != "FastMDXplora"}
-        if ours:
+        if made_with is not None:
+            parts.append("**Software.** " + _made_with_sentence(made_with))
+        elif ours:
             parts.append(
                 "**Software.** System setup, simulation and analysis were "
                 f"performed with FastMDXplora {ours}."
             )
         if tools:
             named = ", ".join(f"{name} {version}" for name, version in
-                              sorted(tools.items()))
-            parts.append(f"**Tools.** FastMDXplora calls {named}.")
+                              sorted(tools.items(), key=lambda kv: kv[0].lower()))
+            sentence = f"**Tools.** FastMDXplora uses {named}."
+            if not tools_recorded:
+                sentence += (
+                    " The run did not record its libraries, so these are the "
+                    "versions installed where this report was written.")
+            parts.append(sentence)
 
     gaps = missing_from_methods(setup, sim)
     if gaps:
@@ -522,3 +717,213 @@ def methods_paragraphs(
         )
 
     return "\n\n".join(parts)
+
+
+def _listed(names: list[str]) -> str:
+    names = [f"`{name}`" for name in names]
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def _estimator_sentences(means: dict[str, dict[str, Any]]) -> list[str]:
+    """How the means and their errors were determined.
+
+    Said from the records rather than from the release writing the report:
+    a record carrying its degrees of freedom was written by the estimator
+    described here, and one without them by an earlier one, whose details
+    differ. The constants are read from the module that applies them, so
+    this cannot describe a threshold the estimator no longer uses.
+    """
+    from fastmdxplora.statistics import (EQUILIBRATION_TOLERANCE,
+                                         MINIMUM_EFFECTIVE_SAMPLES, RESOLVED_SAMPLES,
+                                         WHOLE_RUN_UNLESS_GAIN)
+
+    names = sorted(means)
+    said = ((f"Each per-frame quantity ({_listed(names)})" if len(names) > 1
+             else f"The per-frame quantity {_listed(names)}")
+            + " was averaged over the frames after an equilibration period detected "
+            "automatically")
+    if not all("degrees_of_freedom" in record for record in means.values()):
+        return [said + " (Chodera, J. Chem. Theory Comput. 2016, 12, 1799), with a "
+                "standard error from the statistical inefficiency of the frames kept. "
+                "These means were recorded by an earlier release than the estimator "
+                "the current documentation describes, whose details differ; analysing "
+                "the study again records them by the current one."]
+    gain = {2.0: "doubled", 3.0: "tripled"}.get(
+        float(WHOLE_RUN_UNLESS_GAIN), f"multiplied by {WHOLE_RUN_UNLESS_GAIN:g}")
+    return [
+        said + ", as the latest start that keeps at least "
+        f"{100 * (1 - EQUILIBRATION_TOLERANCE):g}% of the most statistically independent "
+        "samples any start keeps (after Chodera, J. Chem. Theory Comput. 2016, 12, "
+        "1799).",
+        "Standard errors account for the correlation between frames through the "
+        "statistical inefficiency, the number of frames per independent sample, "
+        "estimated from the autocorrelation function summed over Geyer's initial "
+        "positive sequence (Stat. Sci. 1992, 7, 473) and corrected for the bias of an "
+        "autocorrelation taken about the sample mean.",
+        "Where frames were discarded, the error is that of the whole run scaled to "
+        f"the frames kept, unless the discard at least {gain} the independent samples.",
+        "An error is given only where the frames averaged span at least "
+        f"{RESOLVED_SAMPLES:g} times their own statistical inefficiency and hold at "
+        f"least {MINIMUM_EFFECTIVE_SAMPLES:g} independent samples.",
+    ]
+
+
+def _discard_sentence(means: dict[str, dict[str, Any]]) -> str:
+    """How much was discarded, over what."""
+    def whole(value: Any) -> int | None:
+        return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
+
+    discards = [whole(r.get("discard")) for r in means.values()]
+    frames = {whole(r.get("n_frames")) for r in means.values()}
+    if None in discards or len(frames) != 1 or None in frames:
+        return ""
+    n = frames.pop()
+    low, high = min(discards), max(discards)
+    if high == 0:
+        return f"No equilibration period was detected in the {n:,} frames analysed."
+    if low == high:
+        return (f"The first {low:,} of the {n:,} frames analysed were discarded as "
+                "equilibration" + (" in each." if len(discards) > 1 else "."))
+    return (f"The equilibration periods discarded ran from {low:,} to {high:,} of the "
+            f"{n:,} frames analysed.")
+
+
+def _stopping_sentences(stopping: dict[str, Any], units: dict[str, str]) -> list[str]:
+    """Why the production is as long as it is, for a study run until it knew."""
+    from fastmdxplora.simulation.stopping import (AGREE_WITHIN, JUDGED_ALONE, ONE_ERROR,
+                                                  StopTarget)
+
+    rounds = [r for r in stopping.get("rounds") or [] if isinstance(r, dict)]
+    try:
+        targets = [StopTarget(**t) for t in stopping.get("targets") or []]
+    except TypeError:
+        return []
+    if not targets or not rounds:
+        return []
+    runs = stopping.get("runs") or []
+    replicas = len(runs) > 1
+    ceiling = stopping.get("max_duration_ns")
+    asked = "; ".join(t.said(units.get(t.analysis, "")) for t in targets)
+    said = [
+        "The production length was not fixed in advance. The study ran in rounds, each "
+        "extended by what its analyses said was still needed, until "
+        + asked + (" was" if len(targets) == 1 else " were") + " determined"
+        + (f" in {len(runs)} replicas that agree within their errors" if replicas else "")
+        + (f", with at most {ceiling:g} ns of production" + (" per run" if replicas else "")
+           if isinstance(ceiling, (int, float)) and not isinstance(ceiling, bool) else "")
+        + ".",
+        "Each error was judged widened by Student's t at its own degrees of freedom, so "
+        "that it holds the true mean as often as one standard error of a normal mean "
+        f"does ({100 * (2 * ONE_ERROR - 1):.1f}% of the time)"
+        + ("; the replicas were pooled weighted by their errors, judged on the larger "
+           "of their combined error and the spread of their means, and only once those "
+           "means agreed within their errors (Cochran's Q over its degrees of freedom "
+           f"at most {AGREE_WITHIN:g})." if replicas else
+           f"; a single run's error was accepted only once it rested on "
+           f"{JUDGED_ALONE:g} independent samples, and one run cannot show a state it "
+           "never left."),
+    ]
+    last = rounds[-1]
+    produced = last.get("production_ns")
+    at = (f", at {produced:g} ns of production" + (" per run" if replicas else "")
+          if isinstance(produced, (int, float)) else "")
+    count = f"{len(rounds)} round" + ("s" if len(rounds) != 1 else "")
+    outcome = stopping.get("outcome")
+    said.append({
+        "met": f"It stopped after {count}{at}, with each determined as asked.",
+        "ceiling": f"It stopped at the ceiling after {count}{at}, before each was "
+                   "determined as asked.",
+        "stopped": f"It stopped after {count}{at}, when an extension did not complete.",
+    }.get(outcome, f"It was still running when this was written, after {count}{at}."))
+    return said
+
+
+def _analysis_paragraph(means: dict[str, dict[str, Any]],
+                        stopping: dict[str, Any] | None) -> str:
+    """How each mean and its error were determined, and, for a study run
+    until it knew, why it ran as long as it did. Empty where nothing
+    recorded a mean and the study ran to a fixed length."""
+    means = {name: record for name, record in means.items()
+             if isinstance(record, dict) and record.get("mean") is not None}
+    said: list[str] = []
+    if means:
+        said += _estimator_sentences(means)
+        discard = _discard_sentence(means)
+        if discard:
+            said.append(discard)
+        shared = sorted({record["start_shared_with_replicas"] for record in means.values()
+                         if isinstance(record.get("start_shared_with_replicas"), int)})
+        if shared:
+            said.append(
+                "As one of a set of replicas started from one structure, "
+                + ("each quantity was" if len(means) > 1 else "it was")
+                + " averaged from no earlier than frame "
+                + " or ".join(f"{frame:,}" for frame in shared)
+                + ", the start detected on the replicas' frame-by-frame average, where the "
+                "relaxation they share shows through less noise than in one run.")
+        withheld = sorted(name for name, record in means.items()
+                          if record.get("not_a_measurement"))
+        if withheld:
+            said.append(f"No error is given for {_listed(withheld)}; the report says why"
+                        + (" for each." if len(withheld) > 1 else "."))
+    if isinstance(stopping, dict):
+        units = {name: str(record.get("unit") or "") for name, record in means.items()}
+        said += _stopping_sentences(stopping, units)
+    return " ".join(said)
+
+
+#: How each way of writing a study reads in a methods section.
+_WRITTEN = {
+    None: "written by a person",
+    "assisted": "drafted with an AI model and approved by a person before it ran",
+    "autonomous": ("drafted by an AI model and run without being shown to a person "
+                   "first, within a stated cost ceiling"),
+    "unvalidated": ("written outside the configuration schema, so the software's "
+                    "validator did not check it"),
+}
+
+
+def _model_paragraph(written: dict[str, Any] | None,
+                     conversations: int) -> tuple[str, str]:
+    """The use of an AI model, disclosed as journals ask it to be: what
+    an AI model wrote, which one, what checked it, and where the conversation
+    is kept; with its label. Empty for a study a person wrote, which records
+    nothing, and labelled for what it says where a phase went outside the
+    schema and no AI model is recorded."""
+    label = "Use of an AI model"
+    if not isinstance(written, dict):
+        return label, ""
+    study = written.get("study")
+    phases = written.get("phases") if isinstance(written.get("phases"), dict) else {}
+    departures = (written.get("departures")
+                  if isinstance(written.get("departures"), dict) else {})
+    model = written.get("model")
+    modes = {study, *phases.values()}
+    if not (modes - {None}):
+        # An AI model named and no mode set: the record says one was involved
+        # and not how, and claiming either would be inventing it.
+        return label, (f"The configuration names an AI model, {model}, without "
+                       "saying how it was used (`agent` was not set)." if model else "")
+    used = bool(model) or bool(modes & {"assisted", "autonomous"})
+    said = [f"The study's configuration was {_WRITTEN.get(study, str(study))}."]
+    for phase, mode in sorted(departures.items()):
+        said.append(f"Its {phase} phase was {_WRITTEN.get(mode, str(mode))}.")
+    if model:
+        said.append(f"The AI model was recorded as {model}.")
+    elif used:
+        said.append("Which AI model was not recorded.")
+    unchecked = sorted(name for name, ok in (written.get("checked") or {}).items()
+                       if ok is False)
+    if not unchecked:
+        said.append("Every setting was validated by the software before it ran.")
+    else:
+        said.append("Every setting outside the "
+                    + _listed(unchecked).replace("`", "")
+                    + (" phase" if len(unchecked) == 1 else " phases")
+                    + " was validated by the software before it ran.")
+    if conversations:
+        said.append("The conversation" + ("s" if conversations > 1 else "")
+                    + " with the FastMDXplora Agent about this study "
+                    + ("are" if conversations > 1 else "is")
+                    + " kept with it, in `agent/conversations`.")
+    return (label if used else "How the configuration was written"), " ".join(said)

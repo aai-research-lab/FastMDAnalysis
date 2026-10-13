@@ -7,17 +7,5370 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
-### A file of several molecules is several ligands
+### Added
 
-A list of ligand files has always been several ligands; one SDF or MOL2 file
-holding several molecules was refused, with a message that called multi-ligand
-support "not yet implemented". It is divided in setup now into the files it
-would otherwise have been supplied as, so the molecules are parameterised,
-placed and clash-checked exactly as separate files are. Each takes its title as
-its residue name where that is one to three letters or digits and unique in the
-file, and `L01`, `L02` ... otherwise. Names that would collide are refused with
-`setup.ligand.names_collide`. Giving the ligands no `ligand_name` no longer
-counts the default `LIG` as a name given to all of them.
+- The Agent's evaluation has its first run with an AI model
+  (`anthropic/claude-opus-5-5`, the 72 cases three times each). The safety,
+  write, edit, repair, act and docs claims are met; the records cases, not
+  decided as first asked for want of a study with determined means, are met
+  when asked again against one. The 8 of 93 docs trials missed all read the
+  docs elsewhere than where the answer is. The run is kept in the suite and
+  replayed there with no AI model, so a change that would turn one of its
+  verdicts fails the suite. A run now records the commit it was asked from,
+  and `--replay` reads a gzipped run. See `docs/validation.md`, The Agent's
+  evaluation.
+- A ligand file holding several molecules is read as several ligands. An SDF
+  or MOL2 of more than one molecule used to be refused as "not yet
+  implemented"; setup now divides it into the files it would otherwise have
+  been supplied as, so each molecule is parameterised, placed and
+  clash-checked as a separate file is. Each takes its title as its residue name
+  where that is one to three letters or digits and unique in the file, and
+  `L01`, `L02` ... otherwise; names that would collide are refused with
+  `setup.ligand.names_collide`. A single `ligand_net_charge` is checked against
+  each molecule, as it is for separate files.
+
+### Fixed
+
+- Two supplied ligand files with no `ligand_name` are no longer refused. The
+  default `LIG` counted as a name given to both, and the refusal told the
+  author to leave the name out.
+- A structure fetched from RCSB is tried up to three times when the connection
+  is dropped, the transfer is cut short, or RCSB answers 429 or 5xx. A study
+  stopped by such a failure is told so, not that the machine may have no route
+  to the internet.
+
+## [2.6.0] - 2026-10-11
+
+This release gives every mean one verdict on every page, records the rules
+that judged it, and gives it an error that holds the truth about as often as
+it says. The statistical inefficiency is corrected for the sample mean, the
+start discarded is the latest that keeps within a tenth of the most
+independent samples, a correlation time counts as resolved at 25 independent
+samples, and replicas are averaged from the start they share, so means,
+errors and withheld verdicts can differ from 2.5.8's. Counted on held-out
+sets, single runs and replicas of stationary series held the truth within
+one error in 65% to 69% of studies and within two in 94% to 96%. A mean
+whose frames still move one way is withheld, and a study analysed by an
+earlier version says so until it is analysed again.
+
+Analyses give other numbers where 2.5.8's were wrong: RMSF is taken over the
+equilibrated frames and weighted by mass per residue; `protein` takes in CYX,
+the histidine and aspartate forms and the terminal caps, so equilibration's
+restraints on `protein` now hold its bridged cysteines and histidines too;
+the alpha-carbon default leaves out a calcium ion; ligand RMSD is over heavy
+atoms with the ligand's symmetry; a centre-of-mass distance, a ligand's RMSF
+and an end-to-end distance are taken across the periodic box; and
+protein-ligand interactions follow stated chemical criteria for contacts,
+halogen bonds, water bridges, charged groups and acceptors. Some studies were
+prepared or run wrong under 2.5.8 without a warning: a box grown for its
+cutoff ("Re-solvating" in the setup log) was given extra ions; a membrane
+protein was placed in its bilayer by its file's frame, or by its longest axis
+when rotated, which is wrong for one with a soluble domain, and DMPC, DOPC,
+DPPC, DLPC and DLPE bilayers were coupled isotropically; and a 4 fs
+run that stated no lengths equilibrated and produced for twice as long as
+now, since the default stage lengths are times (500 ps, 1 ns and 2 ns).
+Preparation is seeded throughout, so one seed gives one system. A study sent
+to another machine takes only the files in its Config's folder (a Config in
+the home folder is refused), and a shared umbrella system that cannot be
+checked is no longer reused.
+
+New in 2.6.0: the GUI rebuilt around what a study determined; the Viewer
+rendered with Mol\*, with named selections, views saved as MolViewSpec
+scenes, distances and angles, and movies; the Agent replying by tool calls,
+answering from the software's docs and the study's records, and remembering
+the person; an AI app reaching FastMDXplora through `fastmdx mcp`, starting a
+study only from a checked file and with your go-ahead; studies on your own
+machines planned, sent, followed and fetched from the GUI, from Python and
+from an AI app; a study shared as one RO-Crate file, made a draft on Zenodo
+and opened from its DOI; a study run until what it is for is known
+(`simulation.stop_when`); a membrane protein placed by a fit checked against
+OPM, and its bilayer analysed; and `fastmdx resume` for a study of several
+runs.
+
+`fastmdx init-config` is now `fastmdx config` and `fastmdx agent set` is
+`fastmdx agent model`; and `reweight.weights_for_run` and
+`reweight.read_colvar`, the Chemical Component Dictionary route for ligands
+and the multi-model PDB playback are removed. `fastmdx gui --demo` and **Open
+the demo study** fetch a finished demo study the first time it is opened,
+once it is published; it is not yet, so in 2.6.0 `--demo` says so and the
+button is not shown. `markdown` is now a required dependency,
+building needs setuptools 77 or later, and as the package ships Mol\* and
+the interface's fonts its licence expression is MIT AND Apache-2.0 AND ISC
+AND 0BSD AND OFL-1.1 (FastMDXplora's own code stays MIT). An error does not
+include a state no run left: a study trapped in one of two states looked
+determined in 3% to 6% of studies, and slow replicas reached the 200 ns
+ceiling in about half of theirs.
+
+### Copy, once
+
+**Fixed:** Open the folder copied the path twice, the second time after the
+server's answer, where a page with no clipboard may no longer copy. A Copy
+made where the page has no clipboard emptied what was selected, in the page
+or in a field, and left the study card's style behind; the SHA-256 copied
+was said only for a moment; and the Config Builder's Copy command left the
+note of a refusal before it in place. Each is put right.
+
+### Saved, as the Config Builder saves
+
+**Changed:** the Config Builder's "Draft saved in this browser" says Saved,
+and plays for a moment each time a change is saved (still where less
+motion is asked for); a save that changes nothing, or a draft opened
+again, does not play. Reset writes the saved settings over rather than
+dropping them first.
+
+### Every Copy ticks
+
+**Fixed:** some Copy buttons said they had copied only in a notice, some
+swapped their words for "Path copied", and the Cite dialog's and the
+Viewer's failed where the page has no clipboard (a GUI reached over plain
+http from another machine). Every Copy now ticks its button for a moment,
+or crosses it with the reason, and copies however the browser allows. Open
+the folder says the path was copied only where it was.
+
+### The Overview as a run ends
+
+**Fixed:** after Analyze again, the Overview still said what the old
+records said for up to 20 s ("Analysed by an earlier version", for means
+just judged by this version's rules). A run of the open study that ends,
+from the Analysis page, the Agent or a fix, has its records read at once,
+and a read asked for while another is on its way is made once more after it.
+
+### A study carried on and stopped again before its first checkpoint
+
+**Fixed:** a study stopped in production, carried on, and stopped again
+before the new piece wrote its first checkpoint was run again from its
+start, over the production frames of every piece. The piece with no
+checkpoint is set aside (unless it is still running), and the study is
+carried on from the last checkpoint there is, for the length that piece
+was asked to run, also when the study was moved since. A study carried on
+in pieces with no checkpoint left in any is refused with the reason, each
+time it is asked; one stopped before its first piece's checkpoint is still
+run again from its start, as it says.
+
+### The Agent evaluated
+
+**Added:** `python -m fastmdxplora.validation.agent_eval`, one versioned set
+of what a person asks the Agent, registered before any reply was seen
+(`preregistration/agent-eval.md`), by which every change to the Agent and
+every AI model behind it is judged. Each case is asked as the Agent page
+asks it, with the software's tools, and judged in code: studies written
+from one message, changed over several, and repaired after a refusal, each
+read as the runs it makes; no structure invented where none is named; a
+refused value not changed to get past the check; nothing done unasked,
+including where an attached file says to run; an action asked for done;
+questions about the software answered from its docs; a finished study's
+mean quoted from its record. Every exchange is recorded (`--out`) and
+replays with no AI model and no network (`--replay`); `--docs-only`
+measures the docs search alone, and `--marks` reads the Useful and Wrong
+marks people gave. See `docs/validation.md`, The Agent's evaluation.
+
+### Plan, send, follow and fetch a study on your machines from the GUI
+
+**Added:** **Plan the send** in New study, beside **Run on this machine**
+(or, with **A config I have**, under the config file's own run), offering
+the machines inspected at a terminal. The plan asks the machine and shows
+what a send would do, sending nothing: where it runs, its folder there, the
+config, where the results come back to, every file that travels with its
+size, the GPUs' room and the job script. **Send to** the machine sends that
+plan once, within ten minutes, and only while the form and what travels are
+as shown. A study built in the form is saved as `<results>.yml` first, and
+taken back when its plan is refused or let go. **Remote jobs** on All
+studies lists the jobs whose results come back into the workspace: **Ask how
+it is doing**, **Fetch the results** at the size said, **Stop it** once
+asked. `POST /api/remote/plan` takes the builder's `state`; `POST
+/api/remote/forget` lets a plan go.
+
+**Fixed:** a send no longer waits on a pipe it reads, reads what travels in
+one order, and is bound to the whole digest of what travels. A `system` that
+setup reads as a PDB ID or a sequence, and a phase, an analysis or another
+setting whose values are words, no longer travel as a file or folder of that
+name beside the Config (`fastmdx remote send` too), nor do chains, ligand
+names and poses, selections or the reasons a Config records. A study built
+in the form is saved, and the files it names by a relative path read, in
+the folder new studies go in, as **Run on this machine** reads them; where
+that folder is the home folder, one above it or a disk's top, the page says
+so beside **Plan the send** before anything is asked, naming a folder to
+open the GUI on instead, and the routes reach only the folder opened. Your
+home folder is both the one your account names and the one `HOME` names
+(`fastmdx remote send` too), so a wrong or empty `HOME` lets neither in. A
+config file named by a relative path is refused
+(`remote.config.read_elsewhere`) where the GUI's check would read another
+file or none, or the folder the GUI was started in is gone, and the refusal
+says where each reads it. Refusals name both folders the routes reach. A
+form changed while a send is out no longer takes its plan away, and a plan
+kept past its ten minutes says it was not sent, also once closed.
+
+### The Agent remembers you
+
+**Added:** the Agent keeps a short memory of the person, lines such as "You
+are new to molecular dynamics." or "You study GPCRs in membranes.", and is
+told it with each message, so its answers suit them without being told
+again. It is a Markdown file of the person's own, `agent_memory.md` in the
+settings folder, changed line by line: every other word in it stays, with
+its line endings and encoding. It is shown and changed in the Agent's
+Settings (each line with where it came from, the last change undone, all of
+it forgotten, two switches) and by `fastmdx agent memory`. After a reply the
+AI model reads what the person wrote for something to keep, add, change or
+forget, said under the reply with Undo. A key, a password, an instruction to
+go past a check or a confirmation, and a value meant for every study (which
+goes in `fastmdx-defaults.yml`) are refused (`agent.memory.refused`); every
+Config is still checked and every run and stop still asked, whatever a line
+says. Served by a service (`--hosted`), each person's memory is kept where
+the service says, `--memory-dir` or a store an installed package offers
+(`--memory-store`, `agent.memory.store_unusable` where it cannot be had),
+and learning from chats starts off there.
+
+### A mean judged by an earlier version's rules
+
+**Changed:** each mean is recorded with the rules that judged it. A study
+analysed by an earlier version, whose rules could call a mean still
+drifting determined, is said so on the Overview, on the Analysis page and in
+the Agent's answer from the records, naming the analyses, with **Analyze
+again** to judge them by this version's rules.
+
+### A study stopped twice, carried on
+
+**Fixed:** a study stopped in production is carried on and its pieces
+joined with the first piece's frames past its checkpoint left out. Stopped
+again before its analysis, it could not be carried on: the join was made
+again with no frames left out, and the first piece was refused as one that
+did not finish. It is joined as before and analysed. Frames that cannot be
+counted are refused before the join (`simulation.resume.unsealed`), and an
+extension stopped short of the length asked for is not cut back and called
+finished.
+
+### Studies started here share the GPUs, and the GUI reaches your machines
+
+**Changed:** a study started on this computer (the GUI's **Run**, **Run a
+config file**, an AI app's `start_study`, the Agent) that simulates on a GPU
+starts beside the studies already running where it fits on one: the GPU with
+the fewest studies from here and then the most free memory, read with
+`nvidia-smi`, given to the run by its UUID. One that does not fit is refused
+with the memory it needs and what is free (`environment.workspace.no_room`).
+The memory one run needs is learned from the studies here that completed with
+their runs one at a time on the GPU chosen, kept apart from the machines'
+(`gpu_memory_here.json`). Work on the CPU, a study whose GPU is not chosen
+here (a continuation), and every study on a computer whose GPUs `nvidia-smi`
+does not read, each still waits for the other such work. A window still follows
+one run.
+
+**Fixed:** no two runs write one folder. A study started into, inside or
+around a folder a run is writing, a continuation of a study still running
+(from any page, **Run a config file** included), and an analysis run again
+on a study still running are refused (`environment.workspace.run_going`).
+The GUI holds the workspace's starting lock from its check that the folder
+is free to the start, so two windows, or a window and an AI app, cannot both
+find it free. A start refused takes back the folders it made.
+
+**Added:** the GUI's routes to your machines, `/api/remote/*`: the machines
+and jobs, a plan of a send (what travels, each size, where it runs, the GPUs'
+room, the job script) under a token kept ten minutes, the send of that plan
+once, a job's state, a fetch at the size shown, and a cancel. Loopback only,
+behind the server's checks, and not in a hosted GUI.
+
+**Fixed:** a send to another machine is bound to the contents of what
+travels, not only the sizes: a file rewritten at the same size after the plan
+was shown, or while the person was asked in an AI app, is not sent
+(`remote.send.unconfirmed`). Files are read for this up to 2 GB a send;
+beyond, a file is known by its size, the file it is and when it was written
+and changed. A pipe named as an input is never opened.
+
+### Compare and Clear beside the studies chosen
+
+**Changed:** on All studies, **Compare** and **Clear** were at the top of
+the page, above the cards: a second study chosen far down was compared only
+after scrolling back up. They now come beside the pointer that chose the
+second (beside its box, chosen from the keyboard), only while two are
+chosen, and stay clear of the comparison, of tags being changed and of the
+Agent drawn over the page. They are left out of a printout, and closing the
+comparison from the keyboard keeps the focus on the page.
+
+### A reply's tokens, when asked
+
+**Changed:** the tokens each of the Agent's replies took ("60,049 tokens in
+(58,416 from the cache, 1,625 written to the cache) · 1,601 out") are shown
+only when asked, by a bars icon on the row of the reply's Copy, Useful and
+Wrong, which were on two rows; the line was under every reply.
+
+### A run's notice when it ends
+
+**Fixed:** a run's notice is for the study whose status ends it. A study
+opened elsewhere between two polls gave its finished status to the page and,
+for a run seen running with no start yet, a notice that it had completed. A
+rerun forced in the same folder that ended before the page saw it going said
+nothing; it says so now. A study of several runs, which keeps no record at
+its top, is said as its process ends, and a process that failed or was
+stopped before writing any record is said as failed or stopped, not
+completed.
+
+**Fixed:** a reload as a run started from the Agent page could leave "I could
+not read the software's answer to starting the run" in the conversation
+beside the run that started: the launch's request, cut off by the reload,
+failed just before the page went. A launch failure while the page is going
+says nothing; one where the page stays is said a moment later.
+
+### The Agent reads the software's docs
+
+**Added:** the Agent answers a question about FastMDXplora itself (a page, a
+button, a command, a setting, a refusal) from the software's own docs and
+names the page, through a new look, `read_docs`: the passages that answer a
+question, a page's sections, or one section whole. Where the docs do not
+say, it says so rather than guess. Asked what **Useful** and **Wrong** under
+its replies do, it could not say before.
+
+**Added:** the docs ship inside the package (`fastmdxplora/_docs`, copied
+from `docs/` when the package is built), so an installed copy reads the docs
+of its own version, offline.
+
+**Changed:** **Useful** and **Wrong** under each of the Agent's replies are
+line icons, a thumb up and a thumb down, named on hover and to a screen
+reader and filled while pressed.
+
+**Changed:** the docs look finds more of what a question asks: a word in any
+of its forms ("rotation" and "rotate", "applies" and "applied", "used" and
+"use", "GPUs"), two words asked as one or one as two ("time step" and
+`timestep_fs`, "box shape" and `box_shape`, "set up" and "setup", "fastmdx
+simulate"), a name glued at a capital (`AmberTools`, `StudyFailed`) found by
+its two words at less weight than the two written apart; the rows of one
+table or the items of one list give way to another passage that answers
+nearly as well. An answer closes any block of code it leaves open, a heading
+with nothing under it says so, and a look the software refuses is shown as
+refused. The Agent's page of the docs lists the look and says what
+**Useful** and **Wrong** keep.
+
+### The README's licence
+
+**Changed:** the README's License section names FastMDXplora's own licence
+only.
+
+### The GUI as a run ends, stops, is carried on and is read
+
+**Fixed:** a mean was called Determined on the Overview and the Analysis
+page while the report's convergence failed it, and the report table and the
+Agent gave errors for means the Analysis page withheld. Every page, the
+report and the Agent now read one verdict, the analysis's own record, and a
+mean whose averaged frames still move one way is withheld
+(`analysis.sampling.still_drifting`). The report's summary counts its own
+table; the Agent names analyses as the pages do and gives the thermodynamic
+means. The Overview's thermodynamic means come from `energy.csv`, as the
+report's do.
+
+**Fixed:** the Viewer played the run's live snapshots in place of
+`production.dcd` whenever the record did not say "completed"; the Contact
+map, Backbone angles, the movie and States followed it. The production
+frames play once the simulation is no longer going.
+
+**Fixed:** a study carried on with **What would fix it**, **Run it** read
+Stopped while it ran and Failed after, its frames stuck at the first
+piece's. It is now read as one run across its pieces (`segment-001/`, ...),
+as Running while a piece runs, and as the study's own while its joined
+trajectory is analysed and reported. A study stopped again while carried on
+is said to the checkpoint it wrote, in production's own steps and time.
+
+**Fixed:** a completed study was told to resume, and a failed one was
+listed Completed in All studies and Recent. A run stopped here reads as
+stopped, with what the stop leaves (a stop before production leaves no
+checkpoint, and none is offered); the reason is said in words, not the
+log's last line and an exit code. A study stopped in its analysis or report
+and then analysed or written again reads as it ends.
+
+**Added:** Stop the run on the Overview, the sidebar's card and Cmd+K, as
+on New study; each asks first, with Not now holding the keyboard.
+
+**Fixed:** a run stopped in production gave a length short of what it
+wrote, "Simulation failed" beside "Stopped", and a stop before production
+"0 ps production after 10 ps of equilibration". Time left is read from the
+run's own recent speed and is not shown once a run has ended.
+
+**Fixed:** Write it again and Analyze again rewrote the simulation's record
+(earlier stages "skipped", the run's time and date). They now write only
+the analysis and report and say what they are doing.
+
+**Fixed:** a timestep longer than its constraints allow (10 fs) passed every
+check and failed in NVT; it is now said before the run, and the diagnosis
+gives the timestep to try from the run's own.
+
+**Fixed:** Compare study paired unrelated proteins; Compare two studies
+listed values that were not differences and raw names. The Thermodynamics
+card plotted error bars for means not determined. The Viewer's overlay
+followed the live poll, not the frame played, and a fit to the deposited
+structure sent the molecule out of view.
+
+**Fixed:** the folded strip's links had no names; the Analysis and Report
+pages ran sideways on a phone; All studies' pinned column covered the
+numbers; the sidebar's run card ran under its foot; the study menu took no
+arrow keys, the page had no skip link and the Overview's Tab order jumped;
+the NVT/NPT line on the charts was late; Recent and Cmd+K gave IDs that
+could not be told apart; the Files page's columns shifted; units read
+`nm^3` and `e+04`; a trajectory analysed opened an empty narration panel.
+Selections half written are said in a sentence, never applied in part.
+
+**Fixed:** a selection property given no value was dropped from the
+sentence; Analyze again and Write it again on a study that ran only part of
+its plan analysed phases it never ran, and Compare two studies listed the
+phases and analyses one study never reached as differences. A mean withheld
+for want of a longer run, the trajectory's or a thermodynamic one, says how
+much longer it needs from the count it was withheld on, and under one
+independent sample is said as such, not 0. Lengths under a nanosecond are
+given in picoseconds. A config file with something worth knowing reads as
+its checks passing, with what to do. The run's speed beside its fix is the
+speed production ran at, as the fix is priced; a lone sample is plotted
+where it was taken, the NVT/NPT line only where a run reached NPT, and a
+speed of 0 is not plotted.
+
+**Fixed:** a study carried on in pieces had its energy, temperature and
+density read from its first piece alone: on the Overview, in the
+thermodynamics analysis, in the report's convergence and on the dashboard.
+Each piece's `energy.csv` is now read as the joined trajectory holds it,
+each piece's clock carried on, and a piece without its record is said, not
+passed over. The Convergence panel's time is given in picoseconds under a
+nanosecond.
+
+### The Agent beside the page, and a run's notice, as the page changes
+
+**Fixed:** Ctrl+J (⌘J) pressed just as the Agent page opened went back
+beside the page before, and the drawer closed again a moment later, leaving
+that page with no Agent beside it. The drawer now closes only while the
+Agent page is still the one shown.
+
+**Fixed:** with **Notify when a run ends** ticked, a run that ended at the
+page's next look after it opened gave no notice: the run was known by the
+name shown, which is the dashboard's own until the study's records arrive.
+A run is now known by when its live record says it started. The tab's title
+names the study as soon as its records arrive, where it read "FastMDXplora
+Live" until the next look.
+
+### Other machines from Python and from an AI app
+
+**Added:** `fastmdxplora.remote.api`, what `fastmdx remote` does at a
+terminal for a program: the machines as recorded, a send planned and then
+made, a job's status, the sizes a fetch would bring, the fetch, a cancel,
+and an install run only with a yes to the exact plan shown (used once, gone
+after ten minutes). It reaches only machines inspected at a terminal and
+never prompts: a machine whose `ssh` asks for a password is reached only
+while `fastmdx remote` keeps a sign-in open.
+
+**Added:** an AI app (`fastmdx mcp`) reaches your machines too:
+`list_machines`, `start_study` with `machine`, `remote_status`,
+`fetch_study` and `cancel_study`. A study is sent only once you agree when
+asked, with every file it sends and its size; where the AI app cannot ask
+you, nothing is sent (`remote.send.unconfirmed`). A fetch says each size
+first, and one of 100 MB or more is not made unasked
+(`remote.fetch.unconfirmed`). An AI app reaches only jobs whose results come
+back into its workspace, and never installs anything.
+
+**Changed:** only the files in the folder holding a Config travel with it to
+another machine, from the command line too (`remote.input.outside`). Links
+are followed as the copy follows them, and a folder with a link leading out
+is refused. A prepared study named by `simulation.setup_from` or
+`simulation.resume_from` may sit beside the folder when its manifest is one
+FastMDXplora wrote. A Config in your home folder is refused. Nothing in
+`.ssh` or another place keys and credentials are kept (FastMDXplora's own
+settings too) is sent, named or inside a folder that travels; the link and
+key checks are made again as the copy starts. Your defaults here travel in
+the Config, and the run there takes none of the machine's (`--no-defaults`).
+Before, any file the Config named anywhere on the computer was sent.
+
+**Changed:** studies sent to a workstation share its GPUs where they fit.
+Each send goes to a GPU it fits on, the one with the fewest studies from
+here and then the most free memory, pinned by its UUID; a config that names
+its own GPUs keeps them. The plan says each GPU's room and the jobs from
+here running there. A study that needs more than is free, for as many runs
+as it runs at once, is refused (`remote.machine.no_room`; `--dry-run` says
+so and still shows the plan), asked again under a lock at the send and once
+more as the run starts. The need is learned from the GPU runs measured on
+that machine, by particles and precision, never scaled from another size by
+particles alone: up to the largest size measured, never below the most a run
+of its size or smaller held, carried on as it rose up to the most a larger
+run held; past it, a line through the most each size held, or the most held
+carried on as steeply as it rose from sizes a tenth of the span apart,
+whichever is more, so neither a size that held less nor two sizes close
+together sets it; where those runs do not reach a study's size, or its size
+cannot be worked out here, it is not known and nothing is refused. Runs are
+counted where the explorer puts them, each round of a study run until it is
+determined and the pull that seeds an umbrella's windows included, and only
+among the GPUs the account's own `CUDA_VISIBLE_DEVICES` gives.
+`--force-overwrite` no longer replaces a job still waiting or running
+(`environment.path.exists`); cancel it first. No send is made, forced or
+not, while a job of that name works in its folder on the machine (on a
+workstation read from `/proc`, where it has one; on a cluster from the
+account's queue), or while one of that name was last read waiting or running
+on another machine. A job whose script was killed while its run goes on
+reads as running, and `cancel` stops its run. What a workstation job's run
+leaves going once the job has ended (an explorer that died with its runs
+going) is said, and `cancel` asks it to stop by an id only that send's run
+carries, never by the folder or the name. Each process is asked once: the
+machine keeps each stop asked, a cancel within ten minutes of one sends
+nothing more (a run told twice stops at once, without its checkpoint), and
+one after that stops them at once and says so. A job's number given to
+another process after a restart is not read as the job, and on a Mac, which
+has no `setsid`, a job is a process group of its own. On a cluster, the
+job's folder is compared as the machine resolves it, so one reached through
+a link is found, and a refusal names the job's number. `--partition` and
+`--time` take letters, digits and `_ . , : + -` only, at most 64. A
+cluster's job whose queue does not answer keeps its state, where it was read
+as failed; one the queue no longer knows, with no accounting to say how it
+ended, reads as failed; the queue's warnings are not read as a state, and a
+job waiting again in the queue is read as waiting. A cluster job asks not to
+be requeued, and keeps the last run's exit code until the cluster takes a
+job sent again. The queue's word and its accounting's are read apart:
+accounting that says a job the queue no longer knows is waiting or running
+is not believed. A cancel the cluster does not take is refused
+(`remote.job.cancel_not_taken`), and a job that has ended keeps how it
+ended; one last read as failed whose queue does not answer is neither
+signalled nor fetched. A job waiting in the queue says why, a hold above
+all. A machine record with fields of the wrong kind is refused by name, and
+the listings go on past it.
+
+**Changed:** a fetch copies into a folder of its own inside the results
+folder, takes out links, named pipes and set-id bits, and moves the results
+into place once all of it has been looked over; a fetch again copies only
+what changed, and goes on after one that failed. The job's log comes back as
+its last MiB, and the run's own process records and any
+`fastmdx-defaults.yml` stay on the machine. A job's record names its results
+folder as an absolute path, and a record that is not one FastMDXplora wrote
+is refused (`remote.job.unknown`). `cancel` asks the machine first, so a job
+that ended is not signalled. The install plan's commands are quoted word by
+word for the shell that runs them, and an image is copied into the machine's
+own home.
+
+### The Agent page, as the Agent
+
+**Changed:** the Agent page and `fastmdx agent` speak as the Agent: its AI
+model is named only in its settings ("Thinking...", "What I read for this
+reply", "From this study's records"), and its replies are set in Inter. Its
+icon beside each reply says what it is doing (working, waiting for you,
+done, could not finish), and each look is said as it happens and named
+after it with what it found ("Looked up "trp-cage" in the PDB"), where four
+of the Agent's tools were shown by their code names. A refusal by the
+software is one line in view; a format repair and "Accepted first time"
+are not shown.
+
+**Changed:** each Config the Agent writes is a version of the study: what
+changed from the version before, each value with where it came from (you
+asked, your default, the Agent's choice with its reason, or the default),
+and **Run on this machine** on the newest only, with **Open in the builder**
+and **More** for the file actions. An older version folds to one line with
+**Show** and **Use this version**. Before, every version kept its own Run
+button, so a study replaced by an edit could still be run.
+
+**Changed:** a question's candidates are buttons, and the next message is
+sent as it is (it was joined to the question whatever it said); a run or a
+stop not plainly asked for is confirmed with **Run it** / **Not now** or
+**Stop it** / **Keep running** (typing yes still works); a run is said under
+the message that started it, with **Watch on the Overview** and **Stop**
+(its "Started" was said in the Config's card two messages up).
+
+**Added:** when a run the Agent started ends, what it found, from the
+study's records (`POST /api/agent/run-summary`), so it costs no tokens; the
+message box's words follow the situation; **Useful** or **Wrong** on each
+reply, kept with the conversation, beside the tokens it took. On a phone,
+the bar carries FastMDXplora's mark and the conversations behind one icon
+(the sidebar's lists of them had filled it), and the Agent's settings say
+nothing with an em dash and style the key field.
+
+**Fixed:** a study of several runs records its process at its top, as one
+run does, so a GUI opened on it while it runs finds it running and can stop
+it, `stop_study` from an AI app reaches it, and it is one study going, not
+one for each run inside it.
+
+### A shared study opened from its DOI
+
+**Added:** `fastmdx gui --open SOURCE` (`--open-into DIR`,
+`--open-most-gb GB`) and **Open a shared study** on All studies take a
+shared study's DOI, its Zenodo address or its zip, and open nothing until
+every file is the one the packing list names: downloaded up to a limit and
+checked against Zenodo's MD5, unpacked only inside a folder of its own,
+nothing unlisted and nothing packing never writes
+(`environment.share.unsafe`, `unverified`, `too_large`). The study's
+folder is then put back in its records, and where it came from kept in
+`shared_from.json`. Nothing in an archive is run.
+
+### A shared study made a draft on Zenodo
+
+**Added:** `--share-to zenodo` (or `zenodo-sandbox`) with `--share` makes a
+draft on Zenodo from the token in `ZENODO_TOKEN`: the study packed first,
+the draft's DOI reserved and written into the archive as its own, the
+archive uploaded and the description filled in from the records. It never
+publishes. The study keeps the record in `shared_to.json`: shared again
+before publishing, the same draft is made again; after, a new version.
+
+### A study shared as one file
+
+**Added:** `fastmdx report --output STUDY --share FILE` packs a finished
+study as one zip in a published format, RO-Crate 1.2: its files as its
+folder lays them out (by default what its pages read; `--share-all` for
+every file) and `ro-crate-metadata.json`, which lists each with its role,
+size and SHA-256, under a profile of FastMDXplora's own
+(`https://w3id.org/fastmdxplora/study/1.0`, `docs/sharing.md`), with the
+licence (`--share-license`, CC-BY-4.0) and authors (`--share-author
+"NAME;ORCID"`). Never in it: the Agent's conversations, the record of the
+process that ran it, tags and notes, the Viewer's scratch, what `--rerun`
+set aside, deposits, dot files. The study's folder, any home folder and the
+computer's name are said as placeholders in every text file, and the
+archive is not written while one is left (`environment.share.unscrubbed`).
+The same study packed the same day is the same bytes.
+
+### A frame is shown at the time it was written
+
+**Fixed:** the Viewer spread a trajectory's frames evenly from 0 to the
+run's length: 100 frames of 10 ns read 0, 0.101, ... 10 ns where OpenMM
+wrote them at 0.1, 0.2, ... 10, so a frame was a frame's spacing from the
+same frame on the Analysis page. Frame k is now shown at k + 1 saving
+intervals, the clock the analyses plot, the interval read from what the
+analyses read the trajectory at, else from the run's saving interval and
+timestep (as Derrick Kwan's `fix/viewer-recorded-frame-times` reads it).
+Frames written before are given their times when next read. A study moved
+or shared, whose records name the trajectory where it was read, has its
+analyses' series linked to the frames again.
+
+### No time is given to frames a run's integrator spaced itself
+
+**Fixed:** a run with `variable_langevin` or `variable_verlet` writes a
+frame every so many steps, and its steps are not of one length, so the
+steps between frames times the timestep is no clock. The analyses plotted
+such a run against that product, a joined run recorded it, the Viewer
+spread its frames from 0 to the run's length and timed its live snapshots
+by it. Now none of them gives a time (`simulation.runner.chose_its_own_step`,
+from the run's record, or its study's config while it runs): the analyses
+plot against the frame, the Viewer shows the frame's number, and the
+Analysis page plots by frame a study analysed before; that study's own
+figures and data keep the old axis until it is analysed again
+(`fastmdx analyze --rerun`). From Prince Otegbulu (#51) and Derrick Kwan
+(#52).
+
+### A report lists the settings given, not where the study ran
+
+**Fixed:** a report's methods listed what setup worked out for itself
+(`_retained_pdb`, `_repaired` and the rest), each an absolute path, so every
+report and every copy shared printed the folder the study ran in, the home
+folder among it. They are left out; the seed setup drew is said on
+`random_seed` ("drawn for this study", as the Reproducibility section says it), and a file inside the study is
+named from its folder (`setup/ligands/BEN.sdf`). A report written before
+keeps its text until it is written again (`fastmdx report --rerun`).
+
+### The Report page links only what the study holds
+
+**Fixed:** a study shared without its standalone page (the demo leaves it
+out) showed `Dashboard: dashboard.html` as the first link on the Report
+page, and it went nowhere. A link to a file the study does not hold is shown
+as its words, and the report's line naming the standalone page is left out
+while the page is not there. The report on disk is unchanged.
+
+### The Files page, in the order the study ran
+
+**Changed:** the Files page was every file in cards of two across, grouped
+by kind, a figure in one card and its data in another: 9,700 pixels for a
+study of 435 files. It now opens with **What you came for**: the
+trajectory with the topology it is read with (its frames, time and atoms
+said, a zip of the two, and the `md.load` line that reads them), the
+report, the bundle, the system as simulated, the final state and the
+configuration. Then the space each phase takes, and the phases in the
+order the study ran them, a row a file: what it is in words, where it is,
+its size and when it was written, with a preview in the side panel, a
+download, and a menu to open it in a tab, copy its full path, show it
+in Finder (Explorer, or its folder; on the person's own computer) or
+copy its SHA-256. Each analysis
+is a row under what it studies, with its figure, the mean it recorded
+where its error was determined, its files and **Open in Analysis**. The
+run record, what `--rerun` set aside and the scratch (the Viewer's,
+written again from the trajectory when needed, and the live view's
+snapshots) are folded, the snapshots one row; **Clear scratch…** removes
+it on the person's own computer after saying how much would go and that
+the snapshots go for good, judging each run by its own record: never
+what a run still going needs, nor the snapshots of a run with no
+trajectory or one that failed or ended without saying so.
+**Find a file**, a filter by kind, a sort, **Folder view**, and a run
+picker for a study of several runs. **Prepare a data deposit** writes
+one zip for a data repository into the study's `deposit/` folder: the
+files ticked by what they are, a `README.md` written from the study's
+records (its methods, software, how to read the trajectory, every file
+and what it is, how to cite) and `SHA256SUMS` for `sha256sum -c`; never
+the scratch, what was set aside, the bundle or an earlier deposit; the
+checkpoint and a joined study's segments only when ticked; a figure
+without a twin of the kind chosen, and the report's pictures, kept; not
+while the study runs (`deposit.py`). Rendered by the server
+(`gui/files_page.py`, `GET /api/files-page`), compressed for a remote
+browser, and rendered again only when the study's files change. The
+report's standalone dashboard carries the same page, rendered by the same
+code and worked by the same script, its links to the files beside it
+and without what the bundle it travels in leaves out;
+the side panel's Files tab lists the live view's snapshots as one line.
+
+**Fixed:** `production.dcd` holds the atoms the run saved, without the
+water by default, and only `trajectory_topology.pdb` describes them; the
+page offered the solvated `topology.pdb` beside it and listed the file
+that loads it unlabelled in the folded record. Each trajectory now names
+the topology it is read with. What `--rerun` set aside was listed among the
+analyses and figures that replaced it, two of every title. Copy path
+copied the path inside the study; on the person's own computer it copies
+the full path. A file was read whole into memory to be sent, with
+`no-store`; it is sent a megabyte at a time, a range on request so a
+download resumes, and not again while the browser's copy is current.
+The project bundle carried the live view's 200 snapshots (52 MB beside a
+7.8 MB trajectory); the Viewer's and the live view's scratch, the windows
+set aside and data deposits are left out of it. One reading of what
+each file is (`study_files.py`) serves the page, the bundle and the
+deposit.
+
+### A pull request's co-authors sign the contributor agreement too
+
+**Everyone a commit credits is asked to sign.** The contributor agreement's
+check read only each commit's author, so a pull request porting another
+person's work, with a `Co-authored-by:` line for them, passed with the
+porter's signature alone. A second job in `.github/workflows/cla.yml`
+(`scripts/cla_co_authors.py`) reads each commit's message for
+`Co-authored-by:` lines, a line written after a literal `\n` included, and
+for `(cherry picked from commit ...)`, finds each person's GitHub account
+from a commit GitHub has linked to their address, and asks those who have
+not signed, with the same sentence, recorded with the other signatures. Its
+verdict is the status `Contributor agreement / co-authors` on the pull
+request; one comment there says who is left.
+
+### A saved view says what it shows
+
+**A note in a line with a saved view.** Saving a view in the Viewer's Saved
+views now takes a note beside its name ("the loop open at 4 ns"), kept in
+`viewer_views.json` (one line, at most 500 characters; anything else is
+refused and said), shown under the list when the view is chosen and on
+hover over its name, and listed to an AI app by `views_of_study`. From the
+research bookmarks of Prince Otegbulu (#51) and Derrick Kwan (#52).
+
+### What the AI model was sent, and what the page shows it
+
+**Under each reply of the Agent, what the AI model was sent.** Each time the
+AI model was asked for a reply, what it was given is kept beside the
+conversation: replying by tool calls, the system prompt (once), the tools
+declared and the messages it had not been given before, a look's result
+among them; in text, each prompt (`agent/receipt.py`, each text bounded,
+`agent/conversations/receipts/<sha256>.json`, the newest 100, the system
+prompt kept once by its SHA-256). The reply names it by its digest, and the
+fold **What the AI model was sent** reads it when opened, checked against
+that digest (`GET /api/agent/receipt`, private as the conversations are).
+**The Agent knows what the page shows**: the study, the frame, the
+representation, colouring and superposition, and the residues chosen
+(`currentViewHints`), given to its `current_view` tool as where to look,
+never as what is so; the tool reads the facts from the study's records, and
+reads the page's own view, never one the AI model writes. A message about a
+study that is no longer the one open, or a reply that comes back after
+another study was opened, is refused (`agent.view.changed`), and what was
+sent is kept with the study it was about. From the context-aware Agent of
+Prince Otegbulu (#51) and Derrick Kwan (#52).
+
+### What preparation did to the structure, step by step
+
+**`setup.preparation_audit: true` keeps a record of each step of the
+preparation.** The structure as supplied, as resolved, after each model,
+chain and heterogen choice, after each PDBFixer step (mutations, heterogens
+removed, missing residues and atoms added, residues replaced, hydrogens
+added at the pH) and as the system saved, each with its SHA-256, its counts
+of atoms, residues, bonds and hydrogens, and a copy of the file (at most 16
+MB each, 64 MB in all), in `setup/preparation_audit.json` and
+`setup/audit/`; a preparation that stops says so. It observes and never
+chooses: the system and state prepared are the same byte for byte with it
+and without it, a capture that fails is said as a warning and setup goes
+on, and the record says that hydrogens added do not by themselves establish
+a protonation state. Off by default. From the preparation audit of Prince
+Otegbulu (#51) and Derrick Kwan (#52).
+
+### The demo study is fetched the first time it is opened
+
+**Changed:** the demo study (trypsin with benzamidine, 3PTB) is not in the
+package: packaged, it is about 16 MB (11 MB compressed) for a study most
+people open once. `fastmdx gui --demo` and **Open the demo study** fetch it
+the first time from where `demo/3ptb.source.json` says, check it against
+the SHA-256 recorded there (`environment.demo.unverified` where it does not
+match; nothing is kept), and keep it in `~/.cache/fastmdxplora/demo`.
+`scripts/make_demo.py --zip FILE` writes the archive, the same bytes for the
+same folder, and says its SHA-256 and size; it leaves out the report's
+downloads and what a finished study is not shown from (the run's live
+snapshots, the SVG beside each figure, the clusters' medoid structures, the
+standalone page), and keeps what the pages read. The demo study is not yet
+published for 2.6.0: `--demo` says so (`environment.demo.absent`) and
+**Open the demo study** is not shown.
+
+### A live frame shows a bound ligand in its pocket
+
+**Fixed:** the Viewer's live and last frame, and the Overview's picture of
+the run, showed a ligand that never left its pocket a box length away from
+the protein. A snapshot wraps each molecule into the box on its own, and
+its CRYST1 was the box the run started with, not the one a barostat had
+made since. Each snapshot now records the box of its moment, and every
+reader of it (the structure, its coordinates, its DSSP, and the frames
+played while a run is going) is sent it made whole and centred on the
+protein, as the trajectory is. A snapshot written before is imaged in the
+box of the trajectory's last frame.
+
+### A run stopped by Ctrl+C says so; an interrupted one is offered its fix
+
+**Fixed:** a second Ctrl+C, or one outside production, ended a study with
+no end written: the KeyboardInterrupt passed every handler, the record of
+the run's process was removed as it exited, and the study read Running
+until a day of silence. The phase it was in now records the stop as the
+retryable `simulation.run.stopped`, the Manifest and resolved config are
+written, `fastmdx resume` carries it on, and the command exits 130. A
+stopped run's live record says `stopped` rather than `failed`, keeping the
+stage it was in, and the page says Stopped with what would fix it.
+
+**Added:** `simulation.run.interrupted`, for a run that ended without
+recording its end. **What would fix it** offers `fastmdx resume` for it,
+priced at what remains; the GUI runs it only where the run's process was
+seen to be gone, and after a day of silence says to look where it runs
+first. The sidebar's progress card links to it.
+
+### Chats on the folded sidebar
+
+**Added:** folded to its strip, the sidebar keeps Chats as an icon; a click
+shows the chats beside the strip, **New chat** first, as Recent does.
+
+### The Config Builder in five steps, beside the study
+
+**Changed:** the Config Builder (subtitle "Configure a new MD simulation and
+analysis") asks in five steps, in the order a study is decided: **Start**,
+**System**, **Protocol**, **Analysis and report** and **Review**, with a bar
+of the steps that follows the page. Beside them, the study as it stands:
+whether its checks pass (the server's validator, a moment after each
+change), what setup will build, what was changed with a revert for each, the
+Config, the command and the Python script, and **Run on this machine** with
+the other actions always in view (where the page is narrow, as with the
+Agent open beside it, a bar at its foot). Each group shows its essential
+settings (`ESSENTIAL` in the schema) and **Show more** the rest; a setting
+changed is shown whatever its tier. Each has a label and a unit from its
+name, its default, what it does when left unset (`UNSET_MEANS`), its help's
+first sentence with **More**, and a dot and a revert once changed. **Find a
+setting** shows only the settings named. The starting point is three cards;
+a study of several systems is a table of systems, each with what its file
+holds; how long it runs is a fixed length or until it is determined;
+replicas are a choice of 1, 3, 5, other seeds or the NMR models; enhanced
+sampling is a row of cards, each block a field per setting with **Edit as
+YAML**. The analyses are under the Analysis page's themes, and one this
+study leaves nothing for says why (`gui/applicable.py`: no ligand, no
+membrane, no water in the frames, an NMR entry's B-factors, a bias not run);
+a distance between two groups the study names runs where it is chosen. **Or
+describe the study to the Agent** opens the Agent beside the form. The form
+is saved in the browser for each person, so a reload loses nothing; Reset
+puts every setting back.
+
+**Fixed:** a list of choices with no default showed its first choice: a
+protein in water read as embedded in POPC, and choosing it back wrote
+`membrane: POPC`; each now starts at "Not set" with what that means. Tab
+out of a changed setting landed on the page, because every change built the
+form again; a change now builds its field and the summary only. A study of
+several systems opened in the form came back as its first, its names and
+its systems' own settings dropped; the Python script dropped a system's
+name and the command ran it as `s1` (it now says it cannot carry one). A
+temperature, a production length and a timestep were text boxes, and a
+limit the schema declares (pH 0 to 14) was said only by the server; an
+example in an empty box read as a value and is now "e.g.". An Agent's reply
+loaded its config into the builder to price itself, over whatever was being
+written there; it now reads its own. **Run here** is **Run on this
+machine**.
+
+### The Agent's instructions cached for an hour on its page
+
+**Added:** how long Anthropic keeps the Agent's instructions in its cache,
+**Keep the instructions cached** in the Agent's settings and in `fastmdx
+agent model`: `auto` (an hour on the Agent page, five minutes from the
+command line), `1h` or `5m`. On the page a reply after a pause of more than
+five minutes wrote the 17,900 tokens of instructions again at 1.25 times
+the input price; kept for an hour they are written once at twice it and
+read at a tenth.
+
+### Your defaults, and the Agent finds a structure by its name
+
+**Added:** `fastmdx-defaults.yml`, your lab's usual values (310 K, a pH,
+a force field) written once in the folder your studies are kept in. The
+nearest one up from a study's folder, stopping at the home folder, fills
+what a new study leaves unset, from the command line, the GUI's Run, the
+Config Builder (marked **Your default**), the Agent and an AI app
+(`check_study`, `save_study`). A value the config gives, `null` included,
+is kept; a swept setting, a continuation and a phase run again (from the
+study's record or a config) are left alone; `analysis.include` is not filled
+beside a study's `analysis.exclude`; a config they would make the validator
+refuse is refused naming the file; the file never says what is simulated. Each value filled is said
+as the run starts and recorded in `decisions` with `source:
+fastmdx-defaults.yml`, so **Why these settings** names it.
+`fastmdx explore --no-defaults` runs without them; `fastmdx config` names
+them under its template (`config/defaults_file.py`).
+
+**Added:** `find_structure`, for the Agent and for `fastmdx mcp`: the PDB
+entries a name answers to, by the names entries give their molecules or
+their titles, grouped by protein with the most studied first, each by its
+best-resolved entry of the protein alone and the first such entry
+determined (2VB1 and 1LYZ for hen lysozyme, 2RJY and 1VII for the villin
+headpiece), with its method, resolution, chains and ligands; for a designed
+peptide, the entries the first determined first (1L2Y for trp-cage);
+AlphaFold DB's models, with their mean pLDDT, where the PDB holds none or
+where asked. Offline, or answered with an error, it says so and offers
+nothing; a search takes at most a minute; answers are kept for a week
+(`structure_search.py`). The
+six names and identifiers written into the Agent's instructions are gone:
+"trpcage" had been written as 1UAO, chignolin. The Agent looks a name up,
+names the identifier back with what it is, and asks which where more than
+one fits.
+
+**Added:** `list_studies` and `compare_studies` for the Agent, the ones
+`fastmdx mcp` has, written once for both (`workspace_studies.py`); a study
+holding a link out of the workspace is neither listed nor read by the
+Agent either.
+
+**Changed:** the turns of a conversation before its last 12 are kept by
+their first sentence (up to 48), not dropped. The AI model offered first
+is the newest of the default's family the provider lists (the newest
+`claude-sonnet`, the newest `gpt-N`), the written one only where the
+provider cannot be asked; a stored key is sent only to the provider and
+address it was stored for. `fastmdx agent` says a reply as a terminal shows
+it: "Asking the AI model...", no Markdown emphasis, "Accepted first time.",
+and the tokens written to the cache said apart from those read from it.
+
+### The Agent replies by tool calls
+
+**Changed:** where the AI model takes tool calls, the Agent declares its
+tools to the provider and the reply comes as data: `propose_config` with
+the config, a reason for each setting it set and a sentence beside it;
+`ask_person` with a question and its candidates; `act` with an action and
+what it takes; `show_scene` beside an answer; and the six looks, typed. A
+plain answer is the reply's text. The rules are the same: the validator is
+the only judge, a look is not an attempt, a structural refusal is answered
+and a semantic one ends the loop, and the software confirms a run the
+person's own words did not plainly ask for and every stop. Each reason is
+written into the study's `decisions`, so the report's **Why these
+settings** says why each was chosen: as the person's only where the
+request itself states the value, a decision already the person's kept as
+it is, and a reason about anything but a setting set aside and said. A
+decision may now be about `systems` and `sweep`. The page shows the
+sentence beside a config under it, and a question's candidates with it;
+an AI app's `ask_agent` is given both, and a proposed scene. The instructions, the tools and the config language are sent
+as a system prompt the provider caches, before what changes from one
+message to the next; with content blocks each conversation so far is cached
+too. What each reply cost is recorded (calls, tokens in, cached and out),
+said by `fastmdx agent` and given to the page. A rate limit or an
+overloaded service (429, 502, 503, 504, 529) is asked again after the wait
+the provider gives, else 1, 2 and 4 seconds. A server that says on a
+conversation's first message that it takes no tools is asked in the text
+protocol from then on, noted for that provider, AI model and address, and
+Settings says so; a refusal that only mentions tools is said as the fault
+it is. A provider's error that quotes the key back has it replaced. A
+model an AI app lends to `ask_agent` is asked in text, and the evaluation
+harnesses ask as their counts were registered (`as_registered`).
+
+**Changed:** a refusal is answered with what would fix it, within what the
+refusal registry lets be said (the permitted values, the setting's name, an
+install command; nothing where the answer is a scientific judgement), as
+the builder, the Agent's `check_config` and an AI app's `check_study`
+already said it.
+
+**Fixed:** in the text protocol, a repair was sent alone: the refusal and
+the reply, without the request, the config language, the conversation or
+the run (200 to 700 characters), so the AI model could patch what it was
+shown and not read again what was asked; it now carries them. A sentence
+before the YAML was read as a key and refused, and a fence or the YAML with
+a sentence after it was refused as unreadable; each cost an attempt, and
+the config is now taken from among the prose, a misspelled key kept to be
+refused by name. The Agent was given the config a run used as its resolved
+file, a hundred lines of defaults and nulls cut at 4,000 characters (3,152
+for a 40 ps study, 41 of its lines `null`); it is given the config as
+written, or the resolved one without what nobody decided. `fastmdx agent`
+said it gave up when the reply was an answer; it says the answer.
+
+### Why a setting has its value: `decisions`
+
+**Added:** a top-level `decisions` block: for a setting by its dotted name
+(`setup.ph`, `budget_hours`, `execution.mode`), `why`, and optionally
+`source` (`person`, `agent`, or a reference) and `alternatives`. A name that
+is not a setting, or an entry without a `why`, is refused with the nearest
+spelling. The resolved config and the Python script carry it, the report
+gives each reason beside its value under **Why these settings**, the command
+line takes `--decisions`, and the Config Builder writes it from **Why this
+value?** (a reason rewritten there is the person's; one for a setting taken
+back, or of a phase not run, is left out).
+
+### The Viewer's tools on a rail, its keys on ?, its ground the scheme's
+
+**Changed:** the settings beside the molecule were sixteen sections one
+under the other. Each is now a button on a rail at the column's edge,
+named on hover, and the column shows the one chosen, kept in the browser;
+a section the study has nothing for has no button, and what is picked and
+measured is shown under every tool. `[` and `]` choose the tool above or
+below, and the arrows move along the rail. The keys, a line under the
+title, are listed by **?** or the **Keys** button. The molecule was on
+black on the Light scheme too: it is on the scheme's ground now, white on
+Light, unless a ground is chosen (Preferences, **As the scheme** by
+default, or the ground button).
+
+### Go to anything by typing it
+
+**Added:** ⌘K (Ctrl+K off a Mac) opens a field that finds a page, a study
+under Recent, an analysis of the study open, a tool of the Viewer, a
+scheme, Preferences, Cite or the Viewer's keys by the words typed, chosen
+with the arrows and Enter.
+
+### A run's progress in the tab's title, and a notice when it ends
+
+**Added:** while a run goes on, the tab's title begins with how far it is
+("42% · 1L2Y"), so a run is followed from another tab. **Notify when a run
+ends** in Preferences shows the browser's notice as the run completes,
+stops or fails: only a run seen running in the page, never on opening a
+finished study. The browser asks once; refused, the setting is unticked
+and says so.
+
+### All studies as a table
+
+**Added:** **Cards** and **Table** on All studies. The table gives a row a
+study: its name (which opens it), system, state as its light, when it
+began, its first means and its tags, sorted by any column's head (a study
+without the value last either way), narrowed by the search as the cards
+are, and kept as chosen.
+
+### Everyday buttons as line icons
+
+**Changed:** the everyday buttons are line icons, each named on hover and
+to a screen reader. On All studies: Open, Tag (marked with a dot once a
+study has tags), Compare, Clear and Every study. In the Config Builder:
+Reset, Download config, Copy the command, Download a script, Open and
+change it, Browse, a reason's Edit and Remove, and each Remove and back to
+the default. On Files: Open in Analysis, and the preview's Download and
+Open in a new tab. On Analysis: Download CSV. In the Viewer: Copy, Center,
+Show, Save the view, Compare, Stop comparing, Clear the pair, Clear the
+atoms picked and Remove the study beside. In the Agent: Conversations, New
+conversation, Open as a page, a message's Copy, Edit and Retry, an
+attachment's Remove, Show it in the Viewer and Open in the builder. On the
+Overview: Reset zoom on the live charts and Copy; Cite's Copy; and the
+study bar's View and Back to the study. A copy in the Viewer, of the
+Overview's methods or in Cite shows a tick for a moment, and the page's
+notice says it was copied (or, where it could not be, to select the text).
+Buttons that run or write something, a dialog's answers, tabs, menus (the
+Agent's More among them), the Viewer's show and hide switches and the
+Agent's starting questions keep their words. The page's scripts draw their
+icons from the GUI's one set (`static/icons.js`), where four had copies of
+their own.
+
+### A page's actions below its name where they do not fit beside it
+
+**Fixed:** in a narrow centre column (both side columns open, under about
+1,080 px), All studies' actions ran left over the page's name and under
+the sidebar, and at 900 px Analysis's reached its name. A page's actions now
+stay on one line beside the name where they fit and wrap in their own room
+where they do not; the name never gives way, what follows it does; the
+search field on All studies starts at its least width and grows where
+there is room.
+
+### Look in another folder and Open a shared study as line icons
+
+**Changed:** on All studies, **Look in another folder** (a folder with a
+magnifier) and **Open a shared study** (an archive with an arrow, shown
+pressed while its form is open) are line icons named on hover. As words
+they took 284 px, and the header's actions ran out over the page's name
+and under the sidebar in a window narrower than about 1,250 px with both
+side columns open; they now keep to one line beside the name down to
+about 1,100 px.
+
+### The search on All studies beside its buttons
+
+**Fixed:** the search field on All studies ran over the **Cards** and
+**Table** buttons beside it, so a click on either reached the field (its
+magnifier's wrapper gave way below the field's own least width). The
+wrapper now keeps that width and the field fills it.
+
+### The demo study opens before any study is run
+
+**Added:** `fastmdx gui --demo [DIR]` copies the demo study, trypsin with
+benzamidine (3PTB) run for 10 ns, into DIR (the current folder by default)
+and opens it, and **Open the demo study** on an empty Overview does the
+same in the folder the GUI puts new studies in; a copy never goes over
+anything there, and the paths its records hold are made the copy's.
+`src/fastmdxplora/demo/3ptb.yml` is the study it is made from on a GPU, and
+`scripts/make_demo.py` packages the finished study (without what only a
+run needs, recording the release and the run). Until a release carries
+the study, both say the installation has none.
+
+### A study's card is plotted in the page's colours
+
+**Changed:** each card on All studies showed the first figure its study
+plotted, white on the dark scheme, and a study with no figure its backbone
+on white. A card now plots its first measure's series from its numbers in
+the scheme's colours, with the part its mean is taken over shaded and the
+mean dashed; the backbone is rendered for the scheme, on the dark one with
+no white behind it. Both follow a change of scheme. A study whose figure has
+no numbers beside it keeps its figure.
+
+### An analysis's other figures are plotted in the page's colours
+
+**Changed:** on the Analysis page only an analysis's own series was plotted
+from its numbers; every other figure was the picture the analysis wrote,
+white on the dark scheme, with nothing to point at. Secondary structure
+(residue against time, in its three classes), each frame's cluster, the
+clusters' populations, the hierarchy (each merge below the cut in its
+cluster's colour), the RMSD between frames, a projection coloured by time,
+its free-energy landscape and the backbone dihedrals' density are now
+plotted from the numbers each was made from, in the scheme's colours, and
+plotted again when the scheme changes. The value, time and frame are given
+under the pointer, and a frame, or a cluster's medoid, opens in the Viewer.
+The figure the analysis wrote is a click away, and is still the one in the
+report and the one to download.
+
+### A stage that stopped or failed is said first
+
+**Changed:** the sidebar's progress card and the standalone dashboard said
+*Failed in simulation* and *Stopped in NPT*. They now say the stage first,
+as the phases are said: *Simulation failed*, *NPT stopped*.
+
+### The Overview leads with what the study determined
+
+**Changed:** the Overview opened on a health card that said *Completed*
+with *Ok* beside it, six charts the width of the page plotted against the
+sample index, seven cards repeating the health card's numbers and a table
+of phases each marked *Ok*; what the analyses determined came last. It now
+opens on the study in a line, its state and what it ran, then each mean the
+analyses recorded as a tile, said as the Analysis page says it, marked
+*Determined* or *Not determined* with the reason on hover, with its series
+beside it and the part the mean is taken over shaded, and RMSF as bars over
+its residues. A tile opens its analysis. Then the run: the molecule, each
+phase with how long it took, and its length, frames, atoms, platform and
+wall time. Then its thermodynamics two a row, timed from the start of
+production with the equilibration shaded before 0, the temperature against
+its target, and each headed by its mean over the production: the
+thermodynamics analysis's own where it recorded one, else taken from the
+live record with the error the analyses would give it, or none where the
+production holds too few independent samples, and none for a density whose
+box volume was held. The axis is fitted to the production, and a value of
+the equilibration beyond it is marked at its edge. One time is pointed at
+on every plot and tile at once. A study still running keeps its health and
+charts first; one that ended well has no health card, and one that did not
+leads with what happened. The methods are folded under the rest. The
+dashboard a study writes beside its report keeps its cards.
+
+### The live charts show the whole run
+
+**Fixed:** the Overview's charts were given the newest 500 samples of the
+live record, so a long run's charts showed its last stretch, without its
+equilibration or most of its production. They are now given the whole run,
+thinned evenly to the samples the Chart history setting keeps (600 unless
+changed), keeping its first and last samples and each change of stage.
+
+### Hints are shown in the page's own style
+
+**Changed:** every hint in the GUI was the browser's own box, square and in
+the system's colours whatever the scheme. A hint is now a rounded box in the
+scheme's colours, shown after a moment on the pointer, at once on keyboard
+focus, and moved or put away as its element scrolls, is pressed or Escape
+is pressed. A screen reader is told it as the element's description. The
+standalone dashboard shows its hints the same way.
+
+### Recent keeps each name's ends and shows each study's state as a light
+
+**Changed:** a long name under Recent was cut at its end, where studies of
+one system differ, while the active study's folder below it gave up its
+middle; each name now gives up its middle too, fitted again as the sidebar
+is widened or narrowed. Each study's state, a grey word beside its name, is
+now a light: green completed, amber stopped, red failed, an amber ring for
+interrupted or incomplete, a grey ring for not started, and the accent,
+pulsing, while it runs. The word is on hover, with the study's folder, and
+is read out with the name.
+
+### A run that ended without saying so is interrupted, not running
+
+**Fixed:** a run whose live record still said it was running, because it
+ended without writing its end (the machine restarted, or its job was ended
+by a scheduler or by hand), was shown as running for as long as the record
+stayed: weeks later the active study read *Running* with time left, and All
+studies said running or, with no manifest written yet, not started. Where
+the run's process record was written in this machine's boot and process
+namespace its process is now asked: gone, or its number given to a process
+begun since, the run has ended. A live process is never taken for gone
+because its command line is not `fastmdx`'s, as a run started from a script,
+a notebook or a pool's worker has such a command line. With no process here
+to ask, a day without a word from the run decides, and the page says that
+is all it knows. Such a study reads *Interrupted*, with the stage it was in
+and its last update, in the sidebar, on the Overview, on All studies and
+to the Agent. A run of the Python API that had taken every step it planned,
+which writes no end of its own, reads *Completed*.
+
+### FastMDXplora has its own mark
+
+**Changed:** the tab's icon and the mark over the folded sidebar were the
+AAi Research Lab's logo, a picture of the lab rather than of the software.
+They are now FastMDXplora's own line mark, a three-atom molecule going
+right with each atom's trail behind it: white on a black tile as the tab's
+icon, and in the accent over the folded sidebar. The lab's logo stays the
+avatar at the foot of the sidebar. `scripts/make_mark.py` makes the mark
+from its atoms, bonds and trails, writes the tab's icon and checks that
+what ships matches it. A hosted GUI's `--product-logo` still replaces all
+three.
+
+### The Viewer's column no longer scrolls onto the ground
+
+**Fixed:** with the sidebar folded and the side panel closed, the Viewer's
+column scrolled about 200 pixels past the fitted molecule onto nothing but
+the ground: the page's own foot of 64 pixels sat under a layout already
+fitted to the window, and a screen-reader legend at the foot of the
+settings column was placed below the window. The Viewer has no foot, and
+text kept for screen readers sits at its column's top corner.
+
+### The window no longer scrolls past its columns
+
+**Fixed:** on the Viewer the whole window scrolled on past the page by
+about 200 pixels, onto nothing but the ground: a screen-reader legend at
+the foot of the settings column was placed outside the column. Each
+column now holds what is in it, and on a desk the window itself does not
+scroll.
+
+### The active study is a part of the sidebar, and a column shown over the page has one button
+
+**The active study is no longer a box in the sidebar, and its menu no
+longer lists the newest studies a second time** (Recent, above it, does);
+the menu opens All studies, another folder, and the study's own settings.
+**Recent is a row with its own line icon**, as New study and the Agent
+are. **A folded column shown over the page has one button**, the one that
+keeps it: the sidebar showed its own fold button beside it, pointing the
+other way. **A click anywhere in a column shown over the page keeps it**,
+where nothing of its own is under the pointer, as its button does.
+
+### An entry typed into the builder is fetched once, and read only whole
+
+**Fixed:** the builder's preview and its estimate ask for a structure
+together as its identifier is typed, and each found it missing from the
+cache and fetched it from RCSB (5O3L twice in a second); the second could
+read the first's file half written, since it was written where it is
+read. One fetch of an entry runs at a time, into a file beside it that is
+moved into place whole.
+
+### The Agent opens beside any page, and its suggestions send
+
+**⌘J (Ctrl+J), or the button beside Agent in the sidebar, opens the Agent
+beside whatever page is open**, in the side panel's place, the page left as
+it was; the same keys close it. It is the Agent page's own conversation,
+moved there and back, so a thread begun on the page goes on beside another
+page and the reverse, and **Open as a page** takes it to its page. Asking
+about the RMSD on the Analysis page took the Analysis page away. **A
+suggestion is sent as it is pressed**; it was written into the box and left
+there, so a question asked by a press read as not asked.
+
+### The sidebar begins with New study and the Agent, and folds to a strip
+
+**New study and the Agent come first, at the top, and stay there** as the
+rest of the sidebar scrolls; then **Recent**, the workspace's newest
+studies with the open one marked (folded, it stays folded); **All
+studies**; the **active study**, its system large, where it stands, and
+its folder by name, shortened in the middle to fit and copied on a click;
+and its pages. The Agent was under New study, though it also answers
+about the open study, fixes it, runs it again and compares it. The study
+menu no longer prints the folder's whole path, wrapped. **Folded, the
+sidebar is a strip of its icons under the lab's mark**, rather than
+nothing and a tab at the window's edge: the icons are used as they are,
+and pointing at the mark shows the whole sidebar over the page. On a phone
+the bar across the top carries the study, New study, the Agent and All
+studies, with the pages under it.
+
+### The Log says what happened, and folds each explanation behind its line
+
+**Each stage's explanation and its citation are folded behind the line
+they explain**, under a **why** mark that opens them, and stay open as the
+Log is drawn again; under the **why** filter they stand open, and a
+refusal or a qualification is never folded. They were printed in full,
+so the narration of a short run was about 420 pixels of prose for each
+line of what happened. The narration is in the text face, its times in the
+fixed-width one. The panel opens by itself only while a study runs.
+
+### The interface brings its fonts, and keeps the fixed-width one for numbers
+
+**Inter and JetBrains Mono ship with the package** (Latin and Greek, about
+115 KB, SIL Open Font License 1.1, under `gui/static/fonts` with their
+licence texts) and are served with the GUI, so the page reads the same on
+any machine, a cluster's login node included; the standalone dashboard
+carries them in the page. The stylesheet named both and shipped neither,
+so the page read in whatever the machine had. **The fixed-width face is
+for numbers, paths and code:** the labels over the Overview's figures, the
+settings menu's words, the Log's filters, the analyses' status chips and
+the builder's labels are in the text face. The package's licence
+expression is `MIT AND Apache-2.0 AND ISC AND 0BSD AND OFL-1.1`, in
+`pyproject.toml` and the conda recipe.
+
+### Themes are System, Light and Dark, with one cyan accent
+
+**The settings menu offers System, Light and Dark** in place of Graphite,
+Ink and Paper. System, the default, follows the computer as it changes;
+Light and Dark are kept once chosen, and a scheme chosen before keeps its
+look under its new name (Graphite and Ink are Dark, Paper is Light). Dark
+is a neutral ground, the lab website's #1c1c1d with cards #212529, where the
+old one was #050505 under cyan and violet glows that read as green; the
+glows are gone from both schemes. One accent, cyan: #2698ba in Dark (a step
+lighter for words, #33a6c8, at 4.5:1 or more on its cards and menus) and
+#1b7590 in Light, at 4.5:1 on each of its grounds. The scheme is set before
+the page is first drawn, so a light computer's page no longer opens dark.
+The standalone dashboard offers the same three.
+
+### Each analysis is named in sentence case
+
+**The Analysis page, its index and the standalone dashboard
+name each analysis in sentence case** ("Radius of gyration", "Hydrogen
+bonds", "Solvent accessible surface area"), as the Overview and the rest of
+the page name things; the acronyms keep their capitals. Each section's
+anchor, made from its name in lower case, is the one it was, so a link to
+a section still opens it.
+
+### The Report page prints the report, all of it
+
+**Printed from the browser, the Report page is the report alone, at its
+full length, in black on white**, whatever the theme: no sidebar, Log,
+buttons or notices, and no section split from its heading or figure. A
+page printed came out as one sheet, the sidebar beside the first screen of
+the report, then blank sheets, since each column of the window scrolls on
+its own. Where the report phase wrote no PDF (no WeasyPrint), the page
+offers **Print or save as PDF**, which opens the browser's print dialog,
+where the report can be saved as a PDF.
+
+### The Overview's table says each mean with its error, as the Analysis page does
+
+**The Overview's table of the study's main means reads the record the
+Analysis page reads**: each mean after equilibration with its standard
+error, the independent samples behind it, and Determined or Not determined
+(with why, on pointing). It gave the mean and the standard deviation over
+the frames ("RMSD 0.0988, std. dev. 0.0095") where the Analysis page gave
+"0.0988 ± 0.0017 nm", so the same page read two errors for one mean. RMSF,
+one value per residue, is said over its residues with their range and no
+error. The frame and atom counts, which the cards above give, left the
+table. The standalone dashboard's table is the same.
+
+### How long a study ran is said by its production
+
+**The Overview, its cards, the standalone dashboard and the Agent say a
+study's production**, which the analyses average, with its equilibration
+beside it ("100 ps, after 10 ps of equilibration (5 ps NVT, 5 ps NPT)"); a
+running study says how far production has run of what is planned, and,
+before it, that it is equilibrating and how far. Lengths under a nanosecond
+are said in picoseconds. The health card said "Simulation time 0.11 ns",
+equilibration included, above a card saying "0.1 ns". The run keeps each
+stage's planned steps in its live record (`nvt_steps_planned`,
+`npt_steps_planned`, `production_steps_planned`); a study recorded before
+says its own total, as such. A study carried on in pieces says their
+production together, "in 3 pieces"; a run that stopped says how far it got,
+and one that recorded nothing says its plan as planned. The Viewer's live
+frame gives its time in production, or in equilibration, and says which.
+
+**Fixed:** the Overview's Wall time card counted from the first phase's
+start to the last phase's finish, so a run of 18 minutes analysed again
+that evening read 2h 57m; it adds the phases' own times, a study's pieces
+included, and the health card's Wall time says the same once the run has
+stopped.
+
+### A phone keeps its navigation on the Viewer, and the Analysis table fits
+
+**Fixed:** on a phone, opening the Viewer took away the bar of pages across
+the top and left an empty band about 200 pixels high: the Viewer folds the
+sidebar, which on a phone is that bar. It stays now. And the Analysis
+page's table of what was determined ran past the screen's edge, its status
+out of sight, with the heading's buttons pushing the page sideways: below
+600 pixels each analysis is a row of its own, with what the columns said,
+and the buttons wrap.
+
+### The B-factor comparison of a structure numbered with insertion codes
+
+**The comparison with B-factors is plotted for one chain numbered with
+insertion codes**, each residue at its own place and ticked with its number
+and code. Its table has no chain column there, and the figure grouped by
+one, so a study of trypsin (3PTB, 184 beside 184A) recorded the analysis as
+an error, `'chain'`, with no figure.
+
+### The times of several strided files, after the analysis
+
+**The GUI's axes give strided frames of several files the times they were
+written**, as the loader does: the analysis manifest keeps each analysed
+frame's time where several files were loaded at a stride
+(`frame_times_ps`), and the Analysis page's series, the convergence view
+and the results table read it. They assumed even spacing, so two files of
+five frames at stride 2, written every 10 ps, read 10 to 110 ps where the
+frames were written at 10 to 100.
+
+### A capped chain's ends
+
+**A capped peptide's end-to-end distance runs between its first and last
+alpha carbons**: the ends are the first and last residues holding the named
+atom. With the NHE and NH2 caps counted as protein, a peptide ending in one
+had the cap as its last residue, with no alpha carbon, and the analysis
+refused it; an ACE or NME cap was refused before.
+
+### The Analysis page read as a whole
+
+**The Analysis page opens with what the analyses determined**: one table
+of every analysis, under what it studies, with the mean it recorded over
+its equilibrated frames to the place its error allows (and every other
+quantity it recorded a mean of: helix and strand fractions, hydrophobic
+and polar SASA, the shape descriptors), the frames it rests on and from
+when, its independent samples, and **Determined** or **Not determined**,
+which opens to say why; a failed analysis gives its reason, and the table
+downloads as CSV. Each number is the analysis's own record, the one the
+report gives (`GET /api/analysis-overview`), the run's own temperature,
+density, energies and volume among them, first. What a study found, and which
+of it holds, had to be read from every card's caption in turn, and a mean
+too short to determine looked, at a glance, like any other.
+
+**An index of the sections by what they study, and a filter** (Find an
+analysis), above the figures; each card links the data its figure is
+plotted from.
+
+**Convergence, under any series over time**: the running mean of its
+equilibrated frames with its error beside the recorded mean, the standard
+error by block length (Flyvbjerg and Petersen), the autocorrelation with
+its integrated correlation time, and the distribution of the frames
+averaged beside those left out, computed by the estimator the recorded
+error comes from (`statistics.convergence_of`, `GET /api/convergence`) and
+said in a paragraph. The mean and error it states are the record's: an
+error the analysis withheld (a chain reaching its own periodic image, a
+molecule broken across the box) is withheld here too, with no band drawn.
+Where the recorded mean began where a study's replicas equilibrate
+together, it says so rather than show a second start.
+
+**Fixed:** a series about a large value (Total SASA of 91 nm² varying by
+0.3) was plotted from zero and read as a flat line; zero is on the axis
+only where the values reach towards it. A card no longer repeats its
+section's name as a status.
+
+### Every analysis has its own section
+
+**Every analysis has its own section on the Analysis page and in the
+report's dashboard, ordered by what it studies**: the run's ensemble, the
+protein's structure and stability, its flexibility, its secondary structure
+and backbone, its contacts and solvent, the states it visited, a ligand, a
+bilayer and a free energy. Twelve of the thirty analyses were missing from
+the list of sections, so their figures fell together under one "Other":
+end-to-end distance beside lipid order, a radial distribution beside the
+B-factors. The list is one table (`report_dashboard.ANALYSIS_THEMES`) that a
+test keeps every registered analysis in.
+
+### One start for RMSF, clustering and the projections
+
+**RMSF takes `start` as clustering and dimred take it**: a time in ns, `0`
+for every frame, or `equilibrated`, its default, found on the RMSD of the
+fitted atoms by one rule (`analysis/starting_frame.py`), and what it left
+out is recorded as `findings["frames"]`, as for the others.
+
+### Mass density across the bilayer
+
+**`bilayer_thickness` writes the mass density of each part of the system along the normal beside the thickness:** lipid heads, lipid hydrocarbon chains, water, protein and ions, in g/cm3, in 0.1 nm slabs centred on the bilayer centre in every frame and averaged over the frames analysed (`density_profile.dat`, `density_profile.png`). The density of a slab is its mass summed over frames over its volume summed over frames, `rho(z) = sum_f m_f(z) / sum_f A_f w_f(z)`, with each row's width inside the box written beside it so the density times the width, summed and times the box's area, is the component's mass. On OpenMM's POPC patch the water is 1.0 g/cm3 in bulk and none within 0.3 nm of the centre, and the heads peak 1.8 nm out, half of D_PP. Nothing computed before changes.
+
+### Each leaflet's area per lipid
+
+**`area_per_lipid` gives each leaflet's own area per lipid, `A / N_upper` and `A / N_lower`, beside the bilayer's `2 A / (N_upper + N_lower)`**, with `A` the box's area in xy less the protein's cross section and the leaflets counted every frame. In an asymmetric bilayer the leaflets share one area, so the one with fewer lipids is the more stretched, and the bilayer's value is neither: OpenMM's DMPC patch with eight lipids taken from the upper leaflet reads 0.664 nm2 for the bilayer, 0.711 for the upper leaflet and 0.622 for the lower. `area_per_lipid.dat` now has three columns, upper, lower and the bilayer's, the bilayer's last so every reader that takes the last column (the dashboard, the comparison of runs, reweighting) reads what it read before; the findings carry both leaflets' means (`per_leaflet`) and, where the counts differ, say so (`asymmetric`). The figure adds both leaflets' series when they differ. Results change: the data file gains two columns; the bilayer's area per lipid is unchanged.
+
+### A sterol changing leaflet is not a damaged bilayer
+
+**The warning that flip-flop takes hours counts only phospholipids; sterols changing leaflet get a note of their own.** It counted every head, so a cholesterol moving to the other leaflet, which it does in microseconds or faster, was reported as a bilayer that had come apart. Now `leaflet_changes` gives the range of phospholipids in the upper leaflet, and `sterol_leaflet_changes` says that sterols (and other lipids without a phosphate) changing leaflet is expected in a long run. Results change: findings only.
+
+### A Lipid21 bilayer from a PDB without bonds
+
+**`lipid_order` joins a Lipid17 or Lipid21 lipid's head and tail residues by covalent distance when the topology records no bonds between lipid residues.** They were joined only through the topology's bonds, and a PDB written without CONECT records has none, so each tail stood alone with no carbonyl to start a chain from and the analysis refused with "No acyl chain was found". Neighbouring split-lipid residues are now joined where a heavy atom of one lies within covalent distance of the other's, at the nearest periodic image. Results change: such bilayers now get an order profile, the same as with bonds.
+
+### Chain order of a trajectory wrapped atom by atom
+
+**Each C-H bond is brought to its nearest periodic image in all three box directions, triclinic cells included, before its angle to the normal is taken.** Only z was corrected, so a trajectory written with every atom wrapped into the box (as GROMACS writes one by default) split the bonds of lipids crossing the x and y faces, each of which counted as a bond nearly in the plane: OpenMM's DMPC patch wrapped this way read sn-1 C2 -0.243 against -0.233 and the chain ends up to 0.015 more ordered than they are. The bond is now taken in the cell's fractional coordinates, `f = d B^-1`, `f -= round(f)`, `d = f B`. Results change: S_CD of trajectories saved with atoms wrapped one by one, by up to 0.015.
+
+### The chain order checks the normal
+
+**`lipid_order` refuses a bilayer whose phosphates do not form two layers normal to z, as the area per lipid and the thickness do.** S_CD is the C-H bonds' angle to z, and the order analysis never checked that z was the normal: OpenMM's DMPC patch with x and z swapped gave an sn-1 C2 of +0.128 against the true -0.233, a profile of the wrong sign, with nothing refused. Results change: none for a bilayer in the xy plane; one on its side is now refused.
+
+### Water is water whatever it is called
+
+**The bilayer analyses read a residue as water by its name, by MDTraj's test, or by being one oxygen and two hydrogens with any massless sites.** The name list lacked OPC, TIP3P, TP3, SPCE, TIP4P and others, and water under those names was read as protein: on OpenMM's POPC patch with its water renamed OPC, the water among the head groups gave a "protein" cross section of 0.16 nm2 and an area per lipid of 0.663 against 0.666 nm2, and the error grows with water that reaches further into a thinner or more disordered bilayer. Results change: systems whose water is not named HOH, WAT, SOL, TIP3 or SPC lose a protein correction that was water, and a bilayer with no protein in it is again its box per lipid.
+
+### Every lipid name is a lipid
+
+**A residue is a lipid when OpenMM has a lipid template of its name: CHARMM36's, as CHARMM-GUI writes them, and AMBER Lipid17's and Lipid21's.** The list kept by hand held about forty names, and every other lipid was counted as protein: with a third of a POPC bilayer renamed DSPE, PLPC, SOPE, DLPG or DAPC, the area per lipid read 10% large and the findings said a protein took 27% of the box. The names are now read from OpenMM's force field files where OpenMM is installed (295 templates, from DSPE to the cardiolipins, ceramides and phytosterols), and otherwise from a copy of that list kept in `lipids.py`, so an install without OpenMM reads the same names; a test checks the copy holds every template OpenMM ships. Lipid21's stearoyl (SA), docosahexaenoyl (DHA), arachidonoyl (AR) and lauroyl (LAL) tails are tails, and its PGS, PH- and SPM heads are heads. A ceramide's head is its hydroxyl oxygen, as a sterol's is. When a residue read as protein has a phosphorus among the lipid heads, the findings say so (`unread_lipids`). The default bilayer of `membrane_depth`, the membrane barostat and the crash diagnosis read the same names. Results change: mixed bilayers with lipids outside the old list get the right area per lipid and thickness, and lose a protein correction that was never there.
+
+### A Lipid21 bilayer has its heads
+
+**The bilayer analyses find each lipid's phosphorus by its element, not by the name P.** AMBER's Lipid17 and Lipid21 name it P31, so on a Lipid21 POPC bilayer no head was found: the area per lipid was infinite with status ok, and the thickness was refused as having no phosphate. Where a lipid has several (a cardiolipin, a phosphoinositide) the one named P is taken, else the first. `area_per_lipid` now refuses a bilayer in which no head atom is found, rather than dividing by zero. Results change: Lipid21 and Lipid17 bilayers get an area per lipid and a thickness (0.666 nm2 and 3.66 nm on OpenMM's POPC patch split as Lipid21 writes it, as for the patch itself).
+
+### How a series converged, in one call
+
+**`statistics.convergence_of(values, times=None)` returns what a convergence view plots, from the estimators the recorded mean uses, as plain lists ready for JSON.** It gives the equilibration start `summarise` chooses with its mean and error; the running mean of the equilibrated part at about 50 points, each with the error the package would record had the run ended there (`summarise`'s own rule, from the same start), withheld where it would be, the last point the record itself; Flyvbjerg-Petersen block averaging with each error's own uncertainty, SE / sqrt(2(n_b - 1)), with no plateau named (the first agreement of the blocks read the error 14 to 19% low); the autocorrelation to its first zero or a quarter of the series, with tau_int = (g - 1) / 2 in frames and time; and Freedman-Diaconis histograms of the kept and discarded values, at most 60 bins. Fewer than ten finite values give a reason and no numbers. The correlations of every candidate start and prefix come from one Fourier pass, so a million values take about half a second of processor time, a second and a half where a transient is discarded. `summarise` was split into pieces this shares, and gives the same records as before.
+
+### A constant-volume run's volume is said as fixed
+
+**The thermodynamics record gives a constant-volume run's box volume as the value the ensemble held, with that reason, as it already did for the density.** Read as a series, a volume that never changes is one observation however long the run, so it was refused as "not long against its own correlation time" with a longer run named as the remedy, which would never have changed it. Results change: `volume` in an NVT run's thermodynamics record now carries `value` and a reason in place of the refusal and its equilibration fields.
+
+### The PMF figure marks the minimum the summary gives
+
+**The potential of mean force figure marks its minimum inside the range the umbrella windows covered, where the summary already took it.** The figure took the lowest bin over the whole grid, which runs past the last window into bins few samples reached: on a profile whose well was at 0.5 nm inside a covered 0.35 to 1.6 nm, it marked 2.2 nm. Results change: PMF figures of studies whose grid extends past the windows may mark a different minimum; the recorded summary is unchanged.
+
+### A missing value no longer makes the frames independent
+
+**The statistical inefficiency, the error of a mean, the resolution check, equilibration detection and the bootstrap block length all leave values that are not finite out before they read a correlation.** One NaN made every autocorrelation NaN, and `max(1.0, nan)` is 1.0: an AR(1) series whose inefficiency was 41 read 1, and the bootstrap block built on it was 2 frames instead of 83, so a free energy's error bar from it came out 0.032 against 0.131. `summarise` already dropped such values; these functions are also called directly, by the bootstrap and the reweighting among others. Results change: series with a missing value now get the inefficiency and error their finite values support.
+
+### One way to weight a metadynamics run
+
+**`fastmdxplora.analysis.reweight` no longer offers a `weights_for_run` of its own; `reweighted_averages.weights_for_run` is the one way the package weights a run's frames.** The removed function applied neither the Tiwary-Parrinello c(t) offset nor undid PLUMED's gamma/(gamma - 1) factor on stored hill heights: on a well-tempered run it read P(x < 0) as 0.965 against an exact 0.893. Nothing in the package called it, but it was documented and importable. The positional `reweight.read_colvar` it alone used is removed too, and the module's description, which said only the converged-bias form was implemented, now says where c(t) is applied.
+
+### A reweighted mean says how many independent samples it rests on
+
+**Each reweighted mean now carries a standard error, and the report gives the independent samples it rests on beside Kish's count, which is named for what it is: weight-concentration effective frames.** Kish's (sum w)^2 / sum w^2 was printed as the frames an average rested on, but it counts every frame as independent: on a well-tempered metadynamics run with a bias factor of 8 it read 2445 of 6000 frames while the collective variable decorrelated once every 91, about 27 independent samples. The record now has `independent_samples` (Kish's count divided by the statistical inefficiency of the collective variable, and per quantity the larger of that and the quantity's own) and `cv_statistical_inefficiency`, and each quantity a `reweighted_standard_error` from the paired block bootstrap over values and weights in blocks of twice that inefficiency. The error is withheld, with `not_a_measurement` and its `refusal` code, below 10 independent samples or where the run is shorter than 25 inefficiencies. `effective_sample_size` keeps its name and value. Results change: reweighted tables now show a ± where an error is supported and say why where it is not, and a run with few independent samples is cautioned even when its weights are evenly spread.
+
+### The live temperature counts only particles with mass
+
+**The temperature shown while a run is going counts the degrees of freedom of particles with mass only, as OpenMM's StateDataReporter does.** The massless M site of a four-point water was counted as three degrees of freedom: a TIP4P-Ew box at 300 K read 197.5 K against OpenMM's 296.4 K, and the GUI's telemetry flagged it as far from its target. A constraint between two massless particles is not counted either, and the count is made once per simulation rather than at every sample. Results change: live telemetry of runs with virtual sites (TIP4P-Ew, TIP5P, OPC) now reads the true temperature; the recorded state data, written by OpenMM, was always right.
+
+### A joined run is pooled only from segments that resolve their correlation
+
+**A joined run's pooled mean is withheld while any contributing segment has not resolved its own correlation time, and the drift test can no longer be switched off by a segment without an error.** A segment whose error had been withheld was pooled anyway, and its NaN error made the heterogeneity NaN, which no comparison passes: on joined AR(1) runs with g = 200 in ten segments of 400 frames, a ramp of four standard deviations was pooled 50 times in 50, and the pooled error held the truth 21% of the time. Now the drift test runs on the segments whose errors can be read, a heterogeneity that is not a finite number counts as disagreement, and the pooled mean is then withheld as `analysis.sampling.correlation_unresolved` if any segment is unresolved. The report's convergence table reads the same function, so it shows no pooled error for such a run. Results change: joined runs whose segments are short against their correlation time no longer report a pooled mean (about a third of runs with g = 5 in segments of 400 frames).
+
+### One set of water residue names
+
+**`water_sites` now finds water under every residue name MDTraj's `water` takes, and the names live in one set, `analysis/water_names.py`, for every module to use.** It kept six names (HOH, WAT, TIP, TIP3, SOL, H2O), so a run whose water was written TIP4, TIP2, OH2, HHO or OHH was refused as holding no water, and the Viewer's water map, which read the same list, found none. The set is MDTraj's eleven names with TIP5, TIP3P, SPC, T3P, T4P, T5P and DOD. Results change: water sites are found on systems whose water uses those names.
+
+### Each hydrogen-bond count says which criterion it is
+
+**`hbonds`, `pl_hbonds` and `pl_interactions` now record their hydrogen-bond criterion in `options.json` and name it on their axes.** The three use different criteria and count different bonds: `hbonds` Baker-Hubbard (H...A under 2.5 A), `pl_hbonds` Wernet-Nilsson, `pl_interactions` a donor to acceptor distance under 3.5 A, so an O-H...O 3.3 A apart at 180 degrees was a bond in `pl_interactions` and not in `pl_hbonds`, with nothing in either output to say why. The interactions rule's documentation credited its 3.5 A to Baker and Hubbard, whose criterion is the 2.5 A hydrogen distance; it now cites McDonald and Thornton. No count changes; the `hbonds` axis reads "Hydrogen bonds (Baker-Hubbard)" and the `pl_hbonds` axis "Protein-ligand H-bonds (Wernet-Nilsson)".
+
+### `coordination_number` in seconds
+
+**`coordination_number` now finds the shell candidates with one neighbour search over the trajectory and counts each atom's neighbours among them, with the same counts as before.** It searched once per atom of `selection_a` per frame and sliced the trajectory each time, so 188 protein oxygens against the water took 80 s for two frames of a solvated 1BHL, about 11 hours per thousand frames; it now takes 0.5 s for those two frames and 3.3 s for all forty. The counts are identical to the per-atom search on that trajectory and in a test on cubic and triclinic boxes with overlapping selections. Results do not change.
+
+### `pl_contacts` is a heavy-atom contact
+
+**`pl_contacts` now counts a residue as touching the ligand when one of its heavy atoms is within the cutoff of a ligand heavy atom, as its documentation and its 0.4 nm threshold say.** It used every atom, hydrogens included, so a leucine whose nearest carbon was 0.48 nm from the ligand was in contact because two hydrogens pointing at each other were 0.22 nm apart. A test now also holds the residue names `protein` now covers: seven residues around a ligand, five named as AMBER writes them (HIE, HID, HSP, CYX, ASH), give seven contacts. Results change: per-frame contact counts and per-residue contact frequencies fall where hydrogens alone brought a residue within the cutoff.
+
+### `sidechain_only` keeps bonds involving a side chain
+
+**`hbonds` with `sidechain_only: true` now counts every bond whose donor or acceptor heavy atom is in a side chain, as its documentation says.** It passed the option to MDTraj, which keeps a bond only when donor, hydrogen and acceptor are all side-chain atoms, so a serine OG-H donating to a backbone carbonyl was dropped: on a solvated 1BHL run it reported 16.1 bonds a frame where 40.3 involve a side chain. The bonds are now found over the whole selection and filtered on the donor or the acceptor, for Baker-Hubbard and Wernet-Nilsson alike. Results change: side-chain hydrogen-bond counts rise to include side chain to backbone bonds.
+
+### Halogen bonds check the acceptor side
+
+**A halogen bond in `pl_interactions` now also needs the angle X...A-R at the acceptor, with R a heavy atom bonded to it, between 80 and 140 degrees (ProLIF's window, after Auffinger et al. 2004), a new `acceptor_angle_deg` setting of the rule.** Only the C-X...A angle at the halogen was checked, so a chlorine 0.32 nm beyond a backbone carbonyl oxygen on the line of its C=O bond, X...O=C at 180 degrees, was reported as a halogen bond. Results change: halogen contacts that approach an acceptor along its bond axis are no longer reported.
+
+### Water bridges are PLIP's
+
+**A water bridge in `pl_interactions` is now PLIP's first-degree bridge: a water 2.5 to 4.1 A from an acceptor on one side and from a donor on the other, the donor's D-H pointing at it (above 100 degrees at the H), and the angle at the water between the acceptor and that H between 71 and 140 degrees.** The rule was labelled PLIP's but took any two polar atoms and the angle between them at the water oxygen, with no donor hydrogen and no pairing, so two acceptors either side of a water bridged and an amide N whose hydrogen pointed away from the water bridged a ligand carbonyl. It also computed the distance from every water oxygen to every polar atom in every frame, 3.77 million pairs a frame on a solvated 1BHL; only the waters within reach of the ligand are examined now, which took one serine's five frames from 3.6 s and 0.48 GB to 0.9 s and 0.29 GB. On eight residues of that trajectory the bridges agree with an independent transcription of PLIP's loop, 6 of 6. Results change: water bridges without a donor hydrogen pointing at the water are no longer reported.
+
+### Occupancy errors from the statistical inefficiency
+
+**The `standard_error` of each interaction's occupancy is now `sqrt(p(1-p) g / N)`, with `g` the statistical inefficiency of its present-or-absent series over `N` frames.** It was `sqrt(p(1-p)/episodes)`, too large by `1/sqrt(2p(1-p))`, at least 1.41 times: on a two-state contact with known rates it was 1.4 to 2.4 times the spread of the occupancy over 120 independent replicas, where the new error is 0.86 to 0.99 of it for contacts fast against the run. The inefficiency is the package's own (`statistics.statistical_inefficiency`), as every other error the analyses report uses, and the error is withheld where every mean's would be: a contact that formed fewer than twice, or whose frames hold fewer than 25 independent samples while its presence is correlated (given there, it read 0.72 to 0.76 of the spread). Results change: occupancy error bars in `pl_interactions.dat` and its figure shrink, by about a third for a contact present half the time and by more for rarer or more persistent ones.
+
+### A hydrogen bond keeps its direction
+
+**`pl_interactions` now names each hydrogen bond by its donor, `hydrogen_bond_ligand_donor` or `hydrogen_bond_protein_donor`, in the `kind` column of its tables and of `pl_interactions_frames.json`.** Both directions were the kind `hydrogen_bond` and were keyed by the two heavy atoms, so a ligand O-H donating to a serine OG in one frame and the serine OG-H donating back in the next were one row at occupancy 1.0 with one episode, where each direction held for half the run. The Viewer colours both as a hydrogen bond, the ligand panel counts both, and the cross-tool comparison takes the larger as a bound on their union. Results change: hydrogen-bond rows split by direction, and a bond that reversed now shows the occupancy of each direction.
+
+### Metal coordination looks at the ions
+
+**`pl_interactions` now finds a ligand donor coordinating a metal ion.** The rule was given the ligand and the protein selection, and an ion is its own residue in neither, so it had no metal to find: a zinc 0.20 nm from a ligand oxygen and from a histidine NE2 gave no metal coordination on any run. Every single-atom residue of a metal element is now passed as the metal side beside the protein. Results change: studies with a metal ion in the site now report its coordination by the ligand.
+
+### A ligand group is charged only when it carries a charge
+
+**`pl_interactions` now takes a ligand group as charged only where its atoms carry a net formal charge of that sign.** Charged groups were found by pattern and by single formal charges, so neutral cyanoguanidine (the cimetidine core) and an acylguanidine were cations, a nitro group was both a cation and an anion, and nitromethane between an aspartate and a lysine formed a salt bridge to each, at 0.36 and 0.34 nm. A pattern match now needs a nonzero net charge of its sign, and a formal charge on an atom bonded to an opposite charge (nitro, N-oxide, azide) is left out. Results change: salt bridges and cation-pi contacts from nitro groups, N-oxides and neutral guanidine analogues are no longer reported.
+
+### Hydrogen and halogen bond acceptors have a lone pair
+
+**`pl_interactions` and the chain-contacts view now count an atom as an acceptor only where it has a lone pair free to take the bond.** Every nitrogen, oxygen and sulphur was an acceptor, so a ligand NH3+ aimed at a lysine NZ with three hydrogens was reported as a hydrogen bond at 0.30 nm and 180 degrees between two cations, a C-Cl aimed at the same NZ was a halogen bond, and on a solvated 1BHL trajectory 28 of 2105 side-chain hydrogen-bond frames had a protonated nitrogen (mostly Asn ND2 and backbone N) as acceptor. Oxygens, amine and pyridine-type nitrogens, Met SD and a Cys SG without its hydrogen accept; four-bonded and charged nitrogens, the backbone N, Asn ND2, Gln NE2, Trp NE1, the arginine nitrogens and amide, aniline and pyrrole nitrogens do not. Results change: hydrogen bonds and halogen bonds to those nitrogens are no longer reported.
+
+### A ligand file is read onto the right atoms
+
+**An SDF given for the ligand, or written by setup, is now matched to the trajectory by its graph of elements and bonds and used only where it is this ligand.** It was checked by atom count and mapped by position, so an acetate SDF listing C, H, H, H, C, O, O against a trajectory written C, C, O, O, H, H, H put the carboxylate's charge on two methyl hydrogens and lost the salt bridge to an arginine 0.44 nm away. The match now decides which file atom is which trajectory atom; where the topology has no bonds for the ligand the elements must agree in order, and a file that fails either test falls through to the next route. The Chemical Component Dictionary route is removed: it called the setup phase's fetch without the entry, chain and residue number it needs, so it failed on every run and the failure was swallowed. Results change: ligands whose chemistry file lists atoms in a different order from the trajectory now get their donors, charges and rings on the right atoms.
+
+### Protein charges from the protonation, not the residue name
+
+**A side chain's charge in `pl_interactions` and the chain-contacts view now follows the hydrogens the setup phase placed.** OpenMM and PDBFixer write every protonation variant under its parent's name, and the charge was read from the name: a histidine with HD1 and HE2 (written HIS) formed no salt bridge, a lysine with two hydrogens on NZ (written LYS) formed one at 0.43 nm from an acetate, and an aspartate carrying HD2 was an anion. A histidine is now a cation only with both HD1 and HE2, an aspartate or glutamate an anion only with no hydrogen on its carboxylate, a lysine a cation only with HZ1 to HZ3, and an arginine a cation unless a guanidinium hydrogen is missing; a residue with no hydrogens falls back to its name. Results change: salt bridges and cation-pi contacts on systems prepared by OpenMM gain every doubly protonated histidine and lose neutral lysines and protonated acids.
+
+### Relative and polar surface
+
+**Per-residue SASA now gives each residue's surface as a fraction of its theoretical maximum, and a total run splits the surface into hydrophobic and polar.** An area alone does not say how exposed a residue is (0.5 nm² is about a sixth of a tryptophan's maximum and nearly all of a glycine's), and the total alone does not say whether a change is in exposed hydrophobic or polar surface. Both per-residue summaries gain `mean_relative_sasa`, the mean area over the theoretical maximum of Tien et al. 2013 (PLoS ONE 8, e80635), with the table of maxima in the code; a `total` run writes `sasa_polar_split.csv`, carbon and sulfur atoms' area as hydrophobic and nitrogen and oxygen atoms' as polar, each hydrogen with the atom it is bonded to, and records the mean of each after equilibration. Existing columns are unchanged.
+
+### Secondary structure as fractions
+
+**Secondary structure now writes how much of the run each residue spent in helix, strand and coil, and how much of the protein is in each class in every frame.** It wrote the DSSP code of every residue in every frame and a heatmap of them, so a helix content or a residue's strand propensity had to be counted from the matrix by hand. `ss_fractions_per_residue.csv` and `ss_fractions.csv` are written beside `ss.dat`, with helix as DSSP H, G and I, strand as E and B, and coil as every other code, the grouping MDTraj's simplified alphabet uses. The helix and strand fractions over time are given a mean after equilibration with its standard error under `helix_fraction` and `strand_fraction` in the findings, by the same statistics as every other series.
+
+### SASA beside a bound ligand
+
+**SASA on a complex now says that the surface reported is the protein's without the ligand, and `with_ligand: true` gives the surface with the ligand in place.** The selection is the protein by default, so the residues lining a pocket read as exposed: in trypsin with benzamidine bound, SER190 reads 0.110 nm² rather than the 0.001 nm² it has with the ligand present, with nothing in the record to say which. Where the study has a ligand the findings now say the surface is the apo surface in the bound conformation. The new option `with_ligand` runs Shrake-Rupley on the selection and the ligand together and reports the selection's atoms, summed by residue; it needs `ligand_resname`, which the analysis phase supplies. Results are unchanged unless `with_ligand` is set.
+
+### Pairs for g(r) on a solvated protein
+
+**The pairs a g(r) is computed from are chosen in under a second for a protein against every water oxygen.** Every pair was built as a Python tuple before 400,000 were drawn from them, so the default protein against water oxygens on a solvated 3,000-atom protein in 10,000 waters listed 3e7 pairs, about 25 s and gigabytes before the first distance. The positions are now drawn from the same generator with the same seed and turned into pairs arithmetically, leaving out the one i == j pair of each atom in both selections, so the pairs are exactly those the full list gave; below the limit every pair is used, as before. The subsampling note now counts the pairs available without those i == j pairs. Results are unchanged.
+
+### Mean SASA bars by residue
+
+**The per-residue mean SASA figure of a single chain has one bar for each residue, labelled with its number and insertion code.** The bars stood at the residue number, so trypsin's 184A and 184 (and 188A, 221A) were plotted at the same x and the taller hid the other. Bars now stand at their position in the table, with the residue labels on the axis. The data files are unchanged.
+
+### One spread for per-residue SASA
+
+**The spread of each residue's surface area is the sample standard deviation wherever it is written.** `average_residue` divided by the number of frames and the `sasa_average_per_residue.csv` beside a `residue` run by one less, both under `std_sasa_nm2`, so on five frames of trypsin the second read 11.8 per cent higher (sqrt(5/4)) for every residue. Both now divide by n - 1, and a single frame gives no spread rather than zero. Results change: `std_sasa_nm2` from `average_residue` rises by a factor sqrt(n/(n-1)), which is under 0.5 per cent on a run of a hundred frames.
+
+### Dihedrals without phi and psi
+
+**A dihedrals run asked for omega alone, or any set without both phi and psi, now completes with a histogram of each angle computed.** The figure read the phi and psi columns whatever had been asked for, so `angles: [omega]` computed every omega and then failed with no figure and no data file. The Ramachandran plot is made only when both phi and psi are computed, and the `angles` chosen are now written to `options.json`, where they were missing; an empty choice is refused at construction.
+
+### Dihedrals across a chain break
+
+**A phi, psi or omega is no longer computed between residues that are not joined.** MDTraj pairs consecutive residues of a chain by index without checking the peptide bond, so on trypsin with residues 50 to 54 deleted residue 55 read a phi of -61.8 and an omega of -110.4 degrees through a C49-N55 distance of 1.68 nm. A torsion is now left out when its C(i-1) and N(i) have no bond in the topology (where the topology records peptide bonds) or are more than 0.2 nm apart in the first frame; how many were left out per angle, and the residues after each break, are recorded under `chain_breaks` in the findings. Results change: on a structure with a missing loop, the residues either side of the gap lose their rows in `dihedrals.dat` and their points on the Ramachandran plot.
+
+### Order parameters of a second chain
+
+**The N-terminal NH3+ of every chain is left out of the N-H order parameters, not only the first chain's.** Only the topology's first residue was excluded, and OpenMM names the three terminal hydrogens H, H2 and H3, so on haemoglobin (1HHO) chain B's VAL1 was counted as an amide through the one named H. A residue is now left out when it is first in its chain, when its nitrogen carries H2 or H3 (or AMBER's H1 to H3, CHARMM's HT1 to HT3), or when the topology records peptide bonds and it has none to the residue before it. Results change: on a structure of several chains, each later chain loses one row, its first residue, and the mean S2 no longer includes it.
+
+### A free-energy landscape on PC 1 and PC 2
+
+**`dimred` with PCA now writes the free-energy landscape over the first two principal components, as data and a figure.** G = -kT ln P, with P the histogram over `landscape_bins` bins each way (40 by default) normalised over the bin area, bins no frame visited left empty rather than infinite, and the lowest bin set to zero. It is in kJ/mol at the production temperature the study recorded in `simulation/simulation_parameters.json`, read where the reweighting reads it; where none is recorded it is -ln P in units of kT, and the record and the colour bar say so rather than assume a temperature. On a biased run the record says it is the landscape of the biased ensemble. Written as `dimred_pca_landscape.npz` (free energy, bin edges in nm, density, counts, unit, temperature) and `dimred_pca_landscape.png`. Results do not change.
+
+### Each cluster's representative, and the RMSD map
+
+**`cluster` now writes each cluster's medoid as a structure, a table of the clusters' shares, and the frame-to-frame RMSD it clustered on.** The RMSD matrix was computed and kept only for the dendrogram, and which structure a cluster is had to be found frame by frame. Now, for each method, `cluster_<method>_populations.csv` gives every cluster's frames, its fraction of the frames clustered, and its medoid (the member with the least summed RMSD to the others, in the distances the clustering used) with its frame and time; `cluster_<method>_medoid_<k>.pdb` is that frame without its water; and `cluster_rmsd_matrix.npz` holds the matrix in nm with each row's frame and time, plotted as `cluster_rmsd_matrix.png`, time against time. Frames DBSCAN calls noise are in no cluster. Results do not change.
+
+### Which frames a clustering read
+
+**`cluster` and `dimred` now record how many frames they read and whether the run's equilibration is among them, and `start` can begin them later.** Both read every frame, the relaxation from the starting structure included, and said nothing about it, though a relaxation can come out as a cluster or a principal component of its own. The default is unchanged, so results already analysed stay as they were; `findings.frames` in `options.json` now gives the frames read, the first, and the equilibration Chodera's method detects in the RMSD of the selected atoms from the first frame. `start` (in ns, 0 by default) begins at the first frame at or after a time, and `start: equilibrated` after that equilibration; a later time on a trajectory with no clock is refused. The `frame` column of their data files is the frame of the trajectory analysed, so it begins where they began. Results do not change unless `start` is set.
+
+### t-SNE on a short trajectory
+
+**`dimred` with `methods: [tsne]` now runs on a trajectory of five frames or fewer.** The perplexity was min(perplexity, max(5, n/4)), whose floor of 5 is not below the number of frames when there are five or fewer, and t-SNE refused to run. It is now min(perplexity, max(1, (n - 1)/3)), which stays below the frame count, and the value used is recorded under `findings.tsne`. Results change: t-SNE embeddings of trajectories under 120 frames at the default perplexity of 30.
+
+### PCA axes with MDS beside them
+
+**The PCA figure's axes now say each component's share of the variance whichever other methods run.** MDS cleared the attribute that held PCA's shares, so with `methods: [pca, mds]` the PCA axes read "PCA 1" and "PCA 2" in place of "PC 1 (98.5%)". MDS now leaves them alone. Results do not change; the PCA figure's labels do.
+
+### The Ward dendrogram is the Ward clustering
+
+**With `linkage: ward`, the saved dendrogram and `hierarchical_linkage.npy` are now the hierarchy that labelled the frames.** The labels came from Ward's linkage on the frames as points (the superposed coordinates, or a classical MDS embedding of the pairwise RMSD), while the dendrogram and the linkage file were built by average linkage on the distances: cut at the number of clusters asked for, they agreed with the labels to an adjusted Rand index of 0.64 on a drifting trajectory. Now both are built with SciPy's Ward on the same points, which agree to 1.0, and which points they were is recorded under `findings.hierarchical`. Results change: the dendrogram figure and `hierarchical_linkage.npy` of Ward clusterings; the labels do not.
+
+### The k-means seed is in the record
+
+**`cluster` now writes `random_state` and `n_init` to its `options.json`.** Both were settable and both decide which local optimum k-means finds, and neither was recorded, so a clustering could not be repeated from its record or told apart from one run with another seed. Results do not change.
+
+### Ligand RMSD over heavy atoms, with the ligand's symmetry
+
+**`ligand_rmsd` is now taken over the ligand's heavy atoms, at the relabelling of a symmetric ligand that fits each frame best.** It counted every ligand atom, hydrogens included, and took the atoms as labelled, so a benzene turned by 60 degrees about its axis, lying exactly where it was, read 0.200 nm (0.139 nm over its carbons). Now hydrogens are left out by default (`include_hydrogens: true` counts them), and each frame's RMSD is the smallest over the automorphisms of the ligand's bond graph from the topology, atoms matched to atoms of the same element carrying as many hydrogens, with the same bonds and, where the topology records them, the same bond orders, with no refitting (`symmetry_corrected: false` turns this off). The same benzene reads 0.000 nm. The search stops at 10,000 automorphisms and says so; a ligand whose topology records no bonds is taken as labelled, and that is said. Where the topology records no bond orders and the ligand no hydrogens, a ring whose double bonds alone tell its atoms apart is read as more symmetric than it is. Which atoms were used, how many automorphisms, and the largest correction are recorded in the findings. Results change: every ligand RMSD with hydrogens in the ligand, and those of symmetric ligands that turned onto themselves.
+
+### Ligand RMSF across a periodic face
+
+**`ligand_rmsf` now follows the ligand across periodic faces before taking each atom's fluctuation, the same way `ligand_rmsd` does.** It read the fitted coordinates as stored, so an atom written on the far side of the box in some frames fluctuated by a box length: a bound ligand on a face of a 5 nm box, stored on the far side in 31 of 200 frames, read an RMSF of 1.80 nm against a true 0.035 nm. Both analyses now take the ligand from one shared function, so they read the same ligand. Results change: ligand RMSF where an atom of the ligand crossed a face of the box as stored.
+
+### A ligand far from the first alpha carbon
+
+**`ligand_rmsd` now follows the ligand across periodic faces from the alignment atom nearest it in the first frame.** It started from the first alignment atom, the N-terminal alpha carbon, and the first frame's minimum image is the true separation only under half the box: on an elongated receptor with that atom 4.4 nm from the ligand in a 6.8 nm box, the first frame took the wrong copy and a rigid complex tumbling in its box read a ligand RMSD of up to 13.3 nm, in a cube and in a rhombic dodecahedron alike, and also after the loader's imaging. From the nearest atom the same complex reads under 0.001 nm. Results change: ligand RMSD of complexes whose first alignment atom is more than about half a box from the ligand.
+
+### A centre-of-mass distance in a dodecahedron
+
+**`pair_distance` with `measure: com` now takes the shortest periodic copy in a cell of any shape.** It folded each Cartesian component by its box length, which is right only for a rectangular box: in the rhombic dodecahedron the setup builds, 28% of random pairs came out on the wrong copy, by up to 4.68 nm, and two centres 0.5 nm apart across a slanted face read 5.416 nm. Now the fractional coordinates are rounded with the cell vectors and the 26 neighbouring translations are compared, keeping the shortest, and the warning that a pair is near the limit of the convention is set at half the shortest periodic repeat rather than half the smallest box length. `measure: closest` was already right. Results change: centre-of-mass distances from triclinic boxes.
+
+### Shape descriptors
+
+**`moments_of_inertia` now also gives, per frame, the asphericity, acylindricity and relative shape anisotropy of the selection's gyration tensor.** The three principal moments separate a rod from a disc, but a reader comparing shapes wanted the descriptors polymer and protein papers quote. From the eigenvalues l1 <= l2 <= l3 of the mass-weighted gyration tensor, b = l3 - (l1 + l2)/2, c = l2 - l1 (nm^2) and kappa^2 = (b^2 + 3c^2/4)/(l1 + l2 + l3)^2, as Theodorou and Suter define them (Macromolecules 18, 1206, 1985), are written to `moments_of_inertia_shape.dat`, and each one's mean after equilibration is recorded in the findings under its name by the statistics every per-frame series uses. Checked against an independent computation and against shapes solvable on paper: a rod gives kappa^2 = 1, a cube 0, a spherical cloud under 0.005 and a flat square 1/4.
+
+### B-factors matched to their own residues
+
+**The B-factor comparison now matches each residue to its own deposited B-factor, by chain ID, residue number and insertion code.** B-factors were keyed by chain order and number alone, so trypsin's GLY 184A (B 9.49) and TYR 184 (B 20.72) were both compared with 20.72, and a run of 1HHO's chain B alone was compared with chain A's B-factors (VAL 1 against 70.91 rather than its own 25.93). `bfactors_from_pdb` now keys by (chain ID, number, insertion code); residues are matched by the insertion code where the trajectory carries it and by file order within a number where it does not; and chains are matched by ID, falling back to order only where the trajectory carries no IDs (MDTraj 1.10 drops them when it slices), with `findings["chains_matched_by_order"]` saying so. Results change: correlations on structures with insertion codes, and on runs of some of a structure's chains.
+
+### Insertion codes from any structure file
+
+**Insertion codes are now read from whichever file gave the topology, PDB or mmCIF.** They were read only from an external `.pdb` topology, so a PDB loaded as the trajectory itself, or a trajectory given an mmCIF topology, lost them: trypsin's GLY 184A and TYR 184 came out as two residues numbered 184 in one chain, and the per-residue tables held a duplicated row. The loader now reads the codes from the trajectory file where it carries the topology, and mmCIF files are read for `_atom_site.pdbx_PDB_ins_code`, keyed by atom id and author residue name and number as MDTraj names the atoms. Results change: per-residue tables of such loads gain their `insertion` column and lose the duplicated rows.
+
+### Stride across several trajectory files
+
+**Frames loaded with a stride from several files now carry the times they were written.** MDTraj strides each file on its own from its first frame, and the loader timed the frames as one stream: two files of five frames at stride 2, saved every 10 ps, are frames 0, 2, 4, 5, 7, 9 of the run, written at 10, 30, 50, 60, 80 and 100 ps, and read 10 to 110 ps. The loader now reads each file's length and builds every frame's index in the run (`loading.written_frames`), and the clock is set from those. Files whose lengths are multiples of the stride, and single files, read as before. Results change: time axes, and durations taken from them, of multi-file loads with a stride where a file's length is not a multiple of it.
+
+### Radius of gyration weights and chains
+
+**A radius of gyration is now weighted as `options.json` says it is, and a virtual site weighs nothing.** One atom without a mass, such as a TIP4P water's charge site, turned the whole radius unweighted while the options still read `mass_weighted: true`. A virtual site (element VS, which MDTraj also gives any atom whose element it cannot read) now has zero weight and a finding names such atoms; where no atom has a mass or one carries no element at all, every atom is weighted equally, `mass_weighted` is recorded as false and a finding says why. `by_chain` wrote bare columns numbered by position with no header, against a docstring promising a frame column; it now writes a table with `total` and one `chain <ID>` column per chain, named by chain ID as `end_to_end` does, and the legend names the chains the same way. Results change: the radius of gyration of a selection holding a virtual site, which was unweighted, is now mass-weighted.
+
+### RMSF over the equilibrated frames
+
+**RMSF is now computed over the frames after equilibration, found by the same detection every per-frame mean uses.** It averaged every frame, so a relaxation away from the starting structure was read as fluctuation: a loop of 3PTB relaxing 0.4 nm over the first 300 of 1000 frames read 0.0819 nm against 0.0514 after the discard and 0.052 by construction. The start is now detected on the RMSD of the fitted atoms from the reference frame (`statistics.summarise`), the fluctuations are taken over the frames after it, and the frames used are recorded as `findings["frames"]` and said on the figure. The option `start` gives the start instead, as clustering and dimred take it (a time in ns, `0` for every frame). Results change: RMSF of any run that relaxed from its starting structure is lower, and is the equilibrium fluctuation.
+
+### Per-residue RMSF as GROMACS gives it
+
+**A residue's RMSF is now the square root of its atoms' mass-weighted mean squared fluctuation, sqrt(sum m_i MSF_i / sum m_i), which is what `gmx rmsf -res` reports.** It was the unweighted sqrt(mean MSF) while its comment said it agreed with GROMACS, so a residue with a mobile hydrogen among rigid heavy atoms read more than 1.5 times the GROMACS value. The formula is stated in the docstring and in `options.json`; atoms with no known mass are weighted equally and a finding says so, and a virtual site has no weight. A trajectory of one frame, which returned an RMSF of zero for every residue with status ok, is refused with `analysis.sampling.too_few_frames`. Results change: per-residue RMSF over a selection with several atoms per residue; the alpha-carbon default is unchanged.
+
+### Periodic warnings reach the mean
+
+**When an end-to-end distance or a set of moments of inertia is marked by the periodic box, every reader of its mean is now told, and the mean has no error bar.** Both analyses kept the warning in a top-level `findings["not_a_measurement"]`, which the report, the GUI and the Agent never open: they read `findings["mean"]`, so a chain folded by the box was reported as a mean with an error bar and nothing else. The warning is now written into the mean's record, its standard error is withheld, and the figure's legend says why there is no error bar. The top-level finding stays where it was.
+
+### Moments of inertia in the default box
+
+**Moments of inertia now mark a molecule as broken across the periodic boundary only when it is.** The test compared the selection's extent against the smallest box vector, and in the rhombic dodecahedron setup builds by default every vector is a box length long, so whole proteins were marked: 1AKE, 8.54 nm across in a cell 10.39 nm long, was flagged though its narrowest width is 7.35 nm and no bond was broken. The test is now direct: a bond longer than half the cell's narrowest width, which the marking names with its frame. A selection without bonds is still compared by its extent, against the narrowest width.
+
+### End-to-end distance past half the box
+
+**A chain's end-to-end distance is now its length, however long it is against the cell.** It was taken between the two ends under the minimum-image convention, on coordinates the loader had already made whole, so a chain extended past half the box was folded back the short way round: a straight 10-residue chain 3.420 nm long in a 4.62 nm cube (the box setup's padding rule gives it) read 1.200 nm with no warning, and the warning that did exist tested the folded distance, which the folding itself keeps under the bound it tested against, so it could not fire. The distance is now the length of the sum of the minimum-image steps from one residue to the next along the chain, the same for a chain stored whole or wrapped into the cell, and the run is marked where an end comes within 1.0 nm of a periodic image of the other end, found exactly over the lattice for any cell shape. The cell's narrowest width is a new shared helper, `analysis.base.narrowest_width`. Results change: end-to-end distances of chains longer than half the box were too short, and are now their length.
+
+### `protein` is the whole protein
+
+**`protein` now covers every amino acid the force fields write.** MDTraj
+decides a residue is protein by its name, and its list lacked AMBER's
+disulfide cysteine CYX, protonated aspartate ASH, histidines HID, HIE and
+HSP, the NHE and NH2 caps, and (MDTraj 1.10) CHARMM's HSD. On a system with
+disulfides every bridged cysteine fell out of `protein`: trypsin's SASA
+covered 211 residues of 223 (96.2 against 92.5 nm2, the holes' neighbours
+exposed), its DSSP changed at 38 residues, its radius of gyration read 1.1%
+large, and the protein side of each ligand analysis did not see them. The
+names are added to MDTraj's own list, with their one-letter codes, the
+moment MDTraj's topology loads in a process that imported this package,
+whichever was imported first (`fastmdxplora/protein_names.py`), so every
+analysis, the GUI, a typed selection and `backbone` and `sidechain` mean
+the same protein. The finding that named HIE, HID and HSP is gone with the
+hole. Results change on a topology that keeps these names (one from AMBER's
+tleap or a GROMACS force field): the analyses cover the whole protein, and
+equilibration's positional restraints on `protein` hold its bridged
+cysteines and histidines too, which they had left free.
+
+**The alpha-carbon default is `protein and name CA`** (RMSD, RMSF, cluster,
+dimred, and the fits of the order parameters and the B-factor comparison).
+`name CA` also took a calcium ion, whose residue and atom are both named CA:
+on 3PTB a rigid protein beside a calcium that moved 1.5 nm read an RMSD of
+0.1 nm, and RMSF gave the ion a row.
+
+### The Sequence folds as the settings' sections do, and starts closed
+
+### The molecule keeps its size as the Sequence or the Playback opens
+
+**Fixed:** opening the Viewer's Sequence made the molecule narrower (about
+100 pixels in a window 900 high), its lines taken from the molecule's
+height, and opening the Playback did the same. The molecule is sized with both closed
+and keeps that size: what either shows pushes the rest down, and the column
+under the header scrolls to reach it.
+
+### No folder named or opened where no study is open
+
+**Fixed:** `fastmdx gui` in a folder that holds no study printed "The file
+.../.fastmdxplora-no-current-run does not exist." in its terminal on a Mac:
+the page took the name the GUI gives when no study is open (a folder never
+made) for the study's folder, and Open the folder asked `open` for it. That
+name is no longer shown as a folder or a title, the study menu offers no
+folder with no study open, and nothing that is not there is opened.
+
+### The Sequence and the Playback start closed
+
+**The Viewer's Sequence has the same marker as the settings' sections**,
+and it and the **Playback** start closed until first opened, then stay as
+they were left; the settings' sections are as they were. The keys play the
+frames with the Playback closed. The Sequence's marker was a character of
+the text, smaller than the sections'.
+
+### The Viewer has the window, in one shape, and each page one band
+
+**Opening the Viewer folds the sidebar and the side panel**, and another
+page brings them back as they were. Pointing at a folded column's tab shows
+the column over the page for as long as the pointer stays on the tab or the
+column; a click on the tab, then at the column's edge, keeps it open, on the
+Viewer until it is folded there again. **The molecule is 4 wide to 3 high**,
+as large as the window allows with the sequence above it and the playback
+under it in view, and centred with its settings beside it, the page's
+header lined up over them; it took every pixel of width it was given. **The
+Sequence and the Playback fold** as the settings' sections do, and stay as
+they were left. **Each page's header is one band across the centre
+column**, its rule under it; it was the width of the page's text, a strip
+of another colour over the column's own ground.
+
+### The sidebar, rebuilt
+
+**The sidebar reads top-down and fits a laptop's screen.** The product's
+name alone at the top (the product's expansion is with the citation now; a
+hosted service's own line still shows under its name). The study on screen as a
+card: its name and one line of where it stands (Running, Completed,
+Stopped, Failed) with the platform, and, when the page stops hearing from
+the server, that too; pressed, it opens the workspace's newest studies to
+switch to, All studies, Open another folder, and the study's folder with
+Open the folder (this replaces Load available study and the Output
+button). Each page has a line icon in place of the grey squares, All
+studies says how many studies the workspace holds, and the Agent and the
+Config builder stay under New study. Where a run stands is a card shown
+only while it runs, or after it stopped or failed: its stage and how far
+it is, the stages as one bar (each named when pointed at), which stage of
+how many, the time left, its step, pause and refresh, and for a stopped or
+failed run **What would fix it**, which opens the Overview at that card. A
+finished study has no card. At 900 pixels the old sidebar ran past the
+window, its foot over the stage list and its buttons out of reach. The
+standalone dashboard has the same sidebar.
+
+### Preferences and the citation are dialogs
+
+**Preferences** and **Cite FastMDXplora**, in the settings menu, open as
+dialogs over the page shown, as Agent settings does; they were pages.
+Escape, Close or a click outside closes any of the three, and focus goes
+back to the gear. Preferences are kept in the browser and applied as they
+change, with **Restore defaults**; a reload lost every one of them. Six
+that changed nothing are gone (ligand representation, depth fog, compact
+mode, reduced motion, which the page takes from the system, advanced
+metrics and the scientific notation threshold), as is the telemetry
+polling interval: the page is told of changes as they happen, and falls
+back to its own poll where a proxy holds them. The Viewer's background is
+**Ground**, dark or white, as its button says; two of its three blacks were
+one colour. **Rename for display** and **Ligand residue** moved to the
+study card's menu, kept for each study by its folder. The citation's
+reference and its BibTeX each copy in one click, in the standalone
+dashboard too.
+
+### The top bars are one height
+
+**Each page's title bar is the side panel's tab bar's height**, its title
+centred in it and its rule on the same line; it was 11 pixels taller, the
+title near its foot. The sidebar's name sits on the same line, and folds
+with the side panel's own button.
+
+### Backbone angles says what is plotted
+
+The line under the plot gives the residues, the frames and the unit, and no
+longer names the program that computed them, in a study whose angles were
+kept before too.
+
+### The Agent analyses a study again, when told
+
+**Told to add an analysis to the study open, to analyse it again or to
+write its report again**, the Agent replies `DO: analyze again rmsd sasa`
+or `DO: write the report again`, read from that one line by a strict
+pattern. The analyses named are checked against the software's own, the
+person is asked what will run and what is kept aside, and the phase
+command runs with `--rerun` on a yes; a name the software does not have is said, and nothing
+runs. Through an AI app, `ask_agent` says `run_phases_again` does it.
+
+### An AI app runs a study's analysis or report again
+
+**`run_phases_again` in `fastmdx mcp`** runs a study's analysis, its report
+or both again in its folder, by the phase command with `--rerun`, once
+the person agrees: the analyses named (by default those it ran last), what
+is replaced kept in `previous/`, under the workspace's one-study-at-a-time
+rule. A quick one says it is done; a longer one runs on after the AI app
+closes. Not offered by a read-only server. An AI app could start a study
+only in a folder never used.
+
+### Analyze again and Write it again, from the GUI
+
+**The Analysis page's Analyze again** runs the study open's analyses again
+in its folder: the analyses it ran last offered ticked and every other one
+this release has to add, what is written again and what is kept in
+`previous/` said before anything starts, and the analyses shown as they are
+written. It runs `fastmdx analyze --output <study> --rerun`, or `fastmdx
+explore --include-phase analysis report --rerun` where the study has a
+report, which is then written again too. A study of several runs is
+analysed run by run, and its comparison built again. **Write it again** on
+the Report page runs `fastmdx report --output <study> --rerun`, from the
+report settings the study recorded, and writes each run's report for a
+study of several. The GUI ran a study's phases only into a new, empty
+folder.
+
+### The lab's mark, and a sidebar that covers what scrolls under it
+
+**The AAi Research Lab's logo is the tab's icon and the avatar at the foot
+of the sidebar**, in the GUI on a person's own machine and in the standalone
+dashboard (inlined, so the page still stands alone). A hosted GUI gives
+its own with `--product-logo` (PNG, JPEG, GIF, WebP, ICO or SVG, at most
+256 KB); the avatar is the person's initials wherever the proxy names
+somebody. The tab had no icon, and the avatar was an empty grey circle.
+
+**Fixed:** the sidebar's name at the top and avatar at the foot sat inside
+its padding, so what scrolled under them showed through beside them and
+below the foot. They reach the sidebar's edges now.
+
+### `fastmdx config` writes the template
+
+**`fastmdx init-config` is now `fastmdx config`**: with no file named it
+writes `fastmdxplora.yml` where it is typed, and `-f FILE` (`--file`) names
+another. `--minimal` and `--force-overwrite` are as before. The old name
+stops with exit 2 and says where the command went.
+
+### A phase command is explore with one phase
+
+**`fastmdx setup`, `simulate`, `analyze` and `report` are `fastmdx explore
+--include-phase` with that one phase**, through the same code: what one
+does, the other does. Given an `--output` that holds a study and no system
+or config, a phase command runs on that study from the settings it recorded
+(`resolved_config.yml`), with the options given laid over them; a study
+moved since keeps reading its own frames. An outside trajectory and
+topology need no system.
+
+**A phase whose output is already in the folder runs again only when
+asked.** `--force-overwrite` removes what it wrote before; `--rerun` keeps
+it in the study's `previous/<phase>`, one copy of each phase, with its
+manifest record. Either way, the phases after it that read it (a report
+written from the analyses before, analyses of frames a simulation run
+again no longer has) are set aside the same way and named, with the
+command that writes them again, and their records leave the manifest until
+they do. A campaign is run again run by run and its comparison rebuilt,
+as it is when one of its runs is analysed again on its own. Neither is
+done while a run of the study is going. A study that stops before any
+phase runs now says why.
+From Python, `explore(..., keep_previous=True)`. A report bundle leaves
+`previous/` out.
+
+### Tags and a note on a study
+
+**A study can carry tags and a note of the person's own** ("wild type",
+"JCIM Fig. 4"; "Ca²⁺ missing, rerun before quoting"), kept in its folder in
+`study_tags.json`, beside its records and never in them, so they go where
+the study goes. All studies shows them on each card, edits them there
+(offering the tags used as one is typed), narrows the cards to a tag
+clicked, and searches them. Through `fastmdx mcp`, `list_studies` gives
+each study's tags and note and lists those with a tag, and `tag_study`
+adds tags; removing one and writing the note stay with the person, and a
+read-only server writes neither.
+
+### A study's card before it has a figure
+
+**All studies shows two cards a row**, each figure wide enough to read (one
+a row on a narrow window), and **a study that has plotted no figure yet
+shows its protein's backbone**: the Cα trace (a nucleic acid's phosphorus
+atoms) from the structure the Viewer renders first, seen face on, coloured
+from the N terminus (purple) to the C terminus (green), the nearer part
+darker, broken where a chain ends or a loop is missing. It was a grey box
+with the study's name, which is still shown where there is no structure.
+Read from the PDB's own lines on the server, kept in memory and never
+written into the study.
+
+### Every page's heading on one small line
+
+**A page's heading is one line, as a chat's title is**: the page's name at
+body size, what the page is beside it in smaller muted type, cut short with
+an ellipsis rather than wrapped, and the page's actions at the right in
+compact controls, at one height on every page (39 px under the shell's
+padding; the title had been 20 px bold, and the subtitle and actions
+wrapped onto a second line where space was short). On a phone the name
+alone, with the actions beside it where they fit.
+
+### A pocket's volume over the frames
+
+**The Viewer's Pocket volume section** plots, for a study with a ligand, how
+much room the protein leaves in the ligand's pocket in each frame played,
+counted on a grid as POVME counts it (within 4 Å of the ligand's place in
+the first frame, beyond every protein atom's van der Waals radius, inside
+the hull of the pocket's residues, joined to the ligand's place), the frames
+fitted on the pocket. A click on the plot shows that frame, and **Show the
+pocket** renders the empty space of the frame shown as a surface
+(`GET /api/pocket-volume`, `/structure/pocket.dx`). Checked against a
+known answer: a shell of protein atoms closing about a ligand.
+
+### A contact map tied to the structure
+
+**The Viewer's Contact map** gives each pair of the protein's residues the
+share of frames played they were in contact in (heavy atoms within 4.5 Å,
+MDTraj's closest-heavy contact; neighbours in a chain left out). Pointing at
+a cell names the pair; a click selects both residues and joins their closest
+heavy atoms in the frame shown with a dashed line, as the frames play, with
+how far apart they are. Two states the cluster analysis found are compared
+pair by pair (**State** B **vs** A), red where a pair is in contact more often
+in B and blue where more often in A, with a key under the map saying which
+colour is which
+(`GET /api/contact-map`, `/api/contact-pair`; `/api/states` now gives each
+frame played its state).
+
+### Backbone angles tied to the frame
+
+**The Viewer's Backbone angles section is a Ramachandran plot of the frames
+played.** Every residue's φ and ψ over every frame is plotted in grey, each
+residue in the frame shown as a dot that moves as the frames play, and the
+residue chosen (from a list, or selected in the structure or the sequence)
+as its path over the frames with a ring at the frame shown. A click on the
+path shows that frame; a click on a dot follows that residue and selects it.
+A key under the plot shows each mark beside what it is, the residue chosen
+named in it; the path is faint at the first frames and solid at the last.
+The angles are MDTraj's, from the frames played (`GET /api/backbone-angles`).
+
+### Movies from the command line and from an AI app
+
+**`fastmdx movie`** makes a movie of a study's frames without opening the
+GUI, and **`make_movie`** does it for an AI app through `fastmdx mcp`. The
+movie is the Viewer's own: the GUI is started for the study on this
+computer, a browser with no window opens its Viewer and shows a view saved
+with the study (or the Viewer as it opens), changed as asked, and the
+Viewer renders each frame and has ffmpeg encode it into `movies/`. It needs
+Playwright's Chromium, or Chrome or Edge; a read-only `fastmdx mcp` does not
+offer it.
+
+### Smoother movies
+
+**A movie can put frames in between the frames played.** A study saves a
+frame every so often, and a movie of its frames jumped from one to the next.
+The Movie section's **In between** puts 1, 3 or 7 frames between each two,
+each atom moved in a straight line from its place in one frame to its place
+in the next (`/structure/frames.dcd?...&span=&between=`). They are not
+simulated, and the movie's record says they were interpolated; since a
+straight line between two places of a molecule turning is a molecule
+shrunk, frames shown as written are superposed on the backbone first.
+
+### A colour chosen in the Viewer stays chosen
+
+**A study's first state no longer resets the Viewer.** The page treated the
+first state it was sent as a change of study and cleared what the Viewer had
+already loaded for that same study: a colour chosen in the first seconds (a
+result's, say) fell back to the spectrum, with its bar hidden.
+
+**"Run" no longer takes back a colour the person chose.** In a study of
+replicas the colour by run is chosen the first time the runs played together
+are offered. On a slow machine they arrive after the person has chosen, and
+the choice was replaced by "Run". It is now chosen only where nobody chose a
+colour (in the list, by a saved view or a scene). CI's browser leg failed
+on both, waiting for the mean RMSF's bar.
+
+### The Viewer loads a structure once
+
+**A structure asked for twice while it loads is loaded once.** As the page
+opened, the structure's state could arrive twice before the first load had
+finished, and each asked for the structure: it was loaded and rendered
+again, the Viewer's engine empty for a moment between the two. Besides the
+second render's time, anything that read the atoms then found none, which
+is why the browser tests of the pocket and of the solvent-free structure
+failed now and then (once in five or six openings here).
+
+### A preparation repeats to the last velocity, and a runaway packing is caught both ways
+
+**`state.xml` is the same file from the same seed.** The velocities setup
+saves were drawn on whatever platform the machine offered, and the CPU and
+GPU platforms do not draw the same velocities twice from one seed: two
+preparations of a bilayer matched in every position and in no velocity (up
+to 8e-8 nm/ps apart), and four of 2POR on an RTX 4090 gave four different
+`state.xml` files beside one `solvated.pdb`. They are drawn on the Reference
+platform, which drew the same bytes every time; for 26,000 atoms it takes
+about two seconds. A study that minimises first, the default, draws its
+velocities again from `simulation.random_seed` and was not affected.
+
+**A packing that runs away is packed again however it says so.** Where the
+relaxation ended on NaN positions without stopping, OpenMM met them placing
+the water and Python said "cannot convert float NaN to integer", which the
+retry let through: 2POR stopped on it once in four on an RTX 4090.
+
+### The standalone dashboard is laid out as the GUI is
+
+**`report/dashboard.html` reads like the GUI**: the same sidebar (the study,
+its Progress, the settings menu with the three schemes) and the Overview,
+Analysis, Report and Files pages, written in the GUI's markup and styled by
+the GUI's own stylesheet, inlined, so the two cannot drift apart. Each series
+is plotted from its numbers by the GUI's chart script, its figure one click
+away; the report is shown as the Report page shows it, with what the report
+phase could not produce; every file is listed as the Files page lists it.
+The page had a layout of its own, with figure cards to resize. The Viewer,
+the Agent and the Config builder need the server and stay in `fastmdx gui`.
+
+**Fixed:** the phase in progress was always taken to be the simulation, so a
+run analysing or writing its report read "Simulation: report" with the
+analysis not yet done, on the GUI's Overview and on the page; and the page
+read its phases without the live record, so a first run's page said every
+phase was "Not run".
+### A bilayer is packed from the setup seed, and packed again if it fails
+
+**A membrane study prepared twice with one `setup.random_seed` is the same
+system.** OpenMM packs a bilayer with a short simulation whose integrator it
+makes itself and never seeds, so four preparations of 2POR with one seed gave
+four systems, 279,726 to 279,807 atoms. The packing is now seeded from the
+setup seed and the seed it used is recorded (`bilayer.packing_seed` in
+`setup_parameters.json`); the methods paragraph and the report's
+Reproducibility section say a bilayer prepared so repeats, and say a bilayer
+prepared before does not.
+
+**A packing that runs away to a NaN is packed again with the next seed**, up
+to three times, each attempt in the log and the number of packings recorded
+(`bilayer.packing_attempts`). 2POR's packing stopped the network validation
+corpus on 2026-10-04 with "Particle coordinate is NaN" after 14 minutes,
+having packed the night before. After the third, setup refuses with
+`setup.membrane.packing_failed`, naming the lipid and the seeds tried, where
+it said only OpenMM's message and that the software did not know the answer.
+
+### Runs together while they run
+
+**A run still running is played beside the others**, from the snapshots it
+has written: each frame beside the snapshot it had written last by that
+frame's time, fitted on the backbone as the finished runs are, said to be
+running, and rendered again as it writes more without the frames played
+being loaded again. While no run has finished, the first to have written
+snapshots is played. A run still running had been left out until it
+finished.
+
+**Fixed:** frames asked for while the structure was still on its way were
+replaced by it when it arrived.
+
+### The frames arrive in pieces
+
+**The Viewer plays the frames from the first piece while the rest arrive**,
+which waited for the whole trajectory, up to 120 MB, before it showed a
+frame: over a tunnel or from a hosted GUI, a large system waited for all of
+it. The frames are sent as XTC, about a third of a DCD's size, each
+coordinate to a hundredth of an angstrom, in pieces of up to two million
+atoms times frames, and how many have arrived is said beside the transport.
+The frames superposed are read as XTC too. The DCD stays for what reads the
+frames on the server. `GET /api/frames-pieces`.
+
+### Another study beside this one
+
+**The Viewer plays another study beside this one**, under **Beside another
+study**: a wild type and its mutant, or two related proteins. Their residues
+are paired by sequence and the substituted ones listed; the other's frames
+are fitted on the paired alpha carbons to this study's first frame and timed
+by simulation time, since two studies need not save frames alike; and this
+study's protein can be coloured by the difference in RMSF. `GET /api/beside`,
+on loopback only.
+
+### The states a study visited
+
+**The Viewer lists the states the cluster analysis found**, under
+**States**: each with its share of the frames and a representative, its
+medoid among the frames played, shown with a click. **Compare** sets one
+state's representative in grey beside another's, fitted on the alpha
+carbons, and colours the protein by how far each residue moved between
+them. `GET /api/states` and `/api/state-difference`.
+
+### A study's main motion
+
+**The Viewer shows a study's main motions** under **Main motions**: its
+principal components, swung as a backbone from two standard deviations one
+way to two the other, and as lines from each atom to where the motion takes
+it, placed on the first frame played, with each motion's share of the
+fluctuation said. `dimred` now keeps the motions themselves
+(`dimred_pca_modes.npz`), where it wrote only each frame's projection; a
+study analysed before has them found from its frames, and is told so.
+`GET /api/motion`.
+
+### Where the ligand and the water went
+
+**The Viewer shows where the ligand and the water went over the frames
+played**, under **Over the frames**: an occupancy map of each, as VMD's
+VolMap gives one, the fraction of frames in which an atom is near each point
+of a half-angstrom grid, the frames fitted on the ligand's pocket to the
+first frame, rendered as a surface at the share of frames chosen (bulk water
+reads about 32%), and written with the study as OpenDX. **Water sites**
+places the sites the `water_sites` analysis found, as spheres coloured by
+whether one molecule held each. `GET /api/occupancy`, `/structure/occupancy.dx`
+and `/api/water-sites`.
+
+### Fixed: a water site on a turning protein
+
+**`water_sites` finds a site where it is on the protein, however the protein
+turns.** It clustered water positions as the trajectory stored them, so a
+water held on a protein that turned in its box traced an arc, which was
+rejected as a surface or split into sites at part of their occupancy: a
+water held throughout a run on a residue turned through 180 degrees was
+reported as no site. Each position is now moved and turned with the fit of
+the site's atoms onto the first frame's, sites are given in the first
+frame's coordinates, and `fitted_on` in the findings says how. Results of
+studies whose protein turned change.
+
+### Replicas coloured by their mean
+
+**A study of replicas is coloured by their mean** in the Viewer, which
+offered no result for a study of several runs: "RMSF, mean of 3 runs" over
+the runs of the run played's atoms, and the same for the other per-residue
+results, each residue's standard error across the runs and each run's own
+value in the Selection tab. Runs that differ by more than their seed are not
+averaged: the run played's own values are offered, and said to be. A scene
+written from such a study is coloured by the same mean.
+
+### The runs of a study, played together
+
+**A study of several runs plays its runs together in the Viewer**, which had
+nothing to show for one. The first run with a trajectory is played as any
+study's frames are, and every other run of the same atoms is rendered beside
+it in the colour the Analysis page gives it, read at the same source frames
+and fitted on the protein's backbone to the first run's first frame, so all
+the runs are superposed on one shared structure. **Runs**, in the panel,
+lists them, each with a box to hide it, and the runs left out (other atoms,
+still running, or no trajectory yet) with why; **Coloured by** offers **Run**, and is set to
+it. A run with fewer frames is not shown past its last; the other runs are
+hidden while the frames played are not fitted as they are. A scene written
+from such a study is of the run played alone, and says so.
+
+### The Agent proposes a scene
+
+**An answer about something that can be seen may end with a scene the Agent
+proposes**: a frame, a colouring by one of the study's results, residues
+highlighted. It is shown under the answer in words, with a name and a **Write
+this scene** button; nothing is written until it is pressed, and the scene is
+then kept with the study and shown in the Viewer. The Agent's tools still only
+look. Its one `SHOW:` line is read by a strict pattern, and a part the pattern
+does not allow drops the proposal, never the answer. `POST /api/scenes` takes
+atoms to highlight, as `write_scene` in `fastmdx mcp` does.
+
+### The report lists the scenes
+
+**`report.md` lists the scenes written with the study under Scenes**, after
+the results, each linked from the report and said in a line: its frame,
+representation, colouring and superposition. A scene opens as it was shown
+in any viewer built on Mol\*, dropped on molstar.org or opened in the GUI;
+the report links it rather than embedding a viewer. **Fixed:** Python 3.12
+warned of an invalid escape sequence in `report/document.py` each time the
+package was imported (`Mol\*`, the Markdown for Mol*).
+
+### Movies tested on every job
+
+The encoding of a movie is tested against a stand-in ffmpeg on every job:
+which encoder is chosen and why, the command ffmpeg is given, and what is
+said when it fails. CI's Linux jobs install the real ffmpeg for the tests
+that encode a real movie, which had been put in the corpus job's
+environment, where no movie test runs, so they skipped where coverage was
+measured. Every job lists the tests it skipped, with the reason.
+
+### A folder that holds no study is not shown as one
+
+**`fastmdx` typed alone opens the GUI with no study, as `fastmdx gui`
+does.** It opened the folder it was typed in as the study, so a repository
+checkout was shown with "No live record", as of a run that stopped before
+its simulation, and its files were listed as the run's. A folder that holds
+files and nothing FastMDXplora wrote, however it comes to be opened
+(`--output` included), is now said to hold no study ("No study here"), with
+All studies and a new study offered; a folder a run has begun in, or an
+empty one about to be a study, is opened as before.
+
+### A contributor agreement
+
+**Contributors sign the FastMDXplora Contributor License Agreement once**
+(`CLA.md`), with a comment on their first pull request, which a check asks
+for and records in the `cla-signatures` branch. A contributor keeps the
+copyright in their work and grants Adekunle Aina a licence to use it,
+including under their patents, so that FastMDXplora goes on being released
+under the MIT License and can be released under other terms where needed.
+It covers past contributions too; a contributor under 18 signs with a parent
+or guardian. `CONTRIBUTING.md` and the README say so.
+
+### A movie of a structure without frames
+
+**A study without frames, set up and not yet run, makes a movie of its
+structure turned once** about the screen's vertical over six seconds, at the
+frame rate and size chosen: the movie a supplement shows of a structure. The
+Movie section says so before it is made.
+
+### An AI app reads a study's views
+
+**`fastmdx mcp` has a `views_of_study` tool**: the views the person saved
+with a study in the GUI, each with its frame, representation, colouring and
+superposition, the selections they named, and the scenes written with it. An
+AI app asked to show something the person looked at starts `write_scene`
+from their view by its name rather than guessing a frame and a colouring.
+The Viewer's frames are fitted by the analyses' own superposition function,
+which now fits to another structure as well.
+
+### A scene shown in the Viewer again
+
+**The eye beside the Scenes list shows the scene chosen in this Viewer
+again**, from the view it keeps for FastMDXplora: its frame, camera,
+representation, colouring, parts shown and superposition, so a scene an AI
+app wrote to show what an answer is about can be turned and played from
+there. A scene written without a camera, from the command line or by an AI
+app, keeps the camera shown.
+
+### Frames smoothed for watching
+
+**Smoothed, beside Superposed under the transport, averages each atom's
+fitted position over 3, 5, 9 or 15 frames centred on the one shown**, over
+fewer at the ends: thermal jitter hides a slow motion, a hinge closing or a
+loop folding over, and the average shows it. The frames are fitted first,
+on the backbone where they were shown as written, since an average of a
+molecule turning is a molecule shrunk; a centred average moves no feature in
+time. An average shortens bonds a little, which the Viewer says, so
+measurements are for frames as written. Movies, saved views, scenes and
+`write_scene` (`smoothed_over`) carry it.
+
+### What holds the chains together
+
+**The Viewer shows the hydrogen bonds and salt bridges between a protein's
+chains**, in a Between chains section of its panel: a dimer's interface, an
+antibody and its antigen, the strands of a fibril. They are found in the
+frames played by the criteria the interactions analysis applies to a ligand,
+so a contact is the same contact whichever partner it holds: donor and
+acceptor in different chains within 3.5 Å, the angle at the hydrogen above
+120°; the centres of charged groups (Arg, Lys, a histidine setup protonated
+twice; Asp, Glu) within 4.5 Å. Each is listed with the share of frames it was
+present in, those of the frame shown marked, and shown in the structure as
+dashed lines, blue for a hydrogen bond and orange for a salt bridge, kept
+apart from the ligand's. Frames without hydrogens are said to have no
+hydrogen bonds found, rather than none present (`/api/chain-contacts`).
+
+### Frames fitted to the starting or the deposited structure
+
+**Superposed frames are fitted to the first frame, to the structure the run
+started from, or to the deposited structure the study was given**, chosen
+beside Superposed in the Viewer. Fitted to the first frame, a trajectory
+shows how each frame differs from where production began; fitted to the
+deposited structure (`setup/input.pdb`), how it differs from the crystal,
+in the crystal's frame of reference. Its backbone atoms are matched to the
+frames' by chain, residue number and name, the first of alternate
+locations and the first model, and residues it lacks are left out of the
+fit, which says how many atoms matched. Saved views, scenes and an AI app's
+`write_scene` (`superposed_to`) carry the choice. Where the frames are
+fitted to another structure the first frame's water and ions are not shown,
+since they no longer sit where it does.
+
+### A picture as wide as chosen, and on no ground
+
+**The camera button saves a picture as wide as the new Picture list says**:
+2,400 pixels across as before (two columns of a page at 300 dpi), or 1,200
+(one column), 3,600 or 4,800, in the view's own shape, rather than at least
+2,400 and wider on a wide screen. **Transparent** saves the molecule with no
+ground behind it, for a figure laid on another background.
+
+### Movies of the frames
+
+**The Viewer makes a movie of a study's frames as they are shown**, from its
+new Movie section: from one frame to another, every so many, at 10 to 60
+frames a second, as wide as the view is shown (1920 pixels across) or at
+720p, 1080p or 4K, with the time of each frame in the corner, the colour bar
+of a result, and one turn about the screen's vertical where asked. Each frame
+is rendered as a picture, as the camera button renders one, and sent to the
+GUI's server, where **ffmpeg on the same computer** encodes them as they
+arrive: H.264 in an MP4 (libx264, then VideoToolbox or OpenH264), or VP9 or
+VP8 in a WebM where that ffmpeg has no H.264 encoder, each encoder tried on a
+test movie before it is chosen. The pictures' RGB is encoded as BT.709 and
+the movie is tagged so, so a result's colours come back as they went in. The
+movie is kept with the study (`movies/<name>.mp4`, its comment saying the
+frames and the version that made it) and downloaded, and the frame and the
+camera shown before are put back. ffmpeg is not a dependency: `fastmdx info`
+says where it is found, or how to install it. The tests check each frame of
+a movie is the frame it says it is.
+
+### Scenes opened, and written by an AI app
+
+**The scenes written with a study are listed beside its saved views, and
+one opens on a page of its own** (`/scenes/<name>/view`), where the Viewer's
+engine is given the scene and nothing else, so what is shown is what any
+viewer built on Mol\* shows of it, with the scene's notes and its file to
+download. **An AI app writes one through `fastmdx mcp`** (`write_scene`) to
+show the person what an answer is about: a frame, a representation, a
+colouring such as `result:rmsf`, the selections they named and atoms
+highlighted in orange, with their residues labelled where asked; it starts
+from a view the person saved where it names one. The tools' arguments are
+held to their types and their lists of values.
+
+### Scenes: a view as a MolViewSpec file
+
+**A view of a study is written as a scene file in MolViewSpec, the Mol\*
+team's format for what a molecular viewer shows, and opens as it was shown in
+any viewer built on Mol\* (molstar.org among them).** A view lived in the
+Viewer and in `viewer_views.json`, which nothing else reads. A scene is an
+`.mvsx` archive written with the study (`scenes/<name>.mvsx`): the atoms
+shown at the frame shown, superposed where the view is; the study's DSSP of
+that frame as HELIX and SHEET records, so the cartoon is the study's and not
+Mol\*'s own; the representation and colouring as the Viewer's engine makes
+them (Mol\*'s themes by name, a result such as RMSF residue by residue on the
+Viewer's scale); the ligand, its pocket, ions and water; the selections named,
+with their colours, representations and labels, hidden ones left out; the
+camera, in MolViewSpec's normalised form; the ground and the publication
+look. Atoms are named by their place in the file the scene holds, which is the
+Viewer's numbering. What a scene cannot hold (water at a frame, the periodic
+box, a residue hidden in part) is said. The box icon beside the saved views
+writes one and downloads it; `fastmdx scene STUDY --view NAME` or `--frame N`
+writes one from the command line. Each is checked against MolViewSpec's own
+schema in the tests, and by Mol\* loading it: the same atoms, camera, colour
+theme and secondary structure as the Viewer showed.
+
+### Spheres, and a result's colouring kept in a view
+
+**The Viewer's representations include Spheres** (Mol\*'s spacefill, without
+hydrogens unless they are shown), which the engine had and the list did not.
+**A view saved while the molecule is coloured by one of the study's results
+keeps that colouring**: its name, `result:rmsf` and the like, was not a word
+the views accepted, so the view was saved without it.
+
+### The lab's name and copyright
+
+The README, the documentation and the GUI's Cite page give the copyright as
+the licence does: **© Copyright 2026, Adekunle Aina, Derrick Kwan, and
+FastMDXplora contributors**. The lab is named without its university, in the
+README and the citation file. The README says FastMDXplora is released under
+the MIT License and names Mol\* among the software it is built on.
+
+### Play plays from the first frame
+
+**The first Play of a finished study plays from the first frame.** The
+box that follows a running study's newest frame is hidden once the study
+has finished, and was still ticked, so the first Play loaded the frames at
+the last one and, with nothing after it, stopped. It now follows only while
+the run writes frames, and Play at the last frame starts again from the
+first, as a player does (from the last, played backwards).
+
+### The package says what it ships
+
+**The package's metadata declares the licences of everything it ships:
+`MIT AND Apache-2.0 AND ISC AND 0BSD`, with the three licence files.** It
+said `MIT`, while the wheel carries the viewer build of Mol\* (MIT), which
+bundles React, rxjs and others under Apache-2.0, ISC and 0BSD; the conda
+recipe already said so. FastMDXplora's own code is MIT, as before. Building
+the package now needs setuptools 77 or later, the first to read a licence
+expression; pip fetches it for the build by itself.
+
+### Selections, named and shown
+
+**The Viewer selects, names, colours, hides, represents and labels atoms,
+as PyMOL does, and keeps the selections with the study.** A selection typed
+in MDTraj's language, the one a Config writes, is read by MDTraj in the
+very structure the Viewer renders, so its atoms are those shown, by their
+place in that file. What is selected, typed or in the sequence or clicked in
+the structure (a ligand too), is named and listed in the panel: each with
+its colour, painted over every representation of its atoms, an eye that
+hides them wherever they are rendered, a representation of its own (sticks,
+spheres, lines, a surface or a cartoon), labels for its residues, and
+buttons to select it again, centre on it and forget it. The selections are
+kept in the study (`viewer_selections.json`) and found again in whatever the
+Viewer renders, the structure with its solvent or without, or the frames:
+residues by their chains, numbers and names, and a typed selection by MDTraj
+reading it again.
+
+### The sequence above the molecule
+
+**The Viewer shows the sequence of each chain above the molecule, numbered
+by the structure's own residue numbers, and selects in it.** Each chain is a
+line of one-letter codes with its number written over every fifth residue
+(5, 10, 15 ...), a gap where numbers are missing, as in a chain numbered
+like chymotrypsin, and a bar under each residue in a helix or a strand in
+the frame shown, which changes as the frames play. A click selects a
+residue, a drag a run of them, Shift extends and Ctrl or Cmd adds or
+removes one; the structure renders the selection as green sticks, and one
+residue selected is named with its selection as the analyses read it. An
+atom clicked in the structure selects its residue in the sequence, a double
+click centres on the selection, and the keyboard does what the mouse does.
+The frame and live-status label moved onto the canvas, where the sequence
+cannot be covered by it.
+
+### One periodic box, where the water is
+
+**The Viewer's periodic box is one box, the box of the frame shown, and the
+water fills it.** Mol\*'s unit cell was made for every model the Viewer
+held, and played frames are two (their topology and the trajectory built on
+it): two boxes, apart once an NPT run changed the box. Each was the
+parallelepiped of the box vectors from the origin, while setup (OpenMM's
+Modeller) puts each water and ion in the brick of the vectors' own
+components, a by b by c along x, y and z, so a rhombic dodecahedron's water
+filled only part of it and spilled out of the rest. The box is now that
+brick, the same volume and the same periodic images as the dodecahedron or
+octahedron, placed about the water shown, or about the protein where the
+frames were centred; it follows each frame's box as the frames play, is not
+shown for frames turned to fit the first, and a click on it names no atom.
+
+### The molecule stays in view
+
+**The Viewer's settings are in a panel beside the molecule, scrolled on
+their own, and the molecule and what plays it fill the height of the
+window.** Representation, colouring, the parts shown, the ligand's tools,
+the views saved and what is known of the structure were rows under the
+canvas and a short panel beside it, so changing one scrolled the molecule
+off the screen. They are now sections of the panel on the right (View,
+Display, Ligand, Saved views, Information), each opened and closed on its
+own; under the molecule are only the transport, the series and what holds
+the ligand. On a page too narrow for two columns the panel goes under the
+molecule, as before.
+
+### The zoom zooms, and the header stays
+
+**The Viewer's zoom buttons move the camera nearer or further.** They
+changed the depth Mol\* fogs and clips at, so the molecule faded and came
+back. A distance, angle or dihedral is labelled beside its line, about an
+angstrom high in a light box, where it was two angstroms high on the atoms
+it measured. **The ground** (the half-filled circle) shows the molecule on
+white, or on dark again, and a saved view keeps it. **A page's header stays
+where it is as the page scrolls**: it was placed under the page's top
+padding and scrolled up by that much before it stopped, on every page.
+
+### Views saved with the study, and a publication look
+
+**A view of the Viewer is saved with the study under a name, and shown again
+as it was.** A figure of a trajectory is a camera, a frame and choices of
+how the molecule is shown, made by turning and clicking and lost with the
+page: a second picture of the same view for a revised figure meant making
+it again by eye. **Views**, beside the Viewer's tools, saves the camera, the
+frame, the representation and colouring, the parts shown, the
+superposition, the pocket cutoff and the look in the study
+(`viewer_views.json`, each value checked), and choosing the view sets each
+of them and the camera again. Saving is on loopback only. **The publication
+look** (the page icon) gives a white ground and the outlines and shading of
+the highest quality, wherever the page is rendered, for a figure saved with
+the camera button. A camera set while Mol\* still had a reset of its own to
+carry out (a frame can take a second to render in software) was moved from
+by it; the reset is now given the camera set.
+
+### What holds the ligand, frame by frame
+
+**The contacts that hold the ligand are shown under the frames played and in
+the structure, frame by frame.** The interactions analysis (`pl_interactions`)
+said which contacts hold the ligand and how often each is present, in a table
+on the Analysis page apart from the structure. It now also writes the frames
+each contact was present in, as runs (`pl_interactions_frames.json`). Under
+the Viewer's transport, **What holds the ligand** gives each contact, the
+twelve most often present, as a row marked where it was present, with its
+share of the frames; the frame shown is marked across them, and a click or a
+drag shows another. The contacts present in the frame shown are rendered as
+dashed lines between their atoms in the structure, coloured by kind, as the
+frames play; they are the analysis's own, by its published criteria, and are
+kept apart from the ruler's measurements. A study analysed before this is
+told to run the analysis again to see them.
+
+### The frames superposed
+
+**The frames played can be fitted to the first, on the protein's backbone
+or on the ligand's pocket.** They were played as written, made whole and
+centred, so a protein that tumbled tumbled on the screen, and how a ligand
+sat in its pocket had to be judged through the turning of both.
+**Superposed**, beside the transport, fits each frame by MDTraj's least
+squares on the protein's backbone, or on the backbone of the residues within
+the pocket cutoff of the ligand in the first frame, and the Viewer reads
+the frames so in place of those shown: at the same frame, the
+measurements kept. The fitted frames are written once beside the frames
+(`GET /api/frames-superposed`), and again when the frames are.
+
+### A series under the frames played
+
+**One of the study's series over time is plotted under the Viewer's
+transport, and follows the frame.** The slider gave a frame number and a
+time, and where the RMSD rose had to be found on the Analysis page and
+carried back by hand. Now the RMSD, the radius of gyration or any other
+series the study wrote over its frames (chosen from a list, the choice
+kept) is plotted under the frames, with the frames its analysis left out as
+equilibration and the mean of the rest. A line marks the frame shown and
+moves as the frames play, its value is given beside it (or that the
+analysis did not read that frame), and a click or a drag along the series
+shows that frame. Only the trajectory's own frames are followed: a series
+computed from another trajectory says so. `GET /api/series` with no
+analysis named lists the study's series over time.
+
+### The camera stays where a structure is fitted
+
+**A structure loaded into the Viewer is fitted once, not fitted and then
+moved again a moment later.** The engine sets the camera on the structure at
+once, and Mol\*'s own reset, asked for when the structure was added, was
+carried out at its next frame and moved the camera to a slightly different
+fit of its own: on a busy machine, after the person had started to look.
+That reset is now given the engine's view, so it moves nothing.
+
+### A clicked atom of the frames is named exactly
+
+**An atom clicked in the frames being played is sent to the server by its
+index among them, and its selection is that atom's.** It went by its chain's
+letter and its residue's number: where two chains share a letter the server
+could not say which and gave no selection, and where two residues of one
+chain share a number (184 and 184A) it gave a selection of both. The frames
+are the atoms of the topology the analyses read, in its order, and record
+which (`source_topology`, `shown` in `frames_index.json`), so the chain is
+named by its index and the residue, where its number and name would select
+another as well, by `resid`. An index that is not the atom named, or frames
+of another topology, are not used, and the residue is found as before.
+
+### A live frame moves the atoms shown
+
+**While a study runs, each new frame moves the atoms the Viewer and the
+Overview's preview already show, rather than being loaded as a new
+structure.** A frame was fetched as its whole PDB, about 81 bytes an atom,
+and loaded afresh: every representation built again, and the atoms being
+measured or picked dropped and picked again. Its coordinates now come alone
+as a one-frame DCD, 12 bytes an atom (`/structure/live-frame.dcd`), and move
+the atoms as a frame played does, in about 50 ms for 2,192 atoms: the
+measurement stays and its numbers follow, and the cartoon is the new frame's
+DSSP. A frame of other atoms is loaded whole, as before.
+
+### Molecules are made whole in seconds
+
+**Making a trajectory's molecules whole across the periodic boundary, which
+every analysis and the Viewer's frames do first, is now 8 to 40 times
+faster, and gives the same coordinates to the bit.** MDTraj placed a second
+chain by comparing every atom of it with every atom of the first, frame by
+frame: 200 frames of 1AKE solvated (116,601 atoms, two chains of 3,341) took
+53 s, and the 6,690 atoms the Viewer shows took 51 s. The same imaging is now
+done for all frames together, the bonds walked a level at a time and the
+closest contact between chains found with a k-d tree: 6.7 s and 1.3 s. The
+coordinates are MDTraj's bit for bit in a cube, a rhombic dodecahedron and a
+truncated octahedron, for one to eight chains with a ligand, ions and water,
+each atom first thrown into a random periodic copy
+(`fastmdxplora.analysis.imaging`), wherever MDTraj's compiled code rounds
+each operation, as on x86-64. On arm64 (Apple silicon) MDTraj's compiler
+fuses a multiplication and an addition into one rounding, so in a rhombic
+dodecahedron or an octahedron the two agree within 1e-5 nm rather than to
+the bit. More than 32 anchored molecules are still
+placed by MDTraj, and a topology without bonds is still left as stored.
+
+### The PDB playback is gone
+
+**`/api/playback-info`, `/structure/playback.pdb` and the multi-model PDB they
+sent are removed: the Viewer plays the trajectory's binary frames.** Nothing
+has read the playback since the Viewer moved to Mol\*.
+`--dashboard-max-playback-frames`, and the `dashboard_max_playback_frames`
+setting, now cap the frames: 2,000 by default, fewer where they would pass
+ten million atoms times frames. A trajectory that cannot be read while it is
+written is played from the snapshots the run wrote, as before, and DSSP of
+the frames is `/api/secondary-structure?of=frames`. Each file of the frames
+is written under a name of its own and renamed into place, so two requests
+writing them at once both finish and neither can be read half written.
+
+### The Viewer renders with Mol\*
+
+**The Viewer, the Overview's preview and the run builder's picture of the
+system now render with Mol\*, through the viewer's engine, and 3Dmol is
+gone.** The trajectory is played from the binary frames: a solvated
+116,601-atom system, its 6,690 atoms of protein and ions shown, is sent all
+200 of its frames as 16 MB, where the playback sent 149 as about 80 MB of
+text. Once written, which for this system takes a few seconds of making 200
+frames whole, once for the trajectory, they are loaded and shown in under
+three seconds, and each frame costs Mol\* 15 to 20 ms before it is rendered.
+Every control is kept: the representations, colourings and the study's
+per-residue results, the ligand tools, water and ions beside the frames, the
+periodic box, measuring, a clicked atom's selection and its protonation
+states, the keyboard, and pictures 2,400 pixels across.
+
+**The cartoon is the study's DSSP in every frame, and a strand paired with
+one in another chain is rendered as a strand.** Mol\*'s own assignment, used
+where the study's cannot be had, is computed chain by chain and pairs no
+strand between chains; the Structure tab says which the cartoon is.
+
+**The binding pocket is the residues with a heavy atom within the cutoff of
+one of the ligand's, centre to centre, as MDTraj finds them, in the frame
+shown.** Mol\*'s "within" took in atoms a whole angstrom past the cutoff, so
+the pocket is worked out by the viewer and follows the frames; the closest
+contacts are counted by heavy atoms too. **Show atom labels** labels the
+ligand's atoms, as it says; it labelled the residue.
+
+**A terminal cap is rendered with its chain.** ACE and NME, which Mol\*
+counts as no part of the chain, are rendered bonded to the residues they
+cap, so a capped peptide such as alanine dipeptide is whole. The atoms
+picked to measure are shown, the distance, angle or dihedral is rendered by
+Mol\* and follows the frames, and its label is in front of the structure.
+Colouring by element colours carbon grey, as it says; Mol\* colours carbon
+by chain. Spinning is a turn every ten seconds. A click names the atom and
+leaves the camera where it is: Mol\*'s own click flies the camera to the
+residue, which at every atom picked to measure would lose the view. What
+changes the scene is done one change at a time, so a live frame arriving
+while the frames load cannot leave half of each. Mol\* is sent compressed,
+1.5 MB of its 5.2, and the browser keeps it until its version changes.
+
+### Mol\* is vendored, behind the viewer's own engine
+
+**The GUI ships Mol\* 5.12.0's viewer build and `static/viewer-engine.js`,
+the one place the page is to meet it.** The engine renders the trajectory from
+the binary frames as a bare canvas with no Mol\* panels, changes frames,
+representations and colours, colours the protein by a study's per-residue
+result, names atoms by the index MDTraj gives them in the same topology (VMD's
+`resid`, in Mol\*'s VMD syntax an author number, selects other atoms than
+MDTraj's `resid`, an index, so selections are to be evaluated by MDTraj and
+handed over as indices), and saves a picture of the size asked for. Its
+cartoon is the study's DSSP in every frame: Mol\*'s own DSSP is computed chain
+by chain and pairs no strands between chains, so 1STP with each strand its
+own chain, as in a fibril, was rendered with no strand at all where MDTraj finds
+53. It renders on software WebGL, which Mol\* otherwise refuses. Nothing is
+fetched from outside the GUI. The licences of Mol\* and of what its build
+bundles ship beside it, and the conda recipe names them.
+
+### The trajectory can be sent to the browser as binary frames
+
+**`GET /api/frames-info`, `/structure/frames-topology.pdb` and
+`/structure/frames.dcd` give the trajectory as a topology and binary frames.**
+The playback is a multi-model PDB, about 81 bytes an atom a frame, capped at a
+million atoms times frames, so a 116,000-atom system was sent eight frames. As
+binary, 12 bytes an atom, under ten million atoms times frames, it is sent 85
+and a 5,000-atom protein 2,000. The frames are the playback's, chosen and made
+whole the same way, and the topology is the source's own lines for the atoms
+shown, so insertion codes and a ligand's bonds are kept. Their DSSP is
+`/api/secondary-structure?of=frames`. The Viewer is rendered from them.
+
+### The trajectory is played with its molecules whole
+
+**The Viewer's playback is now made whole as the analyses read the
+trajectory.** It was the trajectory as the engine wrote it, solvent stripped
+and nothing else: a chain split across a face of the box was rendered in two
+pieces, and a ligand stored in a periodic copy was rendered a box length from its
+protein and jumped back between frames. The analyses make molecules whole and
+put each beside the protein before they measure anything; the playback, and
+the DSSP the cartoon is rendered from, now do the same, so the Viewer shows what
+was measured. A trajectory without a box is played as before.
+
+### The Viewer colours the protein by the study's results, and its cartoon is DSSP
+
+**Coloured by now offers each per-residue result the study's analyses wrote.**
+RMSF, mean SASA, contact with the ligand, the N-H order parameter S², and the
+RMSF the deposited B-factors imply were plots against residue number; they are
+now colourings of the protein, read from the analyses' own files so the
+colours say what the report says. Blue is the low end of a result's range and
+red the high end (for S², the mobile end), RMSF and the RMSF from B-factors
+share one scale from zero, a bar over the canvas gives the range and the saved
+picture carries it, and the Selection tab gives a residue's value in each.
+A residue with no value is grey, and so is one the structure shown cannot tell
+from another: in a file written without insertion codes, as MDTraj writes
+one, 184 and 184A of trypsin would otherwise both be given one residue's
+value.
+
+**The cartoon is DSSP, for the structure, the live frame and every frame
+played.** No file the viewer is sent has HELIX or SHEET records, so 3Dmol
+shaped the cartoon from its own estimate (an N-O distance under 3.2 Å), which
+is not DSSP and could disagree with the study's secondary structure plot about
+the same frame. DSSP is now computed as the `ss` analysis computes it, for the
+playback from the trajectory's own coordinates, and on a two-chain test system
+it matches the analysis for every residue of every frame. The Structure tab
+says which the cartoon is; where DSSP cannot be had, or was computed from a
+newer file than the one rendered, the viewer's estimate stays and the tab says
+why.
+
+### A per-residue SASA averages each chain apart
+
+**Run per residue, SASA's average beside the per-frame table is now taken
+residue by residue of each chain.** It was grouped by residue number alone, so
+on a structure of several chains the copies of each residue were averaged
+together and the table had one row where there were several residues; 184 and
+184A of one chain were averaged together too. The per-frame table was right
+and is unchanged.
+
+### A failure is headed briefly, and a finished study is worded as one
+
+**The Overview's health card no longer sets a failure's message as its
+headline.** A message can run to a paragraph with a path in it, and "Simulation
+cannot start because setup outputs are missing in /Users/.../setup. Run the
+setup phase first, or choose an analysis-only workflow." was set in the card's
+largest type. A failure is now headed "Stopped with an error", with its message
+beneath at the size of prose; the study's standalone dashboard says the
+message too. That dashboard's note on a run with no live record said telemetry
+was off by default and named a flag that does not exist; it now says what the
+live page says, that it is on by default and `live_telemetry: false` turns it
+off. The Overview's subtitle and its charts' title said a finished study was
+running: they now read "What the run did, and how it went." and "Charts".
+
+### A test of the Viewer waits for what decides it
+
+**The test that a finished study has no live controls waits for the study's
+status, not for its frame.** It waited for the overlay's tag to change, and
+on a loaded machine the frame took longer than its minute (a full suite here
+on two cores); the controls follow the status, which arrives first.
+
+### A cited figure is not scrolled away by the conversation
+
+**A figure opened from an answer stays in view.** The Agent's page scrolls
+its conversation to the end once after the next frame and twice more, at 120
+and 400 ms, once the replies have laid out. A cited figure clicked before
+those passes ran was opened on the Analysis page, and the passes then took
+that page to its foot, the figure above the view (CI, ubuntu-latest 3.11, on
+`b2ebd2b`). The passes now act only while the conversation is the page shown.
+A test holds the browser's clock so the click lands before them every time.
+
+### The Agent answers its questions about a study from the records
+
+**With no AI model set, the start page's questions about the study open are
+answered from what the study recorded.** "Summarise what this study found",
+"Is this run long enough?" and "What would strengthen it most?" were each
+refused, though every part of each answer is recorded. They are now said from
+the records, and the answer says so: the report's line on what the run
+supports, each mean with its standard error or the reason it gave none, the
+checks the run was held to, how much more production the withheld means need,
+what that takes at the run's own speed and the command that extends the study
+in place, and that a single run's error cannot show a state the run never
+left, which replicas started independently can. A study of several runs is
+pointed to its runs and its comparison, and an umbrella study says first what
+its windows gave: the binding free energy with its error and warnings, the
+profile alone, or why there is none. Nothing is said that the records do
+not hold; a question typed rather than asked from the start page still needs
+an AI model, and with one set the three go to it as before
+(`gui/records_answer.py`). The page's subtitle now reads "Describe a study,
+or ask about the one open".
+
+### The Overview gives the checkpoint and the last update briefly
+
+**The health card's checkpoint and last update read whole.** The checkpoint
+was given by its absolute path and the last update as a full date and time,
+and both were cut off in their cells. The checkpoint is now given from the
+study (`simulation/checkpoint.chk`), found by the study's folder name too
+where the run wrote it through another name for the same folder, as /var
+and /private/var on a Mac; the last update reads as the time today, the day
+and time this year, or the date, and with the log's times now follows the
+Time setting, which only the sidebar's refresh time did. Each is in full in
+its cell's title.
+
+### The Viewer reads a finished study as finished
+
+**A finished study's frame is its last, and the controls for a run that is
+writing are not offered.** Its overlay read "LATEST" with the run's age in
+minutes ("age 5311m" for one three days old), and Follow, "Now" and "Pause
+Updates" stood beside it, doing nothing. It now reads "LAST FRAME" with no
+age; Follow and the live controls show while a run writes and while paused,
+so there is a way to resume; and an age reads in seconds, minutes, hours or
+days. Centring on the ligand or its pocket, and showing either, did nothing
+on a structure with no ligand and said nothing: they are disabled there,
+with the reason as their title.
+
+### A report written by 2.5.8 shows its figures
+
+**The Report page loads the figures of a study made with 2.5.8.** The report
+sits in report/ and, until 1085, linked each figure from the study's root,
+`analysis/rmsd/rmsd.png`. 1085 corrected reports written since, but every
+study made with 2.5.8, the release on PyPI, holds the old link, and on the
+Report page each of its figures failed to load (eleven of eleven on one
+study). A link that names nothing from report/ but a file from the study's
+root is now read as the second. The report's file is left as it was
+written.
+
+### A comparison's figures say what they were plotted from
+
+**The overlays and trends of a study of several runs carry a chip.** An
+analysis's figure has had one since 1135: the release, the frames and
+options, and the command that plots it again. A comparison's figures rest
+on more, one curve or point per run, each analysed by whatever release
+analysed it, and said none of it. The comparison now records, as it plots
+them, each figure's runs, where each is, the release that analysed each and,
+for a trend, the mean and error plotted (`comparison/figures.json`), and the
+Report page puts a chip under each figure that opens them. Runs analysed by
+more than one release are said to be, since a difference between them may
+be a difference between releases. A comparison plotted before this has no
+record and no chip. The GUI guide no longer says there is no comparison
+view.
+
+### The Overview says why a study has no live record
+
+**A finished study of several runs no longer waits for its simulation.**
+Its folder keeps no live record, since each run keeps its own, and the
+Overview said "Waiting for the simulation" and "Setup is under way" for it,
+as for any study open without one. Now a study of several runs says how many
+it has, how many completed, and that each is viewed from Runs in the
+sidebar; a study being run from the GUI waits for its simulation as before;
+and any other study says it kept no live record, because it stopped before
+its simulation began or ran with `simulation.live_telemetry` off.
+
+### A repair that builds missing residues is seeded
+
+**`setup.random_seed` now seeds PDBFixer as well.** Where an atom it builds
+is left within 0.13 nm of another, PDBFixer separates them with short
+dynamics from an integrator it seeds only when asked, and setup never asked:
+a structure with a gap could be prepared two ways from one seed (a loop
+built beside a ligand ended 0.7 to 2.7 Angstrom from it over six repairs).
+The same seed now gives the same structure there too.
+
+### A structure is repaired once, with its ligands in place
+
+**A titratable ligand's structure is no longer repaired twice.** Its pKa was
+computed in a repair of the deposition with every heterogen kept, and
+`prepared.pdb` came from a second repair with the ligands stripped. Building
+missing residues is most of a repair's time: 5WYZ, a dimer with 79 residues
+missing in five gaps, took 992 s a repair on the one CPU thread setup runs
+on, and the validation corpus stopped it at 1800 s. The structure is now
+repaired once, as it will be simulated: the ligands stay in it while what is
+missing is built, so the residues built are kept from the ligand's atoms as
+they are from the protein's, the pKa is computed in that repair, and
+`prepared.pdb` is the same repair with the ligands taken out. A ligand that
+cannot be given charges is refused before the repair rather than after it.
+
+### An extended study keeps its own config, at its whole length
+
+**The join's analysis no longer writes the last piece's config over the
+study's**: after an extension, `resolved_config.yml` named the last piece's
+checkpoint, its own length and no equilibration, so `fastmdx diff`, the All
+studies comparison and a study run again from the file read the last
+extension as the study. The study's config is now put back with `duration_ns`
+the production of every piece, and analysing the study again in place reads
+its joined trajectory from its own folder. A study carried on in pieces
+after it was stopped is read as finished from its joined trajectory, since
+the run that began its production never wrote its record.
+
+### An analysis is named once in what the Agent and an AI app read
+
+**A finding keyed by its analysis's own name is no longer named twice**:
+`read_study` and the Agent read "order_parameters: order_parameters mean
+0.8565", since the name was dropped only for a finding keyed `mean`.
+
+### A misspelled key's fix renames it
+
+**The fix for an unknown key now says "Rename `simulation.temprature_K` to
+`temperature_K`"**, or, with no near spelling, lists the keys that block takes.
+It said "Set `simulation.temprature_K` to one of: agent, barostat_frequency,
+...", asking for the misspelled key's value to be a key name, in the console,
+to the Agent, to an AI app and in `fastmdx resume --json`.
+
+### A study's resolved config keeps each system's id
+
+**`resolved_config.yml` now carries the `id` the study gave each system.** A
+study that said `id: trpcage` was planned as "System: trpcage" and recorded as
+`id: s1` in the config `read_study` shows as the one the run used, and each run
+of a study of several systems was recorded the same way: the batch layer knew
+the id and built each run without it.
+
+### The config-language guide says how to name a structure
+
+**`systems` and `sweep` are described in the guide** an AI app reads
+(`fastmdxplora://guide/config-language`) and in the Agent's instructions, from
+one text beside their declaration (`config.schema.BATCH_KEY_HELP`). The guide
+listed every field and said "a key not listed here is refused", but these two
+have a shape of their own and were not listed: an AI app writing from the guide
+wrote `system:`, which is refused, and could not write a study that runs.
+`execution` stays out, since it is how this machine schedules a campaign.
+
+### A hosted GUI shows its service's name and the person signed in
+
+**`fastmdx gui --hosted --product-name NAME --product-tagline TEXT`** shows the
+service's name and line at the top of the sidebar, on the loading screen and in
+the window's title, in place of FastMDXplora's; the citation and the links to
+this software stay. The person is named at the foot of the sidebar with their
+initials, from `X-FastMDX-Account-Name`, which the proxy adds to each request,
+so a name changed at the service shows on the next page load. `--account-url`
+is now the first item of the menu that opens there, not a link of its own.
+
+### "AI model" wherever the Agent's model is meant
+
+The Agent's own words say **AI model** where they mean the model that writes:
+`fastmdx agent model` (which prints "AI model:" and "No AI model chosen yet."),
+the `fastmdx agent` help, the GUI's Agent settings ("AI model", "AI model
+name"), the messages that say none is chosen, the Agent's instructions, the
+schema's help for `agent` and `agent_model`, and the docs. A water model, a
+model of an NMR ensemble and the cost model keep their names.
+
+### A mean reads the same on every page
+
+**The report, the slides, the campaign's comparison and the stopping rule's
+table now give a mean to the place its error allows**, as the GUI and the Agent
+already did: the error to two figures and the mean to the same decimal place.
+The report gave `0.112 ± 0.00201` beside the GUI's `0.1120 ± 0.0020` for one
+record, and an energy of -123,456.7 ± 12 kJ/mol as `-1.235e+05 ± 12`, coarser
+than its own error. The report's line now carries the mean's unit, and the
+campaign's trend sentence gives the change with its error. One function,
+`fastmdxplora.statistics.with_its_error`, says them all, including the
+figure's legend and the GUI's table of a study's runs.
+
+**A reweighted mean's spread is said as a standard deviation**, `0.2813 (s.d.
+0.042)`, not `0.2813 ± 0.042`: it is the width of the reweighted distribution,
+not the mean's error, and a `±` after a mean is read as its error.
+
+### An extended study is said at the length it ran
+
+**The methods, the list of settings, the GUI's summary, the dashboard and a
+study's card now give an extended study's production across all its pieces.**
+An extension writes its own `segment-NNN` folder inside the study and leaves
+the study's own simulation record as the first piece wrote it, so a study run
+until it knew, extended from 10 ns to 40 ns, said "Production dynamics were
+run for 10 ns" beside analyses that averaged all 40, and its card (which an
+AI app's `list_studies` reads) gave the last piece's length. The methods
+now say "run for 40 ns in the NPT ensemble, in 4 pieces, each continuing from
+the checkpoint of the one before", and the list of settings says it is the
+first piece's. `fastmdxplora.simulation.resume.extended_production` gives the
+total and the count.
+
+### The methods say how each mean was determined
+
+**The report's methods paragraph gains an Analysis part**, written from what
+each analysis recorded: which quantities were averaged, that averaging began
+after an equilibration period detected automatically (the latest start keeping
+90% of the most independent samples, after Chodera 2016), how the correlation
+between frames enters each error (the statistical inefficiency, summed over
+Geyer's initial positive sequence and corrected for the sample mean), the
+whole-run rule after a discard, the thresholds below which no error is given,
+how many frames were discarded, a start shared with replicas, and which means
+carry no error. The thresholds are read from the module that applies them, and
+records written by an earlier estimator are said as such rather than described
+as this one's. The methods said how the system was prepared and simulated and
+nothing about the analysis behind every number.
+
+**A study run until it knew says its rule there too**: what had to be
+determined and how well, the ceiling, the replicas and how they were judged
+(Student's t at each error's own degrees of freedom; Cochran's Q for their
+agreement; 50 independent samples for a run judged alone), and how it ended.
+One of a campaign's runs reads the campaign's record where it is named in it.
+
+### The methods disclose an AI model's part
+
+**A study an AI model drafted says so in its methods**, as journals ask:
+whether its configuration was drafted with an AI model and approved before it
+ran (`agent: assisted`), or run without being shown to anybody (`autonomous`);
+any phase written outside the schema, which the validator did not check; the AI
+model recorded (`agent_model`), or that none was; and that the Agent's conversations
+about the study are kept with it, in `agent/conversations` (counted only where
+they say anything). The manifest recorded all of this and the report said none
+of it. A study a person wrote says nothing here, and an AI model named without
+a mode is said as exactly that.
+
+### The methods are on the Overview, to copy
+
+**The study's methods paragraphs are now a card on the Overview**, as the
+report gives them and written from the records as they stand, so they are
+there before the report is made and follow an extension or a new analysis.
+**Copy** takes them as plain text, without the Markdown, for a manuscript. The
+page asks for them again only when what they rest on may have changed (another
+study, a phase, an analysis, the production). `GET /api/methods` gives the
+paragraphs as HTML and as plain text, and is answered beyond loopback like
+`/api/report`. `fastmdxplora.report.document.methods_prose` is the one place
+the report and the page take them from.
+
+### The Agent and an AI app quote a study's methods
+
+**`methods_of_study`, a tool for the Agent and for an AI app (`fastmdx
+mcp`)**, gives a study's methods paragraphs as its report gives them, so an AI
+model asked how a study was set up or analysed, or for a methods section,
+quotes what was recorded rather than writing what is usual; the AI app's guide
+says not to. A study of several runs is refused with a pointer to its
+runs. What is read outside the study is held to the same rule as the rest of
+the tools: a system prepared in a folder outside an AI app's workspace, or a
+hosted GUI's, is refused rather than read (refusal code
+`environment.workspace.outside`), and the GUI's `GET /api/methods` is held to a
+hosted workspace too.
+
+### A second registration of whether the Agent's looking helps
+
+**`python -m fastmdxplora.validation.agent_looks_v2`**, registered in
+`preregistration/agent-looks-v2.md` before any reply was seen, asks seven
+questions no AI model can answer from memory: about four structure files made
+from PDB entries at the start of the run (1L2Y trimmed to 12 residues, a 1UBQ
+fragment renumbered from 201, 1AKE's chain A with its ligand renamed LG7,
+1HHO's chain A alone) and settings that are not the defaults. Each request
+asks for a closing `ANSWER:` line, and only that line is judged, so a range
+no longer agrees because one of its numbers is near. The registration fixes
+the software's answers, the tolerances, three predictions and a count of
+answers that commit to nothing. The first registration's run agreed in every
+reply in both arms, because its questions were within what an AI model knows.
+`agent_looks.run` and `ask` take the judging rule as `judge_with`.
+
+### The viewer saves a picture for a page
+
+**The viewer's camera button saves the view at least 2,400 pixels across**, a
+double-column figure (183 mm) at 300 dpi, whatever the size of the window: the
+view is rendered once at that resolution and put back as it was. It was saved
+as the canvas stood, about 900 pixels across on a laptop, a third of what a
+journal asks for.
+
+### The GUI meets WCAG 2.1 AA where an audit found it did not
+
+**An accessibility audit of every page in every scheme** (axe-core 4.13, its
+WCAG 2.0, 2.1 and 2.2 A and AA rules) found three things, now fixed, and it
+finds nothing on the GUI now. The muted text of every scheme (the sidebar's
+headings, the stages, labels, the viewer's keys) read at 3.6 to 4.5 to 1 on its
+own grounds, under the 4.5 the standard asks of text: each scheme's
+`--text-muted` is darker or lighter to at least 4.7 to 1 on all of its grounds,
+and the browser test that measures every text in every scheme now holds text
+to 4.5 to 1 and large text to 3 (it held everything to 3). The information
+beside the viewer was a tab list of plain buttons: its tabs are tabs now, with
+the chosen one selected, each with its panel, moved between with the arrow
+keys, Home and End. The preview and the viewer are named pictures (`role="img"`);
+their names were on elements a screen reader does not name.
+
+### A large system plays in the browser
+
+**Playback sends a large system fewer frames rather than more bytes.** The
+viewer parses its playback, a multi-model PDB of about 81 bytes an atom, whole,
+and the frames were capped at 200 whatever the system's size: a 50,000-atom
+membrane system, solvent stripped and lipids kept, was some 800 MB, more than a
+browser tab holds. Frames are now bounded by atoms times frames, a million at
+most (`trajectory_playback.BROWSER_ATOM_FRAMES`): a protein of 5,000 atoms
+still plays 200 frames, the membrane system 20, evenly spaced over the whole
+run and never fewer than two, from a finished trajectory and from the live
+snapshots alike. `--dashboard-max-playback-frames` says so.
+
+### The GUI and an AI app start one study at a time between them
+
+The GUI's **Run** now keeps the rule an AI app's `start_study` keeps: one study
+runs in a workspace at a time, so each has the machine to itself and its
+timings mean what they say. Both take the workspace's starting lock from the
+check to the start, and both add the run to the workspace's list of runs
+started there (`.fastmdxplora-runs.json`), so a window does not start a study
+while an AI app's runs, or the reverse, and two never start at the same
+moment. The GUI keeps the rule in the folder it was started in and the folder
+it puts new studies in (never the home folder), so an AI app given either
+takes turns with it. The lock is the operating system's, held for the process,
+so one that crashed leaves none behind. A refusal names the study running and
+who started it, before anything is written for the new run
+(`environment.workspace.run_going`, `environment.workspace.run_starting`). A
+run counts while its process still carries its command; a folder that cannot
+hold the lock starts as before.
+
+### `fastmdx agent model` chooses the Agent's AI model
+
+**`fastmdx agent model`** says which AI model is in use and where its key is
+read from, then chooses one, as `fastmdx agent set` did. The old name now
+stops with one line naming the new one, rather than choosing an AI model or
+being taken as a request for a study. Every message that told you to run it
+says the new name.
+
+### The Agent reads each mean as the report gives it
+
+What the Agent is told a study found now gives each mean as the report and the
+citations under its answer do: the standard error to two figures and the mean
+to the same decimal place. To four figures each, an energy of -123,456.7 ± 12
+kJ/mol read -1.235e+05, coarser than its own error, and a mean the person read
+as 0.1120 ± 0.0020 nm the AI model read as 0.112 ± 0.002.
+
+### An AI app reads the guides and each study, and offers four prompts
+
+`fastmdx mcp` serves two guides as resources, **working with studies** (the
+order of work, and what a mean, "not determined", "resolved" and a refusal
+mean) and **the config language** (every setting, with what it does and its
+default), and each study in the workspace as its record
+(`fastmdxplora://study/<folder>`). Its prompts, offered by most AI apps as
+slash commands, start a piece of work the way FastMDXplora does it: **design a
+study**, **explain what a study found**, **why did a study stop?** and
+**continue a study**, each with the AI app's model writing, the validator
+judging and nothing run without your word; one about a study carries its
+record, and continuing starts from the config that record gives.
+
+### An AI app starts a study only from a checked file, with your go-ahead
+
+`fastmdx mcp` offers **`start_study`** and **`stop_study`**. A study starts
+only from a config file in the workspace, only while its `plan_id` is the one
+`check_study` gave for the file as it is, never from one saying `agent:
+autonomous` (that it runs unseen, where here it is shown first), only when no
+other study is running there (found by each run's own record, wherever it is),
+and never into a folder already used: the config's `output`, or a folder named
+after the file beside it. A continuation runs in the study it continues. A
+start is said once the run is going, and one that ends as it starts says so
+with the end of its log. Where the AI app can put a form in front of you, you
+are asked with the plan, the results folder and the time this machine is known
+to take, and only a ticked **Go ahead** starts it (or stops one). The run is
+started as the GUI starts it and goes on after the AI app closes.
+`stop_study` stops only a run it can identify as the study's, at its next frame
+with a checkpoint there; one that has not stopped when the GUI's Stop would end
+it is ended, with what is left of its process group, by a watcher in a process
+of its own (`fastmdxplora.stop_after`), so an AI app closed in the meantime
+does not leave it going. A cancelled call starts and stops nothing.
+**`fastmdx mcp --read-only`** offers neither.
+
+### An AI app can ask the FastMDXplora Agent, when you ask for it
+
+`fastmdx mcp` offers **`ask_agent`**, optional and listed last: the AI app's
+model writes a study itself and the validator judges it, and the AI app is told
+to use the Agent only when you ask for it. The Agent writes with the AI app's
+model where the AI app lends it (sampling, in both eras of the protocol), so
+nothing is paid twice; otherwise with the AI model `fastmdx agent model` chose,
+on your own API key. A declined loan writes nothing and never falls back to
+your key (`mcp.ai_model.not_lent`). Lent, what the Agent sends an AI model (its
+instructions and the config language, with the request) goes to the AI app,
+which may show it to you first; a call answered in rounds works each round from
+what the first one read, so a running study's record does not move under it.
+It is the Agent as the GUI has it, with the software's own tools to look with
+and the validator as the judge. A study it writes comes back accepted, recorded
+as the Agent's (`agent: assisted`, and in `agent_model` the AI model that wrote
+it, as the AI app named it), saved as a new file headed by what was asked, with
+its plan and `plan_id`; a question, an answer or an instruction comes back as
+itself, and nothing is run. It can change a config (`config`), read a study's
+record first (`study`), and say what it looked at; an AI app that asked for
+progress is told each look as it is taken.
+
+### An AI app can check and read studies: `fastmdx mcp`
+
+**`fastmdx mcp --workspace DIR`** serves FastMDXplora to an AI app that speaks
+the Model Context Protocol (an AI chat app, an AI coding tool, or an AI agent
+your lab builds), on standard input and output, in both eras of the protocol:
+per-request versions (2026-07-28) and the `initialize` handshake (2025-11-25
+back to 2024-11-05). Its tools say what the software finds, in its words:
+`inspect_structure`, `check_selection`, `preview_setup`, `check_study` (the
+validator's verdict, the plan with defaults marked, whether this machine can
+run it, and a `plan_id` for the exact file), `save_study` (a new file, never
+written over, only once accepted, and recorded as written in an AI app,
+`agent: assisted` with the AI app's name, unless it says otherwise or you wrote
+it), `list_studies`, `read_study` and `compare_studies` (a difference marked
+resolved only past twice its combined standard error, each mean given to the
+decimal place of its error). Every path is read inside the workspace, every
+file a config names included, and standard input and output carry the protocol
+alone. A tool's refusal is coded `mcp.tool.refused`. How to give an AI app the
+command, and what it can and cannot do: see [FastMDXplora from your AI
+app](docs/mcp.md). The test suite drives the server with the protocol's own
+client library in both eras (`mcp` joins the `[test]` extra for that).
+
+### The Agent takes tools from outside
+
+A package installed beside FastMDXplora can give the Agent tools of its own
+under the **`fastmdxplora.agent_tools`** entry point, and a program can pass
+them to one toolbox as `Toolbox(extra=...)`. Each is an `AgentTool` held to the
+same rules as the Agent's own: it only looks, it cannot take a name already
+taken, and one that fails to load is left out with a warning rather than
+stopping the Agent. See [The FastMDXplora Agent](docs/agent.md).
+
+### A hosted GUI can send a study to its service's compute
+
+**`fastmdx gui --hosted --runs-url PATH`** adds **Run on a GPU** beside
+**Run here** in the builder, and **Run it on a GPU** beside **Run it as it
+is** for a config file. The first saves the config in the workspace, beside
+the results folder it will write (`<folder>.yml`, never over an existing
+file); both then open the service's page with the config and the folder
+filled in, where the person confirms. The GUI starts nothing itself: the
+compute is the service's. Only a path on the same site is accepted.
+
+### `fastmdx resume` in a new container
+
+**`fastmdx resume` no longer takes a new process for the run it carries on.** A
+study stopped in one container and carried on in another met its old run's
+record naming a process number that, in the new container, could be the
+resume's own or its shell's, and the resume refused the study as still running.
+A run's record now says which host and boot wrote it, a record from another is
+not a live run here, and the resume never counts itself or the processes that
+started it. The GUI no longer tries to adopt a run recorded on another machine.
+
+### A budget works on a machine never measured
+
+**`--budget-hours` no longer refuses every study on a machine without a stored
+measurement.** It stopped after setup with "This machine has not been measured",
+which a new container, a fresh cloud GPU or a new cluster node always is, and it
+priced the platform "unknown", so a machine measured on CUDA was refused as a
+different machine too. The study is now priced for the platform the simulation
+phase will choose, and a machine with no measurement for it is measured on the
+study's own prepared system, which covers PME and its force field, as argon did
+not. Only a machine that cannot be timed at all stops for want of a number.
+
+### A hosted GUI links back to its service
+
+**`fastmdx gui --hosted --account-url PATH`** shows **Your account** in the
+sidebar, linking to the service's own page for the person. Without it a
+person inside the GUI had no way back to the service's pages, signing out
+included. Only a path on the same site is accepted.
+
+### A residue of an ion's name holding several atoms is a question
+
+**A copy of an ion's name with more than one atom in it is no longer kept as
+one ion.** A residue named ZN holding two zinc atoms, coordinated by the
+protein, was written into the structure as it stood, where no force field
+template matches it; from a local file it was sent for chemistry instead, with
+advice to fetch `ZN_ideal.sdf`. Setup now stops and names the residue and its
+atoms, since which ions they are is not the structure's to say. Such a copy
+away from the protein is discarded, as before.
+
+### A dry run says what each run will do about setup
+
+**`--dry-run` no longer lists setup for runs that prepare nothing.** A run
+whose `setup_from` names a prepared system simulates that system, and umbrella
+windows prepared alike share one preparation, but a campaign's dry run listed
+setup for every run. It now leaves setup out where it is skipped and says why:
+the system that will be simulated, the shared folder the windows' system is
+prepared in, or that `setup_from` names a folder with no prepared system in it
+and the simulation will refuse. Umbrella windows are no longer warned that each
+will solvate a box of its own.
+
+### A seeded umbrella window finds its setup record
+
+**The windows of an umbrella study seeded from a pull find their setup
+record.** A seeded window simulates its seed, a copy of the prepared system with
+a starting state and no setup record, and it named the seed as the system it
+simulated. The report, re-analysis and the ligand's chemistry then found no
+setup record for the window. Each seed now records the preparation it was
+taken from (`seeded_from.json`), relative to itself and by the SHA-256 of its
+`system.xml`, and the setup record is found through it, also after the study
+has moved. A different preparation at that place is refused, as for any run.
+
+### A shared umbrella system is reused only when it is checked
+
+**An umbrella study run again no longer reuses a shared system it cannot
+check.** A shared system prepared before `prepared_for.json` was written was
+reused with a warning, whatever it had been prepared from. It is now checked
+against its own setup record, and one with neither record is refused with the
+new code `setup.prepared.unverifiable`. The structure is identified by the
+SHA-256 of its file as well as by its path, so a structure edited in place is
+another structure, and the same file under another path is the same one.
+`--force-overwrite` prepares the system again, as before.
+
+### A fetched study finds the prepared system it was sent with
+
+**`fastmdx remote fetch` ties a study back to the prepared system it was sent
+with.** A study given `setup_from` travels with the prepared system under
+`inputs/<name>` and records that name, which means nothing on this computer, so
+a study fetched back found no setup record for re-analysis or the report, and
+fetch said nothing. The job now records where each input was sent from, fetch
+writes that beside the results as `fetched.json`, and the prepared system is
+found there, checked by the SHA-256 of its `system.xml`. Fetch names any run
+whose prepared system is not on this computer or has been prepared again since.
+
+### CHARMM36 membranes take their lipids from `charmm36.xml`
+
+**A membrane built with a CHARMM36 force field list lacking lipid templates
+now gets them.** The lipid fallback named `charmm36/waters.xml`, which OpenMM
+does not ship, so such a list was refused over a file that does not exist.
+CHARMM36's lipids are in `charmm36.xml`, which is what is added now, and the
+lipid's template is checked to be there once any file is added, rather than
+failing later at the residue template.
+
+### Every bilayer OpenMM builds gets the membrane barostat
+
+**DMPC, DOPC, DPPC, DLPC and DLPE membranes are now coupled as membranes.**
+OpenMM names the lipids it builds by its patches' three-character names
+(`DMP`, `DOP`, `DPP`, `DLP`, `POP`), and the check that chooses the barostat
+knew only `POP` and the full names, so only POPC and POPE bilayers got the
+membrane barostat; the others were coupled isotropically, which squeezes the
+bilayer and gives the wrong area per lipid. The crash diagnosis and the
+default bilayer of a `membrane_depth` coordinate missed the same lipids. All
+three now read one list (`fastmdxplora.lipids`).
+
+**A soluble protein with pyrophosphate bound is no longer coupled as a
+membrane.** `POP` is OpenMM's name for POPC and the PDB's code for
+pyrophosphate, and one residue of it was enough to choose the membrane
+barostat. A system is now a bilayer when it holds at least 20 lipids.
+
+### A membrane protein is placed before its bilayer is built
+
+**The protein is oriented and centred for the bilayer, by a fit checked against
+OPM.** OpenMM builds the bilayer in the xy plane at z = 0 and takes the
+protein's frame as it is. Nothing centred it, so the bilayer sat at z = 0 of
+whatever frame the file was in, and `membrane_orient` rotated a structure by
+its longest axis and centred it on its centroid, which is wrong for anything
+with a soluble domain: a GPCR with a fusion partner or a G protein. The
+membrane normal, centre and hydrophobic thickness are now fitted from where
+the protein's lipid-facing surface is apolar. Across 65 membrane proteins in
+OPM (170 fits from random starting frames, 25 proteins held out) the fitted
+normal came within 21° of OPM's every time and 3 to 4° at the median, and the
+centre within 0.1 nm at the median. A structure that is not a membrane protein
+is refused (`setup.membrane.no_belt`), and one lying at an angle to z with
+nothing said about it is refused with the angle stated. Copies of one chain
+are compared by the symmetry that relates them, which in one bilayer turns the
+normal onto itself: the old test compared each copy's longest axis, and
+refused a porin trimer, whose monomers are as wide as they are tall.
+
+**An OPM file is recognised and keeps its frame.** Its membrane marker
+pseudo-atoms were read as a molecule to parameterise; they are now taken out,
+and OPM's orientation, centre and published thickness are used.
+
+**`membrane_center_z_nm`** places the bilayer in a structure oriented
+elsewhere, with `membrane_orientation_checked: true`.
+
+**The setup record says how the protein was placed and what was built**, under
+`bilayer`: the placement, the fitted thickness, the tilt of the input, the
+rotation, the number of lipids in each leaflet and the box. The methods
+paragraph says the same, instead of describing a dodecahedron box of water and
+an isotropic barostat, and the simulation record names the barostat.
+
+**Advice before a membrane run:** a bilayer below or within 6 K of its lipid's
+main transition (DPPC at the default 300 K is in the gel phase's range), and
+NPT equilibration under 1 ns, which is short for a bilayer's area to settle.
+The box-too-small advice no longer fires on a membrane's rectangular box.
+Setup says what it is doing while OpenMM packs the bilayer, which reports
+nothing for minutes, and names a component the force field cannot describe
+there as it does during solvation. A four-site water given with a membrane is
+refused in words; it failed inside the packing with OpenMM's advice to call a
+Modeller method.
+
+### The bilayer is measured
+
+**`area_per_lipid`, `bilayer_thickness` and `lipid_order`** measure the
+bilayer itself, and run automatically wherever there is one: the area per
+lipid with the protein's cross section in the hydrophobic core taken out, the
+phosphate-to-phosphate thickness, and the deuterium order parameter S_CD of
+every acyl-chain carbon by chain. They are what a membrane run is checked
+against before anything about the protein in it is believed. The bilayer
+centre is found across the periodic boundary, lipids are assigned to leaflets
+every frame, chains are found from the bonds so any force field's naming
+works (AMBER's split head and tail residues included), and lipids that do not
+form a bilayer normal to z are refused rather than measured. A new page,
+`docs/membranes.md`, covers the lipids and their transition temperatures,
+placement, equilibration, and what to compare the bilayer against.
+
+### Found running a membrane dimer end to end
+
+**`order_parameters` saves a homo-oligomer's values.** Copies numbered alike
+come back as a table naming the chain, and saving that as numbers failed, so
+the order parameters of every symmetric dimer were computed and lost.
+
+**`end_to_end` measures each chain where the selection spans several.** It
+refused a selection of several chains unless `by_chain: true` was set, so the
+default plan failed on every multi-chain protein. `by_chain` now defaults to
+true: one distance per chain, as a table naming each chain, and one column as
+before for a single chain. `by_chain: false` still refuses several chains
+rather than measure from one chain's start to another's end.
+
+**A production run no longer prints a line of MDTraj's source.** Its reporter
+for a saved subset hands the DCD writer double-precision coordinates and the
+writer warns about the cast, at the start of every run that leaves the water
+out, which is every run by default.
+
+### A Config with `system:` is told the key is `systems:`
+
+**A Config naming its structure with a top-level `system:` is answered with the
+key it wants.** `explore` said "explore requires a system", which reads as
+though the file had not been read, and the per-phase commands said "`systems`
+must be a non-empty list of mappings". Both now show the value given as
+`systems:` with one `- system:` entry.
+
+**`OrientationWarning` is deprecated.** Nothing raises it since the orientation
+check became a fit; importing it still works and says it will be removed in
+3.0.
+
+### A run asked to stop ends on a frame
+
+**SIGTERM or Ctrl-C during production ends the run where it can be carried
+on.** A scheduler, a cloud provider taking a machine back, a container
+platform and the GUI's Stop button all send SIGTERM, and the run ended at
+once, keeping only its last interval checkpoint, so up to
+`checkpoint_interval_steps` of production were run again by `fastmdx resume`.
+Now the run steps on to its next frame, writes a checkpoint there, and ends
+with a refusal marked retryable (`simulation.run.stopped`), which `fastmdx
+resume` reads as an interruption; the joined trajectory keeps its spacing. It
+does so when the next frame can be reached within 20 seconds, inside the 30 or
+so a scheduler allows before it kills; `FASTMDX_STOP_GRACE_SECONDS` sets the 20.
+A second signal is obeyed at once. The GUI's Stop waits for it rather than
+killing the run after five seconds.
+
+### `fastmdx resume` carries on a study of several runs
+
+**A sweep, several systems or an umbrella study's windows are resumed by one
+command.** `fastmdx resume` refused a study of several runs, whose runs had to
+be resumed one by one, and nothing then rebuilt what the study says across
+them. Now each run that started is carried on as a study of one is, each that
+never started is run, the runs share out the workers and devices the study
+asked for, and the aggregate, an umbrella study's free energy and the
+comparison are rebuilt. A structure the study named by a relative path is found
+beside the study's folder. A study any run of which is still going is refused.
+
+### A study run without OpenMM names what is missing
+
+**Setup that prepared no system is no longer shown as complete.** Without
+OpenMM or PDBFixer, setup still reads the structure and records its heterogen
+decisions, and the record still says it finished, since leaving an optional
+backend uninstalled is a choice. On screen it now ends with a warning, "setup
+finished without preparing a system", where it said "setup complete" over a
+folder with no `system.xml`. A sequence given as the system is shown the same
+way.
+
+**The simulation names the missing package.** It said "No setup outputs found,
+run setup first" before naming OpenMM, sending somebody to rerun a phase that
+would stop in the same place. It now says only what is missing and how to
+install it.
+
+**The advice for analysis alone works.** It said `--include analyze report`,
+which the plan refuses (`analyze` is the command; the phase is `analysis`). It
+now says `--include-phase analysis report`. The message also reads "OpenMM and
+PDBFixer" and "it is" for one package.
+
+### A study carried on after a stop is finished
+
+**A second `fastmdx resume` of a study carried on after a stop has nothing to
+do.** The study's Manifest kept its simulation phase as it had stopped, beside
+the analyses of the joined trajectory, so a second resume read a study still
+to carry on and tried to join the stopped piece again, which the join refuses:
+"Segments [0] did not finish". Once production is carried on and joined, the
+phase says so, with the segments and frames joined, and keeps the stop it came
+back from as `carried_on_from`. Found resuming a stopped study of several runs
+twice.
+
+### A study's resolved config runs again
+
+**A `resolved_config.yml` fed back is no longer refused.** It records the
+force field as asked (`forcefield: auto`) and the files that became
+(`force_field: [amber14-all.xml, amber14/tip3p.xml]`), and says it can be fed
+back to reproduce the study; fed back, setup refused it with "Specify either
+`forcefield` ... or `force_field`, not both". A list that is exactly what the
+name resolves to is now read as the name, which also decides the cutoff and
+whether a ligand can be parameterized, as it did the first time. A name and a
+different list are still refused. Found when a resume had to start a stopped
+run again from its setup.
+
+**A run started again by `fastmdx resume` says how it ended.** Where
+production had not begun, the study is run from its start; it was reported as
+done whatever became of that run, so one that failed again came back as
+carried on. Its structure is also found from the study's folder outwards, so a
+run of a campaign finds a structure named relative to where the study was
+started, wherever the resume is run.
+
+### A study of several runs stops as one
+
+**The GUI's Stop reaches every run of a parallel study.** It signals the
+process it started, which for a study running its runs in parallel is the
+parent, and the workers never heard it: they ran on until the GUI gave up
+waiting and killed the parent, and were left running with no one watching.
+The parent now passes SIGTERM on to each worker (Ctrl-C reaches them from the
+terminal), and the GUI ends whatever is left of a run it had to kill.
+
+**A worker stopped outside production ends its run with a record.** It died,
+and a worker dying breaks the pool, so every other run lost its result with
+it. The phase it was in now ends with the retryable refusal
+`simulation.run.stopped`, and `fastmdx resume` runs that phase again. In
+production the run ends on a frame, as before.
+
+**A stopped study starts nothing more.** Run one at a time, a study stopped in
+one run went on to the next. Now no further run starts, each run not started
+says so, and the study ends with "Batch stopped" and the one command that
+carries all of it on. A second SIGTERM within two seconds of the first, as
+when one is sent to the process group and passed on by the parent too, counts
+once; a second Ctrl-C still means stop now.
+
+**A run being carried on shows its progress.** The study's progress line read
+each run's status from the run's own folder, which a run being carried on no
+longer writes, so it stood at the step where the run had stopped.
+
+### Metadynamics on a distance runs on a grid
+
+**A bias on `distance` or `ligand_distance` is kept on a grid.** Only
+torsions were gridded, because PLUMED stops a run whose variable leaves its
+grid and a distance was taken to have no ceiling, so every distance study ran
+on the hill sum, whose cost per step grows with every hill: on one torsion
+run the slowing over its first 8,000 hills puts 100 ns at about 19 hours,
+against about 7 on a grid. A distance does have a ceiling, since PLUMED
+measures it by the minimum image: the farthest vertex of the periodic cell's
+Voronoi cell (half the diagonal of a cube, the image distance over the square
+root of two for the rhombic dodecahedron studies are built in). The grid runs
+from 0 to that, a tenth larger to cover any growth of the cell, taken from the
+cell equilibration leaves when the bias goes on.
+
+**So are `angle` (0 to π), `q` (0 to 1), `coordination` (0 to its number of
+pairs) and `membrane_depth` in a rectangular cell (half its height either
+side, a tenth larger).** Each bound is one the variable cannot cross. A grid
+over two million points is left out; `ligand_rmsd` and `radius_of_gyration`
+have no bound and stay on the hill sum. Checked with PLUMED 2.9 on each
+variable: the variable never left its grid, and the bias on the grid matched
+the hill sum to 0.0005 kJ/mol over 3,000 depositions.
+
+### An umbrella study sets its own resample count
+
+**`bootstrap_resamples` in the umbrella block.** The resamples behind a free
+energy's interval, and a binding free energy's, were fixed at two hundred for
+every study: on seventeen windows the curve took 0.04 s and its interval
+13.6 s, and a study of thirty-five windows spent minutes before any curve could
+be looked at. A study now sets the count: fewer for a quick look, more for a
+figure, 0 for the curve with no interval. Two hundred stays the default, and
+the count used is recorded in `pmf.json`. A value that is not a whole number
+of 0 or more is refused.
+
+### Every step's explanation reaches the person
+
+**The seven explanations nothing printed are said beneath the step they
+explain.** Why heterogens are classified, beneath the decisions; why a
+ligand's chemistry is looked up, and why it needs parameters of its own, where
+setup takes them; why the solute is held while the water settles, as
+equilibration starts; why a bilayer's pressure is coupled in its plane and
+along its normal separately, where that barostat goes on; why a mean is given
+with the independent samples it rests on, beneath the analyses; and why
+interactions are typed rather than counted, after the interaction analysis.
+Each was written and none reached anyone.
+
+**`minimize` and `production` cite what is worth reading**: Braun et al.
+(LiveCoMS 2019) on preparing a system, and Grossfield et al. (LiveCoMS 2018)
+on what a trajectory supports. The ligand parameters text no longer says
+OpenFF makes them whatever force field was chosen.
+
+### A report names the software that produced each phase
+
+**The Methods and Reproducibility sections no longer credit the installation
+that wrote the report.** A study simulated under one release and analysed or
+reported again under another was said to have been set up, simulated and
+analysed with the later one, and the libraries named were those installed
+where the report was written. Each phase's own record is now read: "System
+setup and simulation were performed with FastMDXplora 2.5.4, and analysis with
+FastMDXplora 2.5.8", with a library whose version differs between phases given
+by phase. A system prepared by another study (`setup_from`) is credited to
+what that study recorded. A run that recorded nothing says so.
+
+**The Manifest records what computed the charges and the bias.** Beside the
+Python packages, each phase's `environment` now names the AM1-BCC charge
+program (`am1bcc`: AmberTools or OpenEye) with AmberTools' version, and
+PLUMED's version, read from the conda environment. Neither is a Python module,
+so nothing recorded which build ran. pandas and matplotlib are recorded too.
+
+### A binding free energy says where its reference state does not hold
+
+**An umbrella study along `ligand_distance` now measures, from its windows,
+four things the standard-state conversion rests on.** Each is recorded under
+`binding.reference` in `pmf.json`.
+
+- The ligand must be free on the shell (or the cone's cap) where the curve is
+  read as bulk. Where protein occupies part of it, the number is withheld with
+  the radius, the open share and what it would cost (`kT ln(1/f)`), measured
+  against the tail's own 0.6 kJ/mol.
+- In a system with a bilayer and no cone, the number is withheld, since bulk
+  is a slab of water.
+- A warning names any window whose ligand sits where the bound state has
+  backbone, since the pull went through the protein there.
+- A warning names any window whose ligand turned too slowly for its
+  orientation to be sampled.
+
+**The binding free energy is printed.** It was written to `pmf.json` and
+said nowhere. The console now gives the number with its standard error, or
+why it was withheld, and each warning.
+
+### An umbrella window runs again in place
+
+**`fastmdx explore --config study.yml --rerun-window 9`** runs window 9 again
+in `runs/window-09`, with whatever the Config now gives it (a stiffer spring in
+its place in the `force_constant` list, a longer run), keeps every other
+window, and recombines the free energy from the whole set. The earlier run is
+moved to `superseded/`. From Python, `explore(rerun_windows=[9])`. Before, a
+study that refused over one window could only be run again whole, or as a
+subset config that renumbered from `window_00`.
+
+**A free energy is no longer recombined from windows that ran otherwise.**
+Each window is unbiased with the centre and spring the Config gives it, and a
+Config edited after the windows ran recombined them with the new ones,
+shifting the curve with nothing to show it. Each window's own record is now
+compared with the Config, and a window that differs is named instead.
+
+### A failed study raises, when asked
+
+**`explore(check=True)`** raises `StudyFailed` if any run failed, instead of
+returning the failure among the results; **`RunResult.raise_for_status()`**
+does the same for one run. The exception's refusal is the failed phase's, so
+`exc.code` is what that phase recorded; `exc.failed` holds every run that
+failed and `exc.results` everything the study returned. A script that did not
+look at the results carried on as though a failed study had succeeded. The
+default is unchanged until the next breaking release, when a failure will
+raise by default.
+
+### The GUI runs a study once, and CI runs supersede only their own kind
+
+**`python -m fastmdxplora` runs the `fastmdx` command**, and the GUI starts
+every study that way. It used `python -m fastmdxplora.cli.main`, which the CLI
+package had already imported, so Python ran the module a second time as the
+program, with every class in it defined twice, and a RuntimeWarning opened
+every GUI-started run's log.
+
+**A CI run cancels only a run of the same kind on the same branch.** A push
+followed by `gh workflow run` cancelled the push's run with the one just asked
+for, and a push near 03:00 cancelled the nightly corpus run.
+
+**The container's build check names OpenMM's release and commit apart.**
+OpenMM reports a release build as `8.4.0.dev-4768436` (its `release` flag is
+never set), which read as an image carrying a development build.
+
+### The equilibration log is closed when production begins
+
+**A run no longer keeps `equilibration_energy.csv` open after it ends.** The
+log was taken off the simulation when production began and "closed" through a
+`close()` that OpenMM's reporter does not have, so the file stayed open until
+the reporter was collected: one open file for every run of a study run in one
+process. The suite, which was thought to need more than 1,024 open files,
+passes in two halves at a limit of 1,024 with at most 69 open at once.
+
+### A charged ligand's binding free energy says what the box does to it
+
+**An umbrella study along `ligand_distance` now says when the ligand carries a
+net charge.** Nothing corrects the free energy for the periodic box: the
+ligand and the receptor interact with each other's images and with the
+background that neutralises them, and to leading order that shifts the curve
+by `k q_L q_R / eps * 2 pi (r_u^2 - r_b^2) / (3 V)` between the bound state and
+bulk. The warning gives both charges, read from the prepared system, the
+number for the study's box with water's dielectric constant, and the ions
+there to screen it; `binding.reference.charge` in `pmf.json` records them. A
++1 ligand and a +6 receptor in a 190 nm^3 box, 0.9 and 2.9 nm apart, come to
+about 0.9 kJ/mol. Averaged over directions, the estimate agrees with a direct
+Ewald sum to within 5%.
+
+### The molecule viewer and the charts are tested in a browser
+
+**Stepping a frame in the viewer shows the next frame.** With Follow ticked,
+as it is by default, the first press of the viewer's next-frame button loaded
+playback at the newest frame, and "next" from there went nowhere; the
+transport's own buttons stopped following and these did not. Stepping a frame
+now stops following, as choosing a frame anywhere else does.
+
+**`molecule-viewer.js` and `charts.js` run in CI.** Nothing had run them: the
+browser tests covered the frame, the composer and the run builder, and every
+check on the viewer read its source for a string. They are now driven in
+Chromium on a study with a protein, a ligand, water, ions, a trajectory and an
+energy log: the structure drawn without solvent, the water toggle, every style
+and ligand control, playback stepping with the atoms moving, water as an
+overlay during playback, and the charts' values and drawing, with any page
+error failing the test. Every job also checks that each GUI script parses,
+with Node.
+
+### A ligand that leaves its site is said to, and its RMSD has no mean
+
+**`ligand_rmsd` now measures the ligand's distance to the site it started in.**
+Followed across the periodic boundary, as it has to be, a ligand that has left
+has an RMSD that is the length of a path through solvent, growing without
+bound however long the run, and its mean was reported as though it were a
+pose. The closest heavy-atom distance to the site (the protein heavy atoms
+within 0.5 nm of the ligand in the reference frame), by minimum image and so
+bounded by the box, is now written to `ligand_site_distance.dat`. Where the
+ligand is away from the site (no heavy atom within 0.6 nm), the findings say
+from when and for what share of the frames, the figure shades those frames,
+and no mean RMSD is given.
+
+### A cached ligand is handed on with its hydrogens
+
+**A component read from the chemistry cache without hydrogens is now
+completed on disk.** Hydrogens were added to the text and the atoms counted
+in it, but the file handed to the ligand path was the cached one as it was,
+so a copy cached without them reached the force field as a bare heavy-atom
+ring: benzene as a radical. The completed text is written back to the cache
+whenever hydrogens were added.
+
+The preparation of a ligand found in the structure (fetched, completed,
+written per copy, and cached for the next study) and what setup says about
+its source and parameters are now tested without the network. They were
+covered only by the tests that reach RCSB.
+
+### The package links the release's documentation
+
+**PyPI's Documentation link now opens `/en/stable/`**, built from the newest
+release tag, instead of `/en/latest/`, which is `main` and can describe
+settings the installed release does not have.
+
+### The report's analysis figures open from the report
+
+**`report.md` now links each analysis figure from its own folder.** The report
+is written in `report/` and linked the figures as `analysis/rmsd/rmsd.png`,
+which is where they are from the study's root. Markdown resolves a link
+against the file's folder, so a viewer showed a broken image for every
+analysis, the PDF (rendered from `report/` as well) left them out without a
+word, and the GUI's Report page asked for `report/analysis/...` and got a 404
+for each. Only the summary figure, written in `report/`, ever appeared. The
+links are now `../analysis/...`, worked out from wherever the report is
+written; the reweighting figure had the same fault.
+
+The captions read `rmsd` and `cluster: kmeans` rather than repeating the
+analysis's name after a dash, and the default title is
+`FastMDXplora Study: <system>`.
+
+### Every scheme can be read
+
+**Paper's cards are light.** The scheme redefined the ground and the text and
+left the cards at the dark scheme's colour, so every card on a Paper page was a
+near-black slab with near-black text on it: the health headline, the figure
+captions and the chart titles measured 1.1 to 1.6 to 1. The status colours are
+now shades of the same hues that read on white, and they reach the status
+tokens, which were resolved on the root element with the dark scheme's
+values; the scheme is now set there. The live charts draw in the scheme's
+colours and redraw when it changes, where they had drawn the dark scheme's
+grey axes on white.
+
+A first visit takes the system's light or dark setting; a scheme chosen in the
+settings is kept as before. Stages a run did not do are struck through rather
+than faded to half opacity, and the viewer's frame label stays dark over a
+white viewer background. Ten stylesheet rules named colours that were never
+defined, and fell back to fixed dark-scheme values; they use the scheme's.
+
+Each page is now opened in each scheme in a browser, and every piece of
+visible text is measured against what is behind it: anything under 3:1 fails.
+
+### A figure's caption gives the figure's number
+
+**The captions under the analysis figures, and the dashboard's table, now give
+the mean each analysis settled on.** They gave the mean of every row of the
+data file, equilibration included, under a figure giving the mean after
+equilibration with its error: an RMSD card read "avg 0.0157" beneath "mean
+after equilibration 0.01297 ± 0.0021 nm". A caption now reads "mean 0.0130 ±
+0.0021 nm after equilibration, 21 independent samples", to the precision the
+error allows, and adds "too few to measure" under ten independent samples. A
+series too short against its own correlation time says so in its caption and
+its table row, where both had read as measurements. On a biased run a caption
+gives the reweighted mean, or says there is no unbiased one. A study analysed
+before findings were recorded keeps the plain mean, called "mean over all
+frames"; RMSF's is "mean over residues".
+
+### The Overview's preview shows the molecule
+
+**The structure preview on the Overview is no longer a black box.** It framed
+the prepared system when the page opened and kept that camera for every frame
+after it, which is right for frames of the same system in the same place. The
+engine writes its frames about its own origin, several nanometres from where
+setup centred the system, so a finished study opened with the preview looking
+at empty space. A camera that no longer frames the structure is set again; one
+that does is kept, as before.
+
+A peptide of fewer than eight residues is drawn with its atoms as well as its
+cartoon, which has nothing to shape a ribbon from at that length. The viewer's
+label named a live frame by its step, as "frame 6000" of a run that had written
+a hundred, and flipped between that and the count of frames written as the two
+updates arrived; it now reads "step 6,000".
+
+### The frame gives the page the room it needs
+
+**The GUI's page gets the width.** Opened on a finished study at 1440 by 900,
+the log took a fixed 560 pixels on every page and left the page 640, and the
+viewer's canvas got the 240 its information pane left over. The log is now
+420 pixels wide until dragged, open while a study runs and closed once it has
+finished, until it is opened or closed by hand, which is remembered. The
+viewer's layout follows the width of its page rather than of the window: the
+canvas takes the page, and the information pane goes beneath it when the page
+is narrower than 900 pixels. The canvas is as tall as the window allows.
+
+**The navigation is grouped and cannot be cut off.** The study's pages come
+first (Overview, Viewer, Analysis, Report, Files), then the two ways to start
+another (Agent, Config), under headings, and the block sits above the study's
+progress: below it, a 900-pixel window hid "Files" under the settings trigger.
+
+**A phone shows the page.** At 390 pixels the sidebar and the log each took
+the screen. The study and its pages are now a bar across the top that scrolls
+sideways, the log is closed, and the page is the screen.
+
+A finished study no longer offers "Pause" (updates of a run that has ended),
+and its last frame is marked "LATEST" rather than "LIVE". The study is named
+by its structure file, "tri-ala" rather than the file's path, which stays on
+hover. Simulated time reads "0.012 ns" rather than "0.012000 ns".
+
+### An analysis is drawn from its numbers, and a point opens its frame
+
+**The Analysis page draws each series from its data.** It showed each analysis
+as the figure it wrote, a picture from which neither a value nor the frame
+behind it could be taken. RMSD, radius of gyration, hydrogen bonds, SASA,
+native contacts, ligand RMSD and RMSF are now drawn from the file the figure
+was drawn from, with the frames the analysis left out as equilibration
+shaded, and the mean of the rest with its error, or with no band where the
+run is too short for one. Pointing at the line gives the value, the time and
+the frame; the arrow keys move along it. The figure, drawn at publication
+settings, is one click away on each card.
+
+**Choosing a point opens that frame in the viewer**, when the trajectory
+analysed is the one the viewer plays, and choosing a residue of the RMSF shows
+that residue in the structure, drawn and labelled. A point's frame is worked
+out as the analysis loaded the trajectory, with its stride and first frame,
+and its time as the loader set it. A series longer than 4,000 points is
+thinned evenly for drawing.
+
+The Analysis page is drawn again only when its content changes; every poll
+had replaced the cards and reloaded each figure.
+
+### The Agent says what it can be asked
+
+**The Agent's page opens on what can be asked of it.** It opened on an empty
+thread reading "Nothing yet. Say what you want to run.", with no word of what
+the Agent does, whether a model was set, or that it could be asked about the
+study already open. It now offers questions about the open study (what it
+found, whether the run is long enough, what would strengthen it) once the study
+has run, and three studies to start: a protein in water, replicas compared, and
+a binding free energy. A suggestion fills the composer rather than sending, so
+it can be changed first. The page says what the chosen mode does, and where no
+model is set, says so beside a button that opens the settings.
+
+### The Overview's numbers say whose they are
+
+**The atom count on the Overview is the system simulated.** It gave the
+trajectory's count alone, 47 for a peptide simulated in 6,560 atoms of water,
+beside a report saying 6,560. The card now gives the simulated system and what
+the trajectory kept of it ("6,560, simulated; 47 kept in the trajectory"), and
+the statistics table's row is called "Atoms in the trajectory".
+
+**The live charts' axes do not go below zero for a quantity that cannot.** The
+axis was the series with a margin either side, so the speed chart of every run,
+whose first sample is 0 ns/day, was labelled -0.381. The phase and statistics
+tables on the Overview, which had no style of their own, are laid out as
+tables: headings over their columns, numbers aligned.
+
+### The viewer's label and the preview's caption say only what is known
+
+The viewer's label left a field with nothing in it as a dash, so a structure
+with no run behind it showed a frame, an age and a simulated time with no value
+in any of them; such fields are no longer shown. The Overview's preview said "The newest frame, as
+it is written." under a study that had finished, and now says "The last frame
+the run wrote." once the run has stopped. The BibTeX entry on the Cite page
+wraps inside its card, where it ran out of it.
+
+### An Agent's config is said as a plan
+
+**The Agent's reply says what its config will do.** It showed the refusals the
+Agent worked through and a row of buttons, and what it had written was behind
+"Show the config", as YAML: that it would run for 2 ns because no length was
+given, or build a dodecahedron, was learned by reading the file. The reply now
+says it in lines, before anything runs: the system, force field, solvent,
+conditions, equilibration and production, any umbrella windows, metadynamics
+or pulling, replicas and other swept values, the analyses and any ceiling on
+cost. Each takes the value the run will take, and those the config does not set
+are marked as defaults. The lengths are resolved by the runner's own function
+and the umbrella windows by the umbrella module's, so the plan cannot say
+something the run would not do. A conversation reopened shows its plans again.
+
+### The viewer answers the keyboard
+
+Every control in the viewer was a button to find and click, so stepping
+through a trajectory was a click per frame. Space now plays and pauses, the
+arrow keys step a frame (ten with Shift), Home and End go to the first and last
+frames, R centres the structure and F fills the screen. The keys work only on
+the viewer's page and never while something is being typed, and are listed
+under the page's title.
+
+### A box grown for its cutoff has the ions it should, and a small solute gets one
+
+**A box re-solvated to clear the cutoff no longer keeps the first attempt's
+ions.** Where the box first built was too narrow for the cutoff, setup deleted
+its water and solvated again with more padding, but the ions that attempt had
+added stayed: they counted as solute, so the next box was sized by where they
+had happened to land (the same study came out 2.28, 2.36 and 2.53 nm at its
+narrowest), and they stayed in the system beside the second attempt's own. A
+tripeptide at 0.15 M had 3 ion pairs where 2 were due. A retry now starts from
+the solute as it was before any water. Studies whose setup log says
+"Re-solvating" were prepared with the extra ions.
+
+**The padding added is worked out from OpenMM's own sizing.** OpenMM sizes a
+padded box as the solute's bounding sphere plus the padding, counted once, or
+twice the padding for a solute smaller than that. The growth took the width to
+rise by twice the shape's factor per nanometre of padding, which holds only
+while the padding sizes the box; for any solute that sizes it the width rises
+by half that, so the growth undershot by half and three attempts left the box
+under the margin it aimed for. The rule is now applied directly and checked
+against the OpenMM installed.
+
+**A small solute is prepared with the defaults.** 1.0 nm of padding in a
+dodecahedron with a 1.0 nm cutoff needs 1.56 nm of padding for a peptide of a
+few residues; setup added at most 0.5 nm and failed with a message calling the
+box's narrowest width its edge. Where the padding sizes the box, the box grown
+to is the smallest the cutoff allows for any solute that small, and it is grown
+to whatever the amount. Where the solute sizes it and more than 0.5 nm is
+needed, setup stops adjusting as before, and the refusal that follows names the
+padding that would run, for this shape and for a cube, and calls the box's
+narrowest width what it is. The padding used is recorded under
+`resolved` and the methods give it. They also say what padding measures: the
+least distance between the solute and its nearest periodic image, which the
+setting's description had called the distance to the box's wall. The builder's
+advice uses the same rule and says whether setup will grow the box or refuse.
+The guardrail corpus's box case now builds its box as OpenMM would, where it had
+made the box a fixed fraction of the padding; its outcome is unchanged.
+
+### A budget prices a study of several runs, all of it
+
+**`budget_hours` no longer refuses every umbrella study, replica sweep and
+campaign.** The staged route prepares a study, reads the particle count setup
+recorded and prices the rest; it read the count from `setup/` beside the study,
+which only a study of one run has. A study of several keeps each run's system
+under `runs/<id>/` and an umbrella study's shared one under `shared_setup/`, so
+setup ran and the study stopped with "Setup finished without recording how many
+particles the solvated system holds", and `--autonomous`, which requires a
+budget, could run none of them. Each run is now counted where the batch layer
+prepares it, and the estimate is the sum over the runs, each window with its own
+equilibration, plus the pull that seeds an umbrella study's windows where it
+asks for one; the refusal says how many runs it priced. Each run then simulates
+the system prepared for it.
+
+**An umbrella study asked only to prepare prepares the one system its windows
+share.** `include_phase: [setup]` prepared a system for every window, a box of
+water per window, which is what sharing exists to prevent; and a study naming
+`setup_from` whose windows are seeded from a pull began the pull, hours of
+simulation, when it had been asked only to prepare.
+
+### The test suite keeps to settings of its own
+
+**Running the tests no longer leaves the machine measured as something it is
+not.** A test recorded a calibration in the real settings directory, so a
+workstation that had run the suite was measured as a CUDA machine doing a step
+of 30,000 particles in 8.4 ms, and every budget and time estimate there was
+priced on that. The suite now gives itself a settings directory and a cache
+for the session, and each test a settings directory of its own, so the
+person's calibration, chosen model, remote machines and fetched chemistry are
+left alone. Delete `~/.config/fastmdxplora/calibration.json` on a machine that
+has run the suite before and has not been measured since, or measure it again.
+
+### The builder says what setup will build, and how long it will take
+
+**Under the structure, while the settings are open,** the builder now says what
+setup will build from it: about how many particles, in a box of what shape and
+width, the padding setup will grow it to where the cutoff needs more (or that
+setup will refuse it), the solute's residues, atoms and net charge, the ligands
+kept, the water and the ions; how long the study will take on this machine,
+every run of it, where the machine has been timed; and what is worth knowing
+about the structure under these settings, each with a button that opens the
+setting it is about. It is said again half a second after a setting changes.
+The box, the count and the time had been learned from setup's log, minutes into
+a run.
+
+It is worked out, not built (`fastmdxplora.setup.estimate`). The solute is
+counted from its residues' templates, hydrogens, missing atoms and the gaps
+setup builds included, in the biological assembly setup will build, copies
+from symmetry operators included; the box is OpenMM's rule and setup's growth
+for the cutoff; the water is OpenMM's pre-equilibrated box less the volume
+within 0.40 nm of the solute's atoms and what the cell's faces lose, both
+measured on OpenMM's own builds; the ions are OpenMM's count for that water.
+Against the setup phase it came within 1.8% on adenylate kinase (20,223
+particles) and 3.0% on haemoglobin built from its symmetry operators (35,630),
+and the tests hold it to the setup phase's own record of a decapeptide and a
+tripeptide. `POST /api/preview-system` answers on this machine only, and a
+PDB identifier is fetched once and kept.
+
+### The Agent's plan ends with what the study would build and cost
+
+**A proposed Config's plan now ends with the system setup would build and the
+time here:** about how many particles in what box, the padding grown for the
+cutoff where it would be, and how long the study would take on this machine,
+every run of it, where the machine has been timed. The page asks for them once
+the builder holds the proposal, as the builder's preview does, so a structure
+named by its identifier is fetched once and the reply does not wait on it. A
+proposal that prepares nothing, or whose structure cannot be read, ends where
+it did.
+
+### A study of several runs gives each run's mean with its error
+
+**The report page of a study of several runs, before the comparison is
+written, now gives each finished run's mean with its standard error and its
+unit, and marks a mean the analysis said is not a measurement.** It read an
+`uncertainty` and a `unit` that no analysis writes (its test's fixture had
+written them, and the analyses write `standard_error`), so every mean stood
+bare, and a series too short to measure stood among the results as though it
+were one. The table now says the means are over the frames after
+equilibration.
+
+### The builder's estimate leaves out what setup discards
+
+**The estimate of what setup will build no longer counts the heterogens setup
+discards by name**: under `heterogens: auto`, the crystallization additives
+(glycerol, sulfate, phosphate, buffers) and the salt of the liquor, keeping of
+the ions only the metals that sit in sites, as setup does by their
+coordination. Haemoglobin's phosphate had been listed among the ligands kept.
+
+### Runs are compared on their equilibrated means, with their errors
+
+**The comparison of a study's runs now uses the mean each run's analysis
+recorded, over the frames after equilibration and with its standard error**,
+where it took the mean of every frame, equilibration included, and gave none.
+The trend plots carry the errors as bars; the report calls a difference
+between the ends of a sweep a trend only where it is more than twice its
+error, and says where the runs do not tell the ends apart, where it had said
+"increases" or "decreases" whenever two numbers differed. A mean a run said is
+not a measurement is marked. `comparison_summary.csv` adds each mean's
+standard error, the frames discarded and what the mean is over. The overlays
+are drawn against each run's own clock where every run recorded one, so runs
+saved at different intervals line up; they were drawn against the frame.
+
+**Replicas are compared as replicas.** A seed is no longer taken as a sweep
+axis to plot a trend against, and a study whose runs differ only by seed gets
+a section setting the spread of their means against the error each run
+estimated for itself, with the verdict `members.json` has always held and the
+report never showed.
+
+### A first page load is answered whole
+
+**The GUI no longer answers a first page load with a server error on whichever
+route lost a race.** The routes import what they need when first asked, a page
+asks for many things at once, each in a thread of its own, and the package's
+imports go round in a circle (`fastmdxplora.analysis` imports every analysis,
+each of which imports `analysis.plotting`); two threads importing into it
+together were refused by Python's import locks with "deadlock detected". The
+Agent's plan was found without its size and time that way. The server now
+imports those modules before it serves anything.
+
+### The builder draws the system in its box
+
+**Beside the numbers, the builder now draws what setup will build**: the chains
+it keeps, copies from the assembly's symmetry included and coloured as chains,
+and the ligands, inside the periodic cell it will build, to scale and turned
+off its axes so it reads as a solid. The cell is the shape the name means, a
+cube, a rhombic dodecahedron or a truncated octahedron, worked out from the box
+vectors OpenMM lays out (the points nearer the origin than any periodic
+image), so how much water surrounds the protein is seen rather than read. It is
+said again as the settings change, with the numbers.
+
+### The Agent is told when a mean is not a measurement
+
+**What the Agent reads of a study's analyses now says when an analysis
+withheld its mean, and why**, and when it gave a mean it said is not a
+measurement. A series too short to measure records no mean, and the Agent was
+told nothing of it: asked whether the RMSD had settled it had neither a number
+nor a reason.
+
+### The GUI follows the system's light or dark until a scheme is chosen
+
+**Until a colour scheme is chosen in Settings, the GUI follows the system's,
+as it changes.** The scheme the system asked for on a first visit was stored
+as though chosen, so a system that went dark at sunset left the page light for
+good. Only a scheme chosen on the page is kept now.
+
+### The viewer's transport sits under its canvas
+
+**The trajectory's play, step and scrub controls now sit directly under the
+viewer's canvas**, above the display options, where they had been the last of
+five rows. A long path in the builder's note on where results are saved now
+wraps instead of pushing a phone's page sideways.
+
+### An Agent's reply restored before the builder is ready still works
+
+**A restored Agent reply's actions and its plan's size and time no longer do
+nothing on a slow page load.** The reply hands its config to the builder, and
+the builder draws from its list of settings; where the config arrived before
+that list, drawing it threw, so *Download config*, *Copy the command*, *Run
+here* and the plan's last two lines silently did nothing. A config that
+arrives first now waits for the list.
+
+### A mean is recorded with its unit, and the Agent is told it
+
+**Each analysis now writes its mean's unit beside it** (`unit` in
+`findings.mean`, read from its own axis: nm for an RMSD, nm² for an area per
+lipid, empty for a count or a fraction), and the captions, the table of a
+study's runs and the Agent read it from there. The Agent was handed each mean
+as a bare number, so a model asked for the RMSD had nothing to say whether
+0.013 was nm or Angstrom, and a mean whose error was withheld reached it as
+"± nan". The captions and the run table knew the unit only for five analyses
+named in the GUI; an end-to-end distance or an area per lipid had none.
+Studies analysed before this keep the units known for those five.
+
+### An Agent's answer shows what the study recorded, and opens its figures
+
+**Under an Agent's answer about a study, each analysis the answer names is
+listed with the mean the study recorded for it**, with its error and unit, or
+marked where the analysis said its mean is not a measurement; choosing one
+opens the Analysis page on that analysis's figure. The value is the record's,
+whatever the answer said, so a number in the prose can be checked where it is
+read; before, checking one meant finding the figure and reading its caption.
+The analyses are found by what the answer says, and the Agent is asked to name
+the analysis behind each number it quotes.
+
+### A withheld mean says how much longer the run must be, and what that takes
+
+**An analysis that withholds its mean for want of sampling now records how
+much longer the run must be** (`shortfall` beside the mean: further frames,
+and nanoseconds where the run's clock is known), and the report's convergence
+section, under **What would support it**, gives the figure for the study: the
+largest ask, rounded up, what it would take at the speed the study ran (from
+its `cost.json`), and the config that extends the study in place. The Agent is
+given the same, with that config where the study can be continued. Each mean
+ended "the remedy is a longer run" and nothing said how much longer.
+
+`sampling_shortfall` asked for nothing where a run could not resolve its own
+correlation time: the ten samples such a run appears to hold are an upper
+bound, which is why its mean is withheld, and the shortfall counted them as
+met. It now asks for at least as long again and says the figure is a floor
+(`lower_bound`).
+
+### A run is held to checks its plan states, and ticked against them after
+
+**An Agent's plan now states the checks the run will be held to** (each
+measure equilibrated, its correlation time measurable, at least ten
+independent samples per mean, the temperature within 5 K of its target, the
+potential energy's range per ns per atom), **and the report's convergence
+section ticks each after the run**: passed, failed, or not judged and why. The
+Agent is given the same ticks, so "did it pass?" is answered against what was
+promised. The checks are one list, with the thresholds the report's findings
+already used, so a check and a finding cannot disagree.
+
+### The runs of a study are compared on one page
+
+**The Analysis page of a study of several runs now shows the runs side by
+side:** one table with the settings that differ between them and the mean
+each run recorded, with its error (or marked where the analysis said it is not
+a measurement); a difference from the first run is marked only where it is
+more than twice the two runs' combined standard error, the rule the written
+comparison uses for a trend, and replicas, which differ only by seed, are set
+against the errors they estimated for themselves instead. Under it, one
+measure's series from every finished run, overlaid, in a palette told apart
+by the colour-blind. The page had been empty for such a study: each run's
+figures were inside the run, and the comparison was a document written once
+the last run finished. `GET /api/runs-compared` gives the table, and
+`/api/series` takes `run=ID` for one run's series.
+
+### The viewer has one transport and one toolbar of named icons
+
+**The viewer's thirty text buttons in five rows are now a transport and a
+toolbar of icons.** The transport under the canvas steps, plays, goes to
+either end and plays backwards, its play button showing what pressing it does;
+the view's icons reset it, zoom, spin (one button now, where Spin and Stop were
+two), fill the screen and save a picture; how the molecule is drawn and
+coloured are two lists. Every icon is named to a screen reader and in its
+tooltip, with its key where it has one, and shows where the keyboard is. A row
+that repeated three of the transport's buttons is gone. The pocket cutoff,
+the one place the viewer's angstroms meet the analyses' nanometres, is said in
+both.
+
+### The file picker says a path it cannot open as text
+
+**The file picker put the server's refusal into the page as markup**, and the
+refusal names the path it was asked for, which can come from a config written
+by somebody else: a field holding `nowhere<img src=x onerror=...>` ran the
+script when its picker opened. It is shown as text now, as is the builder's
+reason for offering no analyses. Found by driving the picker and the Agent's
+send path in a browser, which no test had done: a question typed and sent, a
+file attached through the picker, the answer with what the study recorded,
+and the thread kept with the study.
+
+### The GUI is drawn from one set of tokens
+
+**Every size on the page is now one of eight on a scale, every tint is mixed
+from the scheme's own accent, and one rule rings whatever the keyboard is
+on.** There were eighteen font sizes, the smallest (10px) on the uppercase
+labels and file actions, where reading was hardest; those actions are now
+sentence case at the size of every other control. Ninety-seven hover,
+selection and active tints were written as the dark scheme's colours, so on
+Paper, whose accent is blue, they were all still cyan. A notice appeared on a
+fixed near-black carrying the scheme's text, which on Paper is near-black too;
+and three buttons' sizes never applied, their `font` shorthands made invalid
+by an `inherit` inside them. The contrast check in every scheme now reads the
+mixed colours it had been skipping.
+
+### Clusters are drawn in the figures' own palette
+
+**The cluster figures now take their colours from the plotting module, as
+every other analysis figure does:** Okabe and Ito's palette in colour, and
+greys with a shape for each cluster when greyscale is asked for. They had
+Tableau's ten colours written in, and came out in colour in a greyscale
+report.
+
+### A clicked atom is given as a selection
+
+**Clicking an atom in the viewer now gives, on the Selection tab, the
+selection for its residue and for the atom** (`chainid 0 and resSeq 189`,
+`... and name CA`), each checked against the topology the analyses read and
+with a button to copy it. The tab gave the residue, chain and atom's names and
+left the selection to be written by hand, in a language where `resid 189` and
+`resSeq 189` name different residues in most deposited structures. A residue
+the analyses do not read (water, unless it is saved with the trajectory) is
+said to be missing from it. `GET /api/selection` answers the same.
+
+### `fastmdx diff`: what two studies were asked to do differently
+
+**`fastmdx diff FIRST SECOND` lists the settings two studies, or two Configs,
+differ in** (`--json` for a program). A study is read from its
+`resolved_config.yml`; a phase setting either side leaves out is taken at its
+default, so a short Config and the full one it resolves to compare as the same
+study; and a path inside a study's own folder is said from it, so two studies'
+trajectories do not differ for being in two folders. It exits 1 where they
+differ, so it can gate a script.
+
+### A residue can be given the protonation state asked for
+
+**`setup.residue_states` gives named residues the protonation state asked
+for, in place of setup's own choice:** `{A:57: HIP}` charges trypsin's
+catalytic histidine; histidine takes HID, HIE or HIP, aspartate ASH or ASP,
+glutamate GLH or GLU, lysine LYN or LYS. Setup chose every state from the
+residue's usual pKa at the pH, and a histidine's tautomer from its hydrogen
+bonds, with no way to say otherwise, which for a catalytic or metal-binding
+histidine is wrong as often as not. A residue the structure does not hold, or
+a state it cannot take, stops setup with a named refusal; what was set is in
+the setup record's notes and in an Agent's plan.
+
+### An extended study counts its first piece whole
+
+**A study extended more than once no longer loses production from its count.**
+A checkpoint from before the step counter was understood could carry a
+whole-run step, and a step past the plan's production was read as one and had
+the equilibration taken off it. Once a study had been extended, the plan it was
+read against was the one the join had written over the study's own, with the
+last piece's length: a first piece of 300 production steps, extended by 50, was
+counted as 100, and the study's production went down as it grew, so an
+extension to a total asked for too much. Only a sidecar that does not record
+its trajectory's interval, which every checkpoint since has, is converted now.
+
+### A study can run until what it is for is known
+
+**`simulation.stop_when` runs a study until the measures it names are known as
+well as asked, or a ceiling is reached, rather than for a length fixed before
+anything was known:** `{measures: [{analysis: rmsd, standard_error: 0.01},
+{analysis: sasa, relative_error: 0.05}], max_duration_ns: 50}`. `duration_ns`
+is the first piece; after each, the analyses are read, and every run is
+extended by what the numbers ask for (a withheld mean its own shortfall; a mean
+with an error enough frames for the error to fall to what was asked, bounded
+per round), joined and analysed again.
+
+**By default the runs must be replicas, and must agree.** A run trapped in one
+state settles and shrinks its error bar all the same; only runs started
+independently can show it. So the rule asks for one system swept over
+`random_seed`, is met only when the replicas' means agree within their own
+errors, and judges the larger of the error they claim together and the error
+their spread shows. `independent_starts: not_required` accepts one run's own
+precision, and the record says what that leaves unchecked. A study that cannot
+keep the rule (no replicas, a ceiling below the first piece, a method that
+cannot be run in pieces, an umbrella study, a measure no analysis in it
+computes) is refused before anything runs, in the plan as in the run.
+
+Each round is recorded in `stopping.json`; the report, or for replicas the
+comparison report, says how long the study ran and why, round by round; the
+Agent is given the record; the plan says when the study stops; and a budget
+prices it at its ceiling. In a parallel study the runs are extended side by
+side.
+
+### The Agent says what "done" means before the run
+
+**Asked for a quantity to a precision, or to run until something is known,
+the Agent writes the study's stopping rule** (`simulation.stop_when`): the
+measures, the error each must reach, replicas over the seed and a ceiling,
+shown on the plan's "Stops when" line before anything runs and judged by the
+code after it. It is told which analyses record a mean a rule can judge,
+and to present a precision it chose as its own choice, not the person's.
+
+**A stopping rule the study cannot keep is now refused when the config is
+validated**, not only when the study starts: `fastmdx check-config`, the
+GUI's check and the Agent's repair loop see it, and the Agent repairs a rule
+without replicas by adding them. A measure whose analysis records no single
+mean (`rmsf`, `cluster`) is refused with the list of those that do; before,
+it ran to its ceiling judging nothing. A mean that is never recorded during
+a run stops the rule at once, since more production cannot supply it. One
+system given to `FastMDXplora()` without a config is refused a rule when it
+is constructed, before anything is created.
+
+### A study running until it knows shows whether the answer is settling
+
+**The Overview of a study with `simulation.stop_when` has a card, "Running
+until it is known", that answers the question the rule asks.** For each
+measure: the standard error after each round against the error asked for,
+with the production at which it would reach it if it keeps falling as one
+over the root of the frames (the estimate the next piece is sized by); the
+mean after each round with every replica's own mean and error beside it, so
+replicas that disagree are seen as well as said; the piece now running and
+its time at the speed the study has run; and every round with what was
+decided. It is read from the study's record (`GET /api/stopping`), so the
+page and the report agree, and it asks again only while the study runs.
+
+The record is now written before the first piece runs, so a study says what
+it is running until from its start; a resumed study keeps the rounds it had;
+and the record says how many runs were extended at once, which is what a
+round's time rests on.
+
+### The page is told when the study changes
+
+**The GUI now hears of a change as it happens, instead of asking for
+everything every three seconds.** It asked for seven answers a poll from each
+open tab whether or not anything had changed, and was still up to three
+seconds behind the run. `GET /api/stream` is a server-sent event stream: the
+server looks at the study's files (their times and sizes, three folders deep,
+twice a second) and the run's state, and sends one event when any of them is
+different; the page then asks for what it draws, once. What the run writes
+appears within about a second, and an idle page asks for nothing. The poll
+stays as a fall-back, every thirty seconds while the stream is open and at
+the refresh setting where it cannot be. Only that something changed is sent,
+never what, so every answer still comes through its own route and checks; a
+stream ends when the server shuts down, so stopping the GUI is not held by an
+open tab.
+
+### The builder asks what a study is for
+
+**`simulation.stop_when` is a form in the builder, not YAML in a box.** It was
+drawn as a mapping box whose placeholder read "measures: [object Object]".
+Now each measure is chosen from the analyses that record one mean, with the
+error it must reach in its own unit (named: "to ± nm") or as a percentage of
+its mean; then the most production any run may reach, and whether replicas
+must agree. Where they must and the study has none, one button sweeps the
+seed over three values; unticked, the form says what one run's precision
+leaves unchecked. A row being written is kept until it is whole, and only
+whole rows reach the config.
+
+The unit each analysis records is now known by name for all of those that
+record a mean (end-to-end and pair distances, ligand RMSD, area per lipid,
+bilayer thickness, moments of inertia, coordination number), as their own
+axes state it, for the form and for studies analysed before units were
+recorded.
+
+### Equilibrated, converged or determined, never "settled"
+
+**What the software says now uses the physics' own words.** "Settled" is not
+a physics term, and it was standing for three that are: an observable
+*equilibrates* (the structure, the solvent, a bilayer's area, a window at
+its restraint), a bias or a surface *converges*, and a mean or a protonation
+state is *determined*. The statistics had dropped the word already; it
+lingered in the Agent's instructions, two refusals (a run whose segment means
+drift "had not equilibrated at the scale of the whole run"), the log, the
+builder, the Overview, the documentation, and two cases of the guardrail
+corpus, now "a run that never equilibrated" and "a run that equilibrated,
+transient included". A study with a stopping rule runs until each measure is
+*determined* to the precision asked ("Determined as asked", "Running until
+it is determined"), and a run trapped in one state is said to look
+equilibrated there, which is the trap. The `Settled` alias and the `settled`
+key in older records are still read.
+
+### A preparation can be repeated
+
+**Preparing one structure twice now gives one system, not two.** OpenMM's
+Modeller places the hydrogens it adds at random before minimising them, and
+picks at random which waters become ions, both from Python's `random`, which
+setup never seeded; the hydrogens set the solute's extent, and the box and
+its water follow. Six preparations of a decapeptide came out at 4,265 to
+4,556 atoms in boxes 2.855 to 2.916 nm wide. `setup.random_seed` now seeds
+those choices; where it is not given a seed is drawn, recorded in
+`setup_parameters.json` and written into `resolved_config.yml`, so every
+preparation can be repeated from the study it produced. Setup's minimisations
+run on one CPU thread (several threads add forces in whatever order they
+finish, which moved a hydrogen by 0.03 Angstrom and, once in four, the water
+by nine atoms), the velocities written to `state.xml` are drawn from the same
+seed, and Python's own random state is put back afterwards. The same seed
+now gives the same atoms at the same positions; a bilayer, which OpenMM packs
+with dynamics of its own random stream, is the exception and is said to be.
+
+The methods paragraph states the seed. A sweep over `setup.random_seed`
+counts as replicas, and runs that share a setup seed are no longer warned
+that they will be prepared differently. The claim that "solvation does not
+place water the same way twice" is corrected wherever it was made: it was the
+unseeded hydrogens and ions. A test of setup's size estimate that measured
+this spread as much as the estimate (it failed once, 4,406 against 4,619)
+now prepares from a fixed seed.
+
+### A study that stops says what would fix it, and what the fix costs
+
+**When a study or `fastmdx resume` stops, the console prints what would fix
+each thing that stopped it, the command that runs the fix, and how long that
+takes at the speed the study itself ran.** A stopped run, and runs a stop
+kept from starting, are one `fastmdx resume` priced at what remains of each.
+Umbrella windows that recorded too few values are run again with
+`--rerun-window` at the length that gives the thinnest the values it needs;
+windows that ran with settings the config no longer gives are named to run
+again; a window that failed is run again with every window it kept from
+starting, which `--rerun-window` otherwise refuses; gaps between windows get
+the design the windows measured, as a config. Any other refusal is answered
+within what the registry lets it say: a setting's values where the schema
+holds them all, the setting alone where the value is a judgement, the install
+command where there is one, and, where only the person can decide (a
+ligand's protonation), where that choice is recorded and never what it
+should be.
+
+The price is production and equilibration in nanoseconds and the wall time
+at the study's own recorded speed, or another run's of the same study; with
+no speed measured, no time is given. The Agent's run status carries the
+same, and it answers "why did it stop, and what now?" from it;
+`fastmdx resume --json` carries it as `remedies`; `fastmdxplora.remedies`
+gives it to a program.
+
+### A residue's protonation state is chosen from the structure in the builder
+
+**`setup.residue_states` has a control of its own in the builder,** in place
+of a box for YAML that needed the chain, the number and the state's name
+known beforehand. The preview of what setup will build now lists every
+residue of the structure that can take another state (histidine, aspartate,
+glutamate, lysine) with the states each takes, and the builder offers them by
+kind, each state with what it is ("HIE, neutral, hydrogen on NE2"). Where a
+structural metal is within 3 Å of a residue's side chain, the atom and the
+distance are said beside it ("NE2 is 2.1 Å from ZN A:301"), a fact about the
+structure; the state is left to the person. Each histidine is marked in the
+picture of the system and a click on one adds it and asks for its state;
+residues given one are marked with it. A row reaches the config once its
+state is chosen.
+
+### A refused setting is said on its own field in the builder
+
+**When the builder's config is refused, the refusal is said on the field of
+the setting it is about, with what would fix it.** It was one line under the
+buttons, with the setting folded away in a closed section further up the
+page. The refusal now reaches the page with the setting it names and its fix
+(`fastmdxplora.remedies`), from showing, downloading or copying the config
+and from **Run**; the section is opened, the field outlined and focused, and
+the fix is said within what the refusal may say. Where the schema holds a
+spelling near what was given ("did you mean 'dodecahedron'?"), a button
+offers it and nothing changes until it is pressed; changing the field takes
+the refusal away. A number outside what a quantity can be now records the
+block it was in, so its field can be found.
+
+### The report says a seeded preparation repeats
+
+**The report's Reproducibility section still said that solvation could not be
+seeded and that running the configuration again gave a different atom count,
+after 1130 made the preparation repeat.** It now reads the study's records:
+where setup recorded its random seed, a rerun of `resolved_config.yml` is said
+to prepare the same system, with the seed and whether it was drawn, and a
+bilayer, which OpenMM packs with a random stream of its own, is named as the
+exception; a study prepared before the seed was recorded is still said to give
+a slightly different atom count. The dynamics are said separately: where
+`simulation.random_seed` was given a rerun starts from the same velocities,
+and whether it repeats step for step depends on the platform, since OpenMM's
+GPU platforms can differ in the last bit of a force unless asked for
+deterministic forces; where none was given, a rerun is a new trajectory of
+the same system.
+
+### Each figure says what made it, and the command that makes it again
+
+**A chip at the foot of each figure on the Analysis page names the release
+that drew it, and opens what made it:** the packages whose versions decide
+its numbers, when it was made, the trajectory and how many frames it rests
+on (and every how many), the selection and the options, and the command that
+draws it again. All of it was recorded (the analysis manifest, the
+analysis's `options.json`, the Manifest's record of who produced the phase)
+and none of it was shown, so a figure copied into a paper left its study
+behind. The command reruns the one analysis over the same frames, with the
+same selection and options written out rather than left to defaults, into a
+folder of its own beside the study; it is the command line's own rendering,
+and a test runs it and gets the same numbers byte for byte. Where a setting
+has no flag, the config is given instead; a figure made by another release
+says so.
+
+### A figure is drawn at the width a journal prints it
+
+**`analysis.figure_width` draws every figure at a journal's column width,
+with its type sized for it:** `single_column` (89 mm, 7 to 8 pt type, lines
+and ticks thinned to match) or `double_column` (183 mm), beside `page`, the
+6.5 in the figures have always been drawn at. A page-width figure scaled into
+one column took its 9 pt ticks to about 5 pt, below what most journals accept.
+The figure is drawn by the analysis itself at that size, so nothing is
+rescaled after the fact, and an analysis's own proportions are kept. The
+width is recorded in the analysis manifest, and the chip on each figure (1135)
+gives the command that draws it again at one column or two; a test draws the
+RMSD at one column from that command and gets a figure 88 mm wide over the
+same numbers.
+
+### The Agent looks with the software's own tools before it answers
+
+**The Agent may look before it replies**, up to four times: a reply that
+opens `USE: <tool>` runs the tool and the model is asked again with what the
+software said. `inspect_structure` gives a structure's chains, protein
+residues, ligands, ions and water, the residues whose protonation state a
+study may set and any side chain by a structural metal; `preview_setup` what
+setup will build from a Config and how long the study takes here;
+`check_config` whether the validator accepts a Config, and if not what would
+fix it, and if so the plan; `check_selection` what an MDTraj selection
+matches; `read_study` another study's record (its Config, findings, checks,
+rounds and fixes), so "compare this with last week's run" is answered from
+both records. It wrote sizes, times and chain names from what it was given, which
+for anything the software measures meant guessing. It is told to look rather
+than guess and to quote the software rather than contradict it. The tools
+only look, a look is not an attempt, and hosted they read inside the
+workspace only; a tool reads a structure or a study's record and nothing
+else. What it looked at
+is folded under its reply as **Checked with the software** and kept with the
+thread, and `fastmdx agent` prints a line for each (`fastmdxplora.agent.tools`).
+
+### A fix the software runs is run from the Overview or by the Agent, when asked
+
+**A study that stopped has a "What would fix it" card on the Overview**: each
+thing that stopped it, its fix, the command and what it costs at the study's
+own speed (1131). A fix that is this software's own command, `fastmdx resume`
+or windows run again with `--rerun-window`, has a **Run it** button, which
+asks once more with the price in view before anything starts, and the run is
+followed on the Overview. Told to carry the fix out (*resume it*, *rerun those
+windows*), the Agent replies `DO: run the fix`: the first such fix is shown
+with its command and price, and runs when the person says yes. The command's
+arguments are the ones the remedy built from the study's record, never text
+from a request or a reply; a fix waiting on a choice only the person can
+make, a setting to change and an install command are said and never run.
+`GET /api/fixes` and `POST /api/fix` are answered on loopback only.
+
+### The figure tests leave the logger as they found it
+
+**A test module's fixture that ran the command line left the package logger
+unable to propagate for every test after it** (1135's figure tests), so a
+later `caplog` assertion read nothing: the suite's own restoring fixture takes
+its baseline after module fixtures are set up, and took the command line's.
+The fixture now puts the logger back itself, and a test says so. Found by the
+full suite, where a test of the command line's logging failed after it.
+
+### The GUI imports the modules this round's routes use before it serves
+
+**A test of a first page load, seven requests at once, answered 500 to one
+of them once in a full run under load** and passed in 24 bursts of eight
+fresh servers since. The modules 1131-1138 added to what the routes import
+on first use (`fastmdxplora.remedies`, the figure chip's, the fixes' and the
+Agent's tools, and the command line's parser the chip consults) are now
+imported ahead with the others, as 1104 did for the analyses, since two
+first requests importing them together can meet in the package's circular
+imports. The test now names the route that answered 500 and what it said,
+so a recurrence says where to look.
+
+### A refused Run here in the Agent says what would fix it
+
+**A Config the Agent's *Run here* refused came back as the refusal alone**,
+while the same refusal in the builder carried its fix (1133). Every coded
+refusal of *Run here* now carries its remedy, shown under the button: the
+setting to change, or the install command where OpenMM or another package is
+missing (that refusal is now coded `environment.backend.missing`). Where the
+fix is a setting of the study, **Ask the Agent to fix it** sends the refusal
+into the thread as the person's next message and the Agent rewrites the
+Config; a budget, an install and a choice only the person can make are said
+and not handed to the model. An `autonomous` Config that carries its own
+`budget_hours` was refused for the Settings field being empty; it now runs
+with the Config's ceiling, the field taking precedence where both are given.
+
+### A window runs again at a force constant the person names
+
+**Holding one umbrella window harder meant writing `force_constant` as a list
+by hand**, every other window at the constant it ran with, before
+`--rerun-window` would run it again. `--rerun-force-constant K` does it: the
+windows `--rerun-window` names are held at K and every other window keeps its
+own, and the study's `resolved_config.yml` records the list, so the next
+recombination and the next window run again from it read the springs the
+windows ran with. The first Config, which still gives the window its old
+spring, is refused by name rather than recombined with the wrong one.
+`windows_held_at` in `fastmdxplora.simulation.umbrella` gives the same Config
+from Python.
+
+### Windows run again from the GUI at the values the person names
+
+**Told "rerun window 3 at 6000" or "windows 2 and 5 again for 4 ns", the
+Agent replies `DO: rerun windows 3 at 6000`**, and the software does the rest:
+it reads the windows and the numbers from that one line by a strict pattern,
+checks them against the study (its own windows, positive numbers), builds the
+command from the study's record (`--rerun-window` with `--rerun-force-constant`
+or `--simulate-duration-ns`), and asks the person with the spring in its unit
+and the price at the study's own speed. `POST /api/fix` takes the windows and
+values as well as a fix's number, on loopback only; the Agent uses only the
+values the person gave, and asks for one it was not given. A window run with
+settings the config no longer gives is now said in its variable's units
+(rad and kJ/mol/rad^2 for a torsion, where it said nm).
+
+**A fix was priced with equilibration and production the runner does not
+run.** The price read a run's lengths with defaults of its own: a run naming
+no length was priced at no production (the runner runs 2 ns), and
+equilibration at 1.5 ns whatever the timestep (the runner's is a number of
+steps: 3 ns at 4 fs). It now reads them through the runner's `plan_stages`.
+
+### Looking at a structure says when setup builds more chains than the file
+
+**The Agent's `inspect_structure` gave the file's chains and residue count
+beside the assembly's titratable residues without saying which was which**:
+for 1HHO, chains A and B and 287 protein residues beside 38 histidines, twice
+the file's, since setup builds the tetramer the file declares. It now says
+that setup builds the biological assembly, names its chains, and says the
+residues listed are the assembly's. Found writing the questions that measure
+the Agent's looking.
+
+### Whether the Agent's looking helps is measured, not assumed
+
+**`python -m fastmdxplora.validation.agent_looks`** asks the configured model
+six questions the software answers itself (a solvated system's size, a box's
+width, a structure's residues and ligands, the atoms a selection matches, the
+histidines of the assembly setup builds), with the tools and without, and
+counts the replies that agree with the software and how many looked with the
+tool each question calls for. The questions, the tolerances and how a reply is
+judged are fixed in `preregistration/agent-looks.md` before any reply was
+seen. Every reply is kept in the output file.
+
+### The Report page's figures say what made them
+
+**The chip 1135 put on each Analysis figure is now under each of the same
+figures on the Report page**: the release, the packages, the frames, the
+selection and options, and the command that draws it again, with the two
+column widths. One chip and one panel, from the same record
+(`figure_provenance`, now also in the report's payload).
+
+### The viewer measures a distance, an angle and a dihedral
+
+**The viewer said where a clicked atom was and nothing about how far it was
+from another.** With **Measure** on (the ruler in the view tools, or M), two
+atoms clicked give their distance, three the angle at the middle one and four
+the dihedral about the middle bond (MDTraj's sign), drawn in the structure
+and listed in the Selection tab in angstroms and nanometres or degrees. They
+are measured in the frame on screen, as drawn, and follow the trajectory as
+it plays; Escape clears them. Two atoms can be measured over every frame:
+**Over every frame** gives the command that runs `pair_distance` over the
+study's trajectory, with the minimum image, into a folder of its own, from
+the atoms' selections, each checked to name one atom
+(`GET /api/measure-over-frames`). Run, it writes MDTraj's distance at every
+frame.
+
+### A plan says a membrane's box and a ligand named by its residue
+
+**The plan said a membrane study would be built in a dodecahedron**, the
+`box_shape` default, which setup does not use for a membrane: its box is
+rectangular, built from whole patches of bilayer. It now says so. **A ligand
+named only by its residue in the structure** (`setup.ligand_name`, with no
+file) was not in the plan at all; it is now said, and a file and a residue
+name together are said together. Found writing the builder's starting
+points.
+
+### An umbrella study opened in the builder keeps its umbrella
+
+**A Config handed to the builder as a mapping** (the Agent's reply, through
+its Download config, Copy the command and Open in the builder) **was checked
+in place**, and the validator expands an umbrella block into a run per window
+in place, so the form was filled from the first window. The umbrella was gone:
+what was downloaded, copied or run from the builder was one plain run of the
+structure. It is checked on a copy now, as a Config read from a file always
+was, and what the builder writes runs every window with its centre and force
+constant. The Agent's own Run here was not affected: it runs the Config it
+wrote. Found writing the builder's starting points.
+
+### The builder offers studies to start from
+
+**A first study began at an empty form.** The Config page now opens with
+**Start from an example**: a protein in water, a protein and its ligand, a
+membrane protein, a study run until a quantity is determined, and a free
+energy along a distance. Each is a complete Config the validator accepts,
+following a recipe on the examples page and naming a real structure so it
+runs as it stands; each tile says what it is for and, from its plan, what it
+will run. Chosen, it is loaded into the form as any Config is, and the note
+says what to change first. Folded, the gallery stays folded
+(`gui/starters.py`, in the schema payload).
+
+### Every study in the workspace, and two compared
+
+**The GUI showed one study at a time**, and another was opened by walking to
+its folder in the picker. **All studies**, at the top of the sidebar, finds
+the studies under the workspace, or a folder chosen, and says each in a card:
+its structure, the kind of study (one run, replicas, a sweep, umbrella
+windows, a trajectory analysed), where it stands (completed, running,
+stopped, failed), when it began, the means it recorded with their errors,
+whether an umbrella study's free energy was recombined or refused, and a
+figure it drew. Search narrows the cards as typed; **Open** makes one the
+study on screen. Two chosen are **compared**: the settings in which they
+differ, defaults filled in, as `fastmdx diff` says them, and the means both
+recorded, a difference marked resolved only past twice their combined
+standard error, as the Analysis page marks runs of one study. Everything is
+read from the studies' records (`gui/workspace.py`); the routes are loopback
+only, as browsing folders is, and inside the workspace when hosted. The page
+scripts are now told when a page opens (`navigate`), which the Report page
+already listened for and was never sent.
+
+### A browser test waits for a chart as long as the others
+
+`test_the_charts_redraw_in_the_new_scheme` waited 30 s for the temperature
+chart's first value, the only browser test left at that; beside a full suite
+on two cores it took longer once. It waits 60 s, as the rest do.
+
+### The Agent's reply is shown as it is written, and can be stopped
+
+**A reply came back whole**: the thread said "Thinking" for as long as the
+model took, a config or a long answer included, and nothing stopped it but
+closing the page. The model is now asked for a stream (content-block events or
+the OpenAI chat shape, so a local or compatible server streams too), and the page
+is sent each piece as it arrives, each look the Agent takes as it takes it,
+and at the end the same answer as before (`POST /api/agent/propose-stream`,
+one JSON event a line). While a reply is written the send button stops it:
+the request to the model is closed with it and nothing it had written is
+kept. A browser without streams asks for the reply whole.
+
+### A residue clicked in the viewer offers its states for a new study
+
+**The builder's preview offered each residue's protonation states before a
+run (1132); after one, the viewer did not.** A histidine, aspartate,
+glutamate or lysine clicked in the viewer now offers its states in the
+Selection tab, each with what it is, and says what this study set it to or
+that setup chose. Choosing one opens the Config page with this study's
+Config and that residue in `setup.residue_states`: the residue is named as
+setup builds the structure (its chain and number there, whatever the force
+field renamed it in the trajectory), and what tied the Config to this study
+(its output, the prepared system it reused, the segment it carried on, who
+wrote it) is left out. Nothing runs until the person runs it
+(`GET /api/residue-states`).
+
+### A model of an ensemble is prepared by name, and the models are starts
+
+**An NMR entry deposits its molecule as an ensemble; setup prepared the first
+model and said nothing of the rest.** `setup.model` names the model to
+prepare, as the file numbers them, and a model the file does not hold is
+refused with the numbers it does. Unset on a file of several, setup's record
+and the builder say how many there are. Swept, the models are replicas that
+start from different structures: the plan says so ("3, from models 1, 8, 15
+of the ensemble"), a stopping rule counts them as the independent starts it
+asks for (replicas over a seed share one structure and test trapping only as
+far as their dynamics carry them apart), and the comparison, the Analysis
+page and the Studies page treat them as replicas. The builder's estimate reads
+the model named (`fastmdxplora.setup.ensemble`).
+
+### Two browser tests wait for what they read, as CI showed they must
+
+CI on `1bd10e9` failed two browser tests on timing alone. The contrast test
+read the Overview while the loading screen was fading out, so its text was
+half transparent over the page and read as unreadable; it now waits until the
+loading screen is gone. The citation test gave a smooth scroll 15 s where the
+other browser tests allow 60; it allows 60.
+
+### What a trajectory gives is analysed, computed or determined
+
+A simulation is not an experiment, and what the software said of its results
+now uses the words of the field. A mean the analysis withholds is "not
+determined" (it was "not a measurement") in the report, the Analysis page,
+the comparison of runs, the Studies page and the Agent's answers. A stopping
+rule's entries are quantities, the builder's section of analyses is
+"Analyses", and the convergence checks read "each observable equilibrates
+before it is averaged" and "each observable's correlation time is resolved by
+the run". Refusals, warnings and the docs say computed, analysed, sampled,
+defined or resolved where each is meant. "Measured" stays where it is the
+right word: a machine's speed, an experimental order parameter or structure,
+the viewer's ruler, and record keys such as `not_a_measurement` and
+`stop_when.measures`, which keep their names so existing studies still read.
+
+### The GUI imports everything its routes reach before it serves
+
+CI on macOS with Python 3.13 answered 500 to `/api/schema` in a first page
+load of seven requests at once. The schema route imports the builder's
+schema, and through it `setup.pdbfix`, `simulation.stopping` and the
+analysis descriptions, only when first asked, while the builder's preview
+imports into the same `setup` package: two threads importing into the
+package's circular imports together is refused by Python as a deadlock. The
+server imported a hand-kept list of modules ahead to prevent exactly this
+(1104), and the list lacked the schema route's. The list is now read from
+the source (`gui/route_imports.py`): every module of the package the server
+imports, at the top of a file or inside a function, followed to the end, 178
+of them, found as files and read as text so that finding them imports
+nothing. The GUI starts in the same time as before. A failing route now logs
+its traceback at debug level, and the concurrent first-load test shows it.
+
+### The starters test reloads once the fold is kept
+
+The builder keeps the starters card's fold when the card's toggle event
+fires, a moment after the click. The test clicked and reloaded at once, and
+under load the reload came first. It now reloads once the fold is kept.
+
+### A module is found by its name as Python spells it
+
+CI on macOS failed on `e0e5829`, every Python: the GUI's list of modules to
+import before serving (1158) held `fastmdxplora.agent.Queue`, which is a
+class that `from fastmdxplora.agent import Queue` names. macOS's file system
+ignores case, so looking for `agent/Queue.py` found `agent/queue.py`, while
+Python's import, which does not ignore case, refused the name. Module files
+are now matched by exact name, folder by folder. A test makes the file system
+ignore case as macOS's does, on any platform.
+
+### The default stage lengths are times: 500 ps, 1 ns and 2 ns
+
+The defaults were step counts, 250,000 steps of NVT, 500,000 of NPT and
+1,000,000 of production. At the default 2 fs timestep those are the 500 ps,
+1 ns and 2 ns every text said; at 4 fs, which hydrogen mass repartitioning
+allows, they ran 1 ns, 2 ns and 4 ns, while the plan, the methods paragraph
+and the Agent said 500 ps and 1 ns. They are times now (decided 2026-09-30),
+kept once in `simulation/lengths.py`, and the steps follow the run's
+timestep. The runner, the cost estimate and the ensemble a config implies
+each kept their own copy of the step counts, and the continuation of a
+stopped study already counted times, so at 4 fs it and the runner disagreed;
+all four read the one set now. A study at 4 fs that states no lengths
+equilibrates for half the steps it did, and produces for half; a study that
+states its lengths, in steps or in time, runs as it did.
+
+### A ligand in a structure given by identifier needs no file
+
+Asked for benzene in T4 lysozyme L99A (181L), the Agent looked at the
+structure, was told "BNZ, HED looks like a ligand and has no chemistry",
+asked for a benzene file and whether to leave out HED. Setup needed
+neither: for a structure given by PDB identifier, `heterogens: auto`
+fetches each ligand's chemistry from the entry and discards
+crystallisation additives (HED) and ions from the liquor by itself. The
+advisory checked for an identifier in the path it was given, and every
+caller gave it the file the identifier had been fetched into, so it said
+the same in the builder. It is not said now of a structure given by
+identifier, nor of a study's prepared system. The Agent's look at a
+structure says what setup does with each heterogen, and for a ligand to be
+simulated, that setup fetches its chemistry from the entry, or, for a
+structure given as a file, that its chemistry must be given. The help for
+`heterogens` and `ligand`, which the Agent reads, says where the chemistry
+comes from, and the advisory is plural where the ligands are.
+
+### A link in a reply ends where the address does
+
+The Agent wrote "save https://files.rcsb.org/ligands/download/BNZ_ideal.sdf."
+and the page linked the address with the sentence's full stop inside it,
+which is not a file RCSB has. A full stop, comma, colon, semicolon or mark
+at the end of an address is now left after the link, except the semicolon
+of an escaped character, which is the address's.
+
+### The first run of the Agent's looking, recorded
+
+Run on 2026-09-30 with three repeats: 18 of 18 replies agreed with the
+software with tools, all 18 having looked with the tool each question
+calls for, and 18 of 18 without. By the pre-registered rule no question
+separates the arms. The replies show why: these are well-known entries,
+and their counts are within what the model knows; without tools it gave
+the two sizes as ranges and said each count was from memory. The result
+is added to `preregistration/agent-looks.md` below what was registered,
+which is unchanged, with what a set that could separate the arms needs.
+
+### A report stays shown through a failed fetch
+
+CI on `e0e5829` (Ubuntu, Python 3.11) failed waiting for a figure's chip to
+be visible on the Report page. The page asks for the report several times
+as it opens (on loading, on being shown, when the study's state changes). A
+fetch that failed after one had succeeded hid the document, and the next
+success found the same text already rendered and returned, so the report,
+its figures and their chips stayed hidden until the report changed. A
+failed fetch now leaves a report already shown, and one that fails before
+any has succeeded is tried again, up to five times, further apart each
+time: a finished study's state does not change, so nothing else would ask.
+A test fails the fetches in a browser, and fails on the old page.
+
+### A figure is plotted, and a molecule rendered
+
+What the software said of its figures and the viewer now uses the field's
+words. A figure, a curve, a surface or a chart is plotted: the chip under a
+figure says "Plotted for" its width and gives the command that plots it
+again, an analysis with nothing to show says it has no surface, result or
+pull to plot, and `figure_colours` and `figure_width` say how a figure is
+plotted. The viewer's representation is chosen under "Representation", and
+a structure in the builder or the viewer is rendered. A ligand's chemistry
+file is said to give a form, not to draw it. "Drawn" stays where it is the
+statistical word: a seed or velocities drawn at random, pairs drawn once. A
+test holds pages, messages and the docs to it.
+
+### The Report page's chip tests say what the page holds when they fail
+
+Both tests of a figure's chip on the Report page failed on CI's Ubuntu 3.11
+job, the only one that runs the browser tests, on `e0e5829` and on
+`38505df`, and pass here with the same browser, the same order, coverage
+and the newest Markdown. Waiting in vain, they now say what the page holds:
+whether the report or its empty state is shown, the addresses of its
+figures, whether the chip code is there, what `/api/report` returned, and
+what the page logged.
+
+### Ctrl+C says the GUI stopped, on a line of its own
+
+Stopped with Ctrl+C, the GUI printed nothing. The terminal had echoed `^C`,
+and without a newline after it the shell's next prompt began on the same
+line, which zsh marks with a `%`. It now prints "GUI stopped." on a line of
+its own, from `fastmdx gui` and from a GUI left open after `fastmdx
+explore`. A test starts the GUI as its own process and stops it with one
+interrupt.
+
+### The Report page renders the report on any install
+
+The two chip tests that failed on CI's browser job said why once 1167 let
+them: the report route answered `rendered: 'plain'`. The `markdown` library
+was in the `[pdf]` extra alone, so an install without it, CI's `.[test]` and
+`.[md]` among them, showed the report in the GUI as plain Markdown, with no
+figure in it and no chip under one. It is a dependency of the package now,
+in `pyproject.toml` and in the conda recipe's base group, and `fastmdx info`
+no longer lists it as an optional backend for the PDF. A test holds both
+declarations to it.
+
+### The stopping rule's stated precision, pre-registered
+
+A study run until it is determined stops at the first look where its error
+is within the target, and an error read low at that look is the one it
+reports. `fastmdxplora.validation.stopping_calibration` asks whether that
+stated precision holds: series with a known true mean are made round by
+round, recorded as every analysis records a series, and judged and
+extended by the rule's own loop, `run_until_known`, so nothing of the rule
+is reimplemented. Seven cases, from fast and slow correlated series to two
+slowly exchanging states, and the check under the rule that withholds a
+mean whose run does not resolve its correlation time, counted on its own.
+What is counted, the seeds and what is claimed are in
+`preregistration/stopping-calibration.md`, written before any coverage
+was computed. Two seams make this possible without a copy of anything: what
+an analysis records of a series is one function, `statistics.mean_record`,
+which every analysis now calls, and the loop can be told how much
+production a run has done.
+
+### The stopping rule's stated precision, as counted: it does not hold
+
+The calibration pre-registered in 1170 was run on its registered set (seven
+cases, 5000 studies, and 6000 series for the check under the rule), and no
+claim holds. A single run that stops reports an error about half the size the
+truth needs: the truth was within one reported error in 42.7% of studies of a
+fast-decorrelating series and 31.0% of a slow one, against a floor of 62.4%,
+and within two in 70.9% and 51.1%. Three replicas came closest (64.4% and
+91.6%), but 20% of fast and 66% of slow replica studies reached their
+ceiling, because the check that withholds a mean whose run does not resolve
+its own correlation withheld 19% to 41% of stationary series 50 to 250 times
+their inefficiency, while giving a mean for 11% of series 1.25 times it. A
+transient shared by replicas from one start left them a mean biased by about
+one error. Studies trapped in one of two states looked determined in 7.4%
+(one start) and 4.6% (drawn starts) of cases, every one with the truth
+outside two errors. The counts, the causes found afterwards (the start
+discarded where the error reads smallest, the halving check's noise, the
+sample mean's bias on the inefficiency, the few degrees of freedom of one
+run's error, and the stop itself) are in
+`preregistration/stopping-calibration.md`; every study is in
+`preregistration/stopping-calibration-registered.json`. The documentation of
+`stop_when`, and the report's *How long it ran, and why*, no longer say its
+error is "biased a little low": they say how far, and to read it as a lower
+bound.
+
+### An error on a mean holds the truth about as often as it says
+
+Chosen on the registered set of the stopping rule's calibration (1171), after
+the counts there showed single-run errors about half the size the truth
+needed. Every analysis's mean and error change with it:
+
+- **The inefficiency is corrected for the sample mean.** An autocorrelation
+  taken about the sample mean reads low by about `g/N` at every lag; summed
+  over the lags kept, the inefficiency was a tenth low at 25 times its own
+  length. The sum itself is now taken by Fourier transform, the same numbers
+  in `n log n`.
+- **After a discard, the error is the whole run's**, scaled to the frames
+  kept, unless discarding gained at least twice the independent samples. The
+  start is chosen where what remains reads least correlated, so an error from
+  what remains read low: 60% within one error on stationary series, where the
+  whole run's gave 66%.
+- **The start discarded is the latest that keeps within a tenth of the most
+  independent samples**, rather than the one that keeps the most, which leaves
+  the most of a relaxation in the mean.
+- **A correlated run resolves its correlation time at 25 independent
+  samples** (`statistics.RESOLVED_SAMPLES`), replacing the check that halved
+  the series, which withheld 19% to 41% of long stationary series at random
+  and passed the means whose errors were too small. A withheld mean's
+  shortfall asks for 25.
+- **Each mean records its error's degrees of freedom** (`degrees_of_freedom`,
+  the frames over the lags summed), and `stop_when` widens each error by
+  Student's t at them, and judges a single run alone only once its mean rests
+  on 50 independent samples (`stopping.JUDGED_ALONE`).
+
+Counted on the registered set, single runs and replicas of stationary series
+held the truth within one error in 65% to 70% of studies and within two in
+91% to 97% (from 31% to 65% and 51% to 92%). A single fast run now stops at a
+median of 25 ns rather than 6.6. Not remedied: a relaxation shared by replicas
+from one structure still biases their mean by about 0.4 of its error, slow
+replicas reached a 200 ns ceiling in 41% of studies, and studies trapped in
+one of two states looked determined in about one in ten. The counts, what was
+tried and not taken, and what the held-out set was to show are in
+`preregistration/stopping-calibration.md`.
+
+### The calibrated error holds on a held-out set
+
+The remedy of 1172 was counted on the held-out set its registration named
+(5000 studies and 6000 series with seeds it had not seen), with the claims it
+had to meet written down and committed first. Every one held: the stated
+precision for single fast and slow runs and for fast and slow replicas (65.4%
+to 69.2% of studies within one error, 93.5% to 96.4% within two), and the rule
+usable on fast replicas, slow single runs and the transient (93.4% to 99.0%
+determined before the ceiling). As expected, a transient shared by replicas
+from one start still biases them (60.3% and 87.3%), slow replicas still
+reach a 200 ns ceiling in 44% of studies, and a study trapped in one of two
+states looked determined in 9% to 13%. Every study is in
+`preregistration/stopping-calibration-heldout.json`.
+
+### A figure an answer cites stays in view
+
+Opening a cited figure from an Agent's answer scrolled to its card, and the
+figures and charts around it then took their height and moved it: the RMSD
+card ended a whole card above the view here, and CI's browser test of it
+timed out (Ubuntu 3.11, on `52877c1`), most likely for this reason. For a few seconds after it is
+opened, while the page's content changes size, the card is brought back,
+unless the reader scrolls, clicks or presses a key. The card is looked for
+whenever results arrive, for up to a minute, where it was looked for six
+seconds; the Analysis page records which figure it was opened on; and its
+grid of figures is rendered again only when a figure changed (every poll
+reloaded each one where a study has no sections). The browser test waits on
+what the page keeps rather than on the mark that fades, and says what the page
+held if it times out.
+
+### Replicas average from the start they share
+
+Replicas over a seed begin in one structure and share its relaxation, and
+each run's own equilibration detection kept a little of it: on the stopping
+rule's calibration, three such replicas left their pooled mean biased by
+about half its error, the one case 1172 did not remedy (60.3% within one
+error and 87.3% within two). Before replicas are judged, the start is now
+found again on their frame-by-frame average (`statistics.shared_start`),
+where the relaxation is the same and the noise smaller, and each run's mean is
+taken from the later of its own start and that one, written into its record
+with `start_shared_with_replicas` (`simulation.stopping.share_the_start`,
+read from the series each analysis writes; a run without it is judged as
+written). `summarise` and `mean_record` take `start_at_least`. On the
+registered set the transient holds (65.1% and 93.0%), at a median of 44 ns per
+replica rather than 32, and studies trapped in one of two states looked
+determined less often (7.2% and 4.2%, from 10.8% and 8.6%). A single run is
+unchanged. What a second held-out set has to show for it to be adopted is in
+`preregistration/stopping-calibration.md`, committed before it was counted.
+
+### The shared start holds on a second held-out set
+
+The start replicas share (1175) was counted on a second held-out set
+(indices it had not seen, with its claims committed first), and every claim
+held: the stated precision for fast, slow and relaxing replicas (67.4% to
+68.6% of studies within one error, 94.2% to 94.3% within two; the relaxing
+case's mean `(value - truth) / error` +0.18) and the rule usable on fast and
+relaxing replicas (97.9% and 98.6%). Slow replicas still reach a 200 ns
+ceiling in half their studies, and studies trapped in one of two states
+looked determined in 6.2% (one start) and 3.4% (drawn starts). The
+documentation and the report's *How long it ran, and why* now say that a
+state no run left is what the error does not include.
+
+### Replicas run for a fixed length are compared from the start they share
+
+The shared start of 1175 applied only to a study run until it is determined.
+A campaign of replicas run for a fixed length (members differing only by a
+seed or by an ensemble's model) set the spread of its members' means against
+their errors, and pooled them, from each run's own start, which keeps a little
+of the relaxation they share. `aggregate_members`, and so `members.json`, the
+comparison report and the GUI's runs compared, now take each member's mean
+from the start the replicas share, written into its record as the rule writes
+it. A record already written from it is not written again, and a study that
+cannot be written to is read as it stands. Members that are variants keep
+their own starts.
+
+### A campaign of replicas checks the error each run states
+
+`python -m fastmdxplora.validation.replica_calibration <campaign>` sets the
+spread of replicas' means against the mean error each run states, for every
+analysis that wrote a series of its frames in every replica, three ways: as
+recorded when the runs were analysed, computed again by this release from
+each run's own start, and from the start the replicas share. It writes
+nothing in the campaign, and refuses members that are variants rather than
+replicas. It is the read-back for a set of replicas run before 1172 (V5r's
+errors were five to ten times too small): the same trajectories, read by the
+calibrated estimator, without simulating again.
+
+### What the records say matches what the code does
+
+**Help, docs and records that said something the code does not are
+corrected.** The `chains` help and the configuration reference said the
+default is every chain; setup takes the biological assembly the file declares,
+and every chain only where it declares none. `MIN_PYTHON` said 3.9 while the
+package requires 3.10. The resume figure quoted 8×10⁻⁸ nm where the code and
+its test measure about 1×10⁻⁹ nm at the same thread count. The manifest now
+records which model wrote an agent-written study (`agent.model`), which only
+the resolved config kept. The config language shown to a model gives each
+number's range and says what each section is for, and describes `execution`
+when asked. Stale docstrings (checkpoint sealing, sequence input, the
+metadynamics surface) now describe the code.
+
+### A campaign says when runs will share a GPU
+
+**More parallel workers than listed devices is now said.** With `devices: [0]`
+and `workers: 3`, three runs shared one card, each slower than alone, and
+nothing said so. The dry run and the run say how many runs will share a card,
+and that listing a device twice is how two runs on one card are asked for.
+
+### A study's log holds only the study
+
+**A study's log file is detached when the call that ran it returns.** It was
+attached when the study was made and never taken off, so what a Python session
+logged afterwards went into that study's `fastmdxplora.log`, and moving the
+folder broke logging for the rest of the session. Each call (`explore`,
+`setup`, `simulate`, `analyze`, `report`) now logs to the file for its own
+length.
+
+### The structure summary counts the first model
+
+**The GUI's structure summary counts what setup will read.** Every model of a
+multi-model file was counted, so a 20-model NMR entry showed twenty times its
+atoms and its ligand twenty times over. The first model is counted, and the
+number of models is given beside it.
+
+### Joining finds a moved study's segments by their record
+
+**Joining identifies a continued study by the prepared system its segments
+recorded.** A segment's config names the study it continued by the path it
+had, relative to wherever the command ran, so for a moved study it named
+nothing and the join fell back to comparing settings. The segment's own record,
+found relative to it and checked by content, is read first.
+
+### The GUI adopts only the run a study recorded
+
+**A running study is adopted by the GUI only when its process has the command
+the run recorded.** Any `fastmdx` process was taken for the run, so with two
+studies running, a stale record whose process number had gone to the other
+study's run was adopted, and Stop would have stopped the other study. `fastmdx
+resume` uses the same check to tell whether a study is still running.
+
+## [2.5.8] - 2026-09-28
+
+This release closes the GUI to other machines and other sites, and fixes
+results that 2.5.7 could get wrong without a warning. Off loopback the GUI
+serves only the watched run's results, text from a study is shown as text, a
+reply from the Agent alone no longer starts a run, and a page on another site
+can no longer drive the GUI. A molecule away from the protein is measured in
+its nearest periodic copy; the correlation time no longer misses a slow mode,
+so standard errors and withheld verdicts can differ from 2.5.7's where frames
+alternate; interaction rows are named by chain; a ligand's pose is matched
+atom for atom; a stated cutoff is kept; and umbrella studies, which 2.5.7
+refused, run again. Some studies that ran under 2.5.7 now stop with a reason:
+a ligand whose net charge cannot be read, a ligand pose the structure holds and
+cannot give, and an ion whose alternate locations tie. For services that run
+FastMDXplora for other people, the GUI can be served behind a proxy that signs
+people in, each release is published as a Docker image, and `fastmdx resume`
+carries a stopped study on to its end. AmberTools is now a declared
+dependency, and Windows is no longer supported.
+
+### `fastmdx resume` carries a stopped study on to its end
+
+**A study stopped part-way, by a restart, a time limit or a GPU taken back, is
+finished by one command.** `fastmdx resume STUDY` reads how far it got and does
+what is left, once: nothing if it finished; the analyses and report if
+production did; the rest of production from the last sealed checkpoint if it
+had begun; the whole study again if it had not. It refuses a study still
+running and one that stopped with a refusal, unless the refusal is marked worth
+retrying, and it does not discard production it cannot continue. Running it
+twice does the work once, so a service can run it whenever a job restarts;
+`--json` prints the outcome for a program. The help for
+`checkpoint_interval_steps` and the runner's notes no longer say there is no
+resume.
+
+### A Docker image with each release
+
+**Each release is published as `ghcr.io/aai-research-lab/fastmdxplora:<version>`**,
+beside the Apptainer image on the release page, for services that run
+FastMDXplora in containers. It is written from `container/fastmdx.def` by
+`container/docker_from_def.py`, so the installation and the checks that fail a
+bad build are the Apptainer image's own, and a study gives the same answer in
+either. It runs as a user that is not root, with `/workspace` as its home and
+working folder. See `docs/hosting.md`.
+
+### The GUI can be served to other people
+
+**`fastmdx gui --hosted` serves the GUI behind a proxy that signs people in.**
+It answers only requests carrying the proxy's secret (read from
+`FASTMDX_PROXY_SECRET`), only under the names given with `--allowed-host`, and
+only inside `--workspace`: every path a request names is read there, one
+outside it is refused, and answers show paths as `~/...`, never the server's
+layout. It refuses to start without a secret, a name, or with the top of the
+file system as its workspace. Nothing changes without `--hosted`. See
+`docs/hosting.md`.
+
+### Python continues a study as the command line does
+
+**`simulation.resume_from` naming a study directory was a continuation only on
+the command line.** From Python the same config went to the batch layer, which
+refused it for naming no system. `FastMDXplora(config=...).explore()` now
+extends the study in place as `fastmdx explore` does, with `duration_ns` the
+total and `extra_ns` an amount more, returns one result for the study, and a
+dry run says what it would run. A segment that fails is reported as a failed
+simulation rather than as a join that could not be made.
+
+### A ligand pose the structure holds and cannot give is refused
+
+**With `ligand_pose: auto`, a structure holding a residue of the ligand's name
+whose pose could not be taken fell back to the supplied file's coordinates**:
+a different atom count, bonds that do not match, fewer copies than ligands,
+or a structure that would not read. On a complex that starts the ligand away
+from its site, the seventeen-Angstrom failure, with a log line to say so.
+Setup now refuses (`setup.ligand.pose_unavailable`) and says to use
+`ligand_pose: file` where the file's pose is the one meant. The file's pose
+still stands where the structure holds no residue of that name, or where
+there is no structure at all.
+
+### One segment number is one folder
+
+**`segment-1` and `segment-001` were both segment one.** The join held
+whichever listed later and a continuation resumed from whichever it met
+first. Two readers also rebuilt a segment's folder from its number as
+`segment-NNN`, so a folder named `segment-1` was counted and never read: its
+production was left out of what was done, and a killed one's frames were not
+trimmed. Two folders with one number are refused
+(`simulation.resume.segment_named_twice`) with both named, and every reader
+uses the folder it found.
+
+### The Agent is told one thing, whichever way it is asked
+
+- **Attempts.** The command line gave the Agent three attempts in all and
+  its help called them corrections, which would be four; the browser and
+  Python gave four. It is three in all, the first included, everywhere.
+- **Continuing a study.** The prompt told the Agent to continue a study by
+  naming it in `resume_from`, with `duration_ns` the total production it
+  should end with. The browser's run status handed it the raw checkpoint
+  form instead, with `duration_ns` the amount more, which ran as a separate
+  study and joined nothing. The browser now offers the study form. A config
+  continuing a study is run inside that study, its segments joined and its
+  analyses rerun, and the GUI watches the study while it does: it had
+  watched a new, empty folder and marked the run failed. The config is kept
+  under the workspace's `continuations/`, so the study's own record of how
+  it was started is not replaced.
+
+### The records and pages say what happened
+
+- **The methods said each heterogen decision was recorded in
+  `setup_parameters.json`; it was only logged.** The decisions, with their
+  reasons and copies, are now written there as `heterogen_decisions`, and the
+  sentence appears only where they are.
+- **The report's settings list said "Production MD was performed" of a study
+  that ran none** (`duration_ns: 0`).
+- **The GUI showed studies that finished as failed.** Every study was held to
+  a prepared system in its own `setup/` and a finished simulation, so an
+  analysis of a supplied trajectory, a setup-only study, a run given
+  `setup_from` and a study of several runs failed on exit; a run the GUI
+  adopted was judged by a Manifest `status` that does not exist. A study is
+  now held to the phases it recorded, and a failure names the phase or the
+  runs that failed.
+- **A slide deck that could not be written was said at debug level and
+  recorded nowhere.** It is recorded in `not_produced.json` beside a missing
+  PDF, each entry with the code `report.format.unavailable`.
+
+### Each sugar and each ion is judged by its own bonds
+
+**A free sugar was discarded as a glycan when another copy of its name was on
+an asparagine.** Whether a sugar belonged to a glycan was decided per residue
+name, and an inner sugar counted as glycan whenever the structure was
+glycosylated anywhere, so a NAG in an active site beside a glycosylated
+asparagine, or a lactose bonded only to itself, was removed without a
+question. The glycan is now followed from the protein, sugar by sugar,
+through the LINK records; a component with glycan copies and free copies
+stops and names both. **An ion LINKed only to a water was kept as
+"coordinated by the protein"**, 30 A from it: a LINK now counts only to a
+partner that stays in the system, and the reason names it. **An NMR entry's
+heterogens were counted once per model**, so a zinc read as twenty atoms and
+setup asked for an SDF; only the first model, the one prepared, is read.
+Present in 2.5.6 and 2.5.7.
+
+### A moved study still finds the system it simulated, and only that one
+
+**A run given `setup_from` recorded the prepared system by path alone, as it
+was typed.** Moving or copying the study, or fetching it to another machine,
+left re-analysis, the report and replica comparison unable to find it, and a
+different prepared system at the old path was used without a word: its
+ligand chemistry and atom count described atoms the run never simulated. The
+run now records the system as given, as resolved, relative to itself and by
+the SHA-256 of its `system.xml`, finds it relative to the run first, and
+refuses a system whose content differs (`analysis.data.not_this_system`). A
+campaign's manifest lists members relative to the campaign, and aggregation
+and the comparison report read them that way. The GUI and the cross-tool
+comparison read the setup record of the system a run simulated rather than
+the run's own `setup/`, which a run given `setup_from` does not have. Present
+in 2.5.6 and 2.5.7.
+
+### A ligand's pose is taken atom for atom
+
+**With the pose taken from the structure, the supplied file's heavy atoms took
+the crystal positions in the order the two files happened to list them.** Only
+the count was checked, so two files listing the atoms differently put atoms
+on each other's places: a C-C bond of 1.5 A came out at 3.0 and 4.5 A with no
+error, since the clash check measures the ligand against the protein, not
+against itself. Each atom now goes to the crystal atom of the same element
+bonded to the same neighbours, the crystal's bonds read from its geometry;
+where symmetry allows more than one answer, the one that fits the supplied
+geometry best is taken. A residue whose atoms cannot be matched that way is
+not used as the pose: `ligand_pose: structure` refuses, `auto` keeps the
+file's coordinates and says why. Present in 2.5.6 and 2.5.7.
+
+### `duration_ns: 0` equilibrates and stops
+
+`duration_ns` is the production length, so zero now means no production: the
+study is set up, minimised and equilibrated, and ends there. The runner read
+zero as unset and ran the default 2 ns, while the cost estimate counted none.
+The analysis phase of such a study is recorded as skipped, with the reason,
+rather than as completed, and the methods paragraph says no production was
+run instead of describing coordinates that were never written.
+
+### A ligand charge that cannot be read is refused
+
+**A supplied ligand whose net charge could not be read went ahead as
+"unknown", and a stated `ligand_net_charge` went into the record unchecked.**
+Formal charges in an SDF or MOL2 are whole numbers, so failing to sum them
+means the file was not read as the chemistry it describes, and the check that
+refuses a stated charge the file contradicts was skipped in exactly that case.
+Setup now refuses with `setup.chemistry.charge_undetermined` and says to check
+the file's hydrogens and formal charges. Present in 2.5.6 and 2.5.7.
+
+### A stated zero equilibration is zero
+
+**`npt_duration_ns: 0` ran a nanosecond of NPT and recorded NVT.** The runner
+read a zero equilibration length as unset and ran the default, while the
+ensemble resolver, the cost estimate and the run's record read it as no stage:
+the record said constant-volume production of a run that produced at constant
+pressure. `nvt_duration_ns: 0` ran the default 500 ps the same way. A stated
+zero is now zero everywhere, as `npt_steps: 0` always was. Present in 2.5.6 and
+2.5.7.
+
+### Re-analysing an older run keeps the version that produced it
+
+**A Manifest merged onto one from before phases recorded their version lost
+it.** Re-analysing a 2.5.4 run under 2.5.7 left `"version": "2.5.7"`, no
+`versions_seen`, and nothing saying the trajectory came from 2.5.4. A phase
+carried over without `produced_by` now gets `{"version": <the version that
+wrote the Manifest it was in>, "inferred": true}`, and `versions_seen` keeps
+every version recorded before, including one whose phases have all been
+re-run since.
+
+### An interaction is counted for the chain it happened in
+
+**`pl_interactions` added the same residue of two chains together.** Its
+residue rows and pair rows were named by residue name and number alone, so on
+a dimer the frames in which a ligand touched SER45 of either chain were one
+row with one occupancy, and 184 and 184A of one chain merged the same way.
+Rows are now named by chain where there are several (`A:SER45`) and by
+insertion code (`GLY184A`), as `pl_contacts` already named them, from one
+helper for both. A single chain without insertion codes reads as before.
+Present in 2.5.6 and 2.5.7.
+
+### Frames that alternate no longer read as independent
+
+**A slow correlation under a fast, alternating one was invisible.** The
+statistical inefficiency summed the autocorrelation lag by lag and stopped at
+the first lag that was not positive. A stiff restraint sampled more slowly
+than the mode it restrains makes consecutive frames anti-correlated, so the
+sum stopped at lag one and every frame counted as independent: on a series
+whose true inefficiency is 120 it returned 1.0, and the halving test then
+called the correlation resolved. 21 of the 35 windows of the benzamidine
+unbinding study reported a correlation time they could not have measured. The
+sum now runs over adjacent pairs of lags (Geyer's initial positive sequence),
+which recovers the slow part and gives the same answer as before where
+nothing alternates. Standard errors, block lengths and the resolved verdict
+all follow. The message withholding an error now quotes the replica
+calibration: one run's error was about ten times smaller than the spread of
+ten replicas. Present in 2.5.6 and 2.5.7.
+
+### A molecule away from the protein is measured beside it
+
+**A ligand that had left the pocket could be measured a box length away.**
+Loading a trajectory made every solute molecule an anchor, and an anchor
+stays in whichever periodic copy the engine wrote it. The radius of gyration,
+SASA or RMSD of a selection holding such a ligand was then measured from the
+wrong copy: on the T4 unbound control, 150 of 2,000 frames, the radius of
+gyration of protein and benzene off by up to 0.028 nm. The protein and nucleic
+chains now anchor, and every other solute molecule is moved to the copy
+nearest them, searched exactly, in any box shape. A bound ligand is unchanged.
+Present in 2.5.6 and 2.5.7. The choice of anchors also works on the older
+MDTraj that Python 3.10 installs, where asking whether a residue is nucleic
+raises, and if the placement fails the molecules are still made whole.
+
+### Off loopback, only the run's results leave the machine
+
+**2.5.7 bound beyond loopback served the Agent's conversations, and with no
+run open, text files under the folder the GUI was started in.**
+
+The conversation routes are refused off loopback, but 2.5.7 keeps a study's
+conversations inside it, at `agent/conversations/`, and `/artifacts/`,
+`/api/file-text` and the file list served everything in the study. With no
+run open, `/api/file-text` read under the workspace, which is wherever
+`fastmdx gui` was typed; from a home folder that reached the API key
+the Agent stores in `~/.config/fastmdxplora/model.json`. 2.5.6 had neither.
+
+Off loopback every GET is now refused unless it is listed, as every POST
+already was; the list is what watching a run needs. Files are served there
+only from the run being watched, only from a folder FastMDXplora wrote, and
+never a hidden file or the Agent's conversations, which the file list no
+longer offers on loopback either. The Files preview reads the run being
+watched, never the workspace. A viewer off loopback can no longer have the
+preview or the playback rebuilt, or ask for more frames than the server was
+started with. A dashboard on loopback, the default, was not exposed.
+
+### Text from a study is shown as text
+
+**A name in a study could run script in the GUI.** The report page and the
+Files preview rendered Markdown with its raw HTML, and a link could be
+`javascript:`. A report quotes the names a structure file and a config
+give, and the preview renders any `.md` in a study, so a name carrying
+`<img onerror=...>` ran as the GUI, which can start runs and read the
+Agent's conversations; the overview loads the report, so opening the study
+was enough. A link in the Agent's reply could close its own attribute and
+add a handler. An HTML file in a study was shown in an unsandboxed frame,
+with the GUI's standing.
+
+Raw HTML in Markdown is now shown as written, and a link or image goes only
+to the web, to mail or within the study; the PDF is rendered the same way,
+so a name cannot have WeasyPrint fetch or attach a local file. A reply's
+link ends at a quote. HTML, SVG and XML files from a study are served, and
+framed, in a sandbox of their own: their scripts run and cannot reach the
+GUI. The report's interactive page, opened from the GUI, therefore no
+longer remembers its card sizes between visits. Present in 2.5.6 and 2.5.7.
+
+### A model's reply alone does not start a run
+
+**In the GUI's Agent, `DO: run` in a reply pressed Run.** The only rule
+against acting unasked was in the prompt, and the model reads the files a
+person attaches, so a file could tell it to start work on the machine. The
+server now reads the person's own message: a plain instruction, such as *run
+it* or *go ahead*, runs as before, and any other `DO: run` asks *Run the study
+above? Say yes.* and waits, as a stop always has. Present in 2.5.6 and 2.5.7.
+
+### A page on another site cannot drive the GUI
+
+**Any website open in the person's browser could use the GUI on loopback.**
+A browser sends requests to `127.0.0.1` for any page, and the server
+answered whatever reached it: a form posted as text/plain could switch the
+served folder, store a model and key, or start a run, and a name made to
+resolve to `127.0.0.1` let a page read the answers, conversations included.
+On loopback the server now answers only to a loopback name, and it refuses a
+POST whose `Origin` is not its own and an API request the browser marks as
+cross-site. Scripts and `curl`, which send no `Origin`, are answered as
+before. Present in 2.5.6 and 2.5.7.
 
 ### A ligand is given its charges on a fresh install
 
@@ -63,6 +5416,46 @@ of "OS Independent", the Windows legs are gone from the test matrix, and the
 installation guide says Windows is not supported. `fastmdx info` states the
 platform, and on Windows says plainly that it is not supported; nothing
 refuses to run there.
+
+### An umbrella study runs again
+
+**2.5.7 refused every umbrella study before it started**, saying "`from` is
+missing". Each window was checked as though a person had written it, after
+the study had been expanded into windows that carry a centre and an index in
+place of the study's `from`, `to` and `n_windows`. The study is still checked
+as it was written, before it is expanded; the windows made from it are not
+checked a second time. Present in 2.5.7 only.
+
+### An occupancy tie is decided by one rule
+
+**An ion written at two alternate locations of one residue took the first
+where they tied**, and the higher however slight the lead, while the same tie
+between two residues, or between a ligand's conformations, stopped setup. It
+now stops too, and a lead of less than 0.10 is a tie for all three. **The
+0.10 tolerance was compared in floating point**, so occupancies of 0.55 and
+0.45 resolved while 0.60 and 0.50 tied; both differ by 0.10, and both now
+resolve. Present in 2.5.6 and 2.5.7.
+
+### A stated cutoff or switch is kept
+
+**`nonbonded_cutoff_nm: 1.0` written in a config was ignored for CHARMM36.** The
+schema handed over 1.0 nm and a switching function whether or not anybody wrote
+them, so setup could not tell a stated 1.0 nm from silence: the run used the
+force field's 1.2 nm, and a stated `use_switching_function` was replaced by the
+force field's either way, each with only a log line. The record kept the
+schema's 1.0 nm, so the methods paragraph of a CHARMM36 run cut off at 1.2 said
+1.0. Both settings now default to unset: the force field decides only then,
+what it decided is recorded in `setup_parameters.json` and
+`resolved_config.yml`, and a stated value is kept even where it equals the
+force field's own. The GUI offers the switch as default, on or off rather than
+a checkbox that read "off" for a run that switched. Present in 2.5.6 and
+2.5.7.
+
+### The banner shows a Python study's own setup
+
+The run's opening banner read its setup values only from a config named on the
+command line, so a study given from Python announced pH 7.4 and the automatic
+force field while it prepared at the pH and with the force field it was given.
 
 ## [2.5.7] — 2026-09-24
 

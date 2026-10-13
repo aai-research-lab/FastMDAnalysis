@@ -57,6 +57,33 @@ class SegmentPiece:
         return self.finished and self.trajectory is not None
 
 
+def _study_it_reused(directory: Path) -> Path | None:
+    """The study whose prepared system a segment simulated, found as the
+    run's own record finds it: relative to the segment and by content. The
+    path its config names is relative to wherever the command ran, so for a
+    moved study it named nothing and the identity fell back to settings."""
+    from fastmdxplora.simulation.pipeline import (
+        _prepared_system_recorded,
+        _the_system_recorded,
+    )
+
+    reference = _prepared_system_recorded(directory)
+    if reference is None:
+        return None
+    try:
+        setup = _the_system_recorded(directory, reference)
+    except Exception:  # noqa: BLE001 - a join reports its own reasons
+        return None
+    if setup is None:
+        return None
+    # The folder holding the study's resolved config: `<study>/setup`, or
+    # `<study>/shared_setup/setup` for umbrella windows.
+    for folder in (setup, *list(setup.parents)[:2]):
+        if (folder / "resolved_config.yml").is_file():
+            return folder
+    return None
+
+
 def _config_digest(directory: Path, *, _depth: int = 0) -> str:
     """What study this segment was, from its own resolved config.
 
@@ -96,11 +123,12 @@ def _config_digest(directory: Path, *, _depth: int = 0) -> str:
     # ligand name can appear for a study that has no ligand.
     reuses = simulation.get("prepared_from") or simulation.get("setup_from")
     if reuses and _depth < 4:
-        parent = Path(str(reuses))
-        if parent.is_dir() and parent.resolve() != directory.resolve():
-            inherited = _config_digest(parent, _depth=_depth + 1)
-            if inherited:
-                return inherited
+        for parent in (_study_it_reused(directory), Path(str(reuses))):
+            if (parent is not None and parent.is_dir()
+                    and parent.resolve() != directory.resolve()):
+                inherited = _config_digest(parent, _depth=_depth + 1)
+                if inherited:
+                    return inherited
     for varies_by_design in ("production_steps", "duration_ns", "minimize",
                              "nvt_steps", "npt_steps", "resume_from",
                              "nvt_duration_ns", "npt_duration_ns",
@@ -189,6 +217,23 @@ def survey_segments(root: Path | str, *,
     # same only while every index has three digits: segment-1000 lists
     # before segment-101.
     pieces.sort(key=lambda piece: piece.index)
+    # `segment-1` and `segment-001` are both segment one. Kept, the join
+    # held whichever listed later twice over or in the wrong place, and the
+    # continuation resumed from whichever `max` met first.
+    seen: dict[int, list[Path]] = {}
+    for piece in pieces:
+        seen.setdefault(piece.index, []).append(piece.directory)
+    twice = {index: folders for index, folders in seen.items() if len(folders) > 1}
+    if twice:
+        index, folders = sorted(twice.items())[0]
+        names = " and ".join(("the study's own run" if f == base else f.name)
+                             for f in folders)
+        raise StudyError(
+            f"{names} in {base} are both segment {index}, so which one is "
+            "that part of the trajectory would be decided by the order the "
+            "folders happen to list in. Rename or move the one that is not.",
+            code="simulation.resume.segment_named_twice", path=str(base),
+            index=index, folders=[str(f) for f in folders])
     return pieces
 
 
@@ -296,6 +341,12 @@ def join_segments(
     interval = next(iter(known.values()), None) if len(known) == len(pieces) else None
     timestep_fs = (read_checkpoint_sidecar(
         pieces[0].directory / "simulation" / "checkpoint.chk") or {}).get("timestep_fs")
+    from fastmdxplora.simulation.runner import chose_its_own_step
+
+    if chose_its_own_step(pieces[0].directory / "simulation"):
+        # Its timestep is where the integrator started, not the step it
+        # took: frames a fixed number of steps apart are no fixed time.
+        timestep_fs = None
 
     import mdtraj
 

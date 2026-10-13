@@ -4,7 +4,7 @@ A window is a restraint and a starting point, and only the restraint is
 usually written down. Start every window from the same bound structure and
 the ones near a barrier will not cross it: the restraint pulls one way, the
 free energy pulls the other, and where both minima are reachable the window
-settles in whichever one it began in. The histograms then sit somewhere
+stays in whichever one it began in. The histograms then sit somewhere
 other than where the restraint says they are, and two neighbours that were
 planned 0.07 nm apart end up 0.25 nm apart with nothing shared between them.
 The recombination refuses, correctly, and a day of sampling says only that
@@ -382,7 +382,9 @@ def atoms_opposite(trajectory: Any, site_selection: str, axis: np.ndarray, *,
     topology = trajectory.topology
     axis = np.asarray(axis, dtype=float)
     axis = axis / max(float(np.linalg.norm(axis)), 1e-12)
-    alpha = topology.select("name CA")
+    from fastmdxplora.protein_names import ALPHA_CARBONS
+
+    alpha = topology.select(ALPHA_CARBONS)
     if alpha.size == 0:
         raise StudyError(
             "No alpha carbon in this topology, so there is no backbone to "
@@ -519,10 +521,10 @@ def measure_the_cone(trajectory: Any, ligand_resname: str,
             "the study its stiffness and buy it nothing. "
             + (f"`axis_selection` is {axis_selection!r}: the angle opens away "
                "from that group, so it has to sit behind the site, on the far "
-               "side from the way out. Leave it out and the axis is measured "
+               "side from the way out. Leave it out and the axis is determined "
                "too."
                if axis_selection else
-               "The pull leaves in no settled direction, so there is no cone "
+               "The pull leaves in no consistent direction, so there is no cone "
                "to put round it. A ligand that leaves by several routes needs "
                "a coordinate that follows one of them rather than a wall "
                "around all of them.")
@@ -621,6 +623,30 @@ def _prepared_files(prepared: Path) -> tuple[Path, Path]:
     return system, topology
 
 
+#: Written into each seed: the preparation it was taken from.
+SEEDED_FROM = "seeded_from.json"
+
+
+def record_the_preparation(seed: Path, prepared: Path, **detail: Any) -> None:
+    """Say, in a window's seed, which prepared system it was taken from.
+
+    A seed holds a copy of that system and a starting state, and no setup
+    record: the force field, the box and the ligand's chemistry stay with
+    the preparation. A window names its seed as the system it simulated, so
+    readers of its setup record found the seed and nothing in it. The
+    preparation is recorded as a run records one, relative to the seed and
+    by content, so it is found when the study moves.
+    """
+    import json
+
+    from fastmdxplora.simulation.pipeline import prepared_system_reference
+
+    record = prepared_system_reference(prepared, seed, prepared)
+    record.update(detail)
+    (Path(seed) / SEEDED_FROM).write_text(json.dumps(record, indent=2),
+                                          encoding="utf-8")
+
+
 def write_seeds(prepared: Path | str,
                 trajectory: Any,
                 chosen: list[tuple[int, float]],
@@ -711,6 +737,8 @@ def write_seeds(prepared: Path | str,
                                        encoding="utf-8")
         shutil.copy2(system_xml, out / "system.xml")
         shutil.copy2(topology_pdb, out / "topology.pdb")
+        record_the_preparation(out, prepared, frame=int(frame),
+                               centre=float(centre))
 
         # Asserted rather than assumed. A directory that is missing one of
         # the three loads as "no prepared system here" and the window
@@ -902,7 +930,7 @@ def _refuse_seeds_outside_the_cone(trajectory: Any, ligand_resname: str,
     angle that frame happened to have. Nothing before this connected the two,
     so a window could begin where the cone excludes it and spend its
     equilibration being pushed back by 5000 kJ/mol/rad^2 -- which does not
-    crash, does not appear in any gate, and leaves the window settled
+    crash, does not appear in any gate, and leaves the window equilibrated
     somewhere the seeding did not intend.
 
     Measured off the pull, a cone contains the path it was measured from and
@@ -943,8 +971,8 @@ def _refuse_seeds_outside_the_cone(trajectory: Any, ligand_resname: str,
         "pushing from the first step, so those windows do not begin where "
         "they were seeded to begin -- and a cone that excludes where the "
         "ligand was is a cone that cuts the state the binding free energy is "
-        "measured over. Widen the cone, or leave the half-angle out and let "
-        "it be measured from this pull, which sizes it to contain the path "
+        "defined over. Widen the cone, or leave the half-angle out and let "
+        "it be determined from this pull, which sizes it to contain the path "
         "the seeds are taken from."
     , code="simulation.cone.windows_outside")
 

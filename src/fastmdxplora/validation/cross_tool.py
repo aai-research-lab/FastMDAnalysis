@@ -102,7 +102,7 @@ def _reference_tools():
         raise BackendUnavailable(
             "The cross-tool comparison needs MDAnalysis and ProLIF, which "
             "are not dependencies of FastMDXplora: they are the independent "
-            "implementations it measures agreement against. Install them "
+            "implementations it checks agreement against. Install them "
             "with `pip install \"fastmdxplora[validation]\"` or `conda "
             "install -c conda-forge mdanalysis prolif`."
         , code="environment.backend.missing") from exc
@@ -215,8 +215,8 @@ def trajectory_and_topology(run_dir: Path, manifest: dict) -> tuple[Path, Path]:
         for conventional, note in (
             (run_dir / "simulation" / "trajectory_topology.pdb",
              "topology taken from the one saved with the trajectory"),
-            (run_dir / "setup" / "topology.pdb",
-             "topology taken from the conventional layout"),
+            (_setup_of(run_dir) / "topology.pdb",
+             "topology taken from the prepared system the run simulated"),
         ):
             if conventional.exists():
                 top = conventional
@@ -227,6 +227,15 @@ def trajectory_and_topology(run_dir: Path, manifest: dict) -> tuple[Path, Path]:
                  f"(traj={traj}, top={top}); inspect manifest.json")
     print(f"[discovered] trajectory: {traj.name}   topology: {top.name}")
     return traj, top
+
+
+def _setup_of(run_dir: Path) -> Path:
+    """The setup record of the system the run simulated: its own, or, for a
+    run given `setup_from`, the named system's, which is where that run's
+    atoms and ligand were decided."""
+    from fastmdxplora.simulation.pipeline import setup_records_of
+
+    return setup_records_of(run_dir) or run_dir / "setup"
 
 
 def _configured_ligand_resname(run_dir: Path) -> str | None:
@@ -245,7 +254,7 @@ def _configured_ligand_resname(run_dir: Path) -> str | None:
     """
     import json
 
-    setup = run_dir / "setup" / "setup_parameters.json"
+    setup = _setup_of(run_dir) / "setup_parameters.json"
     try:
         data = json.loads(setup.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -460,6 +469,7 @@ def _occupancy_from_residue_table(path: Path) -> dict[tuple[str, str], float]:
     import csv as _csv
 
     out: dict[tuple[str, str], float] = {}
+    shared: set[tuple[str, str]] = set()
     with path.open(encoding="utf-8", newline="") as handle:
         for row in _csv.DictReader(handle):
             family = our_kind_family(row.get("kind") or "")
@@ -467,9 +477,18 @@ def _occupancy_from_residue_table(path: Path) -> dict[tuple[str, str], float]:
             if not family or not residue:
                 continue
             try:
-                out[(residue, family)] = 100.0 * float(row["occupancy"])
+                value = 100.0 * float(row["occupancy"])
             except (KeyError, TypeError, ValueError):
                 continue
+            # Two kinds of one family (a hydrogen bond in each direction, a
+            # stack face to face and edge to face) are two rows, and their
+            # union is not in the table: the larger is a lower bound on it.
+            if (residue, family) in out:
+                shared.add((residue, family))
+            out[(residue, family)] = max(out.get((residue, family), 0.0), value)
+    if shared:
+        print(f"[fastmdx] {len(shared)} residue-family occupancies are the larger "
+              "of two kinds in one family, a lower bound on their union")
     if out:
         print(f"[fastmdx] exact residue table: {len(out)} residue-family "
               "occupancies, taken as the union of each residue's pairs")
@@ -584,7 +603,7 @@ def cmd_interactions(args):  # pragma: no cover - needs ProLIF/MDAnalysis and a 
     ours = our_occupancy(run_dir, manifest)
     excluded = unmeasured_interaction_families(run_dir)
     if excluded:
-        print("[excluded] native interaction families not measured: "
+        print("[excluded] native interaction families not computed: "
               f"{', '.join(sorted(excluded))}")
     for harmonized in ((True, False) if args.both else (args.harmonized,)):
         ref = prolif_occupancy(traj, top, resname, harmonized)
@@ -864,7 +883,7 @@ def cmd_probe(args):  # pragma: no cover - needs ProLIF/MDAnalysis and a finishe
         if raw > 2 * mi:
             print("  VERDICT: the pair is split across the periodic "
                   "boundary in the stored coordinates. The FastMDXplora analysis "
-                  "measures minimum-image; a tool reading raw Cartesian "
+                  "uses the minimum image; a tool reading raw Cartesian "
                   "positions sees a different neighbourhood.")
 
 

@@ -499,8 +499,12 @@ def _a_box_too_small_for_its_cutoff():
         topology = property(lambda self: self)
         def deleteWater(self): pass
         def addSolvent(self, _ff, **kw):
-            self.attempts.append(float(kw["padding"]))
-            self._box = 0.2 * float(kw["padding"])
+            # The box OpenMM builds for a cube: the solute's bounding sphere
+            # (8 nm across here) plus the padding, or twice the padding. It
+            # was 0.2 times the padding, which no OpenMM builds.
+            padding = float(kw["padding"])
+            self.attempts.append(padding)
+            self._box = max(8.0 + padding, 2.0 * padding)
         def getPeriodicBoxVectors(self):
             b = getattr(self, "_box", 0.0)
             return [[_Q(b if i == j else 0.0) for j in range(3)]
@@ -534,8 +538,10 @@ def _a_box_that_already_fits():
         topology = property(lambda self: self)
         def deleteWater(self): pass
         def addSolvent(self, _ff, **kw):
-            self.attempts.append(float(kw["padding"]))
-            self._box = 4.0 * float(kw["padding"])
+            # As OpenMM sizes a cube, around a solute 4 nm across.
+            padding = float(kw["padding"])
+            self.attempts.append(padding)
+            self._box = max(4.0 + padding, 2.0 * padding)
         def getPeriodicBoxVectors(self):
             b = getattr(self, "_box", 0.0)
             return [[_Q(b if i == j else 0.0) for j in range(3)]
@@ -839,7 +845,7 @@ def _mean_of_an_independent_run() -> Any:
 
 
 def _mean_after_a_transient() -> Any:
-    """A run that settles, with the transient still in the series.
+    """A run that equilibrates, with the transient still in the series.
 
     The ordinary case, and the one a false-refusal rate is really about.
     Equilibration detection should discard the approach and report the
@@ -1035,7 +1041,8 @@ def _constant_pressure_run_split_into_segments() -> Any:
     """Splitting an NPT run: sound, and not free.
 
     Measured on the CPU platform. A constant-volume run resumed from a
-    checkpoint reproduces the run it continued to within 8e-8 nm. The same
+    checkpoint at the same thread count reproduces the run it continued to
+    within about 1e-9 nm over fifty steps. The same
     run at constant pressure does not, and seeding the barostat does not
     fix it: the Monte Carlo barostat's adaptive volume-move size is not in
     the checkpoint and is not a Context parameter.
@@ -1109,7 +1116,7 @@ _JOIN_OFFSETS = (0.0, 0.09, -0.06, 0.11, -0.10, 0.04, -0.08, 0.07, -0.03,
                  0.06)
 
 
-def _a_mean_from_a_run_that_never_settled() -> Any:
+def _a_mean_from_a_run_that_never_equilibrated() -> Any:
     """Pooling segments of a system that was still moving.
 
     The hazard pooling itself introduces. Combining estimates assumes they
@@ -1208,8 +1215,8 @@ DEFECTS: list[Case] = [
          "allows, which says the relationship does not hold on this "
          "hardware rather than that the measurements were noisy",
          mentioning="disagree"),
-    Case("a mean pooled over segments of a run that never settled",
-         _a_mean_from_a_run_that_never_settled, "refused",
+    Case("a mean pooled over segments of a run that never equilibrated",
+         _a_mean_from_a_run_that_never_equilibrated, "refused",
          "the segment means move in order, so pooling would give a "
          "confident number for a quantity that does not exist",
          mentioning="moving target"),
@@ -1270,12 +1277,12 @@ DEFECTS: list[Case] = [
          mentioning="different machine"),
     Case("binding free energy from a run that never reached bulk",
          _truncated_pmf, "refused",
-         "the reference the well depth is measured against is not a "
+         "the reference the well depth is defined against is not a "
          "reference unless the ligand is free there",
          mentioning="-2kT ln r"),
     Case("order parameters on a structure without hydrogens",
          _order_parameters_without_hydrogens, "refused",
-         "the measurement is of a bond vector and the bond is absent",
+         "the order parameter is of a bond vector and the bond is absent",
          mentioning="without hydrogens"),
     Case("radial distribution with no periodic box",
          _rdf_without_a_box, "refused",
@@ -1384,7 +1391,7 @@ CLEAN: list[Case] = [
          "two thousand uncorrelated frames support a mean and an error, "
          "and a guardrail that refused this one would be refusing most "
          "of the trajectories anybody runs"),
-    Case("a mean from a run that settled, transient included",
+    Case("a mean from a run that equilibrated, transient included",
          _mean_after_a_transient, "proceeded",
          "equilibration detection should discard the approach and report "
          "the rest, not refuse a study for having started somewhere"),
@@ -1411,22 +1418,22 @@ CLEAN: list[Case] = [
          "flattened"),
     Case("a run long against its correlation time",
          _a_run_long_against_its_correlation, "proceeded",
-         "the halves agree, so the effective sample count means what it "
-         "says"),
+         "the frames are independent, so the effective sample count means "
+         "what it says"),
     Case("a box that already fits its cutoff",
          _a_box_that_already_fits, "proceeded",
          "no growing was needed, so nothing is reported about it"),
     Case("fraction of native contacts on a chain long enough to have a fold",
          _q_on_a_chain_long_enough, "proceeded",
          "a hairpin puts residues far apart in sequence within contact "
-         "distance, which is what Q measures"),
+         "distance, which is what Q counts"),
     Case("a two-dimensional surface where both coordinates moved",
          _a_surface_where_both_coordinates_moved, "proceeded",
          "both variables visited both basins, so neither axis is the "
          "shape of the bias"),
     Case("density from a constant-pressure run",
          _density_at_constant_pressure, "proceeded",
-         "the box breathes, so the density is measured rather than set"),
+         "the box breathes, so the density is sampled rather than set"),
     Case("a save selection that keeps what was asked for",
          _a_selection_that_keeps_something, "proceeded",
          "the selection matches atoms, so there is nothing to cap or "

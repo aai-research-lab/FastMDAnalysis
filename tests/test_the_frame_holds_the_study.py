@@ -171,14 +171,14 @@ class TestTheSettingsPopup(unittest.TestCase):
         page = _page()
         trigger = page[page.index('id="settings-open"'):page.index("</button>", page.index('id="settings-open"'))]
         self.assertNotIn("account-detail", trigger)
-        self.assertIn('id="account-name">FastMDXplora', trigger)
+        self.assertIn('id="account-name">__FASTMDX_ACCOUNT_NAME__', trigger)
         self.assertNotIn('el("account-detail")', _script())
 
     def test_the_popup_is_a_dialog_with_a_theme_switch(self):
         page = _page()
         popup = page[page.index('id="settings-popup"'):]
         self.assertIn('role="dialog"', popup[:200])
-        for theme in ("graphite", "ink", "paper"):
+        for theme in ("system", "light", "dark"):
             with self.subTest(theme=theme):
                 self.assertIn(f'data-theme="{theme}"', popup)
 
@@ -204,7 +204,7 @@ class TestTheSettingsPopup(unittest.TestCase):
         # the sidebar had grown crowded. That is his call to make.
         page = _page()
         popup = page[page.index('id="settings-popup"'):page.index('<div class="app-shell">')]
-        self.assertIn('data-view-link="cite">Cite FastMDXplora', popup)
+        self.assertIn('data-dialog-open="cite-dialog" aria-haspopup="dialog">Cite FastMDXplora', popup)
         self.assertIn('id="settings-version"', popup)
         self.assertNotIn("About FastMDXplora", popup)
         sidebar = page[page.index('<aside class="sidebar"'):page.index("</aside>")]
@@ -214,27 +214,38 @@ class TestTheSettingsPopup(unittest.TestCase):
 
 class TestTheThemes(unittest.TestCase):
 
-    def test_three_schemes_over_one_set_of_tokens(self):
+    def test_two_schemes_over_one_set_of_tokens(self):
         theme = (STATIC / "theme.css").read_text(encoding="utf-8")
-        self.assertIn('body[data-theme="ink"]', theme)
-        self.assertIn('body[data-theme="paper"]', theme)
-        # Graphite is the default: the tokens themselves, no override.
-        self.assertNotIn('body[data-theme="graphite"]', theme)
+        self.assertIn('body[data-theme="light"]', theme)
+        # Dark is the default: the tokens themselves, no override.
+        self.assertNotIn('body[data-theme="dark"]', theme)
+        for former in ("graphite", "ink", "paper"):
+            self.assertNotIn(f'data-theme="{former}"', theme)
 
     def test_a_scheme_changes_the_ground_and_not_the_meaning_of_colour(self):
         # Green done, amber qualified, red refused are the same in all
-        # three. A scheme that recoloured status would make a warning look
-        # like one thing in Graphite and another in Paper.
+        # schemes. A scheme that recoloured status would make a warning look
+        # like one thing in Dark and another in Light.
         theme = (STATIC / "theme.css").read_text(encoding="utf-8")
-        for name in ("ink", "paper"):
+        for name in ("light",):
             block = theme[theme.index(f'body[data-theme="{name}"]'):]
             block = block[:block.index("}")]
             with self.subTest(theme=name):
-                for token in ("--status-error", "--status-warning", "--status-success"):
+                for token in ("--status-error", "--status-waiting", "--status-completed",
+                              "--status-live", "--status-stale"):
                     self.assertNotIn(token, block)
+                # A scheme may darken a status colour to read on its ground,
+                # and keeps its hue: green stays green, red red.
+                for token, channel in (("--accent-green", 1), ("--accent-red", 0),
+                                       ("--accent-orange", 0)):
+                    if f"{token}:" not in block:
+                        continue
+                    value = block[block.index(f"{token}:") + len(token) + 1:].split(";")[0]
+                    rgb = bytes.fromhex(value.strip().lstrip("#"))
+                    self.assertEqual(max(range(3), key=lambda c: rgb[c]), channel, token)
 
     def test_the_choice_is_remembered(self):
-        self.assertIn('store.set("theme", name)', _script())
+        self.assertIn('if (chosen) store.set("theme", choice);', _script())
 
     def test_the_wordmark_needs_no_network(self):
         # This GUI runs on machines with no route out -- a cluster login
@@ -309,8 +320,9 @@ class TestTheStudyIsInTheSidebar(unittest.TestCase):
 
 
 class TestTheBuilderAsksFourQuestions(unittest.TestCase):
-    """Four numbered cards, the phases as tiles, and the second question
-    continued inside the first rather than opened as a card of its own."""
+    """Five numbered steps in the order a study is decided, the phases as
+    chips, and where the study's input is continued inside the first step
+    rather than opened as a step of its own."""
 
     def builder(self):
         page = _page()
@@ -323,12 +335,15 @@ class TestTheBuilderAsksFourQuestions(unittest.TestCase):
         self.assertGreater(end, start)
         return page[start:end]
 
-    def test_four_cards_numbered_in_order(self):
+    def test_five_steps_numbered_in_order(self):
         import re
 
-        steps = re.findall(r'builder-step">(\d\d)<', self.builder())
-        self.assertEqual(steps, ["01", "02", "03", "04"])
-        self.assertEqual(self.builder().count('class="card builder-card"'), 4)
+        builder = self.builder()
+        bar = re.findall(r'data-step="(\w+)"><b>(\d)</b>', builder)
+        self.assertEqual(bar, [("start", "1"), ("system", "2"), ("protocol", "3"),
+                               ("analysis", "4"), ("review", "5")])
+        sections = re.findall(r'<section class="builder-step" id="run-step-(\w+)"', builder)
+        self.assertEqual(sections, ["start", "system", "protocol", "analysis", "review"])
 
     def test_where_it_is_continues_the_first_card(self):
         builder = self.builder()
@@ -340,20 +355,20 @@ class TestTheBuilderAsksFourQuestions(unittest.TestCase):
 
     def test_every_field_the_js_drives_is_still_there_once(self):
         builder = self.builder()
-        for field in ("run-start", "run-system", "run-trajectory",
+        # `run-system` is the first row of the systems, built by the script.
+        for field in ("run-start", "run-systems", "run-trajectory",
                       "run-topology", "run-config-path", "run-output",
                       "run-phases", "run-start-button", "run-download"):
             with self.subTest(field=field):
                 self.assertEqual(builder.count(f'id="{field}"'), 1)
 
-    def test_the_phases_are_tiles(self):
+    def test_the_phases_are_chips(self):
         css = _css()
-        rule = css[css.index(".run-phases {"):]
-        rule = rule[:rule.index("}")]
-        self.assertIn("grid-template-columns: 1fr 1fr", rule)
-        # A chosen tile is bordered in the accent, not striped down one
-        # edge, so the set that will run reads at a glance.
-        self.assertIn('.run-phase[data-chosen="true"] { border-color: var(--accent-cyan)', css)
+        self.assertIn('.page[data-page="run"] .run-phases { display: flex;', css)
+        # A chosen chip is bordered in the accent, so the set that will run
+        # reads at a glance.
+        rule = css[css.index('.run-phase.builder-chip-check:has(input:checked) {'):]
+        self.assertIn("border-color: var(--accent-cyan)", rule[:rule.index("}")])
 
     def test_the_page_is_not_duplicated(self):
         # The regression the slicing bug produced: the run section's cards
@@ -403,32 +418,33 @@ class TestThePopupItemsAct(unittest.TestCase):
         script = _script()
         self.assertIn('el("settings-agent-link")', script)
         self.assertIn("window.FastMDXAgent.openSettings()", script)
-        handler = script[script.index('el("settings-agent-link")'):script.index("The other popup items navigate")]
+        handler = script[script.index('el("settings-agent-link")'):script.index("loadLog();", script.index('el("settings-agent-link")'))]
         self.assertNotIn('navigate("agent")', handler)
         page = _page()
         self.assertLess(page.index('id="agent-settings"'), page.index('<div class="app-shell">'))
         agent = (STATIC / "agent-panel.js").read_text(encoding="utf-8")
         self.assertIn("window.FastMDXAgent = { openSettings: openSettings", agent)
 
-    def test_cite_in_the_popup_goes_to_the_cite_page(self):
+    def test_cite_in_the_popup_opens_its_dialog(self):
         page = _page()
         popup = page[page.index('id="settings-popup"'):page.index('<div class="app-shell">')]
         item = popup[popup.index("Cite FastMDXplora") - 120:popup.index("Cite FastMDXplora")]
-        self.assertIn('href="#cite"', item)
+        self.assertIn('data-dialog-open="cite-dialog"', item)
 
-    def test_the_version_comes_from_the_cite_page(self):
+    def test_the_version_comes_from_the_cite_dialog(self):
         # One copy, filled in by the server, rather than a second
         # placeholder to keep in step.
         self.assertIn('el("cite-version")', _script())
 
-    def test_the_settings_page_is_named_for_what_it_holds(self):
-        # "Browser settings" read as configuring the browser. The page is
-        # viewer and dashboard preferences.
-        self.assertIn("Display preferences", _page())
+    def test_the_preferences_are_named_for_what_they_hold(self):
+        # "Browser settings" read as configuring the browser. They are how
+        # studies are shown, in this browser.
+        self.assertIn("Preferences&hellip;", _page())
 
     def test_pause_is_one_word(self):
-        # "Pause updates" overlapped Refresh in a 232px sidebar.
-        self.assertIn('<span id="pause-label">Pause</span>', _page())
+        # "Pause updates" overlapped Refresh in a 232px sidebar; now an
+        # icon, its one word for a screen reader.
+        self.assertIn('<span id="pause-label" class="sr-only">Pause</span>', _page())
 
 
 class TestTheViewerFollowsTheRun(unittest.TestCase):
@@ -469,7 +485,7 @@ class TestTheOverviewHoldsWhatTheSidebarCannot(unittest.TestCase):
     def overview(self):
         page = _page()
         start = page.index('<section class="page" data-page="overview" data-status')
-        return page[start:page.index("</section>", start)]
+        return page[start:page.index('<section class="page"', start + 10)]
 
     def test_nothing_repeated_from_the_sidebar(self):
         ov = self.overview()
@@ -530,10 +546,12 @@ class TestThreeThingsSeenInTheBrowser(unittest.TestCase):
 
     def test_the_summary_cards_have_a_grid(self):
         # `metric-grid` was a class with no rule behind it, so the cards
-        # had nothing to sit in and overlapped.
-        page = _page()
-        self.assertIn('class="grid overview-summary metric-cards" id="overview-summary-cards"', page)
-        self.assertNotIn("metric-grid", page)
+        # had nothing to sit in and overlapped. The live Overview has no
+        # cards now; the dashboard a study writes beside its report keeps
+        # them, on the same stylesheet.
+        written = (STATIC.parent / "report_dashboard.py").read_text(encoding="utf-8")
+        self.assertIn('class="grid overview-summary metric-cards" id="overview-summary-cards"', written)
+        self.assertNotIn("metric-grid", _page())
         css = _css()
         # Two across, and the value wraps rather than clips. Four across
         # put each card at a quarter of the page with its text cut off.
@@ -542,15 +560,19 @@ class TestThreeThingsSeenInTheBrowser(unittest.TestCase):
 
     def test_the_overview_is_one_column(self):
         # A structure card beside the charts made a second right-hand panel
-        # inside the centre, next to the real one.
+        # inside the centre, next to the real one. The molecule sits inside
+        # the run's card now, beside what the run did, in one column.
         page = _page()
         start = page.index('<section class="page" data-page="overview" data-status')
-        ov = page[start:page.index("</section>", start)]
-        self.assertIn('class="overview-stack"', ov)
+        ov = page[start:page.index('<section class="page"', start + 10)]
+        self.assertIn('class="overview-body" id="overview-body"', ov)
         self.assertNotIn("overview-grid", ov)
+        run = ov[ov.index('id="overview-run"'):ov.index('id="overview-charts"')]
+        self.assertIn('id="mini-preview-canvas"', run)
         css = _css()
-        self.assertIn(".overview-stack { display: flex; flex-direction: column;", css)
-        self.assertIn("#live-panels .preview-frame { height: 360px; }", css)
+        self.assertIn(".overview-body { display: flex; flex-direction: column;", css)
+        self.assertIn("#live-panels { display: flex; flex-direction: column;", css)
+        self.assertIn("#live-panels .overview-run .preview-frame { height: 240px; }", css)
 
 
 class TestElevenThingsFromUsingIt(unittest.TestCase):
@@ -558,41 +580,42 @@ class TestElevenThingsFromUsingIt(unittest.TestCase):
     def test_the_study_keeps_its_name_when_a_run_begins(self):
         script = (STATIC / "dashboard.js").read_text(encoding="utf-8")
         self.assertIn("The study's name is the system, not the folder it went into", script)
-        self.assertIn('setTextWithTooltip("topbar-run-title", chosen || state.runId || state.runTitle);', script)
+        self.assertIn("const name = chosen || studyName(state.runId) || state.runTitle;", script)
+        self.assertIn('setTextWithTooltip("topbar-run-title", name);', script)
 
     def test_one_output_button_that_also_copies_the_path(self):
         page = _page()
         self.assertEqual(page.count('id="open-output"'), 1)
         self.assertNotIn('id="copy-output-path"', page)
-        self.assertIn('openOut.textContent = "Path copied";', _script())
+        self.assertIn('window.FastMDXIcons.copy(el("study-card"), path.trim(), "Path copied"', _script())
 
-    def test_paper_leaves_no_token_dark(self):
+    def test_light_leaves_no_token_dark(self):
         import re
 
         theme = (STATIC / "theme.css").read_text(encoding="utf-8")
         root = theme[theme.index(":root {"):theme.index("}", theme.index(":root {"))]
-        paper = theme[theme.index('body[data-theme="paper"]'):]
+        paper = theme[theme.index('body[data-theme="light"]'):]
         paper = paper[:paper.index("}")]
         overridden = set(re.findall(r"(--[a-z0-9-]+):", paper))
         for token, value in re.findall(r"(--[a-z0-9-]+):\s*([^;]+);", root):
             if re.search(r"#[01][0-9a-f]{5}\b|rgba\(0, 0, 0, 0\.[3-9]|rgba\(255, 255, 255", value):
                 with self.subTest(token=token):
-                    self.assertIn(token, overridden, f"{token} is still {value.strip()} under Paper")
+                    self.assertIn(token, overridden, f"{token} is still {value.strip()} under Light")
 
     def test_the_sidebar_collapses_like_the_panel(self):
         page = _page()
         self.assertIn('id="sidebar-collapse"', page)
         self.assertIn('id="sidebar-expand"', page)
         script = _script()
-        self.assertIn("function setSidebarCollapsed(yes)", script)
+        self.assertIn("function setSidebarCollapsed(yes, chosen)", script)
         self.assertIn("body.sidebar-collapsed .app-shell", _css())
 
     def test_the_explanations_reach_the_log(self):
         # The "why" filter had nothing to show: the explain text was
         # printed by the caller's hook and never written as an event. A
         # short real run, opened in the dashboard, with the filter on "why".
-        # The production step's explanation carries no citation, so it is
-        # shown there by the level it was written with and nothing else.
+        # The production step's explanation is found there by the level it
+        # was written with, the citation beneath it being no part of that.
         import tempfile
 
         import pytest
@@ -612,7 +635,6 @@ class TestElevenThingsFromUsingIt(unittest.TestCase):
                        platform="CPU", live_telemetry=True, telemetry_interval=10,
                        trajectory_interval_steps=10)
         production = explain("production")
-        self.assertIsNone(production.reference)
         opening = production.why.strip()[:40]
         session = start_dashboard_session(output=str(root), host="127.0.0.1", port=0)
         try:
@@ -636,8 +658,9 @@ class TestElevenThingsFromUsingIt(unittest.TestCase):
         page = _page()
         sidebar = page[page.index('<aside class="sidebar"'):page.index("</aside>")]
         self.assertNotIn('class="study-facts', sidebar)
-        self.assertIn('<span id="topbar-stage" hidden></span>', sidebar)
-        self.assertIn('<span class="metric-label">Complete</span>', sidebar)
+        # The progress card is headed by the stage, with how far it is.
+        self.assertIn('<span class="progress-stage" id="topbar-stage">', sidebar)
+        self.assertIn('<span class="progress-pct mono" id="topbar-progress">', sidebar)
         self.assertNotIn('<span class="metric-label">Progress</span>', sidebar)
 
 
@@ -654,12 +677,12 @@ class TestTheCentreSurvivesCollapse(unittest.TestCase):
     def test_collapsed_columns_are_not_display_none(self):
         css = self.css()
         # The rule that hides the panel keeps it in flow.
-        block = css[css.index('body.panel-collapsed .side-panel,'):]
+        block = css[css.index('body.panel-collapsed:not(.panel-peek) .side-panel,'):]
         block = block[:block.index("}")]
         self.assertNotIn("display: none", block)
         self.assertIn("width: 0", block)
         self.assertIn("visibility: hidden", block)
-        sb = css[css.index('body.sidebar-collapsed .sidebar,'):]
+        sb = css[css.index('body.sidebar-collapsed:not(.sidebar-peek) .sidebar,'):]
         sb = sb[:sb.index("}")]
         self.assertNotIn("display: none", sb)
         self.assertIn("width: 0", sb)
@@ -1057,26 +1080,23 @@ class TestTheTwoFilesSurfacesAgree(unittest.TestCase):
 
         import fastmdxplora.gui as gui
 
-        dash = (pathlib.Path(gui.__file__).parent / "static" / "dashboard.js").read_text(encoding="utf-8")
-        self.assertIn("const VIEW_IN_PANEL = new Set(", dash)
-        self.assertIn("const OPEN_IN_BROWSER = new Set(", dash)
-        self.assertIn('data-view-file', dash)
-        self.assertIn("window.FastMDXFrame.previewPath(path)", dash)
+        page = (pathlib.Path(gui.__file__).parent / "static" / "files-page.js").read_text(encoding="utf-8")
+        self.assertIn("window.FastMDXFrame.previewPath(path)", page)
+        from fastmdxplora.gui.files_page import PREVIEWED
+
+        self.assertIn("pdb", PREVIEWED)
         frame = _script()
         self.assertIn("function previewPath(path)", frame)
         self.assertIn("previewPath: previewPath", frame)
 
     def test_the_two_rules_match_the_panels(self):
-        import pathlib
         import re
 
-        import fastmdxplora.gui as gui
+        from fastmdxplora.gui.files_page import OPENED
 
-        dash = (pathlib.Path(gui.__file__).parent / "static" / "dashboard.js").read_text(encoding="utf-8")
-        page_open = set(re.search(r'OPEN_IN_BROWSER = new Set\(\[(.*?)\]\)', dash, re.S).group(1).replace('"', "").replace(" ", "").split(","))
         frame = _script()
         panel_open = set(re.search(r'side-preview-open"\)\.hidden = \[(.*?)\]', frame).group(1).replace('"', "").replace(" ", "").split(","))
-        self.assertEqual(page_open, panel_open)
+        self.assertEqual(set(OPENED), panel_open)
 
     def test_every_type_the_plus_accepts_has_a_view_or_is_code(self):
         # Every text type either has a View renderer or is Code-only on
@@ -1099,55 +1119,26 @@ class TestTheTwoFilesSurfacesAgree(unittest.TestCase):
 
 
 class TestTheFilesPageHoldsStill(unittest.TestCase):
-    """The page rebuilt its HTML on every poll, and a rebuilt <details>
-    comes back closed: two seconds after the run record was expanded,
-    the poll closed it. The page rebuilds only when the files changed,
-    and carries every open fold across a rebuild."""
+    """The page rebuilt its HTML on every poll, and a rebuilt fold came
+    back closed: two seconds after the run record was opened, the poll
+    closed it. The page is rendered again only when what the server renders
+    has changed, and what was opened, typed and chosen is put back."""
 
-    def test_rebuild_only_on_change_and_folds_survive(self):
+    def test_rendered_again_only_on_change_and_folds_kept(self):
         import pathlib
 
         import fastmdxplora.gui as gui
 
-        dash = (pathlib.Path(gui.__file__).parent / "static" / "dashboard.js").read_text(encoding="utf-8")
-        self.assertIn("if (signature === lastFilesSignature) return;", dash)
-        self.assertIn('data-fold="${escapeAttr(key)}"', dash)
-        self.assertIn('if (openFolds.has(d.getAttribute("data-fold"))) d.open = true;', dash)
-
-    def test_copy_path_is_one_line(self):
-        css = _css()
-        rule = css[css.index(".file-action {"):css.index("}", css.index(".file-action {"))]
-        self.assertIn("white-space: nowrap", rule)
-        # The buttons stay whole; the row of them may wrap in a narrow cell.
-        self.assertIn(".file-row .file-actions { display: flex; gap: 4px; flex-wrap: wrap; }", css)
-
-    def test_two_across_including_the_run_record(self):
-        css = _css()
-        grid = css[css.index(".files-list {"):css.index("}", css.index(".files-list {"))]
-        self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr))", grid)
-        # The rule, not the comment that explains why auto-fill is gone.
-        rules = "\n".join(line for line in grid.splitlines() if not line.strip().startswith(("/*", "*", "//")))
-        self.assertNotIn("auto-fill", rules)
-        import pathlib
-
-        import fastmdxplora.gui as gui
-
-        dash = (pathlib.Path(gui.__file__).parent / "static" / "dashboard.js").read_text(encoding="utf-8")
-        # The folded group puts the same grid inside its <details>.
-        self.assertIn('<summary>${files.length} files, ${escapeHTML(humanSize(bytes))}</summary>${grid}</details>', dash)
-
-    def test_a_card_stacks_title_path_meta_then_buttons(self):
-        css = _css()
-        row = css[css.index(".file-row {"):css.index("}", css.index(".file-row {"))]
-        self.assertIn("flex-direction: column", row)
-        self.assertNotIn("grid-template-columns: 1fr auto", row)
-        self.assertIn(".file-row .file-meta .file-actions { flex-basis: 100%;", css)
+        page = (pathlib.Path(gui.__file__).parent / "static" / "files-page.js").read_text(encoding="utf-8")
+        self.assertIn("if (said.html === shown) return;", page)
+        self.assertIn("kept.open[key] = open;", page)
+        self.assertIn("(key in kept.open ? kept.open[key]", page)
 
 
 @unittest.skipUnless(_HAVE_PLAYWRIGHT, "playwright not installed")
 class TestTheRunRecordStaysOpenRendered(unittest.TestCase):
 
-    def test_expanded_it_stays_expanded_across_polls(self):
+    def test_opened_it_stays_open_across_polls(self):
         import sys
 
         from playwright.sync_api import sync_playwright
@@ -1161,26 +1152,18 @@ class TestTheRunRecordStaysOpenRendered(unittest.TestCase):
                 browser = pw.chromium.launch()
                 page = browser.new_page(viewport={"width": 1400, "height": 900})
                 page.goto(session.url + "#files", wait_until="domcontentloaded")
-                page.wait_for_selector("details.file-fold", timeout=20000)
-                page.evaluate("() => { document.querySelector('details.file-fold').open = true; }")
+                page.wait_for_selector('[data-phase="record"] .files-fold', timeout=20000)
+                page.click('[data-phase="record"] .files-fold')
                 page.wait_for_timeout(7000)  # two or three polls
-                self.assertTrue(page.eval_on_selector("details.file-fold", "el => el.open"))
-                tall = page.eval_on_selector_all(
-                    ".file-action", "els => els.filter(e => e.getBoundingClientRect().height > 28).length")
-                self.assertEqual(tall, 0, "a file action button wrapped onto two lines")
-                # Two across, and nothing leaves its card.
-                # Only grids on the page: a rebuild leaves detached ones behind
-                # that report a default three columns and are not shown.
-                cols = page.evaluate(
-                    "() => Array.from(document.querySelectorAll('.files-list'))"
-                    ".filter(e => e.offsetParent !== null)"
-                    ".map(e => getComputedStyle(e).gridTemplateColumns.split(' ').length)")
-                self.assertTrue(cols, "no visible file grids")
-                self.assertEqual(set(cols), {2})
+                self.assertEqual(page.eval_on_selector('[data-phase="record"] .files-fold',
+                                                       "el => el.getAttribute('aria-expanded')"), "true")
+                # Nothing runs out of its row.
                 over = page.eval_on_selector_all(
-                    ".file-row", "els => els.filter(e => { const r = e.getBoundingClientRect();"
-                    " return Array.from(e.querySelectorAll('.file-action, .file-title')).some(a => a.getBoundingClientRect().right > r.right + 1); }).length")
-                self.assertEqual(over, 0, "something ran out of its card")
+                    ".files-row", "els => els.filter(e => e.offsetParent !== null).filter(e => {"
+                    " const r = e.getBoundingClientRect();"
+                    " return Array.from(e.querySelectorAll('.files-act, .files-name'))"
+                    ".some(a => a.getBoundingClientRect().right > r.right + 1); }).length")
+                self.assertEqual(over, 0, "something ran out of its row")
                 browser.close()
         finally:
             session.server.shutdown()

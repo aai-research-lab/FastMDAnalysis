@@ -40,6 +40,7 @@ Outputs
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -162,27 +163,73 @@ def padding_that_reaches(
 
     Separated from the solvation loop so the arithmetic can be checked
     without building a system, because the arithmetic is where this was
-    wrong. The loop asked for `padding + shortfall / 2`, which is the
-    cube's relation between padding and width: a cube's narrowest dimension
-    is `maxSize + 2 * padding`, so a shortfall of 0.30 nm needs 0.15 nm
-    more padding.
+    wrong, twice.
 
-    A dodecahedron's narrowest dimension is that quantity divided by
-    sqrt(2), so the same padding buys sqrt(2) less width and the loop
-    undershot by exactly that factor. Measured on the V3 run it killed:
-    from 1.20 nm padding the box came out 1.70 nm across, the loop grew to
-    1.45 nm aiming at 2.20 nm, and got 2.05 -- against a floor of 2.00.
-    NPT then contracted 1.9% and the run died on the second barostat move.
+    OpenMM (8.0 on; the floor here is 8.2) sizes a padded box from the
+    solute's bounding sphere: its size is ``max(2 r + padding, 2 padding)``,
+    padding counted once, as the least distance between the solute and its
+    nearest periodic image. The box's narrowest width is that size times
+    ``f``, the shape's factor (1 for a cube, sqrt(2)/2 for a dodecahedron).
 
-    The general relation is `d(width)/d(padding) = 2 * f`, with f the
-    shape's narrowest width per unit size.
+    The first version asked for ``padding + shortfall / 2``, a cube's
+    arithmetic, and undershot every dodecahedron by sqrt(2) (AUD40, which
+    killed V3). The second took the width to grow by ``2 f`` per unit of
+    padding, which is right only while the padding sizes the box (a solute
+    smaller than the padding). For a solute that sizes it, anything larger
+    than a short peptide, the width grows by ``f``, and the loop undershot by
+    half: a solute 1.6 nm across at 1.0 nm of padding in a dodecahedron
+    grew to 1.26 nm and reached 2.02 nm, under the 2.20 it aimed at, and
+    three attempts left it at 2.11.
+
+    So the size the box needs is worked out and the padding found from
+    OpenMM's rule directly. The solute's diameter is read off the box built
+    (``size - padding``); where the padding sized the box that reads too
+    large, and then the answer is the other branch, half the size needed.
     """
     factor = NARROWEST_WIDTH_PER_SIZE.get(str(box_shape).lower(), 1.0)
     wanted = 2.0 * float(nonbonded_cutoff_nm) * float(margin)
-    shortfall = wanted - float(smallest_nm)
-    if shortfall <= 0.0:
+    if float(smallest_nm) >= wanted:
         return float(padding_nm)
-    return float(padding_nm) + shortfall / (2.0 * factor)
+    needed_size = wanted / factor
+    across = max(0.0, float(smallest_nm) / factor - float(padding_nm))
+    return max(float(padding_nm), min(needed_size - across, needed_size / 2.0))
+
+
+def sized_by_the_padding(*, grown_nm: float, nonbonded_cutoff_nm: float,
+                         box_shape: str, margin: float = NPT_CONTRACTION_MARGIN) -> bool:
+    """Whether a grown padding is the smallest box the cutoff allows at all:
+    half the size the cutoff needs, so the padding and not the solute sizes
+    it. Growing to it gives the least water any solute that small can have
+    under this cutoff, however little padding was asked for."""
+    factor = NARROWEST_WIDTH_PER_SIZE.get(str(box_shape).lower(), 1.0)
+    half = float(nonbonded_cutoff_nm) * float(margin) / factor
+    return abs(float(grown_nm) - half) <= 1e-9 * max(1.0, half)
+
+
+def _what_would_fit(*, smallest_nm: float, padding_nm: float,
+                    nonbonded_cutoff_nm: float, box_shape: str) -> str:
+    """The refusal of a box too small for its cutoff, with what would run:
+    the padding for this shape and for a cube, from OpenMM's own sizing."""
+    shape = str(box_shape).lower()
+    factor = NARROWEST_WIDTH_PER_SIZE.get(shape, 1.0)
+    across = max(0.0, smallest_nm / factor - padding_nm)
+    here = padding_that_reaches(smallest_nm=smallest_nm, padding_nm=padding_nm,
+                                nonbonded_cutoff_nm=nonbonded_cutoff_nm, box_shape=shape)
+    wanted = 2.0 * nonbonded_cutoff_nm * NPT_CONTRACTION_MARGIN
+    cube = max(padding_nm, min(wanted - across, wanted / 2.0))
+    text = (
+        f"The box is too small for a {nonbonded_cutoff_nm:.2f} nm cutoff. A "
+        f"periodic cutoff can be at most half the box's narrowest width, and "
+        f"the barostat then shrinks the box by a few per cent, so it needs "
+        f"{wanted:.2f} nm; with {padding_nm:.2f} nm of padding this {shape} "
+        f"is {smallest_nm:.2f} nm at its narrowest. Padding is the least "
+        f"distance between the solute and its nearest periodic image, and "
+        f"setup adds a little by itself; this needs more than that. Any of "
+        f"these will run: solvent_padding_nm: {here:.2f}")
+    if shape != "cube":
+        text += f"; or box_shape: cube with solvent_padding_nm: {cube:.2f}"
+    return text + ("; or a shorter nonbonded_cutoff_nm, which changes the "
+                   "interactions rather than the box.")
 
 
 def _solvate_with_room_for_the_cutoff(
@@ -196,7 +243,7 @@ def _solvate_with_room_for_the_cutoff(
     unit: Any,
     attempts: int = 3,
     most_it_may_grow_nm: float = 0.5,
-) -> None:
+) -> float:
     """Solvate, and grow the padding if the box comes out too small.
 
     A periodic cutoff has to be at most half the smallest box dimension --
@@ -212,37 +259,50 @@ def _solvate_with_room_for_the_cutoff(
     than the config states would be reporting the config and doing something
     else.
 
-    Only a little, though. A default box that a change of shape made invalid
-    needs a few tenths of a nanometre. A 1.5 nm cutoff asked for with 0.4 nm
-    of padding needs four times the box, and somebody who asked for both has
-    given settings that contradict each other -- better told than quietly
-    handed a system four times the size. Past ``most_it_may_grow_nm`` this
-    stops adjusting and lets the check further down say so.
+    Only a little, though, where the solute sizes the box: somebody who
+    asked for a 1.5 nm cutoff with 0.4 nm of padding around a protein has
+    given settings that contradict each other, and is better told than
+    quietly handed a much larger system. Past ``most_it_may_grow_nm`` this
+    stops adjusting and lets the check further down say so, with what
+    would run.
+
+    Where the padding sizes the box (a solute smaller than the padding),
+    the box grown to is the smallest the cutoff allows for any solute, and
+    it is grown to whatever the amount. The defaults, 1.0 nm of padding in
+    a dodecahedron with a 1.0 nm cutoff, need 1.56 nm for a peptide of a few
+    residues; refusing that stopped every such study at setup.
     """
     kwargs = dict(add_solvent_kwargs)
     padding = float(padding_nm)
+    # The solute as it was before any water. A retry starts from it: the box
+    # with its water deleted still held the ions the attempt had added, and
+    # they then counted as solute, sizing the next box by where they had
+    # happened to land (the same study came out 2.28, 2.36 and 2.53 nm at
+    # its narrowest) and staying in the system beside the next attempt's
+    # own, which put 3 ion pairs where 0.15 M needs 2.
+    solute = (getattr(modeller, "topology", None), getattr(modeller, "positions", None))
     for attempt in range(attempts):
         modeller.addSolvent(ff, **kwargs)
         # The raw setting, not the resolved key: that is derived further down,
         # after solvation, so reading it here was a use before assignment.
         if str(nonbonded_method) not in ("CutoffPeriodic", "PME", "Ewald"):
-            return
+            return padding
         vectors = modeller.topology.getPeriodicBoxVectors()
         if vectors is None:
-            return
+            return padding
         try:
             smallest = min(
                 float(vectors[i][i].value_in_unit(unit.nanometer)) for i in range(3)
             )
         except (TypeError, ValueError, AttributeError):
-            return
+            return padding
         # A box of no size is not a box to add padding to -- it means the
         # topology could not say, which is not a problem this can solve.
         if smallest <= 0.0:
-            return
+            return padding
         wanted = 2.0 * nonbonded_cutoff_nm * NPT_CONTRACTION_MARGIN
         if smallest >= wanted or attempt == attempts - 1:
-            return
+            return padding
 
         # Enough for the cutoff, and for the contraction the barostat is
         # about to apply. The shape matters: a dodecahedron's narrowest
@@ -255,7 +315,10 @@ def _solvate_with_room_for_the_cutoff(
             nonbonded_cutoff_nm=nonbonded_cutoff_nm,
             box_shape=str(kwargs.get("boxShape", "cube")),
         )
-        if grown - float(padding_nm) > most_it_may_grow_nm:
+        shape = str(kwargs.get("boxShape", "cube"))
+        smallest_box = sized_by_the_padding(
+            grown_nm=grown, nonbonded_cutoff_nm=nonbonded_cutoff_nm, box_shape=shape)
+        if grown - float(padding_nm) > most_it_may_grow_nm and not smallest_box:
             # Said out loud, because the check further down reports the
             # padding the config asked for and knows nothing of what was
             # tried. Silent, this advised raising 0.80 nm without mentioning
@@ -266,20 +329,25 @@ def _solvate_with_room_for_the_cutoff(
                 "cutoff would need about %.2f nm, which is %.2f nm more than "
                 "the %.2f nm this will add on its own. The cutoff and the "
                 "padding asked for are further apart than a small adjustment "
-                "can settle.",
+                "can close.",
                 padding, nonbonded_cutoff_nm, grown,
                 grown - float(padding_nm), most_it_may_grow_nm,
             )
-            return
+            return padding
         padding = grown
         logger.info(
             "Box came out %.2f nm across, which is under twice the %.2f nm "
             "cutoff. Re-solvating with %.2f nm padding so no particle sees "
-            "its own periodic image.",
+            "its own periodic image%s.",
             smallest, nonbonded_cutoff_nm, padding,
+            " (the smallest box this cutoff allows for any solute this small)"
+            if smallest_box else "",
         )
         kwargs["padding"] = padding * unit.nanometer
-        modeller.deleteWater()
+        if solute[1] is not None:
+            modeller.topology, modeller.positions = solute
+        else:
+            modeller.deleteWater()
 
 
 
@@ -433,15 +501,17 @@ def prepare_system(
     membrane: str | None = None,
     membrane_orientation_checked: bool = False,
     membrane_orient: bool = False,
+    membrane_frame: str | None = None,
+    membrane_center_z_nm: float | None = None,
     box_shape: str = "cube",
     ion_positive: str = "Na+",
     ion_negative: str = "Cl-",
     ion_concentration_M: float = DEFAULT_IONIC_STRENGTH_M,
     neutralize: bool = True,
     nonbonded_method: str = "PME",
-    nonbonded_cutoff_nm: float = 1.0,
+    nonbonded_cutoff_nm: float | None = None,
     ewald_error_tolerance: float = 0.0005,
-    use_switching_function: bool = True,
+    use_switching_function: bool | None = None,
     switch_distance_nm: float | None = None,
     dispersion_correction: bool = True,
     remove_cm_motion: bool = True,
@@ -473,7 +543,22 @@ def prepare_system(
         Minimum distance in nm between any solute atom and the periodic
         box wall.
     box_shape : {"cube", "dodecahedron", "octahedron"}, default "cube"
-        Periodic box geometry.
+        Periodic box geometry. Not used with a membrane, whose box is
+        rectangular and made of whole patches.
+    membrane : str, optional
+        A lipid OpenMM can build a bilayer from; the bilayer is built in
+        the xy plane at z = 0, after the protein is placed for it by
+        :func:`~fastmdxplora.setup.membrane.place_for_membrane`.
+    membrane_orient : bool, default False
+        Rotate the protein onto its fitted membrane normal.
+    membrane_orientation_checked : bool, default False
+        Keep the protein's orientation as it is.
+    membrane_frame : {"opm"}, optional
+        The structure's frame is OPM's, with the membrane centre at z = 0.
+        Set by the setup pipeline when it finds OPM's membrane markers.
+    membrane_center_z_nm : float, optional
+        The membrane centre along z in the structure's frame, with
+        ``membrane_orientation_checked``.
     ion_positive, ion_negative : str
         Counter-ions. Defaults to NaCl.
     ion_concentration_M : float, default 0.15
@@ -481,8 +566,11 @@ def prepare_system(
     neutralize : bool, default True
         Add ions to neutralize the net solute charge before reaching the
         target concentration.
-    nonbonded_cutoff_nm : float, default 1.0
-        PME real-space cutoff in nm.
+    nonbonded_cutoff_nm : float, optional
+        PME real-space cutoff in nm. ``None``, the default, takes the force
+        field's own (:func:`~fastmdxplora.setup.forcefields.nonbonded_scheme`).
+    use_switching_function : bool, optional
+        ``None``, the default, switches as the force field is developed.
     constraints : {"None", "HBonds", "AllBonds", "HAngles"}, default "HBonds"
         Bond constraints. ``HBonds`` is the standard choice for 2 fs
         timesteps with water.
@@ -499,7 +587,9 @@ def prepare_system(
     -------
     dict
         Mapping artifact-name -> ``Path``: ``solvated_pdb``,
-        ``topology_pdb``, ``system_xml``, ``state_xml``.
+        ``topology_pdb``, ``system_xml``, ``state_xml``; and ``membrane``,
+        how the protein was placed and the bilayer built (``None`` without
+        a membrane).
     """
     omm = _import_openmm()
     unit = omm["unit"]
@@ -516,8 +606,15 @@ def prepare_system(
     # `forcefield` selector to its XML set and default water model. A named
     # choice and a raw list together is rejected upstream (setup pipeline).
     ff_choice = None
+    stated = {"nonbonded_cutoff_nm": nonbonded_cutoff_nm,
+              "use_switching_function": use_switching_function}
     if force_field:
         force_field = list(force_field)
+        (nonbonded_cutoff_nm, use_switching_function,
+         switch_distance_nm, _) = nonbonded_scheme(
+            None, cutoff_nm=nonbonded_cutoff_nm,
+            use_switching_function=use_switching_function,
+            switch_distance_nm=switch_distance_nm)
     else:
         ff_choice = resolve_forcefield(forcefield)
         force_field = list(ff_choice.xmls)
@@ -573,6 +670,20 @@ def prepare_system(
     # ----- 2. Build force field (+ ligand) -----
     modeller = omm["Modeller"](pdb.topology, pdb.positions)
     system_generator = None
+    lipid_parameters: str | None = None
+    if membrane:
+        # Lipid parameters, or the run fails at system creation with a
+        # message about a residue template for POPC -- which names the
+        # symptom rather than the missing file. Found for either branch, and
+        # recorded: the file that describes the lipids is part of the
+        # methods, and `amber14-all.xml` carries them without saying so.
+        from fastmdxplora.setup.membrane import (
+            lipid_parameter_file,
+            membrane_forcefield_files,
+        )
+
+        force_field = membrane_forcefield_files(list(force_field), str(membrane).upper())
+        lipid_parameters = lipid_parameter_file(force_field, str(membrane).upper())
     if ligands:
         # Protein-ligand: load the ligand as an OpenFF Molecule, build a
         # SystemGenerator that combines the protein/water force field with
@@ -631,13 +742,6 @@ def prepare_system(
                     ligand_name=name,
                 )
     else:
-        if membrane:
-            # Lipid parameters, or the run fails at system creation with a
-            # message about a residue template for POPC -- which names the
-            # symptom rather than the missing file.
-            from fastmdxplora.setup.membrane import membrane_forcefield_files
-
-            force_field = membrane_forcefield_files(list(force_field))
         logger.info("Building ForceField: %s", force_field)
         ff = omm["ForceField"](*force_field)
 
@@ -665,12 +769,19 @@ def prepare_system(
     if water_model is not None:
         add_solvent_kwargs["model"] = water_model
 
+    membrane_record: dict[str, Any] | None = None
+    padding_used: float | None = None
     if membrane:
         # A bilayer instead of a box of water. OpenMM packs the lipids and
         # solvates around them, so no external packing tool is needed -- but
-        # it assumes the protein is already oriented with the membrane normal
-        # along z, and does not check.
-        from fastmdxplora.setup.membrane import LIPIDS, check_orientation
+        # it builds the bilayer in the xy plane at z = 0 and takes the
+        # protein's frame as it is, so the protein is oriented and placed
+        # first, by the rule the study's settings choose.
+        from fastmdxplora.setup.membrane import (
+            LIPIDS,
+            check_chains_point_the_same_way,
+            place_for_membrane,
+        )
 
         lipid = str(membrane).upper()
         if lipid not in LIPIDS:
@@ -679,81 +790,87 @@ def prepare_system(
                 f"Available: {', '.join(sorted(LIPIDS))}."
             , code="setup.membrane.lipid_unparameterized")
 
-        if membrane_orient and not membrane_orientation_checked:
-            # Whether the rotation can be trusted, before doing it. A protein
-            # with no clearly longest axis gets one chosen by noise, and the
-            # same structure in a different starting frame would come out
-            # differently.
-            from fastmdxplora.setup.membrane import check_axis_is_well_defined
+        placement = place_for_membrane(
+            modeller.topology, modeller.positions, lipid=lipid,
+            orient=membrane_orient, orientation_checked=membrane_orientation_checked,
+            frame=membrane_frame, center_z_nm=membrane_center_z_nm)
+        modeller.positions = placement.positions
+        membrane_record = dict(placement.record)
+        if lipid_parameters:
+            membrane_record["lipid_parameters"] = lipid_parameters
+        logger.info("Placed for the bilayer: %s.", membrane_record["placed_by"])
 
-            problem = check_axis_is_well_defined(
-                modeller.topology, modeller.positions)
-            if problem:
-                raise StudyError(problem, code="setup.membrane.orientation_unchecked")
-
-        if membrane_orient:
-            # Asked for rather than done quietly: rotating by principal axes
-            # is right for a transmembrane helix or a bundle of them, and
-            # wrong for a protein with a large soluble domain that drags the
-            # axis away from the normal.
-            from fastmdxplora.setup.membrane import orient_for_membrane
-
-            modeller.positions = orient_for_membrane(
-                modeller.topology, modeller.positions)
-            logger.info(
-                "Rotated the structure so its longest axis lies along the "
-                "membrane normal. This is right for a transmembrane bundle "
-                "and wrong where a soluble domain dominates the shape; it "
-                "cannot tell which way up the protein ends, so where that "
-                "matters use an oriented structure from OPM."
-            )
-
-        if not membrane_orientation_checked:
-            problem = check_orientation(modeller.topology, modeller.positions)
-            if problem:
-                raise StudyError(problem, code="setup.membrane.orientation_unchecked")
-
-            # And whether what came out looks like a membrane protein at all.
-            # Rotating by principal axes is right for a transmembrane bundle
-            # and wrong where a soluble domain dominates the shape; until this
-            # check existed, the wrong case proceeded silently.
-            from fastmdxplora.setup.membrane import check_hydrophobic_belt
-
-            problem = check_hydrophobic_belt(
-                modeller.topology, modeller.positions)
-            if problem:
-                raise StudyError(problem, code="setup.membrane.orientation_unchecked")
-
-            # And whether the copies agree with each other. Each one passes
-            # the checks above whichever way up it is; only together do they
-            # show that one was inverted.
-            from fastmdxplora.setup.membrane import check_chains_point_the_same_way
-
+        if not membrane_orientation_checked and membrane_frame != "opm":
+            # Whether the copies agree with each other. One slab holds the
+            # whole complex, and two copies related by a symmetry that is
+            # not perpendicular to the membrane cannot both span it the same
+            # way up; each alone looks right.
             problem = check_chains_point_the_same_way(
                 modeller.topology, modeller.positions)
             if problem:
                 raise StudyError(problem, code="setup.membrane.orientation_unchecked")
-            logger.info(
-                "Hydrophobic belt check passed: the hydrophobic residues sit "
-                "nearer the middle than the charged ones, as a bilayer-"
-                "spanning protein's do."
-            )
 
-        modeller.addMembrane(
-            ff,
-            lipidType=lipid,
-            minimumPadding=solvent_padding_nm * unit.nanometer,
-            positiveIon=ion_positive,
-            negativeIon=ion_negative,
-            ionicStrength=ion_concentration_M * unit.molar,
-            neutralize=neutralize,
-        )
+        # Said before, because nothing is said during: OpenMM tiles its
+        # patch, removes the lipids the protein overlaps, and then runs
+        # twenty steps for every angstrom of the protein's width while the
+        # protein grows back from half of it, with no progress of its own to
+        # report. About a minute on a two-core CPU with amber14 for a
+        # 25,000-atom system; with CHARMM36, whose pair-specific lipid
+        # corrections OpenMM evaluates as a custom force, one force
+        # evaluation took over a second there, so a thousand steps take
+        # twenty minutes.
+        slow = any("charmm" in str(name).lower() for name in (force_field or []))
+        logger.info(
+            "Packing the %s bilayer round the protein: OpenMM tiles its patch, "
+            "removes the lipids the protein overlaps, and relaxes the rest "
+            "with a short simulation, reporting nothing until it is done.%s",
+            lipid, (" With CHARMM36 on a CPU this can take tens of minutes."
+                    if slow else ""))
+        try:
+            packed = _pack_the_bilayer(
+                modeller,
+                ff,
+                lipid,
+                membraneCenterZ=0.0 * unit.nanometer,
+                minimumPadding=solvent_padding_nm * unit.nanometer,
+                positiveIon=ion_positive,
+                negativeIon=ion_negative,
+                ionicStrength=ion_concentration_M * unit.molar,
+                neutralize=neutralize,
+            )
+        except StudyError:
+            raise
+        except ValueError as exc:
+            if "HOH" in str(exc) and "extra site" in str(exc):
+                # OpenMM's patches carry three-site water, and a four-site
+                # model's template does not match it. Refused in words: the
+                # raw message suggests a Modeller call nobody can make from
+                # a study.
+                raise StudyError(
+                    "A bilayer is built from OpenMM's pre-equilibrated "
+                    "patches, which carry three-site water, and the force "
+                    "field given describes a water with an extra site "
+                    "(TIP4P-Ew, OPC or similar). The lipid parameters "
+                    "available here, AMBER Lipid17 and CHARMM36, were "
+                    "developed with TIP3P as well. Use a TIP3P water with a "
+                    "membrane: the `amber14` or `charmm36` force field as "
+                    "named, or `amber14/tip3p.xml` in place of the water file.",
+                    code="config.option.conflicting") from exc
+            # The relaxation builds a system of lipids and protein, and
+            # reaches a component the force field cannot describe before
+            # createSystem does, as solvation does.
+            raise _explain_unparameterized(exc, ff, modeller.topology) from exc
         n_atoms_solvated = modeller.topology.getNumAtoms()
-        logger.info("Membrane system: %d atoms", n_atoms_solvated)
+        membrane_record.update(_bilayer_built(modeller, unit))
+        membrane_record.update(packed)
+        logger.info(
+            "Membrane system: %d atoms, %d %s lipids (%d and %d per leaflet).",
+            n_atoms_solvated, membrane_record["lipids"], lipid,
+            *membrane_record["lipids_per_leaflet"])
     else:
         try:
             try:
-                _solvate_with_room_for_the_cutoff(
+                padding_used = _solvate_with_room_for_the_cutoff(
                     modeller,
                     ff,
                     add_solvent_kwargs,
@@ -860,15 +977,20 @@ def prepare_system(
                 # OpenMM handle validation.
                 min_edge_nm = None
             if min_edge_nm is not None and nonbonded_cutoff_nm > 0.5 * min_edge_nm:
+                # The smallest diagonal entry is the box's narrowest width,
+                # which for a dodecahedron is not an edge: this said "box
+                # edge 1.41 nm" of a box whose edges were 2.0.
                 raise StudyError(
                     f"Nonbonded cutoff ({nonbonded_cutoff_nm:.2f} nm) exceeds "
-                    f"half the smallest periodic box dimension "
-                    f"({0.5 * min_edge_nm:.2f} nm; box edge {min_edge_nm:.2f} "
-                    f"nm). Increase solvent_padding_nm (currently "
-                    f"{solvent_padding_nm:.2f} nm) or decrease "
-                    f"nonbonded_cutoff_nm so that the cutoff is at most half "
-                    f"the box."
-                , code="config.option.wrong_type")
+                    f"half the smallest periodic box width "
+                    f"({0.5 * min_edge_nm:.2f} nm; the box is "
+                    f"{min_edge_nm:.2f} nm at its narrowest). "
+                    + _what_would_fit(smallest_nm=min_edge_nm,
+                                      padding_nm=float(solvent_padding_nm),
+                                      nonbonded_cutoff_nm=nonbonded_cutoff_nm,
+                                      box_shape=str(box_shape)),
+                    code="config.option.conflicting",
+                    options=["setup.solvent_padding_nm", "setup.nonbonded_cutoff_nm"])
 
     try:
         system = ff.createSystem(modeller.topology, **create_system_kwargs)
@@ -877,10 +999,25 @@ def prepare_system(
 
     # ----- 5. Capture initial State -----
     # Use a no-op integrator just to obtain a Context for State serialization.
+    # On the Reference platform: nothing is integrated here, only the
+    # velocities drawn and the positions wrapped, and the CPU and GPU
+    # platforms do not draw the same velocities twice from one seed. On
+    # the CPU, one draw in four for a 729-atom peptide box differed in the
+    # last bits from the others, and every draw on its default threads; two
+    # preparations of a bilayer from one seed matched in every position and
+    # in no velocity (up to 8e-8 nm/ps apart). The Reference platform drew
+    # the same bytes every time.
     integrator = omm["openmm"].VerletIntegrator(0.001 * unit.picoseconds)
-    context = omm["openmm"].Context(system, integrator)
+    context = omm["openmm"].Context(
+        system, integrator, omm["openmm"].Platform.getPlatformByName("Reference"))
     context.setPositions(modeller.positions)
-    context.setVelocitiesToTemperature(temperature_K * unit.kelvin)
+    # Drawn from Python's stream, which setup seeds (`setup.random_seed`),
+    # so the velocities in `state.xml` repeat with the rest of the system.
+    # Left to OpenMM they came from a seed of its own, different each time.
+    import random
+
+    context.setVelocitiesToTemperature(temperature_K * unit.kelvin,
+                                       random.randint(1, 2**31 - 1))
     state = context.getState(
         getPositions=True, getVelocities=True, enforcePeriodicBox=True
     )
@@ -922,13 +1059,177 @@ def prepare_system(
         # image convention constrains, and for a dodecahedron they are shorter
         # than the edge lengths, so both are kept.
         "box": _box_record(modeller),
+        # How the protein was placed for its bilayer, and what was built
+        # around it: the lipid, how many, per leaflet, and the fitted
+        # thickness the placement found. None for a box of water.
+        "membrane": membrane_record,
         # Settings this phase decided for itself, under their config names,
         # for `resolved_config.yml` to carry. Named values rather than a
         # filtered copy of the parameters, so nothing private leaks in.
         "resolved": {
             "switch_distance_nm": resolved_switch_distance_nm,
+            # The padding the box was built with, where the run grew it to
+            # clear the cutoff. The config's figure stays what was asked.
+            **({"solvent_padding_nm": round(float(padding_used), 4)}
+               if padding_used is not None
+               and abs(float(padding_used) - float(solvent_padding_nm)) > 1e-9 else {}),
+            # The cutoff and the switch this run used where nobody stated
+            # them. Recorded, because the report said 1.0 nm -- the value the
+            # schema handed over -- for a CHARMM36 run cut off at 1.2.
+            **{name: value for name, value in (
+                ("nonbonded_cutoff_nm", nonbonded_cutoff_nm),
+                ("use_switching_function", bool(use_switching_function)))
+               if stated[name] is None},
         },
     }
+
+
+#: Packings tried before a bilayer is refused. Each draws its own seed, so
+#: one that blew up is not repeated; three cost three packings, which for
+#: 2POR on a CPU is about 40 minutes.
+PACKING_ATTEMPTS = 3
+
+#: How a packing that ran away says so: OpenMM's NaN, or Python's on
+#: meeting it. The word is matched whole, so "nanometer" in a template's
+#: message is not a runaway.
+_RAN_AWAY = re.compile(r"\bNaN\b")
+
+
+def _seeded_packing(seed: int):
+    """OpenMM's bilayer packing, with its dynamics on `seed`, while in use.
+
+    `Modeller.addMembrane` relaxes the lipids round the protein with a
+    Langevin integrator it makes itself and never seeds, and it takes no
+    seed to pass on. Unseeded, four preparations of 2POR with one
+    `setup.random_seed` gave four systems, 279,726 to 279,807 atoms, the
+    water it keeps following where the lipids ended. The integrator is
+    made through the name `modeller.py` imported, so that name gives a
+    seeded one for as long as the packing runs, and is put back after.
+
+    Returns a context manager whose value is a list that holds the seed
+    once an integrator has been made with it: empty, OpenMM made its
+    integrator some other way and the packing was not seeded.
+    """
+    from contextlib import contextmanager
+
+    @contextmanager
+    def seeded():
+        from openmm.app import modeller as module
+
+        made: list[int] = []
+        original = getattr(module, "LangevinIntegrator", None)
+        if original is None:
+            yield made
+            return
+
+        def langevin(*args: Any, **kwargs: Any) -> Any:
+            integrator = original(*args, **kwargs)
+            integrator.setRandomNumberSeed(int(seed))
+            made.append(int(seed))
+            return integrator
+
+        module.LangevinIntegrator = langevin
+        try:
+            yield made
+        finally:
+            module.LangevinIntegrator = original
+
+    return seeded()
+
+
+def _pack_the_bilayer(modeller: Any, ff: Any, lipid: str,
+                      **packing: Any) -> dict[str, Any]:
+    """Pack the bilayer, seeded from setup's stream, trying again on a NaN.
+
+    The relaxation grows the protein back from half its width through the
+    lipids, and now and then a lipid is caught and the forces run away:
+    2POR, a trimer of barrels, packed on the nights before and stopped on
+    2026-10-04 with "Particle coordinate is NaN" after 14 minutes. The seeds
+    come from Python's stream, which setup seeds (`setup.random_seed`),
+    so the packing, and any packing tried again, repeats with the rest of
+    the preparation. A failed packing leaves the Modeller as it was: OpenMM
+    writes the bilayer to it only once the relaxation is done.
+
+    Returns what the record keeps: the seed the bilayer was packed with
+    (None where OpenMM's integrator could not be seeded) and how many
+    packings it took.
+    """
+    import random
+
+    tried: list[int] = []
+    for _ in range(PACKING_ATTEMPTS):
+        seed = random.randint(1, 2**31 - 1)
+        tried.append(seed)
+        try:
+            with _seeded_packing(seed) as made:
+                modeller.addMembrane(ff, lipidType=lipid, **packing)
+        except Exception as exc:  # noqa: BLE001 - OpenMM's own exception type
+            # A runaway reaches the caller two ways: OpenMM's own "Particle
+            # coordinate is NaN" during the relaxation, or, where the
+            # relaxation ended on NaN positions without stopping, Python's
+            # "cannot convert float NaN to integer" as OpenMM then sorts
+            # those positions into cells to place the water. Both are the
+            # packing, and both are packed again; any other failure,
+            # a missing template included, is not.
+            if not _RAN_AWAY.search(str(exc)):
+                raise
+            logger.warning(
+                "Packing the %s bilayer with seed %d failed (%s); %s", lipid, seed,
+                str(exc).strip(),
+                "trying again with the next seed." if len(tried) < PACKING_ATTEMPTS
+                else "that was the last packing tried.")
+            continue
+        if not made:
+            logger.warning(
+                "OpenMM made the bilayer's relaxation without the integrator "
+                "this setup seeds, so the packing used random numbers of its "
+                "own and will not repeat exactly.")
+        return {"packing_seed": made[0] if made else None,
+                "packing_attempts": len(tried)}
+    raise StudyError(
+        f"The {lipid} bilayer could not be packed round this structure: "
+        f"OpenMM's relaxation, which grows the protein back through the "
+        f"lipids from half its width, ran away to a NaN in each of "
+        f"{len(tried)} packings (seeds {', '.join(str(s) for s in tried)}). "
+        f"A protein not oriented across the slab runs away this way every "
+        f"time; one that packs now and then is packed again from other "
+        f"random numbers by another `setup.random_seed`.",
+        code="setup.membrane.packing_failed", lipid=lipid, seeds=tried)
+
+
+def _bilayer_built(modeller: Any, unit: Any) -> dict[str, Any]:
+    """What was built: how many lipids, how many in each leaflet, the box.
+
+    A leaflet is told by which side of the centre (z = 0) a lipid's
+    phosphorus sits, or its centre where it has none. The area per lipid of
+    the box includes the protein's cross-section, so it is recorded as the
+    box's, not the bilayer's.
+    """
+    import numpy as np
+
+    from fastmdxplora.lipids import is_lipid
+
+    positions = np.asarray(modeller.positions.value_in_unit(unit.nanometer))
+    upper = lower = 0
+    for residue in modeller.topology.residues():
+        if not is_lipid(residue.name):
+            continue
+        atoms = list(residue.atoms())
+        phosphorus = [a.index for a in atoms if a.name.upper().startswith("P")
+                      and (a.element is None or a.element.symbol == "P")]
+        z = float(positions[phosphorus or [a.index for a in atoms], 2].mean())
+        if z >= 0:
+            upper += 1
+        else:
+            lower += 1
+    vectors = modeller.topology.getPeriodicBoxVectors()
+    width = [float(vectors[i][i].value_in_unit(unit.nanometer)) for i in range(3)]
+    lipids = upper + lower
+    record = {"lipids": lipids, "lipids_per_leaflet": [upper, lower],
+              "box_nm": [round(w, 3) for w in width]}
+    if lipids:
+        record["box_area_per_lipid_nm2"] = round(width[0] * width[1] / (lipids / 2.0), 3)
+    return record
 
 
 def _box_record(modeller: Any) -> dict[str, Any] | None:

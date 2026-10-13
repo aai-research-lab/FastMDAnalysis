@@ -3,18 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark">
-  <title>FastMDXplora GUI</title>
+  <meta name="color-scheme" content="dark light">
+  <title>__FASTMDX_TITLE__</title>
+  <script src="/static/theme-first.js"></script>
   <link rel="stylesheet" href="/static/theme.css">
   <link rel="stylesheet" href="/static/dashboard.css">
+  <link rel="stylesheet" href="/static/remote.css">
+  <!--__FASTMDX_LAB_ICON__-->
   <meta name="fastmdx-expansion" content="Fully Automated SysTem for Molecular Dynamics eXploration">
 </head>
 <body class="state-loading" data-refresh-seconds="__FASTMDX_REFRESH_SECONDS__">
   <!-- Loading screen -->
   <div id="loading-screen" class="loading-screen" aria-hidden="false">
     <div class="loading-shell">
-      <div class="loading-product">FastMDXplora</div>
-      <div class="loading-tagline">Fully Automated SysTem for Molecular Dynamics eXploration</div>
+      <div class="loading-product">__FASTMDX_PRODUCT__</div>
+      <div class="loading-tagline">__FASTMDX_TAGLINE__</div>
       <div class="loading-status" id="loading-status">
         <div class="loading-step" data-step="telemetry">
           <span class="loading-bullet"></span>
@@ -29,7 +32,6 @@
           <span class="loading-label">Preparing simulation metrics</span>
         </div>
       </div>
-      <div class="loading-particles" aria-hidden="true"></div>
     </div>
   </div>
 
@@ -45,7 +47,7 @@
           <div class="builder-label">Agent settings</div>
           <div class="builder-card-note" id="agent-model-current"></div>
         </div>
-        <button id="agent-settings-close" class="ghost-btn">Close</button>
+        <button type="button" id="agent-settings-close" class="line-btn dialog-x" aria-label="Close" title="Close"><!--icon:close:line-icon--></button>
       </div>
       <div class="agent-dialog-body">
         <div class="builder-grid builder-grid-2">
@@ -54,14 +56,14 @@
             <select id="agent-provider"></select>
           </label>
           <label class="builder-field">
-            <span class="builder-label">Model</span>
+            <span class="builder-label">AI model</span>
             <select id="agent-model"></select>
           </label>
           <label class="builder-field builder-field-wide" id="agent-model-other-field" hidden>
-            <span class="builder-label">Model name</span>
+            <span class="builder-label">AI model name</span>
             <input id="agent-model-other" type="text"
                    placeholder="exactly as the provider spells it">
-            <p class="builder-card-note">Any model the provider
+            <p class="builder-card-note">Any AI model the provider
               has. The list above is what it reports; a name it
               does not have is refused by the provider, with its
               own message.</p>
@@ -78,12 +80,25 @@
                    placeholder="paste your key">
             <p class="builder-card-note" id="agent-key-help"></p>
           </label>
+          <label class="builder-field builder-field-wide" id="agent-cache-field" hidden>
+            <span class="builder-label">Keep the instructions cached</span>
+            <select id="agent-cache">
+              <option value="auto">An hour on this page, five minutes from the command line</option>
+              <option value="1h">An hour</option>
+              <option value="5m">Five minutes</option>
+            </select>
+            <p class="builder-card-note">Every message starts with the same
+              instructions. Read again from the provider's cache they cost a
+              tenth of the usual price. Kept for an hour, writing them costs
+              twice the price instead of 1.25 times, and a reply after a pause
+              still reads them. Anthropic only.</p>
+          </label>
           <label class="builder-field">
             <span class="builder-label">Mode</span>
             <select id="agent-mode">
-              <option value="assisted">Assisted — you approve it</option>
-              <option value="autonomous">Autonomous — runs unattended</option>
-              <option value="unvalidated">Unvalidated — outside the schema</option>
+              <option value="assisted">Assisted: you approve it</option>
+              <option value="autonomous">Autonomous: runs unattended</option>
+              <option value="unvalidated">Unvalidated: outside the schema</option>
             </select>
             <p class="builder-card-note" id="agent-mode-note"></p>
           </label>
@@ -100,148 +115,474 @@
       </div>
     </div>
   </div>
+  <!-- Everything to go to or do, found by typing (palette.js, Cmd+K). -->
+  <div id="palette" class="agent-dialog palette" hidden>
+    <div class="agent-dialog-panel palette-panel" role="dialog" aria-modal="true" aria-label="Go to anything">
+      <span class="search-field palette-field"><!--icon:search:search-icon-->
+      <input id="palette-input" class="palette-input" type="text" autocomplete="off" spellcheck="false"
+             role="combobox" aria-expanded="true" aria-controls="palette-list" aria-autocomplete="list"
+             placeholder="Go to a page, a study, an analysis, a tool..."></span>
+      <ul id="palette-list" class="palette-list" role="listbox" aria-label="Found"></ul>
+      <div class="palette-foot muted small"><kbd>&uarr;</kbd><kbd>&darr;</kbd> choose · <kbd>Enter</kbd> go · <kbd>Esc</kbd> close</div>
+    </div>
+  </div>
+  <!-- The Viewer's keys, opened by ? on the Viewer or the last button of its rail. -->
+  <div id="viewer-help" class="agent-dialog" hidden>
+    <div class="agent-dialog-panel dialog-narrow" role="dialog" aria-modal="true"
+         aria-labelledby="viewer-help-title">
+      <div class="agent-dialog-head">
+        <div>
+          <div class="builder-label" id="viewer-help-title">The Viewer's keys</div>
+          <div class="builder-card-note">On the Viewer, and never while typing in a field.</div>
+        </div>
+        <button type="button" class="line-btn dialog-x" data-dialog-close aria-label="Close" title="Close"><!--icon:close:line-icon--></button>
+      </div>
+      <div class="agent-dialog-body">
+        <dl class="keys-list" id="viewer-keys">
+          <div><dt><kbd>Space</kbd></dt><dd>Play or pause</dd></div>
+          <div><dt><kbd>&larr;</kbd> <kbd>&rarr;</kbd></dt><dd>A frame back or on; with <kbd>Shift</kbd>, ten</dd></div>
+          <div><dt><kbd>Home</kbd> <kbd>End</kbd></dt><dd>The first frame, the last</dd></div>
+          <div><dt><kbd>R</kbd></dt><dd>Centre the structure</dd></div>
+          <div><dt><kbd>F</kbd></dt><dd>Full screen</dd></div>
+          <div><dt><kbd>M</kbd></dt><dd>Measure: click two to four atoms</dd></div>
+          <div><dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>The tool above or below on the rail</dd></div>
+          <div><dt><kbd>Esc</kbd></dt><dd>Clear a measurement; close this list</dd></div>
+          <div><dt><kbd>?</kbd></dt><dd>This list</dd></div>
+          <div><dt><kbd>&#8984;</kbd> <kbd>K</kbd></dt><dd>Go to anything, on any page (<kbd>Ctrl</kbd> <kbd>K</kbd> off a Mac)</dd></div>
+        </dl>
+        <p class="builder-card-note">On the molecule: drag to turn, scroll to zoom, right-drag to move,
+          click an atom to select it.</p>
+      </div>
+    </div>
+  </div>
+  <!-- Preferences: how this browser shows things, kept in it and applied
+       as they change. Nothing here changes a study or its files. -->
+  <div id="prefs-dialog" class="agent-dialog" hidden>
+    <div class="agent-dialog-panel dialog-narrow" role="dialog" aria-modal="true"
+         aria-labelledby="prefs-title">
+      <div class="agent-dialog-head">
+        <div>
+          <div class="builder-label" id="prefs-title">Preferences</div>
+          <div class="builder-card-note">Kept in this browser. They change how
+            studies are shown, never a study or its files.</div>
+        </div>
+        <button type="button" class="line-btn dialog-x" data-dialog-close aria-label="Close" title="Close"><!--icon:close:line-icon--></button>
+      </div>
+      <div class="agent-dialog-body">
+        <div class="pref-group">
+          <div class="pref-group-title">The Viewer, as it opens</div>
+          <div class="pref-rows">
+            <label class="pref-row"><span>Representation</span>
+              <select id="setting-protein-rep">
+                <option value="cartoon" selected>Cartoon</option>
+                <option value="backbone">Backbone</option>
+                <option value="sticks">Sticks</option>
+                <option value="ballAndStick">Ball and stick</option>
+                <option value="surface">Surface</option>
+                <option value="lines">Lines</option>
+                <option value="spacefill">Spheres</option>
+              </select>
+            </label>
+            <label class="pref-row"><span>Ground</span>
+              <select id="setting-ground">
+                <option value="scheme" selected>As the scheme</option>
+                <option value="dark">Dark</option>
+                <option value="white">White</option>
+              </select>
+            </label>
+            <label class="pref-row"><span>Water</span><input type="checkbox" id="setting-show-water"></label>
+            <label class="pref-row"><span>Ions</span><input type="checkbox" id="setting-show-ions"></label>
+            <label class="pref-row"><span>Spin</span><input type="checkbox" id="setting-spin"></label>
+            <label class="pref-row"><span>Keep the camera as frames change<small>Off, each frame is fitted to the view</small></span><input type="checkbox" id="setting-preserve-camera" checked></label>
+            <label class="pref-row"><span>Pocket cutoff (&Aring;)<small>Residues this close to the ligand</small></span>
+              <input type="number" id="setting-pocket-cutoff" min="3" max="15" step="0.5" value="5">
+            </label>
+          </div>
+        </div>
+        <div class="pref-group">
+          <div class="pref-group-title">Display</div>
+          <div class="pref-rows">
+            <label class="pref-row"><span>Time</span>
+              <select id="setting-time-format">
+                <option value="24h" selected>24-hour</option>
+                <option value="12h">12-hour</option>
+              </select>
+            </label>
+            <label class="pref-row"><span>Chart history<small>Samples a live chart keeps</small></span>
+              <input type="number" id="setting-chart-history" min="60" max="5000" step="60" value="600">
+            </label>
+          </div>
+        </div>
+        <div class="pref-group">
+          <div class="pref-group-title">While a study runs</div>
+          <div class="pref-rows">
+            <label class="pref-row"><span>Notify when a run ends<small>A notice from the browser, as it
+              completes, stops or fails; how far it is shows in the tab's title either way</small></span>
+              <input type="checkbox" id="setting-notify">
+            </label>
+            <p class="muted small" id="setting-notify-note" role="status" hidden></p>
+          </div>
+        </div>
+      </div>
+      <div class="agent-dialog-foot">
+        <button type="button" class="ghost-btn" id="prefs-restore">Restore defaults</button>
+      </div>
+    </div>
+  </div>
+  <!-- A data deposit of the study (files-actions.js, deposit.py): the
+       sets ticked, the README written from the records, then one zip. -->
+  <div id="files-deposit-dialog" class="agent-dialog" hidden>
+    <div class="agent-dialog-panel files-deposit-panel" role="dialog" aria-modal="true"
+         aria-labelledby="files-deposit-title">
+      <div class="agent-dialog-head">
+        <div>
+          <div class="builder-label" id="files-deposit-title">Prepare a data deposit</div>
+          <div class="builder-card-note">One zip for Zenodo, a journal's data repository or a
+            colleague: the files ticked, a README written from the study's records, and a
+            SHA-256 for every file.</div>
+        </div>
+        <button type="button" class="line-btn dialog-x" data-dialog-close aria-label="Close" title="Close"><!--icon:close:line-icon--></button>
+      </div>
+      <div class="agent-dialog-body">
+        <fieldset class="files-dep-list" id="files-deposit-sets">
+          <legend class="files-sr">What goes in the deposit</legend>
+        </fieldset>
+        <div class="files-dep-readme">
+          <div class="files-dep-readme-title">README.md, written from the study's records</div>
+          <pre id="files-deposit-readme" tabindex="0" role="region" aria-label="The README the deposit is written with">Reading the study…</pre>
+        </div>
+        <p class="files-dialog-said" id="files-deposit-done" hidden></p>
+      </div>
+      <div class="agent-dialog-foot">
+        <span class="files-dep-total" id="files-deposit-said"></span>
+        <button type="button" class="ghost-btn" data-dialog-close>Cancel</button>
+        <button type="button" class="primary-btn" id="files-deposit-go" disabled>Write the deposit</button>
+      </div>
+    </div>
+  </div>
+  <!-- Clearing the scratch of the Viewer and the live view
+       (files-actions.js): what would go is asked for first, and said. -->
+  <div id="files-clear-dialog" class="agent-dialog" hidden>
+    <div class="agent-dialog-panel dialog-narrow" role="dialog" aria-modal="true"
+         aria-labelledby="files-clear-title">
+      <div class="agent-dialog-head">
+        <div>
+          <div class="builder-label" id="files-clear-title">Clear the scratch?</div>
+          <div class="builder-card-note">What the Viewer wrote and the live view kept, on this computer.</div>
+        </div>
+        <button type="button" class="line-btn dialog-x" data-dialog-close aria-label="Close" title="Close"><!--icon:close:line-icon--></button>
+      </div>
+      <div class="agent-dialog-body">
+        <p class="files-dialog-said" id="files-clear-said">Looking at what can go…</p>
+        <ul class="files-dialog-kept" id="files-clear-kept" hidden></ul>
+      </div>
+      <div class="agent-dialog-foot">
+        <button type="button" class="ghost-btn" data-dialog-close>Cancel</button>
+        <button type="button" class="primary-btn" id="files-clear-go" disabled>Clear</button>
+      </div>
+    </div>
+  </div>
+  <!-- The citation, and its BibTeX, each taken in one click. The report,
+       the slides and `fastmdx info` print it too; filled by the server from
+       the same constant, so it cannot drift from the others. -->
+  <div id="cite-dialog" class="agent-dialog" hidden>
+    <div class="agent-dialog-panel dialog-narrow" role="dialog" aria-modal="true"
+         aria-labelledby="cite-title">
+      <div class="agent-dialog-head">
+        <div>
+          <div class="builder-label" id="cite-title">Cite FastMDXplora</div>
+          <div class="builder-card-note">If this software contributed to your work, please cite it.</div>
+        </div>
+        <button type="button" class="line-btn dialog-x" data-dialog-close aria-label="Close" title="Close"><!--icon:close:line-icon--></button>
+      </div>
+      <div class="agent-dialog-body cite-body">
+        <p class="cite-name"><strong>FastMDXplora</strong>: __FASTMDX_EXPANSION__</p>
+        <div class="cite-block">
+          <p id="cite-reference">__FASTMDX_CITATION__</p>
+          <button type="button" class="line-btn" data-copy-from="cite-reference" aria-label="Copy the reference"
+                  title="Copy the reference"><!--icon:copy:line-icon--></button>
+        </div>
+        <p class="subtle">DOI: <a href="https://doi.org/__FASTMDX_DOI__"
+           target="_blank" rel="noopener">__FASTMDX_DOI__</a>
+           &nbsp;&middot;&nbsp; version <span id="cite-version">__FASTMDX_VERSION__</span></p>
+        <div class="cite-bibtex-head">
+          <span class="builder-label">BibTeX</span>
+          <button type="button" class="line-btn" data-copy-from="cite-bibtex" aria-label="Copy the BibTeX"
+                  title="Copy the BibTeX"><!--icon:copy:line-icon--></button>
+        </div>
+        <pre class="mono" id="cite-bibtex">__FASTMDX_BIBTEX__</pre>
+        <p class="subtle">&copy; Copyright __FASTMDX_COPYRIGHT__.</p>
+      </div>
+    </div>
+  </div>
+  <!-- One of the study's own words for this browser: the name it is shown
+       under, or the ligand the Viewer centres on. Kept by the study's
+       folder; the study is not changed. -->
+  <div id="study-field-dialog" class="agent-dialog" hidden>
+    <div class="agent-dialog-panel dialog-narrow" role="dialog" aria-modal="true"
+         aria-labelledby="study-field-title">
+      <div class="agent-dialog-head">
+        <div>
+          <div class="builder-label" id="study-field-title">System ID</div>
+          <div class="builder-card-note" id="study-field-note"></div>
+        </div>
+        <button type="button" class="line-btn dialog-x" data-dialog-close aria-label="Close" title="Close"><!--icon:close:line-icon--></button>
+      </div>
+      <div class="agent-dialog-body">
+        <label class="builder-field">
+          <span class="builder-label" id="study-field-label">Name</span>
+          <input type="text" id="study-field-input" autocomplete="off" spellcheck="false">
+        </label>
+        <p class="builder-card-note study-field-refused" id="study-field-refused" role="alert" hidden></p>
+      </div>
+      <div class="agent-dialog-foot">
+        <button type="button" class="ghost-btn" id="study-field-clear">Use the default</button>
+        <button type="button" class="primary-btn" id="study-field-save">Save</button>
+      </div>
+    </div>
+  </div>
+  <!-- The study's own words, read by the page as they were when they were
+       settings of the page; written by the dialog above. -->
+  <input type="hidden" id="setting-run-name">
+  <input type="hidden" id="setting-ligand-resname">
   <div class="settings-popup" id="settings-popup" hidden role="dialog" aria-label="Settings">
+    <!--__FASTMDX_ACCOUNT_ITEM__-->
     <div class="settings-section">Appearance</div>
     <div class="settings-row">
       <span>Theme</span>
       <div class="seg" role="group" aria-label="Theme">
-        <button type="button" class="seg-btn active" data-theme="graphite">Graphite</button>
-        <button type="button" class="seg-btn" data-theme="ink">Ink</button>
-        <button type="button" class="seg-btn" data-theme="paper">Paper</button>
+        <button type="button" class="seg-btn active" data-theme="system" aria-pressed="true" title="As the computer is set, light or dark">System</button>
+        <button type="button" class="seg-btn" data-theme="light" aria-pressed="false">Light</button>
+        <button type="button" class="seg-btn" data-theme="dark" aria-pressed="false">Dark</button>
       </div>
     </div>
     <div class="settings-divider"></div>
     <div class="settings-section">Agent</div>
-    <div class="settings-row"><span>Engine</span><span class="mono settings-value" id="settings-engine">none</span></div>
-    <div class="settings-row"><span>Mode</span><span class="mono settings-value" id="settings-mode">assisted</span></div>
-    <a href="#agent" class="settings-item" id="settings-agent-link">Agent settings&hellip; <span class="mono settings-hint">engine, key, mode, ceiling</span></a>
+    <div class="settings-row"><span>Engine</span><span class="settings-value" id="settings-engine">none</span></div>
+    <div class="settings-row"><span>Mode</span><span class="settings-value" id="settings-mode">assisted</span></div>
+    <a href="#agent" class="settings-item" id="settings-agent-link">Agent settings&hellip;</a>
     <div class="settings-divider"></div>
-    <a href="#settings" class="settings-item" data-view-link="settings">Display preferences <span class="mono settings-hint">viewer, dashboard</span></a>
-    <a href="#cite" class="settings-item" data-view-link="cite">Cite FastMDXplora <span class="mono settings-hint" id="settings-version"></span></a>
+    <button type="button" class="settings-item" data-dialog-open="prefs-dialog" aria-haspopup="dialog">Preferences&hellip; <span class="settings-hint">viewer, time, charts</span></button>
+    <button type="button" class="settings-item" data-dialog-open="cite-dialog" aria-haspopup="dialog">Cite FastMDXplora&hellip; <span class="mono settings-hint" id="settings-version"></span></button>
     <a href="https://fastmdxplora.readthedocs.io/en/latest/gui.html" class="settings-item" target="_blank" rel="noopener">Documentation <span class="mono settings-hint">&#8599;</span></a>
     <a href="https://github.com/aai-research-lab/FastMDXplora" class="settings-item" target="_blank" rel="noopener">GitHub <span class="mono settings-hint">&#8599;</span></a>
   </div>
   <div class="app-shell">
+    <!-- The keyboard's way past the sidebar: shown when it has focus. -->
+    <a class="skip-link" href="#page-shell" data-skip-to="page-shell">Skip to the page</a>
+    <!-- Over the folded sidebar's strip, its mark: pointed at, the sidebar
+         shows over the page; clicked, it stays. First after the skip link,
+         so it is the strip's first stop for the keyboard as it is for the
+         eye. -->
+    <button type="button" class="sidebar-expand" id="sidebar-expand" hidden title="Show sidebar" aria-label="Show sidebar"><!--__FASTMDX_STRIP_MARK__--><span class="sidebar-expand-chevron" aria-hidden="true"><!--icon:sidebar:fold-icon--></span></button>
     <!-- Sidebar -->
     <aside class="sidebar" aria-label="Dashboard navigation">
-      <div class="sidebar-brand">
-        <button type="button" class="ghost-btn sidebar-collapse" id="sidebar-collapse" title="Collapse sidebar" aria-label="Collapse sidebar">&#10094;</button>
-        <div class="brand-text">
-          <div class="brand-product">FastMDXplora</div>
-          <div class="brand-tagline">Fully Automated SysTem for Molecular Dynamics eXploration</div>
+      <!-- At the top and kept there as the rest scrolls: the product's name
+           and the button that folds the sidebar to a strip of icons, then
+           the two ways to begin, a new study and the Agent. The Agent was
+           under New study, but it answers about the open study, fixes,
+           runs again and compares as well. A service's own line, where it
+           gives one, sits under its name. -->
+      <div class="sidebar-top">
+        <div class="sidebar-brand">
+          <!-- On a phone, the bar carries FastMDXplora's mark, white on
+               black, in place of the name. -->
+          <!--__FASTMDX_PHONE_MARK__-->
+          <div class="brand-text">
+            <div class="brand-product">__FASTMDX_PRODUCT__</div>
+            <div class="brand-tagline">__FASTMDX_BRAND_LINE__</div>
+          </div>
+          <button type="button" class="fold-btn sidebar-collapse" id="sidebar-collapse" title="Collapse sidebar" aria-label="Collapse sidebar"><!--icon:sidebar:fold-icon--></button>
         </div>
+        <nav class="sidebar-nav sidebar-start" aria-label="Begin">
+          <a href="#run" class="nav-link nav-start" data-view-link="run" title="New study">
+            <!--icon:new:nav-icon-->
+            <span>New study</span>
+          </a>
+          <div class="nav-start-row">
+            <a href="#agent" class="nav-link nav-start" data-view-link="agent" title="Agent">
+              <!--icon:agent:nav-icon-->
+              <span>Agent</span>
+            </a>
+            <button type="button" class="nav-beside" id="agent-beside-open" title="The Agent beside this page (Ctrl J)" aria-label="The Agent beside this page"><!--icon:beside:nav-icon--></button>
+          </div>
+        </nav>
+        <!-- On a phone, the conversations behind one icon in the bar: the
+             sidebar's lists of them would fill the bar. -->
+        <button type="button" class="line-btn phone-convs" id="phone-convs" title="Conversations"
+                aria-label="Conversations"><!--icon:chat:line-icon--></button>
       </div>
+
+      <!-- The newest studies of the workspace, one click from each; folded
+           and kept so (studies.js). -->
+      <details class="sidebar-recent" id="sidebar-recent" open>
+        <summary class="nav-link sidebar-recent-head" title="Recent studies" aria-label="Recent studies">
+          <!--icon:recent:nav-icon recent-icon--><span>Recent</span><!--icon:chevron:recent-chevron-->
+        </summary>
+        <div class="sidebar-recent-list" id="sidebar-recent-list"></div>
+      </details>
+
+      <nav class="sidebar-nav sidebar-workspace" aria-label="Workspace">
+        <a href="#studies" class="nav-link" data-view-link="studies" title="All studies">
+          <!--icon:studies:nav-icon-->
+          <span>All studies</span><span class="nav-count mono" id="nav-studies-count"></span>
+        </a>
+      </nav>
+
+      <!-- The study on screen: its system large, where it stands, and its
+           folder, shortened in the middle to fit and copied on a click.
+           The card opens the studies to switch to and the study's own
+           settings. Then its pages. -->
       <div class="sidebar-study">
-        <div class="study-label mono" id="topbar-run-id">workspace</div>
-        <div class="study-name" id="topbar-run-title">No active study</div>
-        <div class="study-status" role="status" aria-live="polite">
-          <span class="status-dot status-dot-live" id="topbar-status-dot"></span>
-          <span class="status-text" id="topbar-status-text">live</span>
-          <span class="status-divider" aria-hidden="true">·</span>
-          <span class="mono" id="sidebar-platform" title="Platform">—</span>
-          <span class="status-divider" aria-hidden="true">·</span>
-          <span class="mono" id="sidebar-connection-state">Live</span>
-          <!-- Written by the JS, shown under Progress instead. -->
-          <span id="topbar-stage" hidden></span>
-          <span id="sidebar-status-dot" hidden></span>
-          <span id="sidebar-run-name" hidden></span>
+        <div class="nav-heading" id="nav-heading-study">Active study</div>
+        <button type="button" class="sidebar-study-card" id="study-card" aria-haspopup="true" aria-expanded="false" aria-controls="study-menu" title="Switch study">
+          <span class="study-card-body">
+            <span class="study-name" id="topbar-run-title">No active study</span>
+            <span class="study-status" role="status" aria-live="polite">
+              <span class="status-dot status-dot-live" id="topbar-status-dot"></span>
+              <span class="status-text" id="topbar-status-text">Ready</span>
+              <span class="status-divider" aria-hidden="true">&middot;</span>
+              <span class="status-platform" id="sidebar-platform" title="Platform">&mdash;</span>
+              <span class="status-connection" id="sidebar-connection-state" data-connection="live">live</span>
+            </span>
+          </span>
+          <!--icon:chevron:study-card-chevron-->
+        </button>
+        <button type="button" class="study-folder mono" id="study-folder" hidden title="Copy the folder's path">
+          <span class="study-folder-name" id="study-folder-name"></span>
+        </button>
+        <span class="mono" id="topbar-run-id" hidden>workspace</span>
+        <span id="sidebar-status-dot" hidden></span>
+        <span id="sidebar-run-name" hidden></span>
+        <div class="study-menu" id="study-menu" role="menu" aria-label="Switch study" hidden>
+          <!-- The newest studies are Recent's, above; the menu is for
+               another folder and this study's own settings. -->
+          <a href="#studies" class="study-menu-item" role="menuitem" data-menu-page="studies">All studies&hellip;</a>
+          <!-- The same folder picker the builder uses, into a hidden input. -->
+          <button class="study-menu-item" type="button" role="menuitem" id="load-study" title="Open a study from another folder">Open another folder&hellip;</button>
+          <input type="hidden" id="load-study-path">
+          <div class="study-menu-divider"></div>
+          <div class="study-menu-label">This study</div>
+          <!-- Its whole path, for the copy beside the card: shown there
+               shortened, not here. -->
+          <div class="study-path mono" id="sidebar-output-folder" title="Output folder" hidden>&mdash;</div>
+          <button class="study-menu-item" type="button" role="menuitem" id="open-output" title="Open the output folder, and copy its path">Open the folder</button>
+          <button class="study-menu-item" type="button" role="menuitem" data-study-field="name" aria-haspopup="dialog">System ID for display&hellip;</button>
+          <button class="study-menu-item" type="button" role="menuitem" data-study-field="ligand" aria-haspopup="dialog">Ligand residue&hellip;</button>
         </div>
-        <!-- The study block reads top-down as a person thinks: what is on
-             screen (above), what is running elsewhere (this, when it is),
-             what else can be opened (the button). From this GUI at most one
-             study runs at a time, so this is a line, not a list. -->
+        <!-- What is running elsewhere, when something is; a study of several
+             runs, each with where it stands; a run inside one, and the way
+             back. Each hidden until it applies. -->
         <div class="study-running" id="study-elsewhere" hidden>
-          <div class="study-section-label mono">Running</div>
+          <div class="study-section-label">Running</div>
           <div class="study-running-row">
             <span class="status-dot status-dot-live" aria-hidden="true"></span>
             <span class="study-running-name mono" id="study-elsewhere-name"></span>
             <span class="study-running-pct mono" id="study-elsewhere-pct"></span>
-            <button class="ghost-btn" type="button" id="study-elsewhere-view" title="View the running study">View</button>
+            <button class="line-btn" type="button" id="study-elsewhere-view" aria-label="View the running study"
+                    title="View the running study"><!--icon:eye:line-icon--></button>
           </div>
         </div>
-        <!-- A study of several runs: each one, with where it stands, and a
-             way into it. A run inside one: the study it belongs to, and the
-             way back. Both hidden for a study of one run. -->
         <div class="study-running" id="study-runs" hidden>
-          <div class="study-section-label mono" id="study-runs-label">Runs</div>
+          <div class="study-section-label" id="study-runs-label">Runs</div>
           <div id="study-runs-list"></div>
         </div>
         <div class="study-running" id="study-run-of" hidden>
-          <div class="study-section-label mono">Run of</div>
+          <div class="study-section-label">Run of</div>
           <div class="study-running-row">
             <span class="study-running-name mono" id="study-run-of-name"></span>
             <span class="study-running-pct mono" id="study-run-of-values"></span>
-            <button class="ghost-btn" type="button" id="study-run-of-back" title="Back to the study">Back</button>
+            <button class="line-btn" type="button" id="study-run-of-back" aria-label="Back to the study"
+                    title="Back to the study"><!--icon:back:line-icon--></button>
           </div>
         </div>
-        <div class="study-switch">
-          <button class="ghost-btn" type="button" id="load-study" title="Open another study from this workspace">Load available study</button>
-          <input type="hidden" id="load-study-path">
-        </div>
-        <div class="study-path mono" id="sidebar-output-folder" title="Output folder">—</div>
       </div>
 
-      <div class="sidebar-progress">
-        <div class="study-label mono">Progress</div>
-        <ol class="sidebar-stages" aria-label="Stages">
-          <li class="stage-step" data-stage="setup"><span class="stage-marker"></span><span class="stage-label">Setup</span></li>
-          <li class="stage-step" data-stage="minimization"><span class="stage-marker"></span><span class="stage-label">Minimisation</span></li>
-          <li class="stage-step" data-stage="nvt"><span class="stage-marker"></span><span class="stage-label">NVT</span></li>
-          <li class="stage-step" data-stage="npt"><span class="stage-marker"></span><span class="stage-label">NPT</span></li>
-          <li class="stage-step" data-stage="production"><span class="stage-marker"></span><span class="stage-label">Production</span></li>
-          <li class="stage-step" data-stage="analysis"><span class="stage-marker"></span><span class="stage-label">Analysis</span></li>
-          <li class="stage-step" data-stage="report"><span class="stage-marker"></span><span class="stage-label">Report</span></li>
-        </ol>
-        <div class="sidebar-metrics">
-          <span class="metric-label">Step</span><span class="metric-value mono"><span id="topbar-step">—</span> / <span id="topbar-total">—</span></span>
-          <span class="metric-label">Complete</span><span class="metric-value mono" id="topbar-progress">—</span>
-          <span class="metric-label">ETA</span><span class="metric-value mono" id="topbar-eta">—</span>
-        </div>
-        <div class="sidebar-controls">
-          <button class="ghost-btn" type="button" id="pause-toggle" aria-pressed="false" title="Pause browser updates only (does not pause the OpenMM simulation)"><span id="pause-label">Pause</span></button>
-          <button class="ghost-btn" type="button" id="refresh-now" title="Refresh now">Refresh</button>
-          <button class="ghost-btn" type="button" id="open-output" title="Open the output folder, and copy its path">Output</button>
-        </div>
-        <div class="sidebar-refreshed muted" id="refreshed-indicator">refreshed <span id="refreshed-at">just now</span></div>
-      </div>
-
-      <nav class="sidebar-nav" role="navigation" aria-label="Dashboard sections">
-        <a href="#agent" class="nav-link" data-view-link="agent">
-          <span class="nav-icon nav-icon-launch" aria-hidden="true"></span>
-          <span>Agent</span>
-        </a>
-        <a href="#run" class="nav-link" data-view-link="run">
-          <span class="nav-icon" aria-hidden="true"></span>
-          <span>Config</span>
-        </a>
-        <a href="#" class="nav-link" data-view-link="overview" data-requires-run="true">
-          <span class="nav-icon" aria-hidden="true"></span>
+      <nav class="sidebar-nav sidebar-pages" role="navigation" aria-label="This study's pages">
+        <a href="#" class="nav-link" data-view-link="overview" data-requires-run="true" title="Overview">
+          <!--icon:overview:nav-icon-->
           <span>Overview</span>
         </a>
-        <a href="#" class="nav-link" data-view-link="viewer" data-requires-run="true">
-          <span class="nav-icon" aria-hidden="true"></span>
+        <a href="#" class="nav-link" data-view-link="viewer" data-requires-run="true" title="Viewer">
+          <!--icon:viewer:nav-icon-->
           <span>Viewer</span>
         </a>
-        <a href="#" class="nav-link" data-view-link="analysis" data-requires-run="true">
-          <span class="nav-icon" aria-hidden="true"></span>
+        <a href="#" class="nav-link" data-view-link="analysis" data-requires-run="true" title="Analysis">
+          <!--icon:analysis:nav-icon-->
           <span>Analysis</span>
         </a>
-        <a href="#" class="nav-link" data-view-link="report" data-requires-run="true">
-          <span class="nav-icon" aria-hidden="true"></span>
+        <a href="#" class="nav-link" data-view-link="report" data-requires-run="true" title="Report">
+          <!--icon:report:nav-icon-->
           <span>Report</span>
         </a>
-        <a href="#" class="nav-link" data-view-link="files" data-requires-run="true">
-          <span class="nav-icon" aria-hidden="true"></span>
+        <a href="#" class="nav-link" data-view-link="files" data-requires-run="true" title="Files">
+          <!--icon:files:nav-icon-->
           <span>Files</span>
         </a>
       </nav>
-      <button type="button" class="sidebar-account" id="settings-open" aria-haspopup="dialog" aria-expanded="false">
-        <span class="sidebar-account-avatar" aria-hidden="true"></span>
-        <span class="sidebar-account-text">
-          <span class="sidebar-account-name" id="account-name">FastMDXplora</span>
-        </span>
-        <span class="sidebar-account-caret" aria-hidden="true">&#8963;</span>
-      </button>
+
+      <!-- The open study's conversations with the Agent, the one talked in
+           last first; then the chats of no study. Each opens in the Agent
+           beside the page (chats.js). -->
+      <div class="sidebar-convs" id="sidebar-study-convs" hidden>
+        <div class="sidebar-convs-head">
+          <span class="sidebar-convs-title">Conversations</span>
+          <button type="button" class="line-btn" id="sidebar-study-new" title="A new conversation about this study"
+                  aria-label="A new conversation about this study"><!--icon:new:line-icon--></button>
+        </div>
+        <div class="sidebar-convs-list" id="sidebar-study-convs-list"></div>
+      </div>
+      <details class="sidebar-chats" id="sidebar-chats" open>
+        <summary class="nav-link sidebar-chats-head" title="Chats about no study" aria-label="Chats">
+          <!--icon:chat:nav-icon chats-icon--><span>Chats</span>
+          <button type="button" class="line-btn" id="sidebar-chat-new" title="A new chat, about no study"
+                  aria-label="A new chat, about no study"><!--icon:new:line-icon--></button>
+          <!--icon:chevron:recent-chevron-->
+        </summary>
+        <div class="sidebar-convs-list" id="sidebar-chats-list"></div>
+      </details>
+
+      <!-- Where a run stands, while it runs, or where it stopped and what
+           would fix it. Gone once it has finished: the card above says so. -->
+      <div class="sidebar-progress" id="sidebar-progress" data-run="">
+        <div class="progress-head">
+          <span class="progress-stage" id="topbar-stage">starting</span>
+          <span class="progress-pct mono" id="topbar-progress">&mdash;</span>
+        </div>
+        <ol class="sidebar-stages" aria-label="Stages">
+          <li class="stage-step" data-stage="setup" title="Setup"><span class="stage-marker"></span><span class="stage-label">Setup</span></li>
+          <li class="stage-step" data-stage="minimization" title="Minimisation"><span class="stage-marker"></span><span class="stage-label">Minimisation</span></li>
+          <li class="stage-step" data-stage="nvt" title="NVT"><span class="stage-marker"></span><span class="stage-label">NVT</span></li>
+          <li class="stage-step" data-stage="npt" title="NPT"><span class="stage-marker"></span><span class="stage-label">NPT</span></li>
+          <li class="stage-step" data-stage="production" title="Production"><span class="stage-marker"></span><span class="stage-label">Production</span></li>
+          <li class="stage-step" data-stage="analysis" title="Analysis"><span class="stage-marker"></span><span class="stage-label">Analysis</span></li>
+          <li class="stage-step" data-stage="report" title="Report"><span class="stage-marker"></span><span class="stage-label">Report</span></li>
+        </ol>
+        <div class="sidebar-metrics">
+          <span class="metric-label" id="sidebar-stage-count">Stage</span>
+          <span class="metric-value" title="Time left, at the speed so far"><span id="topbar-eta">&mdash;</span></span>
+          <span class="metric-label">Step</span><span class="metric-value mono"><span id="topbar-step">&mdash;</span> / <span id="topbar-total">&mdash;</span></span>
+        </div>
+        <a href="#overview" class="sidebar-fix" id="sidebar-fix" data-view-link="overview" data-fix-link>What would fix it</a>
+        <!-- Stop the run, asked once more first (stop-run.js). -->
+        <button type="button" class="sidebar-stop" id="sidebar-stop" data-stop-run="sidebar-stop-ask" hidden>Stop the run</button>
+        <div class="stop-run-ask" id="sidebar-stop-ask" data-stop-ask role="status" hidden></div>
+        <div class="sidebar-controls">
+          <button class="sidebar-tool" type="button" id="pause-toggle" aria-pressed="false" title="Pause the page's updates (the simulation goes on)"><span id="pause-label" class="sr-only">Pause</span><!--icon:pause:sidebar-icon pause-icon--><!--icon:play:sidebar-icon play-icon--></button>
+          <button class="sidebar-tool" type="button" id="refresh-now" title="Refresh now" aria-label="Refresh now"><!--icon:refresh:sidebar-icon--></button>
+          <span class="sidebar-refreshed" id="refreshed-indicator">updated <span id="refreshed-at">just now</span></span>
+        </div>
+      </div>
+
+      <div class="sidebar-foot">
+        <button type="button" class="sidebar-account" id="settings-open" aria-haspopup="dialog" aria-expanded="false" title="__FASTMDX_ACCOUNT_NAME__">
+          <span class="sidebar-account-avatar" aria-hidden="true">__FASTMDX_ACCOUNT_INITIALS__<!--__FASTMDX_LAB_MARK__--></span>
+          <span class="sidebar-account-text">
+            <span class="sidebar-account-name" id="account-name">__FASTMDX_ACCOUNT_NAME__</span>
+          </span>
+          <!--icon:gear:sidebar-account-gear-->
+        </button>
+      </div>
     </aside>
     <div class="col-handle" data-handle="sidebar" role="separator" aria-orientation="vertical" aria-label="Resize sidebar"></div>
 
@@ -249,170 +590,263 @@
     <div class="main">
 
       <!-- Page views -->
-      <main class="page-shell" role="main">
+      <main class="page-shell" id="page-shell" role="main" tabindex="-1">
         <!-- Dashboard-first simulation builder -->
         <!-- Shown until the router knows better: with nothing running, the
              thing to do is start something. -->
+        <!-- Every study in the workspace, as cards, and two compared
+             (workspace.py, studies.js). -->
+        <section class="page" data-page="studies" hidden>
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">Studies</h1>
+              <div class="page-subtitle" id="studies-where">The studies in your workspace.</div>
+            </div>
+            <div class="page-header-actions">
+              <span class="search-field"><!--icon:search:search-icon-->
+              <input type="search" class="studies-search" id="studies-search" autocomplete="off"
+                     placeholder="Search by name, structure, kind, state, tag or note" aria-label="Search the studies"></span>
+              <div class="seg studies-view" role="group" aria-label="Show the studies as">
+                <button type="button" class="seg-btn seg-icon active" data-studies-view="cards" aria-pressed="true" aria-label="Cards" title="As cards"><!--icon:cards:line-icon--></button>
+                <button type="button" class="seg-btn seg-icon" data-studies-view="table" aria-pressed="false" aria-label="Table" title="As a table"><!--icon:table:line-icon--></button>
+              </div>
+              <button type="button" class="line-btn" id="studies-look-in" aria-label="Look in another folder"
+                      title="Look in another folder"><!--icon:lookin:line-icon--></button>
+              <button type="button" class="line-btn" id="studies-open-shared" aria-expanded="false"
+                      aria-controls="studies-open-form" aria-label="Open a shared study"
+                      title="Open a shared study"><!--icon:unpack:line-icon--></button>
+              <input type="hidden" id="studies-path">
+            </div>
+          </div>
+          <!-- A shared study, from its DOI, its Zenodo address or its zip,
+               checked file by file before it opens (studies.js,
+               fastmdxplora/sharing/opening.py). -->
+          <form class="card studies-open-form" id="studies-open-form" hidden>
+            <label class="small" for="studies-open-source">A shared study's DOI, its Zenodo
+              address, or the path of its zip on this computer</label>
+            <div class="studies-open-row">
+              <div class="analyse-path-row studies-open-path">
+                <input type="text" id="studies-open-source" autocomplete="off" spellcheck="false"
+                       data-picks="shared" placeholder="10.5281/zenodo.1234567">
+              </div>
+              <button type="submit" class="primary-btn" id="studies-open-go">Open</button>
+            </div>
+            <div class="muted small" id="studies-open-said" role="status" aria-live="polite">Every
+              file is checked against its SHA-256 before it opens.</div>
+          </form>
+          <div class="studies-tag-filter" id="studies-tag-filter" hidden>
+            <span class="study-tag is-filter" id="studies-tag-filter-said"></span>
+            <button type="button" class="line-btn" id="studies-tag-filter-clear" aria-label="Every study"
+                    title="Every study"><!--icon:close:line-icon--></button>
+          </div>
+          <datalist id="studies-tags-used"></datalist>
+          <span class="sr-only" id="studies-chosen-heard" role="status" aria-live="polite"></span>
+          <div class="studies-compare-bar" id="studies-compare-bar" role="group"
+               aria-label="Compare or clear the studies chosen" hidden>
+            <span class="muted small" id="studies-chosen-said"></span>
+            <button type="button" class="line-btn" id="studies-compare" disabled aria-label="Compare"
+                    title="Compare"><!--icon:compare:line-icon--></button>
+            <button type="button" class="line-btn" id="studies-clear" aria-label="Clear"
+                    title="Clear"><!--icon:erase:line-icon--></button>
+          </div>
+          <div class="card studies-compared" id="studies-compared" hidden></div>
+          <section class="card remote-jobs" id="remote-jobs" aria-labelledby="remote-jobs-title" hidden></section>
+          <div class="studies-grid" id="studies-grid" role="list"></div>
+          <!-- The same studies as rows, sorted by a column's head
+               (studies.js). -->
+          <div class="studies-table-wrap" id="studies-table-wrap" hidden>
+            <table class="studies-table" id="studies-table"></table>
+          </div>
+          <p class="muted studies-empty" id="studies-empty" hidden></p>
+        </section>
+
+        <!-- The Config Builder (run-builder.js): five steps in the order a
+             study is decided, built from the schema, and beside them the
+             study as it stands, what it will build, what changed, the
+             config in each language and the way to run it. -->
         <section class="page" data-page="run">
           <div class="page-header">
             <div>
               <h1 class="page-title">Config Builder</h1>
-              <div class="page-subtitle">Select what you have, what should happen to it, and anything you want to change.</div>
+              <div class="page-subtitle">Configure a new MD simulation and analysis</div>
             </div>
             <div class="page-header-actions">
-              <div class="muted small mono" id="run-summary"></div>
-              <button type="button" class="ghost-btn" id="run-reset">Reset to defaults</button>
+              <span class="builder-draft muted small" id="run-draft" title="Saved in this browser" hidden>Saved<span class="sr-only"> in this browser</span></span>
+              <input type="search" class="builder-find" id="run-find" autocomplete="off"
+                     placeholder="Find a setting" aria-label="Find a setting">
+              <button type="button" class="line-btn" id="run-reset" aria-label="Reset"
+                      title="Reset: every setting back to its default, and the draft discarded"><!--icon:undo:line-icon--></button>
             </div>
           </div>
 
-          <div class="card builder-card">
-            <div class="card-header">
-              <div>
-                <h2 class="card-title">What have you got?</h2>
-                <p class="builder-card-note">
-                  This sets what happens next. You can change it afterwards.
-                </p>
-              </div>
-              <span class="builder-step">01</span>
-            </div>
-            <div class="builder-grid builder-grid-2">
-              <label class="builder-field">
-                <span class="builder-label">Starting from</span>
-                <select id="run-start"></select>
-                <span class="builder-card-note" id="run-start-detail"></span>
-              </label>
-            </div>
-            <!-- Where it is, revealed once the starting point says what "it"
-                 is. The same id the JS toggles; only the card boundary went.
-                 A second card appearing under the first read as a step
-                 completed rather than a question continued. -->
-            <div class="builder-grid builder-grid-2 builder-continued" id="run-input-card" hidden>
-              <label class="builder-field builder-field-wide" id="run-structure-field" hidden>
-                <span class="builder-label">Structure</span>
-                <input type="text" id="run-system" autocomplete="off" data-picks="structure"
-                       placeholder="PDB ID, or a path to a structure file">
-                <span class="builder-card-note">
-                  A four-character identifier is fetched from the PDB.
-                </span>
-              </label>
-              <div class="builder-field builder-field-wide" id="run-trajectory-field" hidden>
-                <span class="builder-label">Trajectory</span>
-                <div class="analyse-path-row">
-                  <input type="text" id="run-trajectory" autocomplete="off" data-picks="trajectory"
-                         placeholder="/path/to/production.dcd">
+          <div class="builder-layout">
+            <div class="builder-main">
+              <nav class="builder-steps" id="run-steps" aria-label="Steps">
+                <button type="button" class="builder-step-link is-current" data-step="start"><b>1</b><span>Start</span></button>
+                <button type="button" class="builder-step-link" data-step="system"><b>2</b><span>System</span></button>
+                <button type="button" class="builder-step-link" data-step="protocol"><b>3</b><span>Protocol</span></button>
+                <button type="button" class="builder-step-link" data-step="analysis"><b>4</b><span>Analysis and report</span></button>
+                <button type="button" class="builder-step-link" data-step="review"><b>5</b><span>Review</span></button>
+              </nav>
+              <p class="builder-find-said muted small" id="run-find-said" hidden></p>
+
+              <section class="builder-step" id="run-step-start" data-step="start" aria-labelledby="run-step-start-title">
+                <div class="builder-step-head"><span class="builder-step-n">1</span><h2 id="run-step-start-title">Start</h2></div>
+                <div class="builder-start" id="run-start" role="radiogroup" aria-label="Starting from"></div>
+                <div class="builder-start-alt">
+                  <a href="#agent" class="builder-agent-link">Or describe the study to the Agent</a>
+                  <span class="builder-start-alt-said" id="run-starters-card" hidden>
+                    <span class="muted">Start from an example</span>
+                    <span class="starters" id="run-starters" role="list"></span>
+                  </span>
                 </div>
-                <span class="builder-label" style="margin-top:10px">Structure</span>
-                <input type="text" id="run-topology" autocomplete="off" data-picks="structure"
-                       placeholder="/path/to/topology.pdb">
-                <span class="builder-card-note">
-                  The structure describing the atoms the trajectory moves.
-                </span>
-              </div>
-              <div class="builder-field builder-field-wide" id="run-config-field" hidden>
-                <span class="builder-label">Config file</span>
-                <div class="analyse-path-row">
-                  <input type="text" id="run-config-path" autocomplete="off" data-picks="config"
-                         placeholder="/path/to/fastmdxplora.yml">
-                  <button type="button" class="ghost-btn" id="run-check-config">Check it</button>
+                <p class="builder-card-note starters-note" id="run-starters-note" role="status"></p>
+
+                <div class="builder-group" id="run-input-card" hidden>
+                  <!-- A structure: the systems the study runs, each with its
+                       name and any settings for it alone. -->
+                  <div id="run-structure-field" hidden>
+                    <div class="builder-group-head"><h3>Systems</h3>
+                      <p>Every system runs with the settings below. Settings for one system only are listed on its row.</p></div>
+                    <div class="builder-systems" id="run-systems" role="table" aria-label="Systems"></div>
+                    <button type="button" class="builder-add" id="run-add-system">+ Add a system</button>
+                  </div>
+                  <div class="builder-field builder-field-wide" id="run-trajectory-field" hidden>
+                    <div class="builder-grid">
+                      <div class="builder-field builder-field-wide">
+                        <div class="builder-head"><span class="builder-label">Trajectory</span></div>
+                        <div class="analyse-path-row">
+                          <input type="text" id="run-trajectory" autocomplete="off" data-picks="trajectory"
+                                 placeholder="e.g. /path/to/production.dcd">
+                        </div>
+                      </div>
+                      <div class="builder-field builder-field-wide">
+                        <div class="builder-head"><span class="builder-label">Structure</span></div>
+                        <input type="text" id="run-topology" autocomplete="off" data-picks="structure"
+                               placeholder="e.g. /path/to/topology.pdb">
+                        <span class="builder-help">The structure describing the atoms the trajectory moves; found beside it where it can be.</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="builder-field builder-field-wide" id="run-config-field" hidden>
+                    <div class="builder-head"><span class="builder-label">Config file</span></div>
+                    <div class="analyse-path-row">
+                      <input type="text" id="run-config-path" autocomplete="off" data-picks="config"
+                             placeholder="e.g. /path/to/fastmdxplora.yml">
+                      <button type="button" class="ghost-btn" id="run-check-config">Check it</button>
+                    </div>
+                    <span class="builder-help" id="run-config-verdict"></span>
+                    <div class="builder-actions-row">
+                      <button type="button" class="line-btn" id="run-open-config" disabled aria-label="Open and change it"
+                              title="Open and change it"><!--icon:edit:line-icon--></button>
+                      <button type="button" class="primary-btn" id="run-as-is" disabled>Run on this machine as it is</button>
+                      <!--__FASTMDX_RUN_AS_IS_ELSEWHERE__-->
+                    </div>
+                    <span class="builder-help">Opening it never writes to it. Anything changed is saved as a new file, so a config saved beside a paper stays as it was.</span>
+                  </div>
                 </div>
-                <span class="builder-card-note" id="run-config-verdict"></span>
-                <div class="page-header-actions" style="margin-top:10px">
-                  <button type="button" class="ghost-btn" id="run-open-config" disabled>
-                    Open and change it
-                  </button>
-                  <button type="button" class="primary-btn" id="run-as-is" disabled>
-                    Run it as it is
-                  </button>
+
+                <div class="builder-grid builder-start-more" id="run-start-more" hidden>
+                  <div class="builder-field builder-field-wide" id="run-output-field">
+                    <div class="builder-head"><span class="builder-label">Results folder</span></div>
+                    <input type="text" id="run-output" autocomplete="off" data-picks="folder" class="mono"
+                           placeholder="fastmdxplora_<system>_study_<timestamp>">
+                    <span class="builder-help" id="run-output-note"></span>
+                  </div>
+                  <div class="builder-field builder-field-wide" id="run-phases-card">
+                    <div class="builder-head"><span class="builder-label">What runs</span></div>
+                    <div class="run-phases" id="run-phases"></div>
+                    <span class="builder-help" id="run-phases-said"></span>
+                  </div>
                 </div>
-                <span class="builder-card-note">
-                  Opening it never writes to it. Anything you change is saved as
-                  a new file, so a config kept beside a paper stays as it was.
-                </span>
-              </div>
-              <div class="builder-field" id="run-output-field">
-                <span class="builder-label">Results folder</span>
-                <input type="text" id="run-output" autocomplete="off" data-picks="folder"
-                       placeholder="fastmdxplora_<system>_study_<timestamp>">
-                <span class="builder-card-note" id="run-output-note"></span>
-              </div>
-            </div>
-          </div>
+              </section>
 
-          <div class="card builder-card" id="run-phases-card" hidden>
-            <div class="card-header">
-              <div>
-                <h2 class="card-title">What should happen?</h2>
-                <p class="builder-card-note">
-                  Each of these can be left out. A run that only analyses is a
-                  run with one of them ticked.
-                </p>
-              </div>
-              <span class="builder-step">02</span>
-            </div>
-            <div class="run-phases" id="run-phases"></div>
-          </div>
+              <!-- Every setting the form offers, built by run-builder.js into
+                   the steps below from the schema. -->
+              <div id="run-settings">
+              <section class="builder-step" id="run-step-system" data-step="system" aria-labelledby="run-step-system-title" hidden>
+                <div class="builder-step-head"><span class="builder-step-n">2</span><h2 id="run-step-system-title">System</h2>
+                  <span class="builder-step-said" id="run-step-system-said">How the structure becomes the system that is simulated</span></div>
+                <div class="builder-step-body" id="run-system-body"></div>
+              </section>
 
-          <div class="card builder-card" id="run-settings-card" hidden>
-            <div class="card-header">
-              <div>
-                <h2 class="card-title">Anything to change?</h2>
-                <p class="builder-card-note">
-                  Every setting has a default that works. These are here for
-                  when it does not.
-                </p>
-              </div>
-              <span class="builder-step">03</span>
-            </div>
-            <div class="run-settings" id="run-settings"></div>
-          </div>
+              <section class="builder-step" id="run-step-protocol" data-step="protocol" aria-labelledby="run-step-protocol-title" hidden>
+                <div class="builder-step-head"><span class="builder-step-n">3</span><h2 id="run-step-protocol-title">Protocol</h2>
+                  <span class="builder-step-said">How long, under what conditions, and how many runs</span></div>
+                <div class="builder-step-body" id="run-protocol-body"></div>
+              </section>
 
-          <div class="card builder-card" id="run-actions-card" hidden>
-            <div class="card-header">
-              <div>
-                <h2 class="card-title">Run it here, or take it with you</h2>
-                <p class="builder-card-note">
-                  The same file either way. A laptop is a poor place to run a
-                  long simulation; a cluster is a poor place to decide what to
-                  run.
-                </p>
+              <section class="builder-step" id="run-step-analysis" data-step="analysis" aria-labelledby="run-step-analysis-title" hidden>
+                <div class="builder-step-head"><span class="builder-step-n">4</span><h2 id="run-step-analysis-title">Analysis and report</h2>
+                  <span class="builder-step-said">The same themes as the Analysis page</span></div>
+                <div class="builder-step-body" id="run-analysis-body"></div>
+              </section>
+
+              <section class="builder-step" id="run-step-review" data-step="review" aria-labelledby="run-step-review-title" hidden>
+                <div class="builder-step-head"><span class="builder-step-n">5</span><h2 id="run-step-review-title">Review</h2></div>
+                <div class="builder-step-body" id="run-review-body"></div>
+              </section>
+
               </div>
-              <span class="builder-step">04</span>
             </div>
-            <label class="analyse-full-toggle">
-              <input type="checkbox" id="run-full-config">
-              <span>
-                Write every setting, not only the ones I changed
-                <span class="builder-card-note">
-                  A full config records what the run used, so a default that
-                  moves in a later version cannot change what the file meant.
-                </span>
-              </span>
-            </label>
-            <div class="page-header-actions">
-              <button type="button" class="ghost-btn" id="run-preview"
-                      aria-expanded="false" aria-controls="run-config-preview">
-                Show the config
-              </button>
-              <button type="button" class="ghost-btn" id="run-download" disabled>
-                Download config
-              </button>
-              <button type="button" class="ghost-btn" id="run-copy-command" disabled
-                      title="The fastmdx invocation that runs this study, for a terminal or a batch script.">
-                Copy the command
-              </button>
-              <button type="button" class="ghost-btn" id="run-download-script" disabled
-                      title="The same study as a Python script, using the documented API.">
-                Download a script
-              </button>
-              <button type="button" class="primary-btn" id="run-start-button" disabled>
-                Run here
-              </button>
-              <button type="button" class="danger-btn" id="run-stop" hidden>
-                Stop the run
-              </button>
-            </div>
-            <div class="builder-card-note" id="run-note"></div>
-            <pre class="mono small" id="run-config-preview" hidden></pre>
+
+            <aside class="builder-summary" id="run-summary-panel" aria-label="This study">
+              <div class="builder-summary-head">
+                <h2>This study</h2>
+                <span class="builder-status" id="run-status" data-state="none" role="status"></span>
+              </div>
+              <div class="builder-plan-chain" id="run-summary"></div>
+
+              <section class="builder-summary-card system-preview" id="run-system-preview"
+                       hidden aria-live="polite" aria-labelledby="run-system-preview-title">
+                <div class="system-preview-head">
+                  <span class="builder-summary-k" id="run-system-preview-title">What setup will build</span>
+                  <span class="system-preview-state" id="run-system-preview-state"></span>
+                </div>
+                <div class="system-preview-view" id="run-system-preview-view" hidden
+                     role="img" aria-label="The structure setup prepares, in the periodic box it builds"></div>
+                <div class="system-preview-body" id="run-system-preview-body"></div>
+              </section>
+
+              <section class="builder-summary-card" id="run-changed-card" aria-labelledby="run-changed-title">
+                <div class="builder-summary-k"><span id="run-changed-title">Changed</span>
+                  <span class="mono" id="run-changed-n">0</span>
+                  <button type="button" class="builder-linkish" id="run-only-changed" aria-pressed="false">Show only these</button></div>
+                <ul class="builder-changed" id="run-changed"></ul>
+              </section>
+
+              <section class="builder-summary-card builder-code" aria-label="The study in each language">
+                <div class="builder-tabs" role="tablist">
+                  <button type="button" role="tab" aria-selected="true" data-code="yaml">Config</button>
+                  <button type="button" role="tab" aria-selected="false" data-code="command">Command</button>
+                  <button type="button" role="tab" aria-selected="false" data-code="script">Python</button>
+                </div>
+                <pre class="mono small builder-code-pane" id="run-config-preview" data-code-pane="yaml"></pre>
+                <pre class="mono small builder-code-pane" id="run-command-preview" data-code-pane="command" hidden></pre>
+                <pre class="mono small builder-code-pane" id="run-script-preview" data-code-pane="script" hidden></pre>
+              </section>
+
+              <div class="builder-actions" id="run-actions-card">
+                <button type="button" class="primary-btn builder-run" id="run-start-button" disabled>Run on this machine</button>
+                <button type="button" class="danger-btn builder-run" id="run-stop" data-stop-run="run-stop-ask" hidden>Stop the run</button>
+                <div class="stop-run-ask" id="run-stop-ask" data-stop-ask role="status" hidden></div>
+                <div class="remote-run" id="run-remote" hidden></div>
+                <div class="builder-actions-row">
+                  <button type="button" class="line-btn" id="run-download" disabled aria-label="Download config"
+                          title="Download config"><!--icon:download:line-icon--></button>
+                  <button type="button" class="line-btn" id="run-copy-command" disabled aria-label="Copy the command"
+                          title="Copy the command: the fastmdx invocation that runs this study, for a terminal or a batch script"><!--icon:terminal:line-icon--></button>
+                  <button type="button" class="line-btn" id="run-download-script" disabled aria-label="Download a script"
+                          title="Download a script: the same study as a Python script, using the documented API"><!--icon:script:line-icon--></button>
+                  <!--__FASTMDX_RUN_ELSEWHERE__-->
+                </div>
+                <div class="builder-card-note" id="run-note" role="status"></div>
+              </div>
+            </aside>
+          </div>
+          <div class="builder-phone-bar" id="run-phone-bar">
+            <span class="builder-status" id="run-phone-status" data-state="none"></span>
+            <button type="button" class="primary-btn" id="run-phone-start" disabled>Run on this machine</button>
           </div>
         </section>
 
@@ -434,6 +868,14 @@
             </div>
           </div>
 
+          <div class="overview-body" id="overview-body">
+          <!-- The study, where it stands and what it ran, in a line: the
+               word and the light are the sidebar's (runState). -->
+          <div class="overview-verdict" id="overview-verdict" hidden>
+            <h2 class="overview-verdict-name"><span id="verdict-name"></span><span class="verdict-chip" id="verdict-chip"><span class="status-dot" id="verdict-dot"></span><span id="verdict-word"></span></span></h2>
+            <p class="overview-verdict-facts" id="verdict-facts"></p>
+          </div>
+
           <!-- No run: one sentence and the way to start one. The sidebar
                already says "No active study"; this says what to do. -->
           <div class="card" id="live-absent" hidden>
@@ -442,129 +884,191 @@
             <div class="control-row" id="live-absent-actions">
               <a href="#agent" class="primary-btn" data-view-link="agent">Describe a study to the Agent</a>
               <a href="#run" class="ghost-btn" data-view-link="run">Or build one</a>
+              <button type="button" class="ghost-btn" id="open-demo" hidden
+                      title="A finished study of trypsin with benzamidine (3PTB), copied where new studies go and opened">Open the demo study</button>
             </div>
           </div>
+
+          <!-- A study run until it is determined (stopping.js): is the
+               answer determined yet? Outside the live panels, which need the
+               study's own telemetry and a study of replicas has none at
+               its root. Hidden for a study of a fixed length. -->
+          <div class="card stopping-card" id="stopping-card" hidden>
+            <div class="card-header">
+              <h2 class="card-title">Running until it is determined</h2>
+              <span class="stage-pill" id="stopping-outcome">running</span>
+            </div>
+            <p class="stopping-said" id="stopping-said"></p>
+            <dl class="overview-strip stopping-strip" id="stopping-strip"></dl>
+            <div class="stopping-measures" id="stopping-measures"></div>
+            <div class="stopping-key" id="stopping-key" hidden></div>
+            <details class="stopping-rounds" id="stopping-rounds" hidden>
+              <summary>Each round</summary>
+              <div class="runs-compared-scroll">
+                <table class="runs-compared-table stopping-rounds-table" id="stopping-rounds-table"></table>
+              </div>
+            </details>
+          </div>
+
+          <!-- What would fix the study (fixes.js, fixes_view.py): each thing
+               that stopped it, its fix, the command and what it costs here.
+               Hidden while nothing did. -->
+          <div class="card fixes-card" id="fixes-card" hidden>
+            <div class="card-header">
+              <h2 class="card-title">What would fix it</h2>
+            </div>
+            <ul class="fixes-list" id="fixes-list"></ul>
+          </div>
+
+          <!-- What the analyses determined, first for a study that has
+               ended: each mean with its error, the independent samples
+               behind it and where its equilibrated part began, Determined
+               or Not determined with the reason on hover, and its series on
+               the production's clock (overview.js, overview_view.py). The
+               numbers are the Analysis page's own. -->
+          <section class="overview-results" id="overview-results" hidden aria-labelledby="overview-results-title">
+            <div class="overview-sec">
+              <h2 id="overview-results-title">What the analyses determined</h2>
+              <span class="overview-sec-said" id="overview-results-said"></span>
+            </div>
+            <div class="overview-tiles" id="overview-tiles"></div>
+          </section>
 
           <div id="live-panels">
-            <!-- What the sidebar is too narrow to say. The stage, step,
-                 progress and ETA are in the sidebar on every page; this row
-                 is the rest, in one line each. -->
-            <div class="overview-facts card" data-needs-phase="simulation">
+            <!-- How the run is going, or how it went where it did not end
+                 well. A run that finished well says so above, once. -->
+            <div class="card overview-health" id="overview-health-card" data-needs-phase="simulation">
               <div class="hero-card" id="hero-health" data-state="normal" data-needs-phase="simulation">
-              <div class="hero-card-top">
-                <div>
-                  <div class="hero-label">Simulation health</div>
-                  <div class="hero-status" id="health-headline">—</div>
+                <div class="hero-card-top">
+                  <div>
+                    <div class="hero-label">Simulation health</div>
+                    <div class="hero-status" id="health-headline">—</div>
+                  </div>
+                  <span class="stage-pill" id="health-pill">normal</span>
                 </div>
-                <span class="stage-pill" id="health-pill">normal</span>
+                <div class="muted health-explanation" id="health-explanation">Live health classification will appear once telemetry has been written.</div>
+                <ul class="health-list" id="health-list" role="list"></ul>
+                <div class="health-stop">
+                  <button type="button" class="danger-btn" id="health-stop" data-stop-run="health-stop-ask" hidden>Stop the run</button>
+                  <div class="stop-run-ask" id="health-stop-ask" data-stop-ask role="status" hidden></div>
+                </div>
               </div>
-              <p class="muted" id="health-explanation">Live health classification will appear once telemetry has been written.</p>
-              <ul class="health-list" id="health-list" role="list"></ul>
-            </div>
-              <dl class="overview-strip">
-                <div><dt>Simulation time</dt><dd class="mono" id="live-simtime-cell">—</dd></div>
-                <div><dt>Frames written</dt><dd class="mono" id="live-frames-cell">—</dd></div>
-                <div><dt>Wall time</dt><dd class="mono" id="live-elapsed-cell">—</dd></div>
-                <div><dt>Checkpoint</dt><dd class="mono" id="live-checkpoint-cell">—</dd></div>
-                <div><dt>Last update</dt><dd class="mono" id="live-lastupdate-cell">—</dd></div>
-              </dl>
-              <!-- Read by dashboard.js; not shown here because the sidebar
-                   shows them. Kept so the writes have somewhere to land. -->
-              <span id="live-stage-cell" hidden></span>
-              <span id="live-step-cell" hidden></span>
-              <span id="live-total-cell" hidden></span>
-              <span id="live-eta-cell" hidden></span>
-              <span id="live-progress-pct" hidden></span>
-              <span id="live-sim-time" hidden></span>
-              <div id="live-progress-fill" hidden></div>
             </div>
 
-            <div class="overview-stack" data-needs-phase="simulation">
-              <div class="card">
-                <div class="card-header">
-                  <h2 class="card-title">Structure</h2>
-                  <a href="#" class="ghost-link" data-view-link="viewer">Open the viewer</a>
+            <!-- The run in one card: the molecule, its phases and how long
+                 each took, and what it ran, each said once. -->
+            <section class="card overview-run" id="overview-run" data-needs-phase="simulation" aria-labelledby="overview-run-title">
+              <div class="overview-sec">
+                <h2 id="overview-run-title">The run</h2>
+                <a href="#" class="ghost-link" data-view-link="viewer">Open the viewer</a>
+              </div>
+              <div class="overview-run-body">
+                <div class="overview-run-molecule">
+                  <div class="preview-frame" id="mini-preview-frame">
+                    <div id="mini-preview-canvas" class="mini-preview-canvas" role="img" aria-label="Molecular preview"></div>
+                    <div class="preview-empty" id="mini-preview-empty">
+                      Waiting for a structure file…
+                    </div>
+                  </div>
+                  <p class="muted small" id="mini-preview-note">The newest frame, as it is written.</p>
                 </div>
-                <div class="preview-frame" id="mini-preview-frame">
-                <div id="mini-preview-canvas" class="mini-preview-canvas" aria-label="Molecular preview"></div>
-                <div class="preview-empty" id="mini-preview-empty">
-                  Waiting for a structure file…
+                <div class="overview-run-facts">
+                  <ol class="overview-phases" id="overview-phases" aria-label="Phases"></ol>
+                  <dl class="overview-strip overview-run-list">
+                    <div><dt id="live-simtime-label">Production</dt><dd><span class="mono" id="live-simtime-cell">—</span><span class="strip-note" id="live-simtime-note" hidden></span></dd></div>
+                    <div><dt>Frames written</dt><dd class="mono" id="live-frames-cell">—</dd></div>
+                    <div id="overview-atoms-row" hidden><dt>Atoms</dt><dd><span class="mono" id="overview-atoms-cell">—</span><span class="strip-note" id="overview-atoms-note"></span></dd></div>
+                    <div id="overview-platform-row" hidden><dt>Platform</dt><dd class="mono" id="overview-platform-cell">—</dd></div>
+                    <div><dt>Wall time</dt><dd class="mono" id="live-elapsed-cell">—</dd></div>
+                    <div><dt>Checkpoint</dt><dd class="mono" id="live-checkpoint-cell">—</dd></div>
+                    <div><dt>Last update</dt><dd class="mono" id="live-lastupdate-cell">—</dd></div>
+                  </dl>
+                  <!-- Read by dashboard.js; not shown here because the sidebar
+                       shows them. Kept so the writes have somewhere to land. -->
+                  <span id="live-stage-cell" hidden></span>
+                  <span id="live-step-cell" hidden></span>
+                  <span id="live-total-cell" hidden></span>
+                  <span id="live-eta-cell" hidden></span>
+                  <span id="live-progress-pct" hidden></span>
+                  <span id="live-sim-time" hidden></span>
+                  <div id="live-progress-fill" hidden></div>
                 </div>
               </div>
-                <p class="muted small">The newest frame, as it is written.</p>
-              </div>
+            </section>
 
-<div class="card">
-            <div class="card-header">
-              <h2 class="card-title">Live charts</h2>
-              <div class="card-header-actions">
-                <select class="metric-select" id="chart-metric-select" aria-label="Chart metric"></select>
-                <button class="ghost-btn" type="button" id="chart-reset">Reset zoom</button>
-              </div>
-            </div>
-            <div class="chart-stack" id="chart-stack">
-              <div class="chart-row">
-                <div class="chart-head">
-                  <div class="chart-title">Potential energy (kJ/mol)</div>
-                  <div class="chart-latest mono" data-chart-value="potential_energy">—</div>
+            <!-- The thermodynamics two a row on the production's clock,
+                 equilibration shaded before 0, each axis fitted to the
+                 production, one crosshair across every plot on the page
+                 (charts.js), and each mean over the production as the
+                 analyses take theirs. The speed under them. -->
+            <section class="card overview-charts" id="overview-charts" data-needs-phase="simulation" aria-labelledby="overview-charts-title">
+              <div class="card-header">
+                <h2 id="overview-charts-title" class="card-title">Live charts</h2>
+                <div class="card-header-actions">
+                  <select class="metric-select" id="chart-metric-select" aria-label="Chart metric"></select>
+                  <button class="line-btn" type="button" id="chart-reset" aria-label="Reset zoom"
+                          title="Reset zoom"><!--icon:fit:line-icon--></button>
                 </div>
-                <canvas class="chart-canvas" data-chart="potential_energy" data-color="cyan" width="900" height="220"></canvas>
               </div>
-              <div class="chart-row">
-                <div class="chart-head">
-                  <div class="chart-title">Total energy (kJ/mol)</div>
-                  <div class="chart-latest mono" data-chart-value="total_energy">—</div>
+              <div class="chart-stack" id="chart-stack">
+                <div class="chart-row">
+                  <div class="chart-head">
+                    <div class="chart-title">Potential energy (kJ/mol)</div>
+                    <div class="chart-latest mono" data-chart-value="potential_energy">—</div>
+                  </div>
+                  <canvas class="chart-canvas" data-chart="potential_energy" data-color="cyan" width="900" height="220"></canvas>
+                  <div class="chart-note" data-chart-note="potential_energy"></div>
                 </div>
-                <canvas class="chart-canvas" data-chart="total_energy" data-color="green" width="900" height="220"></canvas>
-              </div>
-              <div class="chart-row">
-                <div class="chart-head">
-                  <div class="chart-title">Temperature (K)</div>
-                  <div class="chart-latest mono" data-chart-value="temperature">—</div>
+                <div class="chart-row">
+                  <div class="chart-head">
+                    <div class="chart-title">Total energy (kJ/mol)</div>
+                    <div class="chart-latest mono" data-chart-value="total_energy">—</div>
+                  </div>
+                  <canvas class="chart-canvas" data-chart="total_energy" data-color="green" width="900" height="220"></canvas>
+                  <div class="chart-note" data-chart-note="total_energy"></div>
                 </div>
-                <canvas class="chart-canvas" data-chart="temperature" data-color="orange" width="900" height="220"></canvas>
-              </div>
-              <div class="chart-row">
-                <div class="chart-head">
-                  <div class="chart-title">Density (g/mL)</div>
-                  <div class="chart-latest mono" data-chart-value="density">—</div>
+                <div class="chart-row">
+                  <div class="chart-head">
+                    <div class="chart-title">Temperature (K)</div>
+                    <div class="chart-latest mono" data-chart-value="temperature">—</div>
+                  </div>
+                  <canvas class="chart-canvas" data-chart="temperature" data-color="orange" width="900" height="220"></canvas>
+                  <div class="chart-note" data-chart-note="temperature"></div>
                 </div>
-                <canvas class="chart-canvas" data-chart="density" data-color="violet" width="900" height="220"></canvas>
-              </div>
-              <div class="chart-row">
-                <div class="chart-head">
-                  <div class="chart-title">Simulation speed (ns/day, derived)</div>
-                  <div class="chart-latest mono" data-chart-value="speed">—</div>
+                <div class="chart-row">
+                  <div class="chart-head">
+                    <div class="chart-title">Density (g/mL)</div>
+                    <div class="chart-latest mono" data-chart-value="density">—</div>
+                  </div>
+                  <canvas class="chart-canvas" data-chart="density" data-color="violet" width="900" height="220"></canvas>
+                  <div class="chart-note" data-chart-note="density"></div>
                 </div>
-                <canvas class="chart-canvas" data-chart="speed" data-color="silver" width="900" height="220"></canvas>
+                <div class="chart-row chart-row-slim">
+                  <div class="chart-head">
+                    <div class="chart-title">Simulation speed (ns/day, derived)</div>
+                    <div class="chart-latest mono" data-chart-value="speed">—</div>
+                  </div>
+                  <canvas class="chart-canvas" data-chart="speed" data-color="silver" width="900" height="220"></canvas>
+                  <div class="chart-note" data-chart-note="speed"></div>
+                </div>
               </div>
-            </div>
-            <div class="chart-empty muted" id="chart-empty">Live telemetry will appear after the first sample.</div>
+              <div class="chart-key muted small" id="chart-key" hidden><span class="chart-key-swatch" aria-hidden="true"></span>equilibration, before 0 · each axis fits the production; what lies beyond it is marked at the edge</div>
+              <div class="chart-empty muted" id="chart-empty">Live telemetry will appear after the first sample.</div>
+            </section>
           </div>
-            </div>
 
-            <!-- What was recorded, after what is happening. The summary
-                 cards and the phase table come from the same computation
-                 the report uses, so the two surfaces agree; the cards
-                 carry numbers the sidebar has no room for, and the phase
-                 rows carry a detail per phase -- "7.5 s", "Failed" -- that
-                 the sidebar's markers cannot. Both hide until there is
-                 something to say. -->
-            <div class="grid overview-summary metric-cards" id="overview-summary-cards" hidden></div>
-            <div class="card" id="overview-phase-card" hidden>
-              <div class="card-header"><h2 class="card-title">Phases</h2></div>
-              <table class="phase-table">
-                <thead><tr><th>Phase</th><th>Status</th><th>Detail</th></tr></thead>
-                <tbody id="overview-phase-rows"></tbody>
-              </table>
+          <!-- The methods paragraphs as the report gives them, written from the
+               records as they stand, with a Copy that leaves the Markdown
+               behind: a manuscript is not Markdown. Folded until opened. -->
+          <details class="card overview-methods" id="overview-methods-card" hidden>
+            <summary class="card-header">
+              <h2 class="card-title">Methods</h2>
+            </summary>
+            <div class="card-body">
+              <div class="methods-actions"><button class="line-btn" type="button" id="overview-methods-copy" aria-label="Copy the methods" title="Copy the methods, as plain text"><!--icon:copy:line-icon--></button></div>
+              <div class="methods-text" id="overview-methods-text"></div>
             </div>
-            <div class="card" id="overview-stats-card" hidden>
-              <div class="card-header"><h2 class="card-title">Trajectory statistics</h2></div>
-              <table class="phase-table">
-                <thead><tr><th>Metric</th><th>Average</th><th>Std. dev.</th><th>Unit</th></tr></thead>
-                <tbody id="overview-stat-rows"></tbody>
-              </table>
-            </div>
+          </details>
           </div>
         </section>
 <section class="page" data-page="viewer" hidden>
@@ -576,182 +1080,574 @@
           </div>
           <div class="viewer-layout">
             <div class="viewer-canvas-wrap">
+              <!-- The sequence, one line a chain, numbered every fifth
+                   residue; a click or a drag selects (viewer-sequence.js). -->
+              <!-- Closed until opened, as the person left it after that. -->
+              <details class="sequence-strip" id="sequence-strip" hidden>
+                <summary class="seq-head"><span class="seq-head-row">
+                  <span class="seq-title">Sequence</span>
+                  <span class="seq-key" aria-hidden="true"><span class="seq-key-h">helix</span><span class="seq-key-s">strand</span></span>
+                  <span class="seq-said muted small" id="seq-said"></span>
+                  <button type="button" class="line-btn seq-clear" id="seq-clear" hidden aria-label="Clear selection" title="Clear selection"><!--icon:erase:line-icon--></button>
+                </span></summary>
+                <div class="seq-scroll" id="seq-scroll"></div>
+                <div class="seq-foot">
+                  <span class="muted small" id="seq-note" hidden></span>
+                </div>
+              </details>
               <div class="viewer-canvas-frame" id="viewer-canvas-frame">
-                <div id="viewer-canvas" class="viewer-canvas" aria-label="Molecular viewer canvas"></div>
+                <div id="viewer-canvas" class="viewer-canvas" role="img" aria-label="The molecule in 3D"></div>
+                <!-- What the colours are, when they are one of the study's
+                     per-residue results (molecule-viewer.js). -->
+                <div class="viewer-legend" id="viewer-legend" hidden>
+                  <div class="legend-title"></div>
+                  <div class="legend-bar" aria-hidden="true"></div>
+                  <div class="legend-ends"><span class="legend-low"></span><span class="legend-high"></span></div>
+                  <div class="legend-none" hidden></div>
+                </div>
                 <div class="viewer-empty" id="viewer-empty">
                   <div class="empty-title">Waiting for structure</div>
                   <div class="empty-detail muted">The 3D viewer will initialize when a topology or prepared PDB becomes available.</div>
                 </div>
-              </div>
-              <div class="viewer-overlay" id="viewer-overlay" data-live="false">
-                <span class="overlay-tag" id="overlay-tag">offline</span>
-                <span class="overlay-detail mono" id="overlay-stage">—</span>
-                <span class="overlay-detail mono" id="overlay-frame">frame —</span>
-                <span class="overlay-detail mono" id="overlay-age">age —</span>
-                <span class="overlay-detail mono" id="overlay-simtime">sim time —</span>
+                <!-- On the canvas, so the sequence above it is never covered. -->
+                <div class="viewer-overlay" id="viewer-overlay" data-live="false">
+                  <span class="overlay-tag" id="overlay-tag">offline</span>
+                  <span class="overlay-detail mono" id="overlay-stage">&mdash;</span>
+                  <span class="overlay-detail mono" id="overlay-frame">frame &mdash;</span>
+                  <span class="overlay-detail mono" id="overlay-age">age &mdash;</span>
+                  <span class="overlay-detail mono" id="overlay-simtime">sim time &mdash;</span>
+                </div>
               </div>
 
-              <!-- Toolbar / representation / camera / ligand controls -->
-              <div class="viewer-controls">
-                <div class="control-row">
-                  <div class="control-group">
-                    <button class="ctl-btn" type="button" data-action="live-toggle">Live Updates</button>
-                    <button class="ctl-btn" type="button" data-action="pause-toggle">Pause Updates</button>
-                    <button class="ctl-btn" type="button" data-action="play-trajectory">Play Trajectory</button>
-                    <button class="ctl-btn" type="button" data-action="prev-frame">‹ Frame</button>
-                    <button class="ctl-btn" type="button" data-action="next-frame">Frame ›</button>
-                    <button class="ctl-btn" type="button" data-action="reset-view">Reset View</button>
-                    <button class="ctl-btn" type="button" data-action="fullscreen">Fullscreen</button>
-                    <button class="ctl-btn" type="button" data-action="screenshot">Screenshot</button>
+              <!-- What plays the frames, under them: the transport, a series
+                   and what holds the ligand. The settings are beside them,
+                   so the molecule is always in view. -->
+              <!-- Closed until opened, as the Sequence is, then as left. -->
+              <details class="side-section viewer-under-fold" id="viewer-under-fold">
+              <summary>Playback</summary>
+              <div class="viewer-controls viewer-under">
+                <!-- The transport first, under the canvas: it is what a trajectory is
+                     played with, and it sat below four rows of display options. -->
+                <div class="control-row transport" id="trajectory-row" hidden>
+                  <div class="icon-group" role="group" aria-label="Trajectory">
+                    <button class="icon-btn" type="button" data-traj="first" aria-label="First frame" title="First frame (Home)"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5v14"/><path class="icon-fill" d="M18 6l-8 6 8 6z"/></svg></button>
+                    <button class="icon-btn ctl-btn" type="button" data-action="prev-frame" aria-label="Previous frame" title="Previous frame (Left arrow; Shift for ten)"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
+                    <button class="icon-btn ctl-btn is-primary" type="button" data-action="play-trajectory" aria-label="Play" title="Play or pause (Space)"><span class="when-stopped"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path class="icon-fill" d="M8 5l11 7-11 7z"/></svg></span><span class="when-playing"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5v14M15 5v14"/></svg></span></button>
+                    <button class="icon-btn ctl-btn" type="button" data-action="next-frame" aria-label="Next frame" title="Next frame (Right arrow; Shift for ten)"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+                    <button class="icon-btn" type="button" data-traj="last" aria-label="Last frame" title="Last frame (End)"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 5v14"/><path class="icon-fill" d="M6 6l8 6-8 6z"/></svg></button>
+                    <button class="icon-btn" type="button" data-traj="reverse" aria-label="Play backwards" aria-pressed="false" title="Play backwards, or forwards again"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg></button>
                   </div>
+                  <input type="range" class="traj-slider" id="traj-slider" min="0" max="0" value="0" aria-label="Frame">
+                  <span class="traj-time mono"><span id="traj-current">0</span> / <span id="traj-total">0</span> · <span id="traj-simtime">—</span> ns</span>
+                  <span class="traj-loaded muted small" id="traj-loaded" role="status" hidden></span>
+                  <label class="chip-toggle micro" title="Playback speed">Speed
+                    <select id="traj-speed">
+                      <option value="0.25">0.25×</option>
+                      <option value="0.5">0.5×</option>
+                      <option value="1" selected>1×</option>
+                      <option value="2">2×</option>
+                      <option value="4">4×</option>
+                    </select>
+                  </label>
+                  <label class="chip-toggle micro" title="Start again from the first frame at the end"><input type="checkbox" id="traj-loop">Loop</label>
+                  <label class="chip-toggle micro" id="traj-superpose-label" title="Each frame turned and moved to fit a reference: on the protein's backbone, or on the backbone of the ligand's pocket">Superposed
+                    <select id="traj-superpose">
+                      <option value="none" selected>no</option>
+                      <option value="backbone">on the backbone</option>
+                      <option value="pocket">on the pocket</option>
+                    </select>
+                  </label>
+                  <label class="chip-toggle micro" id="traj-superpose-to-label" title="What each frame is fitted to: the first frame played, the structure the run started from as setup prepared it, or the structure the study was given (setup/input.pdb), matched by chain, residue number and atom name">to
+                    <select id="traj-superpose-to">
+                      <option value="first" selected>the first frame</option>
+                      <option value="start">the starting structure</option>
+                      <option value="deposited">the deposited structure</option>
+                    </select>
+                  </label>
+                  <label class="chip-toggle micro" id="traj-smooth-label" title="Each atom's fitted position averaged over this many frames centred on the one shown, for watching a motion through thermal jitter; frames are fitted on the backbone first if they are not fitted already. An average shortens bonds a little, so measure on frames as written">Smoothed
+                    <select id="traj-smooth">
+                      <option value="1" selected>no</option>
+                      <option value="3">over 3 frames</option>
+                      <option value="5">over 5 frames</option>
+                      <option value="9">over 9 frames</option>
+                      <option value="15">over 15 frames</option>
+                    </select>
+                  </label>
+                  <label class="chip-toggle micro" title="Jump to the newest frame as the run writes it" data-while-running hidden><input type="checkbox" id="traj-follow" checked>Follow</label>
                 </div>
-                <div class="control-row">
-                  <div class="control-group" role="group" aria-label="Representation">
-                    <span class="control-label">Representation</span>
-                    <button class="chip-btn active" type="button" data-rep="cartoon">Cartoon</button>
-                    <button class="chip-btn" type="button" data-rep="backbone">Backbone</button>
-                    <button class="chip-btn" type="button" data-rep="sticks">Sticks</button>
-                    <button class="chip-btn" type="button" data-rep="ballAndStick">Ball and Stick</button>
-                    <button class="chip-btn" type="button" data-rep="surface">Surface</button>
-                    <button class="chip-btn" type="button" data-rep="lines">Lines</button>
-                  </div>
-                  <div class="control-group" role="group" aria-label="Visibility">
-                    <span class="control-label">Visibility</span>
-                    <label class="chip-toggle"><input type="checkbox" data-vis="protein" checked>Protein</label>
-                    <label class="chip-toggle"><input type="checkbox" data-vis="ligand" checked>Ligand</label>
-                    <label class="chip-toggle"><input type="checkbox" data-vis="pocket" checked>Binding pocket</label>
-                    <label class="chip-toggle"><input type="checkbox" data-vis="water">Water</label>
-                    <label class="chip-toggle"><input type="checkbox" data-vis="ions">Ions</label>
-                    <label class="chip-toggle"><input type="checkbox" data-vis="hydrogens">Hydrogens</label>
-                    <label class="chip-toggle"><input type="checkbox" data-vis="box">Periodic box</label>
-                  </div>
+                <!-- One of the study's series over time, the frame shown
+                     marked on it; a click or a drag shows that frame
+                     (frame-series.js). -->
+                <div class="control-row frame-series" id="frame-series" hidden>
+                  <label class="frame-series-pick micro">Series
+                    <select id="frame-series-pick" aria-label="Series plotted under the frames"></select>
+                  </label>
+                  <span class="frame-series-value mono" id="frame-series-value"></span>
+                  <p class="frame-series-note muted small" id="frame-series-note" hidden></p>
+                  <div class="frame-series-chart" id="frame-series-chart"></div>
                 </div>
-                <div class="control-row">
-                  <div class="control-group" role="group" aria-label="Color mode">
-                    <span class="control-label">Color mode</span>
-                    <button class="chip-btn" type="button" data-color="chain">Chain</button>
-                    <button class="chip-btn active" type="button" data-color="spectrum">Spectrum</button>
-                    <button class="chip-btn" type="button" data-color="residue">Residue</button>
-                    <button class="chip-btn" type="button" data-color="element">Element</button>
-                    <button class="chip-btn" type="button" data-color="secondary_structure">Secondary structure</button>
-                    <button class="chip-btn" type="button" data-color="monochrome">Monochrome</button>
-                  </div>
-                  <div class="control-group" role="group" aria-label="Camera">
-                    <span class="control-label">Camera</span>
-                    <button class="chip-btn" type="button" data-cam="spin">Spin</button>
-                    <button class="chip-btn" type="button" data-cam="stop">Stop</button>
-                    <button class="chip-btn" type="button" data-cam="center-protein">Center Protein</button>
-                    <button class="chip-btn" type="button" data-cam="center-ligand">Center Ligand</button>
-                    <button class="chip-btn" type="button" data-cam="center-pocket">Center Pocket</button>
-                    <button class="chip-btn" type="button" data-cam="zoom-in">Zoom +</button>
-                    <button class="chip-btn" type="button" data-cam="zoom-out">Zoom −</button>
-                  </div>
-                </div>
-                <div class="control-row" id="ligand-tools" hidden>
-                  <div class="control-group" role="group" aria-label="Ligand tools">
-                    <span class="control-label">Ligand tools</span>
-                    <span class="ligand-meta mono" id="ligand-meta">—</span>
-                    <button class="chip-btn" type="button" data-ligand="center">Center</button>
-                    <button class="chip-btn" type="button" data-ligand="isolate">Isolate</button>
-                    <label class="chip-toggle micro">Cutoff <input type="number" min="3" max="15" step="0.5" id="pocket-cutoff" value="5"> Å</label>
-                    <button class="chip-btn" type="button" data-ligand="show-pocket">Show pocket residues</button>
-                    <button class="chip-btn" type="button" data-ligand="show-pocket-surface">Show pocket surface</button>
-                    <button class="chip-btn" type="button" data-ligand="hide-distant">Hide distant residues</button>
-                    <button class="chip-btn" type="button" data-ligand="show-labels">Show atom labels</button>
-                    <button class="chip-btn" type="button" data-ligand="show-contacts">Geometric contacts</button>
-                    <button class="chip-btn" type="button" data-ligand="show-hbonds">H-bonds only</button>
-                  </div>
-                </div>
-                <div class="control-row" id="trajectory-row" hidden>
-                  <div class="control-group trajectory-controls">
-                    <span class="control-label">Trajectory playback</span>
-                    <button class="ctl-btn" type="button" data-traj="play">Play</button>
-                    <button class="ctl-btn" type="button" data-traj="pause">Pause</button>
-                    <button class="ctl-btn" type="button" data-traj="reverse">Reverse</button>
-                    <button class="ctl-btn" type="button" data-traj="prev">Prev</button>
-                    <button class="ctl-btn" type="button" data-traj="next">Next</button>
-                    <button class="ctl-btn" type="button" data-traj="first">⏮</button>
-                    <button class="ctl-btn" type="button" data-traj="last">⏭</button>
-                    <input type="range" class="traj-slider" id="traj-slider" min="0" max="0" value="0">
-                    <span class="traj-time mono"><span id="traj-current">0</span> / <span id="traj-total">0</span> · <span id="traj-simtime">—</span> ns</span>
-                    <label class="chip-toggle micro">Speed
-                      <select id="traj-speed">
-                        <option value="0.25">0.25×</option>
-                        <option value="0.5">0.5×</option>
-                        <option value="1" selected>1×</option>
-                        <option value="2">2×</option>
-                        <option value="4">4×</option>
-                      </select>
-                    </label>
-                    <label class="chip-toggle micro"><input type="checkbox" id="traj-loop">Loop</label>
-                    <label class="chip-toggle micro" title="Jump to the newest frame as the run writes it"><input type="checkbox" id="traj-follow" checked>Follow</label>
-                  </div>
+                <!-- What holds the ligand: each contact the interactions
+                     analysis found, frame by frame, and those of the frame
+                     shown in the structure (frame-interactions.js). -->
+                <div class="control-row frame-interactions" id="frame-interactions" hidden>
+                  <span class="frame-interactions-title">What holds the ligand</span>
+                  <label class="chip-toggle micro"><input type="checkbox" id="frame-interactions-shown" checked>In the structure</label>
+                  <span class="frame-interactions-now mono" id="frame-interactions-now"></span>
+                  <p class="frame-interactions-note muted small" id="frame-interactions-note" hidden></p>
+                  <div class="frame-interactions-chart" id="frame-interactions-chart"></div>
                 </div>
               </div>
+              </details>
             </div>
 
-            <aside class="info-panel" aria-label="Molecular information panel">
-              <div class="info-tabs" role="tablist">
-                <button class="info-tab active" type="button" data-tab="structure">Structure</button>
-                <button class="info-tab" type="button" data-tab="simulation">Simulation</button>
-                <button class="info-tab" type="button" data-tab="selection">Selection</button>
-                <button class="info-tab" type="button" data-tab="ligand">Ligand</button>
+            <!-- The settings, beside the molecule and scrolled on their own
+                 (molecule-viewer.js): the view, how the molecule is shown,
+                 the selections, the ligand, the views saved and what is
+                 known of it. -->
+            <aside class="viewer-side" aria-label="Viewer settings">
+              <!-- One tool at a time, chosen on the rail (viewer-rail.js),
+                   which is built from the sections below. -->
+              <div class="viewer-rail" id="viewer-rail" hidden>
+                <div class="viewer-rail-tools" id="viewer-rail-tools" role="tablist"
+                     aria-orientation="vertical" aria-label="Viewer tools"></div>
+                <button type="button" class="rail-btn rail-keys" id="viewer-keys-open" data-dialog-open="viewer-help"
+                        aria-haspopup="dialog" aria-keyshortcuts="Shift+/" aria-label="The Viewer's keys"
+                        title="The Viewer's keys (?)"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M8 14h8"/></svg></button>
               </div>
-              <div class="info-content">
-                <div class="info-pane active" data-tab="structure">
-                  <table class="kv-table mono">
-                    <tbody id="structure-tab-tbody">
-                      <tr><th>Protein chains</th><td>—</td></tr>
-                      <tr><th>Protein residues</th><td>—</td></tr>
-                      <tr><th>Protein atoms</th><td>—</td></tr>
-                      <tr><th>Ligands</th><td>—</td></tr>
-                      <tr><th>Water</th><td>—</td></tr>
-                      <tr><th>Ions</th><td>—</td></tr>
-                    </tbody>
-                  </table>
+              <details class="side-section" id="side-view" open>
+                <summary>View</summary>
+                  <div class="control-row view-tools">
+                    <div class="icon-group" role="group" aria-label="View">
+                      <button class="icon-btn ctl-btn" type="button" data-action="reset-view" aria-label="Reset the view" title="Reset the view (R)"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
+                      <button class="icon-btn chip-btn" type="button" data-cam="zoom-out" aria-label="Zoom out" title="Zoom out"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2M8 11h6"/></svg></button>
+                      <button class="icon-btn chip-btn" type="button" data-cam="zoom-in" aria-label="Zoom in" title="Zoom in"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2M8 11h6M11 8v6"/></svg></button>
+                      <button class="icon-btn chip-btn" type="button" data-cam="spin" aria-label="Spin" aria-pressed="false" title="Spin, or stop spinning"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg></button>
+                      <button class="icon-btn ctl-btn" type="button" data-action="fullscreen" aria-label="Full screen" title="Full screen (F)"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg></button>
+                      <button class="icon-btn ctl-btn" type="button" data-action="screenshot" aria-label="Save a picture" title="Save the view as a picture, as wide as chosen under Picture (2,400 pixels across unless another width is)"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
+                      <button class="icon-btn ctl-btn" type="button" data-action="measure" aria-label="Measure" aria-pressed="false" title="Measure: click two atoms for a distance, three for an angle, four for a dihedral (M)"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17L17 3l4 4L7 21z"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2"/></svg></button>
+                      <button class="icon-btn ctl-btn" type="button" data-action="publication" aria-label="Publication look" aria-pressed="false" title="Publication look: outlines and shading on white, for a figure; turned off, the ground chosen comes back"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg></button>
+                    </div>
+                    <div class="control-group picture-tools" role="group" aria-label="Picture">
+                      <!-- The ground behind the molecule now; Preferences says
+                           the one it opens on. -->
+                      <label class="select-field">Ground
+                        <select id="viewer-ground" aria-label="Ground behind the molecule">
+                          <option value="scheme" selected>As the scheme</option>
+                          <option value="dark">Dark</option>
+                          <option value="white">White</option>
+                        </select>
+                      </label>
+                      <label class="select-field">Picture
+                        <select id="picture-width" aria-label="Width of a picture">
+                          <option value="1200" title="One column of a page at 300 dpi">1,200 px, 1 column</option>
+                          <option value="2400" selected title="Two columns of a page at 300 dpi">2,400 px, 2 columns</option>
+                          <option value="3600">3,600 px</option>
+                          <option value="4800">4,800 px</option>
+                        </select>
+                      </label>
+                      <label class="chip-toggle" title="The molecule with no ground behind it, for a figure laid on another background"><input type="checkbox" id="picture-transparent">Transparent</label>
+                    </div>
+                    <div class="icon-group text-group" role="group" aria-label="Centre on">
+                      <span class="control-label">Centre</span>
+                      <button class="chip-btn" type="button" data-cam="center-protein">Protein</button>
+                      <button class="chip-btn" type="button" data-cam="center-ligand">Ligand</button>
+                      <button class="chip-btn" type="button" data-cam="center-pocket">Pocket</button>
+                    </div>
+                    <div class="icon-group text-group" role="group" aria-label="Live structure" data-while-running hidden>
+                      <span class="control-label">Live</span>
+                      <button class="ctl-btn chip-btn" type="button" data-action="live-toggle" title="Show the structure the run is writing now">Now</button>
+                      <button class="ctl-btn chip-btn" type="button" data-action="pause-toggle" title="Stop or resume taking the run's newest structure">Pause Updates</button>
+                    </div>
+                  </div>
+              </details>
+              <details class="side-section" id="side-display" open>
+                <summary>Display</summary>
+                  <div class="control-row display-tools">
+                    <label class="select-field">Representation
+                      <select id="viewer-rep" aria-label="Representation">
+                        <option value="cartoon" selected>Cartoon</option>
+                        <option value="backbone">Backbone</option>
+                        <option value="sticks">Sticks</option>
+                        <option value="ballAndStick">Ball and stick</option>
+                        <option value="surface">Surface</option>
+                        <option value="lines">Lines</option>
+                        <option value="spacefill">Spheres</option>
+                      </select>
+                    </label>
+                    <label class="select-field">Coloured by
+                      <select id="viewer-color" aria-label="Colour">
+                        <option value="chain">Chain</option>
+                        <option value="spectrum" selected>Spectrum</option>
+                        <option value="residue">Residue</option>
+                        <option value="element">Element</option>
+                        <option value="secondary_structure">Secondary structure</option>
+                        <option value="monochrome">Monochrome</option>
+                      </select>
+                    </label>
+                    <div class="control-group" role="group" aria-label="Shown">
+                      <span class="control-label">Shown</span>
+                      <label class="chip-toggle"><input type="checkbox" data-vis="protein" checked>Protein</label>
+                      <label class="chip-toggle"><input type="checkbox" data-vis="ligand" checked>Ligand</label>
+                      <label class="chip-toggle"><input type="checkbox" data-vis="pocket" checked>Binding pocket</label>
+                      <label class="chip-toggle"><input type="checkbox" data-vis="water">Water</label>
+                      <label class="chip-toggle"><input type="checkbox" data-vis="ions">Ions</label>
+                      <label class="chip-toggle"><input type="checkbox" data-vis="hydrogens">Hydrogens</label>
+                      <label class="chip-toggle" title="The box of the frame shown, as the brick its water and ions are kept in: for a dodecahedron or an octahedron, a brick of the same volume"><input type="checkbox" data-vis="box">Periodic box</label>
+                    </div>
+                  </div>
+                  <p class="viewer-colour-said muted small" id="viewer-colour-said" hidden></p>
+              </details>
+              <!-- The runs of a study of several, played together: each in
+                   its colour, fitted on the backbone to the first run's first
+                   frame (runs_together.py, molecule-viewer.js). -->
+              <details class="side-section" id="side-runs" open hidden>
+                <summary>Runs</summary>
+                <ul class="viewer-runs" id="viewer-runs-list" aria-label="Runs played together"></ul>
+                <p class="muted small" id="viewer-runs-note"></p>
+              </details>
+              <!-- Selections: typed in MDTraj's language, or made in the
+                   sequence and the structure, then named, coloured, shown
+                   or hidden, represented and labelled (viewer-selections.js). -->
+              <details class="side-section" id="side-selections" open>
+                <summary>Selections</summary>
+                <form class="sel-type" id="sel-form" autocomplete="off">
+                  <label class="sr-only" for="sel-expression">Select atoms by an MDTraj selection</label>
+                  <input type="text" id="sel-expression" class="mono" spellcheck="false" maxlength="500" placeholder="resSeq 10 to 25 and backbone" title="MDTraj's selection language, as a Config writes it: resSeq, chainid, resname, name, protein, backbone, water ...">
+                  <button type="submit" class="chip-btn">Select</button>
+                </form>
+                <p class="muted small sel-said" id="sel-said" role="status"></p>
+                <div class="sel-naming">
+                  <input type="text" id="sel-name" maxlength="40" aria-label="Name for the selection" placeholder="sele1">
+                  <button type="button" class="chip-btn" id="sel-keep" disabled title="Name the residues or atoms selected, and keep them with the study">Name it</button>
                 </div>
-                <div class="info-pane" data-tab="simulation" hidden>
-                  <table class="kv-table mono">
-                    <tbody id="simulation-tab-tbody">
-                      <tr><th>Force field</th><td>—</td></tr>
-                      <tr><th>Water model</th><td>—</td></tr>
-                      <tr><th>pH</th><td>—</td></tr>
-                      <tr><th>Ion concentration</th><td>—</td></tr>
-                      <tr><th>Temperature</th><td>—</td></tr>
-                      <tr><th>Timestep</th><td>—</td></tr>
-                      <tr><th>Precision</th><td>—</td></tr>
-                      <tr><th>Platform</th><td>—</td></tr>
-                    </tbody>
-                  </table>
+                <ul class="sel-list" id="sel-list" aria-label="Selections named"></ul>
+              </details>
+              <details class="side-section" id="side-ligand" open>
+                <summary>Ligand</summary>
+                  <div class="control-row" id="ligand-tools" hidden>
+                    <div class="control-group" role="group" aria-label="Ligand tools">
+                      <span class="control-label">Ligand tools</span>
+                      <span class="ligand-meta mono" id="ligand-meta">&mdash;</span>
+                      <button class="line-btn" type="button" data-ligand="center" aria-label="Center" title="Center on the ligand"><!--icon:crosshair:line-icon--></button>
+                      <button class="chip-btn" type="button" data-ligand="isolate" aria-pressed="false">Isolate</button>
+                      <label class="chip-toggle micro" title="The viewer works in angstroms; the analyses report nanometres">Cutoff <input type="number" min="3" max="15" step="0.5" id="pocket-cutoff" value="5"> Å <span class="muted" id="pocket-cutoff-nm">(0.50 nm)</span></label>
+                      <button class="chip-btn" type="button" data-ligand="show-pocket" aria-pressed="false">Show pocket residues</button>
+                      <button class="chip-btn" type="button" data-ligand="show-pocket-surface" aria-pressed="false">Show pocket surface</button>
+                      <button class="chip-btn" type="button" data-ligand="hide-distant" aria-pressed="false">Hide distant residues</button>
+                      <button class="chip-btn" type="button" data-ligand="show-labels" aria-pressed="false">Show atom labels</button>
+                      <button class="chip-btn" type="button" data-ligand="show-contacts" aria-pressed="false">Geometric contacts</button>
+                    </div>
+                  </div>
+              </details>
+              <!-- Where the ligand and the water went over the frames
+                   played, and the water sites found (viewer-occupancy.js,
+                   occupancy.py). -->
+              <details class="side-section" id="side-occupancy" open hidden>
+                <summary>Over the frames</summary>
+                <div class="occ-row" id="occ-ligand-row" hidden>
+                  <label class="chip-toggle" title="Where the ligand's heavy atoms were over the frames played, fitted on its pocket: a surface where they were in at least the share of frames chosen"><input type="checkbox" id="occ-ligand">Where the ligand was</label>
+                  <label class="occ-level">in at least <input type="range" id="occ-ligand-level" min="5" max="100" step="5" value="30" aria-label="Share of frames for the ligand's surface"> <span id="occ-ligand-level-said">30%</span> of frames</label>
                 </div>
-                <div class="info-pane" data-tab="selection" hidden>
-                  <p class="muted small">Click an atom or residue in the viewer to populate this panel.</p>
-                  <table class="kv-table mono">
-                    <tbody id="selection-tab-tbody">
-                      <tr><th>Residue</th><td>—</td></tr>
-                      <tr><th>Chain</th><td>—</td></tr>
-                      <tr><th>Atom</th><td>—</td></tr>
-                      <tr><th>Element</th><td>—</td></tr>
-                      <tr><th>Coordinates</th><td>—</td></tr>
-                    </tbody>
-                  </table>
+                <div class="occ-row" id="occ-water-row" hidden>
+                  <label class="chip-toggle" title="Where water's oxygens were near the ligand over the frames played, fitted on its pocket; bulk water reads about 32%"><input type="checkbox" id="occ-water">Where water was</label>
+                  <label class="occ-level">in at least <input type="range" id="occ-water-level" min="5" max="100" step="5" value="60" aria-label="Share of frames for the water's surface"> <span id="occ-water-level-said">60%</span> of frames</label>
                 </div>
-                <div class="info-pane" data-tab="ligand" hidden>
-                  <table class="kv-table mono">
-                    <tbody id="ligand-tab-tbody">
-                      <tr><th>Ligand</th><td>—</td></tr>
-                      <tr><th>Chain</th><td>—</td></tr>
-                      <tr><th>Residue ID</th><td>—</td></tr>
-                      <tr><th>Atom count</th><td>—</td></tr>
-                      <tr><th>Nearby residues</th><td>—</td></tr>
-                      <tr><th>Pocket distance</th><td>—</td></tr>
-                      <tr><th>H-bonds</th><td>—</td></tr>
-                      <tr><th>Hydrophobic contacts</th><td>—</td></tr>
-                      <tr><th>Salt bridges</th><td>—</td></tr>
-                    </tbody>
-                  </table>
+                <div class="occ-row" id="occ-sites-row" hidden>
+                  <label class="chip-toggle" title="The sites the water_sites analysis found: vermilion where one molecule held it, sky blue where many passed through"><input type="checkbox" id="occ-sites">Water sites</label>
                 </div>
-              </div>
+                <ul class="occ-sites" id="occ-sites-list" aria-label="Water sites"></ul>
+                <p class="muted small" id="occ-note" role="status"></p>
+              </details>
+              <!-- The study's main motions: its principal components, as the
+                   atoms swinging along one and as lines to where it takes
+                   them (viewer-motion.js, motion.py). -->
+              <details class="side-section" id="side-motion" open hidden>
+                <summary>Main motions</summary>
+                <div class="occ-row">
+                  <label class="select-field">Motion
+                    <select id="motion-mode" aria-label="Which motion"><option value="1">Motion 1</option><option value="2">Motion 2</option><option value="3">Motion 3</option></select>
+                  </label>
+                  <label class="select-field">Size
+                    <select id="motion-scale" aria-label="How large the motion is shown"><option value="1" selected>As it is</option><option value="3">Three times larger</option></select>
+                  </label>
+                </div>
+                <div class="occ-row">
+                  <label class="chip-toggle" title="The atoms the motion moves, swinging from two standard deviations of it one way to two the other"><input type="checkbox" id="motion-swing">Play the motion</label>
+                  <label class="chip-toggle" title="A line from each atom to where two standard deviations of the motion take it"><input type="checkbox" id="motion-arrows">Lines along it</label>
+                </div>
+                <p class="muted small" id="motion-note" role="status"></p>
+              </details>
+              <!-- The states the cluster analysis found, each with its
+                   representative frame, and two compared
+                   (viewer-states.js, states.py). -->
+              <details class="side-section" id="side-states" open hidden>
+                <summary>States</summary>
+                <div class="occ-row" id="states-method-row" hidden>
+                  <label class="select-field">Found by
+                    <select id="states-method" aria-label="Which clustering"></select>
+                  </label>
+                </div>
+                <ul class="states-list" id="states-list" aria-label="States"></ul>
+                <div class="occ-row" id="states-compare-row" hidden>
+                  <label class="select-field">Compare
+                    <select id="states-first" aria-label="First state"></select>
+                  </label>
+                  <label class="select-field">with
+                    <select id="states-second" aria-label="Second state"></select>
+                  </label>
+                  <button type="button" class="line-btn" id="states-compare" aria-label="Compare" title="Compare: show the second state's representative in grey beside the first's, fitted on the alpha carbons, and colour the protein by how far each residue moved"><!--icon:compare:line-icon--></button>
+                  <button type="button" class="line-btn" id="states-stop" hidden aria-label="Stop comparing" title="Stop comparing"><!--icon:close:line-icon--></button>
+                </div>
+                <p class="muted small" id="states-note" role="status"></p>
+              </details>
+              <!-- A residue's backbone dihedrals over the frames played, on a
+                   Ramachandran plot tied to the frame shown
+                   (viewer-ramachandran.js, backbone_angles.py). -->
+              <details class="side-section" id="side-rama" hidden>
+                <summary>Backbone angles</summary>
+                <div class="occ-row">
+                  <label class="select-field">Residue
+                    <select id="rama-residue" aria-label="Residue followed"></select>
+                  </label>
+                </div>
+                <canvas class="rama-canvas" id="rama-canvas" width="300" height="300" role="img" aria-label="Ramachandran plot of the frames played"></canvas>
+                <!-- What each mark of the plot is, with the mark itself. -->
+                <ul class="plot-key" id="rama-key">
+                  <li><svg class="key-mark" viewBox="0 0 24 12" aria-hidden="true"><rect x="2" y="2" width="8" height="8" style="fill: var(--text-muted); opacity: .45"/><rect x="12" y="2" width="8" height="8" style="fill: var(--text-muted); opacity: .2"/></svg>All residues, all frames (darker where more often)</li>
+                  <li><svg class="key-mark" viewBox="0 0 24 12" aria-hidden="true"><circle cx="6" cy="6" r="3.5" style="fill: var(--accent-cyan)"/><circle cx="17" cy="6" r="3" style="fill: none; stroke: var(--accent-cyan); stroke-width: 1.4"/></svg>Each residue at the frame shown (hollow: glycine)</li>
+                  <li data-key="path" hidden><svg class="key-mark" viewBox="0 0 24 12" aria-hidden="true"><polyline points="2,9 8,4 14,8 21,3" style="fill: none; stroke: var(--accent-orange); stroke-width: 1.4"/><circle cx="2.5" cy="9" r="1.6" style="fill: var(--accent-orange); opacity: .35"/><circle cx="8" cy="4" r="1.6" style="fill: var(--accent-orange); opacity: .55"/><circle cx="14" cy="8" r="1.6" style="fill: var(--accent-orange); opacity: .8"/><circle cx="21" cy="3" r="1.6" style="fill: var(--accent-orange)"/></svg><span><span class="rama-key-chosen"></span> over the frames, faint at the first, solid at the last</span></li>
+                  <li data-key="ring" hidden><svg class="key-mark" viewBox="0 0 24 12" aria-hidden="true"><circle cx="12" cy="6" r="4.5" style="fill: none; stroke: var(--text-primary); stroke-width: 1.6"/></svg><span><span class="rama-key-chosen"></span> at the frame shown</span></li>
+                  <li data-key="choose">Choose a residue above, or click one in the structure, to follow it over the frames.</li>
+                </ul>
+                <p class="muted small" id="rama-hint">Click a point of the path to show that frame; click a dot to follow that residue.</p>
+                <p class="muted small" id="rama-note" role="status"></p>
+              </details>
+              <!-- Which residues touch which over the frames played, a pair
+                   followed in the structure (viewer-contact-map.js,
+                   contact_map.py). -->
+              <details class="side-section" id="side-cmap" hidden>
+                <summary>Contact map</summary>
+                <div class="occ-row" id="cmap-states-row" hidden>
+                  <label class="select-field">State
+                    <select id="cmap-second" aria-label="State compared"></select>
+                  </label>
+                  <label class="select-field">vs
+                    <select id="cmap-first" aria-label="State it is compared with"></select>
+                  </label>
+                  <button type="button" class="line-btn" id="cmap-compare" aria-label="Compare" title="Compare: colour each pair by how much more often it was in contact in one state than in the other"><!--icon:compare:line-icon--></button>
+                  <button type="button" class="chip-btn" id="cmap-all" hidden>Every frame</button>
+                </div>
+                <canvas class="cmap-canvas" id="cmap-canvas" width="300" height="300" role="img" aria-label="Contact map of the protein's residues over the frames played"></canvas>
+                <!-- What the colours mean: the share of frames, or for two
+                     states compared, which state holds a pair more often. -->
+                <div class="plot-key cmap-key" id="cmap-key" hidden>
+                  <div class="cmap-key-bar" id="cmap-key-bar"></div>
+                  <div class="cmap-key-ends"><span id="cmap-key-low"></span><span id="cmap-key-high"></span></div>
+                </div>
+                <p class="muted small" id="cmap-hover" aria-live="off"></p>
+                <div class="occ-row" id="cmap-pair-row" hidden>
+                  <button type="button" class="line-btn" id="cmap-clear" aria-label="Clear the pair" title="Clear the pair"><!--icon:erase:line-icon--></button>
+                </div>
+                <p class="muted small" id="cmap-note" role="status"></p>
+              </details>
+              <!-- The room in the ligand's pocket over the frames played,
+                   and the pocket rendered at the frame shown
+                   (viewer-pocket.js, pocket_volume.py). -->
+              <details class="side-section" id="side-pocket" hidden>
+                <summary>Pocket volume</summary>
+                <canvas class="pocket-canvas" id="pocket-canvas" width="300" height="110" role="img" aria-label="The pocket's volume over the frames played"></canvas>
+                <p class="small" id="pocket-now" role="status"></p>
+                <label class="chip-toggle" title="Render the pocket's empty space in the frame shown, the frames superposed on the pocket"><input type="checkbox" id="pocket-shown">Show the pocket</label>
+                <p class="muted small" id="pocket-note"></p>
+              </details>
+              <!-- Another study's frames beside this one's: its residues
+                   paired by sequence, fitted and timed to these
+                   (viewer-beside.js, beside.py). -->
+              <details class="side-section" id="side-beside" open hidden>
+                <summary>Compare study</summary>
+                <div class="occ-row">
+                  <label class="select-field">Study
+                    <select id="beside-study" aria-label="The study to show beside this one"></select>
+                  </label>
+                  <button type="button" class="chip-btn" id="beside-show" title="Play the other study's frames beside these, its residues paired by sequence and fitted on their alpha carbons to this study's first frame">Show beside</button>
+                  <button type="button" class="line-btn" id="beside-remove" hidden aria-label="Remove the study beside" title="Remove the study beside"><!--icon:close:line-icon--></button>
+                </div>
+                <div class="occ-row" id="beside-colour-row" hidden>
+                  <label class="chip-toggle" title="This study's protein coloured by the other's RMSF less its own over the paired residues: red where the other moves more, blue where less"><input type="checkbox" id="beside-colour">Coloured by the difference in RMSF</label>
+                </div>
+                <ul class="occ-sites" id="beside-mutations" aria-label="Residues that differ"></ul>
+                <p class="muted small" id="beside-note" role="status"></p>
+              </details>
+              <!-- What holds the chains together: hydrogen bonds and salt
+                   bridges between the protein's chains in the frames played
+                   (chain-contacts.js, chain_contacts.py). -->
+              <details class="side-section" id="side-chains" open hidden>
+                <summary>Between chains</summary>
+                <div class="control-row">
+                  <label class="chip-toggle" title="The contacts present in the frame shown, as dashed lines: blue a hydrogen bond, orange a salt bridge"><input type="checkbox" id="chain-contacts-shown" checked>In the structure</label>
+                  <span class="muted small" id="chain-contacts-now" role="status"></span>
+                </div>
+                <ul class="chain-contacts" id="chain-contacts-list" aria-label="Contacts between chains"></ul>
+                <p class="muted small" id="chain-contacts-note"></p>
+              </details>
+              <details class="side-section" id="side-saved" open>
+                <summary>Saved views</summary>
+                <div class="control-row">
+                    <!-- Views saved with the study: the camera, the frame and how
+                         the molecule is shown (viewer-views.js). -->
+                    <div class="icon-group text-group viewer-views" role="group" aria-label="Saved views">
+                      <label class="control-label" for="viewer-views">Views</label>
+                      <select id="viewer-views"><option value="">Saved views</option></select>
+                      <button class="icon-btn" type="button" id="viewer-view-save" aria-label="Save this view" title="Save this view with the study: the camera, the frame and how the molecule is shown"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h10v16l-5-4-5 4z"/></svg></button>
+                      <button class="icon-btn" type="button" id="viewer-view-forget" aria-label="Forget this view" title="Forget the view chosen" disabled><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+                      <button class="icon-btn" type="button" id="viewer-scene-save" aria-label="Save as a scene file" title="Save this view as a scene file (MolViewSpec, .mvsx) with the study and download it: it opens as it is shown here in any viewer built on Mol*, such as molstar.org"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg></button>
+                      <span class="viewer-view-naming" id="viewer-view-naming" hidden>
+                        <input id="viewer-view-name" maxlength="60" aria-label="Name of the view" placeholder="Name">
+                        <input id="viewer-view-note" maxlength="500" aria-label="Note on the view, optional" placeholder="What it shows (optional)">
+                        <button class="line-btn" type="button" id="viewer-view-keep" aria-label="Save the view" title="Save the view"><!--icon:bookmark:line-icon--></button>
+                      </span>
+                    </div>
+                    <p class="muted small viewer-view-said" id="viewer-view-said" hidden></p>
+                    <div class="icon-group text-group viewer-views" role="group" aria-label="Scenes">
+                      <label class="control-label" for="viewer-scenes">Scenes</label>
+                      <select id="viewer-scenes"><option value="">No scenes written</option></select>
+                      <button class="icon-btn" type="button" id="viewer-scene-show" aria-label="Show this scene here" title="Show the scene chosen in this Viewer: its frame, camera, representation, colouring, parts shown and superposition" disabled><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
+                      <button class="icon-btn" type="button" id="viewer-scene-open" aria-label="Open this scene" title="Open the scene chosen on a page of its own, as any viewer built on Mol* shows it" disabled><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/></svg></button>
+                    </div>
+                </div>
+              </details>
+              <!-- A movie of the frames, rendered here and encoded by ffmpeg
+                   on this computer (viewer-movie.js, movies.py). -->
+              <details class="side-section" id="side-movie" open>
+                <summary>Movie</summary>
+                <form class="movie-form" id="movie-form" autocomplete="off">
+                  <fieldset class="movie-settings" id="movie-settings">
+                    <legend class="sr-only">How the movie is made</legend>
+                    <div class="control-row">
+                      <label class="select-field">From frame <input type="number" id="movie-from" min="0" step="1" value="0"></label>
+                      <label class="select-field">To <input type="number" id="movie-to" min="0" step="1" placeholder="last"></label>
+                      <label class="select-field">Every <input type="number" id="movie-every" min="1" step="1" value="1"></label>
+                      <label class="select-field" title="Frames put in between two frames played, each atom moved in a straight line from one to the next: a smoother movie, not more simulation. The frames are superposed first.">In between
+                        <select id="movie-between">
+                          <option value="0" selected>None</option>
+                          <option value="1">1</option>
+                          <option value="3">3</option>
+                          <option value="7">7</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div class="control-row">
+                      <label class="select-field">Frames a second
+                        <select id="movie-fps">
+                          <option value="10">10</option>
+                          <option value="15">15</option>
+                          <option value="24" selected>24</option>
+                          <option value="25">25</option>
+                          <option value="30">30</option>
+                          <option value="60">60</option>
+                        </select>
+                      </label>
+                      <label class="select-field">Size
+                        <select id="movie-size">
+                          <option value="shown" selected>As shown, 1920 across</option>
+                          <option value="1280x720">1280 &times; 720 (HD)</option>
+                          <option value="1920x1080">1920 &times; 1080 (Full HD)</option>
+                          <option value="3840x2160">3840 &times; 2160 (4K)</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div class="control-group" role="group" aria-label="In the movie">
+                      <label class="chip-toggle" title="The simulated time of each frame, in the lower right corner"><input type="checkbox" id="movie-time" checked>Time</label>
+                      <label class="chip-toggle" title="The camera turned once about the screen's vertical over the movie"><input type="checkbox" id="movie-turn">One turn</label>
+                    </div>
+                    <div class="sel-naming">
+                      <input type="text" id="movie-name" maxlength="60" aria-label="Name of the movie" value="movie">
+                      <button type="submit" class="chip-btn" id="movie-make" title="Render the frames as the Viewer shows them and encode them as a movie with the study (movies/), then download it">Make the movie</button>
+                    </div>
+                  </fieldset>
+                  <p class="muted small" id="movie-length"></p>
+                  <div class="movie-progress-row">
+                    <progress id="movie-progress" max="1" value="0" hidden></progress>
+                    <button type="button" class="chip-btn" id="movie-cancel" hidden>Cancel</button>
+                  </div>
+                  <p class="muted small" id="movie-said" role="status"></p>
+                  <p class="muted small" id="movie-by"></p>
+                </form>
+              </details>
+              <!-- The structure, the run, and what is picked: a tool of the
+                   rail, its button marked when something is picked while
+                   another tool is shown. -->
+              <details class="side-section" id="side-info" open>
+                <summary>Information</summary>
+                <div class="info-panel">
+                  <div class="info-tabs" role="tablist" aria-label="Molecular information">
+                    <button class="info-tab active" type="button" role="tab" id="info-tab-structure" aria-controls="info-pane-structure" aria-selected="true" tabindex="0" data-tab="structure">Structure</button>
+                    <button class="info-tab" type="button" role="tab" id="info-tab-simulation" aria-controls="info-pane-simulation" aria-selected="false" tabindex="-1" data-tab="simulation">Simulation</button>
+                    <button class="info-tab" type="button" role="tab" id="info-tab-selection" aria-controls="info-pane-selection" aria-selected="false" tabindex="-1" data-tab="selection">Selection</button>
+                    <button class="info-tab" type="button" role="tab" id="info-tab-ligand" aria-controls="info-pane-ligand" aria-selected="false" tabindex="-1" data-tab="ligand">Ligand</button>
+                  </div>
+                  <div class="info-content">
+                    <div role="tabpanel" id="info-pane-structure" aria-labelledby="info-tab-structure" class="info-pane active" data-tab="structure">
+                      <table class="kv-table mono">
+                        <tbody id="structure-tab-tbody">
+                          <tr><th>Protein chains</th><td>&mdash;</td></tr>
+                          <tr><th>Protein residues</th><td>&mdash;</td></tr>
+                          <tr><th>Protein atoms</th><td>&mdash;</td></tr>
+                          <tr><th>Ligands</th><td>&mdash;</td></tr>
+                          <tr><th>Water</th><td>&mdash;</td></tr>
+                          <tr><th>Ions</th><td>&mdash;</td></tr>
+                        </tbody>
+                      </table>
+                      <p class="muted small viewer-ss-said" id="viewer-ss-said"></p>
+                    </div>
+                    <div role="tabpanel" id="info-pane-simulation" aria-labelledby="info-tab-simulation" class="info-pane" data-tab="simulation" hidden>
+                      <table class="kv-table mono">
+                        <tbody id="simulation-tab-tbody">
+                          <tr><th>Force field</th><td>&mdash;</td></tr>
+                          <tr><th>Water model</th><td>&mdash;</td></tr>
+                          <tr><th>pH</th><td>&mdash;</td></tr>
+                          <tr><th>Ion concentration</th><td>&mdash;</td></tr>
+                          <tr><th>Temperature</th><td>&mdash;</td></tr>
+                          <tr><th>Timestep</th><td>&mdash;</td></tr>
+                          <tr><th>Precision</th><td>&mdash;</td></tr>
+                          <tr><th>Platform</th><td>&mdash;</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    <div role="tabpanel" id="info-pane-selection" aria-labelledby="info-tab-selection" class="info-pane" data-tab="selection" hidden>
+                      <p class="muted small">Click an atom or residue in the viewer to populate this panel.</p>
+                      <table class="kv-table mono">
+                        <tbody id="selection-tab-tbody">
+                          <tr><th>Residue</th><td>&mdash;</td></tr>
+                          <tr><th>Chain</th><td>&mdash;</td></tr>
+                          <tr><th>Atom</th><td>&mdash;</td></tr>
+                          <tr><th>Element</th><td>&mdash;</td></tr>
+                          <tr><th>Coordinates</th><td>&mdash;</td></tr>
+                        </tbody>
+                      </table>
+                      <!-- The clicked atom as a selection a Config can use. -->
+                      <div class="selection-strings" id="selection-strings" hidden></div>
+                      <!-- What the measuring tool measured (molecule-viewer.js). -->
+                      <div class="measure-said" id="measure-said" hidden></div>
+                    </div>
+                    <div role="tabpanel" id="info-pane-ligand" aria-labelledby="info-tab-ligand" class="info-pane" data-tab="ligand" hidden>
+                      <table class="kv-table mono">
+                        <tbody id="ligand-tab-tbody">
+                          <tr><th>Ligand</th><td>&mdash;</td></tr>
+                          <tr><th>Chain</th><td>&mdash;</td></tr>
+                          <tr><th>Residue ID</th><td>&mdash;</td></tr>
+                          <tr><th>Atom count</th><td>&mdash;</td></tr>
+                          <tr><th>Nearby residues</th><td>&mdash;</td></tr>
+                          <tr><th>Pocket distance</th><td>&mdash;</td></tr>
+                          <tr><th>H-bonds</th><td>&mdash;</td></tr>
+                          <tr><th>Hydrophobic contacts</th><td>&mdash;</td></tr>
+                          <tr><th>Salt bridges</th><td>&mdash;</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </details>
             </aside>
           </div>
         </section>
@@ -763,7 +1659,7 @@
               <div class="page-subtitle">Trajectory analyses and protein-ligand interactions</div>
             </div>
             <div class="page-header-actions">
-              <div class="muted small mono" id="analysis-meta">no analyses yet</div>
+              <div class="muted small" id="analysis-meta">no analyses yet</div>
               <a
                 class="ghost-btn"
                 id="download-all-svg"
@@ -771,9 +1667,63 @@
                 download
                 hidden
               >Download all SVG figures</a>
+              <!-- The study's analyses run again in its folder, from its
+                   records (analyze-again.js, again_view.py). -->
+              <button type="button" class="ghost-btn" id="analysis-again" hidden
+                      aria-controls="analysis-again-ask" aria-expanded="false"
+                      title="Analyze this study's frames again, with the analyses you choose, simulating nothing">Analyze again</button>
             </div>
           </div>
+          <section class="card again-ask" id="analysis-again-ask" aria-label="Analyze again" hidden></section>
           <div class="quick-actions" id="analysis-quick-actions" hidden></div>
+          <!-- What every analysis recorded, read together
+               (analysis-page.js, analysis_overview.py). -->
+          <section class="card analysis-results" id="analysis-results" hidden aria-labelledby="analysis-results-title">
+            <div class="analysis-results-head">
+              <div>
+                <h2 class="analysis-results-title" id="analysis-results-title">What the analyses determined</h2>
+                <p class="analysis-results-summary muted small" id="analysis-results-summary"></p>
+              </div>
+              <button type="button" class="line-btn" data-results-download aria-label="Download CSV"
+                      title="Download CSV: every quantity in this table, with its standard error and unit"><!--icon:download:line-icon--></button>
+            </div>
+            <div class="analysis-results-scroll">
+              <table class="analysis-results-table" id="analysis-results-table">
+                <caption class="sr-only">Each analysis's mean over its equilibrated frames, the frames and independent samples it rests on, and whether it was determined</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Analysis</th>
+                    <th scope="col">Mean ± standard error</th>
+                    <th scope="col">Frames averaged</th>
+                    <th scope="col" title="Frames averaged over the statistical inefficiency">Independent samples</th>
+                    <th scope="col">Status</th>
+                  </tr>
+                </thead>
+              </table>
+            </div>
+          </section>
+          <!-- The sections by what they study, with a filter. -->
+          <nav class="analysis-index" id="analysis-index" aria-label="Analyses on this page" hidden></nav>
+          <p class="muted small analysis-filter-none" id="analysis-filter-none" hidden>No analysis matches. Clear the filter to see them all.</p>
+          <!-- A study of several runs: the runs side by side
+               (runs-compared.js). Hidden for a study of one run. -->
+          <section class="runs-compared" id="runs-compared" hidden>
+            <div class="runs-compared-head">
+              <h2 class="analysis-section-title">Runs compared</h2>
+              <span class="muted small" id="runs-compared-meta"></span>
+            </div>
+            <div class="runs-compared-scroll">
+              <table class="runs-compared-table" id="runs-compared-table"></table>
+            </div>
+            <div class="runs-compared-said" id="runs-compared-said"></div>
+            <div class="runs-overlay" id="runs-overlay" hidden>
+              <label class="runs-overlay-pick">Overlaid
+                <select id="runs-overlay-measure" aria-label="The quantity to overlay"></select>
+              </label>
+              <div class="runs-overlay-chart" id="runs-overlay-chart"></div>
+              <div class="runs-overlay-legend" id="runs-overlay-legend"></div>
+            </div>
+          </section>
           <div id="analysis-sections" hidden></div>
           <div class="analysis-grid" id="analysis-grid"></div>
           <div class="empty-state" id="analysis-empty">
@@ -791,12 +1741,19 @@
               <h1 class="page-title">Report</h1>
               <div class="page-subtitle" id="report-subtitle">The study, written up.</div>
             </div>
-            <div class="page-header-actions" id="report-downloads"></div>
+            <div class="page-header-actions">
+              <div class="page-header-actions" id="report-downloads"></div>
+              <!-- The report phase alone on the study open, from its records
+                   and the report settings it recorded (report-page.js). -->
+              <button type="button" class="ghost-btn" id="report-write" hidden
+                      title="Write the report again from this study's records, simulating and analysing nothing">Write it again</button>
+            </div>
           </div>
+          <div class="fix-actions report-write-ask" id="report-write-ask" role="status" hidden></div>
           <div id="report-notices" class="report-notices" hidden></div>
           <div class="empty-state" id="report-empty">
             <p>No report yet. The report phase writes one at the end of a run.</p>
-            <p class="mono" id="report-empty-reason"></p>
+            <p class="muted" id="report-empty-reason"></p>
           </div>
           <article class="card report-document" id="report-document" hidden></article>
         </section>
@@ -805,54 +1762,15 @@
           <div class="page-header">
             <div>
               <h1 class="page-title">Files</h1>
-              <div class="page-subtitle">Everything the run wrote, grouped by phase</div>
+              <div class="page-subtitle">Everything the study wrote, in the order it ran</div>
             </div>
           </div>
 
-          <div class="card summary-card" id="summary-card" hidden>
-            <div class="card-header"><h2 class="card-title">Exploration completed</h2></div>
-            <div class="summary-grid mono" id="summary-grid"></div>
-          </div>
-
-          <!-- Grouped by what a reader came for, not by which directory the
-               file happens to sit in. The cards are built from the payload so
-               a group with nothing in it does not appear at all. -->
-          <div id="file-groups"></div>
-          <div hidden>
-            <div class="files-list" id="reports-files"></div>
-            <div class="files-list" id="simulation-files"></div>
-            <div class="files-list" id="analysis-files"></div>
-          </div>
-        </section>
-
-        <!-- The report, the slides and `fastmdx info` all print this and the
-             GUI printed none, which made it the one interface that never told
-             a new user how to cite the software. Filled by the server from
-             the same constant, so it cannot drift from the others. -->
-        <section class="page" data-page="cite" hidden>
-          <div class="page-header">
-            <div>
-              <h1 class="page-title">Citing FastMDXplora</h1>
-              <div class="page-subtitle">If this software contributed to your work, please cite it</div>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-header"><h2 class="card-title">Reference</h2></div>
-            <div class="card-body">
-              <p id="cite-reference">__FASTMDX_CITATION__</p>
-              <p class="subtle">DOI: <a href="https://doi.org/__FASTMDX_DOI__"
-                 target="_blank" rel="noopener">__FASTMDX_DOI__</a>
-                 &nbsp;·&nbsp; version <span id="cite-version">__FASTMDX_VERSION__</span></p>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-header">
-              <h2 class="card-title">BibTeX</h2>
-              <button class="btn btn-small" id="cite-copy">Copy</button>
-            </div>
-            <div class="card-body">
-              <pre class="mono" id="cite-bibtex">__FASTMDX_BIBTEX__</pre>
-            </div>
+          <!-- Rendered by the server (gui/files_page.py), the same page the
+               standalone dashboard carries; files-page.js finds, filters,
+               sorts and folds it, files-actions.js deposits and clears. -->
+          <div id="files-page" class="files-page" data-source="/api/files-page">
+            <div class="files-empty">Reading the study's files…</div>
           </div>
         </section>
 
@@ -860,10 +1778,13 @@
           <div class="page-header">
             <div>
               <h1 class="page-title">Agent</h1>
-              <div class="page-subtitle">Describe a study in natural language.</div>
+              <div class="page-subtitle">Describe a study, or ask about the one open.</div>
             </div>
           </div>
 
+          <!-- Everything under the heading, as one, so it can be moved
+               beside another page and back (agent-beside.js). -->
+          <div class="agent-body" id="agent-body">
           <!-- Earlier conversations, newest first, to reopen or delete. -->
           <div class="agent-conv-list" id="agent-conv-list" hidden></div>
 
@@ -871,6 +1792,33 @@
                came back: the refusals as it corrected itself, the config,
                the actions on it. Newest at the bottom, where the composer
                is. -->
+          <!-- What the Agent can be asked, until something has been; each
+               sent as it is pressed. -->
+          <div class="agent-start" id="agent-start" hidden>
+            <h2 class="agent-start-title">What would you like to study?</h2>
+            <p class="agent-start-note" id="agent-start-note">I draft a config and the software validates it. Nothing runs until you say so.</p>
+            <p class="agent-start-engine" id="agent-start-engine" hidden>
+              I am not set up yet.
+              <button type="button" class="ghost-btn" id="agent-start-settings">Set me up</button>
+              <span class="agent-start-records" id="agent-start-records" hidden>Until then, I answer the questions about this study from its records.</span>
+            </p>
+            <div class="agent-start-group" id="agent-start-study" hidden>
+              <div class="agent-start-label">About this study</div>
+              <div class="agent-starters">
+                <button type="button" class="agent-starter" data-records="found" data-prompt="Summarise what this study found, with the uncertainty of each number.">Summarise what this study found</button>
+                <button type="button" class="agent-starter" data-records="long_enough" data-prompt="Is this run long enough for its averages to be trusted? If not, what should I run?">Is this run long enough?</button>
+                <button type="button" class="agent-starter" data-records="strengthen" data-prompt="What would strengthen this result most: a longer run, or more replicas? Say how much of either.">What would strengthen it most?</button>
+              </div>
+            </div>
+            <div class="agent-start-group">
+              <div class="agent-start-label">Start a study</div>
+              <div class="agent-starters">
+                <button type="button" class="agent-starter" data-prompt="Simulate ubiquitin (PDB 1UBQ) in water at 300 K for 10 ns, and tell me whether it stays folded.">Ubiquitin in water, 10 ns</button>
+                <button type="button" class="agent-starter" data-prompt="Run three replicas of ubiquitin (PDB 1UBQ) at 300 K for 5 ns each, and compare their RMSD and radius of gyration.">Three replicas, compared</button>
+                <button type="button" class="agent-starter" data-prompt="Estimate the binding free energy of benzene to T4 lysozyme L99A (PDB 181L) by umbrella sampling along the ligand's distance from its site.">A binding free energy</button>
+              </div>
+            </div>
+          </div>
           <div class="agent-thread" id="agent-thread" aria-live="polite"></div>
 
           <!-- The composer, pinned. Grows with what is typed; Enter sends,
@@ -881,135 +1829,82 @@
             <div class="agent-composer-box">
               <button id="agent-attach" class="agent-plus" type="button" aria-label="Attach a file" title="Attach a file for the Agent to read: a config, a log, a manifest, a data table, a structure.">+</button>
               <textarea id="agent-request" rows="1"
-                placeholder="Describe a study, ask a question, or tell me what to do."></textarea>
+                placeholder="Describe a study, or ask about one in this folder"></textarea>
               <button id="agent-propose" class="agent-send" type="button" aria-label="Send" title="Send (Enter). Shift+Enter for a new line.">&#8593;</button>
               <input type="hidden" id="agent-attach-path">
             </div>
             <!-- Under the composer, small, at the right: the mode, which
                  opens the Agent's settings; the conversations; a fresh
-                 one. Where every assistant a person has used keeps them. -->
+                 one. Where every AI app a person has used keeps them. -->
             <div class="agent-footer">
               <button id="agent-settings-open" class="agent-footer-link" type="button" title="Agent settings"><span id="agent-footer-mode">Assisted</span> mode</button>
-              <span class="agent-footer-dot" aria-hidden="true">&middot;</span>
-              <button id="agent-conversations" class="agent-footer-link" type="button" title="Open an earlier conversation">Conversations</button>
-              <span class="agent-footer-dot" aria-hidden="true">&middot;</span>
-              <button id="agent-new" class="agent-footer-link" type="button" title="Start a fresh thread; this one is kept">New</button>
+              <button id="agent-conversations" class="line-btn" type="button" aria-label="Conversations"
+                      title="Conversations: open an earlier one"><!--icon:chat:line-icon--></button>
+              <button id="agent-new" class="line-btn" type="button" aria-label="New conversation"
+                      title="New conversation: this one is kept"><!--icon:new:line-icon--></button>
             </div>
+          </div>
+
           </div>
 
           <!-- One reply's worth of controls, cloned into each exchange. The
                ids here are the template's; each clone addresses its own
                copy by data-role. -->
           <template id="agent-reply-template">
-            <div class="agent-msg agent-msg-agent">
+            <div class="agent-msg agent-msg-agent" data-state="working">
+              <!-- The Agent's icon, coloured by what it is doing: working,
+                   waiting for you, done, could not finish. -->
+              <span class="agent-who" data-role="who" title="Working"><!--icon:agent:agent-who-icon--></span>
+              <div class="agent-msg-body" data-role="body">
               <div class="agent-attempts" data-role="attempts" id="agent-attempts"></div>
-              <pre class="agent-result" data-role="result" id="agent-result" hidden></pre>
-              <div class="agent-actions" data-role="actions" id="agent-actions" hidden>
-                <label class="checkbox-row agent-full">
-                  <input type="checkbox" data-role="full" id="agent-full-config">
-                  <span>Write every setting, not only the ones the Agent set</span>
-                </label>
-                <div class="control-row">
-                  <button class="ctl-btn" type="button" data-role="show" id="agent-show">Show the config</button>
-                  <button class="ctl-btn" type="button" data-role="download" id="agent-download">Download config</button>
-                  <button class="ctl-btn" type="button" data-role="copy" id="agent-copy-command"
-                          title="The fastmdx invocation that runs this study, for a terminal or a batch script.">Copy the command</button>
-                  <button class="ctl-btn" type="button" data-role="script" id="agent-download-script"
-                          title="The same study as a Python script, using the documented API.">Download a script</button>
-                  <button class="primary-btn" type="button" data-role="run" id="agent-run">Run here</button>
-                  <span class="builder-card-note agent-action-note" data-role="note" id="agent-action-note" role="status"></span>
+              <!-- A config the Agent wrote, as a version of the study: what
+                   changed from the version before, each value with where it
+                   came from, and Run on the newest only. An older version
+                   folds to its head, with Show and Use this version. -->
+              <div class="agent-study" data-role="study" hidden>
+                <div class="agent-study-head">
+                  <b class="agent-study-version" data-role="version">Study</b>
+                  <span class="agent-badge is-ok" data-role="checks">passes the checks</span>
+                  <span class="agent-badge" data-role="replaced" hidden></span>
+                  <span class="agent-spacer"></span>
+                  <span class="agent-badge" data-role="count" hidden></span>
+                  <button type="button" class="ghost-btn" data-role="unfold" hidden>Show</button>
+                  <button type="button" class="ghost-btn" data-role="use" hidden
+                          title="Make this version the newest again, to run or change">Use this version</button>
                 </div>
-                <p class="builder-card-note">
-                  <a href="#run" data-role="load" id="agent-load">Open in the builder</a> to change it first.
-                </p>
+                <div class="agent-study-change" data-role="change" hidden></div>
+                <div class="agent-study-whole" data-role="whole">
+                <dl class="agent-plan" data-role="plan" id="agent-plan" hidden></dl>
+                <pre class="agent-result" data-role="result" id="agent-result" hidden></pre>
+                <div class="agent-actions" data-role="actions" id="agent-actions" hidden>
+                  <div class="control-row">
+                    <button class="primary-btn" type="button" data-role="run" id="agent-run">Run on this machine</button>
+                    <a href="#run" class="line-btn" data-role="load" id="agent-load" aria-label="Open in the builder"
+                       title="Open in the builder"><!--icon:config:line-icon--></a>
+                    <details class="agent-more" data-role="more">
+                      <summary class="ctl-btn">More</summary>
+                      <div class="agent-more-menu" role="group" aria-label="More for this study">
+                        <button class="ctl-btn" type="button" data-role="show" id="agent-show">Show the config</button>
+                        <button class="ctl-btn" type="button" data-role="download" id="agent-download">Download config</button>
+                        <button class="ctl-btn" type="button" data-role="copy" id="agent-copy-command"
+                                title="The fastmdx invocation that runs this study, for a terminal or a batch script.">Copy the command</button>
+                        <button class="ctl-btn" type="button" data-role="script" id="agent-download-script"
+                                title="The same study as a Python script, using the documented API.">Download a script</button>
+                        <label class="checkbox-row agent-full">
+                          <input type="checkbox" data-role="full" id="agent-full-config">
+                          <span>Write every setting, not only the ones the Agent set</span>
+                        </label>
+                      </div>
+                    </details>
+                    <span class="builder-card-note agent-action-note" data-role="note" id="agent-action-note" role="status"></span>
+                  </div>
+                  <div class="agent-run-fix" data-role="fix" id="agent-run-fix" hidden></div>
+                </div>
+                </div>
+              </div>
               </div>
             </div>
           </template>
-        </section>
-
-        <section class="page" data-page="settings" hidden>
-          <div class="page-header">
-            <div>
-              <h1 class="page-title">Settings</h1>
-              <div class="page-subtitle">Browser-side preferences. Existing simulations cannot be modified here.</div>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-header"><h2 class="card-title">Viewer</h2></div>
-            <div class="kv-form mono">
-              <label>Default protein representation
-                <select id="setting-protein-rep">
-                  <option value="cartoon" selected>Cartoon</option>
-                  <option value="backbone">Backbone</option>
-                  <option value="sticks">Sticks</option>
-                  <option value="ballAndStick">Ball and Stick</option>
-                  <option value="surface">Surface</option>
-                  <option value="lines">Lines</option>
-                </select>
-              </label>
-              <label>Default ligand representation
-                <select id="setting-ligand-rep">
-                  <option value="sticks" selected>Sticks</option>
-                  <option value="ballAndStick">Ball and Stick</option>
-                  <option value="cartoon">Cartoon</option>
-                  <option value="lines">Lines</option>
-                </select>
-              </label>
-              <label>Background
-                <select id="setting-background">
-                  <option value="matte-black" selected>Matte black</option>
-                  <option value="deepest-night">Deepest night</option>
-                  <option value="charcoal">Charcoal</option>
-                </select>
-              </label>
-              <label class="checkbox-row"><input type="checkbox" id="setting-show-water"> Show water</label>
-              <label class="checkbox-row"><input type="checkbox" id="setting-show-ions"> Show ions</label>
-              <label class="checkbox-row"><input type="checkbox" id="setting-spin"> Spin structures by default</label>
-              <label class="checkbox-row"><input type="checkbox" id="setting-fog"> Subtle depth fog</label>
-              <label class="checkbox-row"><input type="checkbox" id="setting-preserve-camera" checked> Preserve camera between frames</label>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-header"><h2 class="card-title">Dashboard</h2></div>
-            <div class="kv-form mono">
-              <label>Telemetry polling (s)
-                <input type="number" id="setting-refresh-seconds" min="1" max="60" step="1" value="__FASTMDX_REFRESH_SECONDS__">
-              </label>
-              <label>Chart history (samples)
-                <input type="number" id="setting-chart-history" min="60" max="5000" step="60" value="600">
-              </label>
-              <label class="checkbox-row"><input type="checkbox" id="setting-compact"> Compact mode</label>
-              <label class="checkbox-row"><input type="checkbox" id="setting-reduced-motion"> Reduced motion</label>
-              <label class="checkbox-row"><input type="checkbox" id="setting-advanced-metrics"> Show advanced metrics</label>
-              <label>Time
-                <select id="setting-time-format">
-                  <option value="24h" selected>24-hour</option>
-                  <option value="12h">12-hour</option>
-                </select>
-              </label>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-header"><h2 class="card-title">Exploration display</h2></div>
-            <div class="kv-form mono">
-              <label>Custom run display name
-                <input type="text" id="setting-run-name" placeholder="(auto from manifest)">
-              </label>
-              <label>Explicit ligand residue name
-                <input type="text" id="setting-ligand-resname" placeholder="(auto-detected)">
-              </label>
-              <label>Binding-pocket cutoff (Å)
-                <input type="number" id="setting-pocket-cutoff" min="3" max="15" step="0.5" value="5">
-              </label>
-              <label>Scientific notation threshold
-                <input type="number" id="setting-scinote" min="0" max="20" step="1" value="5">
-              </label>
-            </div>
-            <p class="muted small">
-              These preferences affect only how the dashboard renders this run.
-              They do not modify the OpenMM simulation or any output files.
-            </p>
-          </div>
         </section>
       </main>
     </div>
@@ -1021,7 +1916,7 @@
         <button type="button" class="side-tab active" role="tab" data-side-tab="log" aria-selected="true">Log</button>
         <button type="button" class="side-tab" role="tab" data-side-tab="files" aria-selected="false">Files</button>
         <span class="side-panel-spacer"></span>
-        <button type="button" class="ghost-btn side-collapse" id="side-collapse" title="Collapse panel" aria-label="Collapse side panel">&#10095;</button>
+        <button type="button" class="fold-btn side-collapse" id="side-collapse" title="Collapse panel" aria-label="Collapse side panel"><!--icon:panel:fold-icon--></button>
       </div>
 
       <div class="side-pane" data-side-pane="log" role="tabpanel">
@@ -1052,28 +1947,82 @@
               <button type="button" class="mode-btn" data-mode="view">View</button>
               <button type="button" class="mode-btn" data-mode="code">Code</button>
             </div>
-            <a class="ghost-btn side-preview-download" id="side-preview-download" href="#" download>Download</a>
-            <a class="ghost-btn" id="side-preview-open" href="#" target="_blank" rel="noopener">Open</a>
+            <a class="line-btn side-preview-download" id="side-preview-download" href="#" download
+               aria-label="Download" title="Download"><!--icon:download:line-icon--></a>
+            <a class="line-btn" id="side-preview-open" href="#" target="_blank" rel="noopener"
+               aria-label="Open in a new tab" title="Open in a new tab"><!--icon:external:line-icon--></a>
           </div>
           <div class="side-preview-body" id="side-preview-body"></div>
         </div>
       </div>
     </aside>
-    <button type="button" class="side-expand" id="side-expand" hidden title="Show panel" aria-label="Show side panel">&#10094;</button>
-    <button type="button" class="sidebar-expand" id="sidebar-expand" hidden title="Show sidebar" aria-label="Show sidebar">&#10095;</button>
+    <button type="button" class="side-expand" id="side-expand" hidden title="Show panel" aria-label="Show side panel"><!--icon:panel:fold-icon--></button>
+    <!-- The Agent beside whatever page is open, in the side panel's place:
+         ⌘J or Ctrl+J, or the button beside Agent in the sidebar. The
+         conversation is the Agent page's own, moved here and back. -->
+    <aside class="agent-drawer" id="agent-drawer" aria-label="Agent" hidden>
+      <div class="agent-drawer-head">
+        <span class="agent-drawer-title">Agent</span>
+        <kbd class="agent-drawer-keys" id="agent-drawer-keys">Ctrl J</kbd>
+        <span class="agent-drawer-spacer"></span>
+        <button type="button" class="line-btn" id="agent-drawer-page" aria-label="Open as a page"
+                title="Open the Agent as a page"><!--icon:expand:line-icon--></button>
+        <button type="button" class="line-btn agent-drawer-close" id="agent-drawer-close" aria-label="Close the Agent" title="Close"><!--icon:close:line-icon--></button>
+      </div>
+      <div class="agent-drawer-body" id="agent-drawer-body"></div>
+    </aside>
+
   </div>
 
   <!-- Live region for screen readers -->
   <div class="sr-only" aria-live="polite" id="sr-live"></div>
 
-  <script src="/static/3Dmol-min.js"></script>
+  <script src="/static/molstar/molstar.js?v=5.12.0"></script>
+  <script src="/static/viewer-engine.js"></script>
+  <!-- The line icons for the scripts (sidebar_icons.ICONS; icons.js). -->
+  <script type="application/json" id="fmx-icons"><!--icons-json--></script>
+  <script src="/static/icons.js"></script>
+  <script src="/static/tooltips.js"></script>
   <script src="/static/agent-panel.js"></script>
+  <script src="/static/agent-beside.js"></script>
+  <script src="/static/chats.js"></script>
+    <script src="/static/preferences.js"></script>
     <script src="/static/frame.js"></script>
     <script src="/static/report-page.js"></script>
+    <script src="/static/analyze-again.js"></script>
     <script src="/static/dashboard.js"></script>
+    <script src="/static/files-page.js"></script>
+    <script src="/static/files-actions.js"></script>
     <script src="/static/file-picker.js"></script>
     <script src="/static/run-builder.js"></script>
   <script src="/static/charts.js"></script>
+  <script src="/static/overview.js"></script>
+  <script src="/static/series-chart.js"></script>
+  <script src="/static/figure-chart.js"></script>
+  <script src="/static/analysis-page.js"></script>
+  <script src="/static/runs-compared.js"></script>
+  <script src="/static/stopping.js"></script>
+  <script src="/static/fixes.js"></script>
+  <script src="/static/stop-run.js"></script>
+  <script src="/static/studies.js"></script>
+  <script src="/static/remote.js"></script>
   <script src="/static/molecule-viewer.js"></script>
+  <script src="/static/viewer-rail.js"></script>
+  <script src="/static/palette.js"></script>
+  <script src="/static/run-notice.js"></script>
+  <script src="/static/viewer-sequence.js"></script>
+  <script src="/static/viewer-selections.js"></script>
+  <script src="/static/frame-series.js"></script>
+  <script src="/static/frame-interactions.js"></script>
+  <script src="/static/viewer-views.js"></script>
+  <script src="/static/viewer-movie.js"></script>
+  <script src="/static/chain-contacts.js"></script>
+  <script src="/static/viewer-occupancy.js"></script>
+  <script src="/static/viewer-motion.js"></script>
+  <script src="/static/viewer-states.js"></script>
+  <script src="/static/viewer-ramachandran.js"></script>
+  <script src="/static/viewer-contact-map.js"></script>
+  <script src="/static/viewer-pocket.js"></script>
+  <script src="/static/viewer-beside.js"></script>
 </body>
 </html>

@@ -840,11 +840,13 @@ class TestItLooksWhereTheRunsActuallyWent:
 
         A test that makes its own work cheap can make the product cheap by
         the same edit, and the error bar on a free energy is the last thing
-        that should thin out because a test was slow. So this asserts the
-        default path says nothing about resamples and `compute_pmf` keeps
-        its own -- captured from the call the explorer actually makes,
-        rather than read off the signature.
+        that should thin out because a test was slow. So this asserts a
+        study that sets no count gets the default -- captured from the call
+        the explorer actually makes, rather than read off the signature. A
+        study sets its own as `bootstrap_resamples` in its umbrella block.
         """
+        from fastmdxplora.uncertainty import DEFAULT_RESAMPLES
+
         from fastmdxplora.simulation import umbrella
 
         seen = {}
@@ -872,9 +874,9 @@ class TestItLooksWhereTheRunsActuallyWent:
         explorer._maybe_build_pmf()
 
         assert seen, "the explorer did not reach compute_pmf"
-        assert "bootstrap_resamples" not in seen, (
-            "a study must inherit compute_pmf's own resample count; passing "
-            "one here is how a default quietly becomes whatever a test wanted"
+        assert seen["bootstrap_resamples"] == DEFAULT_RESAMPLES, (
+            "a study that sets no count must get the default; a smaller one "
+            "here is how a default quietly becomes whatever a test wanted"
         )
 
 
@@ -1170,10 +1172,15 @@ class TestOneSystemForEveryWindow:
         return BatchExplorer(config=config, output_dir=str(tmp_path / "out"))
 
     @staticmethod
-    def _pretend_it_is_prepared(directory):
+    def _pretend_it_is_prepared(directory, system="181L"):
+        """Its three files and the setup record the phase writes."""
+        import json
+
         directory.mkdir(parents=True, exist_ok=True)
         for name in ("system.xml", "state.xml", "topology.pdb"):
             (directory / name).write_text("<x/>", encoding="utf-8")
+        (directory / "setup_parameters.json").write_text(json.dumps(
+            {"input": {"system": system}, "parameters": {"ph": 7.4}}), encoding="utf-8")
 
     def test_a_study_prepares_once(self, tmp_path) -> None:
         study = self._study(tmp_path)
@@ -1306,12 +1313,26 @@ class TestOneSystemForEveryWindow:
         assert "setup" in seen["exclude"]
         assert not seen["include"]
 
-    def test_preparing_is_not_shared_when_it_is_the_whole_study(
+    def test_preparing_alone_prepares_the_one_system_and_no_window(
         self, tmp_path
     ) -> None:
-        """Doing it once would leave every window with nothing to run."""
+        """Preparing as the whole study prepared a system per window, which
+        is what sharing exists to prevent, and left a budget, which prepares
+        first, nothing to price the windows on. Seeding the windows is
+        simulation, so it waits for the study that simulates them."""
         study = self._study(tmp_path, include="[setup]")
-        assert study._maybe_prepare_once(["setup"], None) is None
+        shared = tmp_path / "out" / "shared_setup" / "setup"
+        self._pretend_it_is_prepared(shared)
+        seeded: list = []
+        study._give_each_window_its_start = seeded.append
+        assert study._maybe_prepare_once(["setup"], None) == shared
+        assert seeded == []
+
+        ran: list = []
+        study._run_sequential = lambda include, exclude: ran.append(include) or []
+        results = study.run()
+        assert ran == [], "an empty list of phases would be every phase"
+        assert [r.status for r in results] == ["skipped"] * 3
 
     def test_an_ordinary_campaign_prepares_per_system(self, tmp_path) -> None:
         """Different systems *are* different systems. Sharing one preparation
@@ -1863,3 +1884,27 @@ class TestAnUnsampledBinIsNotAMeasurement:
         result = self._pmf(gap=True)
         values = [v for v in result["pmf"]["free_energy_kjmol"] if v is not None]
         assert min(values) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_every_window_is_constructed_from_its_expanded_settings(tmp_path, monkeypatch) -> None:
+    """A window's settings are its study expanded: `centre` and `index` where
+    the study said `from`, `to` and `n_windows`. Validated again as if a
+    person had written them, every window, and the preparation shared by
+    them, was refused before anything ran."""
+    from fastmdxplora import orchestrator
+    from fastmdxplora.batch.explorer import BatchExplorer, _execute_run
+
+    study = tmp_path / "study.yml"
+    study.write_text(
+        "systems:\n  - system: 1L2Y\n"
+        "simulation:\n  umbrella:\n    collective_variable: distance\n"
+        '    selection_a: "resid 0 and name CA"\n    selection_b: "resid 19 and name CA"\n'
+        "    from: 1.0\n    to: 2.0\n    n_windows: 5\n    force_constant: 1000\n",
+        encoding="utf-8")
+    batch = BatchExplorer(config=study, output_dir=str(tmp_path / "out"))
+    ran = []
+    monkeypatch.setattr(orchestrator.FastMDXplora, "explore",
+                        lambda self, **kwargs: ran.append(self.options["simulation"]["umbrella"]) or [])
+    for spec in batch.run_specs:
+        _execute_run(spec.to_dict(), str(tmp_path / "out" / spec.run_id), None, None, False, None)
+    assert [window["centre"] for window in ran] == [1.0, 1.25, 1.5, 1.75, 2.0]

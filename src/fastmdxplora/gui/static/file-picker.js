@@ -112,7 +112,13 @@
 
     const list = el("fastmdx-picker-list");
     if (!listing.ok) {
-      list.innerHTML = `<div class="empty-detail muted">${listing.error}</div>`;
+      /* As text: the refusal names the path asked for, and a path can come
+       * from a config somebody else wrote ("No such folder: <img ...>" was
+       * markup, and ran). */
+      const said = document.createElement("div");
+      said.className = "empty-detail muted";
+      said.textContent = listing.error || "Could not read that folder.";
+      list.replaceChildren(said);
       return;
     }
 
@@ -189,8 +195,9 @@
     state.kind = options.kind || null;
     state.mode = options.mode || (options.kind ? "file" : "folder");
 
+    const said = {shared: "shared study's zip"}[options.kind] || options.kind || "file";
     text(el("fastmdx-picker-what"),
-         state.mode === "file" ? `Choose a ${options.kind || "file"}` : "Choose a folder");
+         state.mode === "file" ? `Choose a ${said}` : "Choose a folder");
     // Choosing the folder you are in only makes sense when a folder is what
     // was asked for; picking a file is done by clicking it.
     el("fastmdx-picker-choose").hidden = state.mode !== "folder";
@@ -200,7 +207,7 @@
     // Where to start: what the field already holds, else the caller's
     // suggestion -- the Agent opens a study's own folder for a thread
     // about that study -- else the workspace, which the picker learns
-    // from the app state, so Load available study and every builder
+    // from the app state, so Open another folder and every builder
     // field start among the studies rather than at home.
     show((current && current.value.trim()) || options.start || state.workspace || "");
   }
@@ -213,10 +220,8 @@
       input.dataset.picksWired = "true";
 
       const kind = input.getAttribute("data-picks");
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "ghost-btn picker-button";
-      button.textContent = "Browse\u2026";
+      const button = window.FastMDXIcons.button("files", "Browse", "picker-button");
+      button.title = "Browse this computer for it";
       button.addEventListener("click", () =>
         open({ into: input.id, kind: kind === "folder" ? null : kind })
       );

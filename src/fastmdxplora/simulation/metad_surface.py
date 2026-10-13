@@ -324,10 +324,10 @@ def surface_from_hills(
 ) -> np.ndarray:
     """The free energy on ``grid``, from the first ``upto`` hills.
 
-    The bias is the sum of the deposited Gaussians. For a well-tempered run
-    the bias approaches -(1 - 1/γ) F, so the free energy is the bias scaled by
-    γ/(γ - 1) and negated. Without tempering the bias approaches -F directly,
-    and the scaling would divide by zero, so that case is its own.
+    The free energy is the negated sum of the Gaussians in HILLS, with no
+    rescaling for either tempering: for a well-tempered run PLUMED writes
+    each height already multiplied by γ/(γ - 1), so the sum converges on -F
+    as an untempered run's does (see the comment below).
 
     Shifted so the lowest point is zero, because only differences mean
     anything: the absolute value of a free energy from metadynamics is set by
@@ -505,7 +505,7 @@ def convergence_band(
             "Too few hills to cut the deposition into separate pieces, so "
             "there is no spread to report. This says nothing about whether "
             "the run converged; it says the run is too short for this "
-            "particular measurement to be made on it."
+            "particular estimate to be made from it."
         ),
     }
     if stack.ndim < 2 or stack.shape[0] < 2:
@@ -942,7 +942,7 @@ def compute_surface(
             f"the surface moved {drift:.1f} kJ/mol between three quarters of "
             f"the hills and all of them, against a tolerance of "
             f"{SETTLED_DRIFT_KJMOL:g}, so it has not stopped changing "
-            f"(measured where the surface is within "
+            f"(evaluated where the surface is within "
             f"{DRIFT_CEILING_KJMOL:g} kJ/mol of its minimum; over the whole "
             f"grid it moved {drift_over_the_whole_grid:.1f}, which is "
             "dominated by the top of the highest barrier and says little)"
@@ -964,7 +964,7 @@ def compute_surface(
         reasons.append(
             "the surface has a single minimum, so there is no second state "
             "to cross to and no barrier along this coordinate has been "
-            "measured -- what was counted is movement within one well"
+            "sampled -- what was counted is movement within one well"
         )
     elif crossed < minimum_recrossings:
         reasons.append(
@@ -1163,7 +1163,7 @@ def compute_surface_2d(
             reasons.append(
                 f"along {names[dim]} the surface has a single minimum, so "
                 "there is no second state to cross to and no barrier along "
-                "it has been measured"
+                "it has been sampled"
             )
         if drift > SETTLED_DRIFT_KJMOL:
             reasons.append(
@@ -1180,7 +1180,7 @@ def compute_surface_2d(
             reasons.append(
                 f"along {names[dim]} the system crossed {crossed} time(s), "
                 f"against {minimum_recrossings} needed for a barrier to be a "
-                "measurement rather than an anecdote"
+                "result rather than an anecdote"
             )
 
     if not converged:
@@ -1216,6 +1216,6 @@ def compute_surface_2d(
         "axes": [axis.tolist() for axis in grid],
         "evidence": evidence,
         "refused": (None if not reasons else
-                    "This surface is not a measurement: " + "; ".join(reasons)
+                    "This surface is not converged: " + "; ".join(reasons)
                     + "."),
     }

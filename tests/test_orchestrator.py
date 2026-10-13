@@ -490,6 +490,19 @@ def test_a_study_level_agent_reaches_the_manifest(tmp_path: Path) -> None:
     manifest = json.loads((fmdx.output_dir / "manifest.json").read_text())
     assert manifest["agent"]["study"] == "assisted"
     assert manifest["agent"]["checked"] == {phase: True for phase in PHASES}
+    # And which model: the resolved config kept it and the manifest did not.
+    assert manifest["agent"]["model"] == config["agent_model"]
+
+
+def test_a_model_named_without_a_mode_is_recorded_too(tmp_path: Path) -> None:
+    pdb = _make_pdb_stub(tmp_path)
+    config = {"systems": [{"id": "s1", "system": str(pdb)}],
+              "agent_model": "someprovider/some-model-2026-09-01", **FAST_SIM}
+    fmdx = FastMDXplora(config_data=config, output_dir=tmp_path / "run")
+    fmdx.explore()
+
+    manifest = json.loads((fmdx.output_dir / "manifest.json").read_text())
+    assert manifest["agent"] == {"model": "someprovider/some-model-2026-09-01"}
 
 
 def test_a_phase_agreeing_with_the_study_is_not_a_departure(
@@ -677,3 +690,114 @@ def test_the_resolved_config_exists_before_the_first_phase_runs(tmp_path):
     assert first_write < loop, "the resolved config must be written before the loop"
     # And still written at the end, so what actually ran is the final record.
     assert source.count("self._write_resolved_config()") >= 2
+
+
+class TestAnOlderRunReanalysedKeepsItsVersion:
+    """A manifest written before phases recorded `produced_by`.
+
+    Re-analysing a 2.5.4 benchmark run under 2.5.7 left a manifest saying
+    2.5.7, `versions_seen` absent, and nothing anywhere saying the trajectory
+    came from 2.5.4: the phases carried no `produced_by`, and the top-level
+    version that did say it was overwritten.
+    """
+
+    def _older(self, tmp_path: Path, **extra) -> None:
+        (tmp_path / "manifest.json").write_text(json.dumps({
+            "tool": "FastMDXplora", "version": "2.5.4",
+            "phases": [{"name": "setup", "status": "ok"},
+                       {"name": "simulation", "status": "ok"},
+                       {"name": "analysis", "status": "ok"}],
+            "options": {}, **extra,
+        }, indent=2))
+
+    def _reanalyse(self, tmp_path: Path) -> dict:
+        from fastmdxplora import __version__
+
+        fmdx = FastMDXplora(system="x.pdb", output_dir=tmp_path)
+        fmdx.results.append(PhaseResult(
+            name="analysis", status="ok", produced_by={"version": __version__}))
+        fmdx._write_manifest()
+        return json.loads((tmp_path / "manifest.json").read_text())
+
+    def test_the_carried_phases_say_which_version_wrote_them(self, tmp_path) -> None:
+        from fastmdxplora import __version__
+
+        self._older(tmp_path)
+        manifest = self._reanalyse(tmp_path)
+        by_name = {p["name"]: p for p in manifest["phases"]}
+        for name in ("setup", "simulation"):
+            assert by_name[name]["produced_by"] == {"version": "2.5.4", "inferred": True}
+        assert by_name["analysis"]["produced_by"] == {"version": __version__}
+
+    def test_versions_seen_lists_both(self, tmp_path) -> None:
+        from fastmdxplora import __version__
+
+        self._older(tmp_path)
+        manifest = self._reanalyse(tmp_path)
+        assert manifest["versions_seen"] == ["2.5.4", __version__]
+        assert manifest["version"] == __version__
+
+    def test_a_version_seen_earlier_is_not_dropped(self, tmp_path) -> None:
+        """Seen once, kept, even after every phase it produced is re-run."""
+        from fastmdxplora import __version__
+
+        self._older(tmp_path, versions_seen=["2.5.3", "2.5.4"])
+        manifest = self._reanalyse(tmp_path)
+        assert manifest["versions_seen"] == ["2.5.3", "2.5.4", __version__]
+
+    def test_a_recorded_version_is_never_replaced_by_an_inferred_one(
+            self, tmp_path) -> None:
+        (tmp_path / "manifest.json").write_text(json.dumps({
+            "tool": "FastMDXplora", "version": "2.5.6",
+            "phases": [{"name": "setup", "status": "ok",
+                        "produced_by": {"version": "2.5.5", "host": "h"}}],
+            "options": {},
+        }))
+        manifest = self._reanalyse(tmp_path)
+        setup = next(p for p in manifest["phases"] if p["name"] == "setup")
+        assert setup["produced_by"] == {"version": "2.5.5", "host": "h"}
+
+
+class TestTheStudyLogIsTheStudysOnly:
+    """The file log was attached when the object was made and never taken
+    off, so what the process logged after a study ended went into that
+    study's folder, and moving the folder broke logging for the rest of the
+    process."""
+
+    def _study(self, tmp_path: Path) -> FastMDXplora:
+        pdb = _make_pdb_stub(tmp_path)
+        return FastMDXplora(config=None, system=str(pdb), output_dir=tmp_path / "run",
+                            options=FAST_SIM)
+
+    def test_it_is_detached_when_the_study_ends(self, tmp_path: Path) -> None:
+        from fastmdxplora.utils.logging import file_logger_path, get_logger
+
+        fmdx = self._study(tmp_path)
+        fmdx.explore(include=["setup"])
+        assert file_logger_path() is None
+        get_logger().warning("after the study: not its business")
+        log = (fmdx.output_dir / "fastmdxplora.log").read_text(encoding="utf-8")
+        assert "not its business" not in log
+
+    def test_a_second_call_logs_to_it_again(self, tmp_path: Path) -> None:
+        from fastmdxplora.utils.logging import file_logger_path
+
+        fmdx = self._study(tmp_path)
+        fmdx.explore(include=["setup"])
+        log = fmdx.output_dir / "fastmdxplora.log"
+        before = log.read_text(encoding="utf-8")
+        fmdx.explore(include=["simulation"], force=True)
+        assert file_logger_path() is None
+        added = log.read_text(encoding="utf-8")[len(before):]
+        assert "simulation" in added.lower()
+
+    def test_moved_after_it_ended_nothing_breaks(self, tmp_path: Path, capsys) -> None:
+        import shutil
+
+        from fastmdxplora.utils.logging import get_logger
+
+        fmdx = self._study(tmp_path)
+        fmdx.explore(include=["setup"])
+        shutil.move(str(fmdx.output_dir), str(tmp_path / "moved"))
+        get_logger().warning("the process carries on")
+        assert "Logging error" not in capsys.readouterr().err

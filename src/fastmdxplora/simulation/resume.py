@@ -5,8 +5,8 @@ difference, on one card, between finishing three candidates in a week and
 finishing one. It is also, for some studies, a way of producing a
 confidently wrong answer.
 
-The reasoning is already written in ``_attach_checkpoint_reporter``, which
-explains why this software has never had a ``--resume``. A checkpoint
+The same reasoning sits beside ``_attach_checkpoint_reporter``, where the
+checkpoint is written, and ``fastmdx resume`` follows it. A checkpoint
 brings back positions and velocities. It does not bring back the biasing
 state, and for two methods that is the whole of the calculation:
 
@@ -51,6 +51,7 @@ from fastmdxplora.simulation.ensembles import NPT, resolve_ensemble
 
 __all__ = [
     "Segment",
+    "extended_production",
     "Segmentability",
     "plan_segments",
     "segmentability",
@@ -121,7 +122,7 @@ def segmentability(config: dict[str, Any] | None) -> Segmentability:
             "A steered run cannot be split. The moving restraint is placed "
             "by absolute step number, so the second piece would pull from "
             "an anchor the protein is not at, and the work integral -- "
-            "which is the measurement -- would be taken along a path "
+            "which is the result -- would be taken along a path "
             "nothing walked. Run it through in one piece.",
             code="simulation.resume.time_dependent_bias")
 
@@ -297,7 +298,7 @@ def plan_segments(
     equilibrates. The rest set ``simulation.minimize: false`` and zero the
     NVT and NPT counts, because a segment that re-equilibrated would throw away
     the production it was supposed to continue, and the joined trajectory
-    would hold a settling transient in the middle of what is meant to be
+    would hold an equilibration transient in the middle of what is meant to be
     a production run.
 
     **The production steps add up.** Integer division leaves a remainder,
@@ -461,10 +462,15 @@ def continuation_of(parent: str | Path, *, total_ns: float | None = None,
     sim = dict(config.get("simulation") or {})
     dt_fs = float(sim.get("timestep_fs") or 2.0)
     dt_ns = dt_fs * 1e-6
+    # A stated zero is zero, as the runner reads it.
+    nvt_ns = sim.get("nvt_duration_ns")
+    npt_ns = sim.get("npt_duration_ns")
+    from fastmdxplora.simulation.lengths import DEFAULT_NPT_NS, DEFAULT_NVT_NS, steps_in
+
     nvt = int(sim.get("nvt_steps") if sim.get("nvt_steps") is not None
-              else round(float(sim.get("nvt_duration_ns") or 0.5) / dt_ns))
+              else steps_in(DEFAULT_NVT_NS if nvt_ns is None else nvt_ns, dt_fs))
     npt = int(sim.get("npt_steps") if sim.get("npt_steps") is not None
-              else round(float(sim.get("npt_duration_ns") or 1.0) / dt_ns))
+              else steps_in(DEFAULT_NPT_NS if npt_ns is None else npt_ns, dt_fs))
     planned_ns = float(sim.get("duration_ns") or
                        (int(sim.get("production_steps") or 0) * dt_ns))
     # The checkpoint's step is a production step. The runner resets the
@@ -478,9 +484,17 @@ def continuation_of(parent: str | Path, *, total_ns: float | None = None,
     # Only the study's own run equilibrated, so only its step can be a
     # whole-run one; a segment's step counts its own production from zero,
     # and the study's plan says nothing about how long a segment ran.
+    # Only a sidecar that does not record its trajectory's interval can be
+    # one of those: the interval was recorded from after the counter was
+    # understood. Read from any later sidecar, the test misfired once a
+    # study had been extended, because the join rewrites the study's own
+    # config with its last piece's length: 300 production steps were read
+    # against a last piece of 50 and 200 steps of equilibration, and
+    # counted as 100, so the study's production went down as it grew.
     step = int(side.get("step") or 0)
     planned_steps = int(round(planned_ns / dt_ns)) if dt_ns else 0
-    if source == root and planned_steps and step > planned_steps + nvt + npt - 1:
+    if (source == root and planned_steps and "trajectory_interval_steps" not in side
+            and step > planned_steps + nvt + npt - 1):
         step = max(0, step - nvt - npt)
     done_steps = max(0, step)
     done_ns = done_steps * dt_ns if source == root else production_done_ns(root)
@@ -541,7 +555,10 @@ def continuation_of(parent: str | Path, *, total_ns: float | None = None,
         new.pop("analysis", None)
     new_sim = {k: v for k, v in sim.items()
                if k not in ("nvt_steps", "npt_steps", "nvt_duration_ns", "npt_duration_ns",
-                            "production_steps", "resume_from", "prepared_from", "setup_from")}
+                            "production_steps", "resume_from", "prepared_from", "setup_from",
+                            # A piece is one length; the rule that chose it
+                            # is the study's, and applied there.
+                            "stop_when")}
     new_sim.update({
         "duration_ns": round(remaining, 6),
         "resume_from": str(checkpoint),
@@ -609,14 +626,38 @@ def last_segment(study: str | Path) -> Path:
     return max(pieces, key=lambda piece: piece.index).directory if pieces else Path(study)
 
 
+def extended_production(study: str | Path) -> tuple[float, int] | None:
+    """Production across an extended study's pieces, and how many pieces
+    ran; None for a study that ran in one.
+
+    An extension writes its own folder inside the study (``segment-001``
+    onward) and leaves the study's own ``simulation_parameters.json`` as
+    the first piece wrote it. Read from there alone, a study extended from
+    10 ns to 40 ns said "Production dynamics were run for 10 ns" in its
+    methods while its analyses averaged 40.
+    """
+    from fastmdxplora.analysis.joining import survey_segments
+
+    try:
+        ran = [piece for piece in survey_segments(study) if piece.trajectory is not None]
+    except OSError:
+        return None
+    if len(ran) < 2:
+        return None
+    return production_done_ns(study), len(ran)
+
+
 def production_done_ns(study: str | Path) -> float:
     """Production across every finished segment of this study."""
     import yaml
 
+    from fastmdxplora.analysis.joining import survey_segments
+
     root = Path(study)
     total = 0.0
-    for index in segments_so_far(root):
-        folder = root if index == 0 else root / f"segment-{index:03d}"
+    # Each piece's own folder, as found. Rebuilt from its number as
+    # segment-NNN, a folder named segment-1 was never read.
+    for folder in (piece.directory for piece in survey_segments(root)):
         resolved = folder / "resolved_config.yml"
         try:
             config = yaml.safe_load(resolved.read_text(encoding="utf-8")) or {}
@@ -666,9 +707,23 @@ def extension_of(study: str | Path, *, total_ns: float | None = None,
                         config=config)
 
 
+def study_to_continue(config: dict[str, Any] | None) -> Path | None:
+    """The study a config continues, where ``simulation.resume_from`` names a
+    study directory; None where it names a checkpoint file, which is the raw
+    mechanism and an ordinary run, or nothing. One reading for the command
+    line, the Python API and the GUI, which launches through the first."""
+    simulation = (config or {}).get("simulation") or {}
+    named = simulation.get("resume_from") if isinstance(simulation, dict) else None
+    if not named:
+        return None
+    study = Path(str(named)).expanduser()
+    return study if study.is_dir() else None
+
+
 def extend_study(study: str | Path, *, total_ns: float | None = None,
                  more_ns: float | None = None,
-                 analyse: bool = True) -> dict[str, Any]:
+                 analyse: bool = True,
+                 device_index: str | int | None = None) -> dict[str, Any]:
     """Run the next segment, join the study, and analyse the whole.
 
     Three steps, so that asking for more sampling is one instruction
@@ -680,10 +735,6 @@ def extend_study(study: str | Path, *, total_ns: float | None = None,
     a discontinuity is worse than one that never ran.
     """
     import yaml
-
-    from fastmdxplora.analysis.joining import join_segments
-
-    from fastmdxplora.analysis.joining import survey_segments
 
     root = Path(study).expanduser().resolve()
     plan = extension_of(root, total_ns=total_ns, more_ns=more_ns)
@@ -704,31 +755,19 @@ def extend_study(study: str | Path, *, total_ns: float | None = None,
     # recorded step, no recorded interval -- the join is refused rather
     # than guessed at, because a guess here puts an overlap in a
     # trajectory and calls it whole.
-    keep_frames: dict[int, int] = {}
-    uncountable: list[int] = []
-    for piece in survey_segments(root):
-        if piece.finished:
-            continue
-        folder = root if piece.index == 0 else root / f"segment-{piece.index:03d}"
-        keep = frames_before_checkpoint(folder)
-        if keep is None:
-            uncountable.append(piece.index)
-        else:
-            keep_frames[piece.index] = keep
-    if uncountable:
-        where = ", ".join(("the study's own run" if i == 0 else f"segment-{i:03d}")
-                          for i in uncountable)
-        return {"ok": False, "stage": "planning", "unsealed": uncountable,
-                "error": f"{where} did not finish cleanly, and how much of its "
-                         "trajectory precedes its last checkpoint cannot be worked "
-                         "out: the step or the frame interval is not recorded. "
-                         "Joining it would leave frames the resume runs again in "
-                         "the middle of the trajectory."}
+    keep_frames, refusal = _frames_to_keep(root)
+    if refusal is not None:
+        return {"ok": False, "stage": "planning", **refusal}
     if keep_frames:
         # The resume starts from a checkpoint the run did not seal, which
         # the runner refuses unless it is told. OpenMM still refuses one it
         # cannot read, which is what a torn write leaves.
         plan.config.setdefault("simulation", {})["resume_unsealed"] = True
+
+    if device_index is not None:
+        # The device this run was given now, where a campaign shares out
+        # its cards, rather than the one it had before it stopped.
+        plan.config.setdefault("simulation", {})["device_index"] = device_index
 
     segment = Path(plan.config["output"])
     config_path = segment.with_name(segment.name + ".yml")
@@ -739,7 +778,79 @@ def extend_study(study: str | Path, *, total_ns: float | None = None,
     from fastmdxplora import FastMDXplora
 
     study_run = FastMDXplora(config_data=plan.config, output_dir=str(segment))
-    study_run.explore()
+    ran = study_run.explore()
+    failed = [r for r in ran if r.status != "ok"]
+    if failed:
+        from fastmdxplora.simulation.runner import STOPPED_CODE
+
+        # Said as what it is. Left to the join, a segment that failed read
+        # as one that could not be joined. A segment asked to stop says so,
+        # so a study of several runs knows to start no more.
+        stopped = any((phase.refusal or {}).get("code") == STOPPED_CODE
+                      for result in failed for phase in result.phases)
+        return {"ok": False, "stage": "simulation", "segment": str(segment),
+                "stopped": stopped,
+                "error": failed[0].message or f"{segment.name} did not finish."}
+
+    return _join_and_analyse(root, plan.config, segment=segment,
+                             keep_frames=keep_frames or None, analyse=analyse)
+
+
+def _frames_to_keep(root: Path, *, last_too: bool = True
+                    ) -> tuple[dict[int, int], dict[str, Any] | None]:
+    """How many frames of each piece that did not finish go into the join.
+
+    A piece that was killed holds frames written after its last checkpoint,
+    the frames the next piece ran again; the join keeps those before it.
+    Read the same way wherever a study's pieces are joined, so a study
+    stopped again after its pieces were joined (in its analysis, say) is
+    joined as before when it is carried on. Where the frames to keep
+    cannot be counted, the second item says why the join is refused.
+
+    ``last_too`` False leaves the last piece alone: nothing ran after it,
+    so its frames past its checkpoint overlap nothing, and a last piece
+    that did not finish is said by the join as one that did not, never
+    cut back to its checkpoint and called whole.
+    """
+    from fastmdxplora.analysis.joining import survey_segments
+
+    keep_frames: dict[int, int] = {}
+    uncountable: list[int] = []
+    folders: dict[int, Path] = {}
+    pieces = survey_segments(root)
+    last = max((piece.index for piece in pieces), default=-1)
+    for piece in pieces:
+        if piece.finished or (not last_too and piece.index == last):
+            continue
+        folders[piece.index] = piece.directory
+        keep = frames_before_checkpoint(piece.directory)
+        if keep is None:
+            uncountable.append(piece.index)
+        else:
+            keep_frames[piece.index] = keep
+    if not uncountable:
+        return keep_frames, None
+    where = ", ".join(("the study's own run" if i == 0 else folders[i].name)
+                      for i in uncountable)
+    return keep_frames, {
+        "unsealed": uncountable,
+        "error": f"{where} did not finish cleanly, and how much of its "
+                 "trajectory precedes its last checkpoint cannot be worked "
+                 "out: the step or the frame interval is not recorded. "
+                 "Joining it would leave frames the resume runs again in "
+                 "the middle of the trajectory."}
+
+
+def _join_and_analyse(root: Path, config: dict[str, Any], *, segment: Path | None,
+                      keep_frames: dict[int, int] | None,
+                      analyse: bool = True) -> dict[str, Any]:
+    """Join every segment of a study into one trajectory, then rerun the
+    study's analyses and report over it. Shared by extending a study and by
+    finishing one whose production was complete when it stopped."""
+    from fastmdxplora import FastMDXplora
+    from fastmdxplora.analysis.joining import join_segments
+
+    segment_text = str(segment) if segment is not None else None
 
     # Every finished segment, in one trajectory, in the study's own folder.
     joined_dir = root / "joined"
@@ -753,21 +864,21 @@ def extend_study(study: str | Path, *, total_ns: float | None = None,
     try:
         record = join_segments(root, joined_dir / "production.dcd",
                                topology=topology if topology.is_file() else None,
-                               keep_frames=keep_frames or None)
+                               keep_frames=keep_frames)
     except Exception as exc:  # noqa: BLE001 - reported, not swallowed
         from fastmdxplora.refusals import refusal_of
 
-        return {"ok": False, "stage": "joining", "segment": str(segment),
+        return {"ok": False, "stage": "joining", "segment": segment_text,
                 "error": str(exc), "refusal": refusal_of(exc).as_dict()}
     (joined_dir / "joined.json").write_text(
         json_dumps(record), encoding="utf-8")
 
     if not analyse:
-        return {"ok": True, "segment": str(segment), "joined": record,
+        return {"ok": True, "segment": segment_text, "joined": record,
                 "analysed": False}
 
     # The study's analyses and report, over the whole trajectory.
-    whole = dict(plan.config)
+    whole = dict(config)
     whole["output"] = str(root)
     whole["include_phase"] = ["analysis", "report"]
     analysis = dict(whole.get("analysis") or {})
@@ -780,9 +891,97 @@ def extend_study(study: str | Path, *, total_ns: float | None = None,
     # described a shorter trajectory than the study now has, and leaving
     # them would leave a report whose numbers are for a run that is no
     # longer the whole of it. The segments themselves are never touched.
+    resolved = root / "resolved_config.yml"
+    try:
+        kept = resolved.read_text(encoding="utf-8")
+    except OSError:
+        kept = None
     FastMDXplora(config_data=whole, output_dir=str(root)).explore(force=True)
-    return {"ok": True, "segment": str(segment), "joined": record,
+    _production_carried_on(root, record)
+    _keep_the_study_s_config(root, kept)
+    return {"ok": True, "segment": segment_text, "joined": record,
             "analysed": True, "trajectory": str(joined_dir / "production.dcd")}
+
+
+def _keep_the_study_s_config(root: Path, kept: str | None) -> None:
+    """The study's resolved config as the study, not as its last piece.
+
+    Analysing the joined trajectory runs the study's analysis and report
+    from the last piece's config, and that run wrote it over the study's
+    `resolved_config.yml`: its `resume_from`, its own length, no
+    minimisation or equilibration, and the joined trajectory's path. The
+    file kept so the study can be run again then described the last
+    extension. Put back as the study wrote it, with `duration_ns` the
+    production of every piece, it runs the study to its whole length; an
+    extended study analysed again in place finds its joined trajectory
+    itself (`analysis.analyze.study_trajectory`).
+    """
+    import yaml
+
+    if not kept:
+        return
+    resolved = root / "resolved_config.yml"
+    header = "".join(line for line in kept.splitlines(keepends=True)
+                     if line.startswith("#"))
+    try:
+        config = yaml.safe_load(kept)
+    except yaml.YAMLError:
+        config = None
+    try:
+        # Put back first: what the pieces add up to is counted against the
+        # study's own plan, its equilibration included.
+        resolved.write_text(kept, encoding="utf-8")
+        if not isinstance(config, dict):
+            return
+        simulation = dict(config.get("simulation") or {})
+        simulation.pop("production_steps", None)
+        simulation["duration_ns"] = round(production_done_ns(root), 9)
+        config["simulation"] = simulation
+        resolved.write_text(header + yaml.safe_dump(config, sort_keys=False,
+                                                    default_flow_style=False),
+                            encoding="utf-8")
+    except OSError:
+        from fastmdxplora.utils.logging import get_logger
+
+        get_logger(__name__).warning(
+            "The study's resolved config could not be written back.")
+
+
+def _production_carried_on(root: Path, joined: dict[str, Any]) -> None:
+    """Record a production that stopped and was carried on as done.
+
+    The study's Manifest kept the simulation phase as it stopped, an
+    interruption, beside the analyses of the joined trajectory. So a second
+    `fastmdx resume` read a study still to carry on, and tried to join the
+    stopped piece again, which the join refuses. The phase now says it was
+    carried on and joined, and keeps the stop it came back from.
+    """
+    import json
+
+    manifest = root / "manifest.json"
+    try:
+        record = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    changed = False
+    for phase in record.get("phases") or []:
+        refusal = phase.get("refusal") if isinstance(phase, dict) else None
+        if (phase.get("name") == "simulation" and phase.get("status") == "error"
+                and isinstance(refusal, dict) and refusal.get("retryable") is True):
+            phase["status"] = "ok"
+            phase["carried_on_from"] = {"message": phase.get("message"),
+                                        "refusal": refusal}
+            phase["refusal"] = None
+            phase["message"] = (
+                "Production stopped and was carried on from its checkpoint; "
+                f"segments {joined.get('segments')} are joined in "
+                "joined/production.dcd "
+                f"({joined.get('frames')} frames).")
+            changed = True
+    if changed:
+        partial = manifest.with_name(manifest.name + ".new")
+        partial.write_text(json.dumps(record, indent=2, default=str), encoding="utf-8")
+        partial.replace(manifest)
 
 
 def json_dumps(value: Any) -> str:
@@ -897,3 +1096,490 @@ def frames_before_checkpoint(segment: str | Path) -> int | None:
     if interval is None:
         return None
     return int(step) // int(interval)
+
+
+# ---------------------------------------------------------------------------
+# Carrying on a study that was stopped.
+#
+# A rented GPU can be taken back part-way through a run, a machine can
+# restart, a job can reach its time limit. What is on disk then says how
+# far the study got, and that decides what carrying it on means: nothing,
+# if it finished; the analyses and report, if production did; the rest of
+# production from the last sealed checkpoint, if it had started; the whole
+# study again, if it had not. One command reads which, so a service that
+# restarts an interrupted job runs the same thing every time.
+# ---------------------------------------------------------------------------
+
+#: What `resume_study` did, as a program reads it.
+RESUMED_NOTHING = "nothing"
+RESUMED_ANALYSIS = "analysed"
+RESUMED_PRODUCTION = "continued"
+RESUMED_FROM_START = "restarted"
+
+
+#: The name a last segment that never reached its first checkpoint is kept
+#: under, set aside: neither the join nor a carry-on reads it as a segment
+#: (its number is not the whole of what follows ``segment-``), and its
+#: frames are kept.
+NEVER_CHECKPOINTED = "-stopped-before-its-checkpoint"
+
+
+def _set_aside_a_segment_never_checkpointed(root: Path) -> Path | None:
+    """The study's last extension, set aside where it stopped before its
+    first checkpoint; None where there is none such.
+
+    Such a segment carries nothing a run can go on from, and the piece
+    before it still has the checkpoint it began from. Left in place, it
+    was read as the place to carry on from, refused for want of a
+    checkpoint, and the study was run again from its start, its
+    production overwritten. Set aside, the study is carried on from the
+    piece before it, and what that segment wrote is kept beside it.
+    """
+    from fastmdxplora.analysis.joining import survey_segments
+
+    pieces = survey_segments(root)
+    if len(pieces) < 2:
+        return None
+    last = max(pieces, key=lambda piece: piece.index)
+    if last.index < 1 or last.directory == root:
+        return None
+    simulation = last.directory / "simulation"
+    # A checkpoint to go on from, or the state of a segment that ran to
+    # its end with its last checkpoint not written: neither is set aside.
+    if (simulation / "checkpoint.chk").is_file() or (simulation / "state_final.xml").is_file():
+        return None
+    # Asked again just before it is moved: a run begun since the first ask.
+    if _still_running(last.directory):
+        return None
+    aside = last.directory.with_name(last.directory.name + NEVER_CHECKPOINTED)
+    n = 2
+    while aside.exists():
+        aside = last.directory.with_name(f"{last.directory.name}{NEVER_CHECKPOINTED}-{n}")
+        n += 1
+    last.directory.rename(aside)
+    return aside
+
+
+def _length_asked(root: Path, checkpoint: str | None) -> float | None:
+    """The length the newest segment set aside from ``checkpoint`` was
+    asked to run; None where none was.
+
+    Read from every segment set aside, not only one set aside now: a resume
+    that stopped short of carrying it on leaves it set aside, and the next
+    one still runs it as it was asked."""
+    if not checkpoint:
+        return None
+    asides = sorted((path for path in root.glob(f"segment-*{NEVER_CHECKPOINTED}*")
+                     if path.is_dir()),
+                    key=lambda path: path.stat().st_mtime, reverse=True)
+    for aside in asides:
+        asked, began = _length_asked_of(aside)
+        if asked is not None and _the_same_checkpoint(began, checkpoint, root):
+            return asked
+    return None
+
+
+def _the_same_checkpoint(began: str | None, checkpoint: str, root: Path) -> bool:
+    """Whether a segment's recorded checkpoint is ``checkpoint``: as written,
+    or, the study moved since, the same file within the study."""
+    if not began:
+        return False
+    if began == checkpoint:
+        return True
+    try:
+        inside = Path(checkpoint).resolve().relative_to(root.resolve()).parts
+    except (OSError, ValueError):
+        return False
+    return bool(inside) and Path(began).parts[-len(inside):] == inside
+
+
+def _length_asked_of(aside: Path) -> tuple[float | None, str | None]:
+    """The length a set-aside segment was asked to run, and the checkpoint
+    it ran from, as its config recorded them; Nones where unreadable."""
+    import yaml
+
+    try:
+        config = yaml.safe_load((aside / "resolved_config.yml").read_text(encoding="utf-8"))
+        simulation = config.get("simulation") or {}
+        return float(simulation["duration_ns"]), str(simulation.get("resume_from") or "")
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, yaml.YAMLError):
+        return None, None
+
+
+def _extended(root: Path) -> bool:
+    """Whether the study was carried on in a piece of its own, one set
+    aside included: a resume refused once must be refused the next time,
+    not take the study for one never extended and run it over its frames."""
+    from fastmdxplora.analysis.joining import survey_segments
+
+    if any(path.is_dir() for path in root.glob("segment-*")):
+        return True
+    try:
+        return any(piece.index >= 1 for piece in survey_segments(root))
+    except OSError:
+        return True
+
+
+def _production_written(root: Path) -> bool:
+    """Whether any piece of the study wrote production frames."""
+    from fastmdxplora.analysis.joining import survey_segments
+
+    try:
+        return any(piece.trajectory is not None for piece in survey_segments(root))
+    except OSError:
+        return True
+
+
+def _still_running(root: Path) -> bool:
+    """Whether a run of this study is alive, by the record it keeps while
+    it runs and the process that record names.
+
+    Not when the record was written on another machine or before this one
+    booted, and never this resume or what started it: in a new container,
+    where process numbers start again, the old record's number can be the
+    resume's own or its shell's, and the study was refused as still
+    running by the very command sent to carry it on."""
+    import json
+
+    from fastmdxplora.orchestrator import RUN_PROCESS_FILE, record_is_from_elsewhere
+
+    try:
+        record = json.loads((root / RUN_PROCESS_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    pid = record.get("pid") if isinstance(record, dict) else None
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    if record_is_from_elsewhere(record) or pid in _this_process_and_its_parents():
+        return False
+    from fastmdxplora.gui.exploration import _process_is_this_run
+
+    return bool(_process_is_this_run(pid, root, record.get("argv")))
+
+
+def _this_process_and_its_parents() -> set[int]:
+    """This process and every process above it, as far as can be read, but
+    not process 1: a container's first process can be the run itself, still
+    going, with this resume started beside it."""
+    import os
+
+    found = {os.getpid(), os.getppid()} - ({1} if os.getpid() != 1 else set())
+    pid = os.getppid()
+    for _ in range(64):
+        try:
+            # The parent is the fourth field; the name before it is in
+            # parentheses and may hold spaces.
+            stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+            pid = int(stat.rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            break
+        if pid <= 1 or pid in found:
+            break
+        found.add(pid)
+    return found
+
+
+def _finished_record(root: Path, config: dict[str, Any]) -> tuple[bool, str | None]:
+    """(finished, why it stopped) from the study's Manifest.
+
+    The Manifest is written when a study ends: every phase of its plan
+    recorded done, or one that stopped with a refusal or an error. That is
+    an answer, not an interruption, and resuming would repeat it -- unless
+    the refusal is one the registry marks as worth retrying, such as a GPU
+    that went away, which is what an interruption looks like from inside a
+    run. No Manifest, one missing a phase of the plan, or one older than the
+    run that was stopped (whose record of itself is left behind when it is
+    killed) is a run that never got to say.
+    """
+    import json
+    from datetime import datetime
+
+    from fastmdxplora.orchestrator import PHASES, RUN_PROCESS_FILE
+
+    manifest = root / "manifest.json"
+    try:
+        record = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False, None
+    try:
+        started = json.loads((root / RUN_PROCESS_FILE).read_text(encoding="utf-8"))
+        began = datetime.fromisoformat(str(started["started_at"])).timestamp()
+        if manifest.stat().st_mtime < began:
+            return False, None
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    phases = record.get("phases") if isinstance(record, dict) else None
+    if not isinstance(phases, list):
+        return False, None
+    states: dict[str, str] = {}
+    for phase in phases:
+        if not isinstance(phase, dict):
+            continue
+        name = str(phase.get("name") or phase.get("phase") or "a phase")
+        if phase.get("status") == "error":
+            if (phase.get("refusal") or {}).get("retryable") is True:
+                return False, None
+            return False, f"{name}: {phase.get('message') or 'it stopped with an error'}"
+        states[name] = str(phase.get("status"))
+    # Carried on in pieces after the run that began production was stopped:
+    # that run never wrote its record, and the pieces wrote theirs in their
+    # own folders, so the study's record holds only the analyses the join
+    # ran. A joined trajectory newer than the first piece's is the setup and
+    # the production done and put together. The study's config, put back
+    # after the join, plans every phase, so they are read here and not from
+    # a config that named only the analyses.
+    if any(states.get(p) not in ("ok", "skipped") for p in ("setup", "simulation")):
+        from fastmdxplora.analysis.analyze import study_trajectory
+
+        if study_trajectory(root)[0] is not None:
+            for made in ("setup", "simulation"):
+                if states.get(made) not in ("ok", "skipped"):
+                    states[made] = "ok"
+    include = config.get("include_phase") or config.get("include")
+    exclude = config.get("exclude_phase") or config.get("exclude") or []
+    planned = [p for p in PHASES if (not include or p in include) and p not in exclude]
+    return all(states.get(p) in ("ok", "skipped") for p in planned), None
+
+
+def resume_study(study: str | Path, *,
+                 device_index: str | int | None = None) -> dict[str, Any]:
+    """Carry a study that stopped part-way on to the end of its plan.
+
+    Reads how far it got and does what is left, once:
+
+    - finished: nothing (``did`` is ``"nothing"``);
+    - production complete, analyses or report not: those, over the whole
+      trajectory (``"analysed"``);
+    - production begun: the rest of it, from the last sealed checkpoint,
+      then the join and the analyses, as extending a study does
+      (``"continued"``);
+    - production not begun, or not as far as its first checkpoint: the
+      study again from its start, since nothing it wrote can be continued
+      from (``"restarted"``).
+
+    An extension stopped before its first checkpoint is set aside, its
+    frames kept (``set_aside`` names where), and the study carried on from
+    the piece before it.
+
+    Refused, with ``ok`` false: a folder that is not a study, a study still
+    running, a study that stopped with a refusal or an error (that is its
+    answer, and running it again would give the same one), and an extended
+    study whose production cannot be continued (run again from its start,
+    it would overwrite every piece).
+
+    A study of several runs is carried on run by run
+    (:func:`resume_batch`). ``device_index`` puts a run's simulation on the
+    device given, where a campaign shares out its cards again.
+    """
+    import yaml
+
+    from fastmdxplora import FastMDXplora
+    from fastmdxplora.analysis.joining import survey_segments
+
+    root = Path(study).expanduser().resolve()
+    base = {"study": str(root)}
+    resolved = root / "resolved_config.yml"
+    if not resolved.is_file():
+        return {**base, "ok": False, "did": RESUMED_NOTHING,
+                "error": f"{root} is not a study to resume: it has no "
+                         "resolved_config.yml, which every study writes as it starts."}
+    if (root / "batch_manifest.json").is_file():
+        return resume_batch(root)
+    if _still_running(root) or any(_still_running(piece) for piece in root.glob("segment-*")
+                                   if piece.is_dir()):
+        return {**base, "ok": False, "did": RESUMED_NOTHING,
+                "error": "A run of this study is still going. Resume it once it "
+                         "has stopped."}
+    try:
+        config = yaml.safe_load(resolved.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        return {**base, "ok": False, "did": RESUMED_NOTHING,
+                "error": f"The study's config could not be read: {exc}"}
+    finished, stopped = _finished_record(root, config)
+    if stopped is not None:
+        return {**base, "ok": False, "did": RESUMED_NOTHING,
+                "error": f"The study stopped with an answer, not an interruption "
+                         f"({stopped}). Running it again would give the same one."}
+    if finished:
+        return {**base, "ok": True, "did": RESUMED_NOTHING,
+                "detail": "The study finished; there is nothing to carry on."}
+
+    # An extension stopped before its first checkpoint left nothing to go
+    # on from: the piece before it is carried on instead.
+    aside = _set_aside_a_segment_never_checkpointed(root)
+    if aside is not None:
+        base["set_aside"] = str(aside)
+    plan = extension_of(root)
+    # A segment set aside runs again as it was asked, an extension past the
+    # plan included, not cut back to the plan (nor refused where the plan
+    # was already done).
+    asked = _length_asked(root, plan.checkpoint)
+    if asked is not None:
+        plan = extension_of(root, more_ns=asked)
+    if plan.possible:
+        answer = extend_study(root, more_ns=asked, device_index=device_index)
+        return {**base, **answer, "did": RESUMED_PRODUCTION,
+                "production_done_ns": plan.production_done_ns,
+                "production_planned_ns": plan.production_planned_ns}
+
+    done = plan.production_done_ns
+    planned = plan.production_planned_ns
+    if planned and done >= planned - 1e-9:
+        # Production is whole; what stopped was the analyses or the report.
+        pieces = survey_segments(root)
+        if len(pieces) > 1:
+            keep_frames, refusal = _frames_to_keep(root, last_too=False)
+            if refusal is not None:
+                from fastmdxplora.refusals import MissingResultError, refusal_of
+
+                said = refusal_of(MissingResultError(
+                    refusal["error"], code="simulation.resume.unsealed", path=str(root)))
+                return {**base, "ok": False, "did": RESUMED_ANALYSIS,
+                        "stage": "joining", **refusal, "refusal": said.as_dict()}
+            answer = _join_and_analyse(root, config, segment=None,
+                                       keep_frames=keep_frames or None)
+            return {**base, **answer, "did": RESUMED_ANALYSIS}
+        whole = dict(config)
+        whole["output"] = str(root)
+        whole["include_phase"] = ["analysis", "report"]
+        whole.pop("exclude_phase", None)
+        analysis = dict(whole.get("analysis") or {})
+        # Its own frames where the study is now, not at the path the record
+        # gave them when it ran: a study moved since would analyse whatever
+        # sits at its old place.
+        from fastmdxplora.config.recorded import leave_the_study_s_own_files
+
+        leave_the_study_s_own_files(analysis, config.get("output"), root)
+        simulation_dir = root / "simulation"
+        analysis.setdefault("trajectory", str(simulation_dir / "production.dcd"))
+        topology = simulation_dir / "trajectory_topology.pdb"
+        if topology.is_file():
+            analysis.setdefault("topology", str(topology))
+        whole["analysis"] = analysis
+        FastMDXplora(config_data=whole, output_dir=str(root)).explore(force=True)
+        return {**base, "ok": True, "did": RESUMED_ANALYSIS,
+                "production_done_ns": done, "production_planned_ns": planned}
+
+    if done > 0:
+        # Production began and cannot be carried on from what is there: a
+        # checkpoint off the frame grid, or one that is not sealed. Saying
+        # so, rather than starting again and discarding what was run.
+        return {**base, "ok": False, "did": RESUMED_NOTHING,
+                "error": f"{done:.3f} ns of production is written but cannot be "
+                         f"continued: {plan.refusal}"}
+    if _extended(root) and _production_written(root):
+        # An extended study with no checkpoint left to carry it on: run
+        # again from its start, it would overwrite every piece. A first
+        # piece stopped before its first checkpoint is run again, as below.
+        return {**base, "ok": False, "did": RESUMED_NOTHING,
+                "error": "The study was extended, and no piece of it has a "
+                         "checkpoint left to carry it on from. Running it again "
+                         "from its start would overwrite the frames of every "
+                         "piece, those set aside included; run it again in a "
+                         "new folder."}
+
+    # Nothing a run can continue from: setup or equilibration was under way,
+    # or production short of its first checkpoint. They are the cheap part
+    # of a study, so it starts again from the top.
+    again = {key: value for key, value in config.items() if key != "output"}
+    if device_index is not None:
+        again["simulation"] = {**(again.get("simulation") or {}),
+                               "device_index": device_index}
+    # Its structure found where the study is, not where the resume runs.
+    again["systems"] = [
+        {**entry, "system": _found_from(root, entry.get("system"))}
+        if isinstance(entry, dict) else entry
+        for entry in again.get("systems") or []]
+    ran = FastMDXplora(config_data=again, output_dir=str(root)).explore(force=True)
+    # Said as it ended. It was reported as run whatever happened, so a
+    # study that failed again the same way came back as carried on.
+    failed = [result for result in ran if result.status != "ok"]
+    if failed:
+        return {**base, "ok": False, "did": RESUMED_FROM_START,
+                "error": failed[0].message or "Run again from its start, it did "
+                                              "not finish."}
+    return {**base, "ok": True, "did": RESUMED_FROM_START,
+            "detail": "Production had not begun, or not as far as its first "
+                      "checkpoint; the study was run from its start."}
+
+
+#: What `resume_batch` did, as a program reads it.
+RESUMED_RUNS = "runs"
+
+
+def _found_from(root: Path, given: Any) -> Any:
+    """A structure path the study named, made absolute where the study's
+    folder shows where it was.
+
+    A config names its structure relative to where `fastmdx` was run, and a
+    resume may be run from anywhere. A run that started has its structure in
+    its own folder; one that never started needs the file, so a relative
+    path found beside the study, or inside it, is used from there.
+    """
+    if not isinstance(given, str) or not given:
+        return given
+    path = Path(given).expanduser()
+    if path.is_absolute() or path.exists():
+        return given
+    # The nearest folder holding it, from the study outwards: a run of a
+    # campaign sits two folders below the study, and the study beside the
+    # folder it was started from.
+    for base in (root, *Path(root).parents):
+        if (base / path).is_file():
+            return str((base / path).resolve())
+    return given
+
+
+def resume_batch(root: str | Path) -> dict[str, Any]:
+    """Carry a study of several runs on to the end of its plan.
+
+    Each run that started is carried on as :func:`resume_study` carries on a
+    study of one, each that never started is run, and the study's own
+    results across them (the aggregate, an umbrella study's free energy, the
+    comparison) are rebuilt once every run has its answer. Runs share out
+    the workers and devices the study asked for, as they did the first time.
+    Refused while any run of the study is still going.
+    """
+    import yaml
+
+    from fastmdxplora.batch.explorer import BatchExplorer
+
+    root = Path(root).expanduser().resolve()
+    base = {"study": str(root)}
+    if _still_running(root):
+        return {**base, "ok": False, "did": RESUMED_NOTHING,
+                "error": "The study is still running. Resume it once it has stopped."}
+    runs = root / "runs"
+    going = [member.name for member in sorted(runs.iterdir())
+             if member.is_dir() and _still_running(member)] if runs.is_dir() else []
+    if going:
+        return {**base, "ok": False, "did": RESUMED_NOTHING,
+                "error": f"{', '.join(going)} of this study "
+                         f"{'is' if len(going) == 1 else 'are'} still running. "
+                         "Resume it once every run has stopped."}
+    try:
+        config = yaml.safe_load((root / "resolved_config.yml").read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        return {**base, "ok": False, "did": RESUMED_NOTHING,
+                "error": f"The study's config could not be read: {exc}"}
+    config["systems"] = [
+        {**entry, "system": _found_from(root, entry.get("system"))}
+        if isinstance(entry, dict) else entry
+        for entry in (config.get("systems") or [])]
+    config["output"] = str(root)
+    try:
+        batch = BatchExplorer(config_data=config, output_dir=str(root), resume=True)
+        results = batch.run()
+    except Exception as exc:  # noqa: BLE001 - said, not raised, as a resume is
+        from fastmdxplora.refusals import refusal_of
+
+        return {**base, "ok": False, "did": RESUMED_NOTHING, "error": str(exc),
+                "refusal": refusal_of(exc).as_dict()}
+    listed = [{"run": r.run_id, "status": r.status, "message": r.message}
+              for r in results]
+    failed = [r for r in results if r.status != "ok"]
+    answer = {**base, "ok": not failed, "did": RESUMED_RUNS, "runs": listed}
+    if failed:
+        answer["error"] = (f"{len(failed)} of {len(results)} runs did not finish: "
+                           + "; ".join(f"{r.run_id}: {r.message}" for r in failed[:3]))
+    return answer

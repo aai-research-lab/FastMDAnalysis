@@ -8,6 +8,7 @@ outputs and produces a single comparison report at the batch root:
         trend_<analysis>.png          # summary scalar vs swept parameter
         comparison_summary.csv        # one row per run, summary scalars
         comparison_report.md          # the written report tying it together
+        figures.json                  # what each figure was plotted from
 
 Two complementary views are produced:
 
@@ -35,6 +36,8 @@ import numpy as np
 
 from fastmdxplora.analysis.plotting import new_figure, save_figure
 from fastmdxplora.utils.logging import get_logger
+from fastmdxplora.batch.aggregate import SEED_AXES, member_directory, read_member_findings
+from fastmdxplora.statistics import with_its_error
 from fastmdxplora.analysis.plotting import closes_what_it_opens as _closes_what_it_opens
 
 logger = get_logger("compare")
@@ -98,13 +101,14 @@ def _run_analysis_dir(run_output_dir: Path, analysis: str) -> Path:
 def _primary_sweep_axis(manifest: dict[str, Any]) -> str | None:
     """Pick the sweep axis to use as the x-axis of trend plots.
 
-    Uses the first axis in the sweep definition. Returns None if there is
-    no sweep (e.g. a multi-system batch with no parameter axes).
+    Uses the first axis in the sweep definition that is not a random seed.
+    Returns None if there is no such axis (a multi-system batch with no
+    parameter axes, or replicas that differ only by seed): a "trend" of a
+    mean against the seed that drew the velocities is noise read as a
+    relationship, and replicas are compared in their own section instead.
     """
     sweep = manifest.get("sweep") or {}
-    if not sweep:
-        return None
-    return next(iter(sweep))
+    return next((axis for axis in sweep if axis not in SEED_AXES), None)
 
 
 def _run_label(run: dict[str, Any], axis: str | None) -> str:
@@ -141,20 +145,23 @@ def _overlay_plot(
     analysis: str,
     label: str,
     unit: str,
-    series_by_run: list[tuple[str, np.ndarray]],
+    series_by_run: list[tuple[str, np.ndarray, np.ndarray | None]],
     out_path: Path,
 ) -> Path | None:
-    """Overlay every run's per-frame series on one axes."""
+    """Overlay every run's series on one axes: against time where every run
+    recorded its clock, so runs saved at different intervals line up, and
+    against the frame otherwise."""
     if not series_by_run:
         return None
+    timed = all(times is not None for _, _, times in series_by_run)
     ylabel = f"{label} ({unit})" if unit else label
     fig, ax = new_figure(
         title=f"{label} across runs",
-        xlabel="Frame",
+        xlabel="Time (ns)" if timed else "Frame",
         ylabel=ylabel,
     )
-    for run_label, series in series_by_run:
-        ax.plot(np.arange(len(series)), series, label=run_label, alpha=0.9)
+    for run_label, series, times in series_by_run:
+        ax.plot(times if timed else np.arange(len(series)), series, label=run_label, alpha=0.9)
     ax.legend(title=None, loc="best", ncol=1 if len(series_by_run) <= 6 else 2)
     return save_figure(fig, out_path)
 
@@ -166,22 +173,26 @@ def _trend_plot(
     unit: str,
     summary_label: str,
     axis: str,
-    points: list[tuple[float, float]],
+    points: list[tuple[float, float, float | None]],
     out_path: Path,
 ) -> Path | None:
-    """Plot the per-run summary scalar against the swept parameter."""
+    """Plot each run's mean against the swept parameter, with its standard
+    error where the run recorded one: a difference between two points is
+    only a trend where it is larger than the bars."""
     if len(points) < 2:
         return None
     points = sorted(points, key=lambda p: p[0])
     xs = [p[0] for p in points]
     ys = [p[1] for p in points]
+    errors = [p[2] if p[2] is not None else 0.0 for p in points]
     ylabel = f"{summary_label} {label} ({unit})" if unit else f"{summary_label} {label}"
     fig, ax = new_figure(
         title=f"{label} vs {_short_axis(axis)}",
         xlabel=_short_axis(axis),
         ylabel=ylabel,
     )
-    ax.plot(xs, ys, marker="o", linewidth=1.4)
+    ax.errorbar(xs, ys, yerr=errors if any(errors) else None, marker="o",
+                linewidth=1.4, capsize=3)
     return save_figure(fig, out_path)
 
 
@@ -227,22 +238,36 @@ def build_comparison_report(batch_output_dir: str | Path) -> Path | None:
     overlay_figs: dict[str, Path] = {}
     trend_figs: dict[str, Path] = {}
     summary_scalar_keys: list[str] = []
+    plotted_from: dict[str, dict[str, Any]] = {}
 
-    # First pass: per-run summary scalars (for the CSV) keyed by analysis.
+    # First pass: each run's mean of each analysis. The one the analysis
+    # recorded, over the frames after equilibration and with its standard
+    # error; the mean of the whole series only where it recorded none. This
+    # took the mean of every frame, equilibration included, and compared
+    # runs on it without an error, so a trend was reported wherever two
+    # numbers differed.
     per_run_scalars: dict[str, dict[str, float]] = {}
+    per_run_means: dict[str, dict[str, dict[str, Any]]] = {}
     for run in runs:
         rid = run["run_id"]
         per_run_scalars[rid] = {}
-        run_out = Path(run["output_dir"])
+        per_run_means[rid] = {}
+        run_out = member_directory(root, run)
+        recorded = read_member_findings(run_out)
         for analysis, (_label, _unit, summary_kind) in _OVERLAY_ANALYSES.items():
-            series = _load_series(_run_analysis_dir(run_out, analysis))
-            if series is None or not len(series):
-                continue
-            fn, _flabel = _SUMMARY_FNS[summary_kind]
-            try:
-                per_run_scalars[rid][analysis] = float(fn(series))
-            except Exception:  # noqa: BLE001
-                continue
+            mean = _recorded_mean(recorded.get(analysis))
+            if mean is None:
+                series = _load_series(_run_analysis_dir(run_out, analysis))
+                if series is None or not len(series):
+                    continue
+                fn, _flabel = _SUMMARY_FNS[summary_kind]
+                try:
+                    mean = {"mean": float(fn(series)), "error": None, "discard": None,
+                            "qualified": None, "recorded": False}
+                except Exception:  # noqa: BLE001
+                    continue
+            per_run_means[rid][analysis] = mean
+            per_run_scalars[rid][analysis] = mean["mean"]
 
     # Which analyses actually have data in ≥2 runs?
     analyses_present = [
@@ -264,18 +289,26 @@ def build_comparison_report(batch_output_dir: str | Path) -> Path | None:
         # Overlay: load each run's series again (cheap; keeps memory low).
         series_by_run: list[tuple[str, np.ndarray]] = []
         trend_points: list[tuple[float, float]] = []
+        overlaid: list[dict[str, Any]] = []
+        trended: list[dict[str, Any]] = []
         for run in runs:
             rid = run["run_id"]
-            run_out = Path(run["output_dir"])
+            run_out = member_directory(root, run)
             series = _load_series(_run_analysis_dir(run_out, analysis))
             if series is None or not len(series):
                 continue
-            series_by_run.append((_run_label(run, axis), series))
+            times = _times(run_out, len(series))
+            series_by_run.append((_run_label(run, axis), series, times))
+            who = _the_run(root, run, axis, run_out)
+            overlaid.append({**who, "frames": int(len(series)), "timed": times is not None})
             if axis is not None:
                 xval = _axis_numeric_value(run, axis)
-                if xval is not None and rid in per_run_scalars \
-                        and analysis in per_run_scalars[rid]:
-                    trend_points.append((xval, per_run_scalars[rid][analysis]))
+                if xval is not None and analysis in per_run_means.get(rid, {}):
+                    mean = per_run_means[rid][analysis]
+                    trend_points.append((xval, mean["mean"], mean["error"]))
+                    trended.append({**who, "x": xval, "mean": mean["mean"],
+                                    "error": mean["error"], "over": _over(mean),
+                                    "said": with_its_error(mean["mean"], mean["error"])})
 
         fig = _overlay_plot(
             analysis, label, unit, series_by_run,
@@ -283,6 +316,10 @@ def build_comparison_report(batch_output_dir: str | Path) -> Path | None:
         )
         if fig is not None:
             overlay_figs[analysis] = fig
+            plotted_from[fig.stem] = {
+                "kind": "overlay", "analysis": analysis, "unit": unit,
+                "against": "time" if all(r["timed"] for r in overlaid) else "frame",
+                "runs": overlaid}
 
         if axis is not None:
             tfig = _trend_plot(
@@ -291,6 +328,9 @@ def build_comparison_report(batch_output_dir: str | Path) -> Path | None:
             )
             if tfig is not None:
                 trend_figs[analysis] = tfig
+                plotted_from[tfig.stem] = {
+                    "kind": "trend", "analysis": analysis, "unit": unit,
+                    "against": axis, "runs": trended}
 
     # Safety net: if figure generation produced nothing (e.g. every run
     # had a single frame), don't leave an empty directory behind.
@@ -310,10 +350,9 @@ def build_comparison_report(batch_output_dir: str | Path) -> Path | None:
         header = ["run_id", "system"]
         if axis is not None:
             header.append(_short_axis(axis))
-        header += [
-            f"{a}_{_SUMMARY_FNS[_OVERLAY_ANALYSES[a][2]][1]}"
-            for a in summary_scalar_keys
-        ]
+        for a in summary_scalar_keys:
+            header += [f"{a}_{_SUMMARY_FNS[_OVERLAY_ANALYSES[a][2]][1]}",
+                       f"{a}_standard_error", f"{a}_frames_discarded", f"{a}_over"]
         writer.writerow(header)
         for run in runs:
             rid = run["run_id"]
@@ -322,16 +361,24 @@ def build_comparison_report(batch_output_dir: str | Path) -> Path | None:
                 sv = run.get("sweep_values") or {}
                 row.append(sv.get(axis, ""))
             for a in summary_scalar_keys:
-                v = per_run_scalars.get(rid, {}).get(a)
-                row.append(f"{v:.6g}" if v is not None else "")
+                mean = per_run_means.get(rid, {}).get(a)
+                if mean is None:
+                    row += ["", "", "", ""]
+                    continue
+                row += [f"{mean['mean']:.6g}",
+                        "" if mean["error"] is None else f"{mean['error']:.6g}",
+                        "" if mean["discard"] is None else mean["discard"],
+                        _over(mean)]
             writer.writerow(row)
+
+    _write_what_was_plotted(cmp_dir, plotted_from)
 
     # Build the Markdown report.
     md_path = cmp_dir / "comparison_report.md"
     _write_markdown(
         md_path, manifest, runs, axis,
         overlay_figs, trend_figs, summary_scalar_keys,
-        per_run_scalars, csv_path,
+        per_run_means, csv_path, root,
     )
 
     logger.info("Wrote cross-run comparison report: %s", cmp_dir)
@@ -397,7 +444,7 @@ def _umbrella_preamble(
         "restraints differ, which is the method working rather than a "
         "disagreement between runs -- a quantity that varies with the "
         "coordinate will vary across windows by construction, and its mean "
-        "over a restrained window is not a measurement of the system.",
+        "over a restrained window is not a property of the system.",
         "",
     ]
 
@@ -410,8 +457,9 @@ def _write_markdown(
     overlay_figs: dict[str, Path],
     trend_figs: dict[str, Path],
     summary_keys: list[str],
-    per_run_scalars: dict[str, dict[str, float]],
+    per_run_means: dict[str, dict[str, dict[str, Any]]],
     csv_path: Path,
+    root: Path | None = None,
 ) -> None:
     lines: list[str] = []
     lines.append("# Cross-run comparison report")
@@ -464,7 +512,7 @@ def _write_markdown(
             lines.append("")
             # A one-line quantitative takeaway from the trend.
             takeaway = _trend_takeaway(
-                analysis, label, flabel, unit, axis, runs, per_run_scalars,
+                analysis, label, flabel, unit, axis, runs, per_run_means,
             )
             if takeaway:
                 lines.append(takeaway)
@@ -476,9 +524,12 @@ def _write_markdown(
     header = ["Run"]
     if axis is not None:
         header.append(_short_axis(axis))
-    header += [f"{flabel_of(a)} {_OVERLAY_ANALYSES[a][0]}" for a in summary_keys]
+    header += [f"{flabel_of(a)} {_OVERLAY_ANALYSES[a][0]}"
+               + (f" ({_OVERLAY_ANALYSES[a][1]})" if _OVERLAY_ANALYSES[a][1] else "")
+               for a in summary_keys]
     lines.append("| " + " | ".join(header) + " |")
     lines.append("|" + "|".join(["---"] * len(header)) + "|")
+    whole = qualified = False
     for run in runs:
         rid = run["run_id"]
         cells = [rid]
@@ -486,12 +537,35 @@ def _write_markdown(
             sv = run.get("sweep_values") or {}
             cells.append(str(sv.get(axis, "")))
         for a in summary_keys:
-            v = per_run_scalars.get(rid, {}).get(a)
-            cells.append(f"{v:.4g}" if v is not None else "—")
+            mean = per_run_means.get(rid, {}).get(a)
+            if mean is None:
+                cells.append("")
+                continue
+            cell = with_its_error(mean["mean"], mean["error"])
+            if not mean["recorded"]:
+                cell += " (all frames)"
+                whole = True
+            if mean["qualified"]:
+                cell += " \\*"
+                qualified = True
+            cells.append(cell)
         lines.append("| " + " | ".join(cells) + " |")
+    lines.append("")
+    lines.append("Each mean is over the frames after equilibration, with its standard "
+                 "error, as its run's analysis recorded it."
+                 + (" Where a run recorded none, the mean of every frame is given and "
+                    "marked (all frames)." if whole else ""))
+    if qualified:
+        lines += ["", "\\* Not determined: the run's analysis found the series too "
+                  "short, or with too few independent samples, for its mean to be determined."]
     lines.append("")
     lines.append(f"Full table: `{csv_path.name}`.")
     lines.append("")
+    if root is not None:
+        lines.extend(_across_the_replicas(root))
+        from fastmdxplora.simulation.stopping import stopping_section
+
+        lines.extend(stopping_section(root))
 
     md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -508,25 +582,153 @@ def _trend_takeaway(
     unit: str,
     axis: str | None,
     runs: list[dict[str, Any]],
-    per_run_scalars: dict[str, dict[str, float]],
+    per_run_means: dict[str, dict[str, dict[str, Any]]],
 ) -> str | None:
-    """One-sentence quantitative summary of how a property varies."""
+    """How a property differs between the ends of the sweep, and whether
+    the difference is larger than its error: the ends' two standard errors
+    combined, twice over. A difference within that is not called a trend."""
     if axis is None:
         return None
     pts = []
     for run in runs:
         x = _axis_numeric_value(run, axis)
-        y = per_run_scalars.get(run["run_id"], {}).get(analysis)
-        if x is not None and y is not None:
-            pts.append((x, y))
+        mean = per_run_means.get(run["run_id"], {}).get(analysis)
+        if x is not None and mean is not None:
+            pts.append((x, mean["mean"], mean["error"]))
     if len(pts) < 2:
         return None
-    pts.sort()
-    (x_lo, y_lo), (x_hi, y_hi) = pts[0], pts[-1]
-    direction = "increases" if y_hi > y_lo else "decreases" if y_hi < y_lo else "is flat"
+    pts.sort(key=lambda p: p[0])
+    (x_lo, y_lo, e_lo), (x_hi, y_hi, e_hi) = pts[0], pts[-1]
     unit_str = f" {unit}" if unit else ""
-    return (
-        f"Across `{_short_axis(axis)}` {x_lo:g} → {x_hi:g}, "
-        f"{flabel} {label.lower()} {direction} "
-        f"({y_lo:.3g} → {y_hi:.3g}{unit_str})."
-    )
+    where = f"From `{_short_axis(axis)}` {x_lo:g} to {x_hi:g}, the {flabel} {label.lower()}"
+    change = y_hi - y_lo
+    if e_lo is None or e_hi is None:
+        return (f"{where} goes from {y_lo:.3g} to {y_hi:.3g}{unit_str}; no standard error "
+                "was recorded to judge the change by.")
+    combined = float(np.hypot(e_lo, e_hi))
+    bound = 2.0 * combined
+    ends = f"{with_its_error(y_lo, e_lo)} to {with_its_error(y_hi, e_hi)}{unit_str}"
+    # The change with its own error, to the place that error allows: to two
+    # figures alone it read "a change of 0.1 nm" beside ends given to six.
+    by = f"{with_its_error(abs(change), combined)}{unit_str}"
+    if abs(change) > bound:
+        direction = "increases" if change > 0 else "decreases"
+        return (f"{where} {direction} from {ends}, a change of {by}, "
+                "more than twice its error.")
+    return (f"{where} goes from {ends}: the change, {by}, is within "
+            "twice its error, so these runs do not tell the two ends apart.")
+
+
+def _times(run_out: Path, n: int) -> np.ndarray | None:
+    """Each analysed frame's time in ns, as the analysis phase loaded the
+    trajectory (strided, then sliced from `first`), or None where the run
+    recorded no saving interval."""
+    try:
+        manifest = json.loads((run_out / "analysis" / "analysis_manifest.json")
+                              .read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    loaded = manifest.get("load_kwargs") if isinstance(manifest, dict) else None
+    loaded = loaded if isinstance(loaded, dict) else {}
+    interval = loaded.get("saving_interval_ps")
+    if isinstance(interval, bool) or not isinstance(interval, (int, float)) or interval <= 0:
+        return None
+    stride = loaded.get("stride") if isinstance(loaded.get("stride"), int) else 1
+    first = loaded.get("first") if isinstance(loaded.get("first"), int) else 0
+    frames = (first + np.arange(n)) * max(stride, 1)
+    return (frames + 1) * float(interval) / 1000.0
+
+
+def _recorded_mean(findings: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The mean an analysis recorded (`findings.mean`), or None where it
+    recorded none."""
+    record = (findings or {}).get("mean") if isinstance(findings, dict) else None
+    if not isinstance(record, dict):
+        return None
+    value = record.get("mean")
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not np.isfinite(value):
+        return None
+    error = record.get("standard_error")
+    error = (float(error) if isinstance(error, (int, float)) and not isinstance(error, bool)
+             and np.isfinite(error) else None)
+    discard = record.get("discard")
+    return {"mean": float(value), "error": error,
+            "discard": int(discard) if isinstance(discard, (int, float)) else None,
+            "qualified": record.get("not_a_measurement") or None, "recorded": True}
+
+
+def _the_run(root: Path, run: dict[str, Any], axis: str | None,
+             run_out: Path) -> dict[str, Any]:
+    """A run as a comparison figure names it: its label, where it is, and
+    the release that analysed it, from its own Manifest."""
+    import os
+
+    analysed_by = None
+    try:
+        record = json.loads((run_out / "manifest.json").read_text(encoding="utf-8"))
+        for phase in record.get("phases") or []:
+            if isinstance(phase, dict) and phase.get("name") == "analysis":
+                made = phase.get("produced_by")
+                analysed_by = made.get("version") if isinstance(made, dict) else None
+    except (OSError, ValueError, AttributeError):
+        pass
+    where = os.path.relpath(run_out.resolve(), root.resolve())
+    return {"run_id": run.get("run_id"), "label": _run_label(run, axis),
+            "path": Path(where).as_posix(), "analysed_by": analysed_by}
+
+
+def _write_what_was_plotted(cmp_dir: Path, figures: dict[str, dict[str, Any]]) -> None:
+    """Each figure's runs, the release that analysed each, and the release
+    that plotted them, for the chip the GUI puts under the figure. Written
+    as the figures are, so it says what they were plotted from even after a
+    run is analysed again."""
+    import platform
+    from datetime import datetime, timezone
+
+    from fastmdxplora import __version__
+
+    record = {"version": __version__, "host": platform.node() or None,
+              "made": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+              "figures": figures}
+    try:
+        (cmp_dir / "figures.json").write_text(json.dumps(record, indent=2, default=str),
+                                              encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Could not record what the comparison's figures were plotted "
+                       "from: %s", exc)
+
+
+def _over(mean: dict[str, Any]) -> str:
+    """What a mean in the table is over, for the CSV."""
+    return "after equilibration" if mean["recorded"] else "all frames"
+
+
+def _across_the_replicas(root: Path) -> list[str]:
+    """For replicas, which differ only by seed: the spread of their means
+    against the error each run estimated for itself, which is the only check
+    a single run's error gets (`fastmdxplora.batch.aggregate`)."""
+    from fastmdxplora.batch.aggregate import aggregate_members
+
+    try:
+        summary = aggregate_members(root)
+    except Exception:  # noqa: BLE001 - the comparison stands without it
+        return []
+    if summary.get("refused") or not summary.get("replicas"):
+        return []
+    lines = ["## Across the replicas", "",
+             f"These runs are replicas: {summary.get('why')}. That spread is set "
+             "here against the error each run estimated for itself.", "",
+             "| Analysis | mean of the means | spread of the means | error each run estimated |",
+             "|---|---|---|---|"]
+    said = []
+    for name, entry in summary.get("analyses", {}).items():
+        predicted = entry.get("predicted_standard_error")
+        lines.append(
+            f"| {name} | {entry['mean_of_means']:.4g} | {entry['spread_of_means']:.2g} | "
+            + ("" if predicted is None else f"{predicted:.2g}") + " |")
+        if entry.get("calibration"):
+            said.append(f"**{name}.** {entry['calibration']}")
+    lines.append("")
+    for sentence in said:
+        lines += [sentence, ""]
+    return lines

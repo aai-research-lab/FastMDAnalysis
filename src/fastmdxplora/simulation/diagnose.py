@@ -75,11 +75,9 @@ class Diagnosis:
         return "\n".join(lines)
 
 
-#: Residue names OpenMM gives lipids, repeated from the simulation runner
-#: rather than imported, because a diagnosis should not fail to load because
-#: something else did.
-_LIPIDS = frozenset({"POP", "POPC", "POPE", "DLPC", "DLPE", "DMPC", "DOPC",
-                     "DPPC"})
+#: Lipid residue names, from a module that imports nothing, so a diagnosis
+#: cannot fail to load because something else did.
+from fastmdxplora.lipids import LIPID_RESIDUE_NAMES as _LIPIDS  # noqa: E402
 _SOLVENT = frozenset({"HOH", "WAT", "TIP3", "NA", "CL", "K", "MG", "CA"})
 _STANDARD_RESIDUES = frozenset({
     "ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE",
@@ -88,8 +86,21 @@ _STANDARD_RESIDUES = frozenset({
 })
 
 
+def _shorter_step(timestep_fs: float | None) -> str:
+    """The timestep to try, from the one the run took: half of it, or 2 fs
+    where it was longer than the 2 fs bonds to hydrogen usually allow. It
+    said 1.0 fs whatever the run had taken, 10 fs included."""
+    if timestep_fs is None or timestep_fs <= 0:
+        return "Halve the timestep: --simulate-timestep-fs <half of it>"
+    if timestep_fs > 4.0:
+        return (f"Shorten the timestep from {timestep_fs:g} fs to 2 fs, the most bonds "
+                "to hydrogen constrained usually allow: --simulate-timestep-fs 2")
+    return f"Halve the timestep: --simulate-timestep-fs {timestep_fs / 2:g}"
+
+
 def diagnose_failure(topology: Any, positions: Any, *, stage: str,
-                     platform: str | None = None) -> Diagnosis:
+                     platform: str | None = None,
+                     timestep_fs: float | None = None) -> Diagnosis:
     """Read a failed state and say what it points at."""
     import numpy as np
 
@@ -162,7 +173,7 @@ def diagnose_failure(topology: Any, positions: Any, *, stage: str,
         cause = (
             "Lipids are among the affected atoms, which points at the bilayer "
             "packing rather than at the protein. A membrane needs the solvent "
-            "and lipids to settle around the solute before anything moves "
+            "and lipids to relax around the solute before anything moves "
             "freely."
         )
         advice = [
@@ -194,7 +205,7 @@ def diagnose_failure(topology: Any, positions: Any, *, stage: str,
             "case the usual advice is for."
         )
         advice = [
-            "Halve the timestep: --simulate-timestep-fs 1.0",
+            _shorter_step(timestep_fs),
             "Raise the friction so the thermostat holds harder: "
             "--simulate-friction-per-ps 5.0",
         ]
@@ -212,7 +223,7 @@ def diagnose_failure(topology: Any, positions: Any, *, stage: str,
             "guessing: the remedies below sometimes help and may not apply."
         )
         advice = [
-            "Halve the timestep: --simulate-timestep-fs 1.0",
+            _shorter_step(timestep_fs),
             "Minimize for longer: --simulate-minimize-max-iterations 5000",
             "Restrain the solute during equilibration: "
             '--simulate-restrain "protein and not element H"',

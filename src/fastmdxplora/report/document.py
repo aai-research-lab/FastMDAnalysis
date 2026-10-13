@@ -17,6 +17,7 @@ dependencies); the Markdown source is always produced.
 from __future__ import annotations
 
 import json
+import os
 from fastmdxplora.utils.logging import get_logger
 import platform
 import sys
@@ -61,6 +62,25 @@ def _code_text(value: object, *, limit: int = 1000) -> str:
 
 def _link_target(path: str) -> str:
     return quote(path, safe="/._-")
+
+
+def _link_from(report_dir: Path, target: Path) -> str:
+    """A link to `target` that works from the page written in `report_dir`.
+
+    Markdown resolves a relative link against the file's own folder, and so
+    does every reader of it: a viewer, the PDF renderer, the GUI. The report
+    is written in report/ and the analyses in analysis/, so a figure is
+    `../analysis/...` from there, not the `analysis/...` it is from the
+    study's root.
+    """
+    return _link_target(Path(os.path.relpath(target, report_dir)).as_posix())
+
+
+def _caption_of(analysis: str, stem: str) -> str:
+    """`rmsd` for rmsd.png, `cluster: kmeans counts` for cluster_kmeans_counts.png."""
+    rest = stem[len(analysis):] if stem.startswith(analysis) else stem
+    rest = rest.strip("_").replace("_", " ")
+    return f"{analysis}: {rest}" if rest else analysis
 
 
 def _load_json_safely(path: Path) -> dict | None:
@@ -186,26 +206,35 @@ def _what_the_run_supports(project_root: Path) -> str | None:
     # and ten
     # independent samples -- at or under the point where a mean stops
     # describing the system -- and the summary said only the first.
-    thin = sum(1 for r in records if not r.get("sampled_enough", True))
+    # A mean not determined, as every page says it: too few independent
+    # samples, or a correlation time the run does not resolve. The summary
+    # said "too few independent samples" of means its own table gave 18 of.
+    # Of those that equilibrated only: one not judged, or not equilibrated,
+    # has no mean already, and counting it again said "3 could not be
+    # judged, the mean of 6 more is not determined" of six in all.
+    thin = sum(1 for r in records
+               if r.get("equilibrated", r.get("settled")) is True
+               and not r.get("determined", r.get("sampled_enough", True)))
 
     what = "observable" if total == 1 else "observables"
     if equilibrated == total and not thin:
-        return (f"All {total} {what} assessed had equilibrated and hold "
-                "enough independent samples to average.")
+        return (f"All {total} {what} assessed had equilibrated, and each mean is "
+                "determined.")
     if equilibrated == total:
-        return (f"All {total} {what} assessed had equilibrated, but {thin} "
-                "hold too few independent samples for the mean to describe "
-                "the system rather than this run; see [Convergence](#convergence).")
+        return (f"All {total} {what} assessed had equilibrated, but the mean of {thin} "
+                "is not determined: the run holds too few independent samples of it, "
+                "or does not resolve its correlation time; see "
+                "[Convergence](#convergence).")
 
     parts = []
     if equilibrated:
-        parts.append(f"{equilibrated} had equilibrated")
+        parts.append(f"{equilibrated} had equilibrated"
+                     + (f" (the mean of {thin} of {'it' if equilibrated == 1 else 'them'} "
+                        "not determined)" if thin else ""))
     if drifting:
         parts.append(f"{drifting} had not")
     if unjudged:
         parts.append(f"{unjudged} could not be judged from a run this length")
-    if thin:
-        parts.append(f"{thin} hold too few independent samples to average")
     return (f"Of {total} {what} assessed, " + ", ".join(parts)
             + "; see [Convergence](#convergence) before using any average from this run.")
 
@@ -236,8 +265,106 @@ def _summary_section(phase_context: PhaseContext, project_root: Path) -> str:
     return "## Summary\n\n" + " ".join(said)
 
 
-def _methods_section(project_root: Path, phase_context: PhaseContext) -> str:
+def _recorded_means(project_root: Path) -> dict[str, dict[str, Any]]:
+    """Each analysis's mean record, by name, as the analysis wrote it."""
+    means: dict[str, dict[str, Any]] = {}
+    for path in sorted((project_root / "analysis").glob("*/options.json")):
+        document = _load_json_safely(path)
+        found = document.get("findings") if isinstance(document, dict) else None
+        record = found.get("mean") if isinstance(found, dict) else None
+        if isinstance(record, dict):
+            means[path.parent.name] = record
+    return means
+
+
+def _conversations_kept(project_root: Path) -> int:
+    """How many of the Agent's conversations about this study it keeps, of
+    those that say anything: a conversation opened and left empty is not
+    one in which the study was written."""
+    from fastmdxplora.gui.agent_panel import CONVERSATIONS_SUBDIR
+
+    kept = 0
+    for path in sorted((project_root / CONVERSATIONS_SUBDIR).glob("conv-*.json")):
+        document = _load_json_safely(path)
+        if isinstance(document, dict) and document.get("entries"):
+            kept += 1
+    return kept
+
+
+def _stopping_record_of(project_root: Path, may_read: Any = None) -> dict[str, Any] | None:
+    """The record of the rule this study ran under: its own, or, for one of a
+    campaign's runs, the campaign's where it names this run."""
+    own = _load_json_safely(project_root / "stopping.json")
+    if isinstance(own, dict):
+        return own
+    if project_root.parent.name != "runs":
+        return None
+    if may_read is not None and not may_read(project_root.parent.parent):
+        return None
+    campaign = _load_json_safely(project_root.parent.parent / "stopping.json")
+    if isinstance(campaign, dict) and project_root.name in (campaign.get("runs") or []):
+        return campaign
+    return None
+
+
+def methods_prose(project_root: Path, orchestrator: Any = None, *,
+                  may_read: Any = None) -> str:
+    """The methods paragraphs of a study, as its report gives them and the
+    GUI shows them to copy.
+
+    ``may_read(path)`` holds what is read outside the study to a rule (an
+    AI app's workspace, a hosted GUI's): the folder a system was prepared
+    in when the study names another's (`simulation.setup_from`), and a
+    campaign's record of its rule. A preparation outside it is refused with
+    a ``PermissionError`` rather than left out, since a methods text without
+    its preparation would say it was not recorded (``OutsideWorkspace``, a
+    ``PermissionError``).
+
+    The paragraph a journal asks for, before the list of every setting. The
+    list is what the software knows; this is what a reader needs, and they
+    are not the same document. Written against the checklists published by
+    JCIM (Soares et al. 2023) and Communications Biology (2023), from values
+    already recorded -- nothing here is invented, and anything missing is
+    named rather than filled in with what is usual.
+    """
+    from fastmdxplora.report.methods import methods_paragraphs
     from fastmdxplora.simulation.pipeline import setup_records_of
+    from fastmdxplora.simulation.resume import extended_production
+
+    prepared_in = setup_records_of(project_root)
+    if prepared_in is not None and may_read is not None and not may_read(prepared_in):
+        from fastmdxplora.refusals import OutsideWorkspace
+
+        raise OutsideWorkspace(f"its system was prepared in {prepared_in}, which is outside "
+                               "what may be read here", path=str(prepared_in))
+    setup = (_load_json_safely(prepared_in / "setup_parameters.json") or {}
+             if prepared_in is not None else {})
+    sim = _load_json_safely(project_root / "simulation" / "simulation_parameters.json") or {}
+    # The whole manifests, not just their `parameters`: the system is under
+    # `input`, and the force field the run resolved to sits beside them. The
+    # first version passed `parameters` alone and produced a methods section
+    # saying the coordinates came from "the input structure".
+    if orchestrator is None:
+        from types import SimpleNamespace
+
+        orchestrator = SimpleNamespace(output_dir=project_root, results=[])
+    made_with, tools, recorded = _recorded_software(orchestrator)
+    study_manifest = _load_json_safely(project_root / "manifest.json")
+    return methods_paragraphs(
+        project_root, setup, sim,
+        system_name=(setup.get("input") or {}).get("system"),
+        versions=tools, made_with=made_with, tools_recorded=recorded,
+        extended=extended_production(project_root), means=_recorded_means(project_root),
+        stopping=_stopping_record_of(project_root, may_read),
+        written=study_manifest.get("agent") if isinstance(study_manifest, dict) else None,
+        conversations=_conversations_kept(project_root),
+    )
+
+
+def _methods_section(project_root: Path, phase_context: PhaseContext,
+                     orchestrator: Any = None) -> str:
+    from fastmdxplora.simulation.pipeline import setup_records_of
+    from fastmdxplora.simulation.resume import extended_production
 
     prepared_in = setup_records_of(project_root)
     setup = (_load_json_safely(prepared_in / "setup_parameters.json") or {}
@@ -245,29 +372,19 @@ def _methods_section(project_root: Path, phase_context: PhaseContext) -> str:
     sim = _load_json_safely(project_root / "simulation" / "simulation_parameters.json") or {}
     setup_params = setup.get("parameters", {})
     sim_params = sim.get("parameters", {})
+    extended = extended_production(project_root)
 
     lines = ["## Methods", ""]
-
-    # The paragraph a journal asks for, before the list of every setting. The
-    # list is what the software knows; this is what a reader needs, and they
-    # are not the same document. Written against the checklists published by
-    # JCIM (Soares et al. 2023) and Communications Biology (2023), from values
-    # already recorded -- nothing here is invented, and anything missing is
-    # named rather than filled in with what is usual.
-    from fastmdxplora.report.methods import methods_paragraphs
-
-    # The whole manifests, not just their `parameters`: the system is under
-    # `input`, and the force field the run resolved to sits beside them. The
-    # first version passed `parameters` alone and produced a methods section
-    # saying the coordinates came from "the input structure".
-    prose = methods_paragraphs(
-        project_root, setup, sim,
-        system_name=(setup.get("input") or {}).get("system"),
-        versions=_software_versions(),
-    )
+    prose = methods_prose(project_root, orchestrator)
     if prose:
         lines.append(prose)
         lines.append("")
+        decided = _decisions_said(project_root)
+        if decided:
+            lines.append("### Why these settings")
+            lines.append("")
+            lines.extend(decided)
+            lines.append("")
         lines.append("### Every setting used")
         lines.append("")
         lines.append(
@@ -296,8 +413,7 @@ def _methods_section(project_root: Path, phase_context: PhaseContext) -> str:
                 "setup pipeline with the following parameters:"
             )
         lines.append("")
-        for k, v in setup_params.items():
-            lines.append(f"- **{_md_text(k)}**: `{_code_text(v)}`")
+        lines.extend(_settings_listed(setup_params, project_root))
     else:
         lines.append("")
         if phase_context.setup_present:
@@ -309,12 +425,27 @@ def _methods_section(project_root: Path, phase_context: PhaseContext) -> str:
     lines.append("### Molecular dynamics simulation")
     if sim_params:
         lines.append("")
+        # Said of a run that ran none it was false: `duration_ns: 0`
+        # equilibrates and stops.
+        production = (sim.get("resolved") or {}).get("production_steps")
         lines.append(
+            "No production was run; the simulation phase equilibrated with "
+            "the following parameters:" if production == 0 else
             "Production MD was performed with the following simulation parameters:"
         )
+        if extended and production != 0:
+            # The list is the first piece's record; the study is its pieces.
+            lines.append("")
+            more = extended[1] - 1
+            lines.append(
+                f"These are the first piece's. {more} more piece"
+                + ("s" if more != 1 else "")
+                + f" extended the study, each from the checkpoint of the one "
+                f"before, to {extended[0]:.3g} ns of production in all; each "
+                "piece's own record is in its `segment-NNN/simulation` folder.")
         lines.append("")
-        for k, v in _resolve_derived(dict(sim_params), record=sim).items():
-            lines.append(f"- **{_md_text(k)}**: `{_code_text(v)}`")
+        lines.extend(_settings_listed(_resolve_derived(dict(sim_params), record=sim),
+                                      project_root))
     else:
         lines.append("")
         if phase_context.simulation_present:
@@ -333,7 +464,91 @@ def _methods_section(project_root: Path, phase_context: PhaseContext) -> str:
     return "\n".join(lines)
 
 
-def _results_section(project_root: Path) -> str:
+def _settings_listed(params: dict[str, Any], project_root: Path) -> list[str]:
+    """A phase's settings, one line each, as the person set them.
+
+    The record also keeps what the phase worked out for itself under names
+    beginning with an underscore (the repair's arguments, the file the
+    retained ions went to), and listing them printed the folder the study
+    ran in, the person's home folder among it, into every report and every
+    copy of it shared. They are left out; the seed a phase drew is said on
+    its setting, since it is what repeats the run. A file inside the study
+    is named from the study's folder.
+    """
+    drawn = params.get("_random_seed")
+    lines = []
+    for key, value in params.items():
+        if str(key).startswith("_"):
+            continue
+        said = _code_text(_from_the_study(value, project_root))
+        if key == "random_seed" and value is None and drawn is not None:
+            lines.append(f"- **{_md_text(key)}**: `{_code_text(drawn)}`, drawn for this study")
+            continue
+        lines.append(f"- **{_md_text(key)}**: `{said}`")
+    return lines
+
+
+def _from_the_study(value: Any, project_root: Path) -> Any:
+    """``value`` with each path inside the study named from its folder."""
+    roots = {str(project_root)}
+    try:
+        roots.add(str(project_root.resolve()))
+    except OSError:
+        pass
+    if isinstance(value, str):
+        for root in sorted(roots, key=len, reverse=True):
+            if value == root:
+                return "."
+            if value.startswith(root.rstrip("/") + "/"):
+                return value[len(root.rstrip("/")) + 1:]
+        return value
+    if isinstance(value, (list, tuple)):
+        return type(value)(_from_the_study(item, project_root) for item in value)
+    if isinstance(value, dict):
+        return {k: _from_the_study(v, project_root) for k, v in value.items()}
+    return value
+
+
+def _decisions_said(project_root: Path) -> list[str]:
+    """The study's recorded decisions (the `decisions` block), one line
+    each: the setting, the value it took, why, who or what decided it, and
+    what was set aside. Read from the config the study ran, so a reason is
+    given beside the value it explains."""
+    import yaml
+
+    resolved = project_root / "resolved_config.yml"
+    try:
+        data = yaml.safe_load(resolved.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    decisions = data.get("decisions") if isinstance(data, dict) else None
+    if not isinstance(decisions, dict) or not decisions:
+        return []
+    lines = []
+    for name, said in decisions.items():
+        if not isinstance(said, dict) or not said.get("why"):
+            continue
+        block, _, key = str(name).partition(".")
+        value = ((data.get(block) or {}).get(key) if key and isinstance(data.get(block), dict)
+                 else data.get(str(name)))
+        line = f"- `{_code_text(name)}`"
+        if value is not None:
+            line += f" = `{_code_text(value)}`"
+        line += f": {_md_text(str(said['why']).strip())}"
+        extra = []
+        if said.get("source"):
+            extra.append(f"decided by {_md_text(said['source'])}")
+        if said.get("alternatives"):
+            extra.append("set aside: " + ", ".join(
+                f"`{_code_text(v)}`" for v in said["alternatives"]))
+        if extra:
+            line += " (" + "; ".join(extra) + ")"
+        lines.append(line)
+    return lines
+
+
+def _results_section(project_root: Path, report_dir: Path | None = None) -> str:
+    report_dir = report_dir or project_root / "report"
     analysis_manifest = _load_json_safely(
         project_root / "analysis" / "analysis_manifest.json"
     ) or {}
@@ -371,15 +586,16 @@ def _results_section(project_root: Path) -> str:
     # time they reach a section saying it was not a measurement.
     reweighted_record = load_reweighted(project_root)
     if reweighted_record:
-        lines.append(reweighted_section(project_root, reweighted_record))
+        lines.append(reweighted_section(project_root, reweighted_record,
+                                        report_dir=report_dir))
         lines.append("")
 
-    summary_fig = project_root / "report" / "analysis_summary.png"
-    summary_manifest = project_root / "report" / "analysis_summary_manifest.json"
+    summary_fig = report_dir / "analysis_summary.png"
+    summary_manifest = report_dir / "analysis_summary_manifest.json"
     if summary_fig.is_file():
         lines.append("### Analysis Summary Figure")
         lines.append("")
-        lines.append("![Analysis summary](analysis_summary.png)")
+        lines.append(f"![Analysis summary]({_link_from(report_dir, summary_fig)})")
         lines.append("")
         if summary_manifest.is_file():
             lines.append(
@@ -388,8 +604,8 @@ def _results_section(project_root: Path) -> str:
             )
             lines.append("")
 
-    region_fig = project_root / "report" / "region_highlight_summary.png"
-    region_manifest = project_root / "report" / "region_highlight_manifest.json"
+    region_fig = report_dir / "region_highlight_summary.png"
+    region_manifest = report_dir / "region_highlight_manifest.json"
     if region_fig.is_file():
         lines.append("### Region Highlight Figure")
         lines.append("")
@@ -398,7 +614,7 @@ def _results_section(project_root: Path) -> str:
             "profile. These labels are user-provided annotations."
         )
         lines.append("")
-        lines.append("![Region highlights](region_highlight_summary.png)")
+        lines.append(f"![Region highlights]({_link_from(report_dir, region_fig)})")
         lines.append("")
         if region_manifest.is_file():
             lines.append(
@@ -502,11 +718,8 @@ def _results_section(project_root: Path) -> str:
         figures = sorted(figs_dir.glob("*.png")) if figs_dir.exists() else []
         if figures:
             for fig in figures:
-                # Markdown/HTML image links require forward slashes on every
-                # OS; str(WindowsPath) would emit backslashes and break them.
-                rel = fig.relative_to(project_root).as_posix()
-                caption = _md_text(f"{analysis} — {fig.stem}")
-                lines.append(f"![{caption}]({_link_target(rel)})")
+                lines.append(f"![{_md_text(_caption_of(analysis, fig.stem))}]"
+                             f"({_link_from(report_dir, fig)})")
                 lines.append("")
         else:
             lines.append("_No figure was produced for this analysis._")
@@ -514,6 +727,50 @@ def _results_section(project_root: Path) -> str:
 
     return "\n".join(lines)
 
+
+
+def _scene_said(view: dict[str, Any], frame: Any) -> str:
+    """What a scene shows, from the view it keeps for FastMDXplora."""
+    said = [f"frame {frame}" if isinstance(frame, int) else "the structure"]
+    if view.get("representation"):
+        said.append(str(view["representation"]).replace("ballAndStick", "ball and stick"))
+    colour = str(view.get("colour") or "")
+    if colour.startswith("result:"):
+        said.append(f"coloured by {colour.removeprefix('result:')}")
+    elif colour:
+        said.append(f"coloured by {colour.replace('_', ' ')}")
+    if view.get("superposed") in ("backbone", "pocket"):
+        said.append(f"superposed on the {view['superposed']}")
+    return ", ".join(_md_text(s, limit=100) for s in said)
+
+
+def _scenes_section(project_root: Path, report_dir: Path | None = None) -> str:
+    """The scenes written with the study, each linked: a view kept as a
+    MolViewSpec file, which opens as it was shown in any viewer built on
+    Mol*. Linked rather than embedded, so the report stays a document and
+    the scene a file that can be opened anywhere."""
+    from fastmdxplora.scenes import SCENES_DIR, read_scene, scenes_of
+
+    report_dir = report_dir or project_root / "report"
+    found = sorted(scene["name"] for scene in scenes_of(project_root)["scenes"])
+    if not found:
+        return ""
+    lines = ["## Scenes", "",
+             "Views of this study kept as MolViewSpec scene files (`.mvsx`). Each opens "
+             "as it was shown in any viewer built on Mol\\*: drop the file on "
+             "[molstar.org/viewer](https://molstar.org/viewer/), or open it in the "
+             "FastMDXplora GUI (Viewer, Saved views, Scenes).", ""]
+    for name in found:
+        try:
+            state = json.loads(read_scene(project_root, name) or b"{}")
+        except ValueError:
+            state = {}
+        ours = ((state.get("root") or {}).get("custom") or {}).get("fastmdxplora") or {}
+        view = ours.get("view") if isinstance(ours.get("view"), dict) else {}
+        frame = ours.get("frame") if ours.get("of") == "frames" else None
+        link = _link_from(report_dir, project_root / SCENES_DIR / f"{name}.mvsx")
+        lines.append(f"- [{_md_text(name, limit=60)}]({link}): {_scene_said(view, frame)}.")
+    return "\n".join(lines)
 
 
 def _last_numeric_column(path: Path) -> list[float]:
@@ -557,8 +814,30 @@ def _assess_this_run(project_root: Path) -> dict[str, Any] | None:
 
     series: dict[str, Any] = {}
 
+    from fastmdxplora.analysis.thermodynamics import (
+        read_pieces_state_table, state_record_pieces)
+
+    # A study carried on in pieces is judged over all of them, as its
+    # trajectory and its thermodynamics are: the first piece's energy alone
+    # was fitted for drift across the whole run's length.
+    try:
+        pieces = state_record_pieces(project_root)
+        unreadable = False
+    except Exception:  # noqa: BLE001 - the thermodynamics says why
+        pieces, unreadable = None, True
     energy_csv = project_root / "simulation" / "energy.csv"
-    if energy_csv.is_file():
+    if pieces:
+        try:
+            table = read_pieces_state_table(pieces)
+        except (OSError, ValueError):
+            table, pieces = {}, None
+        for column, name in (("Potential Energy (kJ/mole)", "potential_energy"),
+                             ("Temperature (K)", "temperature"),
+                             ("Density (g/mL)", "density")):
+            values = table.get(column)
+            if values is not None and values.size:
+                series[name] = [float(value) for value in values]
+    elif energy_csv.is_file() and not unreadable:
         wanted = {
             "Potential Energy (kJ/mole)": "potential_energy",
             "Temperature (K)": "temperature",
@@ -593,12 +872,37 @@ def _assess_this_run(project_root: Path) -> dict[str, Any] | None:
     if not series:
         return None
 
+    # The analyses' own records of these means, so the report judges each as
+    # every page does: the convergence table gave an error the Analysis page
+    # withheld, and called unresolved a correlation the analyses resolved.
+    records: dict[str, dict[str, Any]] = {}
+    for name in ("rmsd", "rg", "sasa"):
+        found = (_load_json_safely(project_root / "analysis" / name / "options.json")
+                 or {}).get("findings")
+        if isinstance(found, dict) and isinstance(found.get("mean"), dict):
+            records[name] = found["mean"]
+    thermo = ((_load_json_safely(project_root / "analysis" / "thermodynamics" / "options.json")
+               or {}).get("findings") or {}).get("thermodynamics")
+    if isinstance(thermo, dict):
+        for name in ("potential_energy", "temperature", "density"):
+            if isinstance(thermo.get(name), dict):
+                records[name] = thermo[name]
+
     setup = _setup_record(project_root)
     sim = _load_json_safely(
         project_root / "simulation" / "simulation_parameters.json") or {}
+    duration_ns = sim.get("duration_ns_actual")
+    if pieces:
+        # The length of the series read: its clock runs on through the
+        # pieces from production's start. Summed over the segments on disk,
+        # a piece not joined (an extension stopped or still going) counted.
+        times = table.get("Time (ps)")
+        if times is not None and times.size:
+            duration_ns = float(times[-1]) / 1000.0
     return assess_run(
         series,
-        duration_ns=sim.get("duration_ns_actual"),
+        records=records,
+        duration_ns=duration_ns,
         n_atoms=setup.get("n_atoms_solvated"),
         target_temperature_K=(sim.get("parameters") or {}).get("temperature_K"),
     )
@@ -620,23 +924,33 @@ def _convergence_section(project_root: Path) -> str:
     lines.append(
         "A frame is not an observation. Consecutive frames of a trajectory "
         "are nearly the same structure, so the number of independent "
-        "observations is set by how quickly each measure forgets where it "
+        "observations is set by how quickly each observable forgets where it "
         "was, not by how often frames were written. The uncertainties below "
         "count the former."
     )
     lines.append("")
     lines.append(
-        "| measure | frames | discarded | independent | mean | uncertainty "
+        "| observable | frames | discarded | independent | mean | uncertainty "
         "| equilibrated |"
     )
     lines.append("|---|---|---|---|---|---|---|")
+    from fastmdxplora.report.convergence import said_as
+    from fastmdxplora.statistics import four_figures, with_its_error
+
     for record in assessed["observables"].values():
         error = record["standard_error"]
+        determined = record.get("determined", error is not None) and error is not None
+        # The mean to the place its error allows, as every page gives it,
+        # and no error where the analyses withheld one.
+        said = with_its_error(record["mean"], error if determined else None)
+        mean, _, uncertainty = said.partition(" \u00b1 ")
+        if not determined:
+            mean, uncertainty = four_figures(record["mean"]), "not determined"
         lines.append(
-            f"| {record['observable']} | {record['frames']:,} | "
+            f"| {said_as(record['observable'])} | {record['frames']:,} | "
             f"{record.get('discard', 0):,} | "
-            f"{record['effective_samples']:.1f} | {record['mean']:.4g} | "
-            + (f"{error:.3g}" if error is not None else "not enough to say")
+            f"{record['effective_samples']:.1f} | {mean} | "
+            + (uncertainty or "not determined")
             + " | "
             + {True: "yes", False: "no", None: "too short to say"}[
                 record.get("equilibrated", record.get("settled"))]
@@ -644,20 +958,69 @@ def _convergence_section(project_root: Path) -> str:
         )
     lines.append("")
 
+    checks = assessed.get("checks") or []
+    if checks:
+        lines.append("### The checks this run was held to")
+        lines.append("")
+        lines.append("| check | result | on what |")
+        lines.append("|---|---|---|")
+        for check in checks:
+            result = {True: "passed", False: "**failed**", None: "not judged"}[check["passed"]]
+            lines.append(f"| {check['said'][0].upper()}{check['said'][1:]} | {result} "
+                         f"| {check['detail']} |")
+        lines.append("")
+
+    asked = _what_more_sampling_needs(project_root)
     if assessed["findings"]:
         lines.append("### What this run cannot support")
         lines.append("")
         for finding in assessed["findings"]:
             lines.append(f"- {finding}")
         lines.append("")
+        if asked:
+            lines += [asked, ""]
+    elif asked:
+        lines += [asked, ""]
     else:
         lines.append(
-            "Every measure equilibrated and carries enough independent observation "
+            "Every observable equilibrated and carries enough independent observation "
             "to average. That is a statement about sampling, not about whether "
             "the force field describes the system."
         )
         lines.append("")
     return "\n".join(lines)
+
+
+def _stopping_section(project_root: Path) -> str:
+    """How long a study run until it knew ran, and why it stopped there."""
+    try:
+        from fastmdxplora.simulation.stopping import stopping_section
+
+        return "\n".join(stopping_section(project_root)).rstrip()
+    except Exception:  # noqa: BLE001 - a report section must never fail a report
+        return ""
+
+
+def _what_more_sampling_needs(project_root: Path) -> str:
+    """The production the withheld means ask for, what it takes at this
+    run's speed, and the config that runs it. The analyses said "the remedy
+    is a longer run" and left the length to guess."""
+    try:
+        import yaml
+
+        from fastmdxplora.simulation.sampling_ask import sampling_asked_for
+
+        ask = sampling_asked_for(project_root)
+    except Exception:  # noqa: BLE001 - a report section must never fail a report
+        return ""
+    if ask is None:
+        return ""
+    text = ask.as_text()
+    config = yaml.safe_dump(ask.config(project_root), sort_keys=False,
+                            default_flow_style=False).strip()
+    return (f"**What would support it.** {text[0].upper()}{text[1:]} This extends "
+            f"the study in place, joins the segments and reruns the analyses:\n\n"
+            f"```yaml\n{config}\n```")
 
 
 def _findings_notes(findings: dict[str, Any]) -> list[str]:
@@ -674,10 +1037,13 @@ def _findings_notes(findings: dict[str, Any]) -> list[str]:
     # produced it, and no number.
     measured = findings.get("mean")
     if isinstance(measured, dict) and measured.get("mean") is not None:
+        from fastmdxplora.statistics import with_its_error
+
         error = measured.get("standard_error")
-        value = (f"{measured['mean']:.4g} ± {error:.3g}"
-                 if isinstance(error, (int, float)) and error == error
-                 else f"{measured['mean']:.4g}")
+        error = error if isinstance(error, (int, float)) and error > 0 else None
+        value = with_its_error(measured["mean"], error)
+        if measured.get("unit"):
+            value += f" {measured['unit']}"
         independent = measured.get("effective_samples")
         said = f"Mean over the equilibrated part of the run: {value}"
         if isinstance(independent, (int, float)):
@@ -701,14 +1067,14 @@ def _findings_notes(findings: dict[str, Any]) -> list[str]:
         notes.append(f"Ligand chemistry: {where}.")
         if chemistry.get("charge_was_ambiguous"):
             notes.append(
-                "The ligand's charge was ambiguous, so the measures that are "
-                "claims about charge were not made."
+                "The ligand's charge was ambiguous, so the analyses that "
+                "depend on it were not run."
             )
 
     refused = findings.get("not_measured")
     if isinstance(refused, dict) and refused:
         notes.append(
-            "Not measured: " + ", ".join(sorted(refused))
+            "Not computed: " + ", ".join(sorted(refused))
             + " — see `options.json` for why."
         )
 
@@ -764,7 +1130,16 @@ def _reproducibility_section(
     lines = ["## Reproducibility", ""]
     from fastmdxplora.provenance import described, source_provenance
 
-    lines.append(f"- **FastMDXplora version**: `{__version__}`")
+    # By phase where they differ: a study simulated under one release, or on
+    # another machine, and reported under this one printed this one alone.
+    producers = _phase_producers(orchestrator)
+    made_by = {phase: (str(produced.get("version") or "")
+                       + (" or earlier" if produced.get("inferred") else ""))
+               for phase, produced in producers.items()}
+    ran_on = {phase: str((produced.get("environment") or {}).get("python") or "")
+              for phase, produced in producers.items()
+              if isinstance(produced.get("environment"), dict)}
+    lines.append(_by_phase("FastMDXplora version", made_by, str(__version__)))
     # A version string is written at install time, so from a source checkout
     # it can name a release the run could not have been made with. The commit
     # says what the version cannot, and the dirty flag says when the commit
@@ -772,7 +1147,7 @@ def _reproducibility_section(
     from_source = described(source_provenance())
     if from_source:
         lines.append(f"- **Source commit**: `{from_source}`")
-    lines.append(f"- **Python**: `{sys.version.split()[0]}`")
+    lines.append(_by_phase("Python", ran_on, sys.version.split()[0]))
     lines.append(f"- **Platform**: `{platform.platform()}`")
     lines.append(f"- **System input**: `{_code_text(orchestrator.system)}`")
     lines.append(f"- **Output directory**: `{_code_text(orchestrator.output_dir)}`")
@@ -793,22 +1168,95 @@ def _reproducibility_section(
 
     if phase_context.setup_present:
         lines.append("")
-        lines.append(
-            "**What rerunning the configuration does and does not reproduce.** "
-            "Running `resolved_config.yml` again gives an equivalent study and "
-            "not an identical one: solvation places water by a procedure that "
-            "cannot be seeded, so the same configuration produces a system "
-            "with a slightly different atom count each time, and a fixed "
-            "`random_seed` fixes the dynamics rather than the solvent. To "
-            "repeat this study exactly, simulate from the system it prepared "
-            "by pointing `simulation.setup_from` at its `setup/` "
-            "directory."
-        )
+        lines.append(_what_a_rerun_repeats(Path(orchestrator.output_dir)))
     else:
         lines.append(
             "The complete session manifest is at `manifest.json` at the project root."
         )
     return "\n".join(lines)
+
+
+def _what_a_rerun_repeats(root: Path) -> str:
+    """What running the study's configuration again gives, from its records.
+
+    Setup places hydrogens and ions at random and records the seed it used
+    (`setup.random_seed`, drawn where none was given), and minimises on one
+    CPU thread, so the same structure and settings prepare the same atoms
+    again, a bilayer included where its packing seed is recorded (studies
+    prepared before the packing was seeded have none). This said once that solvation could not be seeded at all, which was the
+    unseeded hydrogens and ions, and stayed wrong after they were seeded.
+    The dynamics repeat their start only where `simulation.random_seed` was
+    given, and step for step only as far as the platform's arithmetic does.
+    """
+    import yaml
+
+    try:
+        record = json.loads((root / "setup" / "setup_parameters.json")
+                            .read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        record = {}
+    try:
+        config = yaml.safe_load((root / "resolved_config.yml").read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        config = {}
+    seeded = (record.get("random_seed") or {}) if isinstance(record, dict) else {}
+    setup = config.get("setup") if isinstance(config.get("setup"), dict) else {}
+    simulation = (config.get("simulation")
+                  if isinstance(config.get("simulation"), dict) else {})
+    bilayer = bool(setup.get("membrane")) or bool(
+        isinstance(record, dict) and (record.get("membrane") or record.get("bilayer")))
+    packing = (record.get("bilayer") if isinstance(record, dict) else None) or {}
+    unseeded_bilayer = bilayer and not (
+        isinstance(packing, dict) and packing.get("packing_seed") is not None)
+
+    if isinstance(seeded, dict) and seeded.get("seed") is not None:
+        text = (
+            "**What rerunning the configuration repeats.** Running "
+            "`resolved_config.yml` again prepares the same system: it records "
+            f"the random seed setup placed hydrogens and ions with "
+            f"({int(seeded['seed'])}{', drawn for this study' if seeded.get('drawn') else ''}), "
+            "and setup minimises on one CPU thread, so the same structure and "
+            "settings give the same atoms in the same places"
+            + (", except the bilayer, which OpenMM packed with a random stream of "
+               "its own" if unseeded_bilayer else "")
+            + ".")
+    else:
+        text = (
+            "**What rerunning the configuration does and does not repeat.** This "
+            "study was prepared without a recorded random seed, so running "
+            "`resolved_config.yml` again places hydrogens, ions and water afresh "
+            "and can give a slightly different atom count.")
+    seed = simulation.get("random_seed")
+    if seed is not None and not isinstance(seed, list):
+        text += (
+            f" Its dynamics start from `simulation.random_seed` {seed}, so a rerun "
+            "starts from the same velocities. Whether the trajectory then repeats "
+            "step for step depends on the platform: OpenMM's GPU platforms can "
+            "differ in the last bit of a force from one run to the next unless "
+            "asked for deterministic forces, and dynamics this chaotic grow such a "
+            "difference, so it is the statistics rather than the frames that a "
+            "rerun is expected to reproduce.")
+    else:
+        text += (
+            " No `simulation.random_seed` was given, so a rerun starts its "
+            "dynamics from velocities drawn afresh: a new trajectory of the same "
+            "system.")
+    return text + (" To simulate this very system without preparing it again, "
+                   "point `simulation.setup_from` at its `setup/` directory.")
+
+
+def _by_phase(label: str, recorded: dict[str, str], here: str) -> str:
+    """One line of the Reproducibility section, split by phase if it must be."""
+    values = {value for value in recorded.values() if value}
+    if not values or values == {here}:
+        return f"- **{label}**: `{here}`"
+    grouped: dict[str, list[str]] = {}
+    for phase, value in recorded.items():
+        if value:
+            grouped.setdefault(value, []).append(phase)
+    grouped.setdefault(here, []).append("this report")
+    return f"- **{label}**: " + "; ".join(
+        f"`{value}` ({', '.join(phases)})" for value, phases in grouped.items())
 
 
 def build_document(
@@ -843,16 +1291,22 @@ def build_document(
     sections.append(_summary_section(phase_context, project_root))
 
     if include_methods:
-        sections.append(_methods_section(project_root, phase_context))
+        sections.append(_methods_section(project_root, phase_context, orchestrator))
 
-    sections.append(_results_section(project_root))
+    sections.append(_results_section(project_root, output_dir))
+    scenes = _scenes_section(project_root, output_dir)
+    if scenes:
+        sections.append(scenes)
     convergence = _convergence_section(project_root)
     if convergence:
         sections.append(convergence)
+    stopping = _stopping_section(project_root)
+    if stopping:
+        sections.append(stopping)
 
     sections.append(
         "## Discussion\n\n"
-        "_Everything above is measurement: what was built, what was run, what "
+        "_Everything above is a record: what was built, what was run, what "
         "was computed from it, and how much of it the run supports. What none "
         "of it says is what the system was doing, or whether that answers the "
         "question the study was for. That judgement is yours, and this "
@@ -911,6 +1365,113 @@ def _software_versions() -> dict[str, str]:
         except Exception:  # noqa: BLE001 - a tool not installed did no work
             continue
     return versions
+
+
+#: How a Methods section names each package a phase records, in the order a
+#: study reaches for them.
+RECORDED_TOOLS: tuple[tuple[str, str], ...] = (
+    ("openmm", "OpenMM"), ("pdbfixer", "PDBFixer"), ("propka", "PROPKA"),
+    ("openff.toolkit", "OpenFF Toolkit"),
+    ("openmmforcefields", "OpenMM force fields"), ("ambertools", "AmberTools"),
+    ("rdkit", "RDKit"), ("openmmplumed", "OpenMM-PLUMED"), ("plumed", "PLUMED"),
+    ("mdtraj", "MDTraj"), ("numpy", "NumPy"), ("scipy", "SciPy"),
+    ("sklearn", "scikit-learn"), ("pandas", "pandas"),
+    ("matplotlib", "matplotlib"),
+)
+
+#: The phases whose software a Methods section names.
+WORK_PHASES = ("setup", "simulation", "analysis")
+
+
+def _producers_in(manifest: Path) -> dict[str, dict[str, Any]]:
+    """Each finished phase a manifest records, with what produced it."""
+    found: dict[str, dict[str, Any]] = {}
+    record = _load_json_safely(manifest) or {}
+    phases = record.get("phases")
+    for phase in phases if isinstance(phases, list) else []:
+        if (isinstance(phase, dict) and phase.get("status") == "ok"
+                and isinstance(phase.get("produced_by"), dict)):
+            found[str(phase.get("name"))] = phase["produced_by"]
+    return found
+
+
+def _phase_producers(orchestrator: Any) -> dict[str, dict[str, Any]]:
+    """What produced each phase whose outputs this report describes.
+
+    The manifest on disk holds the phases of earlier sessions; this
+    session's are on the orchestrator, since the manifest is written after
+    the last phase. A system prepared by another study (`setup_from`) was
+    produced by what that study's manifest says.
+    """
+    from fastmdxplora.simulation.pipeline import setup_records_of
+
+    root = Path(orchestrator.output_dir)
+    producers = _producers_in(root / "manifest.json")
+    for result in getattr(orchestrator, "results", None) or []:
+        if getattr(result, "status", None) == "ok" and getattr(result, "produced_by", None):
+            producers[str(result.name)] = dict(result.produced_by)
+    if "setup" not in producers:
+        prepared_in = setup_records_of(root)
+        if prepared_in is not None and prepared_in != root / "setup":
+            elsewhere = _producers_in(prepared_in.parent / "manifest.json")
+            if "setup" in elsewhere:
+                producers["setup"] = elsewhere["setup"]
+    return {phase: producers[phase] for phase in WORK_PHASES if phase in producers}
+
+
+def _and(items: list[str]) -> str:
+    if len(items) < 2:
+        return "".join(items)
+    return ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def _recorded_software(orchestrator: Any) -> tuple[list[tuple[str, list[str]]], dict[str, str], bool]:
+    """What produced each phase, as a Methods section names it.
+
+    Returns the FastMDXplora version with the phases it produced, the
+    libraries by name with their versions, and whether those were recorded
+    by the run. A report made on another machine, or by a later release,
+    named its own installation: a study simulated under 2.5.4 and analysed
+    again under 2.5.8 was said to have been set up and simulated with 2.5.8
+    and whatever OpenMM the analysing machine had.
+    """
+    producers = _phase_producers(orchestrator)
+    made_with: list[tuple[str, list[str]]] = []
+    for phase, produced in producers.items():
+        version = produced.get("version")
+        if not version:
+            continue
+        shown = f"{version} or earlier" if produced.get("inferred") else str(version)
+        for entry in made_with:
+            if entry[0] == shown:
+                entry[1].append(phase)
+                break
+        else:
+            made_with.append((shown, [phase]))
+
+    environments = {phase: produced["environment"] for phase, produced in producers.items()
+                    if isinstance(produced.get("environment"), dict)}
+    if not environments:
+        return made_with, _software_versions(), False
+    tools: dict[str, str] = {}
+    for key, label in RECORDED_TOOLS:
+        by_version: dict[str, list[str]] = {}
+        for phase, environment in environments.items():
+            version = environment.get(key)
+            if version:
+                by_version.setdefault(str(version), []).append(phase)
+        if not by_version:
+            continue
+        named = {("" if version == "loaded" else version): phases
+                 for version, phases in by_version.items()}
+        if len(named) == 1:
+            version = next(iter(named))
+            tools[label] = version or "(version not recorded)"
+        else:
+            tools[label] = " and ".join(
+                f"{version or 'unrecorded'} ({_and(phases)})"
+                for version, phases in named.items())
+    return made_with, tools, True
 
 
 def _resolve_derived(params: dict[str, Any], *,

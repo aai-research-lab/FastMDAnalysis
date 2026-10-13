@@ -131,12 +131,18 @@ fastmdx analyze  --output runs/trypsin
 ```
 
 leaves one `manifest.json` holding all three phases, each recording its own
-`produced_by`. Phase records are keyed by name, so a re-run replaces that phase
-in place and keeps the rest, in first-seen order.
+`produced_by`. Phase records are keyed by name, so a phase run again (with
+`--force-overwrite` or `--rerun`) replaces its record in place and keeps the
+rest, in first-seen order. A phase it leaves stale (the report, after the
+analysis runs again) has its record taken out until it runs again; with
+`--rerun` the record is kept beside its output in `previous/<phase>`.
 
 Where phases came from different versions, the top-level `version` is the
 session that wrote the file, `versions_seen` lists them all, and a
-`version_note` says so.
+`version_note` says so. A phase carried over from a Manifest written before
+phases recorded `produced_by` gets `{"version": ..., "inferred": true}`: the
+version that wrote the Manifest it was in, which produced it or came after the
+one that did.
 
 The Manifest is written at the end of a session. A session that crashes partway
 through a phase leaves no Manifest for that session — but the phase's own
@@ -149,7 +155,7 @@ the failure are not lost with it.
 ## The other records
 
 `manifest.json` is the index. Four other files record what one phase or one
-measure actually did. They answer a different question from
+analysis actually did. They answer a different question from
 [`resolved_config.yml`](config.md#reproducing-a-run): that file says what the
 study **was**, down to every setting; these say what running it **produced** —
 the solvated atom count, the platform it landed on, the frames written, the
@@ -160,7 +166,7 @@ length actually reached.
 | `setup/setup_parameters.json` | Every resolved setup parameter, the input structure's provenance, the force field that was chosen, and the solvated atom count |
 | `simulation/simulation_parameters.json` | Every resolved simulation parameter, the platform actually used, the pressure used, frames written, and the length actually reached |
 | `analysis/analysis_manifest.json` | The plan, the load settings, frame/atom/residue counts, and a result record per analysis |
-| `analysis/<name>/options.json` | One measure's selection, every option, its findings, and **the format of the `.dat` file beside it** |
+| `analysis/<name>/options.json` | One analysis's selection, every option, its findings, and **the format of the `.dat` file beside it** |
 
 ### `resolved`: the settings a phase worked out
 

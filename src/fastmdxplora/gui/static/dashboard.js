@@ -18,6 +18,9 @@
     outputDir: "",
     paused: false,
     pollIntervalMs: 3000,
+    /* Whether `/api/stream` is open; the poll slows while it is. */
+    streaming: false,
+    changeStream: null,
     lastUpdateMs: 0,
     refreshTimer: null,
     /* The pages are the pages the document has. Naming them here as well
@@ -65,6 +68,7 @@
     navigate(location.hash.replace(/^#/, "") || "overview", {updateHash: false});
     startLoadingChecklist();
     schedulePoll(0);
+    openChangeStream();
   }
 
   /* ------------------------------------------------------------------ */
@@ -74,25 +78,35 @@
     state.pages = $$('.page')
       .map((element) => element.getAttribute("data-page"))
       .filter(Boolean);
-    // The BibTeX entry is there to be taken, so make taking it one click.
-    const citeCopy = document.getElementById("cite-copy");
-    if (citeCopy) {
-      citeCopy.addEventListener("click", async () => {
-        const entry = document.getElementById("cite-bibtex");
-        if (!entry) return;
+    // The demo study, copied into the folder the GUI was started in, then
+    // opened as any study is.
+    const demoButton = byId("open-demo");
+    if (demoButton) {
+      demoButton.addEventListener("click", async () => {
+        demoButton.disabled = true;
+        if (Number(state.appState?.demo_to_fetch || 0)) demoButton.textContent = "Fetching the demo study\u2026";
         try {
-          await navigator.clipboard.writeText(entry.textContent.trim());
-          citeCopy.textContent = "Copied";
-        } catch (err) {
-          // Clipboard access needs a secure context, which http://127.0.0.1
-          // is but a remote http:// host is not. Say so rather than
-          // pretending it worked.
-          citeCopy.textContent = "Select and copy";
+          const response = await fetch("/api/demo", {
+            method: "POST", headers: {"content-type": "application/json"}, body: "{}",
+          });
+          const answer = await response.json();
+          if (answer && answer.ok) {
+            location.hash = "#overview";
+            location.reload();
+            return;
+          }
+          demoButton.textContent = (answer && answer.error) || "Could not open it.";
+        } catch (error) {
+          demoButton.textContent = "The server did not answer.";
         }
-        setTimeout(() => { citeCopy.textContent = "Copy"; }, 2000);
+        demoButton.disabled = false;
       });
     }
-
+    // The methods are there to be pasted into a manuscript.
+    const methodsCopy = document.getElementById("overview-methods-copy");
+    if (methodsCopy) {
+      methodsCopy.addEventListener("click", () => window.FastMDXIcons.copy(methodsCopy, methodsPlain));
+    }
     $$('[data-view-link]').forEach((element) => {
       element.addEventListener("click", (event) => {
         event.preventDefault();
@@ -101,12 +115,22 @@
     });
     window.addEventListener("hashchange", () => {
       const page = location.hash.replace(/^#/, "");
-      if (state.pages.includes(page)) navigate(page, {updateHash: false});
+      if (state.pages.includes(page) || DIALOG_OF[page]) navigate(page, {updateHash: false});
     });
   }
 
+  /* Preferences and the citation were pages and are dialogs over the page
+   * shown; a link to either (#settings, #cite) opens it. */
+  const DIALOG_OF = {settings: "prefs-dialog", preferences: "prefs-dialog", cite: "cite-dialog"};
+
   function navigate(page, options) {
     const opts = options || {};
+    if (DIALOG_OF[page] && byId(DIALOG_OF[page])) {
+      if (!state.activePage) navigate("overview");
+      else history.replaceState(null, "", `#${state.activePage}`);
+      window.FastMDXDialog?.open(DIALOG_OF[page]);
+      return;
+    }
     if (!state.pages.includes(page)) page = "overview";
     state.activePage = page;
     $$('.page').forEach((element) => {
@@ -135,6 +159,9 @@
       if (page === "overview") emit("live-page-opened", {});
       if (page === "viewer") emit("viewer-page-opened", {});
       if (page === "analysis" || page === "files") emit("results-page-opened", {});
+      // Any page opened, for a page's own script to load what it shows:
+      // the Report page listened for this and it was never sent.
+      emit("navigate", {page});
     });
   }
 
@@ -183,18 +210,45 @@
       if (!state.paused) schedulePoll(0);
     });
     byId("refresh-now")?.addEventListener("click", () => schedulePoll(0));
+    byId("study-folder")?.addEventListener("click", copyTheFolder);
+    // Fitted again as the sidebar is dragged wider or narrower.
+    if (window.ResizeObserver && byId("study-folder")) {
+      new ResizeObserver(() => fitTheFolderName()).observe(byId("study-folder"));
+    }
+    // The run's card is pinned just above the foot, so the foot's height
+    // is where it stops.
+    const foot = document.querySelector(".sidebar-foot");
+    if (window.ResizeObserver && foot) {
+      new ResizeObserver(() => {
+        foot.parentElement.style.setProperty("--sidebar-foot-height", `${foot.offsetHeight}px`);
+      }).observe(foot, {box: "border-box"});
+    }
+    /* The path frame.js copied as the button was clicked, where it is this
+     * one; copied again only where it was not. A copy made after the
+     * folder's answer may come too late for a page with no clipboard. */
+    const copiedOnClick = (path) => {
+      const made = byId("open-output")?._fmxCopied;
+      if (made && made.path === String(path || "").trim()) return made.done;
+      return window.FastMDXIcons.copyText(path);
+    };
     byId("open-output")?.addEventListener("click", async () => {
       try {
         const payload = await fetchJSON("/api/open-output");
-        if (payload.opened) {
+        if (!payload.path) {
+          showToast("No study is open, so there is no folder to open.", "warning");
+        } else if (payload.opened) {
           showToast(`Opened output folder: ${payload.path}`);
         } else {
-          await copyText(payload.path || state.outputDir || "");
-          showToast("Could not open the folder automatically; its path was copied.", "warning");
+          // Said copied only where it was: a page over plain http may not.
+          const path = payload.path || state.outputDir || "";
+          const copied = await copiedOnClick(path);
+          showToast(copied ? "Could not open the folder automatically; its path was copied."
+            : `Could not open the folder automatically. Its path: ${path}`, "warning");
         }
       } catch (error) {
-        if (state.outputDir) await copyText(state.outputDir);
-        showToast("Could not open the output folder; its path was copied.", "warning");
+        const copied = await copiedOnClick(state.outputDir);
+        showToast(copied ? "Could not open the output folder; its path was copied."
+          : "Could not open the output folder.", "warning");
       }
     });
   }
@@ -203,16 +257,34 @@
     byId("mini-preview-frame")?.addEventListener("click", () => navigate("viewer"));
   }
 
+  /* The information beside the viewer is a set of tabs, as a screen reader
+   * is told it is: the chosen tab selected and the only one in the Tab
+   * order, the arrow keys, Home and End moving between them. */
   function wireInfoTabs() {
-    $$('.info-tab').forEach((tab) => {
-      tab.addEventListener("click", () => {
-        const name = tab.getAttribute("data-tab");
-        $$('.info-tab').forEach((item) => item.classList.toggle("active", item === tab));
-        $$('.info-pane').forEach((pane) => {
-          const active = pane.getAttribute("data-tab") === name;
-          pane.hidden = !active;
-          pane.classList.toggle("active", active);
-        });
+    const tabs = $$('.info-tab');
+    function choose(tab, focus) {
+      const name = tab.getAttribute("data-tab");
+      tabs.forEach((item) => {
+        const chosen = item === tab;
+        item.classList.toggle("active", chosen);
+        item.setAttribute("aria-selected", String(chosen));
+        item.tabIndex = chosen ? 0 : -1;
+      });
+      $$('.info-pane').forEach((pane) => {
+        const active = pane.getAttribute("data-tab") === name;
+        pane.hidden = !active;
+        pane.classList.toggle("active", active);
+      });
+      if (focus) tab.focus();
+    }
+    tabs.forEach((tab, index) => {
+      tab.addEventListener("click", () => choose(tab, false));
+      tab.addEventListener("keydown", (event) => {
+        const to = {ArrowRight: index + 1, ArrowLeft: index - 1, Home: 0,
+          End: tabs.length - 1}[event.key];
+        if (to === undefined) return;
+        event.preventDefault();
+        choose(tabs[(to + tabs.length) % tabs.length], true);
       });
     });
   }
@@ -229,15 +301,16 @@
   }
 
   function wireSettings() {
+    // The Preferences dialog's fields, and the study's own words from the
+    // study card's menu (preferences.js keeps both in the browser).
     const ids = [
-      "setting-protein-rep", "setting-ligand-rep", "setting-background",
-      "setting-show-water", "setting-show-ions", "setting-spin", "setting-fog",
-      "setting-preserve-camera", "setting-refresh-seconds", "setting-chart-history",
-      "setting-compact", "setting-reduced-motion", "setting-advanced-metrics",
-      "setting-time-format", "setting-run-name", "setting-ligand-resname",
-      "setting-pocket-cutoff", "setting-scinote",
+      "setting-protein-rep", "setting-ground", "setting-show-water", "setting-show-ions",
+      "setting-spin", "setting-preserve-camera", "setting-pocket-cutoff",
+      "setting-chart-history", "setting-time-format", "setting-run-name",
+      "setting-ligand-resname",
     ];
     ids.forEach((id) => byId(id)?.addEventListener("change", onSettingsChanged));
+    readSettings();
     byId("pocket-cutoff")?.addEventListener("change", (event) => {
       const value = clampFloat(parseFloat(event.target.value), 3, 15, 5);
       state.bindingPocketCutoff = value;
@@ -246,13 +319,9 @@
     });
   }
 
-  function onSettingsChanged() {
-    state.pollIntervalMs = clampInt(
-      parseFloat(byId("setting-refresh-seconds")?.value) * 1000,
-      1000,
-      60000,
-      3000
-    );
+  /* What the fields say, into the page's state; the Viewer asks for the
+   * same with settings() as it starts, and is told of each change. */
+  function readSettings() {
     state.bindingPocketCutoff = clampFloat(
       parseFloat(byId("setting-pocket-cutoff")?.value),
       3,
@@ -269,28 +338,27 @@
     );
     const customRunName = (byId("setting-run-name")?.value || "").trim();
     if (customRunName) state.runTitle = customRunName;
+  }
 
-    document.body.classList.toggle("compact-mode", !!byId("setting-compact")?.checked);
-    document.body.classList.toggle("reduced-motion", !!byId("setting-reduced-motion")?.checked);
-    document.body.classList.toggle(
-      "advanced-metrics",
-      !!byId("setting-advanced-metrics")?.checked
-    );
-
-    renderTopBar(state.status, state.health);
-    emit("settings-updated", {
+  function currentSettings() {
+    return {
       ligand: state.ligandResname,
       pocketCutoff: state.bindingPocketCutoff,
       chartHistory: chartHistorySamples,
       proteinRepresentation: byId("setting-protein-rep")?.value || "cartoon",
-      ligandRepresentation: byId("setting-ligand-rep")?.value || "sticks",
-      background: byId("setting-background")?.value || "matte-black",
+      ground: ["white", "dark"].includes(byId("setting-ground")?.value)
+        ? byId("setting-ground").value : "scheme",
       showWater: !!byId("setting-show-water")?.checked,
       showIons: !!byId("setting-show-ions")?.checked,
       spin: !!byId("setting-spin")?.checked,
-      fog: !!byId("setting-fog")?.checked,
       preserveCamera: byId("setting-preserve-camera")?.checked !== false,
-    });
+    };
+  }
+
+  function onSettingsChanged() {
+    readSettings();
+    renderTopBar(state.status, state.health);
+    emit("settings-updated", currentSettings());
     schedulePoll(0);
   }
 
@@ -306,6 +374,63 @@
     return response.json();
   }
 
+  /* The server says when the study changes (`GET /api/stream`), and the
+   * page asks for what it draws then, rather than every few seconds
+   * whether or not anything did. The poll stays as a slow fall-back while
+   * the stream is open, and as it was when the stream is not: an older
+   * browser, or a network that cuts long connections. */
+  const STREAMING_POLL_MS = 30000;
+  let changeTimer = null;
+  let polling = false;
+  let changedWhilePolling = false;
+
+  function openChangeStream() {
+    if (typeof window.EventSource !== "function") return;
+    let source;
+    try {
+      source = new EventSource("/api/stream");
+    } catch (error) {
+      return;
+    }
+    // Each connection's first event is sent at once, for a page that
+    // reconnected having missed a change. A page that has asked since the
+    // connection opened, or is asking now, has missed nothing.
+    let first = true;
+    let openedAt = Date.now();
+    // Counted as streaming only once an event has arrived: a proxy that
+    // holds a response until it ends would open the connection and deliver
+    // nothing, and the page would then wait on its slow poll.
+    source.addEventListener("open", () => {
+      first = true;
+      openedAt = Date.now();
+    });
+    source.addEventListener("error", () => { state.streaming = false; });
+    source.addEventListener("change", () => {
+      state.streaming = true;
+      const wasFirst = first;
+      first = false;
+      if (state.paused) return;
+      if (wasFirst && (polling || state.lastUpdateMs >= openedAt)) return;
+      if (polling) {
+        // Asked again once this answer is in, so a change made while it
+        // was being read is not left to the slow poll.
+        changedWhilePolling = true;
+        return;
+      }
+      // Several files change together as a run writes; one request set.
+      if (changeTimer) window.clearTimeout(changeTimer);
+      changeTimer = window.setTimeout(() => {
+        changeTimer = null;
+        pollNow().catch((error) => console.warn("dashboard poll error", error));
+      }, 150);
+    });
+    state.changeStream = source;
+  }
+
+  function nextPollMs() {
+    return state.streaming ? Math.max(state.pollIntervalMs, STREAMING_POLL_MS) : state.pollIntervalMs;
+  }
+
   function schedulePoll(delayMs) {
     if (state.refreshTimer) window.clearTimeout(state.refreshTimer);
     state.refreshTimer = window.setTimeout(async () => {
@@ -316,15 +441,31 @@
           console.warn("dashboard poll error", error);
         }
       }
-      schedulePoll(state.pollIntervalMs);
+      schedulePoll(nextPollMs());
     }, Math.max(0, delayMs));
   }
 
   async function pollNow() {
+    polling = true;
+    try {
+      await pollOnce();
+    } finally {
+      polling = false;
+      if (changedWhilePolling) {
+        changedWhilePolling = false;
+        window.setTimeout(() => {
+          pollNow().catch((error) => console.warn("dashboard poll error", error));
+        }, 0);
+      }
+    }
+  }
+
+  async function pollOnce() {
     const names = ["app", "status", "metrics", "events", "results", "structure", "playback"];
     const urls = [
-      "/api/app-state", "/api/status", "/api/metrics", "/api/events", "/api/results",
-      "/api/structure-info", "/api/playback-info",
+      "/api/app-state", "/api/status", `/api/metrics?most=${chartHistorySamples}`,
+      "/api/events", "/api/results",
+      "/api/structure-info", "/api/frames-info",
     ];
     const settled = await Promise.allSettled(urls.map(fetchJSON));
     let successes = 0;
@@ -361,11 +502,26 @@
     const firstAppState = Object.keys(state.appState || {}).length === 0;
     const runChanged = firstAppState || previousRun !== activeRun;
     state.appState = payload || {};
+    // The demo study, offered where this installation carries it.
+    const demo = byId("open-demo");
+    if (demo) {
+      demo.hidden = !state.appState.demo_available;
+      // Fetched the first time it is opened: said, with its weight.
+      const weight = Number(state.appState.demo_to_fetch || 0);
+      if (!demo.disabled) {
+        demo.textContent = weight
+          ? `Open the demo study (fetches ${Math.round(weight / 1e6)} MB once)`
+          : "Open the demo study";
+      }
+    }
     if (runChanged) {
       resetRunDependentState();
-      emit("run-changed", {previousRun, activeRun});
+      emit("run-changed", {previousRun, activeRun, first: firstAppState});
     }
     if (activeRun) state.outputDir = activeRun;
+    // Why there is no live record follows the study's state, which changes
+    // without a status arriving: a run of the study starting or ending.
+    if (!state.status || Object.keys(state.status).length === 0) renderLiveProgress({});
 
     if (!state.initialRouteResolved) {
       state.initialRouteResolved = true;
@@ -381,23 +537,96 @@
       setText("topbar-stage", "configure a simulation");
       setText("sidebar-run-name", "No active study");
       setText("sidebar-platform", "—");
+      showTheStudyFolder();
     }
     // Sections that only have content once a run exists are dimmed until one
     // does, so a fresh workspace points at the builder instead of offering
     // five empty views.
     $$("[data-requires-run]").forEach((element) => {
       element.classList.toggle("nav-link-pending", !activeRun);
-      if (activeRun) {
-        element.removeAttribute("title");
-      } else {
-        element.setAttribute("title", "Available once an exploration exists in this workspace");
-      }
+      // Named by its own word, to a screen reader and on hover: folded to
+      // a strip of icons, its word is hidden, and once a study was open the
+      // links of its pages were left with no name at all.
+      const word = element.dataset.word
+        || (element.dataset.word = (element.querySelector("span")?.textContent || "").trim());
+      if (word) element.setAttribute("aria-label", word);
+      element.setAttribute("title", activeRun ? word
+        : `${word}: available once a study is open in this workspace`);
     });
     emit("app-state", payload || {});
   }
 
+  /* The study's folder in the study menu, offered only where a study is
+   * open: with none, the runtime's root is a name never created. */
+  function showTheStudyFolder() {
+    setTextWithTooltip("sidebar-output-folder", state.outputDir || "—");
+    // Its folder under the card, by name, shortened in the middle to fit.
+    const folder = byId("study-folder");
+    if (folder) {
+      folder.hidden = !state.outputDir;
+      const name = String(state.outputDir || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "";
+      folder.dataset.name = name;
+      folder.title = state.outputDir ? `${state.outputDir}\nClick to copy the path` : "";
+      fitTheFolderName();
+    }
+    ["sidebar-output-folder", "open-output"].forEach((id) => {
+      const node = byId(id);
+      if (!node) return;
+      // The whole path is copied from beside the card, not printed here.
+      node.hidden = id === "sidebar-output-folder" || !state.outputDir;
+      // Its label, and the rule above that.
+      const label = id === "sidebar-output-folder" ? node.previousElementSibling : null;
+      if (label) label.hidden = !state.outputDir;
+      const rule = label ? label.previousElementSibling : null;
+      if (rule && rule.classList.contains("study-menu-divider")) rule.hidden = !state.outputDir;
+    });
+    // The study's own words (preferences.js) are a study's, so none either.
+    $$("#study-menu [data-study-field]").forEach((item) => { item.hidden = !state.outputDir; });
+  }
+
+  /* A name in the width there is, with its middle given up first:
+   * fastmdxplora_output_20260919_021313 and its siblings differ at their
+   * ends. The most of it that fits is found by halving, a handful of
+   * measurements rather than one per letter. */
+  function fitInTheMiddle(shown, name, room) {
+    shown.textContent = name;
+    if (!(room > 0) || name.length < 4 || shown.scrollWidth <= room + 0.5) return;
+    const cut = (keep) => {
+      const head = Math.ceil(keep / 2);
+      return `${name.slice(0, head)}\u2026${name.slice(name.length - (keep - head))}`;
+    };
+    let fits = 2, over = name.length;
+    while (over - fits > 1) {
+      const keep = Math.floor((fits + over) / 2);
+      shown.textContent = cut(keep);
+      if (shown.scrollWidth <= room + 0.5) fits = keep; else over = keep;
+    }
+    shown.textContent = cut(fits);
+  }
+
+  function fitTheFolderName() {
+    const folder = byId("study-folder");
+    const shown = byId("study-folder-name");
+    if (!folder || !shown || folder.hidden) return;
+    const room = shown.getBoundingClientRect().width || folder.clientWidth - 16;
+    fitInTheMiddle(shown, folder.dataset.name || "", room);
+  }
+
+  /* Ticked before the name, which is fitted again into what the tick
+   * leaves of the line, and again once it has gone. */
+  async function copyTheFolder() {
+    const folder = byId("study-folder");
+    if (!state.outputDir || !folder) return;
+    await window.FastMDXIcons.copy(folder, state.outputDir, "Path copied",
+                                   "Could not copy; the path is in the tooltip");
+    fitTheFolderName();
+    setTimeout(fitTheFolderName, 1900);
+  }
+
   function resetRunDependentState() {
     state.outputDir = "";
+    // Another study's cards can have the same paths as this one's.
+    state.analysisSectionsKey = "";
     state.status = {};
     state.health = {};
     state.results = {};
@@ -414,7 +643,6 @@
     state.playbackSignature = null;
     if (window.FastMDXCharts) window.FastMDXCharts.update([]);
     renderLiveProgress({});
-    renderRunSummary({});
     renderStructureTab({valid: false, reason: "missing"});
     renderLigandTab({});
     renderSimulationTab({});
@@ -444,6 +672,7 @@
       : (ageSeconds > 30 ? "lost" : "reconnecting");
 
     setText("sidebar-connection-state", connection);
+    byId("sidebar-connection-state")?.setAttribute("data-connection", connection);
     setClassName(
       "sidebar-status-dot",
       `status-dot ${connection === "live" ? "status-dot-live" : "status-dot-stale"}`
@@ -457,8 +686,9 @@
   function updateRefreshedAt() {
     const date = new Date(state.lastUpdateMs);
     const use24 = byId("setting-time-format")?.value !== "12h";
+    // A time is enough for "updated at": the page is open today.
     const text = use24
-      ? `${date.toLocaleDateString()} ${date.toLocaleTimeString([], {hour12: false})}`
+      ? date.toLocaleTimeString([], {hour12: false})
       : date.toLocaleTimeString();
     setText("refreshed-at", text);
   }
@@ -496,13 +726,14 @@
       renderHealth({});
       renderStageTimeline({});
       renderLiveProgress({});
-      emit("status-updated", {status: {}, health: {}});
+      emit("status-updated", {status: {}, health: {}, study: ""});
       return;
     }
     const status = payload.status || {};
     const health = payload.health || {};
     state.status = status;
     state.health = health;
+    state.times = payload.times || {};
     state.stages = Array.isArray(payload.stages) ? payload.stages : [];
     state.phases = Array.isArray(payload.phases) ? payload.phases : [];
     applyPhaseVisibility();
@@ -511,13 +742,35 @@
     renderHealth(health);
     renderStageTimeline(status);
     renderLiveProgress(status);
-    emit("status-updated", {status, health});
+    // The folder read, so a listener can tell one study's status from
+    // another's (a study opened elsewhere between two polls).
+    emit("status-updated", {status, health, times: state.times, study: payload.study || ""});
+  }
+
+  /* The Overview's blocks in the order they are read, in the page itself,
+   * so Tab goes as the eye does (a CSS order left the keyboard on the old
+   * one). The results and the charts move; the run's card, which holds the
+   * molecule's canvas, stays where it is. */
+  function leadWith(body, lead) {
+    const results = byId("overview-results"), panels = byId("live-panels");
+    const run = byId("overview-run"), charts = byId("overview-charts");
+    if (results && panels && results.parentElement === body && panels.parentElement === body) {
+      const resultsFirst = !!(results.compareDocumentPosition(panels) & Node.DOCUMENT_POSITION_FOLLOWING);
+      if (lead === "health" && resultsFirst) body.insertBefore(results, panels.nextSibling);
+      if (lead !== "health" && !resultsFirst) body.insertBefore(results, panels);
+    }
+    if (run && charts && run.parentElement === charts.parentElement) {
+      const chartsFirst = !!(charts.compareDocumentPosition(run) & Node.DOCUMENT_POSITION_FOLLOWING);
+      if (lead === "health" && !chartsFirst) run.parentElement.insertBefore(charts, run);
+      if (lead !== "health" && chartsFirst) run.parentElement.insertBefore(charts, run.nextSibling);
+    }
   }
 
   function renderTopBar(status, health) {
     if (!state.appState?.active_run) {
       setClassName("topbar-status-dot", "status-dot status-dot-waiting");
-      setText("topbar-status-text", "ready");
+      setText("topbar-status-text", "Ready");
+      byId("sidebar-progress")?.setAttribute("data-run", "");
       setText("topbar-stage", "configure a simulation");
       setText("topbar-step", "—");
       setText("topbar-total", "—");
@@ -528,23 +781,84 @@
       setText("sidebar-run-name", "No active study");
       setText("topbar-run-id", "workspace");
       setText("topbar-run-title", "No active study");
+      const body = byId("overview-body");
+      if (body) { body.dataset.run = ""; body.dataset.health = ""; body.dataset.lead = ""; }
       return;
     }
-    const statusName = String(health.state || status.status || "waiting").toLowerCase();
-    const dotClass = stateDotClass(statusName);
-    setClassName("topbar-status-dot", `status-dot ${dotClass}`);
-    setText("topbar-status-text", statusName);
+    let statusName = String(health.state || status.status || "waiting").toLowerCase();
+    // A study with no live record (finished before it kept one, or a study
+    // of several runs) is said from the phases it recorded.
+    const quiet = ["unknown", "waiting", "stale", ""];
+    if (quiet.includes(statusName) && quiet.includes(String(status.status || "").toLowerCase())) {
+      const phases = (state.results?.phases || []).map((p) => String(p.status || "").toLowerCase());
+      if (phases.some((s) => ["error", "failed"].includes(s))) statusName = "failed";
+      else if (phases.some((s) => ["ok", "complete", "completed"].includes(s))
+        && phases.every((s) => ["ok", "complete", "completed", "skipped", "not run", "not-run"].includes(s))) {
+        statusName = "completed";
+      }
+    }
+    // Pausing the browser's updates means something only while there is
+    // something to update: a finished study offered "Pause" beside its
+    // results. Kept while paused, so there is a way to resume.
+    const pause = byId("pause-toggle");
+    if (pause) {
+      const live = ["running", "starting"].includes(String(status.status || "").toLowerCase())
+        || !!state.appState?.process_running;
+      pause.hidden = !live && !state.paused;
+    }
+    // The progress card is for a run going on, or one that stopped short:
+    // where it is or where it stopped, and for the second, what would fix
+    // it. A finished study's card above says it finished.
+    const run = runState(status, statusName);
+    // The card's word is where the run is (running, stopped, failed);
+    // for a finished run, the health verdict's.
+    const word = run === "running" ? String(status.status || "running") : (run || statusName);
+    setText("topbar-status-text", statusWord(word));
+    // Its dot: live while it runs, green once it finished well, red when
+    // it failed, grey otherwise (stopped, waiting, no recent word).
+    const finished = !run && ["ok", "completed", "complete"].includes(statusName);
+    setClassName("topbar-status-dot", `status-dot ${run === "running" ? "status-dot-live"
+      : run === "failed" ? "status-dot-error"
+      : run === "stopped" || run === "interrupted" ? "status-dot-waiting"
+      : finished ? "status-dot-completed" : stateDotClass(statusName)}`);
+    byId("sidebar-progress")?.setAttribute("data-run", run);
+    // The Overview leads with what it determined once the run has ended
+    // well, and with its health and charts while it runs or once it has
+    // stopped short: what happened first (overview.js, the CSS).
+    const body = byId("overview-body");
+    if (body) {
+      body.dataset.run = run === "running" ? "running" : "ended";
+      body.dataset.health = statusName;
+      body.dataset.lead = run === "running" || run === "failed" || run === "stopped"
+        || run === "interrupted" ? "health" : "results";
+      leadWith(body, body.dataset.lead);
+    }
     // A run that has not reported a stage has not reached one; it is
     // starting. It is not a run whose stage cannot be determined.
-    setText("topbar-stage", status.stage || "starting");
+    const stage = stageWord(status.stage) || "Starting";
+    // Said stage first, "Simulation failed", as the phases are said.
+    setText("topbar-stage", run === "stopped" ? `${stage} stopped`
+      : run === "failed" ? `${stage} failed`
+      : run === "interrupted" ? (status.last_update_timestamp
+        ? `${stage}, last update ${formatWhen(status.last_update_timestamp)}` : stage)
+      : stage);
     setText("topbar-step", valueOrDash(status.current_step));
     setText("topbar-total", valueOrDash(status.total_planned_steps));
     const pct = progressPercent(status);
     setText("topbar-progress", pct != null ? `${pct.toFixed(1)}%` : "—");
-    setText("topbar-eta", computeETA(status));
+    // A run that has ended has no time left, whatever its last step: a
+    // stopped run kept saying "5m 2s".
+    setText("topbar-eta", run === "running" ? computeETA(status) : "\u2014");
 
-    setText("sidebar-platform", status.platform || state.simManifest.platform || "—");
-    setTextWithTooltip("sidebar-output-folder", state.outputDir || "—");
+    const platform = status.platform || state.simManifest.platform || "";
+    setText("sidebar-platform", platform || "\u2014");
+    // No platform recorded: the card's line ends at the state.
+    const said = byId("sidebar-platform");
+    if (said) {
+      said.hidden = !platform;
+      if (said.previousElementSibling) said.previousElementSibling.hidden = !platform;
+    }
+    showTheStudyFolder();
     byId("open-output")?.setAttribute(
       "title", state.outputDir ? `Open ${state.outputDir}` : "Open output folder"
     );
@@ -558,7 +872,67 @@
     // which says nothing a person did not already choose. A name set in
     // Display preferences still wins.
     const chosen = (byId("setting-run-name")?.value || "").trim();
-    setTextWithTooltip("topbar-run-title", chosen || state.runId || state.runTitle);
+    const name = chosen || studyName(state.runId) || state.runTitle;
+    setTextWithTooltip("topbar-run-title", name);
+    const title = byId("topbar-run-title");
+    if (title && state.runId && name !== state.runId) title.title = state.runId;
+  }
+
+  /* The run's state in a word a person reads: the health verdict for a
+   * finished run ("ok" read as a code), the status otherwise. */
+  function statusWord(name) {
+    const words = {
+      ok: "Completed", completed: "Completed", complete: "Completed",
+      running: "Running", starting: "Starting", paused: "Paused",
+      waiting: "Waiting", stale: "No recent updates", warning: "Running, with a warning",
+      failed: "Failed", error: "Failed", stopped: "Stopped", ready: "Ready",
+      interrupted: "Interrupted",
+    };
+    const key = String(name || "").toLowerCase();
+    return words[key] || (key ? key.charAt(0).toUpperCase() + key.slice(1) : "Ready");
+  }
+
+  /* Whether the progress card shows, and how: a run going on, one that
+   * stopped, one that failed, or none (finished, or nothing open). */
+  function runState(status, statusName) {
+    const raw = String(status.status || "").toLowerCase();
+    if (["failed", "error"].includes(raw) || ["failed", "error"].includes(statusName)) return "failed";
+    if (raw === "stopped" || statusName === "stopped") return "stopped";
+    // Ended without saying so (telemetry.status_as_it_stands): its record
+    // still said it was going, weeks after the run had gone.
+    if (raw === "interrupted" && !state.appState?.process_running) return "interrupted";
+    if (["running", "starting", "paused"].includes(raw) || state.appState?.process_running) {
+      return "running";
+    }
+    return "";
+  }
+
+  function stageWord(stage) {
+    const words = {
+      setup: "Setup", minimization: "Minimisation", minimisation: "Minimisation",
+      nvt: "NVT", npt: "NPT", production: "Production", analysis: "Analysis",
+      report: "Report", simulation: "Simulation",
+    };
+    const key = normaliseStage(stage);
+    const said = stage ? String(stage) : "";
+    return words[key] || said.charAt(0).toUpperCase() + said.slice(1);
+  }
+
+  /* A system given as a file is named by the file: the sidebar read
+   * "/home/lab/studies/struct..." for a study of tri-ala.pdb. The whole path
+   * stays on hover. */
+  /* The system in four capital characters, as fastmdxplora.system_id
+   * names it: a PDB entry as it is, otherwise the first four letters or
+   * digits of its structure file's name. */
+  function studyName(system) {
+    const text = system == null ? "" : String(system).trim();
+    if (!text) return "";
+    if (/^[0-9][A-Za-z0-9]{3}$/.test(text)) return text.toUpperCase();
+    if (/^\d+ systems$/.test(text)) return text;
+    const file = text.split(/[\\/]/).filter(Boolean).pop() || text;
+    const stem = file.replace(/(\.(pdb|ent|cif|mmcif|pdbx|bcif|gro|mol2|sdf|xml|prmtop|parm7|psf|top|xyz))?(\.(gz|bz2|xz|zip))?$/i, "") || file;
+    const letters = stem.replace(/[^A-Za-z0-9]/g, "");
+    return (letters || stem).slice(0, 4).toUpperCase();
   }
 
   function setTextWithTooltip(id, value) {
@@ -581,14 +955,26 @@
     const card = byId("hero-card");
     if (card) card.setAttribute("data-state", String(status.status || "running").toLowerCase());
     setText("hero-status-text", humanise(status.status || status.stage || "waiting"));
-    setText("hero-stage", status.stage || "—");
+    setText("hero-stage", status.stage || "\u2014");
+    // Said of a run that is writing, and of one that has ended as it is.
+    const writing = ["running", "starting"].includes(String(status.status || "").toLowerCase())
+      || !!state.appState?.process_running;
+    setText("overview-subtitle", writing
+      ? "What the run is doing, and whether it is doing it well."
+      : "What the run did, and how it went.");
+    setText("overview-charts-title", writing ? "Live charts" : "Thermodynamics");
   }
 
   function renderHealth(health) {
     const stateName = String(health.state || "unknown").toLowerCase();
     byId("hero-health")?.setAttribute("data-state", stateName);
-    setText("health-headline", health.message || humanise(stateName));
-    setText("health-explanation", health.explanation || "");
+    // Large, the headline; the message beneath it at the size of prose. A
+    // failure's message was the headline, and a paragraph with a path in it
+    // was set in the card's largest type.
+    setText("health-headline", health.headline || health.message || humanise(stateName));
+    setProse("health-explanation", health.headline
+      ? [health.message, health.explanation].filter(Boolean).join("\n\n")
+      : (health.explanation || ""));
     setText("health-pill", stateName);
     byId("health-pill")?.setAttribute("data-state", stateName);
 
@@ -602,6 +988,40 @@
         </li>
       `).join("");
     }
+  }
+
+  /* Text as it was written: its paragraphs as paragraphs and its "  - "
+   * lines as a list. A diagnosis's "What to try" list was set as one
+   * paragraph, its items run together. Built as elements: what a run
+   * recorded is data, never markup. */
+  function setProse(id, text) {
+    const host = byId(id);
+    if (!host) return;
+    const key = String(text || "");
+    if (host.dataset.prose === key) return;
+    host.dataset.prose = key;
+    host.replaceChildren();
+    key.split(/\n\s*\n/).forEach((block) => {
+      const lines = block.split("\n").filter((line) => line.trim());
+      if (!lines.length) return;
+      let para = null;
+      let list = null;
+      lines.forEach((line) => {
+        const item = /^\s*[-*]\s+(.*)$/.exec(line);
+        if (item) {
+          if (!list) { list = document.createElement("ul"); host.appendChild(list); }
+          const li = document.createElement("li");
+          li.textContent = item[1];
+          list.appendChild(li);
+          para = null;
+        } else {
+          list = null;
+          if (!para) { para = document.createElement("p"); host.appendChild(para); }
+          else para.appendChild(document.createTextNode(" "));
+          para.appendChild(document.createTextNode(line.trim()));
+        }
+      });
+    });
   }
 
   function renderStageTimeline(status) {
@@ -654,6 +1074,71 @@
       }
       element.setAttribute("data-state", stageState);
     });
+    // "Stage 5 of 7" in the progress card: the stage reached among those
+    // this run can reach.
+    const shown = $$('.sidebar-stages .stage-step').filter((element) => !element.hidden);
+    const stateOf = (element) => element.getAttribute("data-state");
+    let at = shown.findIndex((element) => ["current", "failed"].includes(stateOf(element)));
+    if (at < 0) {
+      shown.forEach((element, index) => { if (stateOf(element) === "completed") at = index; });
+    }
+    setText("sidebar-stage-count", at >= 0 && shown.length
+      ? `Stage ${at + 1} of ${shown.length}` : "");
+  }
+
+  /* Why a study open here has no live record, said as what it is. Several
+   * situations look the same to this page -- no status -- and they used to
+   * get one message: a finished study of several runs, whose runs each keep
+   * their own record and whose folder keeps none, was told "Waiting for the
+   * simulation" and that setup was under way. With no study open, say so
+   * and offer to start one. */
+  function liveAbsence(app) {
+    app = app || {};
+    if (app.no_study_in) {
+      const name = String(app.no_study_in).split(/[\\/]/).filter(Boolean).pop() || app.no_study_in;
+      return {
+        title: "No study here",
+        body: `${name} holds no study: nothing in it was written by FastMDXplora. `
+          + "Open one under All studies, or start one.",
+        offerToStart: true,
+      };
+    }
+    if (!app.active_run) {
+      return {title: "Nothing running", body: "", offerToStart: true};
+    }
+    const runs = Array.isArray(app.runs) ? app.runs : null;
+    if (runs) {
+      const count = (s) => runs.filter((r) => r.state === s).length;
+      const where = count("running")
+        ? `${count("running")} running, ${count("completed")} of ${runs.length} completed.`
+        : `${count("completed")} of ${runs.length} completed.`;
+      return {
+        title: `A study of ${runs.length} runs`,
+        body: `${where} Each run keeps its own record of its simulation: view one from Runs in the sidebar.`,
+        offerToStart: false,
+      };
+    }
+    if (app.process_running) {
+      return {
+        title: "Waiting for the simulation",
+        body: "Setup is under way. This page fills in once the simulation starts.",
+        offerToStart: false,
+      };
+    }
+    if (app.analysed_only) {
+      return {
+        title: "A trajectory analysed",
+        body: "This study analysed a trajectory and ran no simulation, so there is no "
+          + "record of a run to show. What its analyses determined is on the Analysis page.",
+        offerToStart: false,
+      };
+    }
+    return {
+      title: "No live record",
+      body: "This study kept no record of its simulation as it ran: it stopped before "
+        + "the simulation began, or ran with simulation.live_telemetry off.",
+      offerToStart: false,
+    };
   }
 
   function renderLiveProgress(status) {
@@ -666,20 +1151,13 @@
     if (panels) panels.hidden = nothing;
     if (absent) {
       absent.hidden = !nothing;
-      /* Two different situations look the same to this page -- no
-       * status yet -- and used to get one message, about a setting that
-       * is on by default. With a run under way the simulation has not
-       * started: say so, and hide the "start one" buttons. With no run,
-       * say that, and show them. */
-      const hasRun = Boolean(state.appState && state.appState.active_run);
+      const said = liveAbsence(state.appState);
       const title = document.getElementById("live-absent-title");
       const body = document.getElementById("live-absent-body");
       const actions = document.getElementById("live-absent-actions");
-      if (title) title.textContent = hasRun ? "Waiting for the simulation" : "Nothing running";
-      if (body) body.textContent = hasRun
-        ? "Setup is under way. This page fills in once the simulation starts."
-        : "";
-      if (actions) actions.hidden = hasRun;
+      if (title) title.textContent = said.title;
+      if (body) body.textContent = said.body;
+      if (actions) actions.hidden = !said.offerToStart;
     }
     if (nothing) return;
 
@@ -701,19 +1179,30 @@
         ? `${status.current_frame_count}${status.planned_frame_count != null ? ` / ${status.planned_frame_count}` : ""}`
         : "—"
     );
-    setText(
-      "live-simtime-cell",
-      status.simulation_time_completed_ns != null
-        ? `${formatNumber(status.simulation_time_completed_ns, 6)} ns`
-        : "—"
-    );
-    setText(
-      "live-elapsed-cell",
-      status.elapsed_wall_time_s != null ? fmtDuration(status.elapsed_wall_time_s) : "—"
-    );
-    setText("live-eta-cell", computeETA(status));
-    setText("live-checkpoint-cell", status.current_checkpoint_path || "—");
-    setText("live-lastupdate-cell", formatTimestamp(status.last_update_timestamp));
+    const length = productionSaid(state.times || {}, status);
+    setText("live-simtime-label", length.label);
+    setText("live-simtime-cell", length.value);
+    const note = byId("live-simtime-note");
+    if (note) {
+      note.textContent = length.note;
+      note.hidden = !length.note;
+    }
+    /* While it runs, the time since it began; once it has stopped, its
+     * phases' own times added, as the Wall time card gives them: counted
+     * from the run's start, a study analysed again hours later read the
+     * hours between. */
+    const wall = state.times?.wall_s ?? status.elapsed_wall_time_s;
+    setText("live-elapsed-cell", wall != null ? fmtDuration(wall) : "—");
+    setText("live-eta-cell", runState(status, String(status.status || "").toLowerCase()) === "running"
+      ? computeETA(status) : "\u2014");
+    // Where the checkpoint is, from the study, and when the record was last
+    // written, to the minute: the absolute path and the full date and time
+    // were cut off in their cells. Both are kept whole in the cell's title.
+    const checkpoint = status.current_checkpoint_path || "";
+    setText("live-checkpoint-cell", checkpoint ? inTheStudy(checkpoint) : "\u2014");
+    setTitle("live-checkpoint-cell", checkpoint);
+    setText("live-lastupdate-cell", formatWhen(status.last_update_timestamp));
+    setTitle("live-lastupdate-cell", formatTimestamp(status.last_update_timestamp));
     setText("live-card-step", valueOrDash(status.current_step));
   }
 
@@ -721,11 +1210,28 @@
   /* Metrics and events                                                  */
   /* ------------------------------------------------------------------ */
   function applyMetrics(metrics) {
-    state.metrics = (Array.isArray(metrics) ? metrics : [])
-      .map(normaliseMetricRow)
-      .slice(-chartHistorySamples);
+    state.metrics = thinned((Array.isArray(metrics) ? metrics : [])
+      .map(normaliseMetricRow), chartHistorySamples);
     if (window.FastMDXCharts) window.FastMDXCharts.update(state.metrics);
     emit("metrics-updated", {metrics: state.metrics});
+  }
+
+  /* The record thinned evenly over the whole run to about `most` rows, its
+   * first, its last and each change of stage kept, as the server thins it
+   * (overview_view.thinned_metrics): the newest rows alone lost the
+   * equilibration and the start of production. */
+  function thinned(rows, most) {
+    const n = rows.length;
+    if (n <= most || most < 2) return rows;
+    const keep = new Set();
+    for (let i = 0; i < most; i += 1) keep.add(Math.round(i * (n - 1) / (most - 1)));
+    for (let i = 1; i < n; i += 1) {
+      if (String(rows[i].stage || "") !== String(rows[i - 1].stage || "")) {
+        keep.add(i - 1);
+        keep.add(i);
+      }
+    }
+    return Array.from(keep).sort((a, b) => a - b).map((i) => rows[i]);
   }
 
   function normaliseMetricRow(row) {
@@ -777,11 +1283,9 @@
 
     renderTopBar(state.status, state.health);
     renderStageTimeline(state.status);
-    renderReportPanels(payload);
+    renderMethods(payload);
     renderAnalysisSections(payload);
     renderAnalysis(payload);
-    renderFiles(payload);
-    renderRunSummary(payload);
     renderSimulationTab(state.structureInfo || {});
     emit("results-updated", payload);
   }
@@ -805,8 +1309,19 @@
     const host = byId("analysis-sections");
     const flatGrid = byId("analysis-grid");
     if (!host) return;
+    state.figureProvenance = payload.figure_provenance || {};
+    // Rendered again only when something in it changed. Every poll replaced
+    // the cards, which reloaded each figure and would take a chart from
+    // under the pointer reading it.
+    const key = JSON.stringify([sections, state.figureProvenance]);
+    if (key === state.analysisSectionsKey && host.childElementCount) return;
+    state.analysisSectionsKey = key;
+    window.FastMDXSeries?.forget();
+    window.FastMDXFigures?.forget();
+    const charted = new Set();
+    const named = new Set();
 
-    host.innerHTML = sections.map((section) => {
+    const sectionHtml = (section) => {
       const panels = Array.isArray(section.panels) ? section.panels : [];
       // Reuse the same card structure the flat grid uses so both routes
       // through this view look identical.
@@ -816,29 +1331,76 @@
         // compact restyled variant is smaller and would look different from
         // what opening the figure gives you.
         const figure = panel.original_href || panel.href;
+        // An analysis's own figure (analysis/rmsd/rmsd.png) can also be
+        // drawn from its numbers, once per analysis.
+        const own = /(?:^|\/)analysis\/([a-z][a-z0-9_]*)\/\1\.png$/.exec(
+          panel.original_source || panel.source || "");
+        // A figure that is not a series (secondary structure, clusters,
+        // a projection, the dihedrals) is plotted from its own numbers
+        // where figure-chart.js knows it.
+        const plotted = window.FastMDXFigures?.figureOf(panel.original_source || panel.source || "") || "";
+        const series = own && !plotted && !charted.has(own[1]) ? own[1] : "";
+        if (series) charted.add(series);
+        // The first card of each analysis answers to its name, so an
+        // Agent's answer that cites it can open it here.
+        const folder = /(?:^|\/)analysis\/([a-z][a-z0-9_]*)\//.exec(
+          panel.original_source || panel.source || "");
+        const analysisName = folder && !named.has(folder[1]) ? folder[1] : "";
+        if (analysisName) named.add(analysisName);
         const links = [
           `<a class="file-action" href="${escapeAttr(figure)}" target="_blank" rel="noopener">Open full size</a>`,
         ];
+        if (series) {
+          links.push('<a class="file-action" href="#" data-series-toggle hidden>Show the figure</a>');
+        }
+        if (plotted) {
+          links.push('<a class="file-action" href="#" data-figure-toggle hidden>Show the figure</a>');
+        }
+        const made = folder ? provenanceChip(folder[1]) : "";
         return `
-        <article class="analysis-card" data-state="complete">
+        <article class="analysis-card" data-state="complete"${analysisName ? ` data-analysis="${escapeAttr(analysisName)}"` : ""}>
           <div class="ac-header">
             <div class="ac-title">${escapeHTML(panel.title || "")}</div>
-            <div class="ac-status">${escapeHTML(section.title || "")}</div>
           </div>
-          <div class="ac-frame"><img src="${escapeAttr(figure)}" alt="${escapeAttr(panel.title || "")}" loading="lazy"></div>
+          <div class="ac-frame"${series ? ` data-series="${escapeAttr(series)}"` : ""}${plotted ? ` data-figure="${escapeAttr(plotted)}"` : ""}><img src="${escapeAttr(figure)}" alt="${escapeAttr(panel.title || "")}" loading="lazy"></div>
           <div class="ac-body">${escapeHTML(panel.summary || "")}</div>
-          <div class="ac-footer">${links.join("")}</div>
+          <div class="ac-footer">${links.join("")}${made}</div>
+          ${made ? '<div class="figure-provenance" hidden></div>' : ""}
         </article>`;
       }).join("");
+      // What the page's filter matches against: the section's title and
+      // theme, and its figures' titles and captions.
+      const search = [section.title, section.theme,
+        ...panels.map((panel) => `${panel.title || ""} ${panel.summary || ""}`)].join(" ");
       return `
-        <section class="analysis-section">
+        <section class="analysis-section" id="analysis-section-${escapeAttr(section.anchor || "")}"
+                 data-search="${escapeAttr(search)}">
           <div class="analysis-section-heading">
-            <h2 class="analysis-section-title">${escapeHTML(section.title || "")}</h2>
+            <h3 class="analysis-section-title">${escapeHTML(section.title || "")}</h3>
             <span class="analysis-section-count">${panels.length} figure${panels.length === 1 ? "" : "s"}</span>
           </div>
           <div class="analysis-grid">${cards}</div>
         </section>`;
-    }).join("");
+    };
+    // The sections under what they study (report_dashboard.ANALYSIS_THEMES),
+    // in the order the server gives them, which is that table's order.
+    const themes = [];
+    sections.forEach((section) => {
+      const theme = section.theme || "Other";
+      const last = themes[themes.length - 1];
+      if (last && last.theme === theme) last.sections.push(section);
+      else themes.push({ theme, sections: [section] });
+    });
+    host.innerHTML = themes.map(({ theme, sections: members }) => `
+      <div class="analysis-theme" data-theme="${escapeAttr(theme)}">
+        <h2 class="analysis-theme-title">${escapeHTML(theme)}</h2>
+        ${members.map(sectionHtml).join("")}
+      </div>`).join("");
+
+    window.FastMDXSeries?.hydrate(host);
+    window.FastMDXFigures?.hydrate(host);
+    listenForProvenance(host);
+    window.FastMDXAnalysisPage?.sectionsRendered(host, sections);
 
     const haveSections = sections.length > 0;
     host.hidden = !haveSections;
@@ -847,52 +1409,182 @@
     if (flatGrid) flatGrid.hidden = haveSections;
   }
 
-  function renderReportPanels(payload) {
-    // Summary cards, phase progress, and trajectory statistics come from the
-    // same computation the generated report uses, so both surfaces agree.
-    const cards = Array.isArray(payload.summary_cards) ? payload.summary_cards : [];
-    const cardHost = byId("overview-summary-cards");
-    if (cardHost) {
-      cardHost.innerHTML = cards.map((card) => {
-        const value = card.value || "—";
-        // Paths get monospace at a smaller size; everything else stays large.
-        const kind = /[\\/]/.test(value) ? "path" : "text";
-        return `
-        <div class="metric-card">
-          <div class="metric-card-label">${escapeHTML(card.label || "")}</div>
-          <div class="metric-card-value mono" data-kind="${kind}" title="${escapeAttr(value)}">${escapeHTML(value)}</div>
-          <div class="metric-card-unit" title="${escapeAttr(card.detail || "")}">${escapeHTML(card.detail || "")}</div>
-        </div>`;
-      }).join("");
-      cardHost.hidden = cards.length === 0;
-    }
+  /* What made a figure: the release, when, from how many frames, with which
+   * selection and options, and the command that draws it again. A chip on
+   * each figure opens it; the numbers are the study's own records (the
+   * analysis manifest, the analysis's options.json and the Manifest's
+   * record of who produced the phase), gathered by figure_provenance.py. */
+  function shortVersion(version) {
+    return String(version || "").split("+")[0].replace(/\.dev\d+$/, "");
+  }
 
-    const phases = Array.isArray(payload.phase_rows) ? payload.phase_rows : [];
-    const phaseHost = byId("overview-phase-rows");
-    const phaseCard = byId("overview-phase-card");
-    if (phaseHost) {
-      phaseHost.innerHTML = phases.map((row) => `
-        <tr>
-          <td>${escapeHTML(row.name || "")}</td>
-          <td><span class="stage-pill">${escapeHTML(row.status || "")}</span></td>
-          <td class="muted">${escapeHTML(row.detail || "")}</td>
-        </tr>`).join("");
-    }
-    if (phaseCard) phaseCard.hidden = phases.length === 0;
+  function provenanceChip(name, made = (state.figureProvenance || {})[name]) {
+    if (!made) return "";
+    const label = made.version ? `v${shortVersion(made.version)}` : "how it was made";
+    return `<button type="button" class="figure-chip" data-provenance="${escapeAttr(name)}" aria-expanded="false" title="What made this figure, and how to make it again">${escapeHTML(label)}</button>`;
+  }
 
-    const stats = Array.isArray(payload.metric_rows) ? payload.metric_rows : [];
-    const statHost = byId("overview-stat-rows");
-    const statCard = byId("overview-stats-card");
-    if (statHost) {
-      statHost.innerHTML = stats.map((row) => `
-        <tr>
-          <td>${escapeHTML(row.metric || "")}</td>
-          <td class="mono">${escapeHTML(row.average || "—")}</td>
-          <td class="mono">${escapeHTML(row.stddev || "—")}</td>
-          <td class="muted">${escapeHTML(row.unit || "")}</td>
-        </tr>`).join("");
+  /* A comparison's overlay or trend: the runs it was plotted from, the
+   * release that analysed each, and the release that plotted them, as the
+   * comparison recorded them (comparison/figures.json). */
+  function comparisonProvenanceHtml(made) {
+    const code = (value) => `<code>${escapeHTML(value)}</code>`;
+    const release = (version) => version
+      ? `FastMDXplora ${code(version)}` : "a release that did not record itself";
+    const rows = [];
+    const row = (label, value) => rows.push(`<dt>${escapeHTML(label)}</dt><dd>${value}</dd>`);
+    row("Plotted by", release(made.version) + (made.host ? ` on ${escapeHTML(made.host)}` : ""));
+    if (made.made) row("When", escapeHTML(String(made.made).replace("T", " ").replace(/\+00:00$/, " UTC")));
+    const unit = made.unit ? ` (${escapeHTML(made.unit)})` : "";
+    row("Against", made.kind === "trend"
+      ? `${code(made.against)}, each run's mean of ${escapeHTML(made.analysis)}${unit}`
+      : `${made.against === "time" ? "time (ns)" : "frame"}, each run's ${escapeHTML(made.analysis)}${unit}`);
+    const runs = Array.isArray(made.runs) ? made.runs : [];
+    const items = runs.map((run) => {
+      const what = made.kind === "trend"
+        ? ` at ${escapeHTML(String(run.x))}: ${escapeHTML(run.said || String(run.mean))}, ${escapeHTML(run.over || "")}`
+        : `: ${Number(run.frames || 0).toLocaleString("en-US")} frames`;
+      return `<li>${escapeHTML(run.label || run.run_id || "a run")} ${code(run.path || "")}${what}; ` +
+        `analysed by ${release(run.analysed_by)}</li>`;
+    });
+    const releases = new Set(runs.map((run) => run.analysed_by || ""));
+    const mixed = releases.size > 1
+      ? '<p class="figure-provenance-note">The runs were analysed by more than one release, ' +
+        "so a difference between them may be a difference between releases.</p>"
+      : "";
+    return `<dl class="figure-provenance-rows">${rows.join("")}</dl>` +
+      `<p class="figure-provenance-how">Plotted from ${runs.length} run${runs.length === 1 ? "" : "s"}:</p>` +
+      `<ul class="figure-provenance-runs">${items.join("")}</ul>` + mixed;
+  }
+
+  function provenanceHtml(made) {
+    if (made.kind === "overlay" || made.kind === "trend") return comparisonProvenanceHtml(made);
+    const rows = [];
+    const row = (label, value) => {
+      if (value === null || value === undefined || value === "") return;
+      rows.push(`<dt>${escapeHTML(label)}</dt><dd>${value}</dd>`);
+    };
+    const code = (value) => `<code>${escapeHTML(value)}</code>`;
+    row("Made by", made.version
+      ? `FastMDXplora ${code(made.version)}` + (made.host ? ` on ${escapeHTML(made.host)}` : "")
+      : "a release that did not record itself");
+    const packages = Object.entries(made.packages || {});
+    if (packages.length) {
+      row("With", packages.map(([name, version]) => `${escapeHTML(name)} ${code(version)}`).join(", "));
     }
-    if (statCard) statCard.hidden = stats.length === 0;
+    if (made.made) row("When", escapeHTML(String(made.made).replace("T", " ").replace(/\.\d+/, "")));
+    const trajectory = Array.isArray(made.trajectory) ? made.trajectory.join(", ") : made.trajectory;
+    if (trajectory) {
+      const frames = made.frames ? `, ${Number(made.frames).toLocaleString("en-US")} frames` : "";
+      const n = Number(made.stride);
+      const nth = n % 10 === 1 && n % 100 !== 11 ? "st" : n % 10 === 2 && n % 100 !== 12 ? "nd"
+        : n % 10 === 3 && n % 100 !== 13 ? "rd" : "th";
+      const every = n > 1 ? `, every ${n}${nth} frame` : "";
+      row("From", `${code(trajectory)}${escapeHTML(frames + every)}`);
+    }
+    if (made.selection) row("Selection", code(made.selection));
+    const options = Object.entries(made.options || {});
+    if (options.length) {
+      row("Options", options.map(([key, value]) => code(`${key}: ${JSON.stringify(value)}`)).join(" "));
+    }
+    const WIDTH_SAID = { page: "the page (6.5 in)", single_column: "one column (89 mm)",
+                         double_column: "two columns (183 mm)" };
+    if (made.width) row("Plotted for", escapeHTML(WIDTH_SAID[made.width] || made.width));
+    const again = made.command || made.config || "";
+    const older = made.version && made.this_version && made.version !== made.this_version
+      ? `<p class="figure-provenance-note">This is FastMDXplora ${code(made.this_version)}; ` +
+        "run again here, the figure is plotted by this release rather than the one above.</p>"
+      : "";
+    const how = made.command
+      ? "Plots it again, from the same frames and options, into a folder of its own:"
+      : "A setting here has no flag, so this config plots it again (fastmdx explore --config):";
+    // The same command at another width: a journal's column, or the page.
+    const widths = Object.entries(made.at_widths || {});
+    const choose = widths.length
+      ? '<div class="figure-provenance-widths" role="group" aria-label="Plot it at">' +
+        `<button type="button" class="file-action is-chosen" data-width="">as it is</button>` +
+        widths.map(([width]) => `<button type="button" class="file-action" data-width="${escapeAttr(width)}">` +
+          `${escapeHTML(WIDTH_SAID[width] || width)}</button>`).join("") + "</div>"
+      : "";
+    return `<dl class="figure-provenance-rows">${rows.join("")}</dl>` +
+      (again
+        ? `<p class="figure-provenance-how">${escapeHTML(how)}</p>` + choose +
+          `<pre class="figure-provenance-command">${escapeHTML(again)}</pre>` +
+          '<button type="button" class="line-btn figure-provenance-copy" aria-label="Copy the command" ' +
+          'title="Copy the command">' + window.FastMDXIcons.svg("copy") + "</button>" + older
+        : "");
+  }
+
+  /* A figure's chip and its panel sit together in an Analysis card, or,
+   * on the Report page, in the block under the figure (report-page.js). */
+  const FIGURE_HOLDER = ".analysis-card, .report-figure-made";
+
+  function listenForProvenance(host, lookup = (name) => (state.figureProvenance || {})[name]) {
+    if (!host || host.dataset.provenanceListens) return;
+    host.dataset.provenanceListens = "1";
+    host.addEventListener("click", (event) => {
+      const chip = event.target.closest(".figure-chip");
+      const copy = event.target.closest(".figure-provenance-copy");
+      const width = event.target.closest(".figure-provenance-widths [data-width]");
+      if (width) {
+        const panel = width.closest(".figure-provenance");
+        const card = width.closest(FIGURE_HOLDER);
+        const name = card?.querySelector(".figure-chip")?.dataset.provenance;
+        const made = lookup(name);
+        const said = panel?.querySelector(".figure-provenance-command");
+        if (!made || !said) return;
+        said.textContent = width.dataset.width
+          ? (made.at_widths || {})[width.dataset.width] || ""
+          : (made.command || made.config || "");
+        panel.querySelectorAll(".figure-provenance-widths [data-width]").forEach(
+          (button) => button.classList.toggle("is-chosen", button === width));
+        return;
+      }
+      if (chip) {
+        const card = chip.closest(FIGURE_HOLDER);
+        const panel = card && card.querySelector(".figure-provenance");
+        const made = lookup(chip.dataset.provenance);
+        if (!panel || !made) return;
+        const open = panel.hidden;
+        if (open) panel.innerHTML = provenanceHtml(made);
+        panel.hidden = !open;
+        chip.setAttribute("aria-expanded", String(open));
+      } else if (copy) {
+        const said = copy.parentElement.querySelector(".figure-provenance-command");
+        if (!said) return;
+        window.FastMDXIcons.copy(copy, said.textContent);
+      }
+    });
+  }
+
+  /* The methods paragraphs, asked for again only when what they are written
+   * from may have changed: another study, a phase that moved, an analysis
+   * that finished, a study that grew. The results arrive far more often. */
+  let methodsKey = "";
+  let methodsPlain = "";
+
+  async function renderMethods(payload) {
+    const card = byId("overview-methods-card");
+    const host = byId("overview-methods-text");
+    if (!card || !host) return;
+    const time = (payload.summary || []).find((row) => row.label === "Production");
+    const key = JSON.stringify([payload.output_dir || "", payload.phase_rows || [],
+      (payload.analyses || []).length, time ? time.value : ""]);
+    if (key === methodsKey) return;
+    methodsKey = key;
+    let said;
+    try {
+      said = await fetchJSON("/api/methods");
+    } catch (error) {
+      methodsKey = "";
+      return;
+    }
+    if (key !== methodsKey) return;  // another study was opened meanwhile
+    methodsPlain = said && said.ok ? String(said.plain || "") : "";
+    // Rendered on the server by the report's own renderer, which keeps
+    // raw markup as text.
+    host.innerHTML = methodsPlain ? String(said.html || "") : "";
+    card.hidden = !methodsPlain;
   }
 
   function renderAnalysis(payload) {
@@ -921,15 +1613,26 @@
       }, plot));
     });
 
-    grid.innerHTML = cards.join("");
+    // Rendered again only when a card changed, as the sections are. Every poll
+    // replaced the cards: each figure reloaded, the page's height changed
+    // under the reader while it did, and a card an Agent's answer had just
+    // scrolled to and marked lost its mark and could leave the view.
+    const html = cards.join("");
+    if (html !== state.analysisGridHtml || !grid.childElementCount) {
+      grid.innerHTML = html;
+      state.analysisGridHtml = html;
+    }
     const svgBundle = byId("download-all-svg");
     const svgCount = Number(payload.svg_figure_count || 0);
     if (svgBundle) {
       svgBundle.hidden = svgCount < 1;
       svgBundle.href = payload.svg_bundle_href || "/analysis-figures-svg.zip";
-      svgBundle.textContent = svgCount === 1
+      const fromReport = Number(payload.svg_report_count || 0);
+      svgBundle.textContent = (svgCount === 1
         ? "Download SVG figure"
-        : `Download all ${svgCount} SVG figures`;
+        : `Download all ${svgCount} SVG figures`)
+        + (fromReport && fromReport < svgCount
+          ? `, ${fromReport} of them the report's` : fromReport ? ", the report's" : "");
     }
     const count = analyses.length || plots.length;
     setText(
@@ -969,7 +1672,7 @@
       links.push(`<a class="file-action" href="${escapeAttr(primary.href)}" target="_blank" rel="noopener">Open data</a>`);
     }
     return `
-      <article class="analysis-card" data-state="${escapeAttr(status)}">
+      <article class="analysis-card" data-state="${escapeAttr(status)}"${analysis.name ? ` data-analysis="${escapeAttr(analysis.name)}"` : ""}>
         <div class="ac-header">
           <div class="ac-title">${escapeHTML(title)}</div>
           <div class="ac-status">${escapeHTML(status)}</div>
@@ -980,157 +1683,9 @@
       </article>`;
   }
 
-  const FILE_GROUPS = [
-    ["deliverables", "Reports and deliverables"],
-    ["simulation", "Simulation data"],
-    ["analysis", "Analysis data"],
-    ["figures", "Figures"],
-    ["record", "Run record"],
-  ];
-
-  /* The same two rules the side panel's preview applies, so the centre
-   * Files page and the panel agree on what can be read here and what the
-   * browser shows itself. View reads the file in the panel; Open is for
-   * what the browser has its own viewer for; Download is always there,
-   * since the study may be on a machine the browser is not. */
-  const VIEW_IN_PANEL = new Set(["yml", "yaml", "json", "log", "md", "markdown", "txt", "csv", "tsv",
-    "dat", "pdb", "cif", "py", "toml", "ini", "cfg", "xml", "sdf", "mol2", "sha256",
-    "png", "jpg", "jpeg", "gif", "svg", "webp", "pdf", "html"]);
-  const OPEN_IN_BROWSER = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp", "pdf", "html"]);
-
-  /* The page rebuilt its HTML on every poll, and a rebuilt <details>
-   * comes back closed: two seconds after the run record was expanded,
-   * the poll closed it. Rebuild only when the files changed, and carry
-   * every open fold across the rebuild. */
-  let lastFilesSignature = null;
-
-  function renderFiles(payload) {
-    const signature = JSON.stringify((payload && payload.artifacts) || null);
-    if (signature === lastFilesSignature) return;
-    lastFilesSignature = signature;
-    const openFolds = new Set($$("details.file-fold[open]").map((d) => d.getAttribute("data-fold")));
-    renderFilesNow(payload);
-    $$("details.file-fold").forEach((d) => {
-      if (openFolds.has(d.getAttribute("data-fold"))) d.open = true;
-    });
-  }
-
-  function renderFilesNow(payload) {
-    const artifacts = Array.isArray(payload.artifacts) ? payload.artifacts : [];
-    const host = byId("file-groups");
-    if (!host) return;
-
-    const cards = FILE_GROUPS.map(([key, title]) => {
-      const files = artifacts.filter((item) => (item.group || "record") === key);
-      if (!files.length) return "";
-      // The run record is mostly scratch and manifests -- worth keeping, not
-      // worth putting between somebody and the trajectory.
-      const folded = key === "record";
-      const bytes = files.reduce((total, item) => total + (parseInt(item.size, 10) || 0), 0);
-      const rows = files.map(fileRowHtml).join("");
-      // The rows are always a two-across grid; a folded group puts that
-      // grid inside its <details>, so the run record unfolds into the
-      // same layout as every other group rather than a single column.
-      const grid = `<div class="files-list">${rows}</div>`;
-      const body = folded
-        ? `<details class="file-fold" data-fold="${escapeAttr(key)}"><summary>${files.length} files, ${escapeHTML(humanSize(bytes))}</summary>${grid}</details>`
-        : grid;
-      return `
-        <div class="card">
-          <div class="card-header">
-            <h2 class="card-title">${escapeHTML(title)}</h2>
-            <span class="muted small mono">${files.length} · ${escapeHTML(humanSize(bytes))}</span>
-          </div>
-          ${body}
-        </div>`;
-    }).filter(Boolean);
-
-    host.innerHTML = cards.length
-      ? cards.join("")
-      : '<div class="card"><div class="muted small">This run has not written any files yet.</div></div>';
-    wireCopyActions();
-  }
-
-  function fileRowHtml(file) {
-    // What the file is, above where it lives. A reader deciding whether to
-    // download 85 MB should not have to know that `production.dcd` is the
-    // trajectory, or that of sixteen files called `options.json` this one
-    // belongs to rmsd.
-    const within = String(file.path || "").split("/").slice(1).join("/");
-    const title = file.label || within || file.name || "Artifact";
-    const subtitle = within && within !== title ? within : "";
-    const size = file.size != null ? humanSize(parseInt(file.size, 10)) : "—";
-    const mtime = file.mtime != null
-      ? new Date(parseFloat(file.mtime) * 1000).toLocaleString()
-      : "—";
-    const href = file.href || `/artifacts/${encodeURI(file.path || "")}`;
-    const downloadHref = file.download_href || `${href}${href.includes("?") ? "&" : "?"}download=1`;
-    const ext = String(file.name || file.path || "").split(".").pop().toLowerCase();
-    return `
-      <div class="file-row" data-path="${escapeAttr(file.absolute_path || file.path || "")}">
-        <div class="file-title" title="${escapeAttr(file.path || "")}">${escapeHTML(title)}</div>
-        ${subtitle ? `<div class="file-subtitle mono">${escapeHTML(subtitle)}</div>` : ""}
-        <div class="file-meta">
-          <span>${escapeHTML(size)}</span>
-          <span class="muted">${escapeHTML(mtime)}</span>
-          <div class="file-actions">
-            ${VIEW_IN_PANEL.has(ext) ? `<button class="file-action" type="button" data-view-file>View</button>` : ""}
-            ${OPEN_IN_BROWSER.has(ext) ? `<a class="file-action" href="${escapeAttr(href)}" target="_blank" rel="noopener">Open</a>` : ""}
-            <a class="file-action" href="${escapeAttr(downloadHref)}" download>Download</a>
-            <button class="file-action" type="button" data-copy-path>Copy path</button>
-          </div>
-        </div>
-      </div>`;
-  }
-
-  function wireViewActions() {
-    /* View sends the file to the side panel's reader: the panel's Files
-     * tab shows, the file opens there, and the list follows. The centre
-     * page is the catalogue; the panel is where a file is read. */
-    $$('[data-view-file]').forEach((button) => {
-      button.addEventListener("click", () => {
-        const row = button.closest(".file-row");
-        const path = row?.querySelector(".file-title")?.getAttribute("title") || "";
-        if (!path || !window.FastMDXFrame || !window.FastMDXFrame.previewPath) return;
-        window.FastMDXFrame.previewPath(path);
-      });
-    });
-  }
-
-  function wireCopyActions() {
-    wireViewActions();
-    $$('[data-copy-path]').forEach((button) => {
-      button.addEventListener("click", async () => {
-        const row = button.closest(".file-row");
-        const path = row?.getAttribute("data-path") || "";
-        const copied = await copyText(path);
-        showToast(copied ? "File path copied." : "Could not copy the file path.", copied ? "ok" : "warning");
-      });
-    });
-  }
-
-  function renderRunSummary(payload) {
-    const card = byId("summary-card");
-    if (!card) return;
-    const analyses = Array.isArray(payload.analyses) ? payload.analyses : [];
-    const plots = Array.isArray(payload.plots) ? payload.plots : [];
-    const reports = Array.isArray(payload.reports) ? payload.reports : [];
-    const hasResults = payload.has_report || payload.has_analysis || reports.length || analyses.length;
-    card.hidden = !hasResults;
-    if (!hasResults) return;
-    const stats = [
-      {label: "Analyses", value: String(analyses.length)},
-      {label: "Figures", value: String(plots.length)},
-      {label: "Report formats", value: String(reports.length)},
-      {label: "Result bundle", value: reports.some((item) => item.path?.endsWith(".zip")) ? "ready" : "—"},
-    ];
-    const grid = byId("summary-grid");
-    if (grid) grid.innerHTML = stats.map((item) => `
-      <div class="summary-stat">
-        <span class="summary-stat-label">${escapeHTML(item.label)}</span>
-        <span class="summary-stat-value">${escapeHTML(item.value)}</span>
-      </div>`).join("");
-  }
+  /* The Files page is files-page.js's, rendered by the server
+   * (gui/files_page.py): asked for when it is opened and when the study
+   * changes while it is shown. */
 
   /* ------------------------------------------------------------------ */
   /* Structure and playback                                              */
@@ -1321,12 +1876,40 @@
     return hours ? `${hours}h ${minutes}m` : `${minutes}m ${secs}s`;
   }
 
+  /* Time left at the speed the run is stepping now: the steps left over
+   * the steps a second of its recent samples. The run's whole time so far
+   * includes building the system and the first, slow samples, so early in
+   * a run it said 33 minutes with about six left. Past its steps (analysis,
+   * report), or with no speed to go by, nothing is said. */
   function computeETA(status) {
     const step = Number(status.current_step);
     const total = Number(status.total_planned_steps);
-    const elapsed = Number(status.elapsed_wall_time_s);
-    if (!(step > 0) || !(total > 0) || !(elapsed >= 0) || step >= total) return step >= total ? "0m 0s" : "—";
-    return fmtDuration(elapsed * (total / step - 1));
+    if (!(step > 0) || !(total > 0) || step >= total) return "\u2014";
+    // Only from the steps the record saw taken: the run's whole time,
+    // setup and minimisation in it, said 39 minutes where 5 were left.
+    const rate = stepsPerSecond();
+    return rate > 0 ? fmtDuration((total - step) / rate) : "\u2014";
+  }
+
+  function stepsPerSecond() {
+    let samples = (state.metrics || []).map((row) => ({
+      step: Number(row.step), at: Date.parse(row.timestamp || ""),
+    })).filter((s) => s.step >= 0 && Number.isFinite(s.at));
+    // From where the steps began (the last sample at step 0, minimisation's
+    // end), and since the last long pause: a study carried on in pieces
+    // has the time between them in its record, and its rate jumped.
+    const began = samples.map((s) => s.step).lastIndexOf(0);
+    if (began > 0) samples = samples.slice(began);
+    let recent = samples.slice(-12);
+    const gaps = recent.slice(1).map((s, i) => s.at - recent[i].at);
+    const usual = gaps.slice().sort((a, b) => a - b)[Math.floor(gaps.length / 2)] || 0;
+    const pause = gaps.reduce((at, gap, i) => (gap > Math.max(60000, 5 * usual) ? i + 1 : at), 0);
+    recent = recent.slice(pause);
+    if (recent.length < 2) return 0;
+    const first = recent[0];
+    const last = recent[recent.length - 1];
+    const seconds = (last.at - first.at) / 1000;
+    return seconds > 0 && last.step > first.step ? (last.step - first.step) / seconds : 0;
   }
 
   function normaliseStage(value) {
@@ -1354,10 +1937,53 @@
     return ["ok", "complete", "completed", "success"].includes(String(value || "").toLowerCase());
   }
 
+  /* A path inside the open study, from the study; any other as it is. The
+   * run may have written it through another name for the same folder (on a
+   * Mac, /var is /private/var), so the study's own folder name is looked for
+   * too. */
+  function inTheStudy(path) {
+    const root = String(state.appState?.active_run || "").replace(/[\\/]+$/, "");
+    const text = String(path).replace(/\\/g, "/");
+    if (!root) return text;
+    const whole = root.replace(/\\/g, "/");
+    if (text.startsWith(whole + "/")) return text.slice(whole.length + 1);
+    const name = whole.split("/").pop();
+    const at = name ? text.lastIndexOf("/" + name + "/") : -1;
+    return at >= 0 ? text.slice(at + name.length + 2) : text;
+  }
+
+  function setTitle(id, title) {
+    const element = byId(id);
+    if (!element) return;
+    if (title) element.title = title; else element.removeAttribute("title");
+  }
+
+  /* A moment as short as it can be read: the time today, the day and time
+   * this year, the date otherwise. */
+  function formatWhen(value) {
+    if (!value) return "\u2014";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    const now = new Date();
+    const time = {hour: "2-digit", minute: "2-digit", hour12: !uses24Hours()};
+    if (date.toDateString() === now.toDateString()) return date.toLocaleTimeString([], time);
+    if (date.getFullYear() === now.getFullYear()) {
+      return date.toLocaleString([], {day: "numeric", month: "short", ...time});
+    }
+    return date.toLocaleDateString([], {day: "numeric", month: "short", year: "numeric"});
+  }
+
   function formatTimestamp(value) {
     if (!value) return "—";
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+  }
+
+  /* Settings' Time choice, which the log's times and the last update now
+   * follow as the sidebar's refresh time did: they were 24-hour whatever
+   * was chosen. */
+  function uses24Hours() {
+    return byId("setting-time-format")?.value !== "12h";
   }
 
   function formatEventTime(value) {
@@ -1365,7 +1991,67 @@
     const date = new Date(value);
     return Number.isNaN(date.getTime())
       ? String(value)
-      : date.toLocaleTimeString([], {hour12: false});
+      : date.toLocaleTimeString([], {hour12: !uses24Hours()});
+  }
+
+  /* A simulated length in the unit it reads in: picoseconds under one
+   * nanosecond, nanoseconds from there, as simulated_time.say_length. */
+  function sayLength(ns) {
+    const value = Number(ns);
+    if (ns == null || !Number.isFinite(value)) return "—";
+    if (Math.abs(value) < 1) {
+      return `${String(Number((value * 1000).toFixed(1)))} ps`;
+    }
+    return `${String(Number(value.toFixed(4)))} ns`;
+  }
+
+  /* How long the study has sampled: its production, which the analyses
+   * average, with its equilibration beside it. The live record's own time
+   * has every stage in it ("0.11 ns" for 100 ps of production after 10 of
+   * equilibration); a study recorded before the plan was kept says that
+   * total, and that it includes equilibration. */
+  function productionSaid(times, status) {
+    const running = ["running", "starting", "paused"].includes(String(status.status || "").toLowerCase());
+    const planned = times.production_planned_ns;
+    const done = times.production_ns;
+    if (done == null && !times.equilibrating) {
+      const total = times.simulated_ns ?? status.simulation_time_completed_ns;
+      return {label: "Simulated", value: sayLength(total),
+        note: total != null ? "equilibration included" : ""};
+    }
+    if (times.equilibrating) {
+      const stage = String(times.stage || "").toUpperCase();
+      const where = ["NVT", "NPT"].includes(stage) ? `equilibrating (${stage})` : "equilibrating";
+      const eq = times.equilibration_ns != null && times.equilibration_planned_ns
+        ? `, ${sayLength(times.equilibration_ns)} of ${sayLength(times.equilibration_planned_ns)}` : "";
+      return {label: "Production",
+        value: planned != null ? `0 of ${sayLength(planned)}` : sayLength(0),
+        note: where + eq};
+    }
+    if (times.ended_in) {
+      // Ended before production began: how far its equilibration got, not
+      // the equilibration it planned, said as done.
+      const words = {setup: "setup", loading: "setup", minimization: "minimisation",
+                     nvt: "NVT equilibration", npt: "NPT equilibration"};
+      const eqPlanned = times.equilibration_planned_ns;
+      return {label: "Production",
+        value: planned != null ? `0 of ${sayLength(planned)}` : sayLength(0),
+        note: `ended in ${words[times.ended_in] || "its preparation"}` + (eqPlanned
+          ? `, ${sayLength(times.equilibration_ns || 0)} of the ${sayLength(eqPlanned)} of equilibration planned`
+          : "")};
+    }
+    const value = running && planned != null && done < planned
+      ? `${sayLength(done)} of ${sayLength(planned)}` : sayLength(done);
+    const eqTotal = times.equilibration_planned_ns;
+    let note = "";
+    if ((times.pieces || 1) > 1) {
+      note = `in ${times.pieces} pieces`;
+    } else if (eqTotal) {
+      const parts = [["nvt_ns", "NVT"], ["npt_ns", "NPT"]]
+        .filter(([key]) => times[key]).map(([key, name]) => `${sayLength(times[key])} ${name}`);
+      note = `after ${sayLength(eqTotal)} of equilibration` + (parts.length > 1 ? ` (${parts.join(", ")})` : "");
+    }
+    return {label: "Production", value, note};
   }
 
   function formatNumber(value, digits) {
@@ -1409,39 +2095,10 @@
     if (element) element.style.width = value == null ? "0%" : `${Math.max(0, Math.min(100, value))}%`;
   }
 
-  function humanSize(bytes) {
-    if (!Number.isFinite(bytes)) return "—";
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(2)} MB`;
-    return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
-  }
-
   function humanise(value) {
     return String(value || "")
       .replace(/[_-]+/g, " ")
       .replace(/\b\w/g, (character) => character.toUpperCase());
-  }
-
-  async function copyText(text) {
-    if (!text) return false;
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        return true;
-      }
-      const textarea = document.createElement("textarea");
-      textarea.value = text;
-      textarea.style.position = "fixed";
-      textarea.style.opacity = "0";
-      document.body.appendChild(textarea);
-      textarea.select();
-      const ok = document.execCommand("copy");
-      textarea.remove();
-      return ok;
-    } catch (error) {
-      return false;
-    }
   }
 
   function showToast(message, kind) {
@@ -1482,6 +2139,75 @@
     return Math.max(low, Math.min(high, number));
   }
 
+  /* Open the Analysis page on one analysis's figure: the one an Agent's
+   * answer cited. Its cards may still be arriving: results are rendered
+   * when every request of a poll has answered, which on a busy machine can
+   * take longer than the six seconds this used to wait. The card is looked
+   * for whenever results are rendered and every quarter second besides,
+   * while the Analysis page stays open, for up to a minute. */
+  const CITED_LOOK_MS = 60000;
+
+  function showAnalysis(name) {
+    navigate("analysis");
+    const wanted = String(name || "");
+    const started = Date.now();
+    let timer = null;
+    const finish = () => {
+      clearInterval(timer);
+      window.removeEventListener("dashboard:results-updated", look);
+    };
+    function look() {
+      if (state.activePage !== "analysis" || Date.now() - started > CITED_LOOK_MS) {
+        finish();
+        return;
+      }
+      const card = $$(`.page[data-page="analysis"] .analysis-card[data-analysis]`)
+        .find((element) => element.getAttribute("data-analysis") === wanted
+          && element.offsetParent !== null);
+      if (!card) return;
+      finish();
+      // Which figure the page was opened on, kept after the mark fades.
+      const pageEl = card.closest(".page");
+      pageEl.dataset.cited = wanted;
+      card.scrollIntoView({block: "center", behavior: "smooth"});
+      card.classList.add("is-cited");
+      setTimeout(() => card.classList.remove("is-cited"), 2400);
+      keepInView(card, pageEl);
+    }
+    window.addEventListener("dashboard:results-updated", look);
+    timer = setInterval(look, 250);
+    look();
+  }
+
+  /* The figures and charts around a card load after it is scrolled to,
+   * and as they take their height the card moved: opened from an answer,
+   * the RMSD card ended a whole card above the view. For a few seconds,
+   * while the page's content changes size, it is brought back, unless the
+   * reader has scrolled, clicked or pressed a key in the meantime. */
+  const KEEP_IN_VIEW_MS = 5000;
+
+  function keepInView(card, pageEl) {
+    if (typeof ResizeObserver !== "function") return;
+    const column = document.querySelector(".main");
+    const reader = ["wheel", "touchstart", "keydown", "mousedown"];
+    let done = false;
+    const observer = new ResizeObserver(() => {
+      if (done || !card.isConnected) return;
+      card.scrollIntoView({block: "center"});
+    });
+    const stop = () => {
+      if (done) return;
+      done = true;
+      observer.disconnect();
+      reader.forEach((name) => window.removeEventListener(name, stop, true));
+    };
+    reader.forEach((name) => window.addEventListener(name, stop, true));
+    observer.observe(pageEl);
+    if (column) Array.from(column.children).forEach((child) => observer.observe(child));
+    Array.from(pageEl.querySelectorAll(".analysis-card")).forEach((each) => observer.observe(each));
+    setTimeout(stop, KEEP_IN_VIEW_MS);
+  }
+
   function emit(name, detail) {
     window.dispatchEvent(new CustomEvent(`dashboard:${name}`, {detail}));
   }
@@ -1489,6 +2215,7 @@
   window.FastMDXDashboard = {
     get state() { return JSON.parse(JSON.stringify(state)); },
     navigate,
+    showAnalysis,
     applyStatus,
     applyAppState,
     applyMetrics,
@@ -1498,5 +2225,17 @@
     on(eventName, handler) {
       window.addEventListener(`dashboard:${eventName}`, (event) => handler(event.detail));
     },
+    /* A figure's chip, for the Report page's figures: the chip for a
+     * record, and the listener that opens it, given how to find a record
+     * by its analysis's name. */
+    /* The settings as the fields say them, as "settings-updated" sends. */
+    settings: () => currentSettings(),
+    /* The page's notice, seen and read out (icons.js says a copy in it). */
+    toast: (message, kind) => showToast(message, kind),
+    figureChip: (name, made) => provenanceChip(name, made),
+    listenForFigureChips: (host, lookup) => listenForProvenance(host, lookup),
+    /* A name shortened in its middle to the width given (studies.js). */
+    fitInTheMiddle,
+    systemId: studyName,
   };
 }());

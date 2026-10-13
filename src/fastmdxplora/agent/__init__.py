@@ -12,7 +12,7 @@ does not: a hostile client calling `validate_config` directly is refused
 in exactly the same way, by the same code, with the same message. This
 module has no privileges.
 
-Nothing here imports a model client or handles a key. A caller supplies a
+Nothing here imports an AI model client or handles a key. A caller supplies a
 function taking a prompt and returning text.
 
 Installed with `pip install fastmdxplora[agent]`; the core package does
@@ -44,6 +44,7 @@ from fastmdxplora.agent.evaluate import REQUESTS, Report, measure
 from fastmdxplora.agent.propose import (
     Attempt,
     Completion,
+    ContextReceipt,
     Proposal,
     propose_config,
     prompt_for,
@@ -74,6 +75,7 @@ __all__ = [
     "submit_study",
     "work",
     "Completion",
+    "ContextReceipt",
     "Proposal",
     "propose_config",
     "prompt_for",

@@ -25,6 +25,13 @@ is occupied, and by how many distinct molecules.
 beautifully and means nothing — with enough frames, every position in the box
 has been occupied. The cutoff is what makes the result about the protein
 rather than about the density of water.
+
+**Each frame is put in the site's own frame first.** A protein tumbles in
+its box: a water held in one place on it traces an arc in the box as it
+turns, which clustered as a wide surface (rejected) or split into sites at
+part of their occupancy. Each water's position is moved and turned with the
+least-squares fit of the site's atoms onto the first frame's, so a site is
+one place on the protein, given in the first frame's coordinates.
 """
 
 from __future__ import annotations
@@ -39,10 +46,25 @@ from fastmdxplora.analysis.base import Analysis
 from fastmdxplora.analysis.orchestrator import register_analysis
 from fastmdxplora.refusals import StudyError
 
-__all__ = ["WaterSites"]
+# Residue names for water are the package's one set: TIP4, TIP2 and OH2
+# waters were missed by the six names this module kept, and the run was
+# refused as holding no water. Still importable from here.
+from fastmdxplora.analysis.water_names import WATER_RESIDUES
 
-#: Residue names for water across the force fields FastMDXplora uses.
-WATER_RESIDUES = ("HOH", "WAT", "TIP", "TIP3", "SOL", "H2O")
+__all__ = ["WaterSites", "WATER_RESIDUES"]
+
+
+def _into(points: np.ndarray, reference: np.ndarray, turned: bool) -> Any:
+    """The move, and the turn where ``turned``, that fits ``points`` onto
+    ``reference`` by least squares (Kabsch), as a function of a position."""
+    here, there = points.mean(axis=0), reference.mean(axis=0)
+    if not turned:
+        return lambda position: np.asarray(position, dtype=float) - here + there
+    covariance = (points - here).T @ (reference - there)
+    left, _, right = np.linalg.svd(covariance)
+    sign = np.sign(np.linalg.det(left @ right)) or 1.0
+    rotation = (left @ np.diag([1.0, 1.0, sign]) @ right).T
+    return lambda position: (np.asarray(position, dtype=float) - here) @ rotation.T + there
 
 
 class WaterSites(Analysis):
@@ -194,8 +216,18 @@ class WaterSites(Analysis):
         pairs = np.array(
             [(w, s) for w in water_oxygens for s in site_atoms], dtype=int)
 
+        # Where the site is in each frame against the first: each position
+        # found is carried into the first frame's place of the site.
+        reference = traj.xyz[0][site_atoms].astype(float)
+        turned = len(site_atoms) >= 3
+        self.findings["fitted_on"] = {
+            "atoms": int(len(site_atoms)), "selection": site_expression,
+            "to": "the first frame" if turned
+            else "the first frame, moved only: a turn needs three atoms"}
+
         for frame_index in range(traj.n_frames):
             frame = traj[frame_index]
+            into_place = _into(frame.xyz[0][site_atoms].astype(float), reference, turned)
             distances = md.compute_distances(frame, pairs, periodic=True)[0]
             nearest = distances.reshape(len(water_oxygens), len(site_atoms)).min(axis=1)
             near = np.where(nearest <= self.cutoff_nm)[0]
@@ -213,7 +245,7 @@ class WaterSites(Analysis):
                 closest = site_atoms[int(np.argmin(reshaped[int(index)]))]
                 offset = md.compute_displacements(
                     frame, np.array([[closest, atom]]), periodic=True)[0, 0]
-                positions.append(frame.xyz[0][closest] + offset)
+                positions.append(into_place(frame.xyz[0][closest] + offset))
                 frames.append(frame_index)
                 residues.append(traj.topology.atom(atom).residue.index)
 

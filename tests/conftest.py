@@ -74,3 +74,91 @@ def _a_test_closes_the_figures_it_opens():
     yield
     for number in set(plt.get_fignums()) - before:
         plt.close(number)
+
+
+@pytest.fixture(autouse=True)
+def _no_run_outlives_the_test_that_started_it(monkeypatch):
+    """A study the GUI's runtime started during a test is stopped after it.
+
+    `_spawn` starts `fastmdx explore` in a session of its own, so a run
+    outlives the server that started it; that is the point of it, and it
+    meant a test that launched one left it running. Tests that check what
+    a launch writes started real studies of 1UAO and 1L2Y and let them
+    run: eight were found still going an hour after the suite, taking most
+    of a two-core machine and roughly doubling the suite's time. The runs
+    a test started are stopped here, their whole process group, and a test
+    that needs one running still has it while it runs.
+    """
+    import os
+    import signal
+
+    from fastmdxplora.gui.exploration import DashboardRuntime
+
+    import functools
+
+    started = []
+    spawn = DashboardRuntime._spawn
+
+    # Wrapped, so a test reading the method's source still reads its own.
+    @functools.wraps(spawn)
+    def spawn_and_remember(self, *args, **kwargs):
+        result = spawn(self, *args, **kwargs)
+        if getattr(self, "process", None) is not None:
+            started.append(self.process)
+        return result
+
+    monkeypatch.setattr(DashboardRuntime, "_spawn", spawn_and_remember)
+    yield
+    for process in started:
+        if process.poll() is not None:
+            continue
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+            process.wait(timeout=10)
+        except ProcessLookupError:
+            continue
+        except Exception:  # noqa: BLE001 - it must not outlive the suite either way
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
+def pytest_configure(config):
+    """The person's own settings and caches are not the suite's.
+
+    A test that recorded a calibration wrote it to the real settings
+    directory: running the suite on a workstation left it measured as a CUDA
+    machine doing a step of 30,000 particles in 8.4 ms, and every budget and
+    time estimate there was then priced on it. The agent's chosen model and
+    the machines a study can be sent to live in the same directory, and
+    fetched chemistry in the cache beside it. For the whole session both
+    point somewhere of the suite's own, set before any fixture reads them.
+    """
+    import os
+    import tempfile
+
+    root = tempfile.mkdtemp(prefix="fastmdx-suite-")
+    os.environ["FASTMDXPLORA_CONFIG_DIR"] = os.path.join(root, "settings")
+    os.environ["FASTMDXPLORA_CACHE_DIR"] = os.path.join(root, "cache")
+
+
+@pytest.fixture(autouse=True)
+def _a_test_has_settings_of_its_own(monkeypatch, tmp_path_factory):
+    """And each test starts from none: a calibration or a chosen model one
+    test records is not there for the next, which found "measured on
+    another platform" where it was testing a machine never measured."""
+    monkeypatch.setenv("FASTMDXPLORA_CONFIG_DIR", str(tmp_path_factory.mktemp("settings")))
+
+
+@pytest.fixture(autouse=True)
+def _this_computer_reads_no_gpu(monkeypatch):
+    """The suite's computer is one whose GPUs ``nvidia-smi`` does not read,
+    wherever it runs. On a computer with NVIDIA GPUs the tests of who
+    starts beside whom would read its real GPUs, find room, and start side
+    by side studies they expect to wait, each given a GPU and a reader of
+    what it holds. Tests of the GPUs here stand in for ``nvidia-smi`` and
+    ask for it (`test_studies_here_share_the_gpus`)."""
+    from fastmdxplora import gpu_here
+
+    monkeypatch.setattr(gpu_here, "nvidia_smi_here", lambda: False)

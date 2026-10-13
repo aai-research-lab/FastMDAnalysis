@@ -54,6 +54,11 @@ OPTIONAL = {
     # together. Reachable as the `validation` extra.
     "MDAnalysis",
     "prolif",
+    # A movie made without the GUI open (`fastmdx movie`, `make_movie`) is
+    # rendered by the Viewer in a browser with no window; Playwright drives
+    # it, and its browser is installed apart from any package. The `movies`
+    # extra.
+    "playwright",
 }
 
 #: Imported, and deliberately absent from pyproject.toml because pip cannot
@@ -318,7 +323,7 @@ def test_info_reports_every_backend_the_software_reaches_for() -> None:
         for _display, import_name, _hint in backends
     }
     for needed in ("openmm", "pdbfixer", "openff.toolkit", "openmmforcefields",
-                   "rdkit", "propka", "am1bcc", "weasyprint", "markdown"):
+                   "rdkit", "propka", "am1bcc", "weasyprint"):
         assert needed in reported, f"info does not mention {needed}"
 
 

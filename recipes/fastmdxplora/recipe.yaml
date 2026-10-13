@@ -18,7 +18,7 @@ schema_version: 1
 
 context:
   name: fastmdxplora
-  version: "2.5.7"
+  version: "2.6.0"
 
 package:
   name: ${{ name|lower }}
@@ -41,7 +41,7 @@ requirements:
   host:
     - python ${{ python_min }}.*
     - pip
-    - setuptools >=64
+    - setuptools >=77
     - setuptools-scm >=8
   run:
     # Upper bound matches requires-python in pyproject.toml; the chemistry
@@ -56,6 +56,9 @@ requirements:
     - pandas >=1.4
     - python-pptx >=0.6.21
     - pillow >=10.0
+    # The report as a page, in the GUI and as HTML: a dependency of the
+    # package, as in pyproject.toml.
+    - markdown >=3.4
     # fastmdxplora accepts AMBER NetCDF trajectories. mdtraj can read them
     # through scipy, but warns that this path is significantly slower and
     # declares netcdf4 in its own metadata; conda-forge's mdtraj does not
@@ -84,7 +87,6 @@ requirements:
     # installed separately; the conda-forge package brings its own, so one
     # install command gives the format without a system-library hunt.
     - weasyprint >=60
-    - markdown >=3.4
     # Enhanced sampling: metadynamics, umbrella sampling, steered MD. Not on
     # PyPI at all, so this is the only distribution that can carry it, and a
     # metadynamics run without it fails at the point of use.
@@ -147,14 +149,18 @@ about:
     results into a written report, a slide deck, and a shareable bundle. A
     graphical interface is included for designing, starting, watching, and
     reviewing a run.
-  # The package bundles a minified build of 3Dmol.js (BSD-3-Clause) for the
-  # molecular viewer in the graphical interface, so its licenses ship too.
-  license: MIT AND BSD-3-Clause
+  # The package bundles the viewer build of Mol* (MIT; with React, rxjs and
+  # others, whose licences are MIT, Apache-2.0, ISC and 0BSD) for the
+  # molecular viewer in the graphical interface, and its fonts, Inter and
+  # JetBrains Mono (SIL OFL 1.1), so their licenses ship too.
+  license: MIT AND Apache-2.0 AND ISC AND 0BSD AND OFL-1.1
   license_file:
     - LICENSE
-    - src/fastmdxplora/gui/static/3Dmol-LICENSE.txt
-    - src/fastmdxplora/gui/static/3Dmol-min.js.LICENSE.txt
-  documentation: https://fastmdxplora.readthedocs.io
+    - src/fastmdxplora/gui/static/molstar/LICENSE
+    - src/fastmdxplora/gui/static/molstar/THIRD-PARTY-NOTICES.txt
+    - src/fastmdxplora/gui/static/fonts/OFL-Inter.txt
+    - src/fastmdxplora/gui/static/fonts/OFL-JetBrainsMono.txt
+  documentation: https://fastmdxplora.readthedocs.io/en/stable/
   repository: https://github.com/aai-research-lab/FastMDXplora
 
 extra:

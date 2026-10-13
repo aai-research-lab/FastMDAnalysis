@@ -94,8 +94,10 @@ runs on a GPU node.
 Everything `~/.ssh/config` says applies: `ProxyJump` through a login node, keys,
 an agent, certificates. Where a cluster asks for a password or a second factor,
 you are asked once: the first connection is kept open for ten minutes and later
-commands reuse it. From a script, with no terminal to answer, a connection that
-needs a password fails at once instead of waiting.
+commands reuse it. From a script, an AI app or the Python API, with no
+terminal to answer, a connection that needs a password fails at once instead of
+waiting; sign in with `fastmdx remote --machine <name>` at a terminal first,
+and they use the connection it keeps open for the next ten minutes.
 
 ---
 
@@ -168,13 +170,20 @@ printed as it runs; the first that fails stops the install and is named, and
 what the steps before it did is left in place. At the end the machine is
 inspected again and said to be ready or not.
 
+Where there is no terminal, a program that shows the plan in a window of its
+own (the Python API's `install_plan` and `install`) takes the person's yes to
+that plan: bound to the machine and to every command in it, used once, and
+gone after ten minutes. The machine is inspected again before anything runs,
+and if the plan it gives is not the plan shown, nothing runs. An AI app and the
+Agent are never offered an install; they name this command instead.
+
 Where an installation already holds this computer's code and cannot load
 something, the plan adds just that to the same environment:
 
 ```
 To add them to that environment:
   [on gpu-box]
-    /opt/conda/bin/mamba install -y -p /home/me/.conda/envs/fastmdx-gpu -c conda-forge "openmm" "cuda-version=12.6"
+    /opt/conda/bin/mamba install -y -p /home/me/.conda/envs/fastmdx-gpu -c conda-forge openmm cuda-version=12.6
 ```
 
 ---
@@ -190,12 +199,48 @@ it, so a refusal costs seconds rather than a copy and a wait. The machine is
 probed again, and **nothing is sent to a machine that is not ready** for this
 computer's code.
 
+### What travels
+
 **The files the Config names travel with it.** Every setting naming a file or
 folder that exists, relative to the Config's own folder, is copied under
 `inputs/` and the copy of the Config names it there: the structure, a ligand's
 SDF, force field XMLs, a trajectory, a prepared study to continue from. A
 structure given by PDB ID is fetched by the machine, which is refused where the
-machine has no internet.
+machine has no internet. A `system` that setup reads as a PDB ID or a sequence
+(four letters and digits, or letters alone, with no `.pdb`, `.cif` or
+`.pdbx`), and a setting whose values are words (a phase
+under `include_phase`, an analysis, a force field's name), never travel as a
+file or folder of that name beside the Config.
+
+**Only files in the study's own folder travel,** the folder holding the
+Config. A file named outside it is refused (`remote.input.outside`) and nothing
+is sent, whoever wrote the Config: one written by an AI model naming
+`~/.ssh/id_ed25519` would otherwise copy the key to the machine. Links are
+resolved first, so a link in the folder leading out of it is outside too, and a
+folder that travels is refused if a link in it, or in a folder one of its links
+leads to, leads out of it or back into itself, since the copy follows links.
+Copy the file into the study's folder and name it there. A Config in your home
+folder (the one your account names, or the one `HOME` names), or at the top of
+the file system, is refused, since its folder is what
+travels; and nothing in a place keys and credentials are kept (`.ssh`,
+`.gnupg`, `.aws`, `.kube` and the like, and FastMDXplora's own settings) is
+ever sent: a folder that travels is refused if one is anywhere in it, reached
+directly or through a link. The link and key checks are made again as the copy
+starts.
+
+**Your defaults travel in the Config.** A `fastmdx-defaults.yml` beside the
+Config or above it fills what the Config leaves unset here, as `explore -c`
+would on this computer, and the plan says which settings it filled; the run
+there is started with `--no-defaults`, so no defaults file on the machine (one
+another user could have left up its folders) is laid over it.
+
+The one exception is a prepared study named by `simulation.setup_from` or
+`simulation.resume_from`, which usually sits beside the study's folder: it
+travels from anywhere in the folder holding the study's folder when it holds a
+`manifest.json` FastMDXplora wrote (for `setup_from` naming a study's `setup`
+folder, the study's), with every link in it held to that study's folder. A
+checkpoint file named by `resume_from` outside the folder is refused; name the
+study instead.
 
 `--dry-run` shows all of it, including the job script, and sends nothing:
 
@@ -205,14 +250,22 @@ Sending lysozyme to gpu-box
   folder       /home/me/fastmdxplora-jobs/lysozyme
   scheduler    a detached process
   results to   /Users/me/runs/lysozyme (with fetch)
-  inputs       /Users/me/runs/181L.pdb as inputs/181L.pdb
+  inputs       /Users/me/runs/181L.pdb as inputs/181L.pdb (238 kB)
+  GPU 0 (NVIDIA GeForce RTX 4090): 23,900 MB free of 24,564 MB, 0% busy
+  Runs on GPU 0.
+  One run needs about 1,840 MB (from 3 runs in mixed precision measured on gpu-box, for about 31,412 particles).
 
 job.sh:
   #!/bin/sh
   cd /home/me/fastmdxplora-jobs/lysozyme || exit 1
   export PATH=/home/me/.conda/envs/fastmdx-gpu/bin:"$PATH"
-  /home/me/.conda/envs/fastmdx-gpu/bin/fastmdx explore -c study.yml --output run
-  echo $? > exit_code
+  export CUDA_VISIBLE_DEVICES=GPU-6f1c2e0a-93b4-4c1d-8e2f-5a7b9c0d1e2f
+  free=$(nvidia-smi --query-gpu=memory.free ... -i GPU-6f1c2e0a-93b4-4c1d-8e2f-5a7b9c0d1e2f ...)
+  ... (refused with exit 75 and a no_room file where less than 1,840 MB is free)
+  fmdx_peak() { ... }      (reads the job's GPU memory every 15 s into gpu_peak)
+  fmdx_peak $$ &
+  FMDX_JOB_DIR="$(pwd -P)" FMDX_SEND_ID="${1:-}" /home/me/.conda/envs/fastmdx-gpu/bin/fastmdx explore -c study.yml --output run --no-defaults
+  rc=$?; cd / && echo "$rc" > /home/me/fastmdxplora-jobs/lysozyme/exit_code
 ```
 
 The job's **name** is its output folder's name, the same on both computers:
@@ -222,12 +275,138 @@ in home, and the run is written to `run/` inside it.
 
 **On a workstation** the job runs as a detached process in its own process
 group, so it outlives the connection and can be stopped whole. **On a
-cluster** it is an `sbatch` job asking for one GPU; `--partition` and `--time`
-are passed to it, and without `--time` the partition's default applies. Either
-way the job writes its exit code beside itself when it ends, so a finished run
-and a killed one are told apart.
+cluster** it is an `sbatch` job asking for one GPU and not to be requeued (run
+again after a preemption, it would find its own run folder and stop: it ends
+instead, read as failed: `preempted` where the cluster still says so, else no
+longer in its queue); `--partition` and `--time` are passed to it, and without
+`--time` the partition's default applies. Either way the job writes its exit
+code beside itself when it ends, so a finished run and a killed one are told
+apart; a job sent again keeps the last one's until the cluster takes the new
+one.
 
-`--force-overwrite` replaces a job of the same name, here and on the machine.
+`--force-overwrite` replaces a job of the same name, here and on the machine,
+once it has ended; one still waiting or running there is refused, on a cluster
+too, so cancel it first; one of that name last read waiting or running on
+another machine, or cancelled there within the hour, is refused too. On a
+cluster no send is made, forced or not, while the account's queue holds a job
+of that name waiting or running in the job's folder, each folder compared as
+the machine resolves it (a folder reached through a link is the one the queue
+names); one of that name working elsewhere is not counted. On a workstation no
+send is made, forced or not, whatever the record here says or with no record
+here at all, while a process of a job works for the job's folder: one carrying
+the folder as `FMDX_JOB_DIR`, which a job's run and every process it starts
+carry, or a job's script, its run or a worker of it working in it (a shell, an
+editor or a reader left there, or a command that only names the script, is not
+counted). A run cancelled from here stops at its next frame; a job whose script
+was killed while its run goes on reads as running, and `cancel` stops its run.
+A job's run on a workstation also carries its send's own id (`FMDX_SEND_ID`,
+given to `job.sh` as it starts): a job reads as running only while its script
+(`sh job.sh <id>`) or a process of its run in its group is there, not another
+process given its number after a restart; a job that has ended while processes
+its run started still work (an explorer that died with its runs going) says how
+many, and `cancel` asks them to stop by that id, so nothing of another send of
+the same name is stopped. Each process is asked once: a run told to stop a
+second time, more than 2 s after the first, stops at once without its
+checkpoint, so for about 10 minutes after a stop asked from here, another
+`cancel` sends nothing, and one after that stops them at once and says so, a
+cancelled job's run that still works included. The machine keeps each stop
+asked, as `.fmdx-stop-<id>-<n>` in the job's folder, made before its TERM: a
+cancel whose answer was lost is not sent again, and one that never reached the
+machine is sent as the first. This is read from the machine's `/proc`, and a
+send whose check is not answered to the end is refused; where the machine has
+no `/proc`, a forced send after a cancel from here is refused while the job's
+process group is there, up to an hour after the cancel. On a machine without
+`setsid` (a Mac) the job is given a group of its own by its shell's job
+control, which a Mac's `sh` has; where neither is there, it has none, and a run
+going on after its script is not found.
+
+**Studies share a workstation's GPUs, where they fit.** A send asks the
+workstation's GPUs (`nvidia-smi`) how much memory each has free, and the study
+goes to one it fits on: the one with the fewest studies from here, then the
+most free memory (GPUs within 256 MB of the most free count as alike, the
+lowest numbered taken, so the GPU a person agreed to does not move on a few
+MB). It is pinned there by the GPU's UUID (`CUDA_VISIBLE_DEVICES`). The plan
+says each GPU's free memory and how busy it is, and the jobs sent from here
+running there: a study sharing a GPU runs slower than alone. A study that
+needs more memory than the GPU has free is refused, with the numbers
+(`remote.machine.no_room`); `--dry-run` still shows the plan, with a line
+saying so. The send asks again just before the copy, holding a lock for the
+machine until the job is recorded, so two sends at once do not both take the
+room for one (across programs on macOS and Linux, within one program on
+Windows; a machine recorded under two names is two machines to the lock and to
+the room kept back, so send to it under one); a GPU that no longer has room,
+or GPUs that do not answer, refuse the send, naming another GPU with room
+where the plan chose the GPU and there is one. The job script asks once more
+as the run starts, ending with exit code 75 and a line saying why where the
+room has gone.
+
+What a run needs is learned from the runs on that machine. Each job's script
+reads its processes' GPU memory every 15 s, and once a job that ran one run at
+a time on the GPU chosen for it has ended done, the most it held is kept with
+the particles its runs on the GPU (CUDA or OpenCL; nothing is learned where one
+was shorter than three readings, read perhaps before it held its memory) had
+and their precision (`gpu_memory/<machine>.json` in the settings folder; only
+the runs of that send, newer by the machine's own clock than the send, never
+one an earlier send of the same name left). A study refused as needing more
+than a GPU has at all names that file: a run in it that does not stand for the
+study can be taken out. Much of a small run's memory is CUDA's own and the same
+at any size, so a size is never scaled from another by particles alone. For a
+new study, from runs in its precision: up to the largest size measured, what
+the next size measured at or above it held at most, and never less than the
+most a run of its size or smaller held, carried on as steeply as that rose from
+a size a tenth of the span measured smaller or more up to the most a run of its
+size or larger held; past the largest, from two sizes or more whose memory
+grows with size, the largest of a straight line through the most each size
+held, and the most any size held and the most the largest size held, each
+carried on from the largest size as steeply as it rose to it from a size a
+tenth of the span measured smaller or more, followed by as far again as the
+sizes measured span; then 15% more. Runs of one size differing in method or
+card are not told apart, so the next size's most can be a run that held less
+than its neighbours: send a study unlike those measured with its GPU memory in
+mind. The particles are those of the prepared system a run starts from
+(`setup_from`), else estimated from each run's structure file and setup, as the
+builder's preview estimates them, sweeps included. The need is not known where
+no run in that precision has finished there, where the study is larger than the
+runs measured can say (past the one size measured, or past the line's reach),
+or where its size cannot be worked out here (a PDB identifier, a file other
+than PDB, a membrane, more than 20 kinds of run): the plan says which, a GPU is
+chosen as above, and nothing is refused. A study sent from here that does not
+yet hold what it was expected to need (setup takes minutes) has the difference
+kept back for it, on each GPU its share; one whose processes' memory the
+machine does not give (`[N/A]`, as in a container or WSL) is taken as holding
+it.
+
+Runs side by side count: a study run in parallel needs room for as many runs
+at once as the explorer starts (its `workers`, else one per device listed,
+else the machine's cores, up to the number of runs), and is not learned from;
+a run on the CPU takes no GPU memory and is not counted, and the runs on each
+GPU are counted as the explorer places them, and for a study run until it is
+determined (`simulation.stop_when`), as each later round places them too. A
+steered pull that seeds an umbrella's windows runs before them on the devices
+the study's own `simulation.device_index` names (CUDA's first where none),
+whatever a system or `execution.devices` gives the windows, and is counted on
+each. A config that names its own GPUs (`simulation.device_index` in the
+study, a system or a sweep, or `execution.devices`) keeps them, nothing
+pinned, and each is checked for room for the runs on it, by its number as
+`nvidia-smi` gives it; where the machine's GPUs are not all alike, CUDA
+numbers them fastest first unless the account sets
+`CUDA_DEVICE_ORDER=PCI_BUS_ID`, so without it their memory is not checked and
+the plan says so. Where the account's own `CUDA_VISIBLE_DEVICES` is set there,
+a GPU is chosen only among those it gives (by UUID, or by number where CUDA
+numbers them as `nvidia-smi` does); a config that names GPUs by number is then
+not checked, since CUDA numbers them in that order, and a value not read as
+GPUs (`-1`, a MIG device) leaves the GPUs unchecked, and the plan says so. A
+continuation (`simulation.resume_from`) runs on the GPU its study's record
+names, so none is chosen or checked. A study that runs no simulation (setup
+holds a GPU briefly at most), or runs it on the `CPU` or `HIP` platform, is
+not checked, nor is a machine without `nvidia-smi`, and the plan says why. The
+pull is run only where the windows start from one prepared system (a prepared
+system named by `setup_from`, or setup among the phases with one setup for
+every window) and more than setup is asked for, as the explorer decides it, a
+study sent from its own `resolved_config.yml` included: an umbrella study
+asked for those but not its simulation still runs it, and that one run is
+checked. A cluster's scheduler gives each job its GPU, so nothing is asked
+there, and the plan says so.
 
 ---
 
@@ -238,28 +417,146 @@ fastmdx remote status            # every job not yet finished
 fastmdx remote status lysozyme   # one job
 ```
 
-asks the machine and prints the state, with progress from the run's own live
+asks the machine there and then and prints the state, with progress from the run's own live
 status while it runs, and the last lines of its log. The states are the
 queue's: `ready` (waiting for a GPU), `running`, `done`, `failed` with the exit
-code or the reason, and `abandoned`.
+code or the reason, and `abandoned`. A cluster's queue that does not answer
+leaves a job's state as it was; one that no longer knows the job, where the
+cluster keeps no accounting to say how it ended, reads it as `failed`, its
+log saying more. An AI app and the Python API are
+answered from the last answer while it is under 30 s old, so asking in a loop
+does not reach the machine each time.
 
 ```bash
 fastmdx remote fetch lysozyme
 ```
 
 copies a finished job's run folder back to the job's output folder here (a job
-still waiting or running is refused, since it is still writing), with the machine's
-job log as `remote_job.log`, ready to open with `fastmdx gui --output`.
+still waiting or running is refused, since it is still writing), with the last
+MiB of the machine's job log as `remote_job.log`, ready to open with `fastmdx gui
+--output`.
 Trajectories and checkpoints stay on the machine unless `--with-trajectory` is
 given; fetch says how many it left and where. It also reads the run's manifest
-and says so if the code that ran is not the code that sent it.
+and says so if the code that ran is not the code that sent it. A link left in
+the run on the machine is not copied, and anything else neither a file nor a
+folder is taken out (said), each folder that came back is given its owner's
+read, write and search, set-id bits are cleared and your file-creation mask
+applied, and the run's own records of the process it ran as are left out (here
+they would name a process on this computer), as is any `fastmdx-defaults.yml`
+(said: here it would fill the settings of studies made below it). What was in the folder before the
+fetch is left as it was, apart from entries of the same name as the run's. The
+copy goes into a folder of its own inside the results folder
+(`.fetching-<job>`, which only you can enter), and is moved into place only
+once all of it has been looked over; only what differs from what is already
+there is copied, and a copy that fails is kept there, so fetching again goes on
+from it. So nothing fetch writes or reads here afterwards leads out of the
+job's folder. Fetching from a machine you do not fully trust wants rsync 3.4.0
+or later here, which closes the ways a hostile rsync at the other end could
+read or write past the folder (CVE-2024-12084 to 12088). An AI app's fetch is said in bytes first, and a
+file larger than the whole it said stays on the machine, named.
+
+A study sent with a prepared system (`simulation.setup_from`) names it there as
+`inputs/<name>`. Fetch writes `fetched.json` beside the results, recording the
+folder here each input was sent from, so re-analysis and the report read the
+prepared system's setup record from where it is on this computer. The run's
+record carries the SHA-256 of that system's `system.xml`, so a folder prepared
+again since is refused rather than read, and fetch names any run whose
+prepared system it cannot find here.
 
 ```bash
 fastmdx remote cancel lysozyme
 ```
 
 stops the job, `scancel` on a cluster or the whole process group on a
-workstation. Its folder on the machine is left as it is.
+workstation, with every process its run started. Its folder on the machine is
+left as it is. A job the machine says has ended is not signalled and keeps how
+it ended, and what its run left going on a workstation is stopped by its send's
+id; a cancel the cluster does not
+take is refused, and the job is asked about as before. A cluster's job last
+read as failed whose queue does not answer now is neither signalled nor fetched
+(`remote.job.cancel_not_taken`, `remote.job.unfinished`): nothing says whether
+it is still going. A job waiting in the queue says why (its reason), a hold
+above all, which ends only by hand.
+
+---
+
+## From the GUI
+
+A machine inspected at a terminal is offered in the GUI too, on your own
+computer only (the GUI on loopback; never a hosted one, whose studies run on
+its service's compute).
+
+**New study** (the [Config](config.md) builder) has **Plan the send** beside
+**Run on this machine**, or, with **A config I have**, under the config
+file's own **Run on this machine as it is** ("Or send this config file to
+one of your machines"), with your machines to choose from and what each was
+found to be when last inspected.
+
+- **What the routes reach.** The folder the GUI was opened on and the
+  folder it puts new studies in (the one above it, as `fastmdx gui` sets
+  it, unless that is your home folder, a folder above it or the top of a
+  disk; see **Where new studies would go** below), and nothing outside
+  them: a config in either can be planned, and a file a study names
+  outside them is refused (`remote.input.outside`).
+- **Plan and send.** Once the study could run here, the plan asks the
+  machine and shows what a send would do, sending nothing: where it runs,
+  its folder there, the config, where the results come back to, every file
+  that travels with its size, the GPUs' room, and the job script. **Send
+  to** the machine sends that plan and nothing else. The plan is kept ten
+  minutes and is sent once. It is refused (`remote.send.unconfirmed`) if
+  anything that travels has changed since it was shown, a file rewritten at
+  the same size included; if the form has changed since, the plan is taken
+  away and asked for again. A plan kept past its ten minutes says it was
+  not sent.
+- **A study built in the form** is saved first as a config named after its
+  results folder (`<results>.yml`, or `-2` and so on beside an earlier
+  one), in the folder new studies go in, beside its results, as **Run on
+  this machine** writes them: the folder above the one the GUI was opened
+  on. A file it names by a relative path is read from there too, as a run
+  here reads it, and the plan says where its results come back to, by
+  their full path. A results folder left blank is given the name the plan
+  chose, in the form (a bare name, as **Run on this machine** reads it),
+  kept while the plan stands and after a send that went, so the study
+  planned again is saved to the same file.
+- **Where new studies would go in your home folder,** the top of a disk or
+  a folder above your home folder (a GUI opened on a folder directly in
+  your home folder, on the home folder itself, or on a folder at the top
+  of a disk), nothing built in the form is sent: the GUI's routes reach
+  only the folder it was opened on, and beside **Plan the send** it says so
+  before anything is asked, naming a folder to open it on instead
+  (`fastmdx gui --output ~/md/first` in place of `~/md`). Your home folder
+  is taken to be both the one your account names and the one `HOME`
+  names; where neither is found, nothing built in the form is sent either,
+  and the note says to set `HOME`. A config file can still be sent with **A config
+  I have**.
+- **A plan let go** (**Not now**, taken away as the form changed, a send
+  refused, or kept past its ten minutes) takes back the config saved for
+  it, unless the config has been changed since, another plan is of it or a
+  send has begun with it, and on the page empties a results name it wrote
+  in the form.
+- **Words are not files.** A PDB ID or a sequence is read the same wherever
+  it runs and is never taken for a file; nor is a phase, an analysis, a
+  chain, a selection or another word a setting holds, so a GUI opened on a
+  study's own folder (its `setup` and `analysis` folders beside the config)
+  plans as any other.
+- **With A config I have,** the file checked is the one planned, sent with
+  the files beside it as `fastmdx remote send -c` sends them. A config
+  named by a relative path is read from the folder the GUI was started in,
+  as its check reads it, and refused (`remote.config.read_elsewhere`)
+  where the plan would read another file, or none, or where that folder is
+  gone: give its full path.
+- **One at a time.** One plan or send is out at a time, and what it answers
+  is said on the page, left and come back to or not; the form changed while
+  a send is out takes nothing away.
+
+**All studies** lists under **Remote jobs** the jobs whose results come back
+into the workspace. **Ask how it is doing** asks the machine (at most every
+30 s, as `fastmdx remote status` does). **Fetch the results** first asks
+what a fetch would bring and says it, the trajectory as a choice of its
+own, and brings only that much (`remote.fetch.unconfirmed` where the
+machine now says otherwise); the study fetched joins the others on the
+page. **Stop it**, on a job still going, asks once more, then stops it as
+`fastmdx remote cancel` does: what it wrote stays there and can be fetched.
 
 ---
 
@@ -289,4 +586,6 @@ would stop being something that runs anywhere.
 
 The records are kept with your other settings, one file per machine:
 `~/.config/fastmdxplora/machines/<name>.json` (`%APPDATA%\fastmdxplora` on
-Windows), or under `FASTMDXPLORA_CONFIG_DIR` where that is set.
+Windows), or under `FASTMDXPLORA_CONFIG_DIR` where that is set. Beside them,
+`gpu_memory/<name>.json` keeps the GPU memory the last 20 runs there held,
+with their particles, which a study's need is worked out from.

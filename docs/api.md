@@ -170,6 +170,7 @@ class RunResult:
     error_type: str | None
     def to_dict(self) -> dict
     def phase(self, name: str) -> PhaseResult | None
+    def raise_for_status(self) -> None   # raises StudyFailed if it failed
 ```
 
 ```python
@@ -229,12 +230,30 @@ same record is already there:
 runs[0].phase("setup").refusal["code"]
 ```
 
+A study that fails is returned, not raised: the refusal is on the phase, and
+a script that does not look carries on as though it had succeeded. To have it
+raise instead, ask:
+
+```python
+from fastmdxplora import StudyFailed
+
+try:
+    runs = study.explore(check=True)
+except StudyFailed as exc:
+    exc.code            # the failed phase's refusal code
+    exc.failed          # every run that failed
+    exc.results         # everything the study returned
+```
+
+`run.raise_for_status()` does the same for one run. Both leave the study's
+records on disk as they would be without them.
+
 See [FastMDXplora refusals](refusals.md) for the four kinds and what each one
 means you should do.
 
 ---
 
-## Measuring a trajectory directly
+## Analysing a trajectory directly
 
 `AnalysisOrchestrator` is the analysis phase on its own, for a trajectory that
 came from anywhere.
@@ -269,7 +288,7 @@ from fastmdxplora.analysis import available_analyses, get_analysis_class, regist
 
 available_analyses()              # the 27 names, in execution order
 get_analysis_class("rmsd")
-register_analysis("my_measure", MyAnalysis)
+register_analysis("my_analysis", MyAnalysis)
 ```
 
 Writing one is in [Developing FastMDXplora](developers.md).
@@ -348,7 +367,7 @@ print(sampling_shortfall(rmsd_series, target_independent=10, frame_interval_ns=0
 # that is 72 further frames, about 0.72 ns more.
 ```
 
-Both numbers come from the same statistical inefficiency measured from *this*
+Both numbers come from the same statistical inefficiency estimated from *this*
 series rather than assumed, so the answer is for this system rather than for a
 typical one. Two runs of the same length can need very different amounts of
 further sampling for the same claim, and the difference is not visible in the
@@ -367,6 +386,66 @@ fastmdx gui --output runs/study
 
 That gives telemetry, the molecule in 3D and the results as they appear — the
 same as for a run started from the command line.
+
+---
+
+## Running on another machine
+
+`fastmdxplora.remote.api` does what [`fastmdx remote`](remote.md) does at a
+terminal, for a program. It reaches only machines inspected at a terminal
+first (`fastmdx remote --machine gpu-box`), never prompts (a machine whose
+`ssh` asks for a password fails at once; a key, an agent, or the connection
+`fastmdx remote --machine gpu-box` keeps open for ten minutes after you sign in
+at a terminal works), and moves nothing it has not said first:
+
+```python
+from fastmdxplora.remote import api
+from fastmdxplora.remote.send import describe_sending
+
+api.machines()                     # the records, as last inspected; asks nothing
+sending = api.plan_send("study.yml", "gpu-box", output="runs/lysozyme")
+print("\n".join(describe_sending(sending)))   # what travels, sizes, job.sh
+job = api.send_planned(sending)
+
+api.status(job.name)               # asked of the machine at most every 30 s
+sizes = api.fetch_sizes(job.name, max_age_s=30)  # bytes, kept 30 s once ended
+job, warnings = api.fetch(job.name, with_trajectory=False,
+                          most_bytes=sizes.bringing(False))  # caps any one file
+job = api.cancel(job.name)         # "abandoned" once stopped; an ended job as it ended
+api.jobs(under="runs")             # the jobs whose results come back under runs/
+```
+
+`api.cancel` returns a job that had ended as it ended (on a workstation, where
+its record says its run left processes going, `extra["left_going"]`, having
+asked them to stop, `extra["left_stopped_at"]`; nothing more is sent for 10
+minutes, and after that they are stopped at once), and refuses a cancel
+the cluster does not take, or one asked while the cluster's queue does not
+answer about a job last read as failed (`remote.job.cancel_not_taken`).
+
+`api.send(config, machine, output=)` plans and sends in one call. As with
+`remote send`, only the files in the folder holding the Config travel
+(`remote.input.outside`), and a study goes to a workstation only where its
+GPUs have room for it (`remote.machine.no_room`). `plan.running` names the jobs
+from here it would share the machine with, `plan.gpu` says each GPU's room
+and the one chosen, `plan.room_notes` says the GPUs' room and why where they
+are not checked (`plan.gpu` is then `None`), and `plan.no_room` says why it
+would not fit. A send, with `force=True` or not, is refused while a job of
+that name is waiting, running or working in its folder there, or was last
+read waiting or running on another machine (`environment.path.exists`).
+
+An install runs only with a yes to the exact plan shown:
+
+```python
+planned = api.install_plan("gpu-box")      # inspects again
+if not planned.ready and planned.yes:
+    show(planned.plan)                     # every command, and where it runs
+    if the_person_says_yes():
+        api.install("gpu-box", planned.yes)
+```
+
+The yes is for that machine and that plan, works once, and lapses after ten
+minutes; the machine is inspected again before anything runs, and a plan that
+changed in between is refused (`remote.install.unconfirmed`).
 
 ---
 
@@ -396,6 +475,7 @@ the terminal and ends when the run does. The CLI calls it; nothing else should.
 | `fastmdxplora.refusals`, `.statistics`, `.cost`, `.provenance`, `.explain`, `.advisories` | Public |
 | `fastmdxplora.validation` | Measurements of the software's own behaviour — see [How FastMDXplora is validated](validation.md) |
 | `fastmdxplora.agent` | [The Agent](agent.md), plus campaign machinery |
+| `fastmdxplora.remote.api` | [Running on another machine](#running-on-another-machine); the rest of `fastmdxplora.remote` is what it is built from |
 | `fastmdxplora.batch` | The execution layer underneath `FastMDXplora`. Usable, but `FastMDXplora(config=…)` is the supported path |
 | `fastmdxplora.utils` | Internal |
 
@@ -405,7 +485,7 @@ notice. Every package declares an `__all__`; that is the contract.
 The top-level `__all__`:
 
 ```python
-FastMDXplora, AnalysisOrchestrator, Refusal, refusal_of,
+FastMDXplora, AnalysisOrchestrator, Refusal, StudyFailed, refusal_of,
 MIN_PYTHON, MAX_PYTHON, python_range_string,
 __version__, __author__, __license__, __expansion__, __citation__, __doi__
 ```
@@ -423,7 +503,7 @@ Generated from the source, so it says what the code says. Every entry carries a
 `[source]` link to the implementation.
 
 Docstrings here are longer than reference documentation usually is, because a
-docstring is where a decision gets recorded: what a measure computes, what it
+docstring is where a decision gets recorded: what an analysis computes, what it
 refuses and why, and which choices move the number. That is the material to
 read before comparing a result against another tool.
 
@@ -517,6 +597,13 @@ read before comparing a result against another tool.
    :members:
 
 .. automodule:: fastmdxplora.batch.aggregate
+   :members:
+```
+
+### Other machines
+
+```{eval-rst}
+.. automodule:: fastmdxplora.remote.api
    :members:
 ```
 

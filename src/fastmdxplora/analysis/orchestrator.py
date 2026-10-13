@@ -34,7 +34,7 @@ from typing import Any
 import mdtraj as md
 
 from fastmdxplora.analysis.base import Analysis, AnalysisResult
-from fastmdxplora.analysis.plotting import settle_figure_colours
+from fastmdxplora.analysis.plotting import settle_figure_colours, settle_figure_width
 from fastmdxplora.config.schema import ANALYSIS
 from fastmdxplora.analysis.loading import (
     PathLike,
@@ -203,6 +203,7 @@ class AnalysisOrchestrator:
         last: int | None = None,
         saving_interval_ps: float | None = None,
         figure_colours: str | None = None,
+        figure_width: str | None = None,
     ) -> None:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         self.output_dir: Path = (
@@ -223,6 +224,7 @@ class AnalysisOrchestrator:
         # refused before any trajectory is loaded rather than twenty-three
         # times over while figures are being drawn.
         self.figure_colours: str = settle_figure_colours(figure_colours)
+        self.figure_width: str = settle_figure_width(figure_width)
         self.scope_selection: str | None = _resolve_scope(scope, ligand_resname)
 
         # Cache the trajectory and the load-time parameters so the manifest
@@ -295,6 +297,7 @@ class AnalysisOrchestrator:
             # Every analysis draws in the same mode unless one was told
             # otherwise, the same way the ligand name is supplied above.
             raw_opts.setdefault("figure_colours", self.figure_colours)
+            raw_opts.setdefault("figure_width", self.figure_width)
             opts = self._filter_kwargs(cls, raw_opts)
             # Selection precedence: an explicit per-analysis selection wins;
             # then an orchestrator-wide `selection`; otherwise, if the
@@ -661,6 +664,25 @@ class AnalysisOrchestrator:
             cls = _REGISTRY[name]
             return has_water or not getattr(cls, "requires_water", False)
 
+        def _bilayer_ok(name: str) -> bool:
+            """A bilayer's area, thickness and chain order need a bilayer.
+
+            Every protein simulation that is not in a membrane would
+            otherwise refuse three analyses, and a refusal in every study
+            reads as a fault. Counted, not named: a pyrophosphate ligand is
+            `POP`, like OpenMM's POPC.
+            """
+            cls = _REGISTRY[name]
+            if not getattr(cls, "requires_bilayer", False):
+                return True
+            traj = getattr(self, "traj", None)
+            if traj is None:
+                return True
+            from fastmdxplora.lipids import is_bilayer
+
+            return (getattr(traj, "unitcell_lengths", None) is not None
+                    and is_bilayer(r.name for r in traj.topology.residues))
+
         def _named_ok(name: str) -> bool:
             """Some analyses have no subject until somebody names one.
 
@@ -703,7 +725,7 @@ class AnalysisOrchestrator:
                 n for n in all_names
                 if n not in exclude and _ligand_ok(n) and _water_ok(n)
                 and _amide_ok(n) and _bfactor_ok(n) and _state_ok(n)
-                and _box_ok(n) and _named_ok(n)
+                and _box_ok(n) and _named_ok(n) and _bilayer_ok(n)
                 and _umbrella_ok(n) and _metadynamics_ok(n)
                 and _steered_ok(n) and _fold_ok(n)
                 and _alignable(n)
@@ -714,7 +736,7 @@ class AnalysisOrchestrator:
         return [n for n in all_names
                 if _ligand_ok(n) and _water_ok(n) and _amide_ok(n)
                 and _bfactor_ok(n) and _state_ok(n) and _box_ok(n)
-                and _named_ok(n) and _umbrella_ok(n)
+                and _named_ok(n) and _bilayer_ok(n) and _umbrella_ok(n)
                 and _metadynamics_ok(n) and _steered_ok(n)
                 and _fold_ok(n) and _alignable(n)]
 
@@ -814,6 +836,31 @@ class AnalysisOrchestrator:
             return [str(item) for item in value]
         return str(value)
 
+    def _frame_times_where_strided_across_files(self) -> dict[str, Any]:
+        """Each analysed frame's time, where it is not every stride-th frame.
+
+        MDTraj strides each file on its own, so the frames of several files
+        loaded at a stride are not evenly spaced (two files of five frames
+        at stride 2 are frames 0, 2, 4, 5, 7, 9 of the run); the loader
+        gives each its true time (`loading.written_frames`), and this keeps
+        those times for what reads the analyses' series afterwards, the
+        GUI's axes among them, which otherwise assumed even spacing.
+        """
+        import numpy as np
+
+        inputs = self._trajectory_input
+        stride = self._load_kwargs.get("stride")
+        if not isinstance(inputs, (list, tuple)) or len(inputs) < 2 \
+                or not stride or int(stride) <= 1:
+            return {}
+        try:
+            times = np.asarray(self.traj.time, dtype=float)
+        except (AttributeError, TypeError, ValueError):
+            return {}
+        if times.size != self.traj.n_frames or not np.all(np.isfinite(times)):
+            return {}
+        return {"frame_times_ps": [round(float(t), 9) for t in times]}
+
     def _write_manifest(self) -> None:
         """Write the phase-level analysis manifest.
 
@@ -833,7 +880,9 @@ class AnalysisOrchestrator:
                 str(self._topology_input) if self._topology_input else None
             ),
             "load_kwargs": self._load_kwargs,
+            **self._frame_times_where_strided_across_files(),
             "figure_colours": self.figure_colours,
+            "figure_width": self.figure_width,
             "default_selection": self.default_selection,
             "n_frames": int(self.traj.n_frames),
             "n_atoms": int(self.traj.n_atoms),
@@ -858,6 +907,7 @@ class AnalysisOrchestrator:
                 "last": self._load_kwargs.get("last"),
                 "selection": self.default_selection,
                 "figure_colours": self.figure_colours,
+                "figure_width": self.figure_width,
             },
             "results": {name: r.to_dict() for name, r in self.results.items()},
         }

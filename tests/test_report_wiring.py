@@ -313,62 +313,45 @@ class TestDashboard:
         assert rmsd_png.read_bytes() == original_rmsd
         assert rg_png.read_bytes() == original_rg
 
-        assert '<aside class="sidebar">' in text
-        assert "Run Progress" in text
-        assert "Live Simulation" in text
+        # Laid out as the GUI is: its sidebar, its pages, its own stylesheet.
+        import fastmdxplora.gui as gui_pkg
+
+        sheet = (Path(gui_pkg.__file__).with_name("static") / "dashboard.css").read_text(
+            encoding="utf-8")
+        assert sheet in text
+        assert '<aside class="sidebar"' in text
+        assert 'class="sidebar-stages"' in text
+        for page in ("overview", "analysis", "report", "files"):
+            assert f'data-page="{page}"' in text
+        # The citation is a dialog, as in the GUI.
+        assert 'id="cite-dialog"' in text
+        assert "Study Overview" in text
+        # No simulation ran in this workflow and none left a live record,
+        # so the health card, which is about a simulation, is not shown,
+        # as the GUI does not show it.
+        assert 'id="live-simulation"' not in text
         # The message used to advise starting the dashboard during a
-        # simulation, which is what somebody reading it has just done.
-        # It names the setting that was off instead.
-        assert "did not record live telemetry" in text
-        assert "live_telemetry" in text
-        assert "Top Metrics" in text
-        assert "Recent Outputs" in text
-        assert "Quick Actions" in text
-        assert 'class="plot-frame"' in text
-        assert 'class="plot-grid"' in text
-        assert "plot-card card-md" in text
-        assert "card-sm" in text
-        assert "card-lg" in text
-        assert "card-wide" in text
-        assert "resize-handle" in text
-        assert 'title="Drag to resize"' in text
-        assert 'data-card-size="sm"' in text
-        assert 'data-card-size="md"' in text
-        assert 'data-card-size="lg"' in text
-        assert 'data-card-size="wide"' in text
-        assert "Reset layout" in text
-        assert "data-reset-layout" in text
-        assert "grid-auto-flow: dense" in text
-        assert "grid-auto-rows: 8px" in text
-        assert "grid-column: span var(--col-span, 1)" in text
-        assert "grid-row: span var(--row-span, 20)" in text
-        assert "pointerdown" in text
-        assert "pointermove" in text
-        assert "setPointerCapture" in text
-        assert "localStorage" in text
-        assert "ResizeObserver" not in text
-        assert "resize: both" not in text
-        assert ".panels" not in text
-        assert "repeat(auto-fill, minmax(280px, 1fr))" in text
-        assert "min-height: 180px" in text
-        assert "overflow: hidden" in text
-        assert "max-height: 100%" in text
-        assert "object-fit: contain" in text
-        assert "plot-card large" not in text
-        assert ".plot-card.card-lg { --col-span: 2; --row-span: 38; }" in text
-        assert ".plot-card.card-wide { --col-span: 2; --row-span: 24; }" in text
-        assert '<span class="tag">' in text
+        # simulation, which is what somebody reading it has just done, and
+        # then said telemetry was off by default. It says what the live page
+        # says: on by default, and the setting that turned it off.
+        from fastmdxplora.gui.report_dashboard import _render_static_live_panel
+
+        panel = _render_static_live_panel(project_with_analysis)
+        assert "Live telemetry is on by default" in panel
+        assert "<code>live_telemetry: false</code>" in panel
+        assert "off by default" not in panel and "--live-telemetry" not in panel
+        assert "What the analyses determined" in text
+        assert "Mean ± standard error" in text and "Std. dev." not in text
+        # The figures as the GUI's Analysis page shows them; the resizable
+        # cards of the old page are not the GUI's and are gone.
+        assert '<article class="analysis-card"' in text
+        assert 'class="ac-frame"' in text
+        assert "data-card-size" not in text
         assert "analysis/rmsd/rmsd.png" in text
         assert "analysis/rg/rg.png" in text
-        assert "Open Markdown Report" in text
-        assert "Open Analysis Manifest" in text
-        assert "output-list" in text
-        assert "outputs-extra" in text
-        assert "repeat(auto-fit, minmax(220px, 1fr))" in text
-        assert "action-title" in text
-        assert "action-subtitle" in text
-        assert "artifact-path" in text
-        assert "Std. Dev." in text
+        # The report as the GUI's Report page shows it, with its downloads.
+        assert 'class="card report-document"' in text
+        assert '<a class="ghost-btn" href="report.md" download>Markdown</a>' in text
         assert "../analysis/analysis_manifest.json" in text
         assert "report.md" in text
         assert "slides.pptx" in text
@@ -423,16 +406,24 @@ class TestDashboard:
             "simulation were not run in this workflow."
         ) in text
         assert "Existing trajectory analysis" in text
-        assert "<span>Setup</span><span class=\"phase-detail\">Not run</span>" in text
-        assert "<span>Simulation</span><span class=\"phase-detail\">Not run</span>" in text
-        assert "<span>Analysis</span><span class=\"phase-detail\">Completed</span>" in text
-        assert "<span>Report</span><span class=\"phase-detail\">Completed</span>" in text
-        assert 'class="plot-frame"' in text
-        assert '<span class="tag">' in text
+        # The Phases table as the GUI's Overview gives it.
+        for name, status, detail in (("Setup", "not-run", "Not run"),
+                                     ("Simulation", "not-run", "Not run"),
+                                     ("Analysis", "ok", "Completed"),
+                                     ("Report", "ok", "Completed")):
+            assert (f'<tr><td>{name}</td><td><span class="stage-pill">{status}</span></td>'
+                    f'<td class="muted">{detail}</td></tr>') in text
+        # Only the stages this workflow reaches are listed, as in the GUI.
+        assert '<li class="stage-step" data-stage="nvt" data-state="waiting" hidden>' in text
+        assert ('<li class="stage-step" data-stage="analysis" data-state="completed">'
+                in text)
+        # No simulation here and no live record: no health card for one.
+        assert 'id="live-simulation"' not in text
+        assert 'class="ac-frame"' in text
         assert "dashboard_assets" not in text
-        assert "Quick Actions" in text
-        assert "Recent Outputs" in text
+        assert 'data-page="files"' in text
         assert "Simulation time" not in text
+        assert '<span class="metric-label">Production</span>' not in text
         assert "Temperature" not in text
         assert "Production MD completed" not in text
         assert "../analysis/rmsd/rmsd.png" in text
@@ -492,9 +483,9 @@ class TestDashboard:
         # SASA, secondary structure, and dimensionality reduction each keep
         # their own section now, rather than being pooled because they hold
         # a single figure apiece.
-        assert text.count('class="plot-grid"') == 3
-        for section in ("Solvent Accessible Surface Area", "Secondary Structure",
-                        "Dimensionality Reduction"):
+        assert text.count('class="analysis-grid"') == 3
+        for section in ("Solvent accessible surface area", "Secondary structure",
+                        "Dimensionality reduction"):
             assert section in text
         # Each analysis anchors its own section, whatever its figure count.
         assert 'id="solvent-accessible-surface-area"' in text
@@ -504,16 +495,10 @@ class TestDashboard:
         assert "Total SASA" in text
         assert "Secondary structure" in text
         assert "PCA" in text
-        assert text.count('class="plot-card card-md"') == len(artifacts)
-        assert text.count('class="resize-handle"') == len(artifacts)
-        assert text.count('class="plot-frame"') == len(artifacts)
-        assert "plot-card large" not in text
-        assert ".plot-card.card-lg { --col-span: 2; --row-span: 38; }" in text
-        assert ".plot-card.card-wide { --col-span: 2; --row-span: 24; }" in text
-        assert "section-secondary-structure-section { --plot-min" not in text
-        assert "section-sasa-section { --plot-min" not in text
-        assert '<span class="tag">' in text
-        assert "data-card-key=" in text
+        assert text.count('<article class="analysis-card"') == len(artifacts)
+        assert text.count('class="ac-frame"') == len(artifacts)
+        # Each analysis's first card answers to its name, as in the GUI.
+        assert 'data-analysis="sasa"' in text
 
     def test_dashboard_multi_method_dark_assets(self, project_with_multi_method: Path):
         original_pngs = {
@@ -539,7 +524,7 @@ class TestDashboard:
         ).read_text(encoding="utf-8")
         assert "Hierarchical dendrogram" in text
         assert "analysis/cluster/cluster_hierarchical_dendrogram.png" in text
-        assert '<span class="tag">' in text
+        assert '<article class="analysis-card"' in text
         with zipfile.ZipFile(
             project_with_multi_method / "report" / "project_bundle.zip"
         ) as zf:
@@ -609,18 +594,12 @@ class TestDashboard:
 
         assert result.status == "ok"
         text = (root / "report" / "dashboard.html").read_text(encoding="utf-8")
-        assert text.count('<div class="plot-frame">') == len(artifact_names)
-        assert text.count('class="plot-card card-md"') == len(artifact_names)
-        assert text.count('class="resize-handle"') == len(artifact_names)
-        assert text.count('class="plot-card card-md"') == len(artifact_names)
-        assert '<span class="tag">' in text
+        assert text.count('<div class="ac-frame">') == len(artifact_names)
+        assert text.count('<article class="analysis-card"') == len(artifact_names)
         assert "dashboard view" not in text
-        assert "output-list" in text
-        assert "outputs-extra" in text
-        assert "Show all outputs" in text
-        assert "plot-card large" not in text
-        assert ".plot-card.card-lg { --col-span: 2; --row-span: 38; }" in text
-        assert ".plot-card.card-wide { --col-span: 2; --row-span: 24; }" in text
+        # Every file on the Files page, the run record folded, as in the GUI.
+        record = text[text.index('data-phase="record"'):]
+        assert 'aria-expanded="false"' in record[:record.index("</button>")]
         for rel in artifact_names:
             assert f"../{rel}" in text
         for label in (
@@ -645,7 +624,7 @@ class TestDashboard:
             assert label in text
         assert "Core Metrics" not in text
         assert "SASA" in text
-        assert "Dimensionality Reduction" in text
+        assert "Dimensionality reduction" in text
         assert "Clustering" in text
 
 
@@ -1600,8 +1579,9 @@ class TestConvergenceSaysWhatARunCanSupport:
         from fastmdxplora.report.convergence import assess_series
 
         rng = np.random.RandomState(0)
-        smoothed = np.convolve(rng.normal(size=1200), np.ones(40) / 40,
-                               mode="valid")[:400]
+        # Long enough to resolve its own correlation, as an error needs.
+        smoothed = np.convolve(rng.normal(size=6000), np.ones(40) / 40,
+                               mode="valid")[:4000]
         found = assess_series("correlated", smoothed)
         naive = found.spread / np.sqrt(found.n_frames)
         assert found.standard_error > naive * 2, (
@@ -1723,7 +1703,7 @@ class TestTheReportSaysHowMuchTheRunSupports:
 
         text = _convergence_section(self._a_run(tmp_path))
         assert "## Convergence" in text
-        assert "rmsd" in text and "rg" in text
+        assert "RMSD" in text and "Rg" in text
 
     def test_it_reports_independent_samples_not_frames(self, tmp_path) -> None:
         from fastmdxplora.report.document import _convergence_section
@@ -2092,7 +2072,7 @@ class TestFindingsAreSummarisedNotDumped:
         from fastmdxplora.report.document import _findings_notes
 
         notes = _findings_notes({"not_measured": {"salt_bridge": "charge unknown"}})
-        assert "Not measured" in " ".join(notes)
+        assert "Not computed" in " ".join(notes)
 
 
 class TestTheMethodsSectionReportsTheRestraints:
@@ -2257,7 +2237,8 @@ class TestARequestedOutputThatCouldNotBeMadeIsRecorded:
         artifacts = report_run_module.run(orchestrator=SimpleNamespace(output_dir=root, system="1UBQ"),
                                           output_dir=root / "report", slides=False, bundle=False)
         record = json.loads((root / "report" / "not_produced.json").read_text(encoding="utf-8"))
-        assert record == [{"artifact": "report.pdf", "reason": "WeasyPrint is not installed."}]
+        assert record == [{"artifact": "report.pdf", "code": "report.format.unavailable",
+                           "reason": "WeasyPrint is not installed."}]
         assert "not_produced.json" in artifacts and "report.md" in artifacts
 
     def test_a_later_run_that_made_it_clears_the_record(self, tmp_path, monkeypatch) -> None:
@@ -2551,7 +2532,9 @@ class TestTheResultsCarryTheMeasurement:
         }})
         said = " ".join(notes)
 
-        assert "0.01208 ± 0.00292" in said
+        # The error to two figures, the mean to the same place: as the GUI
+        # beside the report gives it.
+        assert "0.0121 ± 0.0029" in said
         assert "8 independent samples" in said
         assert "discarding 40 frames" in said
 
@@ -2629,12 +2612,13 @@ class TestOneMeanPerObservable:
         assert assessed.mean < float(series.mean()), (
             "a decaying series averaged from the start reads high")
 
-    def test_drift_is_still_measured_over_the_whole_run(self) -> None:
-        """It is the question of whether the run was still relaxing, and
-        discarding the relaxation before asking would answer it by
-        construction. A series that relaxes and then settles: measured over
-        the whole run its drift stands well clear of the noise; measured
-        over the settled part alone it would vanish."""
+    def test_drift_is_measured_over_what_is_averaged(self) -> None:
+        """Over the frames the mean is taken over, as the analyses' record
+        judges it. Measured over the whole run, the relaxation the mean
+        leaves out read as drift, and the report said "still moving" of a
+        mean every page called determined. A series that relaxes and then
+        settles: its relaxation is set aside, and what is averaged has no
+        drift."""
         from fastmdxplora.report.convergence import _drift_in_noise, assess_series
 
         series = self._relaxing(n=200)
@@ -2642,12 +2626,10 @@ class TestOneMeanPerObservable:
         assert assessed.discard > 0                          # the relaxation was set aside
         over_the_whole_run = _drift_in_noise(series)
         over_the_settled_part = _drift_in_noise(series[assessed.discard:])
-        assert assessed.drift_in_noise == pytest.approx(over_the_whole_run)
-        # Signed: it decays. Over the whole run it is several noise widths;
-        # over the settled part it is within one, which "no drift" means.
+        assert assessed.drift_in_noise == pytest.approx(over_the_settled_part)
         assert abs(over_the_whole_run) > 2.0
         assert abs(over_the_settled_part) < 1.0
-        assert abs(over_the_whole_run) > 2 * abs(over_the_settled_part)
+        assert assessed.has_equilibrated is True
 
     def test_the_table_says_what_it_discarded(self, tmp_path) -> None:
         # A series that relaxes before it settles: the table carries how many
@@ -2661,11 +2643,19 @@ class TestOneMeanPerObservable:
         (root / "analysis" / "rmsd" / "rmsd.dat").write_text(
             "# frame rmsd\n" + "".join(f"{i} {v:.6f}\n" for i, v in zip(frames, relaxing)),
             encoding="utf-8")
+        # The analysis's record of the series it wrote: the table reads it.
+        from fastmdxplora.statistics import mean_record
+
+        record = {k: (str(v) if k == "not_a_measurement" else v)
+                  for k, v in mean_record(relaxing).items()}
+        (root / "analysis" / "rmsd" / "options.json").write_text(json.dumps(
+            {"analysis": "rmsd", "findings": {"mean": record}}), encoding="utf-8")
         text = _convergence_section(root)
-        assert "| measure | frames | discarded | independent" in text
-        row = next(r for r in _rows(text) if r.startswith("| rmsd |"))
+        assert "| observable | frames | discarded | independent" in text
+        row = next(r for r in _rows(text) if r.startswith("| RMSD |"))
         shown = int(row.split("|")[3].strip().replace(",", ""))
         expected = assess_run({"rmsd": list(relaxing)})["observables"]["rmsd"]["discard"]
+        assert expected == record["discard"]
         assert shown == expected and 0 < shown < 400, (shown, expected)
 
 class TestEquilibratedIsNotTheSameAsSampled:
@@ -2709,21 +2699,52 @@ class TestEquilibratedIsNotTheSameAsSampled:
             said = _what_the_run_supports(Path("/nowhere"))
 
         assert "too few" not in said
-        assert "enough independent samples" in said
+        assert "each mean is determined" in said
 class TestReproducibilitySaysWhatItReproduces:
-    """Rerunning a configuration gives an equivalent study, not an identical
-    one. Solvation places water by a procedure with no seed -- OpenMM's
-    `addSolvent` takes none -- so the same file run twice gave 37,251 atoms
-    and then 37,763, with `random_seed` fixed both times. The seed fixes the
-    dynamics; it cannot fix the solvent.
+    """What running the configuration again gives, read from the study's
+    records. Setup records the random seed it placed hydrogens and ions with
+    (1130) and minimises on one thread, so a rerun prepares the same system;
+    this section said, before and after that, that solvation could not be
+    seeded and a rerun gave a different atom count. A study prepared before
+    the seed was recorded is still said to be one that does.
 
     Worth stating where somebody reads the run's provenance, because the
     section otherwise implies the file is enough.
     """
 
-    def test_the_section_says_what_a_rerun_gives(self, tmp_path) -> None:
+    def test_a_recorded_seed_prepares_the_same_system(self, tmp_path) -> None:
+        text = _reproducibility_of(tmp_path, prepared=True, seed={"seed": 42, "drawn": True})
+        assert "prepares the same system" in text
+        assert "(42, drawn for this study)" in text
+        assert "cannot be seeded" not in text and "bilayer" not in text
+
+    def test_a_bilayer_packed_before_its_packing_was_seeded_is_the_exception(
+            self, tmp_path) -> None:
+        text = _reproducibility_of(tmp_path, prepared=True, seed={"seed": 7, "drawn": False},
+                                   config={"setup": {"membrane": "POPC"}},
+                                   bilayer={"lipid": "POPC", "lipids": 442})
+        assert "(7)" in text and "except the bilayer" in text
+
+    def test_a_bilayer_with_its_packing_seed_is_prepared_again(self, tmp_path) -> None:
+        text = _reproducibility_of(tmp_path, prepared=True, seed={"seed": 7, "drawn": False},
+                                   config={"setup": {"membrane": "POPC"}},
+                                   bilayer={"lipid": "POPC", "packing_seed": 1234,
+                                            "packing_attempts": 1})
+        assert "(7)" in text and "prepares the same system" in text
+        assert "except the bilayer" not in text
+
+    def test_a_study_prepared_before_the_seed_was_recorded(self, tmp_path) -> None:
         text = _reproducibility_of(tmp_path, prepared=True)
-        assert "equivalent study and" in text and "cannot be seeded" in text
+        assert "without a recorded random seed" in text
+        assert "slightly different atom count" in text
+
+    def test_the_dynamics_repeat_their_start_only_with_a_seed(self, tmp_path) -> None:
+        unseeded = _reproducibility_of(tmp_path / "a", prepared=True)
+        assert "No `simulation.random_seed` was given" in unseeded
+        seeded = _reproducibility_of(tmp_path / "b", prepared=True,
+                                     config={"simulation": {"random_seed": 3}})
+        assert "`simulation.random_seed` 3" in seeded
+        assert "statistics rather than the frames" in seeded
 
     def test_and_names_the_way_to_repeat_it_exactly(self, tmp_path) -> None:
         """Which the software supports: simulate from the prepared system
@@ -2834,7 +2855,7 @@ class TestTheReportSaysWhatItMeans:
             tmp_path, setup={"parameters": {}}, sim={"parameters": {}},
             versions={"FastMDXplora": "2.5", "OpenMM": "8.4", "NumPy": "2.1"})
         assert "**Software.** System setup, simulation and analysis were performed with FastMDXplora 2.5." in text
-        assert "**Tools.** FastMDXplora calls NumPy 2.1, OpenMM 8.4." in text
+        assert "**Tools.** FastMDXplora uses NumPy 2.1, OpenMM 8.4." in text
         assert "Analysis and orchestration" not in text
 
     def test_the_tools_list_includes_what_the_arithmetic_stands_on(self):
@@ -2992,24 +3013,42 @@ def _methods_of_a_study(root):
     return _methods_section(root, load_phase_context(root))
 
 
-def _reproducibility_of(root, *, prepared):
+def _reproducibility_of(root, *, prepared, seed=None, config=None, bilayer=None):
     """The reproducibility section of a study that prepared its own system,
-    or of an analysis of a trajectory it was given."""
+    or of an analysis of a trajectory it was given; ``seed`` is what setup
+    recorded, ``bilayer`` its record of a packed bilayer, and ``config`` the
+    study's resolved config."""
     from types import SimpleNamespace
+
+    import yaml
 
     from fastmdxplora.report.context import load_phase_context
     from fastmdxplora.report.document import _reproducibility_section
 
     for phase in (("setup", "simulation", "analysis") if prepared else ("analysis",)):
         (root / phase).mkdir(parents=True)
+    if seed is not None:
+        (root / "setup" / "setup_parameters.json").write_text(
+            json.dumps({"random_seed": seed,
+                        **({"bilayer": bilayer} if bilayer is not None else {})}),
+            encoding="utf-8")
+    if config is not None:
+        (root / "resolved_config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
     return _reproducibility_section(SimpleNamespace(system="181L", output_dir=root),
                                     load_phase_context(root))
 
 
 def _rows(section: str) -> list[str]:
-    """The data rows of a markdown table, header and rule left out."""
-    rows = [line.strip() for line in section.splitlines() if line.strip().startswith("|")]
-    return [row for row in rows[2:]]
+    """The data rows of the section's first markdown table, header and rule
+    left out. The convergence section has a second, the checks the run was
+    held to, whose rows end in a verdict rather than a yes."""
+    rows: list[str] = []
+    for line in section.splitlines():
+        if line.strip().startswith("|"):
+            rows.append(line.strip())
+        elif rows:
+            break
+    return rows[2:]
 
 
 def _blocks(section: str) -> dict[str, str]:

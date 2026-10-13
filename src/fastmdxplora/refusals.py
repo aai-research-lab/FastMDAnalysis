@@ -66,10 +66,13 @@ __all__ = [
     "CODES",
     "CodedError",
     "StudyError",
+    "StudyFailed",
+    "RunStopped",
     "CodedKeyError",
     "MissingResultError",
     "MissingPathError",
     "OutputExistsError",
+    "OutsideWorkspace",
     "BackendUnavailable",
     "BackendDefect",
     "UnstableRun",
@@ -174,7 +177,8 @@ class Code:
         One of :class:`Disclosure`.
     retryable : bool
         Whether the identical study may succeed on a later attempt without
-        anything changing. True only for transient external failures. A
+        anything changing. True only for transient external failures and a
+        run stopped by a signal, which `fastmdx resume` carries on. A
         missing backend is not retryable: something has to be installed
         first, which is a change.
     since : str
@@ -242,7 +246,7 @@ CODES: tuple[Code, ...] = (
     Code("config.option.out_of_range",
          "A numeric setting outside what the quantity can be.",
          Kind.STRUCTURAL, Disclosure.FIELD_ONLY,
-         detail_keys=("option", "given", "minimum", "maximum")),
+         detail_keys=("option", "context", "given", "minimum", "maximum")),
     Code("config.option.not_permitted",
          "A declared key carrying a value outside its declared choices.",
          Kind.STRUCTURAL, Disclosure.PERMITTED_VALUES,
@@ -275,7 +279,7 @@ CODES: tuple[Code, ...] = (
          detail_keys=("packages", "install_command")),
     Code("environment.backend.defective",
          "An optional backend is installed and returning wrong answers, so "
-         "the measurement cannot be made on this platform.",
+         "the analysis cannot be run on this platform.",
          Kind.ENVIRONMENTAL, Disclosure.ACTION,
          detail_keys=("backend", "attempts")),
     Code("environment.service.unreachable",
@@ -299,6 +303,35 @@ CODES: tuple[Code, ...] = (
          "A file the study names is not on disk.",
          Kind.ENVIRONMENTAL, Disclosure.ACTION,
          detail_keys=("path",)),
+    Code("environment.demo.absent",
+         "This installation carries no demo study to open.",
+         Kind.ENVIRONMENTAL, Disclosure.ACTION),
+    Code("environment.demo.unverified",
+         "What was fetched as the demo study is not the one this release expects.",
+         Kind.ENVIRONMENTAL, Disclosure.NOTHING),
+    Code("environment.share.not_finished",
+         "A study asked to be shared is running, stopped short, or is a study of "
+         "several runs.",
+         Kind.ENVIRONMENTAL, Disclosure.ACTION),
+    Code("environment.share.unscrubbed",
+         "A file of a study being shared still names its folder, a home folder or "
+         "the computer after they were replaced.",
+         Kind.ENVIRONMENTAL, Disclosure.NOTHING, detail_keys=("path",)),
+    Code("environment.share.not_a_study",
+         "What was named is not a shared FastMDXplora study, or one of a profile "
+         "version this release does not read.",
+         Kind.ENVIRONMENTAL, Disclosure.NOTHING),
+    Code("environment.share.unsafe",
+         "A shared study's archive names a path outside itself, a link or a device, "
+         "or unpacks to more than the limit.",
+         Kind.ENVIRONMENTAL, Disclosure.NOTHING),
+    Code("environment.share.too_large",
+         "A shared study's archive is over the download limit.",
+         Kind.ENVIRONMENTAL, Disclosure.ACTION),
+    Code("environment.share.unverified",
+         "A file of a shared study is missing, unlisted, or not the size or SHA-256 "
+         "its packing list gives.",
+         Kind.ENVIRONMENTAL, Disclosure.NOTHING),
     Code("environment.path.exists",
          "Writing here would overwrite something.",
          Kind.ENVIRONMENTAL, Disclosure.ACTION,
@@ -313,12 +346,60 @@ CODES: tuple[Code, ...] = (
          "was given.",
          Kind.ENVIRONMENTAL, Disclosure.FIELD_ONLY,
          detail_keys=("estimate_hours", "remaining_hours")),
+    Code("simulation.stopping.no_replicas",
+         "A stopping rule that requires runs started independently, in a "
+         "study of one run.",
+         Kind.STRUCTURAL, Disclosure.FIELD_ONLY,
+         detail_keys=("option", "runs")),
     Code("simulation.run.abandoned",
          "A segment that never ran, because an earlier one settled the "
          "question it was part of.",
          Kind.SEMANTIC, Disclosure.NOTHING),
+    Code("agent.tool.refused",
+         "A tool the Agent asked for declined what it was asked: a file it does "
+         "not read, a place outside the workspace, or arguments it cannot use.",
+         Kind.STRUCTURAL, Disclosure.FIELD_ONLY),
+    Code("agent.view.changed",
+         "The page asked the Agent about a study that is no longer the one open: "
+         "another was opened, or it was reloaded.",
+         Kind.ENVIRONMENTAL, Disclosure.NOTHING),
+    Code("agent.memory.refused",
+         "A line or a change the Agent's memory of the person does not keep or "
+         "cannot make: a secret, a line past the checks, a value for every study, "
+         "a line too long, one past the most it holds, or a change undone already.",
+         Kind.STRUCTURAL, Disclosure.FIELD_ONLY),
+    Code("agent.memory.store_unusable",
+         "The store a hosted GUI was told to keep each person's memory in is not "
+         "installed, could not be started, or is not a memory store.",
+         Kind.ENVIRONMENTAL, Disclosure.ACTION),
+    Code("mcp.tool.refused",
+         "A tool an AI app called declined what it was asked: a path outside "
+         "the workspace, a config that is not a file, a study already running, or "
+         "arguments it cannot use.",
+         Kind.STRUCTURAL, Disclosure.FIELD_ONLY),
+    Code("mcp.ai_model.not_lent",
+         "The AI app did not lend its model to the Agent: the person "
+         "declined, or what came back was not a reply to what was asked.",
+         Kind.ENVIRONMENTAL, Disclosure.ACTION),
+    Code("environment.workspace.run_going",
+         "A study is running where this would run: in the same folder, or other "
+         "work on the CPU in this workspace, which runs one at a time there (as "
+         "does every study whose GPU is not chosen here, such as a continuation, "
+         "or every study where nvidia-smi reads no GPU).",
+         Kind.ENVIRONMENTAL, Disclosure.ACTION),
+    Code("environment.workspace.no_room",
+         "A study on this computer's GPU needs more memory than its GPU has free "
+         "now, beside the studies running there.",
+         Kind.ENVIRONMENTAL, Disclosure.ACTION),
+    Code("environment.workspace.run_starting",
+         "Another study is being started in this workspace at this moment.",
+         Kind.ENVIRONMENTAL, Disclosure.ACTION),
+    Code("environment.workspace.outside",
+         "A record a study names lies outside the workspace this is held to (an AI "
+         "app's, or a hosted GUI's), so it is not read.",
+         Kind.ENVIRONMENTAL, Disclosure.FIELD_ONLY),
     Code("environment.model.unset",
-         "No model has been chosen, so there is nothing to ask.",
+         "No AI model has been chosen, so there is nothing to ask.",
          Kind.ENVIRONMENTAL, Disclosure.ACTION),
     Code("environment.credentials.absent",
          "No API key for the chosen provider, in the environment or stored.",
@@ -354,6 +435,9 @@ CODES: tuple[Code, ...] = (
          "account for, which usually means periodic images were not rejoined.",
          Kind.SEMANTIC, Disclosure.NOTHING,
          detail_keys=("extent_nm", "residues")),
+    Code("setup.estimate.unavailable",
+         "What setup will build cannot be worked out without building it.",
+         Kind.INSUFFICIENT, Disclosure.NOTHING),
     Code("setup.structure.undetermined",
          "The deposited entry does not determine what should be simulated.",
          Kind.SEMANTIC, Disclosure.NOTHING,
@@ -363,6 +447,12 @@ CODES: tuple[Code, ...] = (
          "the study now asks for.",
          Kind.SEMANTIC, Disclosure.ACTION,
          detail_keys=("changed",)),
+    Code("setup.prepared.unverifiable",
+         "A shared prepared system records neither what it was prepared from "
+         "nor its setup, so whether it is the one the study asks for cannot "
+         "be checked.",
+         Kind.SEMANTIC, Disclosure.ACTION,
+         detail_keys=("path",)),
     Code("setup.structure.assembly_ambiguous",
          "The structure's biological assemblies hold different things, so "
          "which is simulated has to be named.",
@@ -390,6 +480,18 @@ CODES: tuple[Code, ...] = (
          "The original residue named by a mutation is not at that position.",
          Kind.SEMANTIC, Disclosure.NOTHING,
          detail_keys=("mutation", "found", "position")),
+    Code("setup.structure.residue_state_unparseable",
+         "A residue given a protonation state was not named as chain and number.",
+         Kind.STRUCTURAL, Disclosure.FIELD_ONLY,
+         detail_keys=("given", "accepted_forms")),
+    Code("setup.structure.residue_state_not_permitted",
+         "A protonation state was asked for that the residue cannot take.",
+         Kind.STRUCTURAL, Disclosure.PERMITTED_VALUES,
+         detail_keys=("given", "permitted")),
+    Code("setup.structure.residue_state_unmatched",
+         "A residue given a protonation state is not in the structure.",
+         Kind.SEMANTIC, Disclosure.NOTHING,
+         detail_keys=("given", "chains")),
 
     # -- setup: chemistry ---------------------------------------------------
     Code("setup.chemistry.unavailable",
@@ -465,14 +567,25 @@ CODES: tuple[Code, ...] = (
          "the membrane normal has not been established.",
          Kind.SEMANTIC, Disclosure.FIELD_ONLY,
          detail_keys=("lipid",)),
+    Code("setup.membrane.no_belt",
+         "A bilayer was asked for and the structure has no surface a bilayer "
+         "would hold: its best-fitting hydrophobic slab buries too little "
+         "apolar surface for a membrane protein.",
+         Kind.SEMANTIC, Disclosure.FIELD_ONLY,
+         detail_keys=("lipid", "score_nm2")),
     Code("setup.membrane.lipid_unparameterized",
          "The force field files given do not describe the chosen lipid.",
          Kind.STRUCTURAL, Disclosure.FIELD_ONLY,
          detail_keys=("lipid",)),
+    Code("setup.membrane.packing_failed",
+         "OpenMM's packing of the bilayer round the structure ran away to a "
+         "NaN in every packing tried.",
+         Kind.SEMANTIC, Disclosure.FIELD_ONLY,
+         detail_keys=("lipid", "seeds")),
 
     # -- simulation: collective variables -----------------------------------
     Code("simulation.cone.unmeasured",
-         "A window's angular wall was never measured, so there is nothing "
+         "A window's angular wall was never determined, so there is nothing "
          "to restrain the angle against.",
          Kind.SEMANTIC, Disclosure.FIELD_ONLY,
          detail_keys=("window",)),
@@ -545,9 +658,19 @@ CODES: tuple[Code, ...] = (
          detail_keys=("window", "potential", "measured")),
     Code("simulation.reference.unusable",
          "A reference structure was given and does not support the "
-         "measurement.",
+         "analysis.",
          Kind.SEMANTIC, Disclosure.FIELD_ONLY,
          detail_keys=("path", "reason")),
+    Code("simulation.run.stopped",
+         "The run was asked to stop by a signal and stopped where it can be "
+         "carried on.",
+         Kind.ENVIRONMENTAL, Disclosure.NOTHING, retryable=True,
+         detail_keys=("signal", "step", "checkpoint_on_frame")),
+    Code("simulation.run.interrupted",
+         "A run that ended without recording its end: its process is gone, "
+         "or nothing has been written for a day.",
+         Kind.ENVIRONMENTAL, Disclosure.NOTHING, retryable=True,
+         detail_keys=("ended_by",)),
     Code("simulation.resume.checkpoint_truncated",
          "A checkpoint that is not the whole file that was written.",
          Kind.SEMANTIC, Disclosure.FIELD_ONLY,
@@ -583,6 +706,11 @@ CODES: tuple[Code, ...] = (
          "trajectory would change the time a frame represents partway.",
          Kind.SEMANTIC, Disclosure.ACTION,
          detail_keys=("path", "intervals")),
+    Code("simulation.resume.segment_named_twice",
+         "Two segment folders of one study read as the same segment number, "
+         "so which of them the join takes would be decided by listing order.",
+         Kind.SEMANTIC, Disclosure.ACTION,
+         detail_keys=("path", "index", "folders")),
     Code("simulation.resume.timestep_differs",
          "A checkpoint was to be continued with a different timestep from "
          "the one that wrote it; the integrator state it carries is for the "
@@ -639,6 +767,11 @@ CODES: tuple[Code, ...] = (
          "What the analysis reads was not produced by this study.",
          Kind.SEMANTIC, Disclosure.FIELD_ONLY,
          detail_keys=("analysis", "needs")),
+    Code("analysis.data.not_this_system",
+         "The prepared system found where a run's record points is not the "
+         "one the run simulated.",
+         Kind.SEMANTIC, Disclosure.ACTION,
+         detail_keys=("recorded", "found")),
 
     # -- analysis: not enough to answer with --------------------------------
     # The family this software exists to take seriously. Separated from
@@ -668,10 +801,15 @@ CODES: tuple[Code, ...] = (
          "The run is not long against its own correlation time, so the "
          "independent-sample count is an upper bound.",
          Kind.INSUFFICIENT, Disclosure.FIELD_ONLY,
-         detail_keys=("frames", "independent", "statistical_inefficiency")),
+         detail_keys=("frames", "independent", "statistical_inefficiency", "needed")),
+    Code("analysis.sampling.still_drifting",
+         "The frames averaged still move in one direction: their last third's "
+         "mean differs from their first third's by at least twice their spread.",
+         Kind.INSUFFICIENT, Disclosure.FIELD_ONLY,
+         detail_keys=("frames", "drift_in_spread", "needed")),
     Code("analysis.sampling.drifting",
          "The segment means move in order across the run, so it had not "
-         "settled at the scale of the whole run.",
+         "equilibrated at the scale of the whole run.",
          Kind.INSUFFICIENT, Disclosure.FIELD_ONLY,
          detail_keys=("drift_p", "heterogeneity", "span", "segments")),
     Code("analysis.sampling.not_equilibrated",
@@ -685,6 +823,11 @@ CODES: tuple[Code, ...] = (
          "A parameter sweep that does not describe a set of runs.",
          Kind.STRUCTURAL, Disclosure.FIELD_ONLY,
          detail_keys=("option", "reason")),
+    Code("batch.members.not_replicas",
+         "Members compared as replicas of one study that differ by more than "
+         "a seed or an ensemble's model.",
+         Kind.STRUCTURAL, Disclosure.FIELD_ONLY,
+         detail_keys=("axes",)),
     Code("batch.sweep.empty",
          "A sweep whose cross-product holds no runs.",
          Kind.STRUCTURAL, Disclosure.FIELD_ONLY,
@@ -709,6 +852,11 @@ CODES: tuple[Code, ...] = (
          "loads what a study needs.",
          Kind.ENVIRONMENTAL, Disclosure.ACTION,
          detail_keys=("machine", "reason")),
+    Code("remote.machine.no_room",
+         "A study was sent to a workstation whose GPUs do not have the "
+         "memory it needs free now.",
+         Kind.ENVIRONMENTAL, Disclosure.ACTION,
+         detail_keys=("machine", "need_mb")),
     Code("remote.machine.unusable_name",
          "A machine name that cannot be passed to ssh as a destination "
          "safely.",
@@ -718,11 +866,30 @@ CODES: tuple[Code, ...] = (
          "An install that nobody confirmed.",
          Kind.STRUCTURAL, Disclosure.ACTION,
          detail_keys=("machine",)),
+    Code("remote.send.unconfirmed",
+         "A study was to be sent to another machine by an AI app that cannot "
+         "ask the person.",
+         Kind.STRUCTURAL, Disclosure.ACTION),
+    Code("remote.fetch.unconfirmed",
+         "A large fetch was asked for by an AI app that cannot ask the person "
+         "first.",
+         Kind.STRUCTURAL, Disclosure.ACTION),
     Code("remote.input.not_available",
          "A study needs something fetched from the internet by a machine "
          "that cannot reach it.",
          Kind.ENVIRONMENTAL, Disclosure.ACTION,
          detail_keys=("given", "machine")),
+    Code("remote.config.read_elsewhere",
+         "A config named by a relative path would not be planned as the file "
+         "it was checked as (another file, or none), or the folder it was "
+         "checked from is gone.",
+         Kind.STRUCTURAL, Disclosure.ACTION,
+         detail_keys=("given",)),
+    Code("remote.input.outside",
+         "A config sent to another machine names a file outside the "
+         "study's folder, or a folder with a link leading out of it.",
+         Kind.STRUCTURAL, Disclosure.ACTION,
+         detail_keys=("given", "where", "folder")),
     Code("remote.job.unknown",
          "A job was named that this computer did not send.",
          Kind.STRUCTURAL, Disclosure.PERMITTED_VALUES,
@@ -732,6 +899,15 @@ CODES: tuple[Code, ...] = (
          "running.",
          Kind.STRUCTURAL, Disclosure.ACTION,
          detail_keys=("given", "state")),
+    Code("remote.job.cancel_not_taken",
+         "A cluster did not take the cancel of a job (its controller did not "
+         "answer, or refused it); the job may still be going.",
+         Kind.ENVIRONMENTAL, Disclosure.ACTION,
+         detail_keys=("job", "machine")),
+    Code("remote.job.gone",
+         "A job's folder is no longer on the machine it ran on.",
+         Kind.ENVIRONMENTAL, Disclosure.ACTION,
+         detail_keys=("given", "machine")),
     Code("remote.job.unusable_name",
          "A job name that cannot be a folder name on both computers.",
          Kind.STRUCTURAL, Disclosure.FIELD_ONLY,
@@ -978,6 +1154,14 @@ class OutputExistsError(CodedError, FileExistsError):
     default_code = "environment.path.exists"
 
 
+class OutsideWorkspace(CodedError, PermissionError):
+    """A record a study names lies outside the workspace a reader is held
+    to, so it is not read. Still a ``PermissionError``, which is what it
+    is to a caller that does not know the codes."""
+
+    default_code = "environment.workspace.outside"
+
+
 class MissingPathError(CodedError, FileNotFoundError):
     """A file the study named is not on disk.
 
@@ -1125,6 +1309,81 @@ class StudyError(CodedError, ValueError):
     """
 
     default_code = "unclassified"
+
+
+class StudyFailed(CodedError, RuntimeError):
+    """A study that ended in a refusal, raised because the caller asked.
+
+    `explore()` records a failure rather than raising it: a run stops at its
+    first errored phase and the refusal is on that phase. A script that does
+    not look carries on as though it had succeeded. `explore(check=True)` and
+    `RunResult.raise_for_status()` raise this instead.
+
+    Its refusal is the first failed phase's, code and particulars included,
+    so a caller branches on it as on any other; the sentence names the run
+    and the phase. ``failed`` holds every run that failed, and ``results``
+    everything the study returned.
+    """
+
+    def __init__(self, message: str = "", /, *args: Any,
+                 code: str | None = None, failed: "list[Any] | None" = None,
+                 results: "list[Any] | None" = None, **details: Any) -> None:
+        super().__init__(message, *args, code=code, **details)
+        self.failed = list(failed or [])
+        self.results = list(results or [])
+
+    @classmethod
+    def from_results(cls, results: "list[Any]") -> "StudyFailed | None":
+        """The failure among ``results``, or None where every run is fine."""
+        failed = [run for run in results if getattr(run, "status", None) == "error"]
+        if not failed:
+            return None
+        first = failed[0]
+        phase = next((p for p in getattr(first, "phases", None) or []
+                      if getattr(p, "status", None) == "error"), None)
+        recorded = (Refusal.from_record(phase.refusal)
+                    if phase is not None and getattr(phase, "refusal", None)
+                    else None)
+        why = (recorded.message if recorded is not None
+               else getattr(phase, "message", "") or getattr(first, "message", "")
+               or "it did not finish")
+        where = f" in {phase.name}" if phase is not None else ""
+        message = f"Run {first.run_id} failed{where}: {why}"
+        if len(failed) > 1:
+            others = ", ".join(str(run.run_id) for run in failed[1:4])
+            more = len(failed) - 4
+            message += (f" ({len(failed) - 1} more failed: {others}"
+                        + (f" and {more} more" if more > 0 else "") + ")")
+        particulars = {key: value for key, value in
+                       (recorded.details if recorded is not None else {}).items()
+                       if key not in ("code", "failed", "results")}
+        return cls(message, code=recorded.code if recorded is not None else None,
+                   failed=failed, results=results, **particulars)
+
+
+class RunStopped(BaseException):
+    """A run asked to stop outside production, raised where it was.
+
+    A ``BaseException``, as ``KeyboardInterrupt`` is, so that the handlers
+    turning any failure into a record of one do not catch it: raised inside
+    an OpenMM call during equilibration, a stop was caught as an integration
+    failure and recorded as the system becoming unstable, an answer a
+    resume refuses to run again. The phase it reaches records it as the
+    retryable refusal it is (:meth:`as_error`).
+    """
+
+    def __init__(self, signal_name: str) -> None:
+        super().__init__(signal_name)
+        self.signal_name = signal_name
+
+    def as_error(self) -> "StudyError":
+        return StudyError(
+            f"The run was stopped by {self.signal_name} outside production, "
+            "before it finished; `fastmdx resume` runs again the phase it "
+            "was in.",
+            code="simulation.run.stopped",
+            details={"signal": self.signal_name, "step": None,
+                     "checkpoint_on_frame": False})
 
 
 def refusal_of(value: Any) -> Refusal:

@@ -11,7 +11,11 @@ ligand over a trajectory:
    "interaction fingerprint": the residues with high frequency line the pocket.
 
 Contacts are defined at the residue level: a residue is "in contact" in a
-frame if any of its atoms is within ``cutoff`` nm of any ligand atom.
+frame if any of its heavy atoms is within ``cutoff`` nm of any heavy atom of
+the ligand. Hydrogens are left out on both sides, which is what a heavy-atom
+threshold such as 0.4 nm is defined against: counted with hydrogens, a
+leucine whose nearest carbon was 0.48 nm from the ligand was in contact
+because two hydrogens pointing at each other were 0.22 nm apart.
 
 Outputs ``pl_contacts.dat`` (per-frame count time series) and, alongside it,
 ``pl_contacts_per_residue.csv`` (residue, frequency). The figure shows the
@@ -107,13 +111,15 @@ class Contacts(Analysis):
         pandas.DataFrame
             Columns ``frame, n_contacts`` (one row per frame).
         """
-        ligand_idx = traj.topology.select(f"resname {self.ligand_resname}")
+        ligand_idx = traj.topology.select(
+            f"resname {self.ligand_resname} and not element H")
         if len(ligand_idx) == 0:
             raise StudyError(
-                f"No atoms matched ligand resname {self.ligand_resname!r}; "
+                f"No heavy atoms matched ligand resname {self.ligand_resname!r}; "
                 f"cannot compute protein-ligand contacts."
             , code="analysis.selection.empty")
-        protein_idx = traj.topology.select(self.protein_selection)
+        protein_idx = traj.topology.select(
+            f"({self.protein_selection}) and not element H")
         if len(protein_idx) == 0:
             raise StudyError(
                 f"Protein selection {self.protein_selection!r} matched zero "
@@ -146,7 +152,7 @@ class Contacts(Analysis):
 
         # Build the per-residue frequency table (only residues that ever
         # contacted the ligand), sorted by frequency descending.
-        from fastmdxplora.analysis.residues import chain_name, insertion_code, several_chains
+        from fastmdxplora.analysis.residues import named, several_chains
 
         # By chain as well where the protein has several: on a tetramer the
         # same residue of two copies can hold one ligand, and "SER45" twice
@@ -155,12 +161,7 @@ class Contacts(Analysis):
         rows = []
         for ridx, n in res_contact_frames.items():
             res = traj.topology.residue(int(ridx))
-            try:
-                label = f"{res.name}{res.resSeq}{insertion_code(res)}"
-            except (AttributeError, TypeError):
-                label = str(res)
-            if qualified:
-                label = f"{chain_name(res)}:{label}"
+            label = named(res, qualified=qualified)
             rows.append((label, int(res.resSeq) if hasattr(res, "resSeq") else ridx,
                          n / n_frames))
         rows.sort(key=lambda r: r[2], reverse=True)

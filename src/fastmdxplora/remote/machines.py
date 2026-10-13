@@ -93,10 +93,19 @@ def save_machine(machine: Machine) -> Path:
     """Write the record, replacing any earlier one for the same machine."""
     target = _path_for(machine.name)
     target.parent.mkdir(parents=True, exist_ok=True)
-    scratch = target.with_suffix(".json.part")
-    scratch.write_text(json.dumps(machine.as_record(), indent=2) + "\n",
-                       encoding="utf-8")
-    scratch.replace(target)
+    import os
+    import tempfile
+
+    # A scratch file of its own: an AI app's calls are served in threads.
+    handle, scratch = tempfile.mkstemp(dir=target.parent, prefix=f".{machine.name}.",
+                                       suffix=".part")
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as out:
+            out.write(json.dumps(machine.as_record(), indent=2) + "\n")
+        os.replace(scratch, target)
+    except BaseException:
+        Path(scratch).unlink(missing_ok=True)
+        raise
     return target
 
 
@@ -136,7 +145,31 @@ def load_machine(name: str) -> Machine:
             f"Inspect the machine again to rewrite it.",
             given=name, permitted=machine_names(),
         ) from exc
-    return Machine.from_record(record)
+    try:
+        machine = Machine.from_record(record)
+        # Read as the listings read it, so a field of the wrong kind is
+        # found here rather than in every listing.
+        readiness(machine, CodeIdentity("0"))
+        # Each installation's record is a mapping, which the readiness of a
+        # machine holding this computer's code reads.
+        mapped = all(isinstance(said, dict) for said in machine.info.values())
+    except (KeyError, TypeError, AttributeError, ValueError) as exc:
+        raise UnknownMachine(
+            f"The record for {name!r} at {target} is not a machine's record. "
+            "Inspect the machine again to rewrite it.",
+            given=name, permitted=machine_names(),
+        ) from exc
+    if not mapped:
+        raise UnknownMachine(
+            f"The record for {name!r} at {target} is not a machine's record. "
+            "Inspect the machine again to rewrite it.",
+            given=name, permitted=machine_names())
+    if machine.name != name:
+        raise UnknownMachine(
+            f"The record for {name!r} at {target} names another machine "
+            f"({machine.name[:60]!r}). Inspect the machine again to rewrite it.",
+            given=name, permitted=machine_names())
+    return machine
 
 
 def forget_machine(name: str) -> Path:

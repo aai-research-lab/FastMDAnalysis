@@ -31,6 +31,7 @@ Outputs land in ``<output_dir>/<analysis_name>/``:
 from __future__ import annotations
 
 import json
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -45,11 +46,44 @@ import pandas as pd
 from fastmdxplora.analysis.plotting import (
     closes_what_it_opens, colour, drawn_in, fit_legend, new_figure, save_figure,
     settle_figure_colours,
+    settle_figure_width,
+    sized_for,
 )
 from fastmdxplora.utils.logging import get_logger
 from fastmdxplora.refusals import StudyError
 
 logger = get_logger("analysis.base")
+
+
+def _unit_in(label: str) -> str:
+    """The unit an axis label states in its closing brackets, or "".
+
+    "RMSD (nm)" gives "nm"; "Q (fraction native contacts)" gives "", since
+    anything longer than a unit is a description.
+    """
+    if label.endswith(")") and "(" in label:
+        inside = label[label.rindex("(") + 1:-1].strip()
+        if inside and len(inside) <= 12:
+            return inside
+    return ""
+
+
+def _frame_interval_ns(traj: Any) -> float | None:
+    """How far apart the analysed frames are, from the clock the loader set.
+
+    None where it set none: the loader fills the time with NaN when the run
+    did not say, and a duration is then not invented.
+    """
+    try:
+        time_ps = np.asarray(traj.time, dtype=float)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    if time_ps.size < 2 or not np.all(np.isfinite(time_ps)):
+        return None
+    steps = np.diff(time_ps)
+    if not np.all(steps > 0):
+        return None
+    return float(np.median(steps)) / 1000.0
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +204,11 @@ class Analysis(ABC):
     #: explicitly requested via ``include``.
     requires_ligand: bool = False
 
+    #: True for analyses of a lipid bilayer (area per lipid, thickness,
+    #: chain order). Left out of the automatic plan of a system without one,
+    #: and honoured when named in ``include``, where they say why not.
+    requires_bilayer: bool = False
+
     #: Whether ``compute`` returns one value per frame.
     #:
     #: A quantity measured every frame has a mean, and a mean is not a
@@ -196,6 +235,7 @@ class Analysis(ABC):
         figsize: tuple[float, float] | None = None,
         xunit: str | None = None,
         figure_colours: str | None = None,
+        figure_width: str | None = None,
         **options: Any,
     ) -> None:
         """Initialize the analysis with user-supplied options.
@@ -223,6 +263,10 @@ class Analysis(ABC):
             ``<name>_greyscale.png``, which is what a paper usually wants:
             colour for the online version, greyscale for print. American
             spellings are accepted. Default ``"colour"``.
+        figure_width : {"page", "single_column", "double_column"}, optional
+            How wide the figure is drawn, with type sized for that width:
+            the page (6.5 in, the default), one journal column (89 mm) or
+            two (183 mm).
         **options
             Analysis-specific keyword arguments. Subclasses access these
             via ``self.options``.
@@ -231,7 +275,7 @@ class Analysis(ABC):
             raise StudyError(
                 f"{type(self).__name__} works out its own atoms, so "
                 f"`selection` would have no effect. Accepting it would let a "
-                f"measurement look as though it had been restricted when it "
+                f"result look as though it had been restricted when it "
                 f"had not."
             , code="analysis.option.inapplicable")
         #: What the analysis worked out while running, as opposed to what it
@@ -255,6 +299,7 @@ class Analysis(ABC):
         #: Settled here rather than at each use, so a misspelling is refused
         #: once at construction and not discovered when the figure is drawn.
         self.figure_colours: str = settle_figure_colours(figure_colours)
+        self.figure_width: str = settle_figure_width(figure_width)
 
         self.result: Any = None
 
@@ -452,7 +497,7 @@ class Analysis(ABC):
 
         import numpy as np
 
-        from fastmdxplora.statistics import summarise
+        from fastmdxplora.statistics import mean_record
 
         values = self.result
         if hasattr(values, "columns"):
@@ -471,13 +516,10 @@ class Analysis(ABC):
         if series.ndim != 1 or series.size != traj.n_frames:
             return
 
-        equilibrated, reason = summarise(series)
-        record: dict[str, Any] = {}
-        if equilibrated is not None:
-            record.update(equilibrated.as_record())
-        if reason is not None:
-            record["not_a_measurement"] = reason
-        record["n_frames"] = int(series.size)
+        record = mean_record(series, frame_interval_ns=_frame_interval_ns(traj))
+        unit = self._recorded_unit()
+        if unit is not None:
+            record["unit"] = unit
         self.findings["mean"] = record
 
         # Kept so the figure can show what the mean rests on. The x axis is
@@ -488,6 +530,29 @@ class Analysis(ABC):
             self._x_for_overlay = self.frame_axis(traj)[0]
         except Exception:  # an analysis with an axis of its own
             self._x_for_overlay = None
+
+    def _withhold_the_error(self, traj: md.Trajectory, reason: str, *,
+                            because: str, record: dict[str, Any] | None = None) -> None:
+        """Put ``reason`` in the mean's record and take its error bar away.
+
+        For what the analysis found that the mean cannot carry: a chain
+        reaching its own periodic image, a molecule broken across the box.
+        Kept in a finding of its own, the reason reached no reader: the
+        report, the GUI and the Agent read why a mean is qualified from the
+        mean's record, and printed the mean with its error bar. ``because``
+        is a few words for the figure's legend. ``record`` is a record other
+        than ``findings["mean"]``, which is made where there is none.
+        """
+        if record is None:
+            record = self.findings.get("mean")
+            if not isinstance(record, dict):
+                record = {"n_frames": int(traj.n_frames)}
+                self.findings["mean"] = record
+        earlier = record.get("not_a_measurement")
+        record["not_a_measurement"] = f"{reason} {earlier}" if earlier else reason
+        record["error_withheld_because"] = because
+        if "standard_error" in record:
+            record["standard_error"] = float("nan")
 
     def _mark_what_the_mean_rests_on(self, ax: plt.Axes) -> None:
         """Draw the equilibrated region, its mean, and the error bar or its absence.
@@ -560,11 +625,29 @@ class Analysis(ABC):
             label = self._user_ylabel or self.default_ylabel() or ""
         except Exception:  # noqa: BLE001 - a label depending on run state
             return ""
-        if label.endswith(")") and "(" in label:
-            inside = label[label.rindex("(") + 1:-1].strip()
-            if inside and len(inside) <= 12:
-                return f" {inside}"
-        return ""
+        inside = _unit_in(label)
+        return f" {inside}" if inside else ""
+
+    def _recorded_unit(self) -> str | None:
+        """The unit written beside the mean in the findings.
+
+        Whoever reads the findings (a caption, a table, the Agent) is told
+        the unit rather than left to guess one: the Agent was handed an RMSD
+        of 0.013 with nothing to say whether that was nm or Angstrom. Read
+        from the analysis's own axis, never a label the person set, which
+        may say anything. An empty string is a count or a fraction; ``None``
+        is an analysis with no axis of its own, and records nothing.
+        """
+        try:
+            label = self.default_ylabel()
+        except Exception:  # noqa: BLE001 - a label depending on run state
+            return None
+        if not label:
+            return None
+        # "nm2" on an axis (as two analyses write it) is nm squared.
+        return re.sub(r"\b(nm|m)([23])\b",
+                      lambda m: m.group(1) + "\u00b2\u00b3"[int(m.group(2)) - 2],
+                      _unit_in(label))
 
     def _mean_label(self, record: dict[str, Any], has_error: bool) -> str:
         """What the dashed line is, said in the legend where it is read.
@@ -583,9 +666,14 @@ class Analysis(ABC):
         mean = record["mean"]
         unit = self._mean_unit()
         counted = self._independent_samples(record.get("effective_samples"))
+        if record.get("error_withheld_because"):
+            return (f"mean after equilibration {mean:.4g}{unit}\n"
+                    f"(no error bar: {record['error_withheld_because']})")
         if has_error:
-            head = (f"mean after equilibration {mean:.4g} ± "
-                    f"{record['standard_error']:.2g}{unit}")
+            from fastmdxplora.statistics import with_its_error
+
+            head = (f"mean after equilibration "
+                    f"{with_its_error(mean, record['standard_error'])}{unit}")
             if counted is None:
                 return head
             return f"{head}\n({counted})"
@@ -602,7 +690,7 @@ class Analysis(ABC):
         inefficiency -- so arithmetically it is a ratio and comes out at
         9.77. Printing that as "9.8 independent samples" claims a precision
         it does not have: `g` is itself an estimate, and on a run this short
-        the software's own record says halving the frames changes it. There
+        it reads low, to a third of the truth at five times its length. There
         is also no such thing as eight tenths of an observation.
 
         So it is rounded and hedged. "About 10" is both more honest about
@@ -632,54 +720,7 @@ class Analysis(ABC):
                 f"Atom selection {self.selection!r} matched zero atoms in "
                 f"this trajectory."
             , code="analysis.selection.empty")
-        self._note_residues_the_selection_dropped(traj, idx)
         return idx
-
-    #: Residue names this package treats as protein everywhere -- they are
-    #: written by the setup phase, read by pdbfix, heterogens and diagnose --
-    #: and which MDTraj's own `protein` keyword does not all recognise.
-    _PROTEIN_MDTRAJ_MISSES = frozenset({"HIE", "HID", "HSP"})
-
-    def _note_residues_the_selection_dropped(
-        self, traj: md.Trajectory, idx: np.ndarray
-    ) -> None:
-        """Say when `protein` quietly left part of the protein out.
-
-        MDTraj's `_PROTEIN_RESIDUES` contains HIS, HIP, HSD and HSE and does
-        not contain HIE, HID or HSP -- all of which this package writes,
-        reads and treats as protein everywhere else. So on an AMBER-prepared
-        system `topology.select("protein")` returns a protein with holes in
-        it, and every analysis whose selection is "protein" measures that:
-        sasa, qvalue, order parameters, the B-factor comparison, the protein
-        side of both ligand-interaction analyses, and the `scope="solute"`
-        default.
-
-        A hole in a selection is invisible from the number that comes out --
-        an SASA is still an SASA -- so it is recorded as a finding rather
-        than raised. The result is usable and the reader is told what it
-        covers.
-        """
-        if not self.selection or "protein" not in str(self.selection):
-            return
-        covered = set(int(i) for i in idx)
-        dropped: dict[str, int] = {}
-        for residue in traj.topology.residues:
-            name = residue.name.upper()
-            if name not in self._PROTEIN_MDTRAJ_MISSES:
-                continue
-            if any(atom.index in covered for atom in residue.atoms):
-                continue
-            dropped[residue.name] = dropped.get(residue.name, 0) + 1
-        if not dropped:
-            return
-        named = ", ".join(f"{n} x{c}" for n, c in sorted(dropped.items()))
-        self.findings["selection_dropped_residues"] = (
-            f"MDTraj's 'protein' keyword does not recognise {named}, so "
-            f"{sum(dropped.values())} residue(s) this package prepared as "
-            f"protein are outside this analysis's selection. The result "
-            f"covers the rest. Select them explicitly -- for example "
-            f"'protein or resname HIE HID' -- to include them."
-        )
 
     def frame_axis(self, traj: md.Trajectory) -> tuple[np.ndarray, str]:
         """Return ``(x_values, x_label)`` for a time-series plot.
@@ -789,9 +830,10 @@ class Analysis(ABC):
             wanted = [(self.figure_colours, primary)]
 
         written: list[Path] = []
-        for mode, path in wanted:
-            with drawn_in(mode):
-                written.append(self._draw_one(path))
+        with sized_for(self.figure_width):
+            for mode, path in wanted:
+                with drawn_in(mode):
+                    written.append(self._draw_one(path))
         return written
 
     def _write_options_manifest(self) -> Path:
@@ -821,7 +863,33 @@ class Analysis(ABC):
         return path
 
 
-def superposed(traj, *, frame=0, atom_indices=None):
+def narrowest_width(traj) -> "np.ndarray | None":
+    """The cell's narrowest width in each frame, in nm, or None without a cell.
+
+    The perpendicular distance between the closest pair of opposite faces,
+    V / |b x c| and its two companions. A separation under half of it is
+    found exactly by the minimum-image convention in a cell of any shape,
+    however the images are searched, so a check against it never passes a
+    separation the convention folded. It is conservative, not exact: in a
+    reduced cell whose images are searched, as MDTraj searches them, a
+    separation is found exactly up to half the shortest lattice vector (in
+    the rhombic dodecahedron setup builds by default, half a box length
+    against 0.354 of one), so a check against the narrowest width flags some
+    separations that were in fact found exactly.
+    """
+    vectors = getattr(traj, "unitcell_vectors", None)
+    if vectors is None:
+        return None
+    box = np.asarray(vectors, dtype=np.float64)
+    a, b, c = box[:, 0], box[:, 1], box[:, 2]
+    volume = np.abs(np.einsum("fi,fi->f", a, np.cross(b, c)))
+    faces = np.stack([np.linalg.norm(np.cross(b, c), axis=1),
+                      np.linalg.norm(np.cross(c, a), axis=1),
+                      np.linalg.norm(np.cross(a, b), axis=1)], axis=1)
+    return volume / faces.max(axis=1)
+
+
+def superposed(traj, *, frame=0, atom_indices=None, reference=None, ref_atom_indices=None):
     """Align a copy, and drop the box that no longer describes it.
 
     Two hazards, both silent, both met on the same run.
@@ -844,8 +912,14 @@ def superposed(traj, *, frame=0, atom_indices=None):
     distances must take them from the unaligned trajectory, where the box
     is still true. Absent is better than stale, because stale is the one
     a caller cannot detect.
+
+    ``reference`` is the trajectory whose ``frame`` the copy is fitted to,
+    itself by default, with ``ref_atom_indices`` its atoms matched to
+    ``atom_indices`` (the Viewer fits frames to the structure a study
+    started from, or to the deposited one, the same way).
     """
     aligned = traj[:]
-    aligned.superpose(traj, frame=frame, atom_indices=atom_indices)
+    aligned.superpose(traj if reference is None else reference, frame=frame,
+                      atom_indices=atom_indices, ref_atom_indices=ref_atom_indices)
     aligned.unitcell_vectors = None
     return aligned

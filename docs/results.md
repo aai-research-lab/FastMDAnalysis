@@ -1,7 +1,7 @@
 # Reading the results
 
 A finished run is a directory, not a number. This page is the map: what is in
-it, what to open first, and how to tell a measurement from something the run
+it, what to open first, and how to tell a determined value from something the run
 could not support.
 
 ---
@@ -12,7 +12,7 @@ could not support.
 runs/study/
 ├── setup/                  prepared and solvated structures, and what was decided
 ├── simulation/             the trajectory, the energy log, the settings used
-├── analysis/               one directory per measure
+├── analysis/               one directory per analysis
 ├── report/                 the written report, slides, dashboard, bundle
 ├── manifest.json           what happened
 ├── resolved_config.yml     what was asked for
@@ -26,7 +26,7 @@ apart:
 |---|---|
 | `resolved_config.yml` | **What was asked for.** A valid Config carrying every setting the run used, defaults included. Give it back to `fastmdx explore --config` to run the study again — see [Reproducing a run](config.md#reproducing-a-run) |
 | `manifest.json` | **What happened.** Every phase, artifact and refusal, plus the exact software stack the run used — [The FastMDXplora Manifest](manifest.md) |
-| `analysis/<name>/options.json` | **What one measure did.** Its selection, every option including the defaults, the findings, and the format of the file beside it |
+| `analysis/<name>/options.json` | **What one analysis did.** Its selection, every option including the defaults, the findings, and the format of the file beside it |
 
 **The trajectory holds the solute, not the box.** `simulation.save_selection`
 defaults to `not water`, because water is nine tenths of a solvated system and
@@ -42,10 +42,11 @@ says so rather than reporting an empty result.
 
 **`report/report.pdf`** — the study written up: a methods paragraph you can
 paste into a manuscript, the figures, and a section saying what the run does
-and does not support.
+and does not support, with the checks it was held to each marked passed,
+failed or not judged (and why).
 
 **`analysis/rmsd/rmsd.png`** — the first question about any trajectory: has the
-structure settled, or is it still moving?
+structure equilibrated, or is it still moving?
 
 **`setup/setup_parameters.json`** — what was decided about your structure
 before any dynamics ran. Every non-standard residue, every protonation call. If
@@ -65,32 +66,57 @@ opens in a browser with no server, and travels inside
 
 ## How a number tells you what it is worth
 
-Every measure reports through the same four registers, and reading them is most
+Every analysis reports through the same four registers, and reading them is most
 of reading a result.
 
-**A number, plainly.** A settled mean arrives with a standard error and the
-number of **independent observations** behind it, not the number of frames.
-Saving frames more often makes a file larger without making a measurement
-better, so the effective sample count is the figure to read.
+**A number, plainly.** A mean after equilibration arrives with a standard error and the
+number of **independent observations** behind it, not the number of frames,
+and with its unit (`unit` in the analysis's `options.json`, as its figure's
+axis states it; empty for a count or a fraction).
+Saving frames more often makes a file larger without making an estimate
+better, so the effective sample count is the figure to read. The correlation
+behind it is summed over pairs of lags, so frames that alternate, as a stiff
+restraint sampled more slowly than it oscillates makes them, do not read as
+independent when something slower moves underneath.
+
+How the error is computed was calibrated on series with a known mean
+([pre-registered](https://github.com/aai-research-lab/FastMDXplora/blob/main/preregistration/stopping-calibration.md)),
+and three things follow from it. The inefficiency is corrected for being
+taken about the sample mean, which makes it read low by about the number of
+lags summed over the number of frames. After a start is discarded, the error is
+the whole run's, scaled to the frames kept, unless the discard gained at least
+twice the independent samples: the start is chosen where the inefficiency of
+what remains reads lowest, so an error from what remains reads low with it,
+while a real relaxation gains far more than twice. And each error records its
+**degrees of freedom** (`degrees_of_freedom`, about the frames over the lags
+summed): an error resting on eight of them holds the truth within itself 65%
+of the time rather than 68%, and the stopping rule widens it by Student's t
+to judge it. Each mean also records the **rules** that judged it (`rules`):
+where a mean called determined has none, it was analysed by an earlier
+version, whose rules may not have withheld a mean still drifting, and the
+Overview, the Analysis page and the Agent say so until it is analysed again.
 
 **A number, with a statement of what it does not support.** A finding carrying
 `not_a_measurement` is still reported, because the value is often the best
 available, and the note says what is wrong with it. The commonest case: a run
-too short against its own correlation time cannot measure how correlated it is,
+too short against its own correlation time cannot resolve how correlated it is,
 so the effective-sample count is an upper bound and the true figure is smaller.
+A correlated run is taken to resolve it once it holds 25 independent samples
+by its own count: shorter than that, the estimate reads low, from a third of
+the truth at five times the inefficiency to nine tenths at 25.
 
 **A range instead of a number**, where the run recorded enough to bound a
 quantity but not to pin it.
 
 **No number at all**, with the reason. A free energy from a bias that never
-settled, a potential of mean force across windows that do not overlap, a
+converged, a potential of mean force across windows that do not overlap, a
 binding free energy from a run that never reached bulk: each is refused by name
-rather than drawn. A refusal is the most informative thing this software
+rather than reported. A refusal is the most informative thing this software
 produces, and it always says what would settle the question.
 
 ### Not enough data is a refusal too
 
-A mean over a trajectory is not a measurement until two things are known about
+A mean over a trajectory is not determined until two things are known about
 it: whether the system had stopped changing by the time averaging started, and
 how many independent observations the average rests on. Where either is
 unresolved, the mean is withheld and the withholding says which condition it
@@ -98,7 +124,13 @@ was — `analysis.sampling.correlation_unresolved`,
 `analysis.sampling.too_few_frames`, `analysis.sampling.drifting`.
 
 The companion question is how much further the run would have to go, and it has
-an answer:
+an answer. An analysis that withholds its mean for want of sampling records it
+beside the mean (`shortfall` in its `options.json`: further frames, and
+nanoseconds where the run's clock is known). The report's convergence section
+gives the figure for the study, the largest of them, rounded up, with what it
+would take at the speed the study ran (from `simulation/cost.json`) and the
+config that extends the study in place; the Agent is given the same. For any
+series:
 
 ```python
 from fastmdxplora.statistics import sampling_shortfall
@@ -109,8 +141,35 @@ print(sampling_shortfall(rmsd_series, target_independent=10, frame_interval_ns=0
 ```
 
 One caveat the function states and this repeats: where the frames in hand are
-too few to resolve the correlation time, the shortfall is a **lower bound**. It
-is a planning figure. Run at least that much and measure again.
+too few to resolve the correlation time, the shortfall is a **lower bound**, and
+it is never less than as long again as the part of the run already averaged,
+since the independent samples the run appears to hold are themselves an upper
+bound. It is a planning figure. Run at least that much and analyse again.
+
+### Seeing how a series converged
+
+`convergence_of` gives, for one series, what the Analysis page's convergence
+view plots, from the same estimators the recorded mean uses, as plain lists
+ready for JSON (`None` where a value is withheld or not a number):
+
+```python
+from fastmdxplora.statistics import convergence_of
+
+view = convergence_of(rmsd_series, times=times_ns)
+view["equilibration"]   # the start summarise chose, its mean and error
+view["running_mean"]    # cumulative mean of what was kept, with an error per point
+view["blocking"]        # Flyvbjerg-Petersen block averaging, each error with its own uncertainty
+view["autocorrelation"] # C(t) to its first zero, and tau_int = (g - 1) / 2
+view["histogram"]       # what was kept, and what was discarded, apart
+```
+
+The running mean's error at each point is the one the package would record
+had the run ended there, from the same start, withheld where it would be
+withheld; the last point is the record itself. No plateau of the blocking
+curve is named: the first block length every longer one agrees with read the
+error low (0.81 to 0.86 of it, at the median, on correlated series), so the
+curve is read against the error the package records. Fewer than ten finite
+values give a reason and no numbers.
 
 Averages taken on a biased run are corrected back to equilibrium where the bias
 allows, and labelled as biased where it does not —
@@ -120,7 +179,7 @@ allows, and labelled as biased where it does not —
 
 ## Where each kind of result is explained
 
-The detail that changes a number lives with the measure rather than here, so
+The detail that changes a number lives with the analysis rather than here, so
 there is one place to correct when it changes:
 
 - **What each analysis computes**, and the choices that move it — cutoffs,
@@ -156,20 +215,38 @@ runs/campaign/
     ├── comparison_report.md
     ├── comparison_summary.csv
     ├── overlay_rmsd.png     also rg, qvalue, sasa where they ran
-    └── trend_rmsd.png       only where a numeric sweep axis exists
+    └── trend_rmsd.png       only where a numeric sweep axis other than the seed exists
 ```
 
-Four per-frame measures are overlaid — RMSD, radius of gyration, the fraction
+Four per-frame quantities are overlaid — RMSD, radius of gyration, the fraction
 of native contacts Q, and total SASA — and only where at least two runs
 produced them.
 
+Runs are compared on the means their own analyses recorded: over the frames
+after equilibration, each with its standard error, and a mean the run said is
+not determined is marked as such. The trend plots carry those errors as
+bars, and the report calls a difference between the ends of a sweep a trend
+only where it is more than twice its error. `comparison_summary.csv` gives
+each mean with its standard error, the frames discarded before it and what it
+is over. A run whose analyses recorded no mean is given the mean of every
+frame, marked so. The overlays are plotted against time where every run
+recorded its saving interval, and against the frame otherwise. Replicas get a section of their own, setting the spread of
+their means against the error each run estimated (below), and no trend plot
+against their seeds.
+
 `members.json` **distinguishes two things that look identical on disk.**
-Members differing only by random seed are repeats of one measurement, so the
+Members differing only by random seed are repeats of one calculation, so the
 spread of their means is the **error** on it, and it is set against the error
 each run estimated for itself; where the replicas spread much wider, the
-single-run estimate was reading a correlation time off a trajectory too short
-to contain it. Members differing by system, mutation or parameter are different
-measurements, so the spread between them is the **result**. The file says which
+single-run estimate missed correlation its run could not see. On ten 20 ns
+replicas of one protein and ligand, the spread was about ten times the error
+one run estimated, including in runs whose correlation time was resolved, so
+replicas are what determines that error, not a check on it. Replicas'
+means are taken from the start they share, found on their frame-by-frame
+average, where a relaxation from their one structure shows above the noise
+each run alone sees it through; each member's record then says
+`start_shared_with_replicas`. Members differing by system, mutation or parameter are different
+calculations, so the spread between them is the **result**. The file says which
 it decided and why.
 
 ---
@@ -181,7 +258,7 @@ single sample path. Reading it as one loses most of it: a join is a small step
 change, and equilibration detection is built to find step changes, so on a
 ten-segment run it will often discard everything before one of the later joins.
 
-Measured on ten segments drawn from the same distribution with a small shift at
+Checked on ten segments drawn from the same distribution with a small shift at
 each join:
 
 | | discard | independent samples | mean | error vs truth |
@@ -208,15 +285,24 @@ piece, so nothing has to branch on whether a run was segmented.
 **Drift and scatter are not the same thing.** Segment means that disagree *in
 no order* say the per-segment errors are too small; the mean stands and its
 error should be read as a lower bound. Segment means that *climb or fall* say
-the system had not settled at the scale of the whole run — that is a refusal,
+the system had not equilibrated at the scale of the whole run — that is a refusal,
 `analysis.sampling.drifting`, and the remedy is a longer run rather than more
 pooling.
 
 ```
-settled    mean=10.005 het=0.7   drift_p=0.30   qualified=False
-scattered  mean=10.012 het=376   drift_p=0.69   qualified=True
-drifting   REFUSED -> analysis.sampling.drifting  (+1.75 first to last)
+equilibrated  mean=10.005 het=0.7   drift_p=0.30   qualified=False
+scattered     mean=10.012 het=376   drift_p=0.69   qualified=True
+drifting      REFUSED -> analysis.sampling.drifting  (+1.75 first to last)
 ```
+
+**Every segment has to resolve its own correlation time.** A segment whose
+error was withheld holds an upper bound on its independent samples, so a
+pooled error built on it is too small (on joined AR(1) runs with g = 200 in
+segments of 400 frames it held the truth 21% of the time), and the drift test
+cannot be read from it. Where any contributing segment is in that state the
+pooled mean is withheld as `analysis.sampling.correlation_unresolved`, after
+the drift test has been run on the segments that can be read. The remedy is
+longer segments.
 
 One consequence worth knowing: any join offset large enough to fool the
 equilibration detector is also large enough to exceed what the per-segment
@@ -231,5 +317,5 @@ Segmenting a run in the first place is in
 ## See also
 
 - **[The FastMDXplora Manifest](manifest.md)** — the record of what happened
-- **[The FastMDXplora analyses](analyses.md)** — every measure, and what changes it
+- **[The FastMDXplora analyses](analyses.md)** — every analysis, and what changes it
 - **[FastMDXplora refusals](refusals.md)** — reading a refusal, by hand or from a program

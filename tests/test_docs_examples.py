@@ -44,7 +44,8 @@ from scripts.run_pdb_smoke_campaign import build_parser as build_campaign_parser
         "analyze --output ./trpcage_study --analyses rmsd rg --selection 'name CA'",
         "report --output ./trpcage_study --no-slides --dashboard",
         "gui --output ./trpcage_study --port 8765",
-        "init-config --minimal -o study.yml",
+        "config --minimal -f study.yml",
+        "config",
         "info",
         "info --json",
         "remote",
@@ -274,6 +275,16 @@ def test_every_fastmdx_flag_the_docs_name_exists() -> None:
                     collect(child)
 
     collect(_build_parser())
+    # The measuring harnesses run as modules, and their pages name their flags.
+    from fastmdxplora.validation.agent_looks import build_parser as looks_parser
+
+    collect(looks_parser())
+    from fastmdxplora.validation.agent_looks_v2 import build_parser as looks_again_parser
+
+    collect(looks_again_parser())
+    from fastmdxplora.validation.agent_eval import build_parser as evaluation_parser
+
+    collect(evaluation_parser())
 
     repo = Path(__file__).resolve().parents[1]
     pages = [repo / "README.md"] + sorted((repo / "docs").glob("*.md"))
@@ -291,6 +302,8 @@ def test_every_fastmdx_flag_the_docs_name_exists() -> None:
         "--platform", "--system-site-packages", "--job-name", "--gres",
         "--cpus-per-task", "--time", "--nv", "--fakeroot",
         "--download-only", "--offline",
+        # Docker's, running the container image.
+        "--entrypoint", "--gpus",
     }
 
     missing = {}
@@ -470,7 +483,7 @@ def test_every_documentation_link_resolves() -> None:
     # And the README's links into the published site.
     readme = (repo / "README.md").read_text(encoding="utf-8")
     for match in re.finditer(
-            r"readthedocs\.io/en/latest/([a-z_]+)\.html", readme):
+            r"readthedocs\.io/en/(?:latest|stable)/([a-z_]+)\.html", readme):
         if match.group(1) not in pages:
             broken.append(f"README.md -> {match.group(1)}.html")
 

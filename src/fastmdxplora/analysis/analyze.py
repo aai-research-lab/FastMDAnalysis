@@ -39,6 +39,36 @@ def __getattr__(name: str):
     raise AttributeError(name)
 
 
+def study_trajectory(project_root: Path) -> tuple[Path | None, Path | None]:
+    """An extended study's joined trajectory and its topology, where it has
+    one newer than its own first piece; otherwise ``(None, None)``.
+
+    Analysed again in place, an extended study is its pieces, not its first
+    one. The join used to say so by writing the joined trajectory's path
+    into the study's resolved config, which then carried it to any study run
+    from that file: a new study would simulate and analyse the old one's
+    trajectory. The study's own folder says it instead.
+    """
+    import json
+
+    root = Path(project_root)
+    joined = root / "joined" / "production.dcd"
+    record = root / "joined" / "joined.json"
+    own = root / "simulation" / "production.dcd"
+    try:
+        if not (joined.is_file() and record.is_file() and joined.stat().st_size > 0):
+            return None, None
+        # A study simulated again in place after it was joined has a first
+        # piece newer than the join, and the join is not its trajectory.
+        if own.is_file() and own.stat().st_mtime > joined.stat().st_mtime:
+            return None, None
+        named = json.loads(record.read_text(encoding="utf-8")).get("topology")
+    except (OSError, ValueError, AttributeError):
+        return None, None
+    topology = Path(str(named)) if named else None
+    return joined, (topology if topology is not None and topology.is_file() else None)
+
+
 def run(
     *,
     orchestrator: "FastMDXplora",
@@ -53,6 +83,7 @@ def run(
     select_atoms: str | None = None,
     scope: str = "solute",
     figure_colours: str | None = None,
+    figure_width: str | None = None,
     stride: int | None = None,
     first: int | None = None,
     last: int | None = None,
@@ -80,7 +111,11 @@ def run(
         selection = select_atoms
 
     project_root = orchestrator.output_dir
-    traj_path = Path(trajectory) if trajectory else project_root / "simulation" / "production.dcd"
+    joined_trajectory, joined_topology = study_trajectory(project_root)
+    traj_path = Path(trajectory) if trajectory else (
+        joined_trajectory or project_root / "simulation" / "production.dcd")
+    if not trajectory and not topology and joined_topology is not None:
+        topology = str(joined_topology)
     # The topology that matches the trajectory, where the two differ.
     # `save_selection` defaults to leaving the solvent out, so the file
     # beside the trajectory describes fewer atoms than the prepared system
@@ -95,6 +130,20 @@ def run(
                     else project_root / "simulation" / "topology.pdb")
 
     presenter = getattr(orchestrator, "_presenter", None)
+
+    # A study that asked for no production (`duration_ns: 0`) has nothing to
+    # analyse, and says so as a skip with its reason rather than as a
+    # deferral waiting for a trajectory that will never come.
+    if not Path(traj_path).exists() and _production_was_zero(project_root):
+        from fastmdxplora.orchestrator import PhaseSkipped
+
+        reason = ("the study equilibrated only, with no production, so there "
+                  "is no trajectory to analyse")
+        manifest_path = output_dir / "analysis_manifest.json"
+        with manifest_path.open("w", encoding="utf-8") as fh:
+            json.dump({"phase": "analysis", "status": "skipped", "note": reason},
+                      fh, indent=2)
+        raise PhaseSkipped(reason, ["analysis_manifest.json"])
 
     # Graceful degradation when the simulation phase hasn't produced
     # a real trajectory yet.
@@ -138,6 +187,7 @@ def run(
         last=last,
         saving_interval_ps=_saving_interval_ps(project_root, trajectory=traj_path),
         figure_colours=figure_colours,
+        figure_width=figure_width,
     )
 
     if presenter:
@@ -171,6 +221,12 @@ def run(
                 name, r.status, path + "/", elapsed, name_width=name_width,
                 reason=r.message if r.status != "ok" else None,
             )
+        # Why the figures say how many independent samples a mean rests on,
+        # and why interactions are typed rather than counted.
+        if any(r.status == "ok" for r in results.values()):
+            presenter.explanation("convergence")
+        if getattr(results.get("pl_interactions"), "status", None) == "ok":
+            presenter.explanation("interactions")
 
     artifacts: list[str] = []
     for r in results.values():
@@ -203,9 +259,16 @@ def _saving_interval_ps(project_root: Path, *, trajectory: str | Path | None = N
 
     ``None`` where neither is recorded -- a foreign trajectory, or a run from
     before this was written -- which the loader turns into a frame axis
-    rather than an invented one.
+    rather than an invented one. ``None`` too for a run whose integrator
+    chose its own step (`variable_langevin`, `variable_verlet`): its frames
+    are a fixed number of steps apart, not a fixed time.
     """
     import json
+
+    from fastmdxplora.simulation.runner import chose_its_own_step
+
+    if chose_its_own_step(project_root / "simulation"):
+        return None
 
     # A joined trajectory says its own spacing, which is the one to use: its
     # first segment may have been killed and never written the run's record.
@@ -277,3 +340,15 @@ def _detect_ligand_resname(project_root: Path) -> str | None:
         return None
     name = ligand.get("name")
     return str(name) if name else None
+
+
+def _production_was_zero(project_root: Path) -> bool:
+    """Whether the run's record says it ran no production steps."""
+    import json
+
+    record = Path(project_root) / "simulation" / "simulation_parameters.json"
+    try:
+        resolved = json.loads(record.read_text(encoding="utf-8")).get("resolved") or {}
+    except (OSError, ValueError, AttributeError):
+        return False
+    return isinstance(resolved, dict) and resolved.get("production_steps") == 0

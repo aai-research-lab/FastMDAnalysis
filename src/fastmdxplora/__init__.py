@@ -44,6 +44,8 @@ except ImportError:
 
 __author__ = "Adekunle Aina, Derrick Kwan"
 __license__ = "MIT"
+#: The copyright as the licence gives it, for every page that shows one.
+__copyright__ = "2026, Adekunle Aina, Derrick Kwan, and FastMDXplora contributors"
 __expansion__ = "Fully Automated SysTem for Molecular Dynamics eXploration"
 __citation__ = (
     "Aina, A.; Kwan, D. FastMDAnalysis: Software for Automated Analysis of "
@@ -71,20 +73,27 @@ __bibtex__ = """@article{aina2026fastmd,
 # Canonical Python version range for the full conda install (setup +
 # simulation stages). MAX_PYTHON is the *exclusive* upper bound, so 3.13.x
 # is the highest supported, matching `pyproject.toml`'s
-# ``requires-python = ">=3.9, <3.14"``. Update all three (this file,
+# ``requires-python = ">=3.10, <3.14"``. Update all three (this file,
 # pyproject, and environment.yml) together when
 # the OpenMM / PDBFixer compatibility window moves.
-MIN_PYTHON: tuple[int, int] = (3, 9)
+MIN_PYTHON: tuple[int, int] = (3, 10)
 MAX_PYTHON: tuple[int, int] = (3, 14)
 
 
 def python_range_string() -> str:
-    """Human-readable supported Python range, e.g. ``"Python 3.9-3.13"``."""
+    """Human-readable supported Python range, e.g. ``"Python 3.10-3.13"``."""
     return (
         f"Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}"
         f"\u2013{MAX_PYTHON[0]}.{MAX_PYTHON[1] - 1}"
     )
 
+
+# `protein` covers every amino acid a force field writes, CYX and HIE among
+# them, from MDTraj's first import, whatever is imported first
+# (protein_names.py).
+from fastmdxplora.protein_names import recognise_from_the_first_import
+
+recognise_from_the_first_import()
 
 # Before anything imports the OpenFF toolkit, which decides once, on import,
 # whether AmberTools is there by looking on PATH: see own_programs.
@@ -106,12 +115,13 @@ def __getattr__(name: str):
     raise AttributeError(name)
 
 
-from fastmdxplora.refusals import Refusal, refusal_of
+from fastmdxplora.refusals import Refusal, StudyFailed, refusal_of
 
 __all__ = [
     "FastMDXplora",
     "AnalysisOrchestrator",
     "Refusal",
+    "StudyFailed",
     "refusal_of",
     "MIN_PYTHON",
     "MAX_PYTHON",
@@ -119,6 +129,7 @@ __all__ = [
     "__version__",
     "__author__",
     "__license__",
+    "__copyright__",
     "__expansion__",
     "__citation__",
     "__doi__",
