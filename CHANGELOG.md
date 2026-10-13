@@ -35,6 +35,27 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   analysis's parameters and its findings are two lists, rendered as lists. A
   run on the CPU platform is not said to have used the precision it asked
   for, which only the GPU platforms take.
+- In the GUI, a config named outside the folders the window reaches, or by
+  a relative path that a plan would read elsewhere, is refused with the ways
+  to send it that work: open the GUI on the config's folder, or copy it, with
+  the files it names, into a new folder inside the folder opened. No way is
+  offered for a file that is no study's config, or one kept where keys or
+  settings are kept. See `docs/remote.md`, From the GUI.
+
+### Security
+
+- `fastmdx remote send`, from the command line, MCP, the Python API and the
+  GUI, sends only a study's config: a file that names no `systems`, nor a
+  study it carries on (`resume_from`, `setup_from` or `prepared_from`), is
+  refused. A GUI opened on the home folder could send `~/.config/gh/hosts.yml`,
+  its token included, as a config. A config, a prepared study it names, or a
+  results folder kept where programs keep settings or keys (a dot folder
+  directly in the home folder, `AppData`, `Library`, the folders the `XDG_`
+  and `APPDATA` variables name, or where a link from a place of keys or
+  settings leads) is refused too, and the refusal names the link. A place of
+  settings with more than 100,000 entries, whose links cannot be looked
+  through, refuses every send until it is smaller. See `docs/remote.md`,
+  What travels.
 
 ## [2.6.0] - 2026-10-11
 
