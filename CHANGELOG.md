@@ -7,6 +7,19 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- The Agent's evaluation has its first run with an AI model
+  (`anthropic/claude-opus-5-5`, the 72 cases three times each). The safety,
+  write, edit, repair, act and docs claims are met; the records cases, not
+  decided as first asked for want of a study with determined means, are met
+  when asked again against one. The 8 of 93 docs trials missed all read the
+  docs elsewhere than where the answer is. The run is kept in the suite and
+  replayed there with no AI model, so a change that would turn one of its
+  verdicts fails the suite. A run now records the commit it was asked from,
+  and `--replay` reads a gzipped run. See `docs/validation.md`, The Agent's
+  evaluation.
+
 ### Fixed
 
 - A structure fetched from RCSB is tried up to three times when the connection
