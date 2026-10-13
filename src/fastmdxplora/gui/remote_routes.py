@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from fastmdxplora.refusals import refusal_of
+from fastmdxplora.refusals import StudyError, refusal_of
 
 __all__ = ["RemoteDesk", "PLAN_KEPT_S"]
 
@@ -391,6 +391,8 @@ class RemoteDesk:
                 if how is not None:
                     # Said by its name, not by where a link in it leads.
                     return named, how
+        except StudyError:
+            raise  # where settings are kept cannot be told: said as it is
         except (OSError, RuntimeError, ValueError):
             pass
         return None
@@ -461,6 +463,8 @@ class RemoteDesk:
                 # A new folder, so nothing already there is written over.
                 ways.append(f"copy the config, with the files it names, into a new folder "
                             f"inside {self.root} and give its full path there")
+        except StudyError:
+            raise  # where settings are kept cannot be told: said as it is
         except (OSError, RuntimeError, ValueError):
             return None
         if not ways:
@@ -500,7 +504,7 @@ class RemoteDesk:
         return Workspace(self.root).shown(path)
 
     def _results_name(self, output: Path) -> str:
-        """A results folder as the form's Results box would name it: a bare
+        """A results folder as the form's Results folder would name it: a bare
         name where Run on this machine reads one as that folder, else in
         full."""
         if self.runtime is not None and output.parent == self._new_studies_folder():
@@ -793,8 +797,6 @@ class RemoteDesk:
         Given the Config Builder's ``state`` in place of a file, the study is
         saved as one first (:meth:`_saved`). A refusal on the way (where
         settings are kept cannot be told, say) is said as one."""
-        from fastmdxplora.refusals import StudyError
-
         try:
             return self._plan_of(config, machine, state=state)
         except StudyError as exc:

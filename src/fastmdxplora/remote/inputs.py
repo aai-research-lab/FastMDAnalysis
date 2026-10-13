@@ -246,58 +246,76 @@ def own_settings_kept() -> tuple[str, ...]:
 
 #: Folders in the home folder's ``Library`` that hold the person's own files.
 _LIBRARY_FILES = frozenset({"cloudstorage", "mobile documents"})
-#: How deep links are looked for in each place keys or settings are kept,
-#: and how many entries one place may hold before the search gives up and
-#: nothing is sent.
+#: How deep links are looked for in each place keys or settings are kept
+#: (the place and two levels of folders in it), and how many entries one
+#: place may hold before the search gives up and nothing is sent.
 _LINK_DEPTH = 3
-_LINK_ENTRIES = 20_000
+_LINK_ENTRIES = 100_000
 
-#: Folders not looked in for links: what was thrown away.
-_NOT_LOOKED_IN = frozenset({"trash", ".trash"})
+#: Folders not looked in for links: what was thrown away, and caches,
+#: temporary files and package stores, which hold many files and no keys.
+_NOT_LOOKED_IN = frozenset({"trash", ".trash", "temp", "tmp", "cache", "caches", "pkgs"})
 
-_KEPT_CACHE: dict[tuple, tuple[float, tuple[str, ...]]] = {}
+#: The places found, or the refusal where one could not be looked through.
+_KEPT_CACHE: dict[tuple, tuple[float, tuple[str, ...] | StudyError]] = {}
 #: Where each place found by a link was found from, to say so.
 _LINKED_FROM: dict[str, str] = {}
 
 
-def _places_looked_in(homes: tuple[Path, ...], named: tuple[str, ...]
-                      ) -> tuple[list[Path], list[Path]]:
+def _places_looked_in(homes: tuple[Path, ...], named: tuple[str, ...],
+                      above: set[Path]) -> tuple[list[Path], list[Path]]:
     """The places settings are kept by name that are not named by a dot
     (the folders the XDG and APPDATA variables name, where full paths, and
     each home's ``AppData``), and the places links are looked for in: each
-    home's places of keys (:data:`_PRIVATE_PARTS`, ``.config`` with its
-    pairs, ``Library/Keychains``), its ``.config``, ``.local/share`` and
-    those named folders. Not ``Library/Containers``, Wine's folders, the
-    Trash or caches: their links lead to the person's own folders."""
+    home's places of keys (:data:`_PRIVATE_PARTS`, the pairs in ``.config``,
+    ``Library/Keychains``), its ``.config``, ``.local/share`` and the named
+    folders but ``LOCALAPPDATA`` (the last of ``named``), whose links and
+    temporary files are programs' own. Not ``Library/Containers``, Wine's
+    folders, the Trash or caches: their links lead to the person's own
+    folders. A home folder, or a folder above one, is neither."""
     by_name: list[Path] = []
-    for text in named:
+    looked: list[Path] = []
+    for n, text in enumerate(named):
         try:
             place = Path(os.path.normpath(Path(text).expanduser()))
         except (RuntimeError, ValueError):
             continue
-        if text and place.is_absolute():
+        if text and place.is_absolute() and place not in above:
             by_name.append(place)
-    looked: list[Path] = list(by_name)
+            if n < len(named) - 1:
+                looked.append(place)
     for home in homes:
         by_name.append(home / "AppData")
         looked += [home / name for name in sorted(_PRIVATE_PARTS)]
+        looked += [home / ".config" / name for first, name in sorted(_PRIVATE_PAIRS)
+                   if first == ".config"]
         looked += [home / ".config", home / ".local" / "share",
                    home / "Library" / "Keychains"]
     return by_name, looked
+
+
+def _a_link(entry: os.DirEntry) -> bool:
+    """Whether ``entry`` is a link, a Windows junction included."""
+    try:
+        return entry.is_symlink() or bool(getattr(entry, "is_junction", bool)())
+    except OSError:
+        return False
 
 
 def _kept_by_name_or_link() -> tuple[str, ...]:
     """Where settings and keys are kept that no dot directly in a home names:
     the folders of :func:`_places_looked_in` kept by name, and wherever a
     link leads from a home's own entry whose name starts with a dot (``~/.ssh
-    -> ~/dotfiles/ssh``) or from up to :data:`_LINK_DEPTH` folders inside a
-    place looked in (``~/.config/gh -> ~/dotfiles/gh``, a key a dotfiles
-    manager links into ``~/.ssh``), each resolved. A link to a home folder,
-    a folder above one, or one of the person's own folders directly in a
-    home (``~/Documents``) is no place of keys. A folder that cannot be read
-    is passed over; a place with more than :data:`_LINK_ENTRIES` entries is
-    refused, as where its links lead cannot be told. Looked up again after
-    ten seconds at most."""
+    -> ~/dotfiles/ssh``) or from a place looked in or a folder up to two
+    levels inside it (``~/.config/gh -> ~/dotfiles/gh``, a key a dotfiles
+    manager links into ``~/.ssh``), each resolved. A link to a home folder
+    or a folder above one is no place of keys, nor, from ``.config``,
+    ``.local/share`` and the named folders alone, a link to one of the
+    person's own folders directly in a home (``~/Documents``): a link from a
+    home's own dot entry or a place of keys makes even that one. A folder
+    that cannot be read is passed over; a place with more than
+    :data:`_LINK_ENTRIES` entries is refused, as where its links lead cannot
+    be told. Looked up again after ten seconds at most, a refusal too."""
     homes = tuple(home_folders())
     named = tuple(os.environ.get(name, "") for name in
                   ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "APPDATA", "LOCALAPPDATA"))
@@ -305,54 +323,65 @@ def _kept_by_name_or_link() -> tuple[str, ...]:
     now = time.monotonic()
     kept = _KEPT_CACHE.get(key)
     if kept is not None and now - kept[0] < 10:
+        if isinstance(kept[1], StudyError):
+            raise kept[1]
         return kept[1]
     above = {Path(p.anchor) for p in homes}
     for home in homes:
         above.update((home, *home.parents))
-    by_name, looked = _places_looked_in(homes, named)
-    links: list[Path] = []
+    by_name, looked = _places_looked_in(homes, named, above)
+    # Each link, and whether it is a home's own dot entry, whose links make
+    # a place of keys wherever they lead, as those of a place of keys do.
+    links: list[tuple[Path, bool]] = []
     for home in homes:
         try:
             with os.scandir(home) as listed:
-                links += [Path(entry.path) for entry in listed
-                          if entry.name.startswith(".") and entry.is_symlink()]
+                links += [(Path(entry.path), True) for entry in listed
+                          if entry.name.startswith(".") and _a_link(entry)]
         except OSError:
             pass
-    for place in looked:
-        left = _LINK_ENTRIES
-        stack = [(place, 0)]
-        while stack:
-            folder, depth = stack.pop()
-            try:
-                with os.scandir(folder) as listed:
-                    for entry in listed:
-                        left -= 1
-                        if left < 0:
-                            raise StudyError(
-                                f"{place} holds more than {_LINK_ENTRIES} entries, so "
-                                "where links in it lead cannot be told, and nothing is "
-                                "sent. Move what is not settings out of it.",
-                                code="remote.input.outside", given=str(place),
-                                where="", folder=str(place))
-                        if entry.is_symlink():
-                            links.append(Path(entry.path))
-                        elif (depth + 1 < _LINK_DEPTH and entry.name.casefold()
-                              not in _NOT_LOOKED_IN and entry.is_dir(follow_symlinks=False)):
-                            stack.append((Path(entry.path), depth + 1))
-            except OSError:
-                continue
-    places: list[str] = []
-    for place in by_name:
-        if place not in above:
-            places.append(str(place))
+    try:
+        for place in looked:
+            left = _LINK_ENTRIES
+            stack = [(place, 0)]
+            while stack:
+                folder, depth = stack.pop()
+                try:
+                    with os.scandir(folder) as listed:
+                        for entry in listed:
+                            left -= 1
+                            if left < 0:
+                                raise StudyError(
+                                    f"{place} holds more than {_LINK_ENTRIES:,} entries, so "
+                                    "where links in it lead cannot be told, and nothing is "
+                                    "sent. Remove old caches or data you no longer need "
+                                    "from it, or move them elsewhere.",
+                                    code="remote.input.outside", given=str(place),
+                                    where="", folder=str(place))
+                            if _a_link(entry):
+                                links.append((Path(entry.path), False))
+                            elif (depth + 1 < _LINK_DEPTH and entry.name.casefold()
+                                  not in _NOT_LOOKED_IN
+                                  and entry.is_dir(follow_symlinks=False)):
+                                stack.append((Path(entry.path), depth + 1))
+                except OSError:
+                    continue
+    except StudyError as exc:
+        _KEPT_CACHE.clear()
+        _KEPT_CACHE[key] = (now, exc)
+        raise
+    places = [str(place) for place in by_name]
     _LINKED_FROM.clear()
-    for link in links:
+    for link, strict in links:
+        strict = strict or _keys_by_name(link)
         try:
             target = link.resolve()
         except (OSError, RuntimeError, ValueError):
             continue
-        # The person's own folders are not made places of keys by a link.
-        if target in above or (target.parent in homes and not target.name.startswith(".")):
+        # No link makes a home folder a place of keys; nor does a program's
+        # link into one of the person's own folders (``~/Documents``).
+        if target in above or (not strict and target.parent in homes
+                               and not target.name.startswith(".")):
             continue
         places.append(str(target))
         _LINKED_FROM.setdefault(str(target), str(link))
@@ -362,10 +391,16 @@ def _kept_by_name_or_link() -> tuple[str, ...]:
     return kept
 
 
-def _private(path: Path, kept: tuple[str, ...] = ()) -> bool:
+def _keys_by_name(path: Path) -> bool:
+    """Whether a part of ``path`` names a place of keys (:data:`_PRIVATE_PARTS`
+    or the pairs)."""
     parts = [part.casefold() for part in path.parts]
-    if _PRIVATE_PARTS & set(parts) or any(
-            pair in _PRIVATE_PAIRS for pair in zip(parts, parts[1:])):
+    return bool(_PRIVATE_PARTS & set(parts)) or any(
+        pair in _PRIVATE_PAIRS for pair in zip(parts, parts[1:]))
+
+
+def _private(path: Path, kept: tuple[str, ...] = ()) -> bool:
+    if _keys_by_name(path):
         return True
     # By the path's text: a folder's parents are slow to walk 20,000 times.
     # Where the disk ignores the case of letters, so does this. Each folder
@@ -642,14 +677,15 @@ def refuse_kept_place(path: Path, *, results: bool = False,
 
 def names_a_study(raw: Any) -> bool:
     """Whether a config's text names a study: its `systems` (or `system`),
-    or the study it carries on (`simulation.resume_from` or `setup_from`)."""
+    or the study it carries on (`simulation.resume_from`, `setup_from` or
+    its other name, `prepared_from`)."""
     if not isinstance(raw, dict):
         return False
     if raw.get("systems") or raw.get("system"):
         return True
     simulation = raw.get("simulation")
-    return isinstance(simulation, dict) and bool(
-        simulation.get("resume_from") or simulation.get("setup_from"))
+    return isinstance(simulation, dict) and any(
+        simulation.get(name) for name in sorted(_STUDIES_NAMED))
 
 
 def refuse_no_study(raw: Any, config_path: Path) -> None:
@@ -688,9 +724,11 @@ def kept_place_said(path: Any, place: Path, *, results: bool = False,
         return (f"The results folder {path} is in {where}, where keys or settings are "
                 f"kept, so nothing is fetched into it. {how}")
     what = "config" if a_study else "file"
+    # Found by a link, the study may already be in a folder of its own.
+    how = (f"Move the study's config and its files out of {place}." if found else
+           "Put the study's config and its files in a folder of their own.")
     return (f"The {what} {path} is in {where}, where keys or settings are kept, so it "
-            "is not sent. Put the study's config and its files in a folder of their "
-            "own.")
+            f"is not sent. {how}")
 
 
 def refuse_home_or_above(folder: Path) -> None:

@@ -233,19 +233,26 @@ is fetched into such a place: a folder directly in your home folder whose
 name starts with a dot (`~/.config`, `~/.local`), or that is `AppData` or
 `Library` (its `CloudStorage` and `Mobile Documents` aside); the folders
 `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `APPDATA` and `LOCALAPPDATA` name, where
-they are full paths; and wherever a link leads from one of your home
-folder's own entries whose name starts with a dot (`~/.ssh ->
-~/dotfiles/ssh`), or from up to three folders inside a place of keys
-(`.ssh`, `.aws`, `.gnupg`, `.kube` and the like), `~/.config`,
-`~/.local/share`, `~/Library/Keychains` or those named folders
-(`~/.config/gh -> ~/dotfiles/gh`, a key a dotfiles manager links into
-`~/.ssh`). A link to your home folder, a folder above it, or one of your
-own folders directly in it (`~/Documents`) does not make that folder a
-place of keys; nor are links in `~/Library/Containers`, Wine's folders or
-the Trash followed, since apps keep links there to your own folders. A
-place with more than 20,000 entries cannot be looked through, and nothing
-is sent until it is smaller. Each place is judged as named and where links
-lead. Your own folders whose names start with a dot deeper down
+they are full paths other than your home folder or one above it; and
+wherever a link leads from one of your home folder's own entries whose name
+starts with a dot (`~/.ssh -> ~/dotfiles/ssh`), or from a place of keys
+(`.ssh`, `.aws`, `.gnupg`, `.kube` and the like, `~/.config/gh`,
+`~/.config/gcloud`, `~/.config/rclone`, `~/Library/Keychains`),
+`~/.config`, `~/.local/share` or the folders `XDG_CONFIG_HOME`,
+`XDG_DATA_HOME` and `APPDATA` name, or from a folder up to two levels
+inside one of them (`~/.config/gh -> ~/dotfiles/gh`, a key a dotfiles
+manager links into `~/.ssh`). A link to your home folder or a folder above
+it never makes that folder a place of keys, and a link from `~/.config`,
+`~/.local/share` or the named folders does not make one of your own
+folders directly in your home folder (`~/Documents`) one either; a link
+from your home folder's own dot entry or from a place of keys does, so a
+key kept in `~/keys` through `~/.ssh -> ~/keys` never travels. Links are
+not followed deeper than that, nor in `LOCALAPPDATA`, `~/Library/Containers`,
+`~/Library/Application Support`, Wine's folders, the Trash, or folders
+named `cache`, `caches`, `temp`, `tmp` or `pkgs`, since programs keep links
+there to your own folders or to their own files. A place with more than
+100,000 entries cannot be looked through, and nothing is sent until it is
+smaller. Each place is judged as named and where links lead. Your own folders whose names start with a dot deeper down
 (`~/projects/.runs`) are not such places. A hard link to a key, which no
 path tells apart from any other file, is not caught: keep keys out of a
 study's folder. The link and key checks are made again as the copy
@@ -253,7 +260,8 @@ starts. A results folder refused here is set with `--output` at the
 command line, and with `output` in the config in the GUI.
 
 **Only a study's config is sent.** A file that names no `systems` (nor a
-study it carries on, by `simulation.resume_from` or `setup_from`) is no
+study it carries on, by `simulation.resume_from`, or `setup_from` or its
+other name `prepared_from`) is no
 study's config, and is refused (`config.option.missing_companion`): a file
 of settings or tokens never travels as one, wherever it is kept.
 
@@ -548,7 +556,7 @@ found to be when last inspected.
   It is kept while the plan stands, so the study planned again is saved to
   the same file, and after a send that went, so the form names the folder
   its results come back to; planned again then, it is refused as a job of
-  that name until the Results box names a new folder.
+  that name until **Results folder** names a new folder.
 - **Where new studies would go in your home folder,** the top of a disk or
   a folder above your home folder (a GUI opened on a folder directly in
   your home folder, on the home folder itself, or on a folder at the top
@@ -589,7 +597,8 @@ found to be when last inspected.
   is refused (`remote.input.outside`) with the same ways.
 - **Files kept apart.** A way of its own is offered only for a study's
   config: a `.yml` or `.yaml` file of at most 64 KiB that names its `system`
-  or `systems`. A file of keys or settings (a kubeconfig, a list of tokens)
+  or `systems`, or the study it carries on (`simulation.resume_from`,
+  `setup_from` or `prepared_from`). A file of keys or settings (a kubeconfig, a list of tokens)
   is none, wherever it is kept and however a link leads to it. Nor is a way
   offered for a config whose name starts with a dot, under a folder whose
   name starts with a dot at any depth (`~/.config`, and your own

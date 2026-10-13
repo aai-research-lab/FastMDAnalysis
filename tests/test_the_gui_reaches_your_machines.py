@@ -1264,6 +1264,141 @@ class TestTheConfigBuilder:
             kept_place_of(work / "c.yml", a_file=True)
         assert "nothing is sent" in caught.value.args[0]
 
+    def test_a_key_behind_a_link_from_a_place_of_keys_never_travels(
+            self, tmp_path, monkeypatch):
+        """remote-b7's round 1: a link from `~/.ssh`, a place of keys in
+        `.config` or a home's own dot entry into a folder directly in the
+        home folder (`~/.ssh -> ~/keys`) was taken for an app's link into
+        `~/Documents`, so a study in `~/keys` sent the key; a continuation
+        named by `prepared_from` was told it named no study; and a link
+        four folders down in `~/.config/gcloud` was not seen."""
+        import pwd
+
+        from fastmdxplora.refusals import StudyError, refusal_of
+        from fastmdxplora.remote import inputs
+        from fastmdxplora.remote.inputs import gather_inputs, kept_place_of, names_a_study
+
+        home = (tmp_path / "account").resolve()
+        for own in ("keys", "gh", "pass", "Documents", "creds"):
+            (home / own).mkdir(parents=True)
+        (home / "keys" / "id_ed25519").write_text("KEY\n")
+        (home / ".ssh").symlink_to(home / "keys")
+        (home / ".config" / "gcloud" / "legacy_credentials" / "me").mkdir(parents=True)
+        (home / ".config" / "gh").symlink_to(home / "gh")
+        (home / ".config" / "gcloud" / "legacy_credentials" / "me" / "adc").symlink_to(
+            home / "creds")
+        (home / ".password-store").symlink_to(home / "pass")
+        # A program's link in `.config` into the person's own folder.
+        (home / ".config" / "app").mkdir()
+        (home / ".config" / "app" / "docs").symlink_to(home / "Documents")
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        inputs._KEPT_CACHE.clear()
+        for kept in ("keys", "gh", "pass", "creds"):
+            assert kept_place_of(home / kept / "study.yml", a_file=True) == home / kept, kept
+        assert kept_place_of(home / "Documents" / "s" / "study.yml", a_file=True) is None
+        with pytest.raises(StudyError) as caught:
+            gather_inputs({"systems": [{"system": "x.pdb"}],
+                           "ligand": {"file": "id_ed25519"}}, home / "keys")
+        assert refusal_of(caught.value).code == "remote.input.outside"
+        said = inputs.kept_place_said(home / "keys" / "study.yml", home / "keys")
+        assert f"(a link, {home / '.ssh'}, leads there)" in said
+        assert said.endswith(f"Move the study's config and its files out of {home / 'keys'}.")
+        assert names_a_study({"simulation": {"prepared_from": "../first"}})
+
+    def test_no_send_is_kept_back_by_programs_own_large_folders(
+            self, tmp_path, monkeypatch):
+        """remote-b7's round 1: `LOCALAPPDATA` (its `Temp`) and package
+        stores such as `~/.local/share/mamba/pkgs` were looked through for
+        links, so one too large to look through refused every send; an XDG
+        folder set to the home folder was looked through as one; and a
+        place too large was looked through again at every check."""
+        import os
+        import pwd
+
+        from fastmdxplora.refusals import StudyError
+        from fastmdxplora.remote import inputs
+        from fastmdxplora.remote.inputs import kept_place_of
+
+        home = (tmp_path / "account").resolve()
+        local = home / "AppData" / "Local"
+        (local / "Temp").mkdir(parents=True)
+        pkgs = home / ".local" / "share" / "mamba" / "pkgs"
+        pkgs.mkdir(parents=True)
+        (home / "Documents" / "st").mkdir(parents=True)
+        (home / "Documents" / "ref").symlink_to(home / "Documents" / "st")
+        for n in range(5):
+            (local / "Temp" / f"t{n}").write_text("")
+            (local / f"l{n}").write_text("")
+            (pkgs / f"p{n}").mkdir()
+            (home / f"h{n}").write_text("")
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("LOCALAPPDATA", str(local))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(home))
+        monkeypatch.setattr(inputs, "_LINK_ENTRIES", 3)
+        inputs._KEPT_CACHE.clear()
+        study = home / "Documents" / "st" / "study.yml"
+        assert kept_place_of(study, a_file=True) is None
+        # LOCALAPPDATA is still a place of settings by its name.
+        assert kept_place_of(local / "x" / "c.yml", a_file=True) is not None
+        # A place too large refuses once, and is not looked through again.
+        for n in range(5):
+            (home / ".config" / f"f{n}").mkdir(parents=True)
+        inputs._KEPT_CACHE.clear()
+        listing = os.scandir
+        looked = []
+
+        def scandir(path="."):
+            looked.append(Path(path))
+            return listing(path)
+
+        monkeypatch.setattr(inputs.os, "scandir", scandir)
+        for _ in range(2):
+            with pytest.raises(StudyError) as caught:
+                kept_place_of(study, a_file=True)
+        assert looked.count(home / ".config") == 1
+        assert "holds more than 3 entries" in caught.value.args[0]
+        assert "Remove old caches or data you no longer need" in caught.value.args[0]
+
+    def test_a_place_too_large_to_look_through_is_said_in_the_gui(
+            self, tmp_path, monkeypatch):
+        """remote-b7's round 1: in the GUI the refusal of a place of settings
+        too large to look through was read as any error, so a study's config
+        outside the window was told to be copied in, which was refused in
+        turn for the real reason."""
+        import pwd
+
+        from fastmdxplora.remote import inputs
+
+        home = (tmp_path / "account").resolve()
+        root = home / "md" / "first"
+        root.mkdir(parents=True)
+        study = home / "Documents" / "proj" / "study.yml"
+        study.parent.mkdir(parents=True)
+        study.write_text("systems: [{system: 1L2Y}]\n")
+        share = home / ".local" / "share"
+        share.mkdir(parents=True)
+        for n in range(5):
+            (share / f"s{n}").write_text("")
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setattr(inputs, "_LINK_ENTRIES", 3)
+        inputs._KEPT_CACHE.clear()
+        said = RemoteDesk(root).plan(str(study), "box")
+        assert said["ok"] is False
+        assert f"{share} holds more than 3 entries" in said["error"], said
+        assert "copy the config" not in said["error"]
+
     def test_a_config_that_cannot_be_read_is_said_without_its_lines(self, served):
         """remote-b6's round 1: a config that could not be read was said with
         the YAML reader's message, which quotes a line of the file."""
