@@ -554,26 +554,34 @@ found to be when last inspected.
   says so and names the ways to send it: open the GUI on its folder (`cd`
   there, then `fastmdx gui` with no `--output`), or copy it, with the files
   it names, into a new folder inside the folder the GUI was opened on and
-  give its full path there. A way that would be refused in turn (a folder
-  that is your home folder or above it) is left out. A config named by its
-  full path outside those folders is refused (`remote.input.outside`) with
-  the same ways.
-- **Files kept apart.** No way of its own is offered for a file that is
-  not a `.yml` or `.yaml` config, nor for one whose name starts with a dot,
-  under a folder whose name starts with a dot (`~/.config`, `~/.local`) or
-  is `AppData`, under your home folder's own `Library` (its `CloudStorage`
-  and `Mobile Documents` folders aside), in a place keys or settings are
-  kept (FastMDXplora's own, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `APPDATA`,
+  give its full path there. A way that would be refused in turn is left
+  out: opening the GUI on a config's folder that is your home folder or
+  above it, or a copy where the GUI was opened above your home folder or on
+  the top of a disk. A config named by its full path outside those folders
+  is refused (`remote.input.outside`) with the same ways.
+- **Files kept apart.** A way of its own is offered only for a study's
+  config: a `.yml` or `.yaml` file of at most 1 MiB that names its `system`
+  or `systems`. A file of keys or settings (a kubeconfig, a list of tokens)
+  is none, wherever it is kept and however a link leads to it. Nor is a way
+  offered for a config whose name starts with a dot, under a folder whose
+  name starts with a dot (`~/.config`, `~/.local`) or is `AppData`, under
+  your home folder's own `Library` (its `CloudStorage` and `Mobile
+  Documents` folders aside), in a place keys or settings are kept
+  (FastMDXplora's own, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `APPDATA`,
   `LOCALAPPDATA`, or a folder one of these leads to by a link), or in a
   folder holding one of these, your home folder among them; nor for a name
-  that is a link from such a place, or that goes up through one. Such a
-  file reads as a name not there reads: by its full path, as no config file
-  in the workspace; by a relative path, asked for by its full path, where a
-  link leads not said. Both end with the way any config kept elsewhere can
-  be sent: copy it, with the files it names, into a new folder inside the
-  folder the GUI was opened on and give its full path there (left out
-  where that folder is your home folder or above it). So the page never
-  tells which files exist outside the folders it reaches.
+  that is a link from such a place, or that goes up through one. A name
+  through a place keys are kept (`.ssh` and the like) is not followed at
+  all, even where it leads into the folders the GUI reaches. Such a file
+  reads as a name not there reads. By its full path, it is no config file
+  in the workspace. By a relative path, it is asked for by its full path,
+  without saying where a link leads. Both end with the way any config kept
+  elsewhere can be sent: copy it, with the files it names, into a new
+  folder inside the folder the GUI was opened on and give its full path
+  there (left out where the GUI was opened above your home folder or on the
+  top of a disk). So the page never tells which of these files exist. The
+  way of its own names a config's folder as it was given, not where a link
+  in the name leads.
 - **One at a time.** One plan or send is out at a time, and what it answers
   is said on the page, left and come back to or not; the form changed while
   a send is out takes nothing away.

@@ -793,6 +793,111 @@ class TestTheConfigBuilder:
                 "`HOME` to your home folder and start the GUI again."),
                 "code": "remote.input.outside"}, named
 
+    def test_only_a_study_s_config_is_told_how_to_be_sent(
+            self, machine, tmp_path, monkeypatch):
+        """remote-b5's round 2: a file of keys reached by a link from a place
+        of keys (`~/.kube -> ~/dotfiles/kube`, a single file linked from
+        `~/.config/gh`), or kept by the system, was told how to be sent, as
+        a study's config would be; and the way named the folder a link in
+        the name leads to."""
+        import pwd
+
+        home = tmp_path / "account"
+        kube = home / "dotfiles" / "kube"
+        kube.mkdir(parents=True)
+        (kube / "prod.yaml").write_text(
+            "apiVersion: v1\nclusters: []\nusers: [{name: x, user: {token: t}}]\n")
+        (home / ".kube").symlink_to(kube)
+        dots = home / "dots"
+        dots.mkdir()
+        (dots / "gh-hosts.yml").write_text("github.com: {oauth_token: x}\n")
+        (home / ".config" / "gh").mkdir(parents=True)
+        (home / ".config" / "gh" / "hosts.yml").symlink_to(dots / "gh-hosts.yml")
+        system = tmp_path / "etc" / "k3s"
+        system.mkdir(parents=True)
+        (system / "k3s.yaml").write_text("apiVersion: v1\nclusters: []\n")
+        far = tmp_path / "far" / "deep"
+        far.mkdir(parents=True)
+        (far / "c.yml").write_text(machine.study.read_text())
+        (home / "proj").mkdir()
+        (home / "proj" / "lnk").symlink_to(far)
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        opened = (tmp_path / "work" / "first").resolve()
+        opened.mkdir(parents=True)
+        desk = RemoteDesk(DashboardRuntime(workspace_root=opened, exploration_root=opened.parent))
+        for named in (kube / "prod.yaml", dots / "gh-hosts.yml", system / "k3s.yaml",
+                      kube / "missing.yaml"):
+            said = desk.plan(str(named), "box")
+            assert said["error"].startswith(f"{named} is not a config file in"), named
+        # A study's config behind a link is told the way by its name as given.
+        said = desk.plan(str(home / "proj" / "lnk" / "c.yml"), "box")
+        assert f"`cd {home / 'proj' / 'lnk'}`" in said["error"]
+        assert str(far) not in said["error"]
+
+    def test_a_name_through_a_place_of_keys_into_the_routes_is_not_followed(
+            self, served, tmp_path, monkeypatch):
+        """remote-b5's round 2: a name through a link in `.ssh` that leads
+        into the folders the routes reach was followed, and planned, which
+        told what is in `.ssh`."""
+        address, machine = served
+        root = machine.study.parent.resolve()
+        keys = tmp_path / "home" / ".ssh"
+        keys.mkdir(parents=True)
+        (keys / "lnk").symlink_to(root)
+        for named in (str(keys / "lnk" / "study.yml"), str(keys / "none" / "study.yml")):
+            _, said = _ask(address, "/api/remote/plan", {"config": named, "machine": "box"})
+            assert said["ok"] is False and "is not a config file in" in said["error"], named
+        monkeypatch.chdir(tmp_path / "home")
+        answers = set()
+        for link in ("lnk", "none"):
+            _, said = _ask(address, "/api/remote/plan", {"config": f".ssh/{link}/study.yml",
+                                                         "machine": "box"})
+            assert str(root / "study.yml") not in said["error"].split("; ")[0], link
+            answers.add(said["error"].replace(link, "NAME"))
+        assert len(answers) == 1, answers
+        assert not _sent(machine)
+
+    def test_a_name_read_alike_from_both_folders_is_said_as_named(
+            self, served, tmp_path):
+        """remote-b5's round 2: where the GUI was started in the folder it
+        opened, the refusal spoke of "the file checked", a check it never
+        mentions."""
+        address, machine = served
+        root = machine.study.parent.resolve()
+        far = (tmp_path / "far").resolve()
+        far.mkdir()
+        (far / "c.yml").write_text(machine.study.read_text())
+        _, said = _ask(address, "/api/remote/plan", {"config": "../far/c.yml", "machine": "box"})
+        assert said["error"].startswith(
+            f"A plan reads a relative name only inside the folder the GUI was opened on "
+            f"({root}), and ../far/c.yml leads out of it. The file it names is outside")
+
+    def test_a_window_on_the_home_folder_is_told_the_copy_way(
+            self, machine, tmp_path, monkeypatch):
+        """remote-b5's round 2: in a window opened on the home folder the
+        copy into a new folder was left out, though such a copy is sent."""
+        import pwd
+
+        home = (tmp_path / "account").resolve()
+        home.mkdir()
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        desk = RemoteDesk(DashboardRuntime(workspace_root=home, exploration_root=home.parent))
+        said = desk.plan(str(tmp_path / "far" / "none.yml"), "box")
+        assert said["error"].endswith(
+            "To send a config kept elsewhere, copy it, with the files it names, into a new "
+            f"folder inside {home} and give its full path there.")
+        above = RemoteDesk(DashboardRuntime(workspace_root=home.parent,
+                                            exploration_root=home.parent))
+        assert "To send" not in above.plan(str(tmp_path / "far" / "none.yml"), "box")["error"]
+
     def test_a_send_from_the_command_line_with_no_home_found_says_so(
             self, machine, tmp_path, monkeypatch):
         """remote-b4's round 3: with no home folder found, a send was

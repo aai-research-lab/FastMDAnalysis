@@ -190,6 +190,36 @@ _NO_HOME = ("No home folder was found, so nothing is sent from any folder. Set `
             "to your home folder and start the GUI again.")
 
 
+def _through_keys(name: Any) -> bool:
+    """Whether a path as named goes through a place keys and credentials are
+    kept (``.ssh`` and the like), whatever its links lead to."""
+    from fastmdxplora.remote.inputs import _PRIVATE_PARTS
+
+    try:
+        parts = Path(str(name).strip()).expanduser().parts
+    except (RuntimeError, ValueError):
+        return False
+    return any(part.casefold() in _PRIVATE_PARTS for part in parts)
+
+
+#: A config read to tell a study's from a file of settings: at most this.
+_CONFIG_READ_BYTES = 1024 * 1024
+
+
+def _a_study_config(file: Path) -> bool:
+    """Whether ``file`` holds a study's config: a mapping that names its
+    `system` or `systems`, read only up to :data:`_CONFIG_READ_BYTES`."""
+    import yaml
+
+    try:
+        if file.stat().st_size > _CONFIG_READ_BYTES:
+            return False
+        raw = yaml.safe_load(file.read_text(encoding="utf-8"))
+    except (OSError, ValueError, yaml.YAMLError):
+        return False
+    return isinstance(raw, dict) and ("system" in raw or "systems" in raw)
+
+
 def _as_typed(path: Path) -> str | None:
     """``path`` quoted for a POSIX shell, as a command the page shows, or
     None where no quoting is safe to show: on Windows, whose shells quote
@@ -420,20 +450,27 @@ class RemoteDesk:
         try:
             if not file.is_file() or file.suffix.lower() not in (".yml", ".yaml"):
                 return None
+            # A study's config, by what it holds, before anything else: a
+            # file of keys or settings (a kubeconfig, a token list) is none,
+            # wherever it is kept and however links lead to it.
+            if not _a_study_config(file):
+                return None
             if any(self._kept_apart(place) for place in {file, named or file}):
                 return None
+            # Its folder as named, not where a link in the name leads.
+            folder = (named or file).parent
             ways = []
             if not home_or_above(file.parent, home_unknown=True):
                 if started is not None and _same_file(started, file.parent):
                     ways.append("start the GUI again in the config's folder without "
                                 "`--output`, so it opens there")
                 else:
-                    typed = _as_typed(file.parent)
+                    typed = _as_typed(folder)
                     ways.append(f"open the GUI on the config's folder (`cd {typed}`, then "
                                 "`fastmdx gui` with no `--output`)" if typed else
-                                f"open the GUI on the config's folder, {file.parent} "
+                                f"open the GUI on the config's folder, {folder} "
                                 "(`fastmdx gui` started there, with no `--output`)")
-            if not home_or_above(self.root, home_unknown=True):
+            if self._copy_way():
                 # A new folder, so nothing already there is written over.
                 ways.append(f"copy the config, with the files it names, into a new folder "
                             f"inside {self.root} and give its full path there")
@@ -446,11 +483,13 @@ class RemoteDesk:
 
     def _copy_way(self) -> str:
         """The way any config kept elsewhere can be sent, said alike of
-        every name a refusal gives no way of its own, or nothing where the
-        folder opened would be refused in turn."""
-        from fastmdxplora.remote.inputs import home_or_above
+        every name a refusal gives no way of its own, or nothing where a new
+        folder in the folder opened would be refused in turn: above the home
+        folder or at a disk's top (one in the home folder itself is not)."""
+        from fastmdxplora.remote.inputs import home_folders, home_or_above
 
-        if home_or_above(self.root, home_unknown=True):
+        if home_or_above(self.root, home_unknown=True) and not any(
+                _same_file(self.root, home) for home in home_folders()):
             return ""
         return (" To send a config kept elsewhere, copy it, with the files it names, "
                 f"into a new folder inside {self.root} and give its full path there.")
@@ -611,8 +650,10 @@ class RemoteDesk:
         """The config file and its results folder, both in the workspace."""
         import yaml
 
-        file = self.inside(config) if config else None
-        if file is None and config:
+        # A name through a place of keys reads as any name that is no
+        # config, wherever its links lead.
+        file = self.inside(config) if config and not _through_keys(config) else None
+        if file is None and config and not _through_keys(config):
             outside = self._outside(config)
             if outside is not None:
                 found, how = outside
@@ -835,7 +876,9 @@ class RemoteDesk:
                 checked.parent, planned.parent):
             return None
 
-        inside = self.inside(str(checked)) is not None
+        # A name through a place of keys is not followed, even into the
+        # routes: what is in such a place is never told.
+        inside = self.inside(str(checked)) is not None and not _through_keys(text)
         try:
             # A link crossed before a `..` (`.ssh/lnk/../x.yml`), or a name
             # through a folder kept apart by its dot: no way is offered.
@@ -875,7 +918,8 @@ class RemoteDesk:
         else:
             if how is not None:
                 # A config its full path would not reach either: how to send it.
-                return _refused(f"{said} The file checked is outside {self._workspace()}, "
+                it = "The file checked" if said.startswith("Checked") else "The file it names"
+                return _refused(f"{said} {it} is outside {self._workspace()}, "
                                 "so its full path would be refused too: nothing outside it "
                                 f"is sent from here. {how}", code, given=text)
         # Said alike of any other file and of none, so nothing more is told.
