@@ -240,8 +240,13 @@
           board.toast((d && (d.reason || d.error)) || "It could not be undone.", "warning");
           return;
         }
-        study.tags = d.tags;
-        study.note = d.note;
+        // The card as listed now: the list is built again on each visit,
+        // and the old one's tags edited next would be saved back.
+        studies.filter(function (one) { return one.path === study.path; })
+          .concat([study]).forEach(function (one) {
+            one.tags = d.tags;
+            one.note = d.note;
+          });
         tagsUsed = countTags();
         offerTags();
         draw();

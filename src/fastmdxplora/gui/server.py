@@ -856,6 +856,9 @@ def make_handler(
                     # from another study's status, read as a study was
                     # opened elsewhere between two polls.
                     "study": study_key(root),
+                    # A folder that is not yet a study is not named in the
+                    # address: it cannot be opened again as one.
+                    "study_named": is_study(root),
                 }
                 self._send_json(payload)
                 return
@@ -1793,8 +1796,19 @@ def make_handler(
 
                 folder = str((payload or {}).get("folder") or "").strip()
                 keyed = str((payload or {}).get("study") or "").strip()
+                # The folders opened in this session, by their keys, and the
+                # one the GUI started on (a study or not yet): Back to any of
+                # them finds it at once, wherever it is, with no search.
+                opened_here = getattr(app_runtime, "studies_opened", None)
+                if opened_here is None:
+                    opened_here = {}
+                    app_runtime.studies_opened = opened_here
+                for one in (getattr(app_runtime, "workspace_root", None),
+                            getattr(app_runtime, "active_root", None)):
+                    if one is not None:
+                        opened_here.setdefault(study_key(one), Path(one))
                 if keyed and not folder:
-                    found = study_keyed(keyed, [
+                    found = opened_here.get(keyed) or study_keyed(keyed, [
                         getattr(app_runtime, "active_root", None),
                         getattr(app_runtime, "running_root", None),
                     ], [getattr(app_runtime, "exploration_root", None)])
@@ -1820,6 +1834,7 @@ def make_handler(
                 answer = app_runtime.switch_to(named)
                 opened = getattr(app_runtime, "active_root", None)
                 if answer.get("ok") and opened is not None:
+                    opened_here[study_key(opened)] = Path(opened)
                     answer = {**answer, "study_key": study_key(opened)}
                 self._send_json(answer)
                 return

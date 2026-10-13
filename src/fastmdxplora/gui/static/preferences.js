@@ -54,8 +54,13 @@
   // A step back of a dialog's own on its way: what waits for it to land.
   var awaited = null;
 
+  // Set from a dialog's own step back until it has landed: the page's
+  // listeners leave that step alone (it is not the person going Back).
+  var landingOwn = false;
+
   function stepBack() {
     var waiting = awaited = [];
+    landingOwn = true;
     history.back();
     // Should the browser not answer, nothing waits for ever.
     setTimeout(function () { if (awaited === waiting) land(); }, 600);
@@ -63,6 +68,7 @@
   function land() {
     var waiting = awaited || [];
     awaited = null;
+    setTimeout(function () { landingOwn = false; }, 0);
     waiting.forEach(function (go) { go(); });
   }
   /* A page's own step waits for a dialog's step back to land, so it is
@@ -196,6 +202,7 @@
 
   window.FastMDXDialog = {
     open: openDialog, close: function (id) { closeDialog(el(id)); }, afterHistory: afterHistory,
+    landingOwnStep: function () { return landingOwn; },
   };
 
   /* ---- Copy --------------------------------------------------------- */

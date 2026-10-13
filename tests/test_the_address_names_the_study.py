@@ -190,3 +190,126 @@ def test_an_address_naming_the_open_study_asks_nothing(browser, session) -> None
     page.wait_for_timeout(1500)
     page.context.close()
     assert asked == []
+
+
+def test_back_to_a_study_opened_from_elsewhere_opens_it(browser, session, tmp_path) -> None:
+    """A study loaded from outside the folders the GUI looks in: Back to it
+    said it was not among the studies here, and the step was lost."""
+    elsewhere = _study(tmp_path / "elsewhere" / "trpcage", system="1L2Y",
+                       started="2026-09-03T10:00:00+00:00").resolve()
+    page = _open(browser, session)
+    _switch(page, elsewhere)
+    _named(page, elsewhere)
+    _switch(page, session.second)
+    _named(page, session.second)
+    page.go_back()
+    _named(page, elsewhere)
+    _switch(page, session.first)
+    _named(page, session.first)
+    errors = page.errors
+    page.context.close()
+    assert errors == []
+
+
+def test_back_to_a_study_gone_shows_the_page_its_address_names(browser, session, tmp_path) -> None:
+    """Back to a step whose study cannot be opened: the address was put
+    right to the study open, the page left as it was, and the two told
+    different things."""
+    import shutil
+
+    gone = _study(tmp_path / "gone" / "villin", system="2F4K",
+                  started="2026-09-04T10:00:00+00:00").resolve()
+    page = _open(browser, session)
+    _switch(page, gone)
+    _named(page, gone)
+    page.click("[data-view-link='viewer']")
+    _named(page, gone, "viewer")
+    # Opened elsewhere: this step's address follows it, the one before not.
+    page.evaluate("""(folder) => fetch('/api/explore/switch', {method: 'POST',
+        headers: {'content-type': 'application/json'}, body: JSON.stringify({folder})})""",
+                  str(session.first))
+    _named(page, session.first, "viewer")
+    shutil.move(str(gone), str(gone.with_name("moved")))
+    page.go_back()
+    page.wait_for_selector("#dashboard-toast.show")
+    page.wait_for_timeout(1500)
+    shown = page.evaluate("""() => [location.hash,
+        [...document.querySelectorAll('.page')].filter(p => !p.hidden).map(p => '#' + p.dataset.page)]""")
+    page.context.close()
+    assert shown == ["#overview", ["#overview"]], shown
+
+
+def _asked_to_switch(page):
+    asked = []
+    page.on("request", lambda request: asked.append(request.url)
+            if "/api/explore/switch" in request.url else None)
+    return asked
+
+
+def test_a_link_from_another_site_opens_no_study(browser, session) -> None:
+    """Any site could link to the GUI with another study's key and the
+    page itself asked the server to open it."""
+    page = browser.new_context(viewport={"width": 1440, "height": 900}).new_page()
+    page.set_default_timeout(60000)
+    asked = _asked_to_switch(page)
+    page.goto(session.url.rstrip("/") + f"/?study={study_key(session.second)}#overview",
+              wait_until="domcontentloaded", referer="https://elsewhere.example/")
+    page.wait_for_function("() => /another site/.test("
+                           "(document.getElementById('dashboard-toast') || {}).textContent || '')")
+    _named(page, session.first)
+    page.context.close()
+    assert asked == []
+
+
+def test_a_dialog_closed_after_another_study_opened_keeps_it(browser, session) -> None:
+    """The Settings open while another study is opened elsewhere: Close went
+    Back onto the page's step, which named the study before, and opened it
+    again."""
+    page = _open(browser, session)
+    _named(page, session.first)
+    page.click("#settings-open")
+    page.click("[data-dialog-open='prefs-dialog']")
+    page.wait_for_selector("#prefs-dialog:not([hidden])")
+    page.evaluate("""(folder) => fetch('/api/explore/switch', {method: 'POST',
+        headers: {'content-type': 'application/json'}, body: JSON.stringify({folder})})""",
+                  str(session.second))
+    page.wait_for_function("(key) => window.FastMDXDashboard.state.studyShown === key",
+                           arg=study_key(session.second))
+    page.keyboard.press("Escape")
+    page.wait_for_selector("#prefs-dialog", state="hidden")
+    page.wait_for_timeout(2000)
+    _named(page, session.second)
+    page.evaluate("""(folder) => fetch('/api/explore/switch', {method: 'POST',
+        headers: {'content-type': 'application/json'}, body: JSON.stringify({folder})})""",
+                  str(session.first))
+    page.context.close()
+
+
+def test_a_folder_not_yet_a_study_is_not_named(browser, tmp_path) -> None:
+    """The GUI opened on an empty folder, where a study is yet to be, named
+    that folder in the address: Back to it after a study was opened asked to
+    open it, and said it was not among the studies here, or not an output
+    folder."""
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    fresh = tmp_path / "fresh"
+    fresh.mkdir()
+    study = _study(tmp_path / "trpcage", system="1L2Y", started="2026-09-03T10:00:00+00:00").resolve()
+    started = start_dashboard_session(output=str(fresh), host="127.0.0.1", port=0)
+    try:
+        page = _open(browser, started)
+        page.wait_for_function("() => document.body.classList.contains('state-ready')")
+        page.wait_for_timeout(1500)
+        first = page.url
+        _switch(page, study)
+        _named(page, study)
+        page.go_back()
+        page.wait_for_timeout(2500)
+        said = page.evaluate("() => (document.getElementById('dashboard-toast') || {}).textContent || ''")
+        errors = page.errors
+        page.context.close()
+    finally:
+        started.server.shutdown()
+    assert "study=" not in first, first
+    assert said == "", said
+    assert errors == []

@@ -3794,9 +3794,21 @@
     if (el("run-trajectory")) el("run-trajectory").value = form.trajectory || "";
     if (el("run-topology")) el("run-topology").value = form.topology || "";
     if (el("run-config-path")) el("run-config-path").value = form.configPath || "";
+    // As a loaded config clears them: what a part of the form drew from
+    // before (a stop being set, residues on their way) is the form's now.
+    state.editing = null;
+    stoppingDraft = null;
+    stashedStop = null;
+    residuesPending = [];
+    state.samplingChosen = null;
+    state.refused = null;
+    state.estimate = null;
     renderAll();
     saveDraft();
     undo.before = formNow();
+    // A field still focused starts again from what it now holds.
+    const focused = document.activeElement;
+    if (focused && /^(INPUT|TEXTAREA)$/.test(focused.tagName)) undo.typedFrom = focused.value;
   }
 
   function stepThrough(from, to, said) {
@@ -3814,6 +3826,9 @@
     });
     ["change", "click"].forEach((kind) => {
       document.addEventListener(kind, (event) => {
+        // A click into a field changes nothing (its change is said by
+        // itself), and one read later would take in what was typed since.
+        if (kind === "click" && /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
         if (onTheBuilder(event)) setTimeout(afterActing, 0);
       });
     });
@@ -3828,9 +3843,18 @@
       const again = (key === "z" && event.shiftKey) || (key === "y" && !event.shiftKey);
       if (key !== "z" && !again) return;
       const field = event.target;
-      // Typing still to be undone in its own field is the browser's.
+      // Typing still to be undone in its own field: the field goes back to
+      // what it held when it was entered, as one step (the browser's own
+      // undo went past it, or had nothing left).
       if (field && /^(INPUT|TEXTAREA)$/.test(field.tagName) && undo.typedFrom !== null
-          && field.value !== undo.typedFrom) return;
+          && field.value !== undo.typedFrom) {
+        if (again) return;
+        event.preventDefault();
+        field.value = undo.typedFrom;
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+        field.dispatchEvent(new Event("change", { bubbles: true }));
+        return;
+      }
       if (field && field.isContentEditable) return;
       if (field && field.closest && field.closest(".agent-dialog, #agent-drawer")) return;
       const moved = again

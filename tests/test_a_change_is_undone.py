@@ -103,6 +103,31 @@ def test_tags_and_a_note_kept_are_undone(browser, session) -> None:
     assert errors == []
 
 
+def test_tags_undone_after_the_list_was_read_again_show_on_the_card(browser, session) -> None:
+    """All studies left and opened again before Undo: the server's tags went
+    back, the card kept the undone ones, and the next save wrote them back."""
+    from fastmdxplora.study_tags import tags_of
+
+    before = tags_of(session.first)
+    page = _page(browser, session, "#studies")
+    page.evaluate(f"() => window.FastMDXStudies.load({str(session.workspace)!r})")
+    card = '.study-card[data-path$="wild_type"]'
+    page.wait_for_selector(card)
+    page.click(f"{card} .study-tag-edit")
+    page.fill(f"{card} .study-tag-input", "zeta")
+    page.click(f"{card} .study-tag-editor button:has-text('Save')")
+    page.wait_for_selector(f"{card} .study-tag:has-text('zeta')")
+    page.evaluate("() => window.FastMDXDashboard.navigate('overview')")
+    page.evaluate("() => window.FastMDXDashboard.navigate('studies')")
+    page.evaluate(f"() => window.FastMDXStudies.load({str(session.workspace)!r})")
+    page.wait_for_selector(f"{card} .study-tag:has-text('zeta')")
+    _undo(page, "Kept the tags and note")
+    page.wait_for_selector("#dashboard-toast:has-text('back as they were')")
+    page.wait_for_function(f"() => !document.querySelector(`{card}`).textContent.includes('zeta')")
+    page.context.close()
+    assert tags_of(session.first) == before
+
+
 def test_a_view_forgotten_is_undone(browser, session) -> None:
     first = {"camera": CAMERA, "frame": 3}
     _save(session, "one", first)
@@ -248,3 +273,60 @@ def test_a_config_loaded_is_a_step_of_its_own(browser, builder) -> None:
     once = page.input_value(ph)
     page.context.close()
     assert once == "9.1"
+
+
+def test_a_stop_undone_is_the_one_shown(browser, builder) -> None:
+    """Undone, the ceiling of a study run until it is determined showed the
+    value undone, from the rows' own copy, while the config held the one
+    put back; the next edit there wrote the shown one back."""
+    page = _page(browser, builder, "#run")
+    page.wait_for_function("() => window.FastMDXRun && window.FastMDXRun.state.schema")
+    page.click("#run-start [data-start='structure']")
+    page.fill("#run-system", str(builder.peptide))
+    page.wait_for_selector('#run-settings [data-setting="ph"] input')
+    page.click('#run-length-mode [data-value="until"]')
+    field = page.locator('[data-setting="stop_when"]')
+    row = field.locator(".builder-stopping-row").first
+    row.locator(".builder-stopping-analysis").select_option("rmsd")
+    row.locator(".builder-stopping-amount").fill("0.01")
+    row.locator(".builder-stopping-amount").dispatch_event("change")
+    ceiling = field.locator(".builder-stopping-ceiling")
+    ceiling.fill("50")
+    ceiling.dispatch_event("change")
+    page.click("#run-summary-panel")
+    ceiling.fill("123")
+    ceiling.dispatch_event("change")
+    page.click("#run-summary-panel")
+    page.keyboard.press("Control+z")
+    shown = field.locator(".builder-stopping-ceiling").input_value()
+    built = page.evaluate("() => window.FastMDXRun.fetchConfig()")
+    page.context.close()
+    import yaml
+
+    assert shown == "50"
+    assert yaml.safe_load(built["yaml"])["simulation"]["stop_when"]["max_duration_ns"] == 50
+
+
+def test_undo_goes_on_from_a_field_it_changed(browser, builder) -> None:
+    """Once an undo step had changed the field the keyboard was in, Cmd+Z
+    there was left to the browser, which had nothing to undo: stuck."""
+    page = _page(browser, builder, "#run")
+    page.wait_for_function("() => window.FastMDXRun && window.FastMDXRun.state.schema")
+    page.click("#run-start [data-start='structure']")
+    page.fill("#run-system", str(builder.peptide))
+    ph = '#run-settings [data-setting="ph"] input'
+    page.wait_for_selector(ph)
+    first = page.input_value(ph)
+    page.fill(ph, "6.5")
+    page.dispatch_event(ph, "change")
+    page.click("#run-output")
+    page.keyboard.type("myrun")
+    page.keyboard.press("Tab")
+    page.click("#run-output")
+    page.keyboard.type("2")
+    seen = []
+    for _ in range(3):
+        page.keyboard.press("Control+z")
+        seen.append((page.input_value("#run-output"), page.input_value(ph)))
+    page.context.close()
+    assert seen == [("myrun", "6.5"), ("", "6.5"), ("", first)], seen

@@ -119,7 +119,15 @@
     // address followed a study opened elsewhere): that study is opened.
     window.addEventListener("popstate", () => {
       const asked = studyInAddress();
-      if (asked && state.addressKnown && asked !== state.studyShown && !state.addressAsking) {
+      // A dialog closed onto the page's step, named before another study
+      // was opened: not the person going Back, so it is not opened again.
+      if (window.FastMDXDialog?.landingOwnStep?.()) {
+        if (state.addressKnown && asked !== studyNamed()) {
+          history.replaceState(history.state, "", addressFor(studyNamed()));
+        }
+        return;
+      }
+      if (asked && state.addressKnown && asked !== studyNamed() && !state.addressAsking) {
         openAsked(asked);
         return;
       }
@@ -814,6 +822,7 @@
     // The folder read, so a listener can tell one study's status from
     // another's (a study opened elsewhere between two polls).
     emit("status-updated", {status, health, times: state.times, study: payload.study || ""});
+    state.studyIsOne = payload.study_named !== false;
     addressTheStudy(payload.study || "");
   }
 
@@ -823,6 +832,12 @@
    * an address naming another study opens it. */
   function studyInAddress() {
     try { return new URL(location.href).searchParams.get("study") || ""; } catch (e) { return ""; }
+  }
+
+  // The open study as the address names it: a folder not yet a study,
+  // which cannot be opened again as one, is not named.
+  function studyNamed() {
+    return state.studyIsOne === false ? "" : (state.studyShown || "");
   }
 
   function addressFor(key, hash) {
@@ -875,6 +890,13 @@
     // put right to it, rather than the study before opened again.
     const how = performance.getEntriesByType?.("navigation")?.[0]?.type;
     if (how === "reload") return;
+    // A link from another site does not choose the study shown here.
+    let from = "";
+    try { from = document.referrer ? new URL(document.referrer).origin : ""; } catch (error) { from = "elsewhere"; }
+    if (from && from !== location.origin) {
+      state.addressRefused = "An address from another site does not open a study here.";
+      return;
+    }
     // Already open: nothing is asked of the server (a GUI watched from
     // another machine may not switch, and need not).
     try {
@@ -903,8 +925,8 @@
         return;
       }
     }
-    if (asked !== key && !state.addressAsking) {
-      history.replaceState(history.state, "", addressFor(key));
+    if (asked !== studyNamed() && !state.addressAsking) {
+      history.replaceState(history.state, "", addressFor(studyNamed()));
     }
   }
 
@@ -920,7 +942,10 @@
     showToast((answer && answer.error) || "The study this address names could not be opened.",
               "warning");
     state.addressAsking = false;
-    history.replaceState(history.state, "", addressFor(state.studyShown || ""));
+    history.replaceState(history.state, "", addressFor(studyNamed()));
+    // The page the step names, with the study open: address and page agree.
+    followAddress();
+    headTheShownPage();
   }
 
   /* The Overview's blocks in the order they are read, in the page itself,
@@ -2310,13 +2335,21 @@
       button.textContent = action.label;
       // Said with what it undoes, as it is reached with Tab.
       button.setAttribute("aria-label", `${action.label}: ${message}`);
+      // What made the change, for the keyboard to go back to after Undo.
+      const from = document.activeElement;
       button.addEventListener("click", () => {
         toast.classList.remove("show");
         toast.style.pointerEvents = "";
+        const hadFocus = document.activeElement === button;
         button.remove();
+        if (hadFocus && from && from !== document.body && document.contains(from)) {
+          from.focus({preventScroll: true});
+        }
         action.run();
       }, {once: true});
-      toast.append(" ", button);
+      // Spaced from the message by itself, so nothing is left when it goes.
+      button.style.marginLeft = "0.5em";
+      toast.append(button);
     }
     toast.classList.add("show");
     const hide = () => {
@@ -2334,7 +2367,8 @@
       // Kept while the person is on it, with the keyboard or the pointer.
       const button = toast.querySelector(".dashboard-toast-action");
       const hold = () => window.clearTimeout(showToast.timer);
-      const go = () => wait(4000);
+      // Not while the keyboard is still on it.
+      const go = () => { if (document.activeElement !== button) wait(4000); };
       button.addEventListener("focus", hold);
       button.addEventListener("mouseenter", hold);
       button.addEventListener("blur", go);
