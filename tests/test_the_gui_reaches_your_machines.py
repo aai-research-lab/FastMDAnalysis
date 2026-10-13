@@ -880,7 +880,8 @@ class TestTheConfigBuilder:
             "outside the workspace is sent from here.")
         # remote-b5's round 3: a blank name read as " is not a config file".
         _, blank = _ask(address, "/api/remote/plan", {"config": "  ", "machine": "box"})
-        assert blank["error"] == "No config file was named."
+        assert blank["error"] == ("No config file was named. Give the full path of the "
+                                  "config to send.")
 
     def test_a_window_on_the_home_folder_is_told_the_copy_way(
             self, machine, tmp_path, monkeypatch):
@@ -941,13 +942,16 @@ class TestTheConfigBuilder:
         # A place of keys by name (`.config/gh`) or by a link on the way is
         # not looked into: it reads as no config file. Others say the place.
         for named in (home / ".config" / "gh" / "hosts.yml",
+                      home / ".config" / "doctl" / "config.yaml",
                       home / "proj" / "keys" / "c.yml"):
             said = desk.plan(str(named), "box")
             assert said["ok"] is False and "is not a config file in" in said["error"], named
-        for named in (home / ".config" / "doctl" / "config.yaml", home / "proj" / "c.yml"):
-            said = desk.plan(str(named), "box")
-            assert said["ok"] is False and said["code"] == "remote.input.outside", named
-            assert "a place keys or settings are kept" in said["error"], named
+        said = desk.plan(str(home / "proj" / "c.yml"), "box")
+        assert said["ok"] is False and said["code"] == "remote.input.outside"
+        assert said["error"] == (
+            f"The results folder {home / '.ssh' / 'run'} is in {home / '.ssh'}, where keys "
+            "or settings are kept, so nothing is fetched into it. Name a results folder "
+            "outside such places (`--output`, or `output` in the config).")
         assert not _sent(machine)
         # The command line refuses them as well, config and results.
         for config, output in ((home / ".config" / "gh" / "hosts.yml", None),
@@ -957,7 +961,115 @@ class TestTheConfigBuilder:
                 send.prepare(config, "box", output=output)
             found = refusal_of(caught.value)
             assert found.code == "remote.input.outside", config
-            assert "a place keys or settings are kept" in found.message, config
+            assert "where keys or settings are kept" in found.message, config
+
+    def test_settings_kept_by_a_link_or_by_name_never_travel(
+            self, served, tmp_path, monkeypatch):
+        """remote-b6's round 1: a settings folder kept elsewhere by a link
+        (`~/.config/gh -> ~/dotfiles/gh`) was sent from a window on the home
+        folder, token and all, and from anywhere when named where it really
+        is; a key under `~/.ssh -> ~/dotfiles/ssh` travelled as an input; a
+        settings folder named by `XDG_CONFIG_HOME` or kept in `~/Library`,
+        and a prepared study in `~/.local/share`, were sent too."""
+        import pwd
+
+        from fastmdxplora.refusals import refusal_of
+        from fastmdxplora.remote import send
+        from fastmdxplora.remote.inputs import gather_inputs, kept_place_of
+
+        _, machine = served
+        home = (tmp_path / "account").resolve()
+        study = machine.study.read_text()
+        pdb = (machine.study.parent / "top.pdb").read_text()
+        gh = home / "dotfiles" / "gh"
+        gh.mkdir(parents=True)
+        (gh / "hosts.yml").write_text(study + "oauth_token: gho_SECRET\n")
+        (gh / "top.pdb").write_text(pdb)
+        (home / ".config").mkdir()
+        (home / ".config" / "gh").symlink_to(gh)
+        (home / "dotfiles" / "ssh").mkdir()
+        (home / "dotfiles" / "ssh" / "id_ed25519").write_text("KEY\n")
+        (home / ".ssh").symlink_to(home / "dotfiles" / "ssh")
+        conf = home / "conf" / "doctl"
+        conf.mkdir(parents=True)
+        (conf / "c.yml").write_text(study)
+        support = home / "Library" / "Application Support" / "tool"
+        support.mkdir(parents=True)
+        (support / "c.yml").write_text(study)
+        cloud = home / "Library" / "CloudStorage" / "Dropbox" / "s"
+        cloud.mkdir(parents=True)
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(home / "conf"))
+        desk = RemoteDesk(DashboardRuntime(workspace_root=home, exploration_root=home.parent))
+        for named in (home / ".config" / "gh" / "hosts.yml", gh / "hosts.yml",
+                      conf / "c.yml", support / "c.yml"):
+            said = desk.plan(str(named), "box")
+            assert said["ok"] is False, named
+            with pytest.raises(Exception) as caught:
+                send.prepare(named, "box")
+            assert refusal_of(caught.value).code == "remote.input.outside", named
+        assert not _sent(machine)
+        # The person's own files there are not kept apart.
+        assert kept_place_of(cloud / "c.yml", a_file=True) is None
+        # A key reached through the link is not sent as an input.
+        with pytest.raises(Exception) as caught:
+            gather_inputs({"systems": [{"system": "top.pdb"}], "keys": "ssh/id_ed25519"},
+                          home / "dotfiles")
+        assert refusal_of(caught.value).code == "remote.input.outside"
+        assert "keys and credentials are kept" in refusal_of(caught.value).message
+        # Nor a prepared study kept in a settings folder.
+        prepared = home / ".local" / "share" / "tool"
+        prepared.mkdir(parents=True)
+        (prepared / "manifest.json").write_text('{"phases": ["setup"]}')
+        (home / ".local" / "share" / "s.yml").write_text(study)
+        with pytest.raises(Exception) as caught:
+            gather_inputs({"systems": [{"system": "top.pdb"}],
+                           "simulation": {"resume_from": str(prepared)}},
+                          home / "proj")
+        assert refusal_of(caught.value).code == "remote.input.outside"
+        assert "keys and credentials are kept" in refusal_of(caught.value).message
+
+    def test_the_place_named_is_the_folder_and_only_home_s_own_dot_folders(
+            self, tmp_path, monkeypatch):
+        """remote-b6's round 1: the refusal named the file as the place keys
+        are kept, and took the person's own dot folders at any depth
+        (`~/projects/.hidden`) for places of settings; a home folder typed
+        in other letters on a disk that ignores them was not seen."""
+        import pwd
+
+        from fastmdxplora.remote import inputs
+        from fastmdxplora.remote.inputs import kept_place_of
+
+        home = (tmp_path / "account").resolve()
+        (home / ".ssh" / "s1").mkdir(parents=True)
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        assert kept_place_of(home / ".ssh" / "s1" / "study.yml", a_file=True) == home / ".ssh"
+        assert kept_place_of(home / ".ssh" / "run") == home / ".ssh"
+        assert kept_place_of(home / ".config" / "x" / "c.yml", a_file=True) == home / ".config"
+        for own in (home / "projects" / ".hidden" / "study.yml",
+                    home / "md" / "s2" / ".runs" / "r1" / "c.yml"):
+            assert kept_place_of(own, a_file=True) is None, own
+        monkeypatch.setattr(inputs.sys, "platform", "darwin")
+        typed = Path(str(home).upper()) / ".config" / "x" / "c.yml"
+        assert kept_place_of(typed, a_file=True) is not None
+
+    def test_a_config_that_cannot_be_read_is_said_without_its_lines(self, served):
+        """remote-b6's round 1: a config that could not be read was said with
+        the YAML reader's message, which quotes a line of the file."""
+        address, machine = served
+        bad = machine.study.parent / "bad.yml"
+        bad.write_text("token: SECRET_LINE: [\n")
+        _, said = _ask(address, "/api/remote/plan", {"config": str(bad), "machine": "box"})
+        assert said["ok"] is False and "could not be read" in said["error"]
+        assert "SECRET_LINE" not in said["error"]
 
     def test_a_name_through_a_link_into_a_place_of_keys_is_not_followed(
             self, served, tmp_path, monkeypatch):

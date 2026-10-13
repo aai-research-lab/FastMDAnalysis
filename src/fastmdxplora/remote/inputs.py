@@ -39,6 +39,7 @@ import os
 import re
 import stat
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -46,8 +47,8 @@ from typing import Any
 from fastmdxplora.refusals import StudyError
 
 __all__ = ["Inputs", "fingerprint_of", "gather_inputs", "link_out_of", "outside_said",
-           "kept_place_of", "private_in", "refuse_home_or_above", "refuse_kept_place",
-           "size_of"]
+           "kept_place_of", "kept_place_said", "private_in", "refuse_home_or_above",
+           "refuse_kept_place", "size_of"]
 
 #: Settings that name where results go rather than something to read.
 _NOT_INPUTS = frozenset({"output"})
@@ -229,7 +230,66 @@ def _settings_kept() -> tuple[str, ...]:
         except (OSError, RuntimeError, ValueError):
             continue
     return tuple(str(settings / name) for settings in dict.fromkeys(places)
-                 for name in _SETTINGS_KEPT)
+                 for name in _SETTINGS_KEPT) + _kept_by_name_or_link()
+
+
+#: Names directly in a home folder where programs keep settings, beside the
+#: folders whose names start with a dot.
+_HOME_SETTINGS = frozenset({"appdata", "library"})
+#: Folders in the home folder's ``Library`` that hold the person's own files.
+_LIBRARY_FILES = frozenset({"cloudstorage", "mobile documents"})
+
+_KEPT_CACHE: dict[tuple, tuple[float, tuple[str, ...]]] = {}
+
+
+def _kept_by_name_or_link() -> tuple[str, ...]:
+    """Where settings and keys are kept that no dot names: the folders
+    ``XDG_CONFIG_HOME``, ``XDG_DATA_HOME``, ``APPDATA`` and ``LOCALAPPDATA``
+    name, and where links lead from a home folder's settings (``~/.ssh ->
+    ~/dotfiles/ssh``, ``~/.config/gh -> ~/dotfiles/gh``, a single file in
+    one), each resolved. Looked up again after ten seconds at most."""
+    homes = tuple(home_folders())
+    named = tuple(os.environ.get(name, "") for name in
+                  ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "APPDATA", "LOCALAPPDATA"))
+    key = (homes, named)
+    now = time.monotonic()
+    kept = _KEPT_CACHE.get(key)
+    if kept is not None and now - kept[0] < 10:
+        return kept[1]
+    found: list[Path] = []
+    bases = [Path(text).expanduser() for text in named if text]
+    for home in homes:
+        bases += [home / ".config", home / ".local" / "share"]
+        try:
+            entries = list(home.iterdir())
+        except OSError:
+            entries = []
+        found += [entry for entry in entries if entry.is_symlink() and (
+            entry.name.startswith(".") or entry.name.casefold() in _HOME_SETTINGS)]
+    for base in bases:
+        # A folder named for settings that is a home folder or above it
+        # would keep everything back; such a name is a mistake, not a place.
+        if home_or_above(base.resolve(), home_unknown=True):
+            continue
+        try:
+            found.append(base)
+            for child in base.iterdir():
+                if child.is_symlink():
+                    found.append(child)
+                elif child.is_dir():
+                    found += [inner for inner in child.iterdir() if inner.is_symlink()]
+        except OSError:
+            continue
+    places = []
+    for place in found:
+        try:
+            places.append(str(place.resolve()))
+        except (OSError, RuntimeError, ValueError):
+            continue
+    kept = tuple(dict.fromkeys(places))
+    _KEPT_CACHE.clear()
+    _KEPT_CACHE[key] = (now, kept)
+    return kept
 
 
 def _private(path: Path, kept: tuple[str, ...] = ()) -> bool:
@@ -440,28 +500,37 @@ def outside_said(where: str, given: str, found: Path, folder: Path,
 def kept_place_of(path: Path, *, a_file: bool = False) -> Path | None:
     """The place keys or settings are kept that ``path`` is in, as named or
     where its links lead, or None: one of :data:`_PRIVATE_PARTS` or the
-    pairs, FastMDXplora's own settings, or, inside a home folder, a folder
-    whose name starts with a dot (``~/.config/<tool>``, ``~/.local``) or
-    ``AppData``; of ``a_file``, its folders only. A study's config there,
-    or its results, never travel."""
+    pairs, FastMDXplora's own settings, a folder settings are kept in by
+    name or by a link (:func:`_kept_by_name_or_link`), or a folder directly
+    in a home folder whose name starts with a dot (``~/.config``,
+    ``~/.local``), or that is ``AppData`` or ``Library`` (its
+    ``CloudStorage`` and ``Mobile Documents`` aside); of ``a_file``, its
+    folders only. A study's config there, or its results, never travel."""
     kept = _settings_kept()
-    places = [Path(os.path.normpath(path))]
+    places = [Path(os.path.normpath(Path(path).expanduser()))]
     try:
-        places.append(path.resolve())
+        places.append(Path(path).expanduser().resolve())
     except (OSError, RuntimeError, ValueError):
         pass
     homes = home_folders()
     for place in places:
-        if _private(place, kept):
-            return place
+        parts = place.parts[:-1] if a_file else place.parts
+        for depth in range(1, len(parts) + 1):
+            if _private(Path(*parts[:depth]), kept):
+                return Path(*parts[:depth])
+        text = _as_the_disk_reads(str(place))
         for home in homes:
-            try:
-                rest = place.relative_to(home).parts
-            except ValueError:
+            start = _as_the_disk_reads(str(home)) + os.sep
+            if not text.startswith(start):
                 continue
-            for depth, part in enumerate(rest[:-1] if a_file else rest):
-                if part.startswith(".") or part.casefold() == "appdata":
-                    return home.joinpath(*rest[:depth + 1])
+            rest = Path(str(place)[len(start):]).parts
+            if len(rest) < (2 if a_file else 1):
+                continue
+            first = rest[0]
+            if first.startswith(".") or first.casefold() == "appdata" or (
+                    first.casefold() == "library"
+                    and (len(rest) < 2 or rest[1].casefold() not in _LIBRARY_FILES)):
+                return home / first
     return None
 
 
@@ -472,12 +541,21 @@ def refuse_kept_place(path: Path, *, results: bool = False) -> None:
     place = kept_place_of(Path(path), a_file=not results)
     if place is None:
         return
-    what = "results folder" if results else "config"
-    raise StudyError(
-        f"The {what} {path} is in {place}, a place keys or settings are kept, so "
-        "nothing is sent with it. Put the study's config and its files in a folder "
-        "of their own, and its results outside such places.",
-        code="remote.input.outside", given=str(path), where="", folder=str(place))
+    raise StudyError(kept_place_said(path, place, results=results),
+                     code="remote.input.outside", given=str(path), where="",
+                     folder=str(place))
+
+
+def kept_place_said(path: Any, place: Path, *, results: bool = False) -> str:
+    """Why a config or a results folder in a place keys or settings are kept
+    is refused, with what to do instead."""
+    if results:
+        return (f"The results folder {path} is in {place}, where keys or settings are "
+                "kept, so nothing is fetched into it. Name a results folder outside "
+                "such places (`--output`, or `output` in the config).")
+    return (f"The config {path} is in {place}, where keys or settings are kept, so it "
+            "is not sent. Put the study's config and its files in a folder of their "
+            "own.")
 
 
 def refuse_home_or_above(folder: Path) -> None:
@@ -536,6 +614,9 @@ def gather_inputs(config: Any, base: Path) -> Inputs:
                 held_to = None
         link = None if held_to is None else link_out_of(path, held_to)
         kept = None if held_to is None or link is not None else private_in(path)
+        if kept is None and held_to is not None and link is None:
+            # A prepared study kept where programs keep settings.
+            kept = kept_place_of(path)
         if kept is not None:
             raise StudyError(
                 f"`{where}` names {given}, "

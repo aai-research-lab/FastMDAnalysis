@@ -227,11 +227,16 @@ since its folder could be your home folder (set `HOME` and send it again);
 and nothing in a place keys and credentials are kept (`.ssh`,
 `.gnupg`, `.aws`, `.kube` and the like, and FastMDXplora's own settings) is
 ever sent: a folder that travels is refused if one is anywhere in it, reached
-directly or through a link. Nor is a Config kept in such a place, or in a
-folder of your home folder whose name starts with a dot (`~/.config/<tool>`,
-`~/.local`) or is `AppData`, where other programs keep their settings and
-tokens, as named or where a link leads; and no results folder is fetched
-into one. The link and key checks are made again as the copy starts.
+directly or through a link. Nor is a Config, or a prepared study it names,
+kept where programs keep their settings and tokens, and no results folder
+is fetched into such a place: a folder directly in your home folder whose
+name starts with a dot (`~/.config`, `~/.local`), or that is `AppData` or
+`Library` (its `CloudStorage` and `Mobile Documents` aside); the folders
+`XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `APPDATA` and `LOCALAPPDATA` name; and
+wherever a link from one of these leads (`~/.config/gh -> ~/dotfiles/gh`).
+Each is judged as named and where links lead. Your own folders whose names
+start with a dot deeper down (`~/projects/.runs`) are not such places. The
+link and key checks are made again as the copy starts.
 
 **Your defaults travel in the Config.** A `fastmdx-defaults.yml` beside the
 Config or above it fills what the Config leaves unset here, as `explore -c`

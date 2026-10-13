@@ -209,6 +209,8 @@ def _through_keys(name: Any, root: Path | None = None) -> bool:
             named = root / named
         named = Path(os.path.normpath(named))
         kept = _settings_kept()
+        if _private(named, kept):
+            return True
         # Each folder on the way, where its links lead.
         for depth in range(2, len(named.parts) + 1):
             if _private(Path(*named.parts[:depth]).resolve(), kept):
@@ -394,71 +396,25 @@ class RemoteDesk:
     def _kept_apart(file: Path) -> bool:
         """Whether ``file`` is, or is in, or beside, a place keys or settings
         may be kept, and so is told no way to be sent, whatever it holds: a
-        name starting with a dot, a folder whose name starts with a dot or
-        is ``AppData`` anywhere above it, the home folder's own ``Library``
-        (not its cloud folders), a place keys and credentials are kept,
-        FastMDXplora's settings or where this system keeps settings
-        (``XDG_CONFIG_HOME``, ``XDG_DATA_HOME``, ``APPDATA``,
-        ``LOCALAPPDATA``), and a folder holding any of these."""
-        import os
-
-        from fastmdxplora.remote.inputs import (
-            _PRIVATE_PARTS,
-            _private,
-            _settings_kept,
-            home_folders,
-        )
-        from fastmdxplora.user_dir import user_config_dir
+        name starting with a dot; a place :func:`kept_place_of` finds (by
+        name or where links lead); a folder whose name starts with a dot or
+        is ``AppData`` anywhere above it; or a folder holding a place of
+        keys, ``.config`` or ``.local``, or, for a home folder, ``Library``."""
+        from fastmdxplora.remote.inputs import _PRIVATE_PARTS, home_folders, kept_place_of
 
         if file.name.startswith(".") or file.name.casefold() in _PRIVATE_PARTS:
             return True
-        kept = _settings_kept()
+        if kept_place_of(file, a_file=True) is not None:
+            return True
         folder = file.parent
-        places = (folder, folder.resolve())
-        for place in places:
+        for place in (folder, folder.resolve()):
             if any(part.startswith(".") or part.casefold() == "appdata"
                    for part in place.parts[1:]):
                 return True
-        homes = home_folders()
-        for home in homes:
-            library = home / "Library"
-            for place in places:
-                if place == library or library in place.parents:
-                    rest = place.relative_to(library).parts
-                    if not rest or rest[0] not in ("CloudStorage", "Mobile Documents"):
-                        return True
-        bases = {Path(place).parent for place in kept}
-        for name in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "APPDATA", "LOCALAPPDATA"):
-            if os.environ.get(name):
-                bases.add(Path(os.environ[name]).expanduser())
-        if not os.environ.get("FASTMDXPLORA_CONFIG_DIR"):
-            # The folder this system keeps settings in (`~/.config`), where
-            # FastMDXplora's own are not moved elsewhere by name.
-            try:
-                bases.add(user_config_dir().parent)
-            except (OSError, RuntimeError, ValueError):
-                pass
-        for home in homes:
-            bases.update((home / ".config", home / ".local" / "share"))
-        resolved = set()
-        for base in bases:
-            try:
-                resolved.add(base.resolve())
-                # A settings folder kept elsewhere by a link in it (a
-                # dotfiles folder, `~/.config/gh -> ~/dotfiles/gh`).
-                if base.is_dir():
-                    resolved.update(child.resolve() for child in base.iterdir()
-                                    if child.is_symlink())
-            except (OSError, RuntimeError, ValueError):
-                resolved.add(base)
-        if _private(file, kept) or any(
-                place == base or base in place.parents or place in base.parents
-                for base in resolved for place in places):
-            return True
         # Its folder would be opened, and its pages list what is in it: each
         # name looked for, not the folder listed, which may be large.
         beside = [*_PRIVATE_PARTS, ".config", ".local"]
-        if any(_same_file(folder, home) for home in homes):
+        if any(_same_file(folder, home) for home in home_folders()):
             beside.append("Library")
         return any((folder / name).exists() for name in beside)
 
@@ -697,28 +653,38 @@ class RemoteDesk:
                 f"{config} is not a config file in " + (
                     self._workspace() if _absolute(config) else str(self.root)) + "."
                 + self._copy_way())
+        import os
+
+        from fastmdxplora.remote.inputs import kept_place_of, kept_place_said
+
+        def as_given(name: Any) -> Path:
+            named = Path(str(name).strip()).expanduser()
+            return Path(os.path.normpath(named if named.is_absolute() else self.root / named))
+
+        # In a window on the home folder its places of settings are inside:
+        # judged as named and where links lead, before the file is read.
+        place = kept_place_of(as_given(config), a_file=True) or kept_place_of(
+            file, a_file=True)
+        if place is not None:
+            return None, None, _refused(kept_place_said(str(config).strip(), place),
+                                        "remote.input.outside")
         try:
             raw = yaml.safe_load(file.read_text(encoding="utf-8"))
         except (OSError, ValueError, yaml.YAMLError) as exc:
-            return None, None, _refused(f"{self.shown(file)} could not be read: {exc}")
+            # What was wrong, without the file's own lines.
+            why = getattr(exc, "problem", None) or type(exc).__name__
+            return None, None, _refused(f"{self.shown(file)} could not be read: {why}.")
         requested = str((raw or {}).get("output") or file.with_suffix("")) if isinstance(
             raw, dict) else str(file.with_suffix(""))
         output = self.inside(requested)
         if output is None:
             return None, None, _refused(f"The results folder {requested} is outside "
-                                        f"{self._workspace()}.")
-        from fastmdxplora.remote.inputs import kept_place_of
-
-        # In a window on the home folder, its places of settings are inside.
-        for what, path, a_file in (("config", file, True),
-                                   ("results folder", output, False)):
-            place = kept_place_of(path, a_file=a_file)
-            if place is not None:
-                return None, None, _refused(
-                    f"The {what} {self.shown(path)} is in {place}, a place keys or "
-                    "settings are kept, so nothing is sent with it. Put the study's "
-                    "config and its files in a folder of their own, and its results "
-                    "outside such places.", "remote.input.outside")
+                                        f"{self._workspace()}. Set `output` in the config "
+                                        f"to a new folder inside it.", "remote.input.outside")
+        place = kept_place_of(as_given(requested)) or kept_place_of(output)
+        if place is not None:
+            return None, None, _refused(kept_place_said(requested, place, results=True),
+                                        "remote.input.outside")
         return file, output, None
 
     def _saved(self, state: dict[str, Any]
@@ -825,7 +791,8 @@ class RemoteDesk:
             # (a machine's record is found through the home folder too).
             return _refused(_NO_HOME, "remote.input.outside")
         if not isinstance(state, dict) and not str(config or "").strip():
-            return _refused("No config file was named.")
+            return _refused("No config file was named. Give the full path of the config "
+                            "to send.")
         if not config and isinstance(state, dict):
             from fastmdxplora.remote.machines import load_machine
 
