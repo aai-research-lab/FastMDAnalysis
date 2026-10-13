@@ -113,12 +113,14 @@ class TestSetupHandsPreparationOneMoleculePerFile:
                             ligand_name=["XX1", "XX2"])
         assert solvate.call_args.kwargs["ligand_name"] == ["XX1", "XX2"]
 
-    def test_one_charge_for_several_molecules_is_refused(self, tmp_path, monkeypatch) -> None:
-        from fastmdxplora.refusals import StudyError
-
+    def test_one_charge_reaches_every_molecule_as_it_does_for_separate_files(
+            self, tmp_path, monkeypatch) -> None:
+        """A stated charge is checked against each molecule's own formal
+        charges and never substituted for them, so one number is as safe for
+        an expanded file as it is for a list of files."""
         src = _write(tmp_path / "set.sdf", SDF.format(title="AAA") + SDF.format(title="BBB"))
-        with pytest.raises(StudyError, match="one charge per molecule"):
-            self._run(tmp_path, monkeypatch, ligand=str(src), ligand_net_charge=1)
+        solvate = self._run(tmp_path, monkeypatch, ligand=str(src), ligand_net_charge=0)
+        assert solvate.call_args.kwargs["ligand_net_charge"] == 0
 
     def test_a_charge_per_molecule_is_accepted(self, tmp_path, monkeypatch) -> None:
         src = _write(tmp_path / "set.sdf", SDF.format(title="AAA") + SDF.format(title="BBB"))

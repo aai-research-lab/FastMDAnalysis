@@ -1065,16 +1065,6 @@ def run(
 
         expanded = expand_ligand_files(params["ligand"], Path(setup_dir) / "ligands")
         if expanded is not params["ligand"]:
-            charge = params.get("ligand_net_charge")
-            if charge is not None and not isinstance(charge, (list, tuple)):
-                # One number cannot be right for several different molecules,
-                # and applying it to each would be a guess.
-                raise StudyError(
-                    f"`ligand_net_charge` is {charge:+d}, a single number, but "
-                    f"the ligand file holds {len(expanded)} molecules. Give one "
-                    "charge per molecule as a list, or leave it out and let each "
-                    "molecule's own formal charges decide."
-                , code="config.option.conflicting")
             params["ligand"] = expanded
         # `ligand_name` carries a default, and a default counted as a name
         # given for every ligand, so two files with no names were refused for
