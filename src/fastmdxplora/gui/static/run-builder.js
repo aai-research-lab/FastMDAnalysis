@@ -3422,6 +3422,9 @@
     }
     const { from: origin, note } = options;
     openedAConfig = true;
+    // The form as it was, so the config loaded (the Agent's, a file
+    // opened) is one step of its own for Cmd+Z, not the next edit's.
+    beforeActing();
     const snap = snapshotOfLoaded(from);
     state.start = snap.start;
     state.phases = new Set(snap.phases);
@@ -3451,6 +3454,7 @@
     describeOutput();
     if (note) text(el("run-note"), note);
     saveDraft();
+    afterActing();
     return undefined;
   }
 

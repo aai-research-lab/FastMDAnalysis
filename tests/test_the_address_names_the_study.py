@@ -154,3 +154,39 @@ def test_back_to_a_step_not_yet_naming_the_study_opens_its_page(browser, session
     errors = page.errors
     page.context.close()
     assert errors == []
+
+
+def test_a_reload_keeps_the_study_opened_elsewhere(browser, session) -> None:
+    """Another study's conversation opened from the Agent's list switches
+    the server and reloads the page: the address, naming the study before,
+    opened that one again."""
+    page = _open(browser, session)
+    _named(page, session.first)
+    page.evaluate("""(folder) => fetch('/api/explore/switch', {method: 'POST',
+        headers: {'content-type': 'application/json'}, body: JSON.stringify({folder})})""",
+                  str(session.second))
+    page.reload(wait_until="domcontentloaded")
+    _named(page, session.second)
+    errors = page.errors
+    page.context.close()
+    assert errors == []
+
+
+def test_an_address_naming_the_open_study_asks_nothing(browser, session) -> None:
+    """A dashboard watched from another machine may not switch: a page
+    opened on the study already open asked to, was refused, and said so."""
+    import json
+    import urllib.request
+
+    with urllib.request.urlopen(session.url.rstrip("/") + "/api/status", timeout=30) as answer:
+        key = json.loads(answer.read())["study"]
+    page = browser.new_context(viewport={"width": 1440, "height": 900}).new_page()
+    page.set_default_timeout(60000)
+    asked = []
+    page.on("request", lambda request: asked.append(request.url)
+            if "/api/explore/switch" in request.url else None)
+    page.goto(session.url.rstrip("/") + f"/?study={key}#overview", wait_until="domcontentloaded")
+    page.wait_for_function("() => document.body.classList.contains('state-ready')")
+    page.wait_for_timeout(1500)
+    page.context.close()
+    assert asked == []

@@ -8,7 +8,6 @@ and caches the result.
 
 from __future__ import annotations
 
-import hashlib
 import io
 import csv
 import json
@@ -839,6 +838,7 @@ def make_handler(
                 status = status_as_it_stands(root)
                 metrics = read_metrics(root)
                 from fastmdxplora.gui.simulated_time import simulated_times
+                from fastmdxplora.gui.workspace import study_key
 
                 payload = {
                     "status": status,
@@ -855,7 +855,7 @@ def make_handler(
                     # this computer): a page told of a run ending tells it
                     # from another study's status, read as a study was
                     # opened elsewhere between two polls.
-                    "study": hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:16],
+                    "study": study_key(root),
                 }
                 self._send_json(payload)
                 return

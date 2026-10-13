@@ -19,6 +19,8 @@ from tests.test_the_workspace_says_its_studies import _study
 
 pytest.importorskip("playwright.sync_api")
 
+from fastmdxplora.gui.workspace import study_key  # noqa: E402
+
 CAMERA = {"position": [1.0, 2.0, 30.0], "target": [1.0, 2.0, 3.0], "up": [0.0, 1.0, 0.0],
           "radius": 12.5, "fov": 0.785, "mode": "perspective"}
 
@@ -121,6 +123,53 @@ def test_a_view_forgotten_is_undone(browser, session) -> None:
     assert errors == []
 
 
+def test_undo_is_offered_while_it_shows_and_not_after(browser, session) -> None:
+    """Hidden after its ten seconds, the notice kept its Undo in the page:
+    reached with Tab and pressed, it undid a change long after. Kept while
+    the person is on it."""
+    page = _page(browser, session, "#overview")
+    page.wait_for_function("() => document.body.classList.contains('state-ready')")
+    page.evaluate("""() => { window.__undone = 0; window.FastMDXDashboard.toast('Kept it.', 'ok',
+        {label: 'Undo', run: () => { window.__undone += 1; }}); }""")
+    page.focus("#dashboard-toast .dashboard-toast-action")
+    page.wait_for_timeout(11000)
+    held = page.evaluate("""() => [document.getElementById('dashboard-toast').classList.contains('show'),
+        document.querySelector('#dashboard-toast .dashboard-toast-action').getAttribute('aria-label')]""")
+    page.evaluate("() => document.activeElement.blur()")
+    page.wait_for_timeout(4500)
+    left = page.evaluate("() => document.querySelectorAll('#dashboard-toast .dashboard-toast-action').length")
+    page.context.close()
+    assert held == [True, "Undo: Kept it."]
+    assert left == 0
+
+
+def test_a_view_is_not_undone_into_another_study(browser, session) -> None:
+    """Undo pressed after another study was opened saved or forgot the view
+    in that study."""
+    _save(session, "two", {"camera": CAMERA, "frame": 1})
+    page = _page(browser, session, "#viewer")
+    page.wait_for_selector("#viewer-views option[value='two']", state="attached")
+    hooks.tool(page, "side-saved")
+    page.select_option("#viewer-views", "two")
+    page.click("#viewer-view-forget")
+    page.wait_for_selector("#dashboard-toast.show .dashboard-toast-action")
+    page.evaluate("""(folder) => fetch('/api/explore/switch', {method: 'POST',
+        headers: {'content-type': 'application/json'}, body: JSON.stringify({folder})})""",
+                  str(session.workspace / "mutant"))
+    page.wait_for_function("(key) => window.FastMDXDashboard.state.studyShown === key",
+                           arg=study_key(session.workspace / "mutant"))
+    page.click("#dashboard-toast .dashboard-toast-action")
+    page.wait_for_timeout(1000)
+    elsewhere = _views(session)
+    said = page.text_content("#dashboard-toast")
+    page.evaluate("""(folder) => fetch('/api/explore/switch', {method: 'POST',
+        headers: {'content-type': 'application/json'}, body: JSON.stringify({folder})})""",
+                  str(session.first))
+    page.context.close()
+    assert elsewhere == []
+    assert "another study is open" in said
+
+
 @pytest.fixture(scope="module")
 def builder(tmp_path_factory):
     from fastmdxplora.gui import preview
@@ -165,3 +214,37 @@ def test_the_builder_takes_its_edits_back_and_forward(browser, builder) -> None:
     assert float(seen[0][1]) == 6.5 and float(seen[-1][1]) == 8.0
     assert said == "Done again."
     assert errors == []
+
+
+def test_a_config_loaded_is_a_step_of_its_own(browser, builder) -> None:
+    """A config the Agent filled in, then one edit: Cmd+Z took back the
+    edit and the config together, to the form before it."""
+    page = _page(browser, builder, "#run")
+    page.wait_for_function("() => window.FastMDXRun && window.FastMDXRun.state.schema")
+    page.click("#run-start [data-start='structure']")
+    page.fill("#run-system", str(builder.peptide))
+    ph = '#run-settings [data-setting="ph"] input'
+    page.wait_for_selector(ph)
+    page.fill(ph, "6.5")
+    page.dispatch_event(ph, "change")
+    page.click("#run-summary-panel")
+    # A config of the form with another pH, filled in as the Agent's is.
+    import yaml
+
+    built = page.evaluate("() => window.FastMDXRun.fetchConfig()")
+    config = yaml.safe_load(built["yaml"])
+    config.setdefault("setup", {})["ph"] = 9.1
+    path = builder.peptide.parent / "loaded.yml"
+    path.write_text(yaml.safe_dump(config), encoding="utf-8")
+    page.evaluate("""(path) => fetch('/api/load-config', {method: 'POST',
+        headers: {'Content-Type': 'application/json'}, body: JSON.stringify({path})})
+        .then(r => r.json()).then(loaded => window.FastMDXRun.applyLoadedState(loaded.state, {}))""",
+                  str(path))
+    page.wait_for_function(f"() => document.querySelector('{ph}').value === '9.1'")
+    page.fill(ph, "9.2")
+    page.dispatch_event(ph, "change")
+    page.click("#run-summary-panel")
+    page.keyboard.press("Control+z")
+    once = page.input_value(ph)
+    page.context.close()
+    assert once == "9.1"

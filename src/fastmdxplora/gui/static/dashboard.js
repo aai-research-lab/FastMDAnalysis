@@ -119,16 +119,20 @@
     // address followed a study opened elsewhere): that study is opened.
     window.addEventListener("popstate", () => {
       const asked = studyInAddress();
-      if (asked && state.addressSettled && asked !== state.studyShown && !state.addressAsking) {
+      if (asked && state.addressKnown && asked !== state.studyShown && !state.addressAsking) {
         openAsked(asked);
         return;
       }
+      const was = state.activePage;
       followAddress();
+      // Back or Forward to another page: the keyboard and a screen reader
+      // are on its heading, not left on what the page before had.
+      if (state.activePage !== was) headTheShownPage();
     });
     // A page kept by the browser and shown again on Back is read afresh.
     window.addEventListener("pageshow", (event) => {
       if (event.persisted) {
-        state.addressSettled = false;
+        state.addressKnown = false;
         state.addressRecheck = true;
         schedulePoll(0);
       }
@@ -147,6 +151,13 @@
     if (!DIALOG_OF[page] && name === state.activePage
         && (name === "analysis" ? place || "" : "") === (state.activePlace || "")) return;
     navigate(page, {updateHash: false});
+  }
+
+  function headTheShownPage() {
+    const heading = document.querySelector(`.page[data-page="${state.activePage}"] .page-title`);
+    if (!heading || heading.offsetParent === null) return;
+    if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
+    heading.focus({preventScroll: true});
   }
 
   /* Preferences and the citation were pages and are dialogs over the page
@@ -859,6 +870,19 @@
   async function openAskedFirst() {
     const asked = studyInAddress();
     if (!asked) return;
+    // A reload leaves the study the GUI has open (another study's
+    // conversation opened, a study opened in another tab): its address is
+    // put right to it, rather than the study before opened again.
+    const how = performance.getEntriesByType?.("navigation")?.[0]?.type;
+    if (how === "reload") return;
+    // Already open: nothing is asked of the server (a GUI watched from
+    // another machine may not switch, and need not).
+    try {
+      const status = await (await fetch("/api/status", {cache: "no-store"})).json();
+      if (status && status.study === asked) return;
+    } catch (error) {
+      // Asked to switch below; its answer says what went wrong.
+    }
     const answer = await switchToKeyed(asked);
     if (!answer || !answer.ok) {
       state.addressRefused = (answer && answer.error) || "The study this address names could not be opened.";
@@ -868,8 +892,8 @@
   function addressTheStudy(key) {
     const asked = studyInAddress();
     state.studyShown = key;
-    if (!state.addressSettled) {
-      state.addressSettled = true;
+    if (!state.addressKnown) {
+      state.addressKnown = true;
       if (state.addressRefused) showToast(state.addressRefused, "warning");
       state.addressRefused = "";
       // Shown again by the browser on Back, with another study open since.
@@ -2264,7 +2288,18 @@
       toast.setAttribute("role", "status");
       document.body.appendChild(toast);
     }
-    toast.textContent = message;
+    // The message is the status read out; its button beside it, not in it.
+    let said = toast.querySelector(".dashboard-toast-said");
+    if (!said) {
+      toast.removeAttribute("role");
+      toast.textContent = "";
+      said = document.createElement("span");
+      said.className = "dashboard-toast-said";
+      said.setAttribute("role", "status");
+      toast.append(said);
+    }
+    toast.querySelectorAll(".dashboard-toast-action").forEach((old) => old.remove());
+    said.textContent = message;
     toast.setAttribute("data-kind", kind || "ok");
     const offered = action && action.label && typeof action.run === "function";
     toast.style.pointerEvents = offered ? "auto" : "";
@@ -2273,6 +2308,8 @@
       button.type = "button";
       button.className = "file-action dashboard-toast-action";
       button.textContent = action.label;
+      // Said with what it undoes, as it is reached with Tab.
+      button.setAttribute("aria-label", `${action.label}: ${message}`);
       button.addEventListener("click", () => {
         toast.classList.remove("show");
         toast.style.pointerEvents = "";
@@ -2282,11 +2319,27 @@
       toast.append(" ", button);
     }
     toast.classList.add("show");
-    window.clearTimeout(showToast.timer);
-    showToast.timer = window.setTimeout(() => {
+    const hide = () => {
       toast.classList.remove("show");
       toast.style.pointerEvents = "";
-    }, offered ? 10000 : 3500);
+      // Hidden, it is not offered: nothing to reach with Tab and press.
+      toast.querySelectorAll(".dashboard-toast-action").forEach((old) => old.remove());
+    };
+    const wait = (ms) => {
+      window.clearTimeout(showToast.timer);
+      showToast.timer = window.setTimeout(hide, ms);
+    };
+    wait(offered ? 10000 : 3500);
+    if (offered) {
+      // Kept while the person is on it, with the keyboard or the pointer.
+      const button = toast.querySelector(".dashboard-toast-action");
+      const hold = () => window.clearTimeout(showToast.timer);
+      const go = () => wait(4000);
+      button.addEventListener("focus", hold);
+      button.addEventListener("mouseenter", hold);
+      button.addEventListener("blur", go);
+      button.addEventListener("mouseleave", go);
+    }
   }
 
   function escapeHTML(value) {

@@ -44,32 +44,35 @@
   }
 
   /* ---- Back and Forward over a dialog ------------------------------ */
-  // The dialogs that are the same however they are opened.
+  // The dialogs that are the same however they are opened: each has a
+  // step of its own. Those filled for what opened them (the palette, the
+  // Agent's settings, a file's) have none, as Forward could not open them
+  // again; Back closes them with the page's own step.
   var AGAIN = ["prefs-dialog", "cite-dialog", "viewer-help"];
   // The dialogs with a step of their own in the history, the newest last.
   var stepped = [];
   // A step back of a dialog's own on its way: what waits for it to land.
-  var settling = null;
+  var awaited = null;
 
   function stepBack() {
-    var waiting = settling = [];
+    var waiting = awaited = [];
     history.back();
     // Should the browser not answer, nothing waits for ever.
-    setTimeout(function () { if (settling === waiting) land(); }, 600);
+    setTimeout(function () { if (awaited === waiting) land(); }, 600);
   }
   function land() {
-    var waiting = settling || [];
-    settling = null;
+    var waiting = awaited || [];
+    awaited = null;
     waiting.forEach(function (go) { go(); });
   }
   /* A page's own step waits for a dialog's step back to land, so it is
    * not taken back with it. */
   function afterHistory(go) {
-    if (settling) settling.push(go); else go();
+    if (awaited) awaited.push(go); else go();
   }
 
   window.addEventListener("popstate", function (e) {
-    if (settling) { land(); return; }
+    if (awaited) { land(); return; }
     var wanted = e.state && e.state.fmxDialog;
     // Back: each dialog above the step landed on is closed, the top first.
     for (var i = stepped.length - 1; i >= 0 && stepped[i] !== wanted; i--) {
@@ -88,12 +91,25 @@
     }
   });
 
+  // Reloaded with a dialog's step: it is opened again where it can be,
+  // else the step is the page's, so the first Back is not lost on it.
+  document.addEventListener("DOMContentLoaded", function () {
+    var was = history.state && history.state.fmxDialog;
+    if (!was) return;
+    if (AGAIN.indexOf(was) !== -1 && el(was)) openDialog(was, null, "history");
+    else history.replaceState(null, "", location.href);
+  });
+
   function openDialog(id, opener, step) {
     var dialog = el(id);
     if (!dialog) return null;
     openers[id] = opener || document.activeElement;
-    if (step !== "history" && stepped.indexOf(id) === -1) {
-      var entry = { fmxDialog: id, field: id === "study-field-dialog" ? editing : null };
+    var stepOfItsOwn = AGAIN.indexOf(id) !== -1 || id === "study-field-dialog";
+    if (stepOfItsOwn && step !== "history" && stepped.indexOf(id) === -1) {
+      // A link's own step made the dialog's ("replace"): closed, it is the
+      // page's again, not taken back (it may be the GUI's first step).
+      var entry = { fmxDialog: id, field: id === "study-field-dialog" ? editing : null,
+                    replaced: step === "replace" };
       afterHistory(function () {
         if (step === "replace") history.replaceState(entry, "", location.href);
         else history.pushState(entry, "", location.href);
@@ -116,7 +132,10 @@
     if (!byHistory && at !== -1) {
       stepped.splice(at, 1);
       // Its step taken back, so Back then leaves the page as it would have.
-      if (history.state && history.state.fmxDialog === dialog.id) stepBack();
+      if (history.state && history.state.fmxDialog === dialog.id) {
+        if (history.state.replaced) history.replaceState(null, "", location.href);
+        else stepBack();
+      }
     }
     var back = openers[dialog.id];
     delete openers[dialog.id];

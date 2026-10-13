@@ -75,7 +75,13 @@
   function offerUndo(said, back, name) {
     var board = window.FastMDXDashboard;
     if (!board || !board.toast) return;
+    // The study it was done in: another open since is not undone into.
+    var study = board.state && board.state.studyShown;
     board.toast(said, "ok", { label: "Undo", run: function () {
+      if ((board.state && board.state.studyShown) !== study) {
+        board.toast("The view was not put back: another study is open now.", "warning");
+        return;
+      }
       post(back).then(function (answer) {
         if (!answer || !answer.ok) {
           say("It could not be undone: " + ((answer && (answer.reason || answer.error)) || "no reason given"));

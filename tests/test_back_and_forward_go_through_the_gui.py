@@ -68,7 +68,7 @@ def _shown(page, dialog):
     return page.evaluate("(id) => !document.getElementById(id).hidden", dialog)
 
 
-def _settled(page):
+def _quiet(page):
     # The dialog's step taken back: the step now is the page's own.
     page.wait_for_function("() => !(history.state && history.state.fmxDialog)")
 
@@ -112,7 +112,7 @@ def test_back_closes_a_dialog_before_it_leaves_the_page(browser, session) -> Non
     # Closed by its own Close: its step goes with it, so Back is the page
     # before, not the dialog's step again.
     page.click("#prefs-dialog [data-dialog-close]")
-    _settled(page)
+    _quiet(page)
     page.go_back()
     _on(page, "overview")
     shown = _shown(page, "prefs-dialog")
@@ -144,7 +144,7 @@ def test_a_page_opened_as_a_dialog_closes_is_not_taken_back_with_it(browser, ses
     page.evaluate("""() => { window.FastMDXDialog.open('cite-dialog');
                              window.FastMDXDialog.close('cite-dialog');
                              window.FastMDXDashboard.navigate('files'); }""")
-    _settled(page)
+    _quiet(page)
     _on(page, "files")
     page.go_back()
     _on(page, "overview")
@@ -176,3 +176,59 @@ def test_an_analysis_opened_is_a_place_a_reload_opens_again(browser, session) ->
     page.context.close()
     assert kept == "#analysis/ligand_rmsd"
     assert errors == []
+
+
+def test_a_link_to_a_dialog_opened_first_closes_into_the_gui(browser, session) -> None:
+    """The GUI opened at `#settings` (a bookmark, a link in the docs): its
+    first step was the dialog's, and closing it went back out of the GUI."""
+    page = browser.new_context(viewport={"width": 1440, "height": 900}).new_page()
+    page.set_default_timeout(60000)
+    page.goto("about:blank")
+    page.goto(session.url + "#settings", wait_until="domcontentloaded")
+    page.wait_for_function("() => !document.getElementById('prefs-dialog').hidden")
+    page.click("#prefs-dialog [data-dialog-close]")
+    page.wait_for_timeout(1000)
+    here = page.url
+    page.context.close()
+    assert here.startswith(session.url)
+
+
+def test_a_dialog_filled_for_its_opener_leaves_no_step(browser, session) -> None:
+    """The palette and the Agent's settings cannot be opened again bare:
+    their steps were left in the history, and Forward or Back landed on
+    them with nothing opened."""
+    page = _open(browser, session)
+    steps = page.evaluate("() => history.length")
+    page.keyboard.press("Control+k")
+    page.wait_for_function("() => !document.getElementById('palette').hidden")
+    page.keyboard.press("Escape")
+    page.wait_for_function("() => document.getElementById('palette').hidden")
+    page.wait_for_timeout(700)
+    after = page.evaluate("() => [history.length, !!(history.state && history.state.fmxDialog)]")
+    page.context.close()
+    assert after == [steps, False]
+
+
+def test_back_puts_the_keyboard_on_the_page_shown(browser, session) -> None:
+    page = _open(browser, session)
+    page.click("[data-view-link='files']")
+    _on(page, "files")
+    page.go_back()
+    _on(page, "overview")
+    page.wait_for_function("() => document.activeElement"
+                           " && document.activeElement.classList.contains('page-title')")
+    heading = page.evaluate("() => document.activeElement.textContent.trim()")
+    page.context.close()
+    assert heading == "Study Overview"
+
+
+def test_a_reload_with_a_dialog_open_opens_it_again(browser, session) -> None:
+    page = _open(browser, session)
+    page.click("#settings-open")
+    page.click("[data-dialog-open='prefs-dialog']")
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_function("() => document.body.classList.contains('state-ready')")
+    page.wait_for_function("() => !document.getElementById('prefs-dialog').hidden")
+    page.go_back()
+    page.wait_for_function("() => document.getElementById('prefs-dialog').hidden")
+    page.context.close()
