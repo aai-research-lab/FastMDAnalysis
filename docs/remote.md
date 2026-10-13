@@ -558,19 +558,22 @@ found to be when last inspected.
   that is your home folder or above it) is left out. A config named by its
   full path outside those folders is refused (`remote.input.outside`) with
   the same ways.
-- **Files kept apart.** No way is offered for a file that is not a `.yml`
-  or `.yaml` config, nor for one whose name starts with a dot, under a
-  folder whose name starts with a dot (`~/.config`, `~/.local`) or is
-  `AppData`, under your home folder's own `Library` (its `CloudStorage` and
-  `Mobile Documents` folders aside), in a place keys or settings are kept
-  (FastMDXplora's own, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `APPDATA`,
-  `LOCALAPPDATA`), or in a folder holding one of these, your home folder
-  among them; nor where the name is a link from such a place. Named by its
-  full path, such a file reads as no config file in the workspace, with the
-  copy into a new folder as the way, exactly as a name not there reads;
-  named by a relative path, it is asked for by its full path, and where a
-  link leads is not said. So the page never tells which files exist
-  outside the folders it reaches.
+- **Files kept apart.** No way of its own is offered for a file that is
+  not a `.yml` or `.yaml` config, nor for one whose name starts with a dot,
+  under a folder whose name starts with a dot (`~/.config`, `~/.local`) or
+  is `AppData`, under your home folder's own `Library` (its `CloudStorage`
+  and `Mobile Documents` folders aside), in a place keys or settings are
+  kept (FastMDXplora's own, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `APPDATA`,
+  `LOCALAPPDATA`, or a folder one of these leads to by a link), or in a
+  folder holding one of these, your home folder among them; nor for a name
+  that is a link from such a place, or that goes up through one. Such a
+  file reads as a name not there reads: by its full path, as no config file
+  in the workspace; by a relative path, asked for by its full path, where a
+  link leads not said. Both end with the way any config kept elsewhere can
+  be sent: copy it, with the files it names, into a new folder inside the
+  folder the GUI was opened on and give its full path there (left out
+  where that folder is your home folder or above it). So the page never
+  tells which files exist outside the folders it reaches.
 - **One at a time.** One plan or send is out at a time, and what it answers
   is said on the page, left and come back to or not; the form changed while
   a send is out takes nothing away.

@@ -487,7 +487,11 @@ class TestTheConfigBuilder:
         # Round 2: of a file outside the routes nothing tells whether it is
         # there; a missing one and one there read alike.
         assert f"is {(started / 'up' / 'study.yml').resolve()};" in up["error"]
-        assert up["error"].endswith("Give the full path of the config to send.")
+        # remote-b5's round 1: the copy way was reached only a step later.
+        assert up["error"].endswith(
+            "Give the full path of the config to send. To send a config kept elsewhere, "
+            "copy it, with the files it names, into a new folder inside "
+            f"{root} and give its full path there.")
         assert (f"a plan reads a relative name only inside the folder the GUI "
                 f"was opened on ({root}), and ../up/study.yml leads out of it.") in up["error"]
         assert up["code"] == "remote.config.read_elsewhere"
@@ -617,7 +621,8 @@ class TestTheConfigBuilder:
                 f"Checked from the folder the GUI was started in ({keys.resolve()}), {name} "
                 f"is {keys.resolve() / name}; a plan reads it from the folder the GUI was "
                 f"opened on ({root}), where there is no such file. Give the full path of "
-                "the config to send."), name
+                "the config to send. To send a config kept elsewhere, copy it, with the files "
+                f"it names, into a new folder inside {root} and give its full path there."), name
         assert not _sent(machine)
 
     def test_a_config_kept_by_the_home_folder_is_told_only_to_be_copied(
@@ -712,6 +717,81 @@ class TestTheConfigBuilder:
             answers.add(said["error"].replace(name, "NAME"))
         # The three read alike but for the name typed.
         assert len(answers) == 1, answers
+
+    def test_a_link_crossed_before_going_up_is_not_followed(
+            self, served, tmp_path, monkeypatch):
+        """remote-b5's round 1: a relative name through a link in `.ssh`
+        and then up (`.ssh/lnk/../../x.yml`) was followed, and the answer
+        said where the link leads, which a name with no such link does not."""
+        address, machine = served
+        home = tmp_path / "home"
+        started = home / "md"
+        started.mkdir(parents=True)
+        (home / ".ssh").mkdir()
+        far = tmp_path / "far"
+        (far / "a" / "b").mkdir(parents=True)
+        (far / "proj").mkdir()
+        (far / "proj" / "c.yml").write_text(machine.study.read_text())
+        (home / ".ssh" / "lnk").symlink_to(far / "a" / "b")
+        monkeypatch.chdir(started)
+        answers = set()
+        for link in ("lnk", "none"):
+            _, said = _ask(address, "/api/remote/plan", {
+                "config": f"../.ssh/{link}/../../proj/c.yml", "machine": "box"})
+            assert said["code"] == "remote.config.read_elsewhere", link
+            assert str(far) not in said["error"] and "GUI on the" not in said["error"], link
+            answers.add(said["error"].replace(link, "NAME"))
+        assert len(answers) == 1, answers
+
+    def test_a_settings_folder_kept_by_a_link_is_kept_apart(
+            self, machine, tmp_path, monkeypatch):
+        """remote-b5's round 1: a settings folder kept elsewhere by a link
+        (`~/.config/gh -> ~/dotfiles/gh`) was offered a way when named where
+        it really is."""
+        import pwd
+
+        home = tmp_path / "account"
+        dotfiles = home / "dotfiles" / "gh"
+        dotfiles.mkdir(parents=True)
+        (dotfiles / "hosts.yml").write_text("github.com: {oauth_token: x}\n")
+        (home / ".config").mkdir()
+        (home / ".config" / "gh").symlink_to(dotfiles)
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        opened = (tmp_path / "work" / "first").resolve()
+        opened.mkdir(parents=True)
+        desk = RemoteDesk(DashboardRuntime(workspace_root=opened, exploration_root=opened.parent))
+        for named in (dotfiles / "hosts.yml", dotfiles / "missing.yml"):
+            said = desk.plan(str(named), "box")
+            assert said["error"].startswith(f"{named} is not a config file in"), named
+
+    def test_with_no_home_found_every_plan_says_so_alike(
+            self, machine, tmp_path, monkeypatch):
+        """remote-b5's round 1: with no home folder found, a config inside
+        the workspace met an unclassified error from the machine's record,
+        and a config in the real home folder read otherwise than a name not
+        there."""
+        import pwd
+
+        def nowhere(cls=None):
+            raise RuntimeError("Could not determine home directory.")
+
+        def no_entry(uid):
+            raise KeyError(uid)
+
+        root = machine.study.parent
+        desk = RemoteDesk(DashboardRuntime(workspace_root=root, exploration_root=root))
+        monkeypatch.setattr(Path, "home", classmethod(nowhere))
+        monkeypatch.setattr(pwd, "getpwuid", no_entry)
+        for named in (str(machine.study), str(tmp_path / "missing.yml"), "study.yml"):
+            said = desk.plan(named, "box")
+            assert said == {"ok": False, "error": (
+                "No home folder was found, so nothing is sent from any folder. Set "
+                "`HOME` to your home folder and start the GUI again."),
+                "code": "remote.input.outside"}, named
 
     def test_a_send_from_the_command_line_with_no_home_found_says_so(
             self, machine, tmp_path, monkeypatch):
