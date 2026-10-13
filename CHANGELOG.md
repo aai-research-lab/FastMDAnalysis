@@ -74,6 +74,13 @@ a second lipid it recognises, a ratio such as "70:30" or the word "mixture"
 refuses; any other share, a lipid it does not know, counts that do not
 agree, unequal leaflets or any other word needs you.
 
+A long paper whose answer comes back cut off is read again in smaller
+pages (half as many studies or results, down to one, and a protocol's
+settings in two parts, down to one setting), not refused. An answer still
+cut off at one is refused as `environment.paper.answer_cut_off`, and one
+not in the form asked for, twice, as `environment.paper.answer_malformed`,
+so neither is taken for a provider's refusal.
+
 ### The Agent page, as the Agent
 
 **Changed:** the Agent page and `fastmdx agent` speak as the Agent: its AI

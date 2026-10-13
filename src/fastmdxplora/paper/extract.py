@@ -4,8 +4,10 @@ FastMDXplora reads three things, with the AI model chosen with `fastmdx
 agent model`, each time showing it the paper's text with its parts labelled: which MD studies the paper reports (one
 system under one protocol each, with what tells them apart), each
 protocol's settings, and the results each study reports. Long answers come
-in rounds. Each answer is JSON, every value with the paper's words it was
-read from.
+in pages, and a page that comes back cut off is read again smaller: half as
+many studies or results, or a protocol's settings in two parts, until it
+fits. Each answer is JSON, every value with the paper's words it was read
+from.
 
 What comes back is not used as it is. Each value's words are looked for in
 the paper (:class:`~fastmdxplora.paper.quotes.QuoteIndex`) and the value is
@@ -55,8 +57,19 @@ PROMPT_VERSION = "3"
 #: tokens, which holds a paper and its methods supplement.
 BUDGET_CHARS = 200_000
 
-#: Pages of studies or results asked for, at most. Each page is one reply.
+#: Pages of studies or results asked for, at most, counted at their first
+#: size: a page asked for at half its size counts half.
 MOST_PAGES = 12
+
+#: Studies, and results, asked for in one answer at first. An answer that
+#: comes back cut off is asked for again with half as many, down to one,
+#: and the rest of the list is asked for at that size.
+STUDIES_PER_PAGE = 5
+CLAIMS_PER_PAGE = 12
+
+#: The two ways an answer FastMDXplora is given can fail to be read.
+CUT_OFF = "environment.paper.answer_cut_off"
+MALFORMED = "environment.paper.answer_malformed"
 
 #: What a setting read from a paper can be:
 #:
@@ -129,7 +142,7 @@ def _fields_list(names: tuple[str, ...]) -> str:
     return "\n".join(f'- "{name}": {BY_NAME[name].asks}' for name in names)
 
 
-def _studies_prompt(text: str, listed: list[str]) -> str:
+def _studies_prompt(text: str, listed: list[str], most: int = STUDIES_PER_PAGE) -> str:
     more = ("" if not listed else
             "\nThe studies already listed are: " + ", ".join(listed) +
             ". List the ones after them only, numbering on.\n")
@@ -149,7 +162,7 @@ For each study give:
     "method" is one of {", ".join(METHODS)}.
 Also give "protocols": [{{"id": "P1", "label": "what the protocol is"}}], and
 "more": true if there are more studies than fit in this answer (list at most
-5 per answer), else false.
+{most} per answer), else false.
 {more}
 Answer as {{"title": "...", "studies": [...], "protocols": [...], "more": false}}.
 
@@ -178,7 +191,8 @@ The paper:
 {text}"""
 
 
-def _claims_prompt(text: str, studies: list[dict[str, Any]], listed: int) -> str:
+def _claims_prompt(text: str, studies: list[dict[str, Any]], listed: int,
+                   most: int = CLAIMS_PER_PAGE) -> str:
     named = "\n".join(f'- {s.get("id")}: {s.get("label", "")}' for s in studies)
     more = "" if not listed else f"\n{listed} results are already listed: give the ones after them.\n"
     return f"""You are reading a scientific paper to list the numerical results its MD studies report, so that a reproduction can be compared with them.
@@ -196,7 +210,7 @@ figure; not an experimental value), as
    "error_kind": one of {", ".join(ERROR_KINDS)} (as the paper defines its ±),
    "n": the number of runs or blocks the error is over, or null,
    "unit": as written, "quote": "..."}}.
-List at most 12 per answer; "more": true if there are more.
+List at most {most} per answer; "more": true if there are more.
 {more}
 Answer as {{"claims": [...], "more": false}}.
 
@@ -215,11 +229,40 @@ _SHAPE: dict[str, tuple[type, ...]] = {"fields": (dict,), "studies": (list, type
                                        "claims": (list, type(None))}
 
 
+def _cut_off(reply: str) -> bool:
+    """Whether ``reply`` ends inside a JSON object: an object opened and
+    never closed, or a string in one never ended. Text outside the objects
+    (a sentence before, a code fence after) is not read, and a brace there
+    opens an object only where a key or its end follows (``{"``, ``{}``),
+    so prose around a whole answer is not taken for a cut one."""
+    text = str(reply or "")
+    depth, in_string, escaped = 0, False, False
+    for at, char in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == "{" and (depth or text[at + 1:].lstrip()[:1] in ('"', "}")):
+            depth += 1
+        elif depth and char == "[":
+            depth += 1
+        elif depth and char in "}]":
+            depth -= 1
+        elif depth and char == '"':
+            in_string = True
+    return depth > 0 or in_string
+
+
 def _json_from(reply: str, wanted: str) -> dict[str, Any]:
-    """The object the AI model was asked for: the first in ``reply`` that has
+    """The object FastMDXplora asked for: the first in ``reply`` that has
     the key ``wanted``. A reply cut off part way parses, if at all, only as
     one of the objects inside it, which never has that key, so a cut reply
-    is refused rather than read as one with nothing in it."""
+    is refused rather than read as one with nothing in it, and refused as
+    cut off (:data:`CUT_OFF`), apart from a reply whole but not in the form
+    asked for (:data:`MALFORMED`)."""
     text = str(reply or "")
     start = text.find("{")
     while start >= 0:
@@ -232,54 +275,78 @@ def _json_from(reply: str, wanted: str) -> dict[str, Any]:
                 and isinstance(value[wanted], _SHAPE.get(wanted, (object,))):
             return value
         start = text.find("{", start + 1)
+    if _cut_off(text):
+        raise PaperRefused(
+            "FastMDXplora could not read the paper: an answer came back cut off, even "
+            "with one study, one result or one setting asked for at a time, so nothing "
+            "was taken from it. Try again, or choose another AI model with `fastmdx "
+            "agent model`.", code=CUT_OFF)
     raise PaperRefused(
-        "FastMDXplora could not read the paper: its reading came back cut off, or "
-        "not in the form it reads, so nothing was taken from it. Try again, or "
-        "choose another AI model with `fastmdx agent model`.",
-        code="environment.service.unusable_response")
+        "FastMDXplora could not read the paper: an answer came back twice not in the "
+        "form it reads, so nothing was taken from it. Try again, or choose another AI "
+        "model with `fastmdx agent model`.", code=MALFORMED)
 
 
-def _ask(complete: Complete, prompt: str, said: Callable[[str], None], what: str,
-         wanted: str, *, paged: bool = True) -> dict[str, Any]:
-    """The answer to ``prompt``, asked once more, said plainly, where the
-    reply is not the JSON asked for: a reply cut off or wrapped in prose is
-    common. Only an answer given in pages (``paged``) is told it may give
-    fewer items; one that is not would leave settings out unsaid."""
+#: Said once more where an answer is whole but not the JSON asked for (one
+#: wrapped in prose is common).
+_AGAIN = "\n\nAnswer with the JSON object only, whole."
+
+
+def _ask(complete: Complete, prompt_for: Callable[[int], str], said: Callable[[str], None],
+         what: str, wanted: str, most: int, things: str) -> tuple[dict[str, Any], int]:
+    """The answer to ``prompt_for(most)``, a page of at most ``most``
+    ``things``, and the size it came at. A page cut off is asked for again
+    with half as many, down to one; a reply whole but not the JSON asked
+    for, once more, said plainly."""
     said(what)
-    reply = complete(prompt)
-    try:
-        return _json_from(reply, wanted)
-    except PaperRefused:
-        again = "\n\nAnswer with the JSON object only, whole."
-        if paged:
-            again += " If it does not fit, give fewer items and \"more\": true."
-        return _json_from(complete(prompt + again), wanted)
+    again = ""
+    while True:
+        try:
+            return _json_from(complete(prompt_for(most) + again), wanted), most
+        except PaperRefused as refused:
+            if refused.code == CUT_OFF and most > 1:
+                most = max(1, most // 2)
+                said(f"An answer came back cut off: reading the {things} "
+                     + ("one at a time..." if most == 1 else f"{most} at a time..."))
+                continue
+            if refused.code == MALFORMED and not again:
+                again = _AGAIN
+                continue
+            raise
+
+
+def _settings_of(complete: Complete, text: str, protocol: dict[str, Any], users: list[str],
+                 names: tuple[str, ...], said: Callable[[str], None]) -> dict[str, Any]:
+    """The settings ``names`` of a protocol, asked for all at once and, where
+    the answer comes back cut off (at the length FastMDXplora reads at a
+    time), in two parts, each asked for whole, and so on down to one
+    setting: an answer told to give fewer would leave settings out, and
+    each left out would read as one the paper does not state."""
+    again = ""
+    while True:
+        try:
+            answer = _json_from(complete(_protocol_prompt(text, protocol, users, names)
+                                         + again), "fields")
+        except PaperRefused as refused:
+            if refused.code == CUT_OFF and len(names) > 1:
+                half = len(names) // 2
+                said(f"The settings of protocol {protocol.get('id')} did not come whole at "
+                     f"once: reading them in two parts, of {half} and {len(names) - half}...")
+                fields = _settings_of(complete, text, protocol, users, names[:half], said)
+                fields.update(_settings_of(complete, text, protocol, users, names[half:], said))
+                return fields
+            if refused.code == MALFORMED and not again:
+                again = _AGAIN
+                continue
+            raise
+        return {name: value for name, value in answer["fields"].items() if name in names}
 
 
 def _protocol_settings(complete: Complete, text: str, protocol: dict[str, Any],
                        users: list[str], said: Callable[[str], None]) -> dict[str, Any]:
-    """A protocol's settings, asked for all at once and, where the reply is
-    not whole (most often cut off at what an AI model may answer at a time),
-    in two halves, each asked whole: an answer told to give fewer would
-    leave settings out, and each left out would read as one the paper does
-    not state."""
-    pid = protocol.get("id")
-    said(f"Reading the settings of protocol {pid}...")
-    try:
-        answer = _json_from(complete(_protocol_prompt(text, protocol, users)), "fields")
-    except PaperRefused:
-        half = len(PROTOCOL_FIELDS) // 2
-        fields: dict[str, Any] = {}
-        for number, part in enumerate((PROTOCOL_FIELDS[:half], PROTOCOL_FIELDS[half:]), 1):
-            got = _ask(complete, _protocol_prompt(text, protocol, users, part), said,
-                       f"The settings of protocol {pid} did not come whole at once: "
-                       f"reading them in two parts ({number} of 2)...", "fields",
-                       paged=False).get("fields")
-            if isinstance(got, dict):
-                fields.update({name: value for name, value in got.items() if name in part})
-        return fields
-    fields = answer.get("fields")
-    return fields if isinstance(fields, dict) else {}
+    """A protocol's settings (:func:`_settings_of`)."""
+    said(f"Reading the settings of protocol {protocol.get('id')}...")
+    return _settings_of(complete, text, protocol, users, PROTOCOL_FIELDS, said)
 
 
 def _claim_key(claim: dict[str, Any]) -> tuple[str, str, str, str]:
@@ -309,12 +376,18 @@ def read_studies(paper: PaperText, complete: Complete, *, model: str = "",
     studies: list[dict[str, Any]] = []
     protocols: dict[str, dict[str, Any]] = {}
     title = ""
-    for page in range(MOST_PAGES):
-        answer = _ask(complete, _studies_prompt(text, [str(s.get("id")) for s in studies]),
-                      tell, "Reading which MD studies the paper reports"
-                      + (f" (round {page + 1})" if page else "") + "...", "studies")
+    most, used, rounds = STUDIES_PER_PAGE, 0, 0
+    while used < MOST_PAGES * STUDIES_PER_PAGE:
+        listed = [str(s.get("id")) for s in studies]
+        answer, most = _ask(complete,
+                            lambda size, listed=listed: _studies_prompt(text, listed, size),
+                            tell, "Reading which MD studies the paper reports"
+                            + (f" (round {rounds + 1})" if rounds else "") + "...",
+                            "studies", most, "studies")
+        rounds += 1
+        used += most
         title = title or str(answer.get("title") or "")
-        known = {str(s.get("id")) for s in studies}
+        known = set(listed)
         new = [s for s in answer.get("studies") or []
                if isinstance(s, dict) and str(s.get("id")) not in known]
         studies.extend(new)
@@ -327,7 +400,7 @@ def read_studies(paper: PaperText, complete: Complete, *, model: str = "",
         if not answer.get("more") or not new:
             break
     else:
-        tell(f"Stopped after {MOST_PAGES} rounds of listing studies; the paper may have "
+        tell(f"Stopped after {rounds} rounds of listing studies; the paper may have "
              f"more than the {len(studies)} listed.")
     for study in studies:
         pid = str(study.get("protocol") or "P1")
@@ -342,10 +415,17 @@ def read_studies(paper: PaperText, complete: Complete, *, model: str = "",
 
     claims: list[dict[str, Any]] = []
     if studies:
-        for page in range(MOST_PAGES):
-            answer = _ask(complete, _claims_prompt(text, studies, len(claims)), tell,
-                          "Reading the results each study reports"
-                          + (f" (round {page + 1})" if page else "") + "...", "claims")
+        most, used, rounds = CLAIMS_PER_PAGE, 0, 0
+        while used < MOST_PAGES * CLAIMS_PER_PAGE:
+            count = len(claims)
+            answer, most = _ask(complete,
+                                lambda size, count=count: _claims_prompt(text, studies, count,
+                                                                         size),
+                                tell, "Reading the results each study reports"
+                                + (f" (round {rounds + 1})" if rounds else "") + "...",
+                                "claims", most, "results")
+            rounds += 1
+            used += most
             seen = {_claim_key(c) for c in claims}
             new = [c for c in answer.get("claims") or []
                    if isinstance(c, dict) and _claim_key(c) not in seen]
@@ -353,7 +433,7 @@ def read_studies(paper: PaperText, complete: Complete, *, model: str = "",
             if not answer.get("more") or not new:
                 break
         else:
-            tell(f"Stopped after {MOST_PAGES} rounds of listing results; the paper may "
+            tell(f"Stopped after {rounds} rounds of listing results; the paper may "
                  "report more.")
 
     raw = {"title": title, "studies": studies, "protocols": list(protocols.values()),

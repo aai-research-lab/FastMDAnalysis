@@ -163,7 +163,7 @@ def test_a_reply_cut_off_part_way_is_refused_not_read_as_empty():
     cut = whole[: int(len(whole) * 0.8)]
     with pytest.raises(PaperRefused) as refused:
         _json_from(cut, "fields")
-    assert refused.value.code == "environment.service.unusable_response"
+    assert refused.value.code == "environment.paper.answer_cut_off"
     assert _json_from("Here it is: " + whole, "fields")["fields"]["timestep"]["value"] == 2
 
 

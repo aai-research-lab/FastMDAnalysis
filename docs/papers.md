@@ -72,10 +72,15 @@ beside it; otherwise it is compared as a spread. A description (what the
 system is, how it was minimised) is kept as read and never set as a
 value.
 
-A reading that comes back cut off part way, or not in the form FastMDXplora
-reads, is tried once more, and then refused: nothing is taken from it. A
-protocol's settings that do not come whole at once are read in two halves,
-each whole, so none is left out and read as not stated.
+The studies are read five at a time and the results twelve at a time. An
+answer that comes back cut off part way is read again smaller: half as many
+studies or results, down to one at a time, and a protocol's settings in two
+parts, each whole, down to one setting, so none is left out and read as not
+stated. Still cut off at one, the reading is refused
+(`environment.paper.answer_cut_off`). An answer whole but not in the form
+FastMDXplora reads is asked for once more, then refused
+(`environment.paper.answer_malformed`). Nothing is taken from a reading
+refused.
 
 A reading is kept under the paper's digest and the AI model it was read
 with, so choosing other studies of the same paper reads nothing again.

@@ -340,6 +340,14 @@ CODES: tuple[Code, ...] = (
          "A paper named by its identifier is not open access where it would be "
          "fetched, so its file is needed.",
          Kind.ENVIRONMENTAL, Disclosure.ACTION, detail_keys=("identifier",)),
+    Code("environment.paper.answer_cut_off",
+         "An answer FastMDXplora was given while reading a paper came back cut off, "
+         "even with one study, one result or one setting asked for at a time.",
+         Kind.ENVIRONMENTAL, Disclosure.ACTION),
+    Code("environment.paper.answer_malformed",
+         "An answer FastMDXplora was given while reading a paper was not in the form "
+         "it reads, asked for twice.",
+         Kind.ENVIRONMENTAL, Disclosure.ACTION),
     Code("environment.path.exists",
          "Writing here would overwrite something.",
          Kind.ENVIRONMENTAL, Disclosure.ACTION,
