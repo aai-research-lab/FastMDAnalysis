@@ -1058,6 +1058,32 @@ def run(
         _write_manifest(setup_dir, orchestrator, input_form, params, artifacts, notes)
         raise
 
+    # A file holding several molecules is several ligands. It is divided here,
+    # once, so everything after sees one molecule per file.
+    if params.get("ligand"):
+        from fastmdxplora.setup.ligand import expand_ligand_files
+
+        expanded = expand_ligand_files(params["ligand"], Path(setup_dir) / "ligands")
+        if expanded is not params["ligand"]:
+            charge = params.get("ligand_net_charge")
+            if charge is not None and not isinstance(charge, (list, tuple)):
+                # One number cannot be right for several different molecules,
+                # and applying it to each would be a guess.
+                raise StudyError(
+                    f"`ligand_net_charge` is {charge:+d}, a single number, but "
+                    f"the ligand file holds {len(expanded)} molecules. Give one "
+                    "charge per molecule as a list, or leave it out and let each "
+                    "molecule's own formal charges decide."
+                , code="config.option.conflicting")
+            params["ligand"] = expanded
+        # `ligand_name` carries a default, and a default counted as a name
+        # given for every ligand, so two files with no names were refused for
+        # having one. Unless the caller named them, the file stems -- which are
+        # the molecules' own names -- stand.
+        if (isinstance(params["ligand"], (list, tuple)) and len(params["ligand"]) > 1
+                and not (options.get("ligand_name") or options.get("ligand_resname"))):
+            params["ligand_name"] = None
+
     # With the auto policy, the structure decides what to simulate and the
     # chemistry it omits is retrieved before preparation runs, so the rest of
     # the phase sees an ordinary protein-ligand job. With the ligand's
@@ -1182,6 +1208,7 @@ def run(
             ligand_name=(
                 params["ligand_name"]
                 if isinstance(params["ligand_name"], (list, tuple))
+                or params["ligand_name"] is None
                 else str(params["ligand_name"])
             ),
             ligand_net_charge=params["ligand_net_charge"],
@@ -1383,7 +1410,9 @@ def _write_manifest(
         )
         resolved_ff["ligand"] = {
             "files": [str(f) for f in ligand_files],
-            "name": params.get("ligand_name", "LIG"),
+            "name": params.get("ligand_name") or (
+                "LIG" if len(ligand_files) == 1
+                else [Path(str(f)).stem.upper()[:3] for f in ligand_files]),
             "small_molecule_forcefield": (
                 params.get("ligand_forcefield")
                 or resolved_ff.get("small_molecule_forcefield")

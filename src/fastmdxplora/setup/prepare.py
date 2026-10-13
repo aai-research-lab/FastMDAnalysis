@@ -424,7 +424,7 @@ def prepare_system(
     water_model: str | None = None,
     ligand: str | Path | list[str | Path] | None = None,
     ligand_forcefield: str | None = None,
-    ligand_name: str = "LIG",
+    ligand_name: str | list[str] | None = "LIG",
     ligand_net_charge: int | None = None,
     ligand_pose: str = "auto",
     check_ligand_clashes: bool = True,

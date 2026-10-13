@@ -72,7 +72,7 @@ with one end free.
 
 | Setting | Type | Default | What it does |
 |---|---|---|---|
-| `ligand` | str or list | — | SDF or MOL2 file(s). Requires `forcefield: amber-openff` |
+| `ligand` | str or list | — | SDF or MOL2 file(s); a file holding several molecules is several ligands. Requires `forcefield: amber-openff` |
 | `ligand_name` | str | `LIG` | Residue name assigned to the ligand |
 | `ligand_resname` | str | — | The same setting under the spelling the biasing blocks use. `ligand_name` wins if both |
 | `ligand_forcefield` | str | per force field | OpenFF small-molecule force field, e.g. `openff-2.2.1` |
