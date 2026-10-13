@@ -13,8 +13,12 @@ what every quote it gives is looked for in (:mod:`.quotes`).
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
+import threading
 import zipfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -173,7 +177,41 @@ def read_paper(path: str | Path, *, kind: str = "paper") -> PaperText:
                      licence=str(meta.get("licence") or ""), files=[str(file)])
 
 
+#: Papers read at once (the GUI reads on several threads), and the pypdf
+#: logger's level before the first of them.
+_QUIET = threading.Lock()
+_quiet_readers = 0
+_level_before = logging.NOTSET
+
+
+@contextmanager
+def _pypdf_quiet() -> Iterator[None]:
+    """pypdf's notes on a PDF it reads past ("Ignoring wrong pointing
+    object", "ref repaired": a broken cross-reference) kept out of the
+    terminal while a paper is read; its errors still say. Its level is put
+    back once the last paper read at once is done."""
+    global _quiet_readers, _level_before
+    log = logging.getLogger("pypdf")
+    with _QUIET:
+        if not _quiet_readers:
+            _level_before = log.level
+            log.setLevel(logging.ERROR)
+        _quiet_readers += 1
+    try:
+        yield
+    finally:
+        with _QUIET:
+            _quiet_readers -= 1
+            if not _quiet_readers:
+                log.setLevel(_level_before)
+
+
 def _pdf_parts(file: Path, kind: str) -> list[Part]:
+    with _pypdf_quiet():
+        return _pdf_parts_read(file, kind)
+
+
+def _pdf_parts_read(file: Path, kind: str) -> list[Part]:
     try:
         from pypdf import PdfReader
         from pypdf.errors import PdfReadError

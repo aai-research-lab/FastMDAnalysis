@@ -365,6 +365,20 @@ python -m fastmdxplora.validation.paper_reading --out paper_reading.json \
     --file buch_2011=buch_2011.pdf
 ```
 
+A paper a service refuses (above all the provider FastMDXplora reads with:
+its account's limit, billing, a refused key, overload), or that is not
+reached (a connection cut, a file not there), is not read, and its
+reason is printed beside its code; a refusal that would refuse every paper
+after it stops the sitting there. The file is written again after each
+paper. Read the papers not read in a later sitting, given the earlier
+sitting's file; the papers read, or that FastMDXplora could not read, are
+not read again, and the claims are judged only once every paper is read:
+
+```
+python -m fastmdxplora.validation.paper_reading --earlier paper_reading.json \
+    --out paper_reading_2.json --file buch_2011=buch_2011.pdf
+```
+
 Read once under that registration (2026-10-10), two of the four claims are
 met and two are not:
 

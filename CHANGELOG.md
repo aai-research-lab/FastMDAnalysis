@@ -17,6 +17,13 @@ from the counts registered first in `preregistration/paper-reading.md`.
 **Added:** the first reading under that registration (check 5), reported
 beneath it and on the papers page: two of its four claims met, two not.
 
+**Changed:** the harness prints why a paper was refused beside its code,
+writes its file after each paper, stops a sitting at a refusal that would
+refuse every paper after it (the account's limit, no AI model, no key),
+reads the papers not read in a later sitting (`--earlier`), and judges the
+claims only once every paper is read. pypdf's notes on a PDF with a broken
+cross-reference no longer print.
+
 ### A paper's studies for the Agent and an AI app
 
 **Added:** the Agent's tool `studies_in_paper`, so asking it to reproduce a

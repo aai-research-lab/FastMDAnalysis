@@ -243,3 +243,51 @@ def test_listing_stops_after_its_pages_counted_at_their_first_size():
     # Twelve pages of five: sixty studies at most, one at a time here.
     assert len(reading["studies"]) == 60
     assert any(line.startswith("Stopped after 60 rounds") for line in said)
+
+
+# -- a PDF with a broken cross-reference ---------------------------------------
+def test_pypdf_s_notes_on_a_broken_pdf_are_kept_out_of_the_terminal(tmp_path, capsys, caplog):
+    import logging
+
+    from fastmdxplora.paper.text import read_paper
+
+    from tests._a_paper import pdf
+
+    data = pdf([["Methods", "Simulations lasted 500 ns at 300 K."]])
+    at = data.index(b"xref\n")
+    lines = data[at:].split(b"\n")
+    lines[4] = b"0000000000 00000 n "  # object 2 said to be at the file's start
+    broken = tmp_path / "broken.pdf"
+    broken.write_bytes(data[:at] + b"\n".join(lines))
+    level = logging.getLogger("pypdf").level
+    paper = read_paper(broken)
+    assert "500 ns" in paper.parts[0].text
+    said = capsys.readouterr()
+    assert "repaired" not in said.err + said.out and "Ignoring" not in said.err + said.out
+    assert not [record for record in caplog.records if record.name.startswith("pypdf")]
+    assert logging.getLogger("pypdf").level == level
+
+
+def test_papers_read_at_once_put_pypdf_s_level_back_after_the_last():
+    import logging
+    import threading
+
+    from fastmdxplora.paper.text import _pypdf_quiet
+
+    log = logging.getLogger("pypdf")
+    before = log.level
+    second_in, first_done = threading.Event(), threading.Event()
+
+    def first():
+        with _pypdf_quiet():
+            second_in.wait(5)
+        first_done.set()
+
+    reader = threading.Thread(target=first)
+    reader.start()
+    with _pypdf_quiet():
+        second_in.set()
+        first_done.wait(5)
+        assert log.level == logging.ERROR  # still quiet after the first read ended
+    reader.join(5)
+    assert log.level == before

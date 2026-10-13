@@ -970,23 +970,38 @@ def test_the_registered_claims_are_said_met_or_not():
                {"key": "buch_2011", "refused_by_doi": "environment.paper.not_open",
                 "studies_truth": 1, "studies_read": 1, "studies_matched": 1,
                 "fields": {"correct": 5, "wrong": 0, "missed": 0, "invented": 0}}]
-    claims = claims_met(results)
+    claims = claims_met(results, registered=["a", "buch_2011"])
     assert claims["values_used_right"]["met"] is False  # 95/97 is under 0.98
     assert claims["stated_values_found"]["met"] is True
     assert claims["studies_found"]["value"] == pytest.approx(10 / 11, abs=1e-4)
     assert claims["not_open_refused"]["met"] is True
 
 
-def test_a_paper_refused_counts_its_studies_as_not_found():
+def test_a_paper_fastmdxplora_could_not_read_counts_its_studies_as_not_found():
+    from fastmdxplora.validation.paper_reading import claims_met
+
+    results = [{"key": "a", "studies_truth": 4, "studies_read": 4, "studies_matched": 4,
+                "fields": {"correct": 10}},
+               {"key": "b", "refused": "FastMDXplora could not read the paper: ...",
+                "code": "environment.paper.answer_cut_off", "studies_truth": 4}]
+    claims = claims_met(results, registered=["a", "b"])
+    assert claims["studies_found"]["value"] == pytest.approx(0.5)
+    assert claims["not_found"] == ["b"] and claims["not_read"] == []
+
+
+def test_a_paper_a_service_refused_leaves_the_claims_unjudged():
     from fastmdxplora.validation.paper_reading import claims_met
 
     results = [{"key": "a", "studies_truth": 4, "studies_read": 4, "studies_matched": 4,
                 "fields": {"correct": 10}},
                {"key": "b", "refused": "unreachable", "code": "environment.service.unreachable",
                 "studies_truth": 4}]
-    claims = claims_met(results)
-    assert claims["studies_found"]["value"] == pytest.approx(0.5)
-    assert claims["refused"] == ["b"]
+    claims = claims_met(results, registered=["a", "b", "c"])
+    assert claims["not_read"] == ["b", "c"]  # c is in no result at all
+    for name in ("values_used_right", "stated_values_found", "studies_found",
+                 "not_open_refused"):
+        assert claims[name]["met"] is None
+    assert claims["studies_found"]["value"] is None
 
 
 def test_a_file_for_a_paper_not_registered_is_refused(capsys):

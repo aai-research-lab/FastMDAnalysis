@@ -24,6 +24,20 @@ What is counted, for each paper the feature reads (:func:`score`):
 Run, with an AI model chosen (`fastmdx agent model`) and the internet::
 
     python -m fastmdxplora.validation.paper_reading --out paper_reading.json
+
+**A paper not read, or not found** (the registration's rule, set down
+before check 5's second sitting). A refusal by the AI model's provider
+(its account's limit, billing, a refused key, overload or a server error
+after the retries) means the paper was not read (``not_read``): it is read
+in a later sitting, given that sitting's file with ``--earlier``, and the
+claims are not judged until every paper is read. So is a paper not
+reached, which the rule does not name since it is no reading either:
+another service's refusal, a connection cut, a paper not open where it was
+fetched, a file not there or not a paper. FastMDXplora's own failure to read an answer it was given counts the
+paper's studies as not found (``not_found``) and the paper is not read
+again. A refusal that will refuse every paper after it (the account's
+limit, no AI model chosen, no key) stops the sitting there. The file is
+written again after each paper, so a sitting stopped keeps what it read.
 """
 
 from __future__ import annotations
@@ -34,13 +48,14 @@ import math
 import re
 import sys
 from datetime import datetime, timezone
+from http.client import HTTPException
 from pathlib import Path
 from typing import Any
 
 from fastmdxplora.paper.fields import BY_NAME, FIELDS
 
 __all__ = ["PAPERS", "TRUTH", "DESCRIPTIONS", "THRESHOLDS", "reconcile", "same_value",
-           "match_studies", "score", "claims_met", "main"]
+           "match_studies", "score", "claims_met", "status_of", "main"]
 
 #: Where the truth is kept, beside the registration.
 TRUTH = Path(__file__).resolve().parents[3] / "preregistration" / "paper-reading" / "truth"
@@ -347,41 +362,88 @@ def _label_share(a: str, b: str) -> float:
 THRESHOLDS = {"values_used_right": 0.98, "stated_values_found": 0.75, "studies_found": 0.80}
 
 
-def claims_met(results: list[dict[str, Any]]) -> dict[str, Any]:
+#: A refusal's code that is no reading: a service's status (the provider's
+#: above all), or a paper not reached (not open where it was fetched, a
+#: file not there or not a paper). The paper was not read.
+_NOT_READ = ("environment.service.", "environment.model.", "environment.credentials.",
+             "environment.paper.not_open", "environment.paper.unreadable", "environment.path.")
+
+#: A refusal's words that are the provider's account, not this paper: every
+#: paper after it would be refused the same way. A limit per minute is not
+#: one: it passes.
+_ACCOUNT = re.compile(r"\((?:401|402|403)\)|usage limits?|spend(?:ing)? limits?|credit balance|"
+                      r"insufficient.quota|billing|insufficient.funds", re.I)
+
+
+def status_of(result: dict[str, Any]) -> str:
+    """What one paper's result is: ``read``, ``not_found`` (FastMDXplora
+    could not read it: its studies count as not found) or ``not_read`` (a
+    service's refusal: read it again in a later sitting). A result from
+    before results said so is told by its code and words: FastMDXplora's
+    own failure then carried a service's code, and says "FastMDXplora
+    could not read the paper"."""
+    if "fields" in result:
+        return "read"
+    if result.get("status") in ("not_found", "not_read"):
+        return str(result["status"])
+    said = str(result.get("refused") or "")
+    if said.startswith(("FastMDXplora could not read the paper", "FastMDXplora found no MD")):
+        return "not_found"
+    return "not_read" if str(result.get("code") or "").startswith(_NOT_READ) else "not_found"
+
+
+def _stops_the_sitting(code: str, said: str) -> bool:
+    """Whether a refusal will refuse every paper after it: no AI model
+    chosen, no key, or the provider's account (its limit, billing, a
+    refused key)."""
+    if code in ("environment.model.unset", "environment.credentials.absent"):
+        return True
+    return code.startswith(_NOT_READ) and bool(_ACCOUNT.search(said))
+
+
+def claims_met(results: list[dict[str, Any]],
+               registered: list[str] | tuple[str, ...] | None = None) -> dict[str, Any]:
     """The registered claims, each with its number and whether it is met,
-    from the papers' counts pooled."""
+    from the papers' counts pooled. Not judged (``value`` and ``met``
+    None) while a paper of ``registered`` (the registered set, ``PAPERS``,
+    by default) is not read, or not in ``results``: the papers are named in
+    ``not_read``."""
     total = {key: sum(r.get("fields", {}).get(key, 0) for r in results)
              for key in ("correct", "wrong", "missed", "invented", "agreed_absent", "elsewhere")}
-    # A paper refused counts its studies as not found, but the one that must
-    # be refused by its DOI and was not given as a file.
+    statuses = {str(r.get("key")): status_of(r) for r in results}
+    keys = [paper["key"] for paper in PAPERS] if registered is None else list(registered)
+    not_read = [key for key in keys if statuses.get(key, "not_read") == "not_read"]
+    # A paper not found counts its studies as not found, but the one that
+    # must be refused by its DOI and was not given as a file.
     truth_studies = sum(r.get("studies_truth", 0) for r in results
-                        if "fields" in r or r.get("key") != "buch_2011")
+                        if statuses[str(r.get("key"))] != "not_read"
+                        and ("fields" in r or r.get("key") != "buch_2011"))
     read_studies = sum(r.get("studies_read", 0) for r in results if "fields" in r)
     matched = sum(r.get("studies_matched", 0) for r in results if "fields" in r)
 
     def ratio(top: int, bottom: int) -> float | None:
-        return round(top / bottom, 4) if bottom else None
+        return round(top / bottom, 4) if bottom and not not_read else None
+
+    def judged(value: float | None, threshold: float) -> dict[str, Any]:
+        return {"value": value, "met": None if value is None else value >= threshold}
 
     used_right = ratio(total["correct"], total["correct"] + total["wrong"] + total["invented"])
     found = ratio(total["correct"], total["correct"] + total["wrong"] + total["missed"])
     studies = ratio(matched, truth_studies)
     buch = next((r for r in results if r.get("key") == "buch_2011"), None)
-    out = {
-        "values_used_right": {"value": used_right,
-                              "met": used_right is not None
-                              and used_right >= THRESHOLDS["values_used_right"]},
-        "stated_values_found": {"value": found, "met": found is not None
-                                and found >= THRESHOLDS["stated_values_found"]},
-        "studies_found": {"value": studies, "met": studies is not None
-                          and studies >= THRESHOLDS["studies_found"]},
+    return {
+        "values_used_right": judged(used_right, THRESHOLDS["values_used_right"]),
+        "stated_values_found": judged(found, THRESHOLDS["stated_values_found"]),
+        "studies_found": judged(studies, THRESHOLDS["studies_found"]),
         "not_open_refused": {"value": (buch or {}).get("refused_by_doi"),
-                             "met": bool(buch) and buch.get("refused_by_doi")
-                             == "environment.paper.not_open" and "fields" in buch},
+                             "met": None if not_read else bool(buch) and buch.get(
+                                 "refused_by_doi") == "environment.paper.not_open"
+                             and "fields" in buch},
         "studies_read_that_are_the_truth_s": ratio(matched, read_studies),
-        "refused": [r.get("key") for r in results if "fields" not in r],
+        "not_found": [key for key, status in statuses.items() if status == "not_found"],
+        "not_read": not_read,
         "totals": total,
     }
-    return out
 
 
 def _reconcile_folders(first: Path, second: Path, out: Path) -> None:
@@ -413,6 +475,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--file", action="append", default=[], metavar="KEY=PATH",
                         help="Read this paper from a file here rather than fetching it, "
                              "as the one not open for programs must be; repeatable.")
+    parser.add_argument("--earlier", action="append", default=[], metavar="FILE",
+                        help="An earlier sitting's file: its papers read or not found are "
+                             "kept and not read again, its papers not read are read now; "
+                             "repeatable.")
     parser.add_argument("--reconcile", nargs=3, metavar=("FIRST", "SECOND", "OUT"),
                         help="Make the truth from two readers' folders, and stop.")
     return parser
@@ -440,9 +506,35 @@ def main(argv: list[str] | None = None) -> int:
     if wanted and wanted - keys:
         print(f"--papers: no paper {', '.join(sorted(wanted - keys))}.", file=sys.stderr)
         return 2
-    results = []
+    kept, sitting, was_not_read = _earlier(args.earlier)
+    if kept is None:
+        return 2
+
+    def to_read(key: str) -> bool:
+        return (not wanted or key in wanted) and (
+            key not in kept or status_of(kept[key]) == "not_read")
+
+    if to_read("buch_2011") and "buch_2011" not in files:
+        print("buch_2011 is read from its PDF, as registered: give it with "
+              "--file buch_2011=PATH, or leave it out with --papers.", file=sys.stderr)
+        return 2
+    out = Path(args.out)
+    # Papers read or not found before, and those not read before that this
+    # sitting does not try, kept as they were.
+    results = [result for key, result in kept.items() if not to_read(key)]
+    stopped: dict[str, Any] | None = None
     for paper in PAPERS:
         if wanted and paper["key"] not in wanted:
+            continue
+        earlier = kept.get(paper["key"])
+        if earlier is not None and status_of(earlier) != "not_read":
+            continue  # read, or not found, in an earlier sitting: not read again
+        truth = json.loads((TRUTH / f"{paper['key']}.json").read_text(encoding="utf-8"))
+        if stopped is not None:
+            results.append({"key": paper["key"], "status": "not_read", "sitting": sitting,
+                            "refused": f"Not tried: the sitting stopped at {stopped['key']}.",
+                            "code": stopped["code"],
+                            "studies_truth": len(truth.get("studies") or [])})
             continue
         refused_by_doi = None
         if paper["licence"].startswith("free to read"):
@@ -454,18 +546,28 @@ def main(argv: list[str] | None = None) -> int:
             except CodedError as exc:
                 refused_by_doi = exc.code
             print(f"{paper['key']}: by its DOI, {refused_by_doi or 'fetched'}")
-        truth_path = TRUTH / f"{paper['key']}.json"
-        truth = json.loads(truth_path.read_text(encoding="utf-8"))
         try:
             _paper, reading = studies_in(files.get(paper["key"], paper["route"]), use_kept=False)
-        except CodedError as exc:
-            results.append({"key": paper["key"], "refused": str(exc), "code": exc.code,
-                            "refused_by_doi": refused_by_doi,
-                            "studies_truth": len(truth.get("studies") or [])})
-            print(f"{paper['key']}: refused ({exc.code})")
+        except (CodedError, OSError, HTTPException) as exc:
+            # A connection cut part way is the network's: not read.
+            code = getattr(exc, "code", None) if isinstance(exc, CodedError) else None
+            code = code or "environment.service.unreachable"
+            result = {"key": paper["key"], "refused": str(exc) or type(exc).__name__,
+                      "code": code, "refused_by_doi": refused_by_doi, "sitting": sitting,
+                      "studies_truth": len(truth.get("studies") or [])}
+            result["status"] = status_of(result)
+            results.append(result)
+            print(f"{paper['key']}: {result['status'].replace('_', ' ')} ({code}): "
+                  f"{result['refused']}")
+            if result["status"] == "not_read" and _stops_the_sitting(code, str(exc)):
+                stopped = result
+                print("Every paper after it would be refused the same way: the sitting "
+                      "stops here.")
+            _write(out, results, sitting, was_not_read)
             continue
         counted = score(truth, reading)
         counted["model"] = reading.get("model")
+        counted["sitting"] = sitting
         if refused_by_doi is not None:
             counted["refused_by_doi"] = refused_by_doi
         results.append(counted)
@@ -473,16 +575,67 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{paper['key']}: {counted['studies_matched']}/{counted['studies_truth']} studies; "
               f"{fields['correct']} correct, {fields['wrong']} wrong, {fields['missed']} missed, "
               f"{fields['invented']} invented")
-    claims = claims_met(results)
-    Path(args.out).write_text(json.dumps({
-        "when": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "results": results, "totals": claims["totals"], "claims": claims}, indent=1) + "\n",
-        encoding="utf-8")
-    for name in ("values_used_right", "stated_values_found", "studies_found",
-                 "not_open_refused"):
-        print(f"{name}: {claims[name]['value']} ({'met' if claims[name]['met'] else 'not met'})")
-    print(f"Totals: {claims['totals']}. Written to {args.out}.")
+        _write(out, results, sitting, was_not_read)
+    claims = _write(out, results, sitting, was_not_read)
+    if claims["not_read"]:
+        print(f"Not judged: {len(claims['not_read'])} paper(s) not read: "
+              f"{', '.join(claims['not_read'])}. Read them in a later sitting:")
+        print(f"  python -m fastmdxplora.validation.paper_reading --earlier {out} "
+              f"--out <the next sitting's file>" + "".join(
+                  f" --file {key}={path}" for key, path in files.items()))
+    else:
+        for name in ("values_used_right", "stated_values_found", "studies_found",
+                     "not_open_refused"):
+            print(f"{name}: {claims[name]['value']} "
+                  f"({'met' if claims[name]['met'] else 'not met'})")
+    print(f"Totals: {claims['totals']}. Written to {out}.")
     return 0
+
+
+def _earlier(paths: list[str]) -> tuple[dict[str, dict[str, Any]] | None, int, list[str]]:
+    """The papers' results from earlier sittings' files, given in the order
+    they ran: of each paper, its first result read or not found, else its
+    last not read; this sitting's number; and the papers not read before."""
+    kept: dict[str, dict[str, Any]] = {}
+    sitting = 1
+    for path in paths:
+        try:
+            earlier = json.loads(Path(path).read_text(encoding="utf-8"))
+            results = earlier["results"]
+            said = int(earlier.get("sittings") or 1)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+            print(f"--earlier {path}: not a sitting's file ({exc}).", file=sys.stderr)
+            return None, 0, []
+        sitting = max(sitting + 1, said + 1)
+        for result in results:
+            if not isinstance(result, dict) or not result.get("key"):
+                continue
+            key = str(result["key"])
+            # A paper read, or not found, is not read again: its first such
+            # result stands, whatever a later file holds.
+            if key not in kept or status_of(kept[key]) == "not_read":
+                kept[key] = result
+    return kept, sitting, [paper["key"] for paper in PAPERS if paper["key"] in kept
+                           and status_of(kept[paper["key"]]) == "not_read"]
+
+
+def _write(out: Path, results: list[dict[str, Any]], sitting: int,
+           was_not_read: list[str]) -> dict[str, Any]:
+    """Write the sitting's file whole (through a file beside it, so a
+    sitting stopped part way leaves the last one written), and give its
+    claims."""
+    claims = claims_met(results)
+    read_again = [key for key in was_not_read
+                  if any(r.get("key") == key and r.get("sitting") == sitting
+                         and status_of(r) != "not_read" for r in results)]
+    body = json.dumps({
+        "when": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "sittings": sitting, "read_again": read_again,
+        "results": results, "totals": claims["totals"], "claims": claims}, indent=1) + "\n"
+    part = out.with_name(out.name + ".part")
+    part.write_text(body, encoding="utf-8")
+    part.replace(out)
+    return claims
 
 
 if __name__ == "__main__":  # pragma: no cover
