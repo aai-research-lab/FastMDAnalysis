@@ -68,13 +68,16 @@ and Wrong marks people gave the Agent's replies.
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import math
 import os
 import re
+import subprocess
 import sys
 import tempfile
+import zlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1346,8 +1349,8 @@ def _trial(case: Case, repeat: int, complete: Any, *, tape: _Tape, study: str | 
     record = {"case": case.name, "kind": case.kind, "tier": case.tier, "repeat": repeat,
               "study": study if case.kind == "records" else None, "truth": truth}
     if case.kind == "records" and truth is None:
-        verdict = Verdict(None, "not asked: no study given, or no determined mean of "
-                                f"{case.analysis} in it")
+        verdict = Verdict(None, "not asked: no study given" if not study else
+                          f"not asked: no determined mean of {case.analysis} in {study}")
         return {**record, "turns": [], "exchanges": [], "changed": 0,
                 "verdict": _verdict_record(verdict), "skipped": True}
     from_provider = False
@@ -1461,7 +1464,7 @@ def replay(recorded: Mapping[str, Any], *, cases: Iterable[str] | None = None,
         raise StudyError("the recording holds cases this set does not: " + ", ".join(missing),
                          code="config.option.inapplicable", option="replay")
     result = _result(trials)
-    for key in ("ai_model", "fastmdxplora", "when", "protocol", "repeats"):
+    for key in ("ai_model", "fastmdxplora", "source", "when", "protocol", "repeats"):
         if key in recorded:
             result[f"recorded_{key}"] = recorded[key]
     return result
@@ -1637,7 +1640,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", help="write the run, every exchange included, as JSON "
                                       "(written after each trial)")
     parser.add_argument("--replay", metavar="FILE",
-                        help="ask again from a recorded run, with no AI model")
+                        help="ask again from a recorded run (as --out wrote it, or gzipped), "
+                             "with no AI model")
     parser.add_argument("--docs-only", action="store_true",
                         help="search the docs for each docs case's question; no AI model")
     parser.add_argument("--marks", nargs="*", metavar="FOLDER",
@@ -1645,6 +1649,52 @@ def build_parser() -> argparse.ArgumentParser:
                              "under these folders (default: here)")
     parser.add_argument("--list", action="store_true", help="list the cases and stop")
     return parser
+
+
+def read_recording(path: str | Path) -> dict[str, Any]:
+    """A run as ``--out`` wrote it, or gzipped, as the suite keeps one. A file
+    cut short or not a run is refused, saying so."""
+    data = Path(path).read_bytes()
+    try:
+        if data[:2] == b"\x1f\x8b":
+            data = gzip.decompress(data)
+        recorded = json.loads(data.decode("utf-8"))
+    except (EOFError, zlib.error, UnicodeDecodeError) as exc:
+        raise StudyError(f"not a whole recording ({exc})",
+                         code="config.option.inapplicable", option="replay") from None
+    if not isinstance(recorded, dict) or not isinstance(recorded.get("trials"), list):
+        raise StudyError("not a recording of a run: no trials in it",
+                         code="config.option.inapplicable", option="replay")
+    return recorded
+
+
+def source_of(package: str | Path | None = None) -> dict[str, Any] | None:
+    """The commit the code was asked from, where it runs from a checkout of
+    its own repository, and whether that checkout held changes; None for an
+    installed copy. The version an editable install reports is the one it
+    had when installed, whatever is checked out since."""
+    folder = Path(package) if package is not None else Path(__file__).resolve().parents[1]
+    # A repository named by the caller's environment (a hook's GIT_DIR) is
+    # not the one the code is in.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
+    def git(*args: str) -> str | None:
+        try:
+            done = subprocess.run(["git", "--no-optional-locks", "-C", str(folder), *args],
+                                  capture_output=True, encoding="utf-8", errors="replace",
+                                  env=env, timeout=10, check=False)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return done.stdout.strip() if done.returncode == 0 else None
+
+    top = git("rev-parse", "--show-toplevel")
+    if not top or (Path(top) / "src" / folder.name).resolve() != folder.resolve():
+        return None
+    commit = git("rev-parse", "HEAD")
+    changes = git("status", "--porcelain", "--untracked-files=no")
+    if not commit or changes is None:
+        return None
+    return {"commit": commit, "uncommitted": bool(changes)}
 
 
 def _write_out(path: str | None, result: Mapping[str, Any], *, quiet: bool = False) -> None:
@@ -1693,7 +1743,10 @@ def main(argv: list[str] | None = None) -> int:
         _write_out(args.out, {"set": SET_NAME, "version": SET_VERSION, "docs": rows})
         return 0
     if args.replay:
-        recorded = json.loads(Path(args.replay).read_text(encoding="utf-8"))
+        try:
+            recorded = read_recording(args.replay)
+        except (OSError, ValueError) as exc:
+            parser.error(f"--replay {args.replay}: {exc}")
         try:
             result = replay(recorded, cases=args.cases, kinds=args.kinds)
         except ValueError as exc:
@@ -1713,7 +1766,7 @@ def main(argv: list[str] | None = None) -> int:
     chosen = load_choice()
     ai_model = f"{chosen.provider}/{chosen.model}" if chosen is not None else None
     complete = completion_for(where="page")
-    head = {"ai_model": ai_model, "fastmdxplora": __version__,
+    head = {"ai_model": ai_model, "fastmdxplora": __version__, "source": source_of(),
             "repeats": max(1, args.repeats),
             "when": datetime.now(timezone.utc).isoformat(timespec="seconds")}
     done: list[dict[str, Any]] = []
