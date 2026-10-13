@@ -157,6 +157,11 @@ class Proposal:
     #: What the AI model was sent to reach this, kept bounded
     #: (:mod:`fastmdxplora.agent.receipt`).
     receipt: ContextReceipt = ContextReceipt()
+    #: The plan the Agent keeps across turns, as given beside this reply
+    #: (``keep_plan``): each step's words and whether it is done, shown to
+    #: the person as a checklist; None where this reply gave none. Not a
+    #: config's plan, which is the config said in words.
+    steps: tuple[dict[str, Any], ...] | None = None
 
     @property
     def accepted(self) -> bool:
@@ -437,6 +442,15 @@ one step of seeing what is about to run is what assisted mode promises.
 Stopping a run is irreversible, so a stop is confirmed with the person
 before it happens, and so is a run their message did not plainly ask for;
 you need not ask, the software does."""),
+    ("",
+     """\
+A request of several steps (find the structure, write the study, run it,
+then analyse it) may be given a plan: call `keep_plan` beside your reply
+with the steps, each in a few words, and `done` true for a step already
+done. Where the message gives your plan so far, keep to it: call
+`keep_plan` again only to tick a step the conversation shows done, or to
+change the steps where the person changed what they want. A plan never
+acts: each step is done only when the person says so, as above."""),
     ("""\
 You are the FastMDXplora Agent. Asked who or what you are, say so by
 that name, then what you do, in a sentence each. Asked which AI model or
@@ -485,8 +499,10 @@ def _instructions(protocol: str = "text") -> str:
     """The instructions for one way of replying: ``"text"`` (a line read by
     a pattern) or ``"tools"`` (calls the provider delivers as data)."""
     tools = protocol == "tools"
-    return "\n\n".join(said_with_tools if tools and said_with_tools else said
-                       for said, said_with_tools in _PARAGRAPHS) + "\n"
+    paragraphs = (said_with_tools if tools and said_with_tools else said
+                  for said, said_with_tools in _PARAGRAPHS)
+    # A paragraph one way of replying has no words for is left out of it.
+    return "\n\n".join(p for p in paragraphs if p) + "\n"
 
 
 _INSTRUCTIONS = _instructions("text")
@@ -567,13 +583,25 @@ def earlier_in_brief(history: list[dict[str, str]] | None) -> str:
             "person where one matters and its words are not here.\n" + "\n".join(lines) + "\n")
 
 
+def earlier_turns(history: list[dict[str, str]] | None, *, context: bool = True) -> str:
+    """The turns before the last :data:`KEPT_WHOLE`: kept as what was
+    decided and what is still open (:func:`fastmdxplora.agent.context.earlier_kept`),
+    or, with ``context`` false, each by its first sentence, as before."""
+    if not context:
+        return earlier_in_brief(history)
+    from fastmdxplora.agent.context import earlier_kept
+
+    return earlier_kept(history, whole=KEPT_WHOLE, most=KEPT_IN_BRIEF)
+
+
 def prompt_for(request: str, *, phases: list[str] | None = None,
                verbose: bool = True,
                history: list[dict[str, str]] | None = None,
                current_config: str | None = None,
                run_status: str | None = None,
                attachments: list[dict[str, Any]] | None = None,
-               tools: Any = None, defaults: Any = None, memory: Any = None) -> str:
+               tools: Any = None, defaults: Any = None, memory: Any = None,
+               named: str = "", plan: Any = None, context: bool = True) -> str:
     """The first prompt: what the language is, and what is wanted.
 
     The schema description is generated, so it cannot name a setting
@@ -586,7 +614,7 @@ def prompt_for(request: str, *, phases: list[str] | None = None,
     if tools is not None:
         parts += [tools.describe(), "\n"]
     parts += [describe_schema(phases=phases, verbose=verbose), "\n\n"]
-    brief = earlier_in_brief(history)
+    brief = earlier_turns(history, context=context)
     if brief:
         parts += [brief, "\n"]
     if history:
@@ -597,14 +625,15 @@ def prompt_for(request: str, *, phases: list[str] | None = None,
         parts.append("\n")
     parts.append(_this_message(request, current_config=current_config,
                                run_status=run_status, attachments=attachments,
-                               defaults=defaults, memory=memory))
+                               defaults=defaults, memory=memory, named=named, plan=plan))
     return "".join(parts)
 
 
 def _this_message(request: str, *, current_config: str | None = None,
                   run_status: str | None = None,
                   attachments: list[dict[str, Any]] | None = None,
-                  defaults: Any = None, memory: Any = None) -> str:
+                  defaults: Any = None, memory: Any = None,
+                  named: str = "", plan: Any = None) -> str:
     """What changes from one message to the next: the current config, what
     the run is doing, the files attached, your defaults, what the Agent
     remembers of the person, and what the person asked. Last in either
@@ -625,6 +654,14 @@ def _this_message(request: str, *, current_config: str | None = None,
         parts.append(f"## Your defaults ({defaults.path.name})\n{defaults.said()}\n\n")
     if memory is not None and memory.values:
         parts.append(f"## What you remember about the person\n{memory.said()}\n\n")
+    if plan:
+        from fastmdxplora.agent.context import plan_said
+
+        said = plan_said(plan)
+        if said:
+            parts.append(said + "\n")
+    if named:
+        parts.append(named.rstrip() + "\n\n")
     parts.append(f"## The study wanted\n{request}\n")
     return "".join(parts)
 
@@ -990,6 +1027,9 @@ def propose_config(
     as_registered: bool = False,
     defaults: Any = None,
     memory: Any = None,
+    study: Any = None,
+    plan: Any = None,
+    context: bool = True,
 ) -> Proposal:
     """Ask for a config, and keep asking until it validates or the cap.
 
@@ -1029,6 +1069,16 @@ def propose_config(
         What the Agent remembers of the person (:mod:`fastmdxplora.agent.memory`),
         listed to the AI model in the message where it is on; it shapes the
         answer and sets no value. The registered harnesses pass none.
+    study
+        The study open, where one is: what ``@study`` and an analysis named
+        with @ refer to (:mod:`fastmdxplora.agent.context`).
+    plan
+        The plan the Agent gave in earlier replies, as the page keeps it:
+        given back in the message, for the AI model to keep to and tick.
+    context
+        False asks as before :mod:`fastmdxplora.agent.context`: the earlier
+        turns by their first sentence, and nothing named with @ resolved.
+        For the evaluation, which asks its ``context`` cases both ways.
 
     Returns
     -------
@@ -1047,11 +1097,17 @@ def propose_config(
     this design exists to prevent.
     """
     receipt = ReceiptBuilder()
+    named = ""
+    if context:
+        from fastmdxplora.agent.context import named_in
+
+        named = named_in(request, tools, study)
     proposal = _asked(request, receipt.recording(complete), phases=phases,
                       max_cycles=max_cycles, verbose_schema=verbose_schema,
                       history=history, current_config=current_config,
                       run_status=run_status, attachments=attachments, tools=tools,
-                      as_registered=as_registered, defaults=defaults, memory=memory)
+                      as_registered=as_registered, defaults=defaults, memory=memory,
+                      named=named, plan=plan if context else None, context=context)
     # What the AI model was sent, whatever came of it: each prompt, or
     # each turn's system prompt, tools and new messages (`agent/receipt.py`).
     return replace(_with_your_defaults(proposal, defaults), receipt=receipt.freeze())
@@ -1100,6 +1156,9 @@ def _asked(
     as_registered: bool = False,
     defaults: Any = None,
     memory: Any = None,
+    named: str = "",
+    plan: Any = None,
+    context: bool = True,
 ) -> Proposal:
     """The loop behind :func:`propose_config`, before your defaults."""
     from fastmdxplora.agent.tools import MOST_LOOKS, use_in
@@ -1117,7 +1176,8 @@ def _asked(
                 request, turn, phases=phases, max_cycles=max_cycles,
                 verbose_schema=verbose_schema, history=history,
                 current_config=current_config, run_status=run_status,
-                attachments=attachments, tools=tools, defaults=defaults, memory=memory)
+                attachments=attachments, tools=tools, defaults=defaults, memory=memory,
+                named=named, plan=plan, context=context)
         except NoToolCalling:
             # Turned away on the first turn: this conversation is asked in
             # text, and the next starts in text, where the completion can
@@ -1130,7 +1190,8 @@ def _asked(
     first = prompt_for(request, phases=phases, verbose=verbose_schema,
                        history=history, current_config=current_config,
                        run_status=run_status, attachments=attachments, tools=tools,
-                       defaults=defaults, memory=memory)
+                       defaults=defaults, memory=memory, named=named, plan=plan,
+                       context=context)
     prompt = first
     refusal: Refusal | None = None
 

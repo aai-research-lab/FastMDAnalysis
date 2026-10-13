@@ -1282,6 +1282,131 @@
     }).catch(function () { window.alert("Could not reach the server."); });
   }
 
+  /* ---- What is named with @, the page, and the plan ------------------- */
+
+  /* `@rmsd`, `@study`, `@frame 120`, `@Trp6`, `@file analysis/rg/options.json`:
+   * shown as chips while they are typed, and sent as typed. The server finds
+   * what each names and tells the Agent where its record is (`agent/context.py`,
+   * the same pattern), never its text. */
+  var MENTION = /(^|[^\w@.])@(frame\s+\d{1,7}|file\s+[^\s`]+|[A-Za-z0-9][\w.:+\-]{0,79})/g;
+  var MOST_MENTIONS = 8;
+  function mentionsIn(text) {
+    var found = [];
+    var m;
+    MENTION.lastIndex = 0;
+    while ((m = MENTION.exec(String(text || ""))) && found.length < MOST_MENTIONS) {
+      var said = m[2].replace(/\s+/g, " ").replace(/[.,;:!?)\]}"']+$/, "");
+      if (said && found.indexOf(said) < 0) found.push(said);
+    }
+    return found;
+  }
+  function renderMentions() {
+    var area = el("agent-request");
+    var files = el("agent-attachments");
+    if (!area || !files) return;
+    var host = el("agent-mentions");
+    if (!host) {
+      host = document.createElement("div");
+      host.id = "agent-mentions";
+      host.className = "agent-attachments agent-mentions";
+      host.setAttribute("aria-label", "Named with @");
+      files.parentNode.insertBefore(host, files);
+    }
+    var found = mentionsIn(area.value);
+    host.innerHTML = "";
+    host.hidden = found.length === 0;
+    found.forEach(function (said) {
+      var chip = document.createElement("span");
+      chip.className = "agent-chip";
+      chip.title = "Named with @: the software looks for what it names and tells the Agent "
+        + "where its record is";
+      var name = document.createElement("span");
+      name.className = "name";
+      name.textContent = "@" + said;
+      chip.appendChild(name);
+      host.appendChild(chip);
+    });
+  }
+
+  /* What the page shows, for the Agent: where to look, never what is so
+   * (`current_view`, `agent/tools.py`). The Viewer gives its own view; a page
+   * that keeps hints (`window.FastMDXPageHints[page]`) gives its; every page
+   * its name, the study open and the file open in the reader. Only the page
+   * shown: the Viewer's frame went with every message, from every page. */
+  function clipped(value) {
+    return typeof value === "string" ? value.slice(0, 500) : value;
+  }
+  function pageHints() {
+    var dash = (window.FastMDXDashboard && window.FastMDXDashboard.state) || {};
+    var page = dash.activePage || null;
+    var viewer = window.FastMDXMoleculeViewer;
+    if (page === "viewer" && viewer && viewer.currentViewHints) return viewer.currentViewHints();
+    var hints = {};
+    if (page) hints.page = page;
+    var study = (dash.appState || {}).active_run || null;
+    if (study) hints.study = clipped(String(study));
+    var frame = window.FastMDXFrame;
+    var file = frame && frame.previewing ? frame.previewing() : null;
+    if (file) hints.file = clipped(String(file));
+    var own = window.FastMDXPageHints && page ? window.FastMDXPageHints[page] : null;
+    if (typeof own === "function") {
+      try {
+        var more = own() || {};
+        Object.keys(more).forEach(function (key) {
+          if (more[key] != null && more[key] !== "") hints[key] = clipped(more[key]);
+        });
+      } catch (e) { /* a page's hints never stop a message */ }
+    }
+    return Object.keys(hints).length ? hints : null;
+  }
+
+  /* The plan the Agent keeps across turns (`keep_plan`): shown as a
+   * checklist under the reply that gave it, the newest sent back with each
+   * message so the Agent keeps to it and ticks it. It does nothing: each
+   * step is still done only when the person says so. */
+  var currentSteps = null;
+  function stepsOf(value) {
+    if (!Array.isArray(value)) return null;
+    var steps = value.filter(function (s) { return s && typeof s.step === "string" && s.step; })
+      .slice(0, 12).map(function (s) { return { step: s.step.slice(0, 200), done: s.done === true }; });
+    return steps.length ? steps : null;
+  }
+  function stepsCard(box, steps) {
+    if (!steps) return;
+    var done = steps.filter(function (s) { return s.done; }).length;
+    var head = document.createElement("div");
+    head.className = "agent-plan-head";
+    head.textContent = "Plan: " + done + " of " + steps.length + " done";
+    head.title = "The Agent keeps this plan and ticks a step once it is done. It does "
+      + "nothing itself: each step is done only when you say so.";
+    head.style.margin = "8px 0 2px";
+    head.style.fontSize = "var(--text-xs)";
+    head.style.color = "var(--text-muted)";
+    var list = document.createElement("ol");
+    list.className = "agent-plan";
+    /* Its look here, until the stylesheet (held for another round) has a
+     * rule for it: the ticks are the list's marks. */
+    list.style.listStyle = "none";
+    list.style.paddingLeft = "0";
+    list.style.margin = "0";
+    list.setAttribute("aria-label", "The Agent's plan");
+    steps.forEach(function (s) {
+      var item = document.createElement("li");
+      var tick = document.createElement("input");
+      tick.type = "checkbox";
+      tick.checked = s.done;
+      tick.disabled = true;
+      tick.setAttribute("aria-label", s.done ? "Done" : "To do");
+      var words = document.createElement("span");
+      words.textContent = " " + s.step;
+      item.appendChild(tick);
+      item.appendChild(words);
+      list.appendChild(item);
+    });
+    box.appendChild(head);
+    box.appendChild(list);
+  }
+
   /* Saved where it lives: a chat of no study stays one while a study is
    * open, and a study's conversation stays its study's. The server keeps
    * the conversation and merges each save into it: the page sends its
@@ -1669,6 +1794,13 @@
      * the history it missed a config written with a note beside it, and the
      * Agent then edited an older version (review, 10-07). */
     currentConfig = versions.length ? versions[versions.length - 1].data.yaml : null;
+    /* And the plan is the newest one left: a plan from a reply cut here
+     * went out with the next message. */
+    currentSteps = null;
+    transcript.forEach(function (e) {
+      var kept = stepsOf(e.steps);
+      if (kept) currentSteps = kept;
+    });
   }
 
   function say(text, attached) {
@@ -1823,6 +1955,7 @@
     transcript.push(said);
     area.value = "";
     autosize(area);
+    renderMentions();
     /* The thread this was said in. Another shown before the answer came
      * stops the answer, which is said in this one, not the one on screen
      * (sixteenth review, 10-08: it was written into the other thread). */
@@ -1877,8 +2010,8 @@
       history: history.slice(0, -1),
       current_config: currentConfig,
       attachments: files.map(function (f) { return { name: f.name, text: f.text, truncated: !!f.truncated }; }),
-      current_view: window.FastMDXMoleculeViewer?.currentViewHints
-        ? window.FastMDXMoleculeViewer.currentViewHints() : null
+      current_view: pageHints(),
+      steps: currentSteps
     }, box).then(function (data) {
       if (!stands() || elsewhere()) return;
       box.innerHTML = "";
@@ -1888,6 +2021,11 @@
       sent(box, data.context_receipt);
       var receipt = data.context_receipt && data.context_receipt.kept
         ? data.context_receipt : null;
+      /* The plan, where this reply kept one: shown under it, kept with it,
+       * and the one sent with the next message. */
+      var steps = stepsOf(data.steps);
+      if (steps) currentSteps = steps;
+      function withSteps(entry) { if (steps) entry.steps = steps; return entry; }
       if (data.action) {
         /* An instruction, carried out through the same door the button
          * uses. The thread says what was done, so nothing happens
@@ -1902,19 +2040,19 @@
             data.action === "analyze again" || data.action === "write the report again") {
           /* Asked, not done, and not kept as waiting: a reloaded thread
            * asks the Agent again rather than run a fix it no longer shows. */
-          transcript.push({ role: "agent", kind: "question",
+          transcript.push(withSteps({ role: "agent", kind: "question",
                             text: data.fix ? fixQuestion(data.fix)
-                                           : data.refused || "Nothing here to run." });
+                                           : data.refused || "Nothing here to run." }));
         } else if (confirmRunFirst) {
-          transcript.push({ role: "agent", kind: "question", confirm: "run",
-                            text: runQuestion(), facts: runFacts() });
+          transcript.push(withSteps({ role: "agent", kind: "question", confirm: "run",
+                            text: runQuestion(), facts: runFacts() }));
         } else if (data.action === "stop") {
           /* Asked, not done. A stop is recorded when it is confirmed, so
            * a reloaded thread never says "Did: stop" about a run that was
            * never stopped -- which it did, and the person's "yes" then
            * went to the AI model as a new message. */
-          transcript.push({ role: "agent", kind: "question", confirm: "stop",
-                            text: stopQuestion(data.where), facts: STOP_FACTS });
+          transcript.push(withSteps({ role: "agent", kind: "question", confirm: "stop",
+                            text: stopQuestion(data.where), facts: STOP_FACTS }));
         }
         /* A run is kept once it has started (or said why not), by the
          * launch: kept before, a run refused read back as "Did: run". */
@@ -1922,13 +2060,14 @@
         if (data.action !== "stop" && data.action !== "run" && !data.fix && !data.refused &&
             ["run the fix", "rerun windows", "analyze again", "write the report again"]
               .indexOf(data.action) < 0) {
-          done = { role: "agent", kind: "action", action: data.action, where: data.where || "",
-                   receipt: receipt };
+          done = withSteps({ role: "agent", kind: "action", action: data.action,
+                             where: data.where || "", receipt: receipt });
           transcript.push(done);
         }
         persist();
         act(data.action, data.where || "", box, r, confirmRunFirst, data.fix || null,
             data.refused || "", done);
+        stepsCard(box, steps);
         scrollToEnd();
         return;
       }
@@ -1941,12 +2080,13 @@
         box.appendChild(p);
         cite(box, data.cites);
         history.push({ role: "agent", text: data.answer });
-        var answered = { role: "agent", kind: "answer", text: data.answer,
-                         cites: data.cites || [], looks: data.looks || [], receipt: receipt,
-                         usage: data.usage || null };
+        var answered = withSteps({ role: "agent", kind: "answer", text: data.answer,
+                                   cites: data.cites || [], looks: data.looks || [],
+                                   receipt: receipt, usage: data.usage || null });
         if (data.scene) answered.scene = data.scene;
         transcript.push(answered);
         sceneCard(box, data.scene, answered);
+        stepsCard(box, steps);
         meta(r, answered);
         persist();
         area.focus();
@@ -1957,9 +2097,11 @@
         whoIs(r, "waiting");
         asking(box, data.asked || data.question, data.choices || []);
         history.push({ role: "agent", text: data.question });
-        var asked = { role: "agent", kind: "question", text: data.question,
-                      asked: data.asked || null, choices: data.choices || [],
-                      looks: data.looks || [], receipt: receipt, usage: data.usage || null };
+        var asked = withSteps({ role: "agent", kind: "question", text: data.question,
+                                asked: data.asked || null, choices: data.choices || [],
+                                looks: data.looks || [], receipt: receipt,
+                                usage: data.usage || null });
+        stepsCard(box, steps);
         transcript.push(asked);
         meta(r, asked);
         persist();
@@ -1984,6 +2126,7 @@
                      + "Wrote a config:\n" + data.yaml });
       currentConfig = data.yaml;
       var made = wireActions(r, data, box);
+      stepsCard(box, steps);
       var wrote = { role: "agent", kind: "config", yaml: data.yaml, config: data.config,
                         usage: data.usage || null,
                         note: data.note || null, version: made.number,
@@ -1993,7 +2136,7 @@
                           return a.refusal ? { refusal: { message: a.refusal.message,
                                                           code: a.refusal.code || null } } : {};
                         }) };
-      transcript.push(wrote);
+      transcript.push(withSteps(wrote));
       meta(r, wrote);
       persist();
       scrollToEnd();
@@ -2655,6 +2798,9 @@
     runPending = null;
     if (!saidYes(typed, "run")) {
       note(box, "Not run.");
+      /* Said to the Agent as a reloaded thread says it: the run it named
+       * was declined (`agent/context.py`). */
+      history.push({ role: "agent", text: "Not run." });
       transcript.push({ role: "agent", kind: "answer", text: "Not run." });
       persist();
       return;
@@ -3193,7 +3339,7 @@
     stopWriting();
     el("agent-thread").innerHTML = "";
     conv = threadOf(null, conv.study, []);
-    history = []; transcript = []; currentConfig = null;
+    history = []; transcript = []; currentConfig = null; currentSteps = null;
     stopPending = null; runPending = null; fixPending = null; lastReply = null;
     versions = [];
     placeholder();
@@ -3207,6 +3353,7 @@
     transcript.length = 0;
     history.length = 0;
     currentConfig = null;
+    currentSteps = null;
     stopPending = null; runPending = null; fixPending = null; lastReply = null;
     versions = [];
     replay(keep);
@@ -3310,6 +3457,8 @@
         } else {
           note(box, e.text || "");
         }
+        var kept = stepsOf(e.steps);
+        if (kept) { stepsCard(box, kept); currentSteps = kept; }
         transcript.push(e);
       });
       // Only a stop question that is the final entry keeps its pending
@@ -3708,7 +3857,7 @@
       });
     }
     var area = el("agent-request");
-    area.addEventListener("input", function () { autosize(area); });
+    area.addEventListener("input", function () { autosize(area); renderMentions(); });
     area.addEventListener("keydown", function (e) {
       if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
         e.preventDefault();

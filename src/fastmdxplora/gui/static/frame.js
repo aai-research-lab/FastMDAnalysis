@@ -733,10 +733,32 @@
     body.appendChild(host);
   }
 
+  /* The file last opened in the reader, and the study it is of: what the
+   * Agent is told the person has open (`agent-panel.js` `pageHints`). */
+  var previewed = null;
+  function studyOpen() {
+    var dash = window.FastMDXDashboard && window.FastMDXDashboard.state;
+    return (dash && dash.appState && dash.appState.active_run) || null;
+  }
+  /* The file open in the reader, by its path in the study open: only while
+   * the reader is on screen (the Files tab shown, the panel open or peeking),
+   * and none once another study is open. The reader stays filled when the
+   * panel turns to the Log or folds, and a file read an hour ago is not what
+   * is looked at. A folded panel is hidden by visibility, so its own class
+   * says so, not the reader's layout. */
+  function previewing() {
+    var pane = el("side-preview");
+    if (!previewed || !pane || pane.hidden || pane.offsetParent === null) return null;
+    var body = document.body.classList;
+    if (body.contains("panel-collapsed") && !body.contains("panel-peek")) return null;
+    return previewed.study === studyOpen() ? previewed.path : null;
+  }
+
   function preview(item) {
     var pane = el("side-preview");
     var body = el("side-preview-body");
     if (!pane || !body) return;
+    previewed = { path: item.path, study: studyOpen() };
     pane.hidden = false;
     var seam = el("side-seam");
     if (seam) seam.hidden = false;
@@ -1364,5 +1386,5 @@
   }
 
   window.FastMDXFrame = { showTab: showTab, setCollapsed: setCollapsed, applyTheme: applyTheme,
-                          previewPath: previewPath };
+                          previewPath: previewPath, previewing: previewing };
 })();

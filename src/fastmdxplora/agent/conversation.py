@@ -38,7 +38,7 @@ ACTS = ("run", "stop", "run the fix", "open viewer", "open overview", "open repo
         "open builder", "show config", "download config", "rerun windows",
         "analyze again", "write the report again")
 
-REPLY_TOOLS = ("propose_config", "ask_person", "act", "show_scene")
+REPLY_TOOLS = ("propose_config", "ask_person", "act", "show_scene", "keep_plan")
 
 
 def reply_specs() -> list[ToolSpec]:
@@ -115,6 +115,17 @@ def reply_specs() -> list[ToolSpec]:
                                    "description": "An MDTraj selection."},
                      "labels": {"type": "boolean"},
                      "name": {"type": "string", "description": "A few words."}}}),
+        ToolSpec("keep_plan",
+                 "Beside a reply to a request of several steps, keep the plan: the "
+                 "steps in order, each in a few words, with the ones done ticked. The "
+                 "person sees it as a checklist. It does nothing.",
+                 {"type": "object", "properties": {
+                     "steps": {"type": "array", "maxItems": 12, "items": {
+                         "type": "object", "properties": {
+                             "step": {"type": "string", "description": "A few words."},
+                             "done": {"type": "boolean"}},
+                         "required": ["step"]}}},
+                  "required": ["steps"]}),
     ]
 
 
@@ -131,13 +142,15 @@ def system_prompt(*, phases: list[str] | None, verbose: bool, tools: Any) -> str
     return "".join(parts)
 
 
-def _history(history: list[dict[str, str]] | None) -> list[dict[str, Any]]:
+def _history(history: list[dict[str, str]] | None, *,
+             context: bool = True) -> list[dict[str, Any]]:
     """The conversation so far as turns: the person's and the Agent's, the
-    latest whole and those before by their first sentence."""
-    from fastmdxplora.agent.propose import KEPT_WHOLE, earlier_in_brief
+    latest whole and those before as what was decided and is still open
+    (by their first sentence, with ``context`` false)."""
+    from fastmdxplora.agent.propose import KEPT_WHOLE, earlier_turns
 
     turns: list[dict[str, Any]] = []
-    brief = earlier_in_brief(history)
+    brief = earlier_turns(history, context=context)
     if brief:
         turns.append({"role": "user", "text": brief.rstrip()})
     for said in (history or [])[-KEPT_WHOLE:]:
@@ -336,7 +349,8 @@ def propose_with_tools(request: str, turn: Any, *, phases: list[str] | None,
                        max_cycles: int, verbose_schema: bool,
                        history: list[dict[str, str]] | None, current_config: str | None,
                        run_status: str | None, attachments: list[dict[str, Any]] | None,
-                       tools: Any, defaults: Any = None, memory: Any = None) -> Any:
+                       tools: Any, defaults: Any = None, memory: Any = None,
+                       named: str = "", plan: Any = None, context: bool = True) -> Any:
     """Ask by tool calls until a reply is made, or the attempts run out.
 
     ``turn`` is the completion's ``turn``: a system prompt, the conversation
@@ -352,6 +366,7 @@ def propose_with_tools(request: str, turn: Any, *, phases: list[str] | None,
     """
     import yaml
 
+    from fastmdxplora.agent.context import plan_of
     from fastmdxplora.agent.propose import Attempt, Proposal, _this_message
     from fastmdxplora.agent.tools import MOST_LOOKS
     from fastmdxplora.agent.turns import NoToolCalling
@@ -362,23 +377,26 @@ def propose_with_tools(request: str, turn: Any, *, phases: list[str] | None,
     system = system_prompt(phases=phases, verbose=verbose_schema, tools=tools)
     specs = (tools.specs() if tools is not None else []) + reply_specs()
     looks_named = {spec.name for spec in specs} - set(REPLY_TOOLS)
-    messages: list[dict[str, Any]] = _history(history) + [{
+    messages: list[dict[str, Any]] = _history(history, context=context) + [{
         "role": "user", "text": _this_message(request, current_config=current_config,
                                               run_status=run_status,
                                               attachments=attachments,
-                                              defaults=defaults, memory=memory)}]
+                                              defaults=defaults, memory=memory,
+                                              named=named, plan=plan)}]
     usage = Usage()
     attempts: list[Attempt] = []
     refusal: Refusal | None = None
     looked = 0
     turns_taken = 0
+    #: The plan as last kept in this reply's turns, if the AI model kept one.
+    kept_plan: tuple[dict[str, Any], ...] | None = None
 
     def looks() -> tuple[Any, ...]:
         return tuple(tools.looks) if tools is not None else ()
 
     def done(**said: Any) -> Any:
         return Proposal(attempts=tuple(attempts), looks=looks(), usage=usage.as_record(),
-                        protocol="tools", **said)
+                        protocol="tools", steps=kept_plan, **said)
 
     def missed(why: str, raw: str) -> None:
         nonlocal refusal
@@ -447,6 +465,17 @@ def propose_with_tools(request: str, turn: Any, *, phases: list[str] | None,
         asks = [c for c in calls if c.name == "ask_person"]
         acts = [c for c in calls if c.name == "act"]
         scenes = [c for c in calls if c.name == "show_scene"]
+        plans = [c for c in calls if c.name == "keep_plan"]
+        # A plan goes beside the reply, whatever the reply is: the last one
+        # kept, checked, is the one the person sees.
+        for call in plans:
+            steps = plan_of(call.arguments.get("steps"))
+            if steps is None:
+                answer(call, "Not kept: give `steps`, each a few words, with `done` for "
+                             "those done.", True)
+            else:
+                kept_plan = steps
+                answer(call, f"Kept: {len(steps)} step{'s' if len(steps) != 1 else ''}.")
 
         if proposals:
             first = proposals[0]
@@ -505,6 +534,9 @@ def propose_with_tools(request: str, turn: Any, *, phases: list[str] | None,
         elif looked_now:
             # Text beside a look is the AI model saying what it is about to
             # do, not its reply: the reply comes once it has read the look.
+            pass
+        elif plans and not text and not scenes:
+            # A plan kept with nothing said beside it: the reply comes next.
             pass
         elif text:
             scene_call = scenes[0].arguments if scenes else None

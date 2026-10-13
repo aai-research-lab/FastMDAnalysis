@@ -1022,19 +1022,39 @@ def test_a_study_named_from_here_is_named_whole_in_the_message(tmp_path, monkeyp
 RECORDED = Path(__file__).resolve().parent / "data" / "agent_eval" / "run_2026-10-13.json.gz"
 
 
-def _replayed_recording(monkeypatch) -> tuple[dict, dict]:
+#: What the Agent sends for the recorded run's 440 requests and looks, as
+#: the code asks them now: a digest of their digests, in order. A change to
+#: what the Agent is told (its instructions, its tools, a message's parts)
+#: changes it, and the round that makes the change sets it here, so no
+#: change to what is sent goes unseen. Set by `agent-context` (its plan, the
+#: look at a study's file): every request of the run changed with it, and
+#: the run was not asked again; its verdicts replay as recorded.
+ASKED_NOW = "3d7944f817a5a1cf4d9ee2ff381321093464d4bfbd1d5e42b482945148fd4cfc"
+
+
+def _replayed_recording(monkeypatch) -> tuple[dict, dict, list[str]]:
     import fastmdxplora.agent.tools as tools
 
     def no_tool(self, name, asked):
         raise AssertionError(f"{name} was run in a replay")
 
+    asked_now: list[str] = []
+    taped = ev._Tape.next
+
+    def next_asked(self, kind, asked=None):
+        asked_now.append(f"{kind}:{asked}")
+        return taped(self, kind, asked)
+
     monkeypatch.setattr(tools.Toolbox, "use", no_tool)
+    monkeypatch.setattr(ev._Tape, "next", next_asked)
     recorded = ev.read_recording(RECORDED)
-    return recorded, ev.replay(recorded)
+    return recorded, ev.replay(recorded), asked_now
 
 
 def test_the_recorded_run_replays_to_every_verdict_it_was_recorded_with(monkeypatch) -> None:
-    recorded, replayed = _replayed_recording(monkeypatch)
+    import hashlib
+
+    recorded, replayed, asked_now = _replayed_recording(monkeypatch)
     assert recorded["set"] == ev.SET_NAME and recorded["version"] == ev.SET_VERSION
     assert recorded["ai_model"] == "anthropic/claude-opus-5-5"
     assert recorded["complete"] is True and len(recorded["trials"]) == 216
@@ -1042,9 +1062,16 @@ def test_the_recorded_run_replays_to_every_verdict_it_was_recorded_with(monkeypa
     for old, new in zip(recorded["trials"], replayed["trials"]):
         assert (new["case"], new["repeat"]) == (old["case"], old["repeat"])
         assert new["verdict"] == old["verdict"], (old["case"], old["repeat"])
-    # Nothing the Agent sends has changed since it was asked.
-    assert replayed["tally"]["changed_since_recorded"] == 0
-    assert replayed["tally"] == recorded["tally"]
+    # What the Agent sends now, against what the last round that changed it
+    # set: a change to it fails here until it is set again.
+    assert len(asked_now) == 440 + 222
+    # Each of the 440 requests to the AI model is sent differently since the
+    # run (the instructions and tools grew); the 222 looks are asked as they were.
+    assert replayed["tally"]["changed_since_recorded"] == 440
+    assert hashlib.sha256("\n".join(asked_now).encode()).hexdigest() == ASKED_NOW
+    same = {k: v for k, v in replayed["tally"].items() if k != "changed_since_recorded"}
+    assert same == {k: v for k, v in recorded["tally"].items()
+                    if k != "changed_since_recorded"}
     # The records trials first not asked are kept, beside the study they had.
     first = recorded["records_first"]
     assert [(t["case"], t["verdict"]["passed"]) for t in first["trials"]] == [
@@ -1056,7 +1083,7 @@ def test_the_recorded_run_replays_to_every_verdict_it_was_recorded_with(monkeypa
 
 def test_the_recorded_run_meets_each_claim_as_reported(monkeypatch) -> None:
     """The counts docs/validation.md and the registration's Results give."""
-    _, replayed = _replayed_recording(monkeypatch)
+    _, replayed, _ = _replayed_recording(monkeypatch)
     tally = replayed["tally"]
     kinds = {k: (v["passed"], v["judged"]) for k, v in tally["kinds"].items()}
     assert tally["all"] == {"passed": 208, "judged": 216, "not_judged": 0}

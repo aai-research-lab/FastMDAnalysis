@@ -207,6 +207,7 @@ def propose_endpoint(payload: dict[str, Any],
     tools = Toolbox(
         path_for=path_for,
         workspace=folder_of_studies(getattr(runtime, "exploration_root", None)),
+        open_study=getattr(runtime, "active_root", None),
         extra=(current_view_tool(
             view_hints,
             active_root=getattr(runtime, "active_root", None),
@@ -222,12 +223,18 @@ def propose_endpoint(payload: dict[str, Any],
         complete = _written_as_it_goes(complete, emit)
         _say_each_look(tools, emit)
     try:
+        # The study open is what `@study` and an analysis named with @ refer
+        # to; the plan is the one the page shows, as the Agent last kept it.
+        from fastmdxplora.agent.context import plan_of
+
         proposal = propose_config(
             request, complete, phases=list(phases),
             max_cycles=int(payload.get("attempts") or DEFAULT_ATTEMPTS),
             history=history or None, current_config=current,
             run_status=_run_status(runtime), attachments=attachments or None,
-            tools=tools, defaults=defaults, memory=memory)
+            tools=tools, defaults=defaults, memory=memory,
+            study=getattr(runtime, "active_root", None),
+            plan=plan_of(payload.get("steps")))
     except StudyError as exc:
         found = refusal_of(exc)
         return {"ok": False, "error": found.message, "code": found.code,
@@ -522,6 +529,12 @@ def _proposal_answer(proposal: Any, payload: dict[str, Any], runtime: Any,
     # how it replied: on every kind of answer, for the page and the record.
     answer["usage"] = getattr(proposal, "usage", None)
     answer["protocol"] = getattr(proposal, "protocol", "text")
+    # The plan the Agent keeps, where this reply kept one: the page shows it
+    # as a checklist and sends it back with the next message (`steps`; a
+    # config's `plan` is the config said in words).
+    steps = getattr(proposal, "steps", None)
+    if steps:
+        answer["steps"] = [dict(step) for step in steps]
     return answer
 
 

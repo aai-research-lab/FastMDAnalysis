@@ -73,8 +73,8 @@ MOST_SAID = 4000
 MOST_VIEW_HINTS = 12
 MOST_VIEW_HINT_TEXT = 512
 _VIEW_HINT_KEYS = frozenset({
-    "analysis", "colour", "expression", "field", "frame", "page", "representation",
-    "selection", "study", "superposed", "system",
+    "analysis", "colour", "expression", "field", "file", "frame", "page",
+    "representation", "section", "selection", "study", "superposed", "system",
 })
 
 #: A structure a tool may read: a PDB identifier or a structure file. Only
@@ -121,6 +121,7 @@ LOOK_WORDS: dict[str, tuple[str, str, str]] = {
     "compare_studies": ("Compared two studies", "Comparing two studies", ""),
     "methods_of_study": ("Read a study's methods", "Reading a study's methods", ""),
     "current_view": ("Checked what the page shows", "Checking what the page shows", ""),
+    "read_study_file": ("Read {} in a study", "Reading {} in a study", "file"),
 }
 
 
@@ -188,6 +189,9 @@ class Toolbox:
     #: The folder of studies list_studies lists (a
     #: :class:`fastmdxplora.mcp.workspace.Workspace`), where there is one.
     workspace: Any = None
+    #: The study open on the page, where there is one: read_study_file reads
+    #: a file of it, or of a study in the workspace, and of no other folder.
+    open_study: Any = None
 
     def _table(self) -> dict[str, tuple[str, str, Callable[[Toolbox, dict[str, Any]], str]]]:
         """Every tool this toolbox has: those here, then installed, then extra."""
@@ -470,6 +474,7 @@ def _current_view_look(box: Toolbox, asked: dict[str, Any], request_hints: Any,
     if isinstance(selection, str) and not expression:
         expression = selection
     system = hints.get("system")
+    page = hints.get("page")
     if expression and system:
         parts.append("Factual evidence from check_selection:\n" + _read_with(
             box, "check_selection", {"system": system, "expression": expression}))
@@ -477,6 +482,23 @@ def _current_view_look(box: Toolbox, asked: dict[str, Any], request_hints: Any,
         parts.append("Factual evidence from inspect_structure:\n" + _read_with(
             box, "inspect_structure", {"system": system}))
     elif named_study:
+        section = hints.get("section")
+        where = {"report": "the report", "analysis": "the Analysis page"}.get(str(page))
+        if where and section:
+            parts.append(f"The person is reading {where} at its section {section!r}; "
+                         "answer about that section unless they say otherwise.")
+        if hints.get("file"):
+            # The file open in the side panel's reader: read as
+            # read_study_file reads it, inside the study and nowhere else;
+            # the study's record as well, as the message may be about it.
+            # The study is the server's open one, checked above.
+            from dataclasses import replace
+
+            reader = replace(box, open_study=named_study) if active_root is not None else box
+            parts.append(f"The person has {hints['file']} open in the file reader. Factual "
+                         "evidence from read_study_file:\n" + _read_with(
+                             reader, "read_study_file",
+                             {"study": named_study, "file": hints["file"]}))
         parts.append("Factual evidence from read_study:\n" + _read_with(
             box, "read_study", {"study": named_study}))
     else:
@@ -780,6 +802,81 @@ def _read_study(box: Toolbox, asked: dict[str, Any]) -> str:
     return "\n\n".join(parts)
 
 
+#: A file in a study larger than this is not read: a trajectory, a
+#: checkpoint. What it holds is read from the study's record instead.
+MOST_FILE_BYTES = 4_000_000
+
+
+#: What only a study's own folder holds: a folder holding an `analysis` or
+#: a `report` folder alone (a home folder, a repository) is not read from.
+_A_STUDY_S_RECORD = ("manifest.json", "resolved_config.yml", "exploration.yml",
+                     "batch_manifest.json")
+
+
+def _study_file(box: Toolbox, given: str, file: Any) -> Path:
+    """The file ``file`` names inside the study ``given`` names, held to the
+    study's folder (no absolute path, no ``..``, no hidden file, no link out
+    of it) and to the server's rule for paths. Where the server sets no
+    rule (on the person's own computer), the study is the one open or one in
+    the workspace, and a folder that holds no study's record is not one."""
+    folder = _a_study(box, given, "study")
+    if not any((folder / name).is_file() for name in _A_STUDY_S_RECORD):
+        raise _Refused(f"{given} holds no study's record (a manifest or a resolved "
+                       "config), so its files are not read.")
+    if box.path_for is None:
+        open_study = box.open_study
+        mine = open_study is not None and _same_path(folder, open_study)
+        inside = box.workspace is not None and box.workspace.inside(folder) is not None
+        if not (mine or inside):
+            raise _Refused(f"{given} is neither the study open nor one in the workspace, "
+                           "so its files are not read.")
+    named = str(file or "").strip()
+    if not named:
+        raise _Refused("Name the file as `file`: its path inside the study, such as "
+                       "analysis/rmsd/options.json.")
+    relative = Path(named)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise _Refused(f"{named} is not a path inside the study. Name the file by its "
+                       "path inside the study's folder, such as analysis/rmsd/options.json.")
+    if any(part.startswith(".") for part in relative.parts):
+        raise _Refused(f"{named} is a hidden file or inside a hidden folder, so it is "
+                       "not read.")
+    target = folder / relative
+    try:
+        landed = target.resolve().relative_to(folder.resolve())
+    except (OSError, RuntimeError, ValueError):
+        raise _Refused(f"{named} leads out of the study, so it is not read.") from None
+    if any(part.startswith(".") for part in landed.parts):
+        # A link inside the study that leads to a hidden file of it.
+        raise _Refused(f"{named} leads to a hidden file, so it is not read.")
+    if box.path_for is not None and box.path_for(str(target)) is None:
+        raise _Refused(f"{named} is outside the workspace.")
+    if not target.is_file():
+        raise _Refused(f"{given} holds no file {named}.")
+    return target
+
+
+def _read_study_file(box: Toolbox, asked: dict[str, Any]) -> str:
+    """One text file of a study, as the Files page shows it: its head and
+    tail where it is long. A binary file is not read."""
+    given = str(asked.get("study") or "").strip()
+    named = str(asked.get("file") or "").strip()
+    target = _study_file(box, given, named)
+    size = target.stat().st_size
+    if size > MOST_FILE_BYTES:
+        raise _Refused(f"{named} is {size:,} bytes, too large to read here; read what the "
+                       "study recorded from it with read_study.")
+    data = target.read_bytes()
+    if b"\0" in data[:8192]:
+        raise _Refused(f"{named} is not text (a trajectory, a checkpoint or an image); "
+                       "read what the study recorded from it with read_study.")
+    text = data.decode("utf-8", errors="replace")
+    head, tail = MOST_SAID - 1200, 800
+    if len(text) > head + tail:
+        text = text[:head].rstrip() + "\n... (the middle was cut) ...\n" + text[-tail:].lstrip()
+    return f"{named} in the study at {given} ({size:,} bytes):\n{text}"
+
+
 def _methods_of_study(box: Toolbox, asked: dict[str, Any]) -> str:
     """A study's methods paragraphs, as its report gives them."""
     from fastmdxplora.report.document import methods_prose
@@ -945,6 +1042,12 @@ _TOOLS: dict[str, tuple[str, str, Callable[[Toolbox, dict[str, Any]], str]]] = {
         "analyses found (means, errors, units), the checks it was held to, how "
         "long it ran and why, and what would fix it if it stopped.",
         _read_study),
+    "read_study_file": (
+        "`study` (a study's folder) and `file` (a path inside it, such as "
+        "analysis/rmsd/options.json).",
+        "one text file of a study, as the Files page shows it, its head and tail "
+        "where it is long: a record, a log, a manifest. Not a trajectory or an image.",
+        _read_study_file),
     "methods_of_study": (
         "`study` (a study's folder).",
         "that study's methods paragraphs as its report gives them, written from "
@@ -1012,6 +1115,12 @@ _SCHEMAS: dict[str, dict[str, Any]] = {
                    "required": ["study"]},
     "methods_of_study": {"type": "object", "properties": {"study": _A_FOLDER},
                          "required": ["study"]},
+    "read_study_file": {"type": "object", "properties": {
+        "study": _A_FOLDER,
+        "file": {"type": "string",
+                 "description": "The file's path inside the study, such as "
+                                "analysis/rmsd/options.json."}},
+        "required": ["study", "file"]},
     "list_studies": {"type": "object", "properties": {
         "tag": {"type": "string", "description": "Only the studies tagged so."}}},
     "compare_studies": {"type": "object", "properties": {
