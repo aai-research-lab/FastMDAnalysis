@@ -1550,8 +1550,11 @@ class TestTheConfigBuilder:
 
         root = machine.study.parent.resolve()
         desk = RemoteDesk(DashboardRuntime(workspace_root=root, exploration_root=root))
-        started = tmp_path / "Study"
-        started.mkdir()
+        # A folder of its own: beside the fixture's `study`, a disk that
+        # ignores case (macOS's usual one) reads `Study` as that folder,
+        # which already exists (CI on b9c66bbd).
+        started = tmp_path / "typed-here" / "Study"
+        started.mkdir(parents=True)
         (started / "study.yml").write_text("output: other\n")
         monkeypatch.chdir(started)
         real = os.path.samefile
