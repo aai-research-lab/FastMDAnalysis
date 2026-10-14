@@ -1004,7 +1004,10 @@
     // A study with no live record (finished before it kept one, or a study
     // of several runs) is said from the phases it recorded.
     const quiet = ["unknown", "waiting", "stale", ""];
-    if (quiet.includes(statusName) && quiet.includes(String(status.status || "").toLowerCase())) {
+    // A run waiting for its study's next round has its phases so far done,
+    // and is not finished (telemetry.between_rounds).
+    if (quiet.includes(statusName) && quiet.includes(String(status.status || "").toLowerCase())
+        && !status.between_rounds) {
       const phases = (state.results?.phases || []).map((p) => String(p.status || "").toLowerCase());
       if (phases.some((s) => ["error", "failed"].includes(s))) statusName = "failed";
       else if (phases.some((s) => ["ok", "complete", "completed"].includes(s))
@@ -1270,7 +1273,9 @@
 
       // Older/completed runs may not have the new live stage map, so retain
       // manifest-based fallback without overwriting a real current/failed state.
-      if (stageState === "waiting") {
+      // Not for a run waiting for its study's next round: its phases so far
+      // are recorded done, and its production, analyses and report are not.
+      if (stageState === "waiting" && !status?.between_rounds) {
         if (stage === "setup") stageState = phaseVisualState(phaseMap.setup);
         if (["minimization", "nvt", "npt", "production"].includes(stage) && simulationDone) {
           stageState = "completed";
@@ -1279,7 +1284,8 @@
         if (stage === "report") stageState = phaseVisualState(phaseMap.report);
       }
 
-      if (currentIndex >= 0 && stageState === "waiting") {
+      // A run waiting for its study's next round is at no stage now.
+      if (currentIndex >= 0 && stageState === "waiting" && !status?.between_rounds) {
         const index = order.indexOf(stage);
         if (index < currentIndex) stageState = "completed";
         if (index === currentIndex) stageState = "current";
@@ -1324,9 +1330,12 @@
     const runs = Array.isArray(app.runs) ? app.runs : null;
     if (runs) {
       const count = (s) => runs.filter((r) => r.state === s).length;
-      const where = count("running")
-        ? `${count("running")} running, ${count("completed")} of ${runs.length} completed.`
-        : `${count("completed")} of ${runs.length} completed.`;
+      // Runs its rounds still extend, waiting for their turn.
+      const between = runs.filter((r) => r.state === "waiting" && r.so_far).length;
+      const where = (count("running")
+        ? `${count("running")} running, ${count("completed")} of ${runs.length} completed`
+        : `${count("completed")} of ${runs.length} completed`)
+        + (between ? `, ${between} waiting for the next round.` : ".");
       return {
         title: `A study of ${runs.length} runs`,
         body: `${where} Each run keeps its own record of its simulation: view one from Runs in the sidebar.`,

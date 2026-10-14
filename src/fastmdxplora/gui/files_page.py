@@ -949,6 +949,10 @@ def _why_kept(folder: Path) -> str:
     said = str(status.get("status") or "").lower()
     if said in _GOING:
         return "it is still running"
+    if status.get("between_rounds"):
+        # Its pieces so far finished; its study extends it again, and the
+        # Viewer plays it as it is between them.
+        return "its study is still extending it in rounds"
     has_trajectory = False
     for trajectory in (folder / "joined" / "production.dcd", folder / "simulation" / "production.dcd"):
         try:

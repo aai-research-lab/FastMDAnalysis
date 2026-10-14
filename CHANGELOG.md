@@ -123,6 +123,14 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   the processes its run left working there. It was read failed with only
   its exit code, and `fastmdx remote cancel` then stopped nothing; a run
   counted as it ended was said as one more process left.
+- A run of a study of several run until what it asks is determined
+  (`simulation.stop_when`) is said waiting for the study's next round while
+  the study extends another run: its card no longer reads Completed, Report
+  at 100%, from the pieces it finished so far, but how far its production is
+  towards the length the round runs it to, and which run the study extends
+  first. The study's list of runs, its Overview and Files pages, its pages
+  of all runs and the Records answer read it the same way; a run going on in
+  a later piece reads running, and one killed or failed there reads so.
 
 ### Security
 

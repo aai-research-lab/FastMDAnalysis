@@ -50,7 +50,9 @@ def runs_compared(root: Path | str) -> dict[str, Any]:
     from fastmdxplora.batch.aggregate import SEED_AXES
 
     replicas = bool(axes) and set(axes) <= SEED_AXES
-    completed = [run for run in runs if run["state"] == "completed"]
+    # With the runs a study still extends in rounds, as their pieces so far
+    # say them: what the study judges, between its rounds.
+    completed = [run for run in runs if run["state"] == "completed" or run.get("so_far")]
     found = {run["run_id"]: read_member_findings(Path(run["path"])) for run in completed}
 
     names: list[str] = []
@@ -67,12 +69,14 @@ def runs_compared(root: Path | str) -> dict[str, Any]:
     return {
         "ok": True,
         "runs": [{"run_id": run["run_id"], "label": labels[run["run_id"]], "state": run["state"],
-                  "fraction": run.get("fraction"),
+                  "fraction": run.get("fraction"), "so_far": bool(run.get("so_far")),
                   "values": {axis: (run.get("values") or {}).get(axis) for axis in axes}}
                  for run in runs],
         "axes": [{"axis": axis, "label": axis.split(".")[-1]} for axis in axes],
         "replicas": replicas,
-        "completed": len(completed),
+        "completed": sum(1 for run in completed if run["state"] == "completed"),
+        # Read as far as their pieces go, their study extending them in rounds.
+        "so_far": sum(1 for run in completed if run["state"] != "completed"),
         "measures": measures,
         "resolved_at": RESOLVED_AT,
     }

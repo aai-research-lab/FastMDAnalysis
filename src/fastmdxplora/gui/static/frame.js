@@ -1226,7 +1226,7 @@
            * many are shown is remembered across polls. */
           var FIRST = 7, STEP = 3;
           var ordered = runs.slice().sort(function (a, b) {
-            var rank = { running: 0, waiting: 1, failed: 2, completed: 3 };
+            var rank = { running: 0, waiting: 1, failed: 2, stopped: 2, interrupted: 2, completed: 3 };
             return (rank[a.state] - rank[b.state]) || (runs.indexOf(a) - runs.indexOf(b));
           });
           var shown = Math.min(ordered.length, parseInt(runsBlock.dataset.shown, 10) || FIRST);
@@ -1243,8 +1243,14 @@
             name.title = r.path;
             var pct = document.createElement("span");
             pct.className = "study-running-pct mono";
+            // A run between its study's rounds: how far towards the round's
+            // length, not "waiting" as a run not yet begun says.
             pct.textContent = r.state === "running" && typeof r.fraction === "number"
-              ? (100 * r.fraction).toFixed(0) + "%" : r.state;
+              ? (100 * r.fraction).toFixed(0) + "%"
+              : r.state === "waiting" && r.so_far
+                ? "next round" + (typeof r.fraction === "number"
+                  ? ", " + (100 * r.fraction).toFixed(0) + "%" : "")
+                : r.state;
             var view = window.FastMDXIcons.button("eye", "View this run");
             view.addEventListener("click", function () { switchTo(r.path); });
             row.appendChild(dot); row.appendChild(name); row.appendChild(pct); row.appendChild(view);

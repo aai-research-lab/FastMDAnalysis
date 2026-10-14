@@ -462,12 +462,17 @@ def _phases(root: Path) -> list[dict[str, Any]]:
     # A study being carried on in a piece: its Manifest still says how the
     # first piece ended ("Simulation stopped" the whole carry-on through).
     carried_on = None
+    waiting = False
     if any(root.glob("segment-*")):
         from fastmdxplora.gui.telemetry import status_as_it_stands
 
         going = status_as_it_stands(root)
         production = str((going.get("stage_states") or {}).get("production") or "").lower()
-        if going.get("piece"):
+        if going.get("between_rounds"):
+            # Its study extends it again in its next round, then analyses and
+            # reports it again: done so far, not done.
+            waiting = True
+        elif going.get("piece"):
             # Its simulation finished in the piece, while the joined
             # trajectory is analysed and reported ("Simulation stopped"
             # read until the end); or still going in it.
@@ -493,6 +498,8 @@ def _phases(root: Path) -> list[dict[str, Any]]:
             status = "stopped"
         if carried_on and phase.get("name") == "simulation" and status in ("stopped", "error"):
             status = carried_on
+        if waiting and phase.get("name") in ("simulation", "analysis", "report"):
+            status = "waiting"
         phases.append({"name": str(phase["name"]), "status": status, "seconds": seconds})
     return phases
 

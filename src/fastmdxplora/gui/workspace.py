@@ -530,6 +530,10 @@ def _state_of(base: Path, batch: Any, manifest: Any) -> str:
         from fastmdxplora.gui.telemetry import status_as_it_stands
 
         status = status_as_it_stands(base)
+        if status.get("between_rounds"):
+            # Its study extends it again in its next round: the Manifest's
+            # phases, all ok, say how its pieces so far ended.
+            return "running"
         if status.get("recorded_status") and status.get("status") == "completed":
             return "completed"
         said = str(status.get("status") or "").lower()
@@ -552,6 +556,9 @@ def _state_of(base: Path, batch: Any, manifest: Any) -> str:
             return "completed"
         if any(state == "failed" for state in states):
             return "stopped" if _stopped_in(batch) else "failed"
+        # A run stopped or killed in a later piece (its study's rounds).
+        if any(state == "stopped" for state in states):
+            return "stopped"
         return "incomplete"
     phases = manifest.get("phases") if isinstance(manifest, dict) else None
     if not isinstance(phases, list) or not phases:

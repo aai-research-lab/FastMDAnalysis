@@ -174,6 +174,13 @@ def _ask(base: Path) -> tuple[str, str] | None:
     ask = sampling_asked_for(base)
     if ask is None:
         return None
+    from fastmdxplora.gui.telemetry import between_rounds
+
+    if between_rounds(base) is not None:
+        # Its study extends it in its next round: a piece run by hand beside
+        # that would be one the study did not plan, or stop its own.
+        return (ask.as_text() + " Its study extends this run itself, in its next round "
+                "(simulation.stop_when); nothing needs running by hand.", "")
     command = ""
     if extension_of(base, more_ns=ask.more_ns).possible:
         command = (f"fastmdx explore --simulate-resume-from {base.resolve()} "
@@ -319,7 +326,10 @@ def _several_runs(base: Path) -> str:
 
     runs = runs_of_a_study(base) or []
     done = sum(1 for run in runs if run.get("state") == "completed")
-    parts = [f"This is a study of {len(runs)} runs, {done} completed. Each run keeps its "
+    between = sum(1 for run in runs if run.get("so_far"))
+    rounds = (f", {between} still extended in rounds until what it asks is determined"
+              if between else "")
+    parts = [f"This is a study of {len(runs)} runs, {done} completed{rounds}. Each run keeps its "
              "own records: view one from Runs in the sidebar and ask about it, or read the "
              "comparison across them on the Report page."]
     energy = _free_energy(base)

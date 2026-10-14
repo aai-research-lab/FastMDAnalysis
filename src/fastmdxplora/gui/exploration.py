@@ -239,28 +239,91 @@ ADOPTION_RETRY_INTERVAL = 2.0
 
 def runs_of_a_study(root: Path) -> list[dict[str, Any]] | None:
     """Each run a study of several will make, with where it stands: waiting,
-    running, completed or failed, and the fraction of its steps done. From the
+    running, completed, failed, stopped or interrupted, and the fraction of its steps
+    done; ``so_far`` where its study still extends it in rounds and its
+    pieces so far are there to read. From the
     plan the batch manifest records before any run starts, and each run's own
     telemetry. None where the folder is a study of one run."""
+    from fastmdxplora.gui.telemetry import (
+        _GOING_STATUSES,
+        between_rounds,
+        how_the_run_ended,
+        read_study_status,
+        rounds_of_a_study,
+    )
+
     manifest = _json_mapping(Path(root) / "batch_manifest.json")
     planned = manifest.get("planned") or manifest.get("runs") or []
     if not manifest or not isinstance(planned, list):
         return None
     results = {r.get("run_id"): r for r in (manifest.get("runs") or []) if isinstance(r, dict)}
-    out = []
-    for entry in planned:
-        if not isinstance(entry, dict) or not entry.get("run_id"):
-            continue
+    entries = [entry for entry in planned if isinstance(entry, dict) and entry.get("run_id")]
+    # Each run read once, as one run across the pieces it was carried on in
+    # (`segment-001/`, ...): a run its study extends in rounds goes on after
+    # its first record, and its result, said it completed.
+    records: dict[str, dict[str, Any]] = {}
+    going: list[str] = []
+    ended: set[str] = set()
+    for entry in entries:
         run_id = str(entry["run_id"])
         folder = Path(root) / "runs" / run_id
-        live = _json_mapping(folder / "simulation" / "live_status.json")
+        record = read_study_status(folder) if (folder / "simulation").is_dir() else {}
+        records[run_id] = record
+        if str(record.get("status") or "").lower() in _GOING_STATUSES:
+            if how_the_run_ended(folder, record) is None:
+                going.append(run_id)
+            else:
+                # Its record says going, and its process is gone: killed.
+                ended.add(run_id)
+    # The study's rounds, read once for all its runs.
+    rounds = rounds_of_a_study(Path(root))
+    out = []
+    for entry in entries:
+        run_id = str(entry["run_id"])
+        folder = Path(root) / "runs" / run_id
+        live = records[run_id]
         result = results.get(run_id) or {}
         state = "waiting"
         fraction = None
-        if result.get("status") in ("ok", "success", "completed"):
+        waiting = (between_rounds(folder, live, going=going, rounds=rounds)
+                   if live and rounds is not None and run_id not in going else None)
+        # Done so far: a run its study is still extending, whose analyses of
+        # the pieces it has finished are there to read.
+        so_far = False
+        if run_id in going and (live.get("piece") or result.get("status") not in (
+                "failed", "error")):
+            # Going: in a later piece, or with no result that says otherwise.
+            state = "running"
+            # A later piece of the study's rounds: the first was done and
+            # analysed. One carried on by hand or by `fastmdx resume` is not.
+            so_far = bool(live.get("piece")) and rounds is not None \
+                and run_id in rounds["runs"]
+            step, total = live.get("current_step"), live.get("total_planned_steps")
+            if isinstance(step, (int, float)) and isinstance(total, (int, float)) and total > 0:
+                fraction = min(1.0, float(step) / float(total))
+        elif waiting is not None:
+            # Its pieces so far done, the study's next round still to run it.
+            so_far = True
+            to_ns, done = waiting.get("to_ns"), waiting.get("done_ns")
+            if isinstance(to_ns, (int, float)) and to_ns > 0 and isinstance(done, (int, float)):
+                fraction = min(1.0, done / to_ns)
+        elif run_id in ended and (live.get("piece") or not result):
+            # Interrupted, as its card says: in a later piece, or before any
+            # result was written.
+            state = "interrupted"
+        elif live.get("piece") and str(live.get("status") or "").lower() in (
+                "failed", "error", "stopped"):
+            # A later piece that failed or was stopped, past a first result
+            # that said the run completed.
+            state = "failed" if str(live.get("status")).lower() != "stopped" else "stopped"
+        elif result.get("status") in ("ok", "success", "completed"):
             state, fraction = "completed", 1.0
         elif result.get("status") in ("failed", "error"):
             state = "failed"
+        elif live and str(live.get("status") or "").lower() in ("failed", "error", "stopped"):
+            # Its record says how it ended, before any result: the study's
+            # results are written once its rounds end, hours on.
+            state = "stopped" if str(live.get("status")).lower() == "stopped" else "failed"
         elif live:
             stage = str(live.get("stage") or live.get("status") or "").lower()
             step, total = live.get("current_step"), live.get("total_planned_steps")
@@ -277,7 +340,9 @@ def runs_of_a_study(root: Path) -> list[dict[str, Any]] | None:
             state = "running"
         out.append({"run_id": run_id, "path": str(folder), "system": entry.get("system"),
                     "values": entry.get("sweep_values") or {}, "state": state,
-                    "fraction": fraction, "stage": live.get("stage") if live else None})
+                    "fraction": fraction, "so_far": so_far,
+                    "stage": ("production" if waiting is not None
+                              else live.get("stage") if live else None)})
     return out
 
 
@@ -618,11 +683,20 @@ class DashboardRuntime:
             done = sum(1 for r in runs if r["state"] == "completed")
             going = sum(1 for r in runs if r["state"] == "running")
             failed = sum(1 for r in runs if r["state"] == "failed")
+            stopped = sum(1 for r in runs if r["state"] == "stopped")
+            interrupted = sum(1 for r in runs if r["state"] == "interrupted")
+            between = sum(1 for r in runs if r["state"] == "waiting" and r.get("so_far"))
             stage = f"{done} of {len(runs)} completed"
             if going:
                 stage += f", {going} running"
+            if between:
+                stage += f", {between} waiting for the next round"
             if failed:
                 stage += f", {failed} failed"
+            if stopped:
+                stage += f", {stopped} stopped"
+            if interrupted:
+                stage += f", {interrupted} interrupted"
             out: dict[str, Any] = {"stage": stage, "runs": len(runs), "completed": done}
             fractions = [r.get("fraction") for r in runs if r.get("fraction") is not None]
             if runs:
