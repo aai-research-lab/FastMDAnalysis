@@ -94,6 +94,16 @@ software sets needs you, shown with its words and the study's own, and any
 other is said and not used. Readings kept from before are marked the same
 way when used.
 
+Words the first counted reading (check 5) found misread are now read as
+they say: "particle-mesh Ewald" is one method, "CHARMM22 with CMAP" is
+CHARMM27, a study's several PDB entries are kept (and you choose which to
+run), "set the net charge to zero" is neutralised, "in pure water" is no
+salt, "400 ns per Voronoi cell" is 400 ns and "forty-eight trajectories" is
+48. Replicas that exchange temperatures or biases, and walkers sharing one
+bias, are never counted as independent runs. A reading kept from before is
+checked again when used, so a value now read is used without a new
+reading.
+
 ### The Agent page, as the Agent
 
 **Changed:** the Agent page and `fastmdx agent` speak as the Agent: its AI

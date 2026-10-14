@@ -137,7 +137,9 @@ _PROTEIN = (
     ("CHARMM36m", r"charmm36m|c36m", "charmm36_2024.xml", "charmm36_2024", "8.3"),
     ("CHARMM36", r"charmm36|c36", "charmm36.xml", "charmm36", "8.0"),
     ("CHARMM22*", r"charmm22\*|c22\*|charmm22star", None, "", ""),
-    ("CHARMM27", r"charmm27|c27", None, "", ""),
+    ("CHARMM27", r"charmm27|c27"
+                 r"|charmm22(?:forcefield)?[/+(]?(?:with(?:the)?|and(?:the)?|plus)?cmap",
+     None, "", ""),
     ("CHARMM22", r"charmm22|c22", None, "", ""),
     ("OPLS", r"opls", None, "", ""),
     ("GROMOS", r"gromos|43a1|53a6|54a7", None, "", ""),
@@ -223,7 +225,8 @@ _KINDS_OF: dict[str, tuple[tuple[str, str], ...]] = {
                   ("hexagonal", r"hexagon")),
     "electrostatics": (("PME", r"pme|particlemesh|smoothparticle"),
                        ("Gaussian split Ewald", r"gaussiansplit|gse"),
-                       ("Ewald", r"ewald"), ("reaction field", r"reactionfield"),
+                       ("Ewald", r"(?<!mesh)(?<!mesh\W)(?<!split)(?<!split\W)ewald"),
+                       ("reaction field", r"reactionfield"),
                        ("cutoff", r"cutoff|cutoff")),
     "constraints": (("all bonds", r"allbond|everybond|allcovalent"),
                     ("bonds to hydrogen", r"hydrogen|hbond|xh"),
@@ -1059,7 +1062,16 @@ def _structure(plan: _Plan) -> None:
         # The entry itself, perhaps with mutations or protonation made in
         # it, which are their own settings.
         origin = None
-    if code and not origin:
+    codes = list(dict.fromkeys(c.upper() for c in re.findall(
+        r"\b([0-9][A-Za-z0-9]{3})\b", str((pdb or {}).get("value") or ""))))
+    if code and not origin and len(codes) > 1:
+        # One study over several entries (a series of complexes): which one
+        # this config runs is the person's to say.
+        plan.set("systems", [{"system": code}], "pdb_id", "needs_you",
+                 f"The paper gives this study {len(codes)} PDB entries ({', '.join(codes)}): "
+                 f"{code} is set; set `systems` to the entry to run, or to each of "
+                 "them.", pdb)
+    elif code and not origin:
         plan.set("systems", [{"system": code}], "pdb_id", "as_stated",
                  f"The structure is the PDB entry {code}, fetched from the RCSB.", pdb)
     elif code and origin:

@@ -48,7 +48,15 @@ from fastmdxplora.paper.fields import (
 )
 from fastmdxplora.paper.quotes import QuoteIndex, squash
 from fastmdxplora.paper.text import PaperText
-from fastmdxplora.paper.values import CANONICAL, WORD_NUMBERS, numbers_in, plain, read_value
+from fastmdxplora.paper.values import (
+    CANONICAL,
+    COMPOUND_NUMBER,
+    WORD_NUMBERS,
+    compound_number,
+    numbers_in,
+    plain,
+    read_value,
+)
 
 __all__ = ["read_studies", "check_reading", "PROMPT_VERSION", "BUDGET_CHARS",
            "kept_reading", "cache_root", "STATUSES", "tie_to_studies"]
@@ -112,9 +120,39 @@ def kept_reading(paper: PaperText, model: str) -> dict[str, Any] | None:
     if not isinstance(data, dict) or data.get("version") != PROMPT_VERSION:
         return None
     if isinstance(data.get("studies"), list):
-        # Kept before a protocol's settings were tied to their studies.
-        tie_to_studies([study for study in data["studies"] if isinstance(study, dict)])
+        studies = [study for study in data["studies"] if isinstance(study, dict)]
+        # Kept before this software read words as it does now, or tied a
+        # protocol's settings to their studies: checked again, as a new
+        # reading would be, without asking anything again.
+        _check_again(paper, studies)
+        tie_to_studies(studies)
     return data
+
+
+def _check_again(paper: PaperText, studies: list[dict[str, Any]]) -> None:
+    """Each setting of a kept reading whose value was not read from its
+    words (``unread``), checked again from what was said and the paper's
+    words found for it; one now read takes its place."""
+    index: QuoteIndex | None = None
+    for study in studies:
+        fields = study.get("fields")
+        if not isinstance(fields, dict):
+            continue
+        for name, record in list(fields.items()):
+            # Only words found in the paper are read again: a quote not
+            # found is kept cut short, and finding its start is not finding it.
+            if not isinstance(record, dict) or name not in BY_NAME \
+                    or record.get("status") != "unread" \
+                    or not isinstance(record.get("said"), dict):
+                continue
+            said = record["said"]
+            quote = record.get("quote")
+            if not quote:
+                continue
+            index = index or QuoteIndex(paper)
+            again = check_field(index, name, {**said, "quote": quote})
+            if again.get("status") == "stated":
+                fields[name] = {**again, "from": record.get("from", "study")}
 
 
 # ---------------------------------------------------------------------------
@@ -656,11 +694,15 @@ def check_field(index: QuoteIndex, name: str, given: Any) -> dict[str, Any]:
         return {"status": "stated", "value": words, **record}
     values = given.get("value")
     items = [str(v) for v in values] if isinstance(values, list) else [str(values or "")]
+    if name == "pdb_id":
+        # Several entries for one study ("3U5J, 3U5L"): each its own.
+        items = [code for item in items for code in re.split(r"[\s,;]+", item)]
     items = [item.strip() for item in items if item and item.strip()]
     held = [item for item in items if _held_by(item, found.words, name)]
-    if not held:
+    if not held or (name == "pdb_id" and len(held) < len(items)):
         return {"status": "unread", **record, "said": said}
-    value_out: Any = held if field.kind == "names" else held[0]
+    value_out: Any = held if field.kind == "names" else (
+        ", ".join(held) if name == "pdb_id" else held[0])
     return {"status": "stated", "value": value_out, **record}
 
 
@@ -677,6 +719,20 @@ _COUNTED = {
 #: How near, in characters, a count's number must be to what it counts.
 _COUNTED_WITHIN = 40
 
+#: Words of a method whose replicas or walkers are coupled (they exchange
+#: temperatures or biases, or share one bias), so are parts of one run, not
+#: independent runs: there, a count of them is not a count of runs.
+_COUPLED = re.compile(r"(?:replica|temperature|bias|hamiltonian|solute)[- ]?exchange|walkers?\b"
+                      r"|tempering|\b(?:remd|bemd|hrex|t-?remd|h-?remd|pt-?wte)\b"
+                      r"|temperature (?:range|ladder|scale|space)|\bladder\b"
+                      r"|\bexchanges? (?:(?:were|was) )?(?:attempted|attempts?|every|between)")
+#: REST, as its authors write it (the word "rest" is not it).
+_REST = re.compile(r"\bREST2?\b")
+#: What a count of a coupled method's parts is followed by.
+_PARTS = re.compile(r"\W*(?:replicas?|walkers?|rungs?|temperatures?)\b")
+_RUNS_ONLY = (r"repeat|repetition|run|simulation|trajector|independent|seed|duplicate"
+              r"|triplicate|quadruplicate|quintuplicate|times")
+
 
 def _count_read(words: str, name: str, given: Any) -> float | None:
     """The count of ``name`` the words hold: a number or number word beside
@@ -684,15 +740,24 @@ def _count_read(words: str, name: str, given: Any) -> float | None:
     ns"), the AI model's where it is one of them, else the only one."""
     lowered = plain(words).lower()
     counted = _COUNTED.get(name)
+    coupled = name == "replicas" and bool(_COUPLED.search(lowered) or _REST.search(plain(words)))
+    if coupled:
+        counted = _RUNS_ONLY
     found: list[float] = []
     numbers = [(m.start(), m.end(), float(m.group(1)))
                for m in re.finditer(r"(?<![\w.])(\d+)(?![\w.]|\.\d)", lowered)]
+    compounds = [(m.start(), m.end(), float(compound_number(m.group(0)) or 0))
+                 for m in COMPOUND_NUMBER.finditer(lowered)]
+    numbers += compounds
     numbers += [(m.start(), m.end(), float(WORD_NUMBERS[m.group(1)]))
-                for m in re.finditer(r"\b(" + "|".join(WORD_NUMBERS) + r")\b", lowered)]
+                for m in re.finditer(r"\b(" + "|".join(WORD_NUMBERS) + r")\b", lowered)
+                if not any(start <= m.start() < end for start, end, _ in compounds)]
     for start, end, value in numbers:
         if re.search(r"(?:table|fig\.?|figure|panel|eq\.?|ref\.?|section|chain|residue|"
                      r"model)\s*$", lowered[:start]):
             continue  # a label's number: Table 3, Fig. 2
+        if coupled and _PARTS.match(lowered[end:]):
+            continue  # 32 replicas, or walkers, of one coupled run: not 32 runs
         if re.match(r"\s*-?\s*(?:frames?|snapshots?|steps?|structures|conformations|"
                     r"configurations|[pnfum]s\b|k\b|bar\b|nm\b|a\b|%|degrees?)",
                     lowered[end:]):
@@ -711,17 +776,22 @@ def _count_read(words: str, name: str, given: Any) -> float | None:
     try:
         wanted = float(given) if given not in (None, "") and not isinstance(given, bool) else None
     except (TypeError, ValueError):
-        wanted = None
+        word = str(given).strip().lower()
+        wanted = WORD_NUMBERS.get(word, compound_number(word))
+        wanted = None if wanted is None else float(wanted)
     if wanted is not None:
         return wanted if wanted in found else None
     return found[0] if len(set(found)) == 1 else None
 
 
 #: The words a flag is read from, and those that make it false.
-_FLAG_WORDS = {"neutralized": r"neutrali[sz]|neutral\b|counter-?ions?|zero net charge"}
+_FLAG_WORDS = {"neutralized": r"neutrali[sz]|neutral\b|counter-?ions?|zero net charge"
+                              r"|net (?:\w+ )?charge (?:to|of|was|is) (?:zero|0)(?![.,]?\d)"}
 #: A denial of the flag: a negation at most three words before its word.
 _NEGATED = (r"(?:\b(?:not|no|without|never)\b|n't)(?:\W+\w+){0,3}?\W+(?:neutrali|counter)"
-            r"|(?:neutrali|counter-?ion)\w*(?:\W+\w+){0,2}?\W+(?:not|never)\b")
+            r"|(?:neutrali|counter-?ion)\w*(?:\W+\w+){0,2}?\W+(?:not|never)\b"
+            r"|net (?:\w+ )?charge (?:to|of|was|is) (?:zero|0)[^\w;]+(?:\w+[^\w;]+)?"
+            r"(?:not|never)\b")
 
 
 def _flag_read(words: str, name: str) -> bool | None:

@@ -66,6 +66,23 @@ WORD_NUMBERS = {
     "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "hundred": 100,
 }
 
+#: Tens written as words, which take a unit after a hyphen: "forty-eight".
+_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70,
+         "eighty": 80, "ninety": 90}
+_UNITS_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+                "eight": 8, "nine": 9}
+#: A number written in words with its tens and units, hyphened: "forty-eight"
+#: ("twenty one-microsecond runs" is twenty runs of one microsecond).
+COMPOUND_NUMBER = re.compile(r"\b(" + "|".join(_TENS) + r")-(" + "|".join(_UNITS_WORDS)
+                             + r")\b(?!-)")
+
+
+def compound_number(text: str) -> int | None:
+    """The number ``text`` writes in words with its tens and units, or None."""
+    match = COMPOUND_NUMBER.fullmatch(text.strip().lower())
+    return _TENS[match.group(1)] + _UNITS_WORDS[match.group(2)] if match else None
+
+
 _NUMBER = r"(?<![\w.])(\d+(?:[.,]\d+)?)(?:\s*(?:x|\*)\s*10\s*\^\s*([-+]?\d+)|[eE]([-+]?\d+)(?![a-z]))?"
 
 
@@ -134,7 +151,9 @@ _LABEL = r"(?:\s*\([^()\d]{1,40}\))?"
 #: Words saying no salt was added, which is a concentration of none.
 _NO_SALT = re.compile(r"\b(?:no|without(?: any)?)(?: (?:added|additional|extra|further|other))?"
                       r" (?:added )?(?:salt|ions?)\b"
-                      r"(?! (?:other|beyond|besides|except|apart))|\bsalt[- ]free\b")
+                      r"(?! (?:other|beyond|besides|except|apart))|\bsalt[- ]free\b"
+                      r"|\bin pure water\b(?!(?:[^.;]|\.(?=\d))*?"
+                      r"(?:\d\s*m?m\b|\bmolar\b|nacl|kcl|chloride|\bsalt\b))")
 
 
 def candidates(text: str, kind: str) -> list[float]:
@@ -191,6 +210,11 @@ def read_value(quote: str, kind: str, value: object = None,
     given = _as_float(value)
     if given is not None:
         wanted = to_canonical(given, str(unit or CANONICAL.get(kind, "")), kind)
+        if wanted is None and unit:
+            # A unit said with what it is per: "ns per Voronoi cell" is ns.
+            first = re.split(r"\s+(?:per|each|for|of)\s+|\s*/\s*(?=[a-z]{3})", str(unit).strip(),
+                             maxsplit=1)[0]
+            wanted = to_canonical(given, first, kind) if first != str(unit).strip() else None
         for candidate in found:
             if wanted is not None and _same(candidate, wanted):
                 return candidate
@@ -211,6 +235,9 @@ def _as_float(value: object) -> float | None:
         lowered = value.strip().lower()
         if lowered in WORD_NUMBERS:
             return float(WORD_NUMBERS[lowered])
+        compound = compound_number(lowered)
+        if compound is not None:
+            return float(compound)
     return None
 
 

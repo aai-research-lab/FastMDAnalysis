@@ -78,15 +78,21 @@ each method may ask you to confirm the shared settings for its biased runs.
 
 A force field, a water model, a thermostat or a box is held only where every
 one the reading names is named by the words too, however each spells it
-(`ff14SB`, `AMBER ff14SB`, `Amber14SB`). A number is held only whole: words
-that begin or end inside one ("5 µs" in "1.5 µs") are not the paper's. A
-count of replicas is held only beside what it counts ("three independent
-runs", "in triplicate", "3 x 100 ns"), and whether the system was neutralised
-only where the words say so or say it was not. A result's error is taken as
-an error of the mean, and over how many runs, only where the paper says so
-beside it; otherwise it is compared as a spread. A description (what the
-system is, how it was minimised) is kept as read and never set as a
-value.
+(`ff14SB`, `AMBER ff14SB`, `Amber14SB`; "CHARMM22 with CMAP" is CHARMM27).
+A number is held only whole: words that begin or end inside one ("5 µs" in
+"1.5 µs") are not the paper's. A count of replicas is held only beside what
+it counts ("three independent runs", "forty-eight trajectories", "in
+triplicate", "3 x 100 ns"). Replicas that exchange temperatures or biases,
+and walkers that share one bias, are parts of one run, so their count is
+not a count of runs: "four REMD trajectories" is four runs; "40 replicas"
+within one of them is not. Whether the system was neutralised is held only
+where the words say so ("to set the net charge to zero") or say it was not.
+Simulations "in pure water", with no salt named, have no salt. A study with
+several PDB entries keeps them only where its words hold every one, and
+needs you to choose which to run. A result's error is taken as an error of
+the mean, and over how many runs, only where the paper says so beside it;
+otherwise it is compared as a spread. A description (what the system is,
+how it was minimised) is kept as read and never set as a value.
 
 The studies are read five at a time and the results twelve at a time. An
 answer that comes back cut off part way is read again smaller: half as many
