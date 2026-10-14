@@ -2562,7 +2562,9 @@ def test_a_run_then_another_study_opened_still_runs(tmp_path, monkeypatch):
     """Found by the twenty-second review (10-08): Run, then another study's
     conversation opened as the run's save was answered: the open reloaded
     the page while the run was asked for, and its answer went unheard. The
-    page now reloads once the run has answered."""
+    page now reloads once the run has answered. A reload is the page loaded
+    again: the address put right to name the study the run opened
+    (`history.replaceState`, a navigation with no load) is not one."""
     import json
 
     workspace, made, session = _gui(tmp_path, monkeypatch, taking=1.5)
@@ -2583,8 +2585,9 @@ def test_a_run_then_another_study_opened_still_runs(tmp_path, monkeypatch):
                 if r.url.endswith("/api/agent/run") else None)
         page.on("requestfailed", lambda r: events.append("run cut off")
                 if r.url.endswith("/api/agent/run") else None)
-        page.on("framenavigated", lambda f: events.append("reload")
-                if f == page.main_frame else None)
+        # The page loaded again: the address put right to name the study
+        # opened (no new step, no load) is not a reload.
+        page.on("domcontentloaded", lambda _page: events.append("reload"))
         _slow_disk(monkeypatch, 1.0)
         page.click("#agent-thread .agent-study:not([hidden]) [data-role=run]")
         page.evaluate("(where) => window.FastMDXAgentPanel.open("
