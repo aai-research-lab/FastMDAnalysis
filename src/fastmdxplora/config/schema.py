@@ -406,7 +406,8 @@ SETUP = PhaseSchema(
               example="tip3p"),
         Field("ligand", (str, list), None,
               "Ligand/cofactor SDF or MOL2 file(s) for protein-ligand "
-              "systems. Requires a ligand-capable force field "
+              "systems. A file holding several molecules is several "
+              "ligands. Requires a ligand-capable force field "
               "(forcefield: amber-openff). Needed for a structure given as "
               "a file; for one given by PDB identifier, setup fetches the "
               "chemistry of the ligands the entry holds.",
