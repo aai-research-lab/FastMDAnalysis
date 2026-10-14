@@ -201,6 +201,9 @@ def test_a_view_is_not_undone_into_another_study(browser, session) -> None:
     page.select_option("#viewer-views", "two")
     page.click("#viewer-view-forget")
     page.wait_for_selector("#dashboard-toast.show .dashboard-toast-action")
+    # On the Undo, so it is still offered however long the page takes to see
+    # the other study (its next poll, where the change stream is slow).
+    page.focus("#dashboard-toast .dashboard-toast-action")
     page.evaluate("""(folder) => fetch('/api/explore/switch', {method: 'POST',
         headers: {'content-type': 'application/json'}, body: JSON.stringify({folder})})""",
                   str(session.workspace / "mutant"))
@@ -364,7 +367,8 @@ def test_typing_is_undone_and_done_again_in_its_field(browser, builder) -> None:
     page.click("#run-output")
     page.fill("#run-output", "")
     page.keyboard.type("first")
-    page.wait_for_timeout(1200)
+    # The caret moved: the browser's typing undone from here (it takes back
+    # all typing since the caret last moved, however slow).
     page.keyboard.press("End")
     page.keyboard.type(" second")
     page.keyboard.press("Control+z")
@@ -387,7 +391,9 @@ def test_the_agent_s_request_beside_the_builder_keeps_its_typing(browser, builde
     page.wait_for_selector("#agent-drawer #agent-request")
     page.click("#agent-request")
     page.keyboard.type("Set up a run of the peptide at 300 K")
-    page.wait_for_timeout(1200)
+    # As above: the caret moved, so the browser's undo stops here. A pause
+    # in the typing does not, and the request came back empty.
+    page.keyboard.press("End")
     page.keyboard.type(" for 10 ns")
     page.keyboard.press("Control+z")
     undone = page.input_value("#agent-request")
@@ -397,3 +403,76 @@ def test_the_agent_s_request_beside_the_builder_keeps_its_typing(browser, builde
     assert undone.startswith("Set up a run of the peptide at 300 K"), undone
     assert undone != "Set up a run of the peptide at 300 K for 10 ns", undone
     assert again == "Set up a run of the peptide at 300 K for 10 ns", again
+
+
+@pytest.mark.parametrize("begun", ["moved", "key", "paste"])
+def test_typing_begun_at_once_in_another_field_is_one_step(browser, builder, begun) -> None:
+    """A field left for another and typed in at once: the change of the field
+    left was read once the page got to it, which on a busy machine is after
+    the first key (the browser takes keys first), and the typing was taken
+    back in two steps, "m" and then the rest. The change is read as the next
+    field takes the keyboard, or, where it has it already, as a key or a
+    paste begins."""
+    page = _page(browser, builder, "#run")
+    page.wait_for_function("() => window.FastMDXRun && window.FastMDXRun.ready")
+    page.click("#run-start [data-start='structure']")
+    page.fill("#run-system", str(builder.peptide))
+    ph = '#run-settings [data-setting="ph"] input'
+    page.wait_for_selector(ph)
+    first = page.input_value(ph)
+    page.fill(ph, "6.5")
+    page.dispatch_event(ph, "change")
+    page.wait_for_timeout(300)
+    if begun != "moved":
+        page.click("#run-output")
+    # The pH field's change and the first letter of the next field in one go,
+    # as a busy page meets them: the change read only after the letter.
+    page.evaluate("""([ph, begun]) => {
+        const output = document.getElementById('run-output');
+        document.querySelector(ph).value = '7.0';
+        document.querySelector(ph).dispatchEvent(new Event('change', {bubbles: true}));
+        if (begun === 'moved') output.focus();
+        if (begun === 'paste') {
+          output.dispatchEvent(new InputEvent('beforeinput',
+            {inputType: 'insertFromPaste', data: 'm', bubbles: true, cancelable: true}));
+        } else {
+          output.dispatchEvent(new KeyboardEvent('keydown', {key: 'm', bubbles: true}));
+        }
+        output.value = 'm';
+        output.dispatchEvent(new InputEvent('input', {data: 'm', bubbles: true}));
+    }""", [ph, begun])
+    # A read still waiting for its timer takes it now, before the rest.
+    page.evaluate("() => new Promise((done) => setTimeout(done, 0))")
+    page.keyboard.type("yrun")
+    page.keyboard.press("Tab")
+    seen = []
+    for _ in range(3):
+        page.keyboard.press("Control+z")
+        seen.append((page.input_value("#run-output"), page.input_value(ph)))
+    page.context.close()
+    assert seen == [("", "7.0"), ("", "6.5"), ("", first)], seen
+
+
+def test_a_phase_left_out_is_a_step_of_its_own(browser, builder) -> None:
+    """A phase chip's own change draws the chips again, so its event reached
+    the page gone from it: the phase left out was taken back with the
+    typing after it."""
+    page = _page(browser, builder, "#run")
+    page.wait_for_function("() => window.FastMDXRun && window.FastMDXRun.ready")
+    page.click("#run-start [data-start='structure']")
+    page.fill("#run-system", str(builder.peptide))
+    page.wait_for_selector('#run-settings [data-setting="ph"] input')
+    report = "#run-phases [data-phase='report']"
+    chosen = page.is_checked(f"{report} input")
+    page.click(f"{report} .run-phase-label")
+    page.wait_for_function(f"(was) => document.querySelector(\"{report} input\").checked !== was",
+                           arg=chosen)
+    page.click("#run-output")
+    page.keyboard.type("abc")
+    page.keyboard.press("Tab")
+    seen = []
+    for _ in range(2):
+        page.keyboard.press("Control+z")
+        seen.append((page.input_value("#run-output"), page.is_checked(f"{report} input")))
+    page.context.close()
+    assert seen == [("", not chosen), ("", chosen)], seen

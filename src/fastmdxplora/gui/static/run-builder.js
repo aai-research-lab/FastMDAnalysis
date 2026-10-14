@@ -3756,16 +3756,32 @@
 
   function onTheBuilder(event) {
     const page = document.querySelector('.page[data-page="run"]');
-    return Boolean(page && !page.hidden && event.target && page.contains(event.target));
+    if (!page || page.hidden || !event.target) return false;
+    // Its path as dispatched: a box whose own change drew its row again
+    // is no longer in the page by the time the event reaches the document.
+    return page.contains(event.target) || event.composedPath().includes(page);
+  }
+
+  // A change or a click is read once its own handlers have run: after
+  // them, or as the next press or key begins, whichever comes first. A
+  // busy page runs its timers after the keys waiting, so a field left for
+  // another and typed in at once was read with its first letter, and the
+  // typing taken back in two steps.
+  let afterDue = false;
+  function afterSoon() {
+    afterDue = true;
+    setTimeout(() => { if (afterDue) afterActing(); }, 0);
   }
 
   // Before a person acts on the form: what it held.
   function beforeActing() {
+    if (afterDue) afterActing();
     if (draftReady && undo.before === null) undo.before = formNow();
   }
 
   // After: a change from what it held is a step back to take.
   function afterActing() {
+    afterDue = false;
     if (!draftReady) return;
     const now = formNow();
     if (undo.before !== null && now !== undo.before) {
@@ -3821,7 +3837,9 @@
   }
 
   function wireUndo() {
-    ["pointerdown", "keydown", "focusin"].forEach((kind) => {
+    // `beforeinput`: text pasted or composed, with no key of its own; a
+    // click on what takes no focus (no `focusin` before it).
+    ["pointerdown", "keydown", "beforeinput", "focusin", "click"].forEach((kind) => {
       document.addEventListener(kind, (event) => { if (onTheBuilder(event)) beforeActing(); }, true);
     });
     ["change", "click"].forEach((kind) => {
@@ -3829,7 +3847,7 @@
         // A click into a field changes nothing (its change is said by
         // itself), and one read later would take in what was typed since.
         if (kind === "click" && /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
-        if (onTheBuilder(event)) setTimeout(afterActing, 0);
+        if (onTheBuilder(event)) afterSoon();
       });
     });
     document.addEventListener("focusin", (event) => {
