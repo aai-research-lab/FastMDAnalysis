@@ -61,6 +61,14 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   choices, bounds, defaults), not the schema's prose. The replay's table
   counts the exchanges asked differently since a run. See
   `docs/validation.md`, The run kept in the suite.
+- The Agent's look at a study's record gives the analysis asked about first,
+  and no longer loses it at the look's 4,000 characters. `read_study` takes
+  the analysis (named by its folder or its heading); the look at what the
+  page shows passes the Report's section or the analysis whose file is open;
+  an analysis named with @ says to pass it. A reason a mean is not
+  determined gives its first sentence on its own line and the rest once
+  under the list, so a short run's record, each analysis saying the same
+  rule, fits one look.
 - A structure fetched from RCSB is tried up to three times when the connection
   is dropped, the transfer is cut short, or RCSB answers 429 or 5xx. A study
   stopped by such a failure is told so, not that the machine may have no route

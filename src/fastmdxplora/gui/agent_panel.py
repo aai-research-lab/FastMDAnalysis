@@ -17,6 +17,7 @@ the page runs.
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from contextlib import nullcontext
@@ -1318,7 +1319,49 @@ def _what_was_decided(config: dict[str, Any]) -> dict[str, Any]:
 
 
 
-def _results_summary(root: Any) -> str:
+#: A sentence's end, before the next one's capital: how a reason a mean is
+#: not determined is split into its own first sentence and the rest.
+_SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z])")
+
+
+def _reason_said_once(withheld: str, notes: list[str]) -> str:
+    """A reason a mean is not determined, as one analysis's line says it:
+    its first sentence, which holds its own numbers, and a note for the
+    rest, which every analysis held to the same rule says word for word
+    (the upper bound, the replicas, the remedy). Said once under the list,
+    the record is a third of the length, and what comes after it is read."""
+    said = " ".join(str(withheld).split())
+    first, *after = _SENTENCE.split(said, maxsplit=1)
+    rest = after[0].strip() if after else ""
+    if not rest:
+        return first
+    if rest not in notes:
+        notes.append(rest)
+    return f"{first} [{notes.index(rest) + 1}]"
+
+
+def _analysis_named(root: Any, said: Any) -> str | None:
+    """The analysis of a study a word names: its folder's name (`rmsd`), or
+    the heading the Report and the Analysis page give it ("Radius of
+    gyration"); None where it names none of the study's analyses."""
+    if not root or not isinstance(said, str) or not said.strip():
+        return None
+    from pathlib import Path
+
+    from fastmdxplora.gui.report_dashboard import ANALYSIS_SECTION_BY_FOLDER
+
+    wanted = " ".join(said.split()).casefold()
+    try:
+        here = sorted(p.name for p in (Path(root) / "analysis").iterdir() if p.is_dir())
+    except OSError:
+        return None
+    for name in here:
+        if wanted in (name.casefold(), ANALYSIS_SECTION_BY_FOLDER.get(name, "").casefold()):
+            return name
+    return None
+
+
+def _results_summary(root: Any, first: str | None = None) -> str:
     """What the analyses found, in a few lines an AI model can read.
 
     The same numbers the Report page shows, from the same computation:
@@ -1327,6 +1370,13 @@ def _results_summary(root: Any) -> str:
     not yet equilibrated. "Is the RMSD converged?" is answerable from
     that -- the effective sample count against the ten a mean needs --
     and not from a figure the AI model cannot see.
+
+    ``first`` is the analysis asked about, said first with its reasons
+    whole; any other reason a mean is not determined gives its own first
+    sentence on its line, and the rest once under the list. A look gives
+    the AI model 4,000 characters, and the record of a short run, each
+    analysis saying the same rule at length, was cut before the analysis
+    asked about (the `context` run, 10-13).
     """
     if not root:
         return ""
@@ -1343,7 +1393,9 @@ def _results_summary(root: Any) -> str:
     from fastmdxplora.statistics import with_its_error
     from fastmdxplora.statistics import MINIMUM_EFFECTIVE_SAMPLES
 
-    rows: list[str] = []
+    # Each row is its folder, its name and its parts; a part is what it says
+    # before a reason, how the reason is joined on, and the reason (or None).
+    rows: list[tuple[str, str, list[tuple[str, str, str | None]]]] = []
     for options in sorted(analysis.glob("*/options.json")):
         try:
             data = json.loads(options.read_text(encoding="utf-8"))
@@ -1353,7 +1405,7 @@ def _results_summary(root: Any) -> str:
         findings = data.get("findings") or {}
         if not isinstance(findings, dict):
             continue
-        parts: list[str] = []
+        parts: list[tuple[str, str, str | None]] = []
         for key, f in findings.items():
             if not isinstance(f, dict):
                 continue
@@ -1369,7 +1421,7 @@ def _results_summary(root: Any) -> str:
             if "mean" not in f:
                 if withheld:
                     label = "" if own else f"{key} "
-                    parts.append(f"{label}no mean: {withheld}")
+                    parts.append((label, "no mean: ", str(withheld)))
                 continue
             mean = f.get("mean")
             se = f.get("standard_error")
@@ -1401,14 +1453,37 @@ def _results_summary(root: Any) -> str:
                     piece += " -- too few for the mean to describe the system rather than this run"
             if isinstance(discard, int) and isinstance(n, int):
                 piece += f", first {discard} of {n} frames discarded as unequilibrated"
-            if withheld:
-                piece += f" -- not determined: {withheld}"
-            parts.append(piece)
+            parts.append((piece, " -- not determined: ", str(withheld) if withheld else None))
         if parts:
-            rows.append(f"{name}: " + "; ".join(parts))
-    if not rows:
+            rows.append((options.parent.name, name, parts))
+    # An analysis asked about that recorded no mean and no reason is said
+    # so, rather than passed over in silence.
+    silent = bool(first) and all(row[0] != first for row in rows)
+    if not rows and not silent:
         return ""
-    return "what the analyses found:\n" + "\n".join(f"  {r}" for r in rows[:20])
+    if first:
+        rows.sort(key=lambda row: row[0] != first)
+    # A reason gives its first sentence on its line and the rest once under
+    # the list, numbered from the rows shown. The analysis asked about keeps
+    # its reasons whole on its own line: in a long record the notes at the
+    # end are what is cut.
+    notes: list[str] = []
+    lines = [f"  {first}: nothing it recorded gives a mean or a reason"] if silent else []
+    for folder, name, parts in rows[:20]:
+        said_parts = []
+        for head, joiner, withheld in parts:
+            if withheld is None:
+                said_parts.append(head)
+            elif folder == first:
+                said_parts.append(head + joiner + " ".join(withheld.split()))
+            else:
+                said_parts.append(head + joiner + _reason_said_once(withheld, notes))
+        lines.append(f"  {name}: " + "; ".join(said_parts))
+    said = "what the analyses found:\n" + "\n".join(lines)
+    if notes:
+        said += ("\nthe rest of each reason marked [n] above, said once:\n"
+                 + "\n".join(f"  [{n}] {note}" for n, note in enumerate(notes, start=1)))
+    return said
 
 
 def _where_the_run_is(runtime: Any) -> str:

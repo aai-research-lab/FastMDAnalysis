@@ -295,3 +295,17 @@ Once what is sent changes, a replayed verdict shows that the same replies
 are judged the same, not what the Agent would reply now. Their
 `fastmdxplora` version, `2.5.9.dev475+gb091679ad`, is the editable
 install's, as in version 1's run.
+
+### What is sent, changed after the run (`agent-looks`, 2026-10-14)
+
+`read_study` takes the analysis asked about and gives it first, the look at
+what the page shows passes the analysis the page is on, an analysis named
+with @ says to pass it, and of a reason a mean is not determined (other
+than the analysis asked about, whose reasons stay whole), all after its
+first sentence is said once under the list of what the analyses found (the
+Agent's own context gives the record of the study open the same way). This
+is the change made for the looks cut short above. The
+suite's three digests of what is sent were set again; every verdict of the
+three recordings replays as recorded. The runs stand as recordings of the
+Agent as it was asked; whether the change shortens the replies that said
+the record was cut is for a run asked again, not claimed here.

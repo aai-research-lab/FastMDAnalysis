@@ -153,8 +153,9 @@ def _one(said: str, tools: Any, study: Path | None, listed: dict[str, list[Path]
     match = next((a for a in analyses if a.casefold() == lowered), None)
     if match is not None:
         return (f"the {match} analysis of {where}; its record is "
-                f"analysis/{match}/options.json. Read it with read_study (study: {study}), "
-                "and quote its mean as recorded, with its error and unit.")
+                f"analysis/{match}/options.json. Read it with read_study (study: {study}, "
+                f"analysis: {match}), which gives it first, and quote its mean as recorded, "
+                "with its error and unit.")
     if "studies" not in listed:
         listed["studies"] = _studies_here(tools)
     studies = _studies_named(listed["studies"], said)

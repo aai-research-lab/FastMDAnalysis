@@ -1059,8 +1059,9 @@ RECORDED = Path(__file__).resolve().parent / "data" / "agent_eval" / "run_2026-1
 #: unless a verdict turns, and the replay counts the exchanges asked
 #: differently. Set by `agent-context` (its plan, the look at a study's
 #: file), against which the run was not asked again; its verdicts replay as
-#: recorded.
-ASKED_NOW = "849612a2de6527e96a405cf9e716e0e021a5fd31cb612e8cc84302e0a05906b9"
+#: recorded. Set again by `agent-looks` (`read_study` takes the analysis
+#: asked about, and an analysis named with @ says to pass it).
+ASKED_NOW = "4a9aa56074b66a119fc5ddb9ada4303d59348bf4ae705b49048bd51d2337d017"
 
 
 def _asked_in_own_words(monkeypatch) -> list[str]:
@@ -1421,8 +1422,8 @@ def test_a_version_1_recording_replays_and_another_version_does_not():
 #: cases resolve what is named from the folders here, where the study the
 #: run was asked against is not.
 CONTEXT_ASKED_NOW = {
-    True: "ef3b28509b54c1d94adfcd3d689f8e57bc74ad72560813e14eb1d8bc356dfac3",
-    False: "39128bdc0a71b923f4a21b18950c77a53adc771f8a1aad11e816cc4a9dbe0bc5"}
+    True: "490d6718df757feaebe886f70f0d3593724f920f9a69a6405a969efb7b9cedbe",
+    False: "c30a39e08cd70c78cfc24ee173be624f33bbe647b656fa235631716f63c75aed"}
 
 
 def _replayed_context_run(monkeypatch, context: bool) -> tuple[dict, dict, list[str]]:

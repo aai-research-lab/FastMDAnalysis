@@ -499,8 +499,22 @@ def _current_view_look(box: Toolbox, asked: dict[str, Any], request_hints: Any,
                          "evidence from read_study_file:\n" + _read_with(
                              reader, "read_study_file",
                              {"study": named_study, "file": hints["file"]}))
+        # The analysis the page is on, read first: an `analysis` hint where
+        # a page sends one, the Report's section, or the analysis whose file
+        # is open. A look is cut at its length, and the record of a short
+        # run, each analysis not determined saying why, was cut before it.
+        named: dict[str, Any] = {"study": named_study}
+        from fastmdxplora.gui.agent_panel import _analysis_named
+
+        file = str(hints.get("file") or "")
+        on_page = (_analysis_named(named_study, hints.get("analysis"))
+                   or _analysis_named(named_study, section)
+                   or (_analysis_named(named_study, file.split("/")[1])
+                       if file.startswith("analysis/") and file.count("/") >= 2 else None))
+        if on_page:
+            named["analysis"] = on_page
         parts.append("Factual evidence from read_study:\n" + _read_with(
-            box, "read_study", {"study": named_study}))
+            box, "read_study", named))
     else:
         parts.append("No study or structure hint was supplied for an existing evidence tool.")
     return "\n".join(parts)
@@ -778,8 +792,11 @@ def _compare_studies(box: Toolbox, asked: dict[str, Any]) -> str:
 
 def _read_study(box: Toolbox, asked: dict[str, Any]) -> str:
     """Another study's record: its config, what its analyses found, the
-    checks it was held to, how long it ran and why, and what would fix it."""
+    checks it was held to, how long it ran and why, and what would fix it.
+    With ``analysis``, the analysis asked about is found first, so a look
+    cut at its length still holds it."""
     from fastmdxplora.gui.agent_panel import (
+        _analysis_named,
         _checks_summary,
         _config_the_run_used,
         _remedies_summary,
@@ -791,9 +808,15 @@ def _read_study(box: Toolbox, asked: dict[str, Any]) -> str:
     folder = _a_study(box, given, "study")
     config = _config_the_run_used(folder)
     parts = [f"the study at {given}"]
+    asked_about = asked.get("analysis")
+    first = _analysis_named(folder, asked_about)
+    if asked_about and first is None:
+        parts.append(f"It holds no analysis {str(asked_about)[:80]!r}.")
     if config:
         parts.append("its config (the short form):\n" + config[:1500])
-    for said in (_results_summary(folder), _checks_summary(folder),
+    # The analysis asked about leads what the analyses found, right after the
+    # config: a look is cut at its length, and what comes last is lost.
+    for said in (_results_summary(folder, first=first), _checks_summary(folder),
                  _stopping_summary(folder), _remedies_summary(folder)):
         if said:
             parts.append(said)
@@ -1037,10 +1060,11 @@ _TOOLS: dict[str, tuple[str, str, Callable[[Toolbox, dict[str, Any]], str]]] = {
         "it; if so, the plan the person will read, defaults marked.",
         _check_config),
     "read_study": (
-        "`study` (a study's folder).",
+        "`study` (a study's folder), and `analysis` where one is asked about.",
         "another study's record, not the one on screen: its config, what its "
         "analyses found (means, errors, units), the checks it was held to, how "
-        "long it ran and why, and what would fix it if it stopped.",
+        "long it ran and why, and what would fix it if it stopped. The analysis "
+        "named is given first.",
         _read_study),
     "read_study_file": (
         "`study` (a study's folder) and `file` (a path inside it, such as "
@@ -1111,7 +1135,10 @@ _SCHEMAS: dict[str, dict[str, Any]] = {
                       "required": ["config"]},
     "check_config": {"type": "object", "properties": {"config": _A_STUDY},
                      "required": ["config"]},
-    "read_study": {"type": "object", "properties": {"study": _A_FOLDER},
+    "read_study": {"type": "object", "properties": {
+        "study": _A_FOLDER,
+        "analysis": {"type": "string",
+                     "description": "The analysis asked about (rmsd, rg), given first."}},
                    "required": ["study"]},
     "methods_of_study": {"type": "object", "properties": {"study": _A_FOLDER},
                          "required": ["study"]},
