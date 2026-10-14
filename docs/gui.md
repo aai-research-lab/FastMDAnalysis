@@ -174,8 +174,8 @@ FastMDXplora running that study is never adopted.
 (System, which follows the computer, Light or Dark), the Agent's AI model and mode with **Agent
 settings**, **Preferences**, **Cite FastMDXplora**, the documentation and
 the repository. Each of the three opens as a dialog over the page shown;
-Escape, Close or a click outside closes it, and `#settings` or `#cite` in
-the address opens it. **Preferences** are how the Viewer opens
+Escape, Close, Back or a click outside closes it, and `#settings` or
+`#cite` in the address opens it. **Preferences** are how the Viewer opens
 (representation, a dark or white ground, water, ions, spin, the camera kept
 as frames change, the pocket cutoff), the time in 24 or 12 hours, and how
 many samples a live chart keeps; they apply as they change and are kept on
@@ -183,6 +183,17 @@ this computer, in the browser tab's storage for the GUI's address
 (**Restore defaults** puts the release's back). Nothing in them
 changes a study or its files. **Cite FastMDXplora** gives the reference and
 its BibTeX, each copied with one click.
+
+**Back and Forward** move between the GUI's pages, the analysis shown and
+the Preferences, Cite and Viewer help dialogs. The address names the open
+study by a key, never its path (`?study=<key>`), so Back returns to the
+study open before and a bookmark opens that study again; a folder not yet a
+study is not named. An address naming a study not among those here says so,
+and one followed from another site offers the study it names rather than
+opening it. A tag, a note or a saved view changed says so in a notice with
+**Undo**. In the Config Builder, Cmd+Z (Ctrl+Z) takes the form back one
+change at a time and Shift+Cmd+Z (Ctrl+Y) forward again; typing in a field
+is undone and redone in the field itself, as in any text field.
 
 Green done, amber qualified and red refused mean the same in all three
 schemes.

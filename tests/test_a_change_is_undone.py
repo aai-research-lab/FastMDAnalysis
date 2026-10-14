@@ -90,6 +90,7 @@ def test_tags_and_a_note_kept_are_undone(browser, session) -> None:
     page.fill(f"{card} .study-tag-input", "slip")
     page.fill(f"{card} .study-note-input", "a note typed over the other")
     page.click(f"{card} .study-tag-editor button:has-text('Save')")
+    page.wait_for_selector("#dashboard-toast.show:has-text('Kept the tags')")
     page.wait_for_selector(f"{card} .study-tag:has-text('slip')")
     kept = tags_of(session.first)
     _undo(page, "Kept the tags and note")
@@ -126,6 +127,28 @@ def test_tags_undone_after_the_list_was_read_again_show_on_the_card(browser, ses
     page.wait_for_function(f"() => !document.querySelector(`{card}`).textContent.includes('zeta')")
     page.context.close()
     assert tags_of(session.first) == before
+
+
+def test_undo_of_tags_with_the_keyboard_comes_back_to_the_card(browser, session) -> None:
+    """The card was drawn again as the tags were kept, so the keyboard was
+    left on the page itself, the notice's Undo out of reach and nowhere to
+    come back to."""
+    page = _page(browser, session, "#studies")
+    page.evaluate(f"() => window.FastMDXStudies.load({str(session.workspace)!r})")
+    card = '.study-card[data-path$="wild_type"]'
+    page.wait_for_selector(card)
+    page.click(f"{card} .study-tag-edit")
+    page.fill(f"{card} .study-tag-input", "kept")
+    page.click(f"{card} .study-tag-editor button:has-text('Save')")
+    page.wait_for_selector("#dashboard-toast.show .dashboard-toast-action")
+    on = "() => document.activeElement.matches('.study-card[data-path$=\"wild_type\"] .study-tag-edit')"
+    after_save = page.evaluate(on)
+    page.focus("#dashboard-toast .dashboard-toast-action")
+    page.keyboard.press("Enter")
+    page.wait_for_selector("#dashboard-toast:has-text('back as they were')")
+    after_undo = page.evaluate(on)
+    page.context.close()
+    assert after_save and after_undo, (after_save, after_undo)
 
 
 def test_a_view_forgotten_is_undone(browser, session) -> None:
@@ -216,7 +239,7 @@ def builder(tmp_path_factory):
 
 def test_the_builder_takes_its_edits_back_and_forward(browser, builder) -> None:
     page = _page(browser, builder, "#run")
-    page.wait_for_function("() => window.FastMDXRun && window.FastMDXRun.state.schema")
+    page.wait_for_function("() => window.FastMDXRun && window.FastMDXRun.ready")
     page.click("#run-start [data-start='structure']")
     page.fill("#run-system", str(builder.peptide))
     ph = '#run-settings [data-setting="ph"] input'
@@ -245,7 +268,7 @@ def test_a_config_loaded_is_a_step_of_its_own(browser, builder) -> None:
     """A config the Agent filled in, then one edit: Cmd+Z took back the
     edit and the config together, to the form before it."""
     page = _page(browser, builder, "#run")
-    page.wait_for_function("() => window.FastMDXRun && window.FastMDXRun.state.schema")
+    page.wait_for_function("() => window.FastMDXRun && window.FastMDXRun.ready")
     page.click("#run-start [data-start='structure']")
     page.fill("#run-system", str(builder.peptide))
     ph = '#run-settings [data-setting="ph"] input'
@@ -280,7 +303,7 @@ def test_a_stop_undone_is_the_one_shown(browser, builder) -> None:
     value undone, from the rows' own copy, while the config held the one
     put back; the next edit there wrote the shown one back."""
     page = _page(browser, builder, "#run")
-    page.wait_for_function("() => window.FastMDXRun && window.FastMDXRun.state.schema")
+    page.wait_for_function("() => window.FastMDXRun && window.FastMDXRun.ready")
     page.click("#run-start [data-start='structure']")
     page.fill("#run-system", str(builder.peptide))
     page.wait_for_selector('#run-settings [data-setting="ph"] input')
@@ -311,7 +334,7 @@ def test_undo_goes_on_from_a_field_it_changed(browser, builder) -> None:
     """Once an undo step had changed the field the keyboard was in, Cmd+Z
     there was left to the browser, which had nothing to undo: stuck."""
     page = _page(browser, builder, "#run")
-    page.wait_for_function("() => window.FastMDXRun && window.FastMDXRun.state.schema")
+    page.wait_for_function("() => window.FastMDXRun && window.FastMDXRun.ready")
     page.click("#run-start [data-start='structure']")
     page.fill("#run-system", str(builder.peptide))
     ph = '#run-settings [data-setting="ph"] input'
@@ -330,3 +353,47 @@ def test_undo_goes_on_from_a_field_it_changed(browser, builder) -> None:
         seen.append((page.input_value("#run-output"), page.input_value(ph)))
     page.context.close()
     assert seen == [("myrun", "6.5"), ("", "6.5"), ("", first)], seen
+
+
+def test_typing_is_undone_and_done_again_in_its_field(browser, builder) -> None:
+    """Cmd+Z in a field put back everything typed there, and Shift+Cmd+Z
+    could not bring it back."""
+    page = _page(browser, builder, "#run")
+    page.wait_for_function("() => window.FastMDXRun && window.FastMDXRun.ready")
+    page.click("#run-start [data-start='structure']")
+    page.click("#run-output")
+    page.fill("#run-output", "")
+    page.keyboard.type("first")
+    page.wait_for_timeout(1200)
+    page.keyboard.press("End")
+    page.keyboard.type(" second")
+    page.keyboard.press("Control+z")
+    undone = page.input_value("#run-output")
+    page.keyboard.press("Control+Shift+z")
+    again = page.input_value("#run-output")
+    page.context.close()
+    # The browser's own undo, as much as it takes back at once; none of it lost.
+    assert undone.startswith("first") and undone != "first second", undone
+    assert again == "first second", again
+
+
+def test_the_agent_s_request_beside_the_builder_keeps_its_typing(browser, builder) -> None:
+    """Cmd+Z in the Agent's request, open beside the Config Builder, took the
+    whole request away for good."""
+    page = _page(browser, builder, "#run")
+    page.wait_for_function("() => window.FastMDXRun && window.FastMDXRun.ready")
+    page.click("#run-summary-panel")
+    page.keyboard.press("Control+j")
+    page.wait_for_selector("#agent-drawer #agent-request")
+    page.click("#agent-request")
+    page.keyboard.type("Set up a run of the peptide at 300 K")
+    page.wait_for_timeout(1200)
+    page.keyboard.type(" for 10 ns")
+    page.keyboard.press("Control+z")
+    undone = page.input_value("#agent-request")
+    page.keyboard.press("Control+Shift+z")
+    again = page.input_value("#agent-request")
+    page.context.close()
+    assert undone.startswith("Set up a run of the peptide at 300 K"), undone
+    assert undone != "Set up a run of the peptide at 300 K for 10 ns", undone
+    assert again == "Set up a run of the peptide at 300 K for 10 ns", again

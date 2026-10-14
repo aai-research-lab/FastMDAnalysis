@@ -45,6 +45,11 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   molecules is refused, and so is a title that is the name of a ligand given
   as its own file (`setup.ligand.names_collide`). The analyses select every
   ligand of a study with several.
+- Back and Forward move between the GUI's pages and dialogs. The address
+  names the open study and an analysis's place, so Back returns to the study
+  before and a bookmark opens it again. Undo follows a tag, a note or a saved
+  view changed, and the Config Builder takes Cmd+Z and Shift+Cmd+Z. See
+  `docs/gui.md`, The settings.
 
 ### Fixed
 

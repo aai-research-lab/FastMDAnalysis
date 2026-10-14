@@ -117,7 +117,7 @@
       var entry = { fmxDialog: id, field: id === "study-field-dialog" ? editing : null,
                     replaced: step === "replace" };
       afterHistory(function () {
-        if (step === "replace") history.replaceState(entry, "", location.href);
+        if (step === "replace" || step === "link") history.replaceState(entry, "", location.href);
         else history.pushState(entry, "", location.href);
       });
     }

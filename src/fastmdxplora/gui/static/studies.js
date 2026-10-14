@@ -211,6 +211,7 @@
         tagsUsed = countTags();
         offerTags();
         draw();
+        tagsOfFocused(study);
         offerUndoOfTags(study, before);
       }).catch(function () {
         save.disabled = false;
@@ -227,6 +228,17 @@
 
   /* Tags and a note kept, said in the page's notice with Undo, which keeps
    * them as they were. */
+  // The keyboard on a card's Tags, drawn anew (where the person was, and
+  // where the notice's Undo brings it back to).
+  function tagsOfFocused(study) {
+    Array.prototype.forEach.call(document.querySelectorAll(".study-card"), function (card) {
+      if (card.dataset.path === study.path) {
+        var edit = card.querySelector(".study-tag-edit");
+        if (edit) edit.focus({ preventScroll: true });
+      }
+    });
+  }
+
   function offerUndoOfTags(study, before) {
     var board = window.FastMDXDashboard;
     if (!board || !board.toast) return;
@@ -250,6 +262,8 @@
         tagsUsed = countTags();
         offerTags();
         draw();
+        // The card drawn anew took the keyboard with it: back on its Tags.
+        if (document.activeElement === document.body) tagsOfFocused(study);
         board.toast("The tags and note are back as they were.", "ok");
       }).catch(function () { board.toast("The server did not answer.", "warning"); });
     } });

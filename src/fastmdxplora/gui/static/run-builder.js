@@ -3843,20 +3843,16 @@
       const again = (key === "z" && event.shiftKey) || (key === "y" && !event.shiftKey);
       if (key !== "z" && !again) return;
       const field = event.target;
-      // Typing still to be undone in its own field: the field goes back to
-      // what it held when it was entered, as one step (the browser's own
-      // undo went past it, or had nothing left).
-      if (field && /^(INPUT|TEXTAREA)$/.test(field.tagName) && undo.typedFrom !== null
-          && field.value !== undo.typedFrom) {
-        if (again) return;
-        event.preventDefault();
-        field.value = undo.typedFrom;
-        field.dispatchEvent(new Event("input", { bubbles: true }));
-        field.dispatchEvent(new Event("change", { bubbles: true }));
-        return;
-      }
+      // A field anywhere but the form (the Agent's composer beside it, a
+      // dialog over it) keeps the keys for its own typing.
+      const typing = field && (/^(INPUT|TEXTAREA|SELECT)$/.test(field.tagName) || field.isContentEditable);
+      if (typing && !onTheBuilder(event)) return;
       if (field && field.isContentEditable) return;
       if (field && field.closest && field.closest(".agent-dialog, #agent-drawer")) return;
+      // Typing still to be undone in its own field is the browser's, both
+      // ways; a field a step changed starts again from what it then held.
+      if (field && /^(INPUT|TEXTAREA)$/.test(field.tagName) && undo.typedFrom !== null
+          && field.value !== undo.typedFrom) return;
       const moved = again
         ? stepThrough(undo.ahead, undo.back, "Done again.")
         : stepThrough(undo.back, undo.ahead, "Undone.");
@@ -4025,6 +4021,8 @@
   }
 
   window.FastMDXRun = {
+    // Whether the form takes steps yet (its draft read first).
+    get ready() { return draftReady; },
     state, currentState, PHASES, STARTING_POINTS, applyLoadedState, setStart,
     /* The four actions the Agent panel offers on a config it just wrote.
      * They read the builder's state, which the panel loads silently first,

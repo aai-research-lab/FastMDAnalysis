@@ -131,6 +131,9 @@
         openAsked(asked);
         return;
       }
+      // A dialog's address typed over the page: its hashchange, which
+      // follows, opens it as a step of its own.
+      if (DIALOG_OF[location.hash.replace(/^#/, "")]) return;
       const was = state.activePage;
       followAddress();
       // Back or Forward to another page: the keyboard and a screen reader
@@ -152,13 +155,14 @@
    * ones shown. Back to a step whose address differs from this one by more
    * than its hash (the study named in one, not yet in the step before) is
    * a popstate with no hashchange after it: the page stayed as it was. */
-  function followAddress() {
+  function followAddress(event) {
     const page = location.hash.replace(/^#/, "");
     const [name, place] = page.split(/\/(.*)/);
     if (!state.pages.includes(name) && !DIALOG_OF[page]) return;
     if (!DIALOG_OF[page] && name === state.activePage
         && (name === "analysis" ? place || "" : "") === (state.activePlace || "")) return;
-    navigate(page, {updateHash: false});
+    // An address typed over the page shown (no step of the page's own).
+    navigate(page, {updateHash: false, typed: Boolean(event && event.type === "hashchange")});
   }
 
   function headTheShownPage() {
@@ -181,10 +185,13 @@
   function navigate(page, options) {
     const opts = options || {};
     if (DIALOG_OF[page] && byId(DIALOG_OF[page])) {
-      // The link's own step becomes the dialog's, over the page shown.
+      // The link's own step becomes the dialog's, over the page shown. One
+      // typed over a page shown was a step after that page's: closed, it is
+      // taken back; the GUI's first step is the page's again.
+      const typed = Boolean(state.activePage) && Boolean(opts.typed);
       if (!state.activePage) navigate("overview", {replace: true});
       else history.replaceState(null, "", addressOfPage(state.activePage, state.activePlace));
-      window.FastMDXDialog?.open(DIALOG_OF[page], undefined, "replace");
+      window.FastMDXDialog?.open(DIALOG_OF[page], undefined, typed ? "link" : "replace");
       return;
     }
     let place = opts.place || "";
@@ -894,7 +901,8 @@
     let from = "";
     try { from = document.referrer ? new URL(document.referrer).origin : ""; } catch (error) { from = "elsewhere"; }
     if (from && from !== location.origin) {
-      state.addressRefused = "An address from another site does not open a study here.";
+      // Asked first (a sign-in elsewhere on the way to a bookmark is one).
+      state.addressOffered = asked;
       return;
     }
     // Already open: nothing is asked of the server (a GUI watched from
@@ -918,6 +926,12 @@
       state.addressKnown = true;
       if (state.addressRefused) showToast(state.addressRefused, "warning");
       state.addressRefused = "";
+      const offered = state.addressOffered;
+      state.addressOffered = "";
+      if (offered && offered !== key) {
+        showToast("This address, from another site, names another study.", "warning",
+                  {label: "Open it", run: () => openAsked(offered)});
+      }
       // Shown again by the browser on Back, with another study open since.
       if (state.addressRecheck && asked && asked !== key) {
         state.addressRecheck = false;

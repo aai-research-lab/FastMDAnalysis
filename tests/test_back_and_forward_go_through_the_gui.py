@@ -137,6 +137,22 @@ def test_a_link_to_a_dialog_opens_it_over_the_page(browser, session) -> None:
     page.context.close()
 
 
+def test_a_dialog_typed_in_the_address_and_closed_leaves_no_step(browser, session) -> None:
+    """Closed with Escape, the link's step stayed as a second step of the
+    page shown, and Back stayed on it."""
+    page = _open(browser, session)
+    page.click("[data-view-link='files']")
+    _on(page, "files")
+    page.evaluate("() => { location.hash = '#cite'; }")
+    page.wait_for_function("() => !document.getElementById('cite-dialog').hidden")
+    page.keyboard.press("Escape")
+    page.wait_for_function("() => document.getElementById('cite-dialog').hidden")
+    _on(page, "files")
+    page.go_back()
+    _on(page, "overview")
+    page.context.close()
+
+
 def test_a_page_opened_as_a_dialog_closes_is_not_taken_back_with_it(browser, session) -> None:
     """Go to anything closes and opens a page at once: the page's step was
     taken back with the dialog's, and Back went nowhere."""

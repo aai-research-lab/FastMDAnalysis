@@ -95,9 +95,11 @@ def _named(page, folder, where="overview"):
 
 
 def _switch(page, folder):
-    page.evaluate("""(folder) => fetch('/api/explore/switch', {method: 'POST',
+    # Not waited for: the page goes as it opens the study, and a call still
+    # waiting then is lost with it.
+    page.evaluate("""(folder) => { fetch('/api/explore/switch', {method: 'POST',
         headers: {'content-type': 'application/json'}, body: JSON.stringify({folder})})
-        .then(r => r.json()).then(answer => window.FastMDXDashboard.studyOpened(answer))""",
+        .then(r => r.json()).then(answer => window.FastMDXDashboard.studyOpened(answer)); }""",
                   str(folder))
 
 
@@ -248,7 +250,7 @@ def _asked_to_switch(page):
 
 def test_a_link_from_another_site_opens_no_study(browser, session) -> None:
     """Any site could link to the GUI with another study's key and the
-    page itself asked the server to open it."""
+    page itself asked the server to open it; now it is offered."""
     page = browser.new_context(viewport={"width": 1440, "height": 900}).new_page()
     page.set_default_timeout(60000)
     asked = _asked_to_switch(page)
@@ -257,8 +259,15 @@ def test_a_link_from_another_site_opens_no_study(browser, session) -> None:
     page.wait_for_function("() => /another site/.test("
                            "(document.getElementById('dashboard-toast') || {}).textContent || '')")
     _named(page, session.first)
+    unasked = list(asked)
+    # Opened when the person asks (a sign-in elsewhere on the way to a
+    # bookmark sends it from another site too).
+    page.click("#dashboard-toast .dashboard-toast-action")
+    _named(page, session.second)
+    _switch(page, session.first)
+    _named(page, session.first)
     page.context.close()
-    assert asked == []
+    assert unasked == []
 
 
 def test_a_dialog_closed_after_another_study_opened_keeps_it(browser, session) -> None:
