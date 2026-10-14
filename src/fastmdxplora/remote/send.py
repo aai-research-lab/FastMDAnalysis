@@ -1303,6 +1303,7 @@ def _still_its_own(sending: Sending) -> None:
 
 def _status_script(job: Job) -> str:
     where = shlex.quote(job.remote_dir)
+    late = ""
     if job.scheduler == "slurm":
         # Asked once, its output and complaints together: a state is one of
         # SLURM's words at the start of a line (a warning the queue prints is
@@ -1335,8 +1336,18 @@ def _status_script(job: Job) -> str:
             # that died leaves its runs going, in its group or out of it).
             alive = (_the_job_going(_send_id(job), job.handle)
                      + '[ "$went" = 1 ] && echo fmdx:alive=1\n'
-                     'if [ "$proc" = 1 ] && { [ "$went" = 0 ] || [ -f exit_code ]; }; '
-                     'then echo "fmdx:left=$n"; fi\n')
+                     'left_said=0\n'
+                     'if [ "$proc" = 1 ] && [ "$went" = 0 ] && [ ! -f exit_code ]; '
+                     'then echo "fmdx:left=$n"; left_said=1; fi\n')
+            # With its exit code, what its run left is counted once more,
+            # after the exit code is read: its run is gone by then, which the
+            # count above, made as the job was looked for, cannot say. A job
+            # that ended between the two was read failed with nothing of the
+            # process it left (CI #749), and a run counted as it ended was
+            # said as one more process left working there.
+            late = ('if [ "$proc" = 1 ] && [ "$left_said" = 0 ] && [ -f exit_code ]; then\n'
+                    + _by_send(_send_id(job), job.handle)
+                    + 'echo "fmdx:left=$n"; fi\n')
         else:
             alive = (f"{{ kill -0 {job.handle} || kill -0 -{job.handle}; }} 2>/dev/null "
                      "&& echo fmdx:alive=1\n")
@@ -1362,7 +1373,7 @@ def _status_script(job: Job) -> str:
             + alive +
             "[ -f exit_code ] && echo \"fmdx:exit_code=$(head -c 20 exit_code "
             "| tr -d '\\n')\"\n"
-            + after +
+            + late + after +
             "[ -f run/simulation/live_status.json ] && printf 'fmdx:live=%s\\n' "
             "\"$(tr -d '\\n' < run/simulation/live_status.json)\"\n"
             "[ -f job.log ] && tail -n 12 job.log | sed 's/^/fmdx:log=/'\n")

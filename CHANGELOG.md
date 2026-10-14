@@ -114,6 +114,10 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   residues under one number) no longer print in the terminal under
   `fastmdx gui`; any other warning still shows, and two of the GUI's reads
   at once no longer leave the terminal showing nothing after them.
+- A job sent to a workstation that ended as its status was read now says
+  the processes its run left working there. It was read failed with only
+  its exit code, and `fastmdx remote cancel` then stopped nothing; a run
+  counted as it ended was said as one more process left.
 
 ### Security
 
