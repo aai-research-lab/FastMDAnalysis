@@ -176,7 +176,7 @@ class TestTheTools:
     def test_a_config_given_as_text_is_read(self, structure):
         said = Toolbox().use("check_config", {
             "config": f"systems:\n- system: {structure}\n"})
-        assert said.ok and said.said.startswith("Accepted.")
+        assert said.ok and said.said.startswith("Accepted by the validator.")
 
     def test_a_study_that_has_recorded_nothing(self, tmp_path):
         (tmp_path / "fresh" / "analysis").mkdir(parents=True)
@@ -185,7 +185,7 @@ class TestTheTools:
 
     def test_an_unknown_tool_is_named_and_the_real_ones_listed(self):
         said = Toolbox().use("run_it", {})
-        assert not said.ok and "inspect_structure, preview_setup" in said.said
+        assert not said.ok and "inspect_structure, check_selection, preview_setup" in said.said
 
 
 class TestTheLoop:

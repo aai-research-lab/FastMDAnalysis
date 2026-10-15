@@ -15,6 +15,9 @@ large:
 
 Jobs are those whose results come back into the workspace, so an AI app
 given one folder never reads or stops a job sent for another.
+
+The looks, `list_machines` and `remote_status`, are the Agent's too
+(:mod:`fastmdxplora.agent.tools`); what is here sends, fetches and stops.
 """
 
 from __future__ import annotations
@@ -25,7 +28,6 @@ from typing import Any, NoReturn
 
 from fastmdxplora.mcp.tools import (
     Context,
-    Tool,
     ToolError,
     _plan_lines,
     _unused,
@@ -34,7 +36,7 @@ from fastmdxplora.mcp.tools import (
 )
 from fastmdxplora.refusals import refusal_of
 
-__all__ = ["LARGE_BYTES", "LIST_MACHINES", "REMOTE_TOOLS", "start_on_machine"]
+__all__ = ["LARGE_BYTES", "start_on_machine"]
 
 #: What a fetch brings without asking, where the AI app cannot ask.
 LARGE_BYTES = 100 * 1000 * 1000
@@ -91,83 +93,12 @@ def _refuse_taken_folder(exc: BaseException, machine: str) -> NoReturn:
 
 
 def _job_here(ctx: Context, given: str):
-    """The job named, if its results come back into the workspace."""
-    from fastmdxplora.remote import api
+    """The job named, if its results come back into the workspace, found
+    as the Agent's remote_status finds it."""
+    from fastmdxplora.agent.tools import job_here
+    from fastmdxplora.mcp.tools import _as_tool_error, _box
 
-    for job in api.jobs(under=ctx.workspace.root):
-        if job.name == given:
-            return job
-    raise ToolError(f"No job called {given!r} was sent with its results coming back "
-                    "into this workspace. list_machines lists the jobs here.",
-                    code="remote.job.unknown")
-
-
-def _job_line(ctx: Context, job) -> str:
-    detail = f", {job.detail}" if job.detail else ""
-    fetched = ("fetched" if job.fetched_at else "not fetched")
-    return (f"  {job.name} on {job.machine}: {job.state}{detail} (results to "
-            f"{ctx.workspace.shown(job.local_output)}, {fetched}; sent "
-            f"{job.submitted_at.replace('T', ' ').replace('Z', ' UTC')})")
-
-
-# ---------------------------------------------------------------------------
-# Looking
-# ---------------------------------------------------------------------------
-def _list_machines(ctx: Context, args: dict[str, Any]) -> str:
-    from fastmdxplora.remote import api
-
-    found = api.machines()
-    lines = ["Machines a study can be sent to, as last inspected (nothing was asked "
-             "of them now):"]
-    if not found:
-        lines = ["No machine has been inspected from this computer. The person adds "
-                 "one at a terminal: `fastmdx remote --machine <alias from "
-                 "~/.ssh/config>`."]
-    for machine in found:
-        state = "ready" if machine.ready else "not ready"
-        gpus = machine.gpus or ("no GPU on the login node" if machine.kind == "slurm"
-                                else "no GPU found")
-        when = machine.inspected_at.replace("T", " ").replace("Z", " UTC")
-        lines.append(f"  {machine.name} ({machine.kind}, {gpus[:200]}): {state}: "
-                     f"{machine.summary[:300]} (inspected {when})")
-        if not machine.ready:
-            lines.append(f"    The person makes it ready at a terminal: `fastmdx remote "
-                         f"install --machine {machine.name}`.")
-    jobs = api.jobs(under=ctx.workspace.root)
-    if jobs:
-        lines += ["", "Jobs sent with their results coming back here (as last asked; "
-                      "remote_status asks again):"]
-        lines += [_job_line(ctx, job) for job in jobs]
-    if found and ctx.runs:
-        lines += ["", "start_study with `machine` sends a checked study to a ready "
-                      "machine, once the person agrees."]
-    return "\n".join(lines)
-
-
-def _remote_status(ctx: Context, args: dict[str, Any]) -> str:
-    from fastmdxplora.remote import api
-    from fastmdxplora.remote.jobs import FINISHED
-
-    if args.get("job"):
-        names = [_job_here(ctx, args["job"]).name]
-    else:
-        names = [job.name for job in api.jobs(under=ctx.workspace.root)
-                 if job.state not in FINISHED]
-        if not names:
-            return ("No job sent from here is waiting or running. list_machines lists "
-                    "every job whose results come back into this workspace.")
-    lines = []
-    for name in names:
-        try:
-            job = api.status(name)
-        except Exception as exc:  # noqa: BLE001 - one machine down, the rest said
-            lines.append(f"  {name}: could not be asked: {_said_there(exc)[0]}")
-            continue
-        lines.append(_job_line(ctx, job))
-        lines += [f"      {line}" for line in job.extra.get("log_tail", [])[-4:]]
-        if job.state == "done" and not job.fetched_at:
-            lines.append("    fetch_study brings its results here.")
-    return "\n".join(lines)
+    return _as_tool_error(lambda: job_here(_box(ctx), given))
 
 
 # ---------------------------------------------------------------------------
@@ -429,46 +360,3 @@ def _cancel_study(ctx: Context, args: dict[str, Any]) -> str:
         return f"{job.name} had ended already ({job.state}); nothing was stopped."
     return (f"Stopped {job.name} on {job.machine}. Its folder there stays at "
             f"{job.remote_dir}.")
-
-
-_JOB = {"type": "string", "description": (
-    "A job sent from here, by its name (its results folder's name), as list_machines "
-    "lists it.")}
-
-#: Listed after `stop_study`, in the order an AI app reaches for them.
-REMOTE_TOOLS: tuple[Tool, ...] = (
-    Tool("remote_status", "How a study on another machine is doing",
-         "Ask the machine how a job sent from here is doing (waiting, running with its "
-         "progress, done, failed with why) and the last lines of its log; every job "
-         "still waiting or running, if none is named. An answer under 30 s old is "
-         "given again rather than asked anew.",
-         {"job": _JOB}, (),
-         {"readOnlyHint": True, "openWorldHint": True}, _remote_status),
-    Tool("fetch_study", "Fetch a study from another machine",
-         "Bring a finished job's results into its results folder in the workspace, once "
-         "the person agrees to what it brings: each size is said first. Trajectories "
-         "and checkpoints stay on the machine unless asked for. Where the person cannot "
-         "be asked, only a fetch under 100 MB goes ahead.",
-         {"job": _JOB,
-          "with_trajectory": {"type": "boolean", "description": (
-              "Bring trajectories and checkpoints too (default false).")}},
-         ("job",),
-         {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True,
-          "openWorldHint": True}, _fetch_study, acts=True),
-    Tool("cancel_study", "Stop a study on another machine",
-         "Stop a job sent from here. Where the AI app can ask, the person is asked "
-         "first; where it cannot, its own approval of the call is the gate. Its folder "
-         "on the machine stays.",
-         {"job": _JOB}, ("job",),
-         {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True,
-          "openWorldHint": True}, _cancel_study, acts=True),
-)
-
-#: Listed before `start_study`: where a study can run.
-LIST_MACHINES = Tool(
-    "list_machines", "List the machines a study can be sent to",
-    "The machines inspected from this computer, as last recorded, each with its GPUs "
-    "and whether it is ready for this computer's code; and the jobs sent from here "
-    "whose results come back into the workspace. Nothing is asked of the machines. "
-    "A machine is added, or made ready, by the person at a terminal.",
-    {}, (), {"readOnlyHint": True, "openWorldHint": False}, _list_machines)

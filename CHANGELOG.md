@@ -61,9 +61,24 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   `FASTMDX_ACCENT` not among the five is said at start. A study running is
   cyan, and done, qualified and refused keep their colours, with every
   accent.
+- The Agent and an AI app (`fastmdx mcp`) are offered their tools from one
+  list, each tool defined once and run by the same code, and a test holds
+  both to it. The Agent can now read a study's saved views, the machines a
+  study can be sent to and how a study sent to one is doing; an AI app can
+  read a file of a study and the docs. A study's record is one for both (the
+  Agent now told where a running study stands, an AI app able to ask for one
+  analysis first), and so is the check of a config. What one does not offer
+  (an AI app's actions, which the Agent proposes on the page) is listed with
+  why. See `docs/agent.md`, Looking before it answers, and `docs/mcp.md`.
 
 ### Fixed
 
+- An AI app's `check_study`, the Agent's `check_config` and a study sent to
+  another machine fill your defaults (`fastmdx-defaults.yml`) as a run does,
+  from the study's folder up. `check_study` read them from the workspace's
+  top and a send from beside its config, so a nearer file applied to the run
+  and not to the plan checked; the Agent's check filled none. A study that
+  has run is said not to be filled.
 - Two or more ligand files given without `ligand_name` are named from their
   files. The default `LIG` was counted as one name given for all of them, and
   the study was refused. A study run again from its own `resolved_config.yml`

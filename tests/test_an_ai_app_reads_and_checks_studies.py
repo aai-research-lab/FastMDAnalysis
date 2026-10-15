@@ -436,7 +436,8 @@ class TestWhatIsSaidBack:
 
     def test_a_continuation_and_a_machine_that_cannot_run_are_said(self, wire, workspace,
                                                                   monkeypatch):
-        monkeypatch.setattr("fastmdxplora.mcp.tools._cannot_run_here",
+        # The Agent's check, which an AI app's runs.
+        monkeypatch.setattr("fastmdxplora.agent.tools._cannot_run_here",
                             lambda config: "OpenMM is not installed.")
         said = text_of(wire.request("tools/call", {"name": "check_study", "arguments": {
             "config": "simulation:\n  resume_from: ubq_10ns\n  extra_ns: 5\n"}}))

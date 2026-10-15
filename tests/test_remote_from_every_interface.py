@@ -1498,7 +1498,9 @@ class TestSixthReview:
         assert "--output run --no-defaults" in script
 
     def test_your_defaults_here_travel_in_the_config(self, machine):
-        (machine.study.parent / "fastmdx-defaults.yml").write_text(
+        # Where `explore -c` and check_study look: from the study's results
+        # folder up, here the folder above both it and the config.
+        (machine.study.parent.parent / "fastmdx-defaults.yml").write_text(
             "simulation:\n  temperature_K: 310\n")
         sending = prepare(machine.study, "box", output=str(machine.back), code=RELEASE,
                           transport=machine.transport())

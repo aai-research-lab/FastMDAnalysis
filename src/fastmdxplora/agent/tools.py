@@ -37,6 +37,11 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable
 
+from fastmdxplora.offered_tools import AGENT as _AGENT
+from fastmdxplora.offered_tools import arguments_said as _arguments_said
+from fastmdxplora.offered_tools import offered_by as _offered_by
+from fastmdxplora.offered_tools import offered_named as _offered_named
+from fastmdxplora.offered_tools import schema_for as _schema_for
 from fastmdxplora.refusals import CodedError
 
 __all__ = ["AgentTool", "ENTRY_POINT_GROUP", "LOOK_WORDS", "Look", "ToolRefused", "Toolbox",
@@ -108,21 +113,10 @@ class Look:
 #: What each look is called where it is shown (the Agent page, `fastmdx
 #: agent`), done and while it is being done, and the argument it names.
 #: The page showed the tool's own name for any look not listed here
-#: (`find_structure`, `list_studies`, ...), which reads as code.
+#: (`find_structure`, `list_studies`, ...), which reads as code. From the
+#: one list of tools (:mod:`fastmdxplora.offered_tools`).
 LOOK_WORDS: dict[str, tuple[str, str, str]] = {
-    "read_docs": ("Read the docs on {}", "Reading the docs on {}", "query"),
-    "find_structure": ("Looked up {} in the PDB", "Looking up {} in the PDB", "query"),
-    "inspect_structure": ("Inspected {}", "Inspecting {}", "system"),
-    "preview_setup": ("Previewed what setup builds", "Previewing what setup builds", ""),
-    "check_config": ("Checked the config", "Checking the config", ""),
-    "check_selection": ("Checked a selection", "Checking a selection", ""),
-    "read_study": ("Read a study's record", "Reading a study's record", ""),
-    "list_studies": ("Listed the studies here", "Listing the studies here", ""),
-    "compare_studies": ("Compared two studies", "Comparing two studies", ""),
-    "methods_of_study": ("Read a study's methods", "Reading a study's methods", ""),
-    "current_view": ("Checked what the page shows", "Checking what the page shows", ""),
-    "read_study_file": ("Read {} in a study", "Reading {} in a study", "file"),
-}
+    tool.name: tool.look_words for tool in _offered_by(_AGENT) if tool.look_words}
 
 
 def look_said(tool: str, asked: dict[str, Any] | None, *, doing: bool = False) -> str:
@@ -192,10 +186,23 @@ class Toolbox:
     #: The study open on the page, where there is one: read_study_file reads
     #: a file of it, or of a study in the workspace, and of no other folder.
     open_study: Any = None
+    #: Used by an AI app's server (`fastmdx mcp`) rather than by the Agent:
+    #: what a look says next names the server's tools, and a path is
+    #: refused naming the workspace.
+    for_ai_app: bool = False
+    #: Whether studies may be started from here (an AI app's server may
+    #: be read-only), for what a look says can be done next.
+    runs: bool = True
+    #: A hosted GUI (MDXplora): other machines are the host's, and not
+    #: reached from it, so the looks at them are not offered.
+    hosted: bool = False
 
     def _table(self) -> dict[str, tuple[str, str, Callable[[Toolbox, dict[str, Any]], str]]]:
         """Every tool this toolbox has: those here, then installed, then extra."""
         table = dict(_TOOLS)
+        if self.hosted:
+            for name in _NOT_HOSTED:
+                table.pop(name, None)
         for tool in (*plugged_in(), *_checked(self.extra, "given as extra")):
             if tool.name in table:
                 _warn_once("Agent tool %r is already taken; the one given later "
@@ -253,6 +260,7 @@ class Toolbox:
     def use(self, name: str, asked: dict[str, Any]) -> Look:
         """Run one tool and keep what it said. Never raises: a tool that
         fails says so, and that is what the AI model is told."""
+        cut = _cut
         table = self._table()
         entry = table.get(name)
         if entry is None:
@@ -261,13 +269,13 @@ class Toolbox:
         else:
             try:
                 said = entry[2](self, dict(asked or {}))
-                look = Look(name, asked, _cut(said), True)
+                look = Look(name, asked, cut(said), True)
             except _Refused as exc:
-                look = Look(name, asked, _cut(str(exc)), False)
+                look = Look(name, asked, cut(str(exc)), False)
             except Exception as exc:  # noqa: BLE001 - a tool's failure is what it says
                 from fastmdxplora.refusals import refusal_of
 
-                look = Look(name, asked, _cut(refusal_of(exc).message or str(exc)), False)
+                look = Look(name, asked, cut(refusal_of(exc).message or str(exc)), False)
         self.looks.append(look)
         return look
 
@@ -528,12 +536,9 @@ def current_view_tool(hints: Any = None, *, active_root: Any = None,
     structure. They are not evidence. Factual work is delegated to the
     existing tools, with the same workspace boundary as the request.
     """
+    told = _offered_named("current_view")
     return AgentTool(
-        "current_view",
-        "none: what the page shows is given to the tool by the page.",
-        "what the page shows (the study, frame, view and residues chosen), as "
-        "where to look and not as what is so, then the facts from the study's "
-        "records or the structure, read by the tools that read them.",
+        "current_view", _arguments_said(told), told.what,
         lambda box, asked: _current_view_look(box, asked, hints, active_root, path_for),
     )
 
@@ -684,25 +689,174 @@ def _preview_setup(box: Toolbox, asked: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _check_config(box: Toolbox, asked: dict[str, Any]) -> str:
-    """Whether the validator accepts a config, and the plan if it does."""
-    from fastmdxplora.config.loader import ConfigError, validate_config
+def plan_lines(config: dict[str, Any]) -> list[str]:
+    """The plan as the person reads it, defaults marked."""
     from fastmdxplora.gui.plan import plan_of
+
+    return [f"  {line['label']}: {line['value']}" + (" (default)" if line.get("default") else "")
+            for line in plan_of(config)]
+
+
+def refused_said(exc: BaseException) -> str:
+    """A refusal and what would fix it, as the builder says them."""
     from fastmdxplora.refusals import refusal_of
     from fastmdxplora.remedies import remedy_for
 
-    config = _config_asked(asked)
+    found = refusal_of(exc)
+    said = f"Refused ({found.code}): {found.message}"
     try:
-        validate_config(config, require_systems=True)
-    except ConfigError as exc:
-        found = refusal_of(exc)
         fix = remedy_for(found, where="the config")
-        raise _Refused(f"Refused ({found.code}): {found.message}\n"
-                       f"What would fix it: {fix.fix}") from None
-    lines = ["Accepted. The plan, as the person will read it:"]
-    for line in plan_of(config):
-        lines.append(f"  {line['label']}: {line['value']}"
-                     + (" (default)" if line.get("default") else ""))
+        said += f"\nWhat would fix it: {fix.fix}"
+    except Exception:  # noqa: BLE001 - the refusal stands without its fix
+        pass
+    return said
+
+
+def carried_on(box: Toolbox, config: dict[str, Any]) -> Path | None:
+    """The study a config carries on in place (`simulation.resume_from`),
+    held to the server's rule for paths; None where it carries on none, or
+    names no study."""
+    from fastmdxplora.gui.browse import is_study
+
+    simulation = config.get("simulation")
+    named = simulation.get("resume_from") if isinstance(simulation, dict) else None
+    if not named or not isinstance(named, str):
+        return None
+    if box.path_for is not None:
+        found = box.path_for(named)
+        if found is None:
+            raise _Refused(f"resume_from names {named}, outside the workspace.")
+        folder = Path(found)
+    elif box.workspace is not None and not Path(named).expanduser().is_absolute():
+        folder = box.workspace.root / named
+    else:
+        folder = Path(named).expanduser()
+    return folder if folder.is_dir() and is_study(folder) else None
+
+
+def _has_run(box: Toolbox, config: dict[str, Any], file: Path | None = None) -> Path | None:
+    """The study a config's `output` names, where it has run already."""
+    from fastmdxplora.config.recorded import RECORDED
+    from fastmdxplora.workspace_studies import defaults_start
+
+    if not config.get("output"):
+        return None
+    start = defaults_start(config, file=file, root=(
+        box.workspace.root if box.workspace is not None else None))
+    if start is None or (box.path_for is not None and box.path_for(str(start)) is None):
+        return None
+    return start if (start / RECORDED).is_file() else None
+
+
+def _defaults_there(start: Path) -> Path | None:
+    """The file of defaults a study in ``start`` would be given, if any."""
+    from fastmdxplora.config.defaults_file import find_defaults
+
+    return find_defaults(start)
+
+
+def your_defaults_for(box: Toolbox, config: dict[str, Any], file: Path | None = None) -> Any:
+    """Your defaults (fastmdx-defaults.yml) for ``config``, looked for as
+    the command line looks: from the study's folder up, else from the
+    config file's, else from the folder of studies. A file that is there
+    and wrong is said, never passed over."""
+    from fastmdxplora.config.defaults_file import defaults_for
+    from fastmdxplora.config.loader import ConfigError
+    from fastmdxplora.workspace_studies import defaults_start
+
+    start = defaults_start(config, file=file, root=(
+        box.workspace.root if box.workspace is not None else None))
+    if start is None:
+        # No folder of studies here (started in the home folder): from
+        # where FastMDXplora was started, as the command line looks.
+        start = Path.cwd()
+    if box.path_for is not None and box.path_for(str(start)) is None:
+        # Held to the server's rule, as every path a config names: a file
+        # of defaults outside it is not read, nor said to be there.
+        if config.get("output"):
+            raise _Refused(f"`output` names {config.get('output')}, outside the workspace.")
+        return None
+    if _has_run(box, config, file) is not None:
+        # A study that has run, given a config for a phase run again: its
+        # record holds every value it ran with, and yours are not laid over.
+        return None
+    try:
+        return defaults_for(start)
+    except ConfigError as exc:
+        raise _Refused(str(exc)) from None
+
+
+def with_your_defaults(box: Toolbox, config: dict[str, Any],
+                       file: Path | None = None) -> tuple[dict[str, Any], list[str], Any]:
+    """The config as it will run: your defaults filling what it leaves
+    unset, the settings they filled, and the defaults themselves. A config
+    the validator accepts that your defaults make it refuse is refused
+    here, naming the file, not once it runs."""
+    from fastmdxplora.config.defaults_file import refused_with, with_defaults
+
+    defaults = your_defaults_for(box, config, file)
+    filled, names = with_defaults(config, defaults)
+    refusal = refused_with(config, filled, defaults)
+    if refusal is not None:
+        raise _Refused(refused_said(refusal))
+    return filled, names, defaults
+
+
+def validated(box: Toolbox, config: dict[str, Any]) -> Path | None:
+    """Validate ``config`` as a run would, with the study it carries on, if
+    any; that study. Raises the refusal and what would fix it."""
+    import copy
+
+    from fastmdxplora.config.loader import ConfigError, validate_config
+
+    continuing = carried_on(box, config)
+    try:
+        validate_config(copy.deepcopy(config), require_systems=continuing is None)
+    except ConfigError as exc:
+        raise _Refused(refused_said(exc)) from None
+    return continuing
+
+
+def checked_config(box: Toolbox, config: dict[str, Any],
+                   file: Path | None = None) -> tuple[list[str], dict[str, Any]]:
+    """Whether the validator accepts ``config``, as a run would take it: the
+    study it carries on, if any, then your defaults filling what it leaves
+    unset, the plan, and whether this machine can run it. One check for the
+    Agent and an AI app; the lines said, and the config as it will run.
+    Raises the refusal and what would fix it."""
+    continuing = validated(box, config)
+    filled, names, defaults = with_your_defaults(box, config, file)
+    lines = ["Accepted by the validator. The plan:", *plan_lines(filled)]
+    if names:
+        lines.append(f"Your defaults ({defaults.path.name}) fill what it leaves unset: "
+                     + ", ".join(names) + ".")
+    ran = _has_run(box, config, file)
+    if ran is not None and _defaults_there(ran) is not None:
+        lines.append(f"Your defaults are not filled in: {_shown(box, ran)} has run, and its "
+                     "record holds the values it ran with.")
+    if continuing is not None:
+        lines.append(f"It continues the study at {_shown(box, continuing)} in place: "
+                     "its next segment, joined to the others, with the analyses rerun "
+                     "over the whole.")
+    lacking = _cannot_run_here(filled)
+    if lacking:
+        lines += ["", f"This machine cannot run it yet: {lacking}"]
+    return lines, filled
+
+
+def _cannot_run_here(config: dict[str, Any]) -> str | None:
+    """What this machine lacks to run the config, if anything."""
+    from fastmdxplora.gui.exploration import exploration_environment_error
+
+    try:
+        return exploration_environment_error(config)
+    except Exception:  # noqa: BLE001 - a check, not the result
+        return None
+
+
+def _check_config(box: Toolbox, asked: dict[str, Any]) -> str:
+    """Whether the validator accepts a config, and the plan if it does."""
+    lines, _ = checked_config(box, _config_asked(asked))
     return "\n".join(lines)
 
 
@@ -751,11 +905,18 @@ def _a_study(box: Toolbox, given: str, argument: str) -> Path:
     else:
         named = given
     if named is None:
-        raise _Refused(f"{given} is outside the workspace.")
+        raise _Refused(f"{given} is outside the workspace"
+                       + (f" ({box.workspace.root})." if box.for_ai_app else "."))
     folder = Path(named).expanduser()
-    if not folder.is_dir() or not is_study(folder):
+    # An AI app's workspace is a folder of studies, not one: list_studies
+    # names those in it.
+    root = box.for_ai_app and box.workspace is not None and _same_path(
+        folder, box.workspace.root)
+    if root or not folder.is_dir() or not is_study(folder):
         raise _Refused(f"{given} is not a study folder (one holding a manifest, a "
-                       "resolved config, or simulation, analysis or report).")
+                       "resolved config, or simulation, analysis or report)."
+                       + (" list_studies names the studies here." if box.workspace
+                          is not None else ""))
     if box.workspace is not None and box.workspace.inside(folder) is not None:
         from fastmdxplora.workspace_studies import links_out
 
@@ -791,38 +952,27 @@ def _compare_studies(box: Toolbox, asked: dict[str, Any]) -> str:
 
 
 def _read_study(box: Toolbox, asked: dict[str, Any]) -> str:
-    """Another study's record: its config, what its analyses found, the
-    checks it was held to, how long it ran and why, and what would fix it.
-    With ``analysis``, the analysis asked about is found first, so a look
-    cut at its length still holds it."""
-    from fastmdxplora.gui.agent_panel import (
-        _analysis_named,
-        _checks_summary,
-        _config_the_run_used,
-        _remedies_summary,
-        _results_summary,
-        _stopping_summary,
-    )
+    """A study's record, as the Agent and an AI app both read it
+    (:func:`fastmdxplora.workspace_studies.study_record`): where it stands,
+    its config, what its analyses found, the checks it was held to, how
+    long it ran and why, and what would fix it. With ``analysis``, the
+    analysis asked about is said first, so a look cut at its length still
+    holds it."""
+    from fastmdxplora.gui.agent_panel import _analysis_named
+    from fastmdxplora.workspace_studies import study_record
 
     given = str(asked.get("study") or "").strip()
     folder = _a_study(box, given, "study")
-    config = _config_the_run_used(folder)
-    parts = [f"the study at {given}"]
     asked_about = asked.get("analysis")
     first = _analysis_named(folder, asked_about)
+    parts = [f"The study at {_shown(box, folder)}"]
     if asked_about and first is None:
         parts.append(f"It holds no analysis {str(asked_about)[:80]!r}.")
-    if config:
-        parts.append("its config (the short form):\n" + config[:1500])
-    # The analysis asked about leads what the analyses found, right after the
-    # config: a look is cut at its length, and what comes last is lost.
-    for said in (_results_summary(folder, first=first), _checks_summary(folder),
-                 _stopping_summary(folder), _remedies_summary(folder)):
-        if said:
-            parts.append(said)
-    if len(parts) == 1:
-        parts.append("It has recorded nothing yet: no config, findings or checks.")
-    return "\n\n".join(parts)
+    # The Agent's look is cut at its length: the config is said in part, so
+    # what the analyses found is not what is cut.
+    parts.append(study_record(folder, for_the_agent=not box.for_ai_app, first=first,
+                              most_config=None if box.for_ai_app else 1500))
+    return "\n".join(parts)
 
 
 #: A file in a study larger than this is not read: a trajectory, a
@@ -906,19 +1056,20 @@ def _methods_of_study(box: Toolbox, asked: dict[str, Any]) -> str:
 
     given = str(asked.get("study") or "").strip()
     folder = _a_study(box, given, "study")
+    shown = _shown(box, folder)
     if (folder / "batch_manifest.json").is_file():
-        raise _Refused(f"{given} is a study of several runs; each run's report gives its "
-                       "own methods. Name one of its runs.")
+        raise _Refused(f"{shown} is a study of several runs; each run's report gives its "
+                       "own methods. Name one of its runs (list_studies names them).")
     may_read = (None if box.path_for is None
                 else lambda path: box.path_for(str(path)) is not None)
     try:
         prose = methods_prose(folder, may_read=may_read)
     except PermissionError as exc:
-        raise _Refused(f"{given}: {exc}.") from None
+        raise _Refused(f"{shown}: {exc}.") from None
     if not prose:
-        return f"{given} has recorded nothing a methods section could say yet."
-    return (f"The methods of {given}, as its report gives them; quote them as they are "
-            f"(a gap they name was not recorded):\n\n{prose}")
+        return f"{shown} has recorded nothing a methods section could say yet."
+    return (f"The methods of {shown}, as its report gives them: quote them as they are "
+            f"(a gap they name was not recorded).\n\n{prose}")
 
 
 def _docs_asked(asked: dict[str, Any]) -> dict[str, Any]:
@@ -1031,148 +1182,200 @@ def _config_asked(asked: dict[str, Any]) -> dict[str, Any]:
     return config
 
 
-#: name -> (its arguments, what it tells, the function)
-_TOOLS: dict[str, tuple[str, str, Callable[[Toolbox, dict[str, Any]], str]]] = {
-    "find_structure": (
-        "`query` (a molecule's name or a PDB identifier), and optionally `organism` "
-        "(a species as the PDB names it, such as Homo sapiens), `most` (entries, 1 to "
-        "10) and `predicted` (true for AlphaFold DB's models as well).",
-        "the PDB entries a name answers to, grouped by protein, the most studied "
-        "first, each with its method, resolution, chains and ligands; and AlphaFold "
-        "DB's predicted models where the PDB holds no structure or where asked. "
-        "Look here before you write a PDB identifier for a system named in words.",
-        _find_structure),
-    "inspect_structure": (
-        "`system` (a PDB identifier or a structure file's path).",
-        "the chains, protein residues, ligands, ions and water a structure holds, "
-        "the residues whose protonation state a study may set, any side chain by "
-        "a structural metal, and what is worth knowing about it.",
-        _inspect_structure),
-    "preview_setup": (
-        "`config` (the study, as you would write it).",
-        "what setup will build (particles, box, solute, water, ions, a padding "
-        "grown for the cutoff) and how long the whole study takes on this "
-        "machine, where it has been timed.",
-        _preview_setup),
-    "check_config": (
-        "`config` (the study, as you would write it).",
-        "whether the validator accepts it, and if not why and what would fix "
-        "it; if so, the plan the person will read, defaults marked.",
-        _check_config),
-    "read_study": (
-        "`study` (a study's folder), and `analysis` where one is asked about.",
-        "another study's record, not the one on screen: its config, what its "
-        "analyses found (means, errors, units), the checks it was held to, how "
-        "long it ran and why, and what would fix it if it stopped. The analysis "
-        "named is given first.",
-        _read_study),
-    "read_study_file": (
-        "`study` (a study's folder) and `file` (a path inside it, such as "
-        "analysis/rmsd/options.json).",
-        "one text file of a study, as the Files page shows it, its head and tail "
-        "where it is long: a record, a log, a manifest. Not a trajectory or an image.",
-        _read_study_file),
-    "methods_of_study": (
-        "`study` (a study's folder).",
-        "that study's methods paragraphs as its report gives them, written from "
-        "what it recorded: preparation, protocol, how each mean and its error "
-        "were determined, any rule it ran until, an AI model's part, the software. "
-        "Look here before you write or answer about a methods section.",
-        _methods_of_study),
-    "list_studies": (
-        "optionally `tag` (only the studies tagged so).",
-        "the studies in the workspace, newest first: each one's system, kind, "
-        "state, length, force field, tags, the person's note and what its "
-        "analyses recorded (means with their errors); then the YAML files at "
-        "its top.",
-        _list_studies),
-    "compare_studies": (
-        "`first` and `second` (two studies' folders).",
-        "how two studies differ: each setting one asks for that the other does not, "
-        "and what each recorded side by side, a difference called resolved only "
-        "where it is more than the stated multiple of its combined standard error. "
-        "Quote it rather than comparing means yourself.",
-        _compare_studies),
-    "check_selection": (
-        "`system` and `expression` (an MDTraj selection).",
-        "how many atoms and which residues the selection matches in that "
-        "structure.",
-        _check_selection),
-    "read_docs": (
-        "`query` (a question in words), with `page` to ask one page only; or "
-        "`page` (a page's name, as listed) and optionally `section` (a heading on "
-        "it) and `part`; nothing, for the list of pages.",
-        "what the docs of this installed version of FastMDXplora say: the "
-        "passages that answer a question, each with its page and section, or a "
-        "page's sections, or one section whole. Look here before you answer how "
-        "the software, its pages, its buttons or its commands work.",
-        _read_docs),
-}
+# ---------------------------------------------------------------------------
+# Looks an AI app's server had first: a study's saved views, the machines a
+# study can be sent to, and how a study sent to one is doing
+# ---------------------------------------------------------------------------
+def _shown(box: Toolbox, path: Any) -> str:
+    """A path as the person reads it: in the workspace, relative to it."""
+    if box.workspace is not None and box.workspace.inside(path) is not None:
+        return box.workspace.shown(path)
+    return str(path)
 
 
-_A_STUDY = {"type": "object", "description": "A study config, as the file holds it."}
-_A_STRUCTURE = {"type": "string",
-                "description": "A PDB identifier such as 1UBQ, or the path to a PDB or "
-                               "mmCIF file."}
-_A_FOLDER = {"type": "string", "description": "A study's folder, as given to --output."}
+def _view_said(view: dict[str, Any]) -> str:
+    said = []
+    if view.get("frame") is not None:
+        said.append(f"frame {view['frame']}")
+    for key in ("representation", "colour"):
+        if view.get(key):
+            said.append(f"{key} {view[key]}")
+    if view.get("superposed") and view["superposed"] != "none":
+        said.append(f"superposed on {view['superposed']}, fitted to "
+                    f"{view.get('superposed_to') or 'first'}"
+                    + (f", smoothed over {view['smoothed_over']}"
+                       if (view.get("smoothed_over") or 1) > 1 else ""))
+    if view.get("publication"):
+        said.append("publication look")
+    return ", ".join(said) or "the structure as it opens"
 
-#: Each tool's arguments as the AI model is told them, by name.
-_SCHEMAS: dict[str, dict[str, Any]] = {
-    "find_structure": {"type": "object", "properties": {
-        "query": {"type": "string",
-                  "description": "A molecule's name, such as lysozyme or trp-cage, or a "
-                                 "PDB identifier."},
-        "organism": {"type": "string",
-                     "description": "A species as the PDB names it, such as Homo sapiens."},
-        "most": {"type": "integer", "minimum": 1, "maximum": 10,
-                 "description": "How many entries to offer; 5 if not given."},
-        "predicted": {"type": "boolean",
-                      "description": "AlphaFold DB's models as well as the PDB's entries."}},
-        "required": ["query"]},
-    "inspect_structure": {"type": "object", "properties": {"system": _A_STRUCTURE},
-                          "required": ["system"]},
-    "preview_setup": {"type": "object", "properties": {"config": _A_STUDY},
-                      "required": ["config"]},
-    "check_config": {"type": "object", "properties": {"config": _A_STUDY},
-                     "required": ["config"]},
-    "read_study": {"type": "object", "properties": {
-        "study": _A_FOLDER,
-        "analysis": {"type": "string",
-                     "description": "The analysis asked about (rmsd, rg), given first."}},
-                   "required": ["study"]},
-    "methods_of_study": {"type": "object", "properties": {"study": _A_FOLDER},
-                         "required": ["study"]},
-    "read_study_file": {"type": "object", "properties": {
-        "study": _A_FOLDER,
-        "file": {"type": "string",
-                 "description": "The file's path inside the study, such as "
-                                "analysis/rmsd/options.json."}},
-        "required": ["study", "file"]},
-    "list_studies": {"type": "object", "properties": {
-        "tag": {"type": "string", "description": "Only the studies tagged so."}}},
-    "compare_studies": {"type": "object", "properties": {
-        "first": _A_FOLDER, "second": _A_FOLDER}, "required": ["first", "second"]},
-    "current_view": {"type": "object", "properties": {}, "additionalProperties": False},
-    "check_selection": {"type": "object", "properties": {
-        "system": _A_STRUCTURE,
-        "expression": {"type": "string", "description": "An MDTraj selection."}},
-        "required": ["system", "expression"]},
-    "read_docs": {"type": "object", "properties": {
-        "query": {"type": "string",
-                  "description": "What to find in the docs, in words, such as what the "
-                                 "Useful and Wrong buttons do."},
-        "page": {"type": "string",
-                 "description": "A page's name as the list of pages gives it, such as "
-                                "agent or gui: with `query`, the passages from that page "
-                                "alone; without, its sections."},
-        "section": {"type": "string",
-                    "description": "A heading on that page, to read that section whole; "
-                                   "where a heading is on the page twice, the headings "
-                                   "above it too, as `A > B`."},
-        "part": {"type": "integer", "minimum": 1,
-                 "description": "Which part of a long section; 1 if not given."}},
-        "additionalProperties": False},
-}
+
+def _views_of_study(box: Toolbox, asked: dict[str, Any]) -> str:
+    """The views the person saved with a study, the selections they named,
+    and the scenes written with it."""
+    from fastmdxplora.gui.saved_views import views_of
+    from fastmdxplora.gui.viewer_selections import selections_of
+    from fastmdxplora.scenes import SCENES_DIR, scenes_of
+
+    given = str(asked.get("study") or "").strip()
+    folder = _a_study(box, given, "study")
+    shown = _shown(box, folder)
+    views = views_of(folder)["views"]
+    scenes = scenes_of(folder)["scenes"]
+    selections = selections_of(folder)["selections"]
+    starts = (" (write_scene starts from one by its name)." if box.for_ai_app
+              else " (the person opens one in the Viewer by its name).")
+    lines = [f"Views saved with {shown} in the GUI: {len(views)}"
+             + (starts if views else ".")]
+    # A note is the person's words about the view, said as theirs.
+    lines += [f"- {view['name']}: {_view_said(view)}"
+              + (f". The person's note: {json.dumps(view['note'])}" if view.get("note") else "")
+              for view in views]
+    lines.append(f"Selections the person named: {len(selections)}"
+                 + (" (every scene shows them)." if selections else "."))
+    for selection in selections:
+        what = selection.get("expression") or f"{len(selection.get('residues') or [])} residues"
+        lines.append(f"- {selection.get('name')}: {what}")
+    lines.append(f"Scenes written: {len(scenes)}" + ("." if not scenes else ":"))
+    lines += [f"- {scene['name']}: {shown}/{SCENES_DIR}/{scene['name']}.mvsx"
+              for scene in scenes]
+    return "\n".join(lines)
+
+
+def _jobs_here(box: Toolbox) -> list[Any]:
+    """The jobs sent from this computer: those whose results come back into
+    the workspace, where there is one."""
+    from fastmdxplora.remote import api
+
+    return api.jobs(under=box.workspace.root if box.workspace is not None else None)
+
+
+def job_here(box: Toolbox, given: str) -> Any:
+    """The job named, if its results come back into the workspace."""
+    for job in _jobs_here(box):
+        if job.name == given:
+            return job
+    raise _Refused(f"No job called {given!r} was sent with its results coming back "
+                   "into this workspace. list_machines lists the jobs here.",
+                   code="remote.job.unknown")
+
+
+def job_line(job: Any, shown: Callable[[Any], str]) -> str:
+    """One job sent to another machine, as both interfaces say it."""
+    detail = f", {job.detail}" if job.detail else ""
+    fetched = ("fetched" if job.fetched_at else "not fetched")
+    return (f"  {job.name} on {job.machine}: {job.state}{detail} (results to "
+            f"{shown(job.local_output)}, {fetched}; sent "
+            f"{job.submitted_at.replace('T', ' ').replace('Z', ' UTC')})")
+
+
+#: Looks at other machines: the host's in a hosted GUI, which reaches none
+#: of them, as its own Remote routes do not.
+_NOT_HOSTED = ("list_machines", "remote_status")
+
+
+def _not_hosted(box: Toolbox) -> None:
+    """Other machines are the host's in a hosted GUI, and not reached from
+    it, as its own Remote routes are not."""
+    if box.hosted:
+        raise _Refused("Other machines are not reached from a hosted GUI: a study runs "
+                       "where the GUI is hosted.")
+
+
+def _list_machines(box: Toolbox, asked: dict[str, Any]) -> str:
+    """The machines inspected from here, as recorded, and the jobs sent."""
+    from fastmdxplora.remote import api
+
+    _not_hosted(box)
+    found = api.machines()
+    lines = ["Machines a study can be sent to, as last inspected (nothing was asked "
+             "of them now):"]
+    if not found:
+        lines = ["No machine has been inspected from this computer. The person adds "
+                 "one at a terminal: `fastmdx remote --machine <alias from "
+                 "~/.ssh/config>`."]
+    for machine in found:
+        state = "ready" if machine.ready else "not ready"
+        gpus = machine.gpus or ("no GPU on the login node" if machine.kind == "slurm"
+                                else "no GPU found")
+        when = machine.inspected_at.replace("T", " ").replace("Z", " UTC")
+        lines.append(f"  {machine.name} ({machine.kind}, {gpus[:200]}): {state}: "
+                     f"{machine.summary[:300]} (inspected {when})")
+        if not machine.ready:
+            lines.append(f"    The person makes it ready at a terminal: `fastmdx remote "
+                         f"install --machine {machine.name}`.")
+    jobs = _jobs_here(box)
+    if jobs:
+        lines += ["", "Jobs sent with their results coming back here (as last asked; "
+                      "remote_status asks again):"]
+        lines += [job_line(job, lambda path: _shown(box, path)) for job in jobs]
+    if found and box.for_ai_app and box.runs:
+        lines += ["", "start_study with `machine` sends a checked study to a ready "
+                      "machine, once the person agrees."]
+    elif found and not box.for_ai_app:
+        lines += ["", "The person sends a study to a ready machine from the Config "
+                      "Builder's Run on, or with `fastmdx remote send`."]
+    return "\n".join(lines)
+
+
+def _remote_status(box: Toolbox, asked: dict[str, Any]) -> str:
+    """How each job sent from here is doing, asked of its machine."""
+    from fastmdxplora.remote import api
+    from fastmdxplora.remote.jobs import FINISHED
+    from fastmdxplora.refusals import refusal_of
+
+    _not_hosted(box)
+    given = str(asked.get("job") or "").strip()
+    if given:
+        names = [job_here(box, given).name]
+    else:
+        names = [job.name for job in _jobs_here(box) if job.state not in FINISHED]
+        if not names:
+            return ("No job sent from here is waiting or running. list_machines lists "
+                    "every job whose results come back into this workspace.")
+    lines = []
+    for name in names:
+        try:
+            job = api.status(name)
+        except Exception as exc:  # noqa: BLE001 - one machine down, the rest said
+            lines.append(f"  {name}: could not be asked: {refusal_of(exc).message or exc}")
+            continue
+        lines.append(job_line(job, lambda path: _shown(box, path)))
+        lines += [f"      {line}" for line in job.extra.get("log_tail", [])[-4:]]
+        if job.state == "done" and not job.fetched_at:
+            lines.append("    fetch_study brings its results here."
+                         if box.for_ai_app and box.runs
+                         else "    The person brings its results here with `fastmdx "
+                              "remote fetch`, or from the GUI.")
+    return "\n".join(lines)
+
+
+def look_named(name: str) -> Callable[[Toolbox, dict[str, Any]], str]:
+    """The function that does the Agent's look ``name``, for an AI app's
+    server, which runs the same function in its workspace."""
+    return _TOOLS[name][2]
+
+
+def _the_agent_s() -> tuple[dict[str, tuple[str, str, Callable[[Toolbox, dict[str, Any]], str]]],
+                            dict[str, dict[str, Any]]]:
+    """The Agent's looks, from the one list of tools
+    (:mod:`fastmdxplora.offered_tools`): each one's arguments in words, what
+    it tells, and the function here that does it; and each one's arguments
+    as a JSON schema. `current_view` is made for each request from the
+    page's hints (:func:`current_view_tool`), so only its schema is here."""
+    tools, schemas = {}, {}
+    for tool in _offered_by(_AGENT):
+        schemas[tool.name] = _schema_for(tool, _AGENT)
+        if tool.name == "current_view":
+            continue
+        module, _, name = tool.does.partition(":")
+        if module != __name__:  # pragma: no cover - held by the list's test
+            raise RuntimeError(f"The Agent's {tool.name} is done in {module}, not here.")
+        tools[tool.name] = (_arguments_said(tool), tool.told_to(_AGENT), globals()[name])
+    return tools, schemas
+
+
+_TOOLS, _SCHEMAS = _the_agent_s()
 
 
 def _brief(asked: dict[str, Any]) -> dict[str, Any]:

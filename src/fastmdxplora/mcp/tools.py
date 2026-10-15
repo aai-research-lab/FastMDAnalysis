@@ -7,11 +7,14 @@ result marked as an error, so the AI model can put it right.
 
 Studies, configs and structures are read and written inside the workspace
 only (:mod:`fastmdxplora.mcp.workspace`).
+
+The tools are those of the one list (:mod:`fastmdxplora.offered_tools`). A
+tool the Agent offers too is the Agent's own look, run here in the
+workspace and said whole; the rest are this server's own, defined below.
 """
 
 from __future__ import annotations
 
-import copy
 import hashlib
 import json
 import os
@@ -24,19 +27,14 @@ from fastmdxplora.mcp.workspace import Workspace
 from fastmdxplora.refusals import CodedError
 # One listing and one comparison for the Agent and an AI app; the names
 # read from here before they were shared are kept.
-from fastmdxplora.workspace_studies import compared, listed, studies_here  # noqa: F401
+from fastmdxplora.workspace_studies import studies_here  # noqa: F401
+# The record's words for the Agent, and what they mean to an AI app.
+from fastmdxplora.workspace_studies import _SAID_TO_AN_AI_APP as _SAID_HERE  # noqa: F401
 from fastmdxplora.workspace_studies import links_out as _links_out
 from fastmdxplora.workspace_studies import why_not as _why_not  # noqa: F401
 from fastmdxplora.workspace_studies import with_error  # noqa: F401
 
 __all__ = ["Tool", "ToolError", "Context", "TOOLS", "plan_id_of"]
-
-#: The tools say a structure as the Agent's tools do: a PDB identifier, or a file.
-_STRUCTURE = {"type": "string", "description": (
-    "A PDB identifier such as 1UBQ, or a PDB or mmCIF file in the workspace.")}
-_CONFIG = {"type": "string", "description": (
-    "A study config: the path of a YAML file in the workspace, or the YAML itself.")}
-_STUDY = {"type": "string", "description": "A study's folder in the workspace."}
 
 
 class ToolError(CodedError, Exception):
@@ -152,33 +150,37 @@ def _config_from(ctx: Context, given: str) -> tuple[dict[str, Any], Path | None]
     return config, file
 
 
+def _box(ctx: Context) -> Any:
+    """The Agent's toolbox, reaching this workspace and nothing outside it,
+    as this server's tools use it."""
+    from fastmdxplora.agent.tools import Toolbox
+
+    return Toolbox(path_for=ctx.workspace.path_for, workspace=ctx.workspace,
+                   for_ai_app=True, runs=ctx.runs)
+
+
+def _as_tool_error(call: Callable[[], Any]) -> Any:
+    """``call``, a refusal from the Agent's own code said as this server's."""
+    from fastmdxplora.agent.tools import ToolRefused
+
+    try:
+        return call()
+    except ToolRefused as exc:
+        raise ToolError(str(exc), code=exc.code) from None
+
+
 def _continued(ctx: Context, config: dict[str, Any]) -> Path | None:
     """The study a config extends in place, read in the workspace."""
-    from fastmdxplora.gui.browse import is_study
+    from fastmdxplora.agent.tools import carried_on
 
-    simulation = config.get("simulation")
-    named = simulation.get("resume_from") if isinstance(simulation, dict) else None
-    if not named:
-        return None
-    folder = ctx.workspace.inside(named)
-    if folder is None:
-        raise ToolError(f"resume_from names {named}, outside the workspace.")
-    return folder if folder.is_dir() and is_study(folder) else None
+    return _as_tool_error(lambda: carried_on(_box(ctx), config))
 
 
 def _refused(exc: BaseException) -> str:
     """A refusal and what would fix it, as the builder says them."""
-    from fastmdxplora.refusals import refusal_of
-    from fastmdxplora.remedies import remedy_for
+    from fastmdxplora.agent.tools import refused_said
 
-    found = refusal_of(exc)
-    said = f"Refused ({found.code}): {found.message}"
-    try:
-        fix = remedy_for(found, where="the config")
-        said += f"\nWhat would fix it: {fix.fix}"
-    except Exception:  # noqa: BLE001 - the refusal stands without its fix
-        pass
-    return said
+    return refused_said(exc)
 
 
 def _confined(ctx: Context, config: Any, where: str = "") -> None:
@@ -226,43 +228,25 @@ def _accepted(ctx: Context, config: dict[str, Any]) -> Path | None:
     """Validate as a run would, raising the refusal as a tool error; the
     study continued, where the config continues one. Every path it names
     is held to the workspace too."""
-    from fastmdxplora.config.loader import ConfigError, validate_config
+    from fastmdxplora.agent.tools import validated
 
-    continuing = _continued(ctx, config)
-    try:
-        validate_config(copy.deepcopy(config), require_systems=continuing is None)
-    except ConfigError as exc:
-        raise ToolError(_refused(exc)) from None
+    continuing = _as_tool_error(lambda: validated(_box(ctx), config))
     # After the validator, so a setting it refuses is refused for what it is.
     _confined(ctx, config)
     return continuing
 
 
 def _plan_lines(config: dict[str, Any]) -> list[str]:
-    from fastmdxplora.gui.plan import plan_of
+    from fastmdxplora.agent.tools import plan_lines
 
-    return [f"  {line['label']}: {line['value']}" + (" (default)" if line.get("default") else "")
-            for line in plan_of(config)]
+    return plan_lines(config)
 
 
 def _cannot_run_here(config: dict[str, Any]) -> str | None:
     """What this machine lacks to run the config, if anything."""
-    from fastmdxplora.gui.exploration import exploration_environment_error
+    from fastmdxplora.agent.tools import _cannot_run_here as lacking
 
-    try:
-        return exploration_environment_error(config)
-    except Exception:  # noqa: BLE001 - a check, not the result
-        return None
-
-
-def _looked(ctx: Context, tool: str, asked: dict[str, Any]) -> str:
-    """One of the Agent's own tools, as the Agent would use it."""
-    from fastmdxplora.agent.tools import Toolbox
-
-    look = Toolbox(path_for=ctx.workspace.path_for, workspace=ctx.workspace).use(tool, asked)
-    if not look.ok:
-        raise ToolError(look.said)
-    return look.said
+    return lacking(config)
 
 
 def _study(ctx: Context, given: str) -> Path:
@@ -519,69 +503,50 @@ def _new_file(folder: Path, stem: str) -> Path:
 # ---------------------------------------------------------------------------
 # Looking
 # ---------------------------------------------------------------------------
-def _find_structure(ctx: Context, args: dict[str, Any]) -> str:
-    return _looked(ctx, "find_structure", {
-        key: args[key] for key in ("query", "organism", "most", "predicted") if key in args})
+def the_agent_s_look(name: str) -> Callable[[Context, dict[str, Any]], str]:
+    """A tool the Agent offers too, as this server runs it: the Agent's own
+    look in the workspace, said whole, a config given as a file or YAML
+    read first."""
+    def run(ctx: Context, args: dict[str, Any]) -> str:
+        from fastmdxplora.agent.tools import look_named
 
+        asked = dict(args)
+        if isinstance(asked.get("config"), str):
+            asked["config"], _ = _config_from(ctx, asked["config"])
+        return _as_tool_error(lambda: look_named(name)(_box(ctx), asked))
 
-def _inspect_structure(ctx: Context, args: dict[str, Any]) -> str:
-    return _looked(ctx, "inspect_structure", {"system": args["system"]})
-
-
-def _check_selection(ctx: Context, args: dict[str, Any]) -> str:
-    return _looked(ctx, "check_selection",
-                   {"system": args["system"], "expression": args["expression"]})
-
-
-def _preview_setup(ctx: Context, args: dict[str, Any]) -> str:
-    config, _ = _config_from(ctx, args["config"])
-    return _looked(ctx, "preview_setup", {"config": config})
+    run.__name__ = run.__qualname__ = f"_{name}"
+    return run
 
 
 def _your_defaults(ctx: Context) -> Any:
-    """The workspace's fastmdx-defaults.yml, read and checked, or None; a
+    """Your defaults for the folder of studies, read and checked, or None; a
     file that is there and wrong is said, never passed over."""
-    from fastmdxplora.config.defaults_file import defaults_for
-    from fastmdxplora.config.loader import ConfigError
+    from fastmdxplora.agent.tools import your_defaults_for
 
-    try:
-        return defaults_for(ctx.workspace.root)
-    except ConfigError as exc:
-        raise ToolError(str(exc)) from None
+    return _as_tool_error(lambda: your_defaults_for(_box(ctx), {}))
 
 
-def _filled(ctx: Context, config: dict[str, Any]) -> tuple[dict[str, Any], list[str], Any]:
+def _filled(ctx: Context, config: dict[str, Any],
+            file: Path | None = None) -> tuple[dict[str, Any], list[str], Any]:
     """The config as it will run: your defaults filling what it leaves
-    unset, the settings they filled, and the defaults themselves. Checked
-    as it will run: a config the validator accepts that your defaults make
-    it refuse is refused here, naming the file, not once it is saved."""
-    from fastmdxplora.config.defaults_file import refused_with, with_defaults
+    unset, looked for from the study's folder up as a run looks for them,
+    the settings they filled, and the defaults themselves."""
+    from fastmdxplora.agent.tools import with_your_defaults
 
-    defaults = _your_defaults(ctx)
-    filled, names = with_defaults(config, defaults)
-    refusal = refused_with(config, filled, defaults)
-    if refusal is not None:
-        raise ToolError(_refused(refusal))
-    return filled, names, defaults
+    return _as_tool_error(lambda: with_your_defaults(_box(ctx), config, file))
 
 
 def _check_study(ctx: Context, args: dict[str, Any]) -> str:
+    """The Agent's check (:func:`fastmdxplora.agent.tools.checked_config`),
+    every path the config names held to the workspace, and what runs it."""
+    from fastmdxplora.agent.tools import checked_config
+
     config, file = _config_from(ctx, args["config"])
-    continuing = _accepted(ctx, config)
-    # The plan of what will run: the workspace's defaults fill what the
-    # config leaves unset when it is saved and run.
-    config, filled, defaults = _filled(ctx, config)
-    lines = ["Accepted by the validator. The plan:", *_plan_lines(config)]
-    if filled:
-        lines.append(f"Your defaults ({defaults.path.name}) fill what it leaves unset: "
-                     + ", ".join(filled) + ".")
-    if continuing is not None:
-        lines.append(f"It continues the study at {ctx.workspace.shown(continuing)} in place: "
-                     "its next segment, joined to the others, with the analyses rerun "
-                     "over the whole.")
-    lacking = _cannot_run_here(config)
-    if lacking:
-        lines += ["", f"This machine cannot run it yet: {lacking}"]
+    # Every path the config names held to the workspace before anything it
+    # names (the defaults beside its output) is read.
+    _accepted(ctx, config)
+    lines, _ = _as_tool_error(lambda: checked_config(_box(ctx), config, file))
     if file is not None:
         lines += ["", _plan_id_line(ctx, file)]
     else:
@@ -809,121 +774,12 @@ def _tag_study(ctx: Context, args: dict[str, Any]) -> str:
         "on its card in the GUI's All studies."])
 
 
-def _view_said(view: dict[str, Any]) -> str:
-    said = []
-    if view.get("frame") is not None:
-        said.append(f"frame {view['frame']}")
-    for key in ("representation", "colour"):
-        if view.get(key):
-            said.append(f"{key} {view[key]}")
-    if view.get("superposed") and view["superposed"] != "none":
-        said.append(f"superposed on {view['superposed']}, fitted to "
-                    f"{view.get('superposed_to') or 'first'}"
-                    + (f", smoothed over {view['smoothed_over']}"
-                       if (view.get("smoothed_over") or 1) > 1 else ""))
-    if view.get("publication"):
-        said.append("publication look")
-    return ", ".join(said) or "the structure as it opens"
-
-
-def _views_of_study(ctx: Context, args: dict[str, Any]) -> str:
-    from fastmdxplora.gui.saved_views import views_of
-    from fastmdxplora.gui.viewer_selections import selections_of
-    from fastmdxplora.scenes import SCENES_DIR, scenes_of
-
-    folder = _study(ctx, args["study"])
-    shown = ctx.workspace.shown(folder)
-    views = views_of(folder)["views"]
-    scenes = scenes_of(folder)["scenes"]
-    selections = selections_of(folder)["selections"]
-    lines = [f"Views saved with {shown} in the GUI: {len(views)}"
-             + (" (write_scene starts from one by its name)." if views else ".")]
-    # A note is the person's words about the view, said as theirs.
-    lines += [f"- {view['name']}: {_view_said(view)}"
-              + (f". The person's note: {json.dumps(view['note'])}" if view.get("note") else "")
-              for view in views]
-    lines.append(f"Selections the person named: {len(selections)}"
-                 + (" (every scene shows them)." if selections else "."))
-    for selection in selections:
-        what = selection.get("expression") or f"{len(selection.get('residues') or [])} residues"
-        lines.append(f"- {selection.get('name')}: {what}")
-    lines.append(f"Scenes written: {len(scenes)}" + ("." if not scenes else ":"))
-    lines += [f"- {scene['name']}: {shown}/{SCENES_DIR}/{scene['name']}.mvsx"
-              for scene in scenes]
-    return "\n".join(lines)
-
-
-def _list_studies(ctx: Context, args: dict[str, Any]) -> str:
-    return listed(ctx.workspace, args.get("tag"))
-
-
-class _Viewed:
-    """A study as the Agent panel's summary reads a run: where, and its state."""
-
-    def __init__(self, root: Path, state: str) -> None:
-        self.active_root, self._state = root, state
-
-    def snapshot(self) -> dict[str, Any]:
-        return {"active_run": str(self.active_root), "status": self._state,
-                "process_running": self._state == "running"}
-
-
-#: The record's words for the Agent in the GUI, and what they mean here.
-_SAID_HERE = (
-    ("one marked [runs here] is what `DO: run the fix` runs, the first of them",
-     "one marked [runs here] can be run on this machine"),
-    ("To continue it, answer with this config.",
-     "To continue it, save this config with save_study and run it."),
-    ("To run it, answer with this config;",
-     "To run it, save this config with save_study and run it;"),
-)
-
-
 def study_record(root: Path, *, for_the_agent: bool = False) -> str:
-    """Everything a study recorded that an AI model can read: where it
-    stands, its config, what its analyses found, its checks, why it stopped
-    and what would fix it. The Agent's own reading of a run; for an AI app,
-    its words for the GUI's Agent said as they apply here."""
-    from fastmdxplora.gui.agent_panel import _run_status
-    from fastmdxplora.gui.workspace import card_of
+    """A study's record, as the Agent and an AI app both read it
+    (:func:`fastmdxplora.workspace_studies.study_record`)."""
+    from fastmdxplora.workspace_studies import study_record as record
 
-    state = str(card_of(root).get("state") or "unknown")
-    said = _run_status(_Viewed(root, state)) or f"status: {state}"
-    if not for_the_agent:
-        for theirs, ours in _SAID_HERE:
-            said = said.replace(theirs, ours)
-    return said
-
-
-def _read_study(ctx: Context, args: dict[str, Any]) -> str:
-    folder = _study(ctx, args["study"])
-    return f"The study at {ctx.workspace.shown(folder)}\n" + study_record(folder)
-
-
-def _methods_of_study(ctx: Context, args: dict[str, Any]) -> str:
-    from fastmdxplora.report.document import methods_prose
-
-    folder = _study(ctx, args["study"])
-    shown = ctx.workspace.shown(folder)
-    if (folder / "batch_manifest.json").is_file():
-        raise ToolError(f"{shown} is a study of several runs; each run's report gives its "
-                        "own methods. Name one of its runs (list_studies names them).")
-    try:
-        prose = methods_prose(folder, may_read=lambda path: ctx.workspace.inside(
-            str(path)) is not None)
-    except PermissionError as exc:
-        raise ToolError(f"{shown}: {exc}.") from None
-    if not prose:
-        return f"{shown} has recorded nothing a methods section could say yet."
-    return f"The methods of {shown}, as its report gives them:\n\n{prose}"
-
-
-def _compare_studies(ctx: Context, args: dict[str, Any]) -> str:
-    first, second = _study(ctx, args["first"]), _study(ctx, args["second"])
-    said, could = compared(first, second, ctx.workspace.shown)
-    if not could:
-        raise ToolError(said)
-    return said
+    return record(root, for_the_agent=for_the_agent)
 
 
 # ---------------------------------------------------------------------------
@@ -1258,254 +1114,42 @@ def _stop_study(ctx: Context, args: dict[str, Any]) -> str:
             "AI app is still open.")
 
 
-_LOOKS = {"readOnlyHint": True, "openWorldHint": True}
-_READS = {"readOnlyHint": True, "openWorldHint": False}
+# ---------------------------------------------------------------------------
+# The list
+# ---------------------------------------------------------------------------
+def _does(tool: Any) -> Callable[[Context, dict[str, Any]], str]:
+    """The function an AI app's call to ``tool`` runs: the Agent's own look
+    for one the Agent offers too, else this server's own."""
+    from fastmdxplora.offered_tools import AGENT
+
+    if AGENT in tool.offered and not tool.ai_app_does:
+        return the_agent_s_look(tool.name)
+    module, _, name = (tool.ai_app_does or tool.does).partition(":")
+    if module == __name__:
+        return globals()[name]
+    from importlib import import_module
+
+    return getattr(import_module(module), name)
+
+
+def _listed() -> tuple[Tool, ...]:
+    """Every tool an AI app is offered, from the one list
+    (:mod:`fastmdxplora.offered_tools`), in its order."""
+    from fastmdxplora.offered_tools import AI_APP, offered_by, schema_for
+
+    return tuple(
+        Tool(tool.name_for(AI_APP), tool.title, tool.told_to(AI_APP),
+             schema_for(tool, AI_APP)["properties"], tool.required, dict(tool.annotations),
+             _does(tool), acts=tool.acts)
+        for tool in offered_by(AI_APP))
+
 
 # Here, once every helper they use is defined: other machines, over
 # `fastmdxplora.remote.api`.
-from fastmdxplora.mcp.remote_tools import LIST_MACHINES, REMOTE_TOOLS  # noqa: E402
+import fastmdxplora.mcp.remote_tools  # noqa: E402,F401
 
-#: In the order they are listed, which is the order to reach for them; the
-#: Agent last, as it is optional and calls an AI model of the person's own.
-TOOLS: tuple[Tool, ...] = (
-    Tool("find_structure", "Find a structure by its name",
-         "The PDB entries a molecule's name answers to, grouped by protein, the most "
-         "studied first, each by its best-resolved entry with its method, resolution, "
-         "chains and ligands; and AlphaFold DB's predicted models where the PDB holds no "
-         "structure or where asked. Look here before writing a PDB identifier for a "
-         "system named in words, and where more than one could be meant, ask the person "
-         "which. Offline, it says it cannot reach the PDB and offers nothing.",
-         {"query": {"type": "string",
-                    "description": "A molecule's name, such as lysozyme or trp-cage, or "
-                                   "a PDB identifier."},
-          "organism": {"type": "string",
-                       "description": "A species as the PDB names it, such as Homo sapiens."},
-          "most": {"type": "integer", "minimum": 1, "maximum": 10,
-                   "description": "How many entries to offer; 5 if not given."},
-          "predicted": {"type": "boolean",
-                        "description": "AlphaFold DB's models as well as the PDB's entries."}},
-         ("query",), _LOOKS, _find_structure),
-    Tool("inspect_structure", "Inspect a structure",
-         "What a structure holds: its chains, protein residues, ligands, ions and "
-         "water, the residues whose protonation state a study may set, any side chain "
-         "by a structural metal, and what is worth knowing before simulating it.",
-         {"system": _STRUCTURE}, ("system",), _LOOKS, _inspect_structure),
-    Tool("check_selection", "Check an atom selection",
-         "How many atoms and which residues an MDTraj selection matches in a structure. "
-         "Residue numbers from a paper or the PDB are `resSeq`; `resid` counts from zero.",
-         {"system": _STRUCTURE,
-          "expression": {"type": "string", "description": "An MDTraj selection."}},
-         ("system", "expression"), _LOOKS, _check_selection),
-    Tool("preview_setup", "Preview what setup builds",
-         "What setup will build from a config (particles, box, solute, water, ions) and "
-         "how long the whole study takes on this machine where it has been timed. An "
-         "estimate; setup's own numbers replace it once it has run.",
-         {"config": _CONFIG}, ("config",), _LOOKS, _preview_setup),
-    Tool("check_study", "Check a study before it runs",
-         "Whether the validator accepts a config, and if not why and what would fix it; "
-         "if so, the plan to show the person, defaults marked, whether this machine can "
-         "run it, and the plan_id start_study needs.",
-         {"config": _CONFIG}, ("config",), _READS, _check_study),
-    Tool("save_study", "Save a study config",
-         "Write a config into the workspace as a new file, once the validator accepts it. "
-         "A file is never written over: a changed study is saved under a new name. A "
-         "config you wrote is recorded as written in an AI app (agent: assisted).",
-         {"name": {"type": "string", "description": "The file's name, such as ubq_300K."},
-          "config": {"type": "string", "description": "The config, as YAML."},
-          "by_hand": {"type": "boolean", "description": (
-              "True only when the person wrote this config themselves and asked only for "
-              "it to be saved: it is then recorded as theirs. Default false.")}},
-         ("name", "config"),
-         {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False,
-          "openWorldHint": False}, _save_study),
-    LIST_MACHINES,
-    Tool("start_study", "Start a study",
-         "Run a checked config on this machine, in the workspace, once the person has "
-         "agreed to its plan. Needs the plan_id check_study gave for the file as it is "
-         "now. Where the AI app can ask, the person is asked here too. Results go to the "
-         "config's `output`, or a folder named after the file beside it, never one in "
-         "use. The run goes on after the AI app closes; one study runs at a time. With "
-         "`machine`, it is sent to run on that machine instead, where its GPUs have "
-         "room for it, only once the person agrees here (where they cannot be asked, "
-         "nothing is sent), with only the files in the config's folder; fetch_study "
-         "brings the results back.",
-         {"config": {"type": "string", "description": "A config file in the workspace."},
-          "plan_id": {"type": "string", "description": "From check_study, for this file."},
-          "machine": {"type": "string", "description": (
-              "A ready machine from list_machines, to run it there instead of on this "
-              "one.")}},
-         ("config", "plan_id"),
-         {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False,
-          "openWorldHint": True}, _start_study, acts=True),
-    Tool("run_phases_again", "Run a study's analysis or report again",
-         "Run a study's analysis, its report or both again in its folder, from the "
-         "settings it recorded, simulating nothing, once the person agrees: to add an "
-         "analysis, or to analyse its frames with this release. An analysis run again "
-         "writes the report again too where the study has one. What is replaced is kept "
-         "in the study's previous/ folder. A study of several runs is run again run by "
-         "run, and the comparison of its runs built again. Setup and simulation are not "
-         "run again in place: a new study with simulation.setup_from or "
-         "simulation.resume_from does that.",
-         {"study": _STUDY,
-          "phases": {"type": "array", "items": {"type": "string",
-                                                "enum": ["analysis", "report"]},
-                     "description": "analysis, report, or both."},
-          "analyses": {"type": "array", "items": {"type": "string"}, "description": (
-              "The analyses to run, by name, such as rmsd, rg or pl_interactions "
-              "(default: those the study ran last).")}},
-         ("study", "phases"),
-         {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False,
-          "openWorldHint": False}, _run_phases_again, acts=True),
-    Tool("stop_study", "Stop a study",
-         "Stop a study running on this machine. A run in production stops at its next "
-         "frame with a checkpoint there, so it can be carried on.",
-         {"study": _STUDY}, ("study",),
-         {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True,
-          "openWorldHint": False}, _stop_study, acts=True),
-    *REMOTE_TOOLS,
-    Tool("list_studies", "List the studies here",
-         "The studies in the workspace, newest first, each with its system, state, the "
-         "means it recorded with their errors, and the tags and note the person gave it; "
-         "or only those with a tag. And the YAML files at its top.",
-         {"tag": {"type": "string", "description": (
-             "Only the studies with this tag, whatever its case.")}},
-         (), _READS, _list_studies),
-    Tool("tag_study", "Tag a study",
-         "Add tags to a study, as the person asks: short words of their own such as wild "
-         "type or JCIM Fig. 4, kept in the study's folder beside its records and shown on "
-         "its card in the GUI. Tags are only added; the person removes one, or writes the "
-         "study's note, in the GUI.",
-         {"study": _STUDY,
-          "tags": {"type": "array", "items": {"type": "string"}, "description": (
-              "The tags to add, each up to 40 characters on one line.")}},
-         ("study", "tags"),
-         {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True,
-          "openWorldHint": False}, _tag_study, acts=True),
-    Tool("read_study", "Read a study",
-         "Where a study stands (running, with its step and time left, or finished) and "
-         "what it recorded: its config, what its analyses found with errors and units, "
-         "the checks it was held to, why it stopped and what would fix it.",
-         {"study": _STUDY}, ("study",), _READS, _read_study),
-    Tool("methods_of_study", "The methods of a study",
-         "A study's methods paragraphs as its report gives them, written from what it "
-         "recorded: its preparation and protocol, how each mean and its error were "
-         "determined, any rule it ran until, an AI model's part, and the software. "
-         "Quote them as they are; a gap they name was not recorded.",
-         {"study": _STUDY}, ("study",), _READS, _methods_of_study),
-    Tool("compare_studies", "Compare two studies",
-         "The settings two studies differ in, and the means each recorded, each "
-         "difference marked resolved only where it is more than twice its combined "
-         "standard error.",
-         {"first": _STUDY, "second": _STUDY}, ("first", "second"), _READS, _compare_studies),
-    Tool("views_of_study", "The views and scenes of a study",
-         "The views the person saved with a study in the GUI (each a frame, a "
-         "representation and colouring, a superposition), the selections they named, "
-         "and the scenes written with it. A view's name starts write_scene from it.",
-         {"study": _STUDY}, ("study",), _READS, _views_of_study),
-    Tool("write_scene", "Write a scene of a study",
-         "Write a view of a study as a scene file (MolViewSpec, .mvsx) in its scenes "
-         "folder, for the person to open: the atoms at a frame, the study's secondary "
-         "structure, a representation and colouring, the selections they named in the GUI, "
-         "and atoms to highlight. Use it to show what an answer is about, such as the "
-         "residues that move most coloured by RMSF, or the pocket at a frame. A scene of "
-         "the same name is replaced.",
-         {"study": _STUDY,
-          "name": {"type": "string", "description": (
-              "The scene's name: letters, digits, spaces, dots, dashes, underscores.")},
-          "view": {"type": "string", "description": (
-              "A view the person saved with the study in the GUI, to start from.")},
-          "frame": {"type": "integer", "description": (
-              "A frame of the trajectory as the GUI plays it, from 0.")},
-          "representation": {"type": "string", "enum": [
-              "cartoon", "backbone", "sticks", "ballAndStick", "lines", "surface",
-              "spacefill"], "description": "How the protein is represented."},
-          "colour": {"type": "string", "description": (
-              "chain, spectrum, residue, element, secondary_structure, monochrome, or one "
-              "of the study's per-residue results as result:<analysis>, such as "
-              "result:rmsf.")},
-          "superposed": {"type": "string", "enum": ["none", "backbone", "pocket"],
-                         "description": "Frames fitted to a reference, on this."},
-          "superposed_to": {"type": "string", "enum": ["first", "start", "deposited"],
-                            "description": (
-                                "What the frames are fitted to: the first frame (default), "
-                                "the structure the run started from, or the deposited "
-                                "structure the study was given.")},
-          "smoothed_over": {"type": "integer", "enum": [1, 3, 5, 9, 15], "description": (
-              "Each atom's fitted position averaged over this many frames centred on the "
-              "one shown (default 1, not smoothed); only with `superposed`.")},
-          "highlight": {"type": "string", "description": (
-              "An MDTraj selection to show as orange sticks, such as resSeq 189 to 195.")},
-          "labels": {"type": "boolean", "description": (
-              "Label each highlighted residue (default false).")}},
-         ("study", "name"),
-         {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True,
-          "openWorldHint": False}, _write_scene),
-    Tool("make_movie", "Make a movie of a study",
-         "Make a movie of a study's frames as its Viewer in the GUI makes one, into its "
-         "movies folder: each frame rendered as a view the person saved shows it (or as "
-         "the Viewer opens), changed as asked, with its simulated time, and encoded by "
-         "ffmpeg on this computer. It takes a minute or more: a browser with no window "
-         "renders every frame. A study without frames gives its structure turned once. "
-         "A movie of the same name is replaced.",
-         {"study": _STUDY,
-          "name": {"type": "string", "description": (
-              "The movie's name: letters, digits, spaces, dots, dashes, underscores "
-              "(default movie).")},
-          "view": {"type": "string", "description": (
-              "A view the person saved with the study in the GUI, to show.")},
-          "representation": {"type": "string", "enum": [
-              "cartoon", "backbone", "sticks", "ballAndStick", "lines", "surface",
-              "spacefill"], "description": "How the protein is represented."},
-          "colour": {"type": "string", "description": (
-              "chain, spectrum, residue, element, secondary_structure, monochrome, or one "
-              "of the study's per-residue results as result:<analysis>.")},
-          "superposed": {"type": "string", "enum": ["none", "backbone", "pocket"],
-                         "description": "Frames fitted to the first frame, on this."},
-          "from": {"type": "integer", "description": "The first frame, from 0 (default 0)."},
-          "to": {"type": "integer", "description": (
-              "The last frame (default the last); before `from`, the movie plays "
-              "backwards.")},
-          "every": {"type": "integer", "description": "Every Nth frame (default 1)."},
-          "between": {"type": "integer", "enum": [0, 1, 3, 7], "description": (
-              "Frames put in between each two, each atom moved in a straight line: "
-              "smoother, not more simulation (default 0).")},
-          "fps": {"type": "integer", "enum": [10, 15, 24, 25, 30, 60],
-                  "description": "Frames a second (default 24)."},
-          "size": {"type": "string", "enum": ["1280x720", "1920x1080", "3840x2160"],
-                   "description": "Width x height in pixels (default 1920x1080)."},
-          "turn": {"type": "boolean", "description": (
-              "Turn the camera once about the screen's vertical over the movie.")},
-          "time": {"type": "boolean", "description": (
-              "Stamp each frame's simulated time (default true).")}},
-         ("study",),
-         {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True,
-          "openWorldHint": False}, _make_movie, acts=True),
-    Tool("ask_agent", "Ask the FastMDXplora Agent (optional; may use your API key)",
-         "Optional: only when the person asks for FastMDXplora's own Agent. It writes "
-         "with this AI app's model where the AI app lends it (the AI app may ask the "
-         "person first); otherwise with a second AI model, the one the person chose with "
-         "`fastmdx agent model`, on their own API key, each call paid for on top of this "
-         "conversation. Without it, write the config yourself and give it to "
-         "check_study; the validator judges it either way. The Agent writes or changes a "
-         "study from a description, or answers about one; a study it writes is accepted "
-         "by the validator before it is returned, saved in the workspace with its plan "
-         "and plan_id, and recorded as its AI model's; the answer says which AI model "
-         "wrote and whose. Nothing is run.",
-         {"request": {"type": "string", "description": (
-             "What the study should do or what to ask, in the person's words.")},
-          "config": {"type": "string", "description": (
-              "The study config being changed, if any: a file in the workspace or the "
-              "YAML. The Agent returns the whole config with the change.")},
-          "study": {"type": "string", "description": (
-              "A study folder the request is about, if any: its record (where it stands, "
-              "what it found, why it stopped) is given to the Agent.")},
-          "phases": {"type": "array", "items": {"type": "string", "enum": [
-              "setup", "simulation", "analysis", "report"]}, "description": (
-              "The phases whose settings the Agent is told about. Default: setup and "
-              "simulation; add analysis or report to have it set those.")},
-          "save": {"type": "boolean", "description": (
-              "Save an accepted study as a new file (default true).")}},
-         ("request",),
-         {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False,
-          "openWorldHint": True}, _ask_agent),
-)
+TOOLS: tuple[Tool, ...] = _listed()
+
+# The Agent's own looks under the names this server's tests and callers knew.
+_list_studies = the_agent_s_look("list_studies")
+_read_study = the_agent_s_look("read_study")

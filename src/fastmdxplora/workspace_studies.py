@@ -1,10 +1,12 @@
-"""The studies in a workspace, listed and compared, in one set of words.
+"""The studies in a workspace, listed, compared and read, in one set of words.
 
 The Agent and an AI app (`fastmdx mcp`) are both asked which studies there
-are and how two of them differ. Answered twice, the two answers drift: one
-says a mean with its error and the other without, one leaves out a study
-reached through a link and the other lists it. So both say what is written
-here.
+are, how two of them differ, what one recorded, and whether a config would
+run. Answered twice, the two answers drift: one says a mean with its error
+and the other without, one leaves out a study reached through a link and
+the other lists it, one gives a study's progress and the other does not,
+one fills in your defaults and the other does not. So both say what is
+written here.
 """
 
 from __future__ import annotations
@@ -13,8 +15,8 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
-__all__ = ["CARD_READS", "compared", "folder_of_studies", "links_out", "listed",
-           "mean_said", "studies_here", "why_not", "with_error"]
+__all__ = ["CARD_READS", "compared", "defaults_start", "folder_of_studies", "links_out",
+           "listed", "mean_said", "studies_here", "study_record", "why_not", "with_error"]
 
 #: What a study's card is read from: checked for links out before a study
 #: is listed, as the whole study is before it is read. The tags and the
@@ -202,3 +204,75 @@ def compared(first: Path, second: Path,
                 said += "; the difference is not assessed: " + why_not(row)
             lines.append(said)
     return "\n".join(lines), True
+
+
+class _Viewed:
+    """A study as the Agent panel's summary reads a run: where, and its state."""
+
+    def __init__(self, root: Path, state: str) -> None:
+        self.active_root, self._state = root, state
+
+    def snapshot(self) -> dict[str, Any]:
+        return {"active_run": str(self.active_root), "status": self._state,
+                "process_running": self._state == "running"}
+
+
+#: The record's words for the Agent in the GUI, and what they mean to an AI app.
+_SAID_TO_AN_AI_APP = (
+    ("one marked [runs here] is what `DO: run the fix` runs, the first of them",
+     "one marked [runs here] can be run on this machine"),
+    ("To continue it, answer with this config.",
+     "To continue it, save this config with save_study and run it."),
+    ("To run it, answer with this config;",
+     "To run it, save this config with save_study and run it;"),
+)
+
+
+def study_record(root: Path, *, for_the_agent: bool = False, first: str | None = None,
+                 most_config: int | None = None) -> str:
+    """Everything a study recorded that an AI model can read: where it
+    stands (running, with its step and time left, or finished), its config,
+    what its analyses found, its checks, why it stopped and what would fix
+    it. The Agent's own reading of a run, for the Agent and an AI app
+    alike; to an AI app, the Agent's words for the GUI said as they apply to
+    it. ``first`` is the analysis asked about, said first among what the
+    analyses found; ``most_config`` the most of the config said, for a
+    reader whose look is cut at a length."""
+    from fastmdxplora.gui.agent_panel import (
+        _checks_summary,
+        _config_the_run_used,
+        _results_summary,
+        _run_status,
+    )
+    from fastmdxplora.gui.workspace import card_of
+
+    state = str(card_of(root).get("state") or "unknown")
+    said = _run_status(_Viewed(root, state), first=first,
+                       most_config=most_config) or f"status: {state}"
+    if not (_config_the_run_used(root) or _results_summary(root) or _checks_summary(root)):
+        said += "\n\nIt has recorded nothing yet: no config, findings or checks."
+    if not for_the_agent:
+        for theirs, ours in _SAID_TO_AN_AI_APP:
+            said = said.replace(theirs, ours)
+    return said
+
+
+def defaults_start(config: dict[str, Any], *, file: Path | None = None,
+                   root: Path | None = None) -> Path | None:
+    """Where your defaults (fastmdx-defaults.yml) are looked for from, for
+    ``config``: as the command line looks, from the study's folder up, else
+    from the config file's folder, else from ``root`` (the folder of
+    studies). A relative ``output`` is the folder of studies' (else the
+    config file's folder, else the current folder). A nearer file
+    applies to a run; read from the folder of studies alone, it was left
+    out of the plan checked before the run."""
+    output = config.get("output")
+    if isinstance(output, str) and output.strip():
+        start = Path(output.strip()).expanduser()
+        if not start.is_absolute():
+            start = (Path(root) if root is not None
+                     else Path(file).parent if file is not None else Path.cwd()) / start
+        return start
+    if file is not None:
+        return Path(file).parent
+    return Path(root) if root is not None else None

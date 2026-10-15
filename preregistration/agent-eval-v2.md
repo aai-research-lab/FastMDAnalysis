@@ -309,3 +309,16 @@ suite's three digests of what is sent were set again; every verdict of the
 three recordings replays as recorded. The runs stand as recordings of the
 Agent as it was asked; whether the change shortens the replies that said
 the record was cut is for a run asked again, not claimed here.
+
+### What is sent, changed again (`agent-one-list`, 2026-10-15)
+
+The Agent's looks and `fastmdx mcp`'s tools are built from one list, each
+tool defined once. The Agent is offered three looks an AI app had
+(`views_of_study`, `list_machines`, `remote_status`); its looks' arguments
+are said from their schemas; `check_config` says the plan with your
+defaults filled in, looked for from the study's folder up, the study it
+carries on and whether this machine can run it; `read_study` gives the
+study's record as an AI app is given it, where it stands first. The suite's
+three digests of what is sent were set again; every verdict of the three
+recordings replays as recorded. Whether the Agent answers better with the
+new looks is for a run asked again, not claimed here.

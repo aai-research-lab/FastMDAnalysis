@@ -265,8 +265,9 @@ other name `prepared_from`) is no
 study's config, and is refused (`config.option.missing_companion`): a file
 of settings or tokens never travels as one, wherever it is kept.
 
-**Your defaults travel in the Config.** A `fastmdx-defaults.yml` beside the
-Config or above it fills what the Config leaves unset here, as `explore -c`
+**Your defaults travel in the Config.** The nearest `fastmdx-defaults.yml`
+in the study's results folder or above it (with none named, beside the
+Config or above it) fills what the Config leaves unset here, as `explore -c`
 would on this computer, and the plan says which settings it filled; the run
 there is started with `--no-defaults`, so no defaults file on the machine (one
 another user could have left up its folders) is laid over it.

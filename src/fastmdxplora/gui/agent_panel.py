@@ -207,6 +207,8 @@ def propose_endpoint(payload: dict[str, Any],
 
     tools = Toolbox(
         path_for=path_for,
+        # A rule for paths is given only when the GUI is hosted.
+        hosted=path_for is not None,
         workspace=folder_of_studies(getattr(runtime, "exploration_root", None)),
         open_study=getattr(runtime, "active_root", None),
         extra=(current_view_tool(
@@ -1014,13 +1016,16 @@ def _with_its_fix(answer: dict[str, Any]) -> dict[str, Any]:
     return answer
 
 
-def _run_status(runtime: Any) -> str | None:
+def _run_status(runtime: Any, *, first: str | None = None,
+                most_config: int | None = None) -> str | None:
     """What the run is doing, in a few lines an AI model can read.
 
     So "why did it stop?" can be answered from what happened rather than
     from a guess. Stage, status, the last error if there was one, the
     health verdict if there is one. Nothing the sidebar does not already
-    show a person.
+    show a person. ``first`` is the analysis asked about, said first among
+    what the analyses found; ``most_config`` the most of the config said,
+    for a look cut at its length.
     """
     if runtime is None or not hasattr(runtime, "snapshot"):
         return None
@@ -1095,12 +1100,13 @@ def _run_status(runtime: Any) -> str | None:
     if used:
         lines.append("")
         lines.append("the config this run used (the short form, as written):")
-        lines.append(used)
+        lines.append(used if most_config is None or len(used) <= most_config
+                     else used[:most_config].rstrip() + "\n... (the rest of the config cut)")
     cont = _continuation_summary(getattr(runtime, "active_root", None))
     if cont:
         lines.append("")
         lines.append(cont)
-    results = _results_summary(getattr(runtime, "active_root", None))
+    results = _results_summary(getattr(runtime, "active_root", None), first=first)
     if results:
         lines.append("")
         lines.append(results)

@@ -465,7 +465,7 @@ def prepare(config_path: str | Path, machine_name: str, *,
     refuse_no_study(raw, config_path)
     defaults_note = ""
     if isinstance(raw, dict):
-        raw, defaults_note = _with_your_defaults(raw, config_path)
+        raw, defaults_note = _with_your_defaults(raw, config_path, output)
     # Before the machine is reached: a file that may not travel is refused
     # here, having connected to nothing.
     inputs = gather_inputs(raw, config_path.resolve().parent)
@@ -562,12 +562,19 @@ def prepare(config_path: str | Path, machine_name: str, *,
     return sending
 
 
-def _with_your_defaults(raw: dict, config_path: Path) -> tuple[dict, str]:
+def _with_your_defaults(raw: dict, config_path: Path,
+                        output: str | None = None) -> tuple[dict, str]:
     """The config with your defaults here filling what it leaves unset, as
     `explore -c` would fill it on this computer, and a line saying so."""
     from fastmdxplora.config.defaults_file import defaults_for, refused_with, with_defaults
+    from fastmdxplora.workspace_studies import defaults_start
 
-    defaults = defaults_for(config_path.resolve().parent)
+    # From the study's folder up (the results folder given, else the
+    # config's `output`), else the config file's, as `explore -c` and an AI
+    # app's check_study look.
+    seen = {**raw, "output": str(Path(output).expanduser().resolve())} if output else raw
+    defaults = defaults_for(defaults_start(seen, file=config_path.resolve(),
+                                           root=config_path.resolve().parent))
     if defaults is None:
         return raw, ""
     filled_config, filled = with_defaults(raw, defaults)
