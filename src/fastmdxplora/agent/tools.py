@@ -1370,7 +1370,8 @@ def _the_agent_s() -> tuple[dict[str, tuple[str, str, Callable[[Toolbox, dict[st
             continue
         module, _, name = tool.does.partition(":")
         if module != __name__:  # pragma: no cover - held by the list's test
-            raise RuntimeError(f"The Agent's {tool.name} is done in {module}, not here.")
+            # A fault in the list itself, not a refusal of anything asked.
+            raise AssertionError(f"The Agent's {tool.name} is done in {module}, not here.")
         tools[tool.name] = (_arguments_said(tool), tool.told_to(_AGENT), globals()[name])
     return tools, schemas
 
