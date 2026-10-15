@@ -216,7 +216,11 @@ def test_each_page_sends_its_own_hints_and_the_viewer_its_view():
     assert "frame.previewing()" in panel
     frame = (STATIC / "frame.js").read_text(encoding="utf-8")
     assert "previewing: previewing" in frame
-    assert "previewed = { path: item.path, study: studyOpen() };" in frame
+    # A file is of the study open, or of the study its text was read from,
+    # as the server says it with the text.
+    assert "var kept = previewed = { path: item.path, study: studyOpen() };" in frame
+    assert "if (previewed !== kept) return;" in frame
+    assert "if (data && data.ok && data.study) kept.study = data.study;" in frame
     report = (STATIC / "report-page.js").read_text(encoding="utf-8")
     assert "window.FastMDXPageHints.report = function ()" in report
     # The names with @ shown as chips while typed, by the server's pattern.

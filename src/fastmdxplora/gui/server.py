@@ -688,6 +688,11 @@ def make_handler(
                                      "error": "That file is outside this study."})
                     return
                 answer = read_text_file(target, within=root)
+                if answer.get("ok") and not _no_study(root):
+                    # The study it was read from, as the app state names it
+                    # (`active_run`): a page just loaded may not know it yet,
+                    # and another study may be opened as it reads.
+                    answer["study"] = str(root)
                 if answer.get("ok") and answer.get("suffix") in ("md", "markdown"):
                     from fastmdxplora.gui.report_page import render_markdown
 

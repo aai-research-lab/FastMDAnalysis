@@ -753,14 +753,17 @@
     if (!previewed || !pane || pane.hidden || pane.offsetParent === null) return null;
     var body = document.body.classList;
     if (body.contains("panel-collapsed") && !body.contains("panel-peek")) return null;
-    return previewed.study === studyOpen() ? previewed.path : null;
+    // With no study open there is no file of it to read (one opened from a
+    // list of a study closed reads as not found).
+    var open = studyOpen();
+    return open && previewed.study === open ? previewed.path : null;
   }
 
   function preview(item) {
     var pane = el("side-preview");
     var body = el("side-preview-body");
     if (!pane || !body) return;
-    previewed = { path: item.path, study: studyOpen() };
+    var kept = previewed = { path: item.path, study: studyOpen() };
     pane.hidden = false;
     var seam = el("side-seam");
     if (seam) seam.hidden = false;
@@ -803,6 +806,13 @@
     fetch("/api/file-text?path=" + encodeURIComponent(item.path))
       .then(function (r) { return r.json(); })
       .then(function (data) {
+        // Another file opened since, or this one again: an answer late
+        // shows nothing over it, and says nothing of it.
+        if (previewed !== kept) return;
+        // Of the study the server read it from: on a page just loaded the
+        // page may not know its study yet (the file was kept as of none, and
+        // never said), and the study may change as the list is read.
+        if (data && data.ok && data.study) kept.study = data.study;
         if (!data || !data.ok) {
           var note = document.createElement("div");
           note.className = "side-preview-note";
@@ -835,6 +845,7 @@
         showText(body, data, mode);
       })
       .catch(function () {
+        if (previewed !== kept) return;
         var note = document.createElement("div");
         note.className = "side-preview-note";
         note.textContent = "Could not read it here. Open or download it instead.";

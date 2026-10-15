@@ -131,6 +131,12 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   first. The study's list of runs, its Overview and Files pages, its pages
   of all runs and the Records answer read it the same way; a run going on in
   a later piece reads running, and one killed or failed there reads so.
+- A text file opened in the side panel's reader as the page was still
+  loading is told to the Agent as the one open. Opened before the page knew
+  its study, it was kept as of no study and never said once the study was
+  known. It is now kept as of the study the server read it from; an answer
+  come late, after another file was opened, is not shown; and no file is
+  said while no study is open.
 
 ### Security
 
