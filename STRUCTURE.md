@@ -145,6 +145,7 @@ FastMDXplora/
 │       │   ├── exploration.py     # Study builder, config export, run control
 │       │   ├── remote_routes.py   # The routes to your machines: plan, send, watch, fetch, stop
 │       │   ├── server.py          # Dependency-free ThreadingHTTPServer, on loopback unless bound elsewhere
+│       │   ├── accents.py         # The five accents, and the one a service hosting the GUI chose
 │       │   ├── telemetry.py       # Phase/progress telemetry feed
 │       │   ├── trajectory_frames.py, live_frames.py   # Frame streaming
 │       │   ├── protein_preview.py, structure_info.py, ligand_detection.py
