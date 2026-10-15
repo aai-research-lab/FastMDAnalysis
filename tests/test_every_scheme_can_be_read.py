@@ -190,7 +190,7 @@ def test_the_status_colours_follow_the_scheme(browser, dashboard) -> None:
     root = page.evaluate("() => [document.documentElement.dataset.theme, getComputedStyle("
                          "document.body).getPropertyValue('--status-completed').trim()]")
     page.context.close()
-    assert root == ["light", "#1b7a45"]
+    assert root == ["light", "#17703f"]
 
 
 def test_the_first_visit_takes_the_systems_scheme(browser, dashboard) -> None:
@@ -231,18 +231,18 @@ def test_a_scheme_chosen_before_is_its_new_name(browser, dashboard, former, now)
 
 def test_the_dark_ground_is_neutral(browser, dashboard) -> None:
     """The dark scheme's ground was #050505 under cyan and violet glows,
-    which read as green: now the lab website's #1c1c1d, flat, with cards
-    #212529 and its cyan."""
+    which read as green, then a grey the cards sat on at 1.10:1: now black,
+    flat, under raised cards #1b1f23, with the cyan accent by default."""
     page = _in(browser, dashboard, "dark")
     said = page.evaluate("""() => {
         const shell = getComputedStyle(document.querySelector('.app-shell'));
         const card = document.querySelector('.card');
         return [shell.backgroundColor, shell.backgroundImage,
                 getComputedStyle(card).backgroundColor,
-                getComputedStyle(document.body).getPropertyValue('--accent-cyan').trim()];
+                getComputedStyle(document.body).getPropertyValue('--accent').trim()];
     }""")
     page.context.close()
-    assert said == ["rgb(28, 28, 29)", "none", "rgb(33, 37, 41)", "#2698ba"]
+    assert said == ["rgb(0, 0, 0)", "none", "rgb(27, 31, 35)", "#00aed8"]
 
 
 def test_the_charts_redraw_in_the_new_scheme(browser, dashboard) -> None:

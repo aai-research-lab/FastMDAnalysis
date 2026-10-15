@@ -154,7 +154,7 @@
     background(g, context);
     axes(g, context);
     var d = state.data;
-    var accent = token("--accent-cyan", "#2698ba");
+    var accent = token("--hue-cyan", "#00aed8");
     var chosenColour = token("--accent-orange", "#ffb86b");
     var dot = Math.max(2, canvas.width / 150);
     state.dots = [];

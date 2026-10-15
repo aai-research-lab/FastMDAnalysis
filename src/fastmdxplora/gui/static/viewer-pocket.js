@@ -95,7 +95,7 @@
     context.lineTo(canvas.width - m.right, y(state.data.mean));
     context.stroke();
     context.setLineDash([]);
-    context.strokeStyle = token("--accent-cyan", "#2698ba");
+    context.strokeStyle = token("--hue-cyan", "#00aed8");
     context.lineWidth = 1.5 * m.ratio;
     context.beginPath();
     volumes.forEach(function (v, k) {

@@ -368,7 +368,7 @@ class TestTheBuilderAsksFourQuestions(unittest.TestCase):
         # A chosen chip is bordered in the accent, so the set that will run
         # reads at a glance.
         rule = css[css.index('.run-phase.builder-chip-check:has(input:checked) {'):]
-        self.assertIn("border-color: var(--accent-cyan)", rule[:rule.index("}")])
+        self.assertIn("border-color: var(--accent)", rule[:rule.index("}")])
 
     def test_the_page_is_not_duplicated(self):
         # The regression the slicing bug produced: the run section's cards

@@ -482,6 +482,11 @@ def make_handler(
     html = html.replace("__FASTMDX_VERSION__", _escape(__version__))
     html = html.replace("__FASTMDX_BIBTEX__", _escape(__bibtex__))
     html = html.replace("__FASTMDX_COPYRIGHT__", _escape(__copyright__))
+    # The accent the page opens with before a person chooses one: the
+    # service's (`fastmdx gui --accent`), or Cyan (theme-first.js).
+    from fastmdxplora.gui.accents import default_accent
+
+    html = html.replace("__FASTMDX_ACCENT__", default_accent())
     # Hosted behind a service, the service's name and line are shown where
     # this software's would be; its name without a line of its own has none,
     # not this software's (the citation and the links to it stay). The

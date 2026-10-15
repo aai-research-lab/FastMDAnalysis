@@ -351,7 +351,7 @@
     var x0 = xs[0], x1 = xs[xs.length - 1] > x0 ? xs[xs.length - 1] : x0 + 1;
     var px = function (x) { return pad.left + (x - x0) / (x1 - x0) * (width - pad.left - pad.right); };
     var py = function (y) { return pad.top + (1 - (y - lo) / (hi - lo)) * (height - pad.top - pad.bottom); };
-    var line = token("--accent-cyan", "#2698ba");
+    var line = token("--hue-cyan", "#00aed8");
     var muted = token("--text-muted", "#9a9ca1");
     var plot = svg("svg", { viewBox: "0 0 " + width + " " + height, class: "study-series",
                             role: "img", "aria-label": data.label + " over the run" }, null);

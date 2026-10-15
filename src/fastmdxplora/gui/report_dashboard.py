@@ -1763,8 +1763,15 @@ def _render_dashboard(
                 + _render_cite_dialog(__citation__, __doi__, __version__, __bibtex__,
                                       __copyright__, __expansion__))
 
+    # The service's accent (`fastmdx gui --accent`, passed to the runs it
+    # starts), else Cyan: not one person's, so a report shared looks the same
+    # wherever it is opened.
+    from fastmdxplora.gui.accents import ACCENTS, default_accent
+
+    accent = default_accent()
+    accent_attr = f' data-accent="{accent}"' if accent != ACCENTS[0] else ""
     return "".join((
-        "<!doctype html>\n<html lang=\"en\" data-page=\"overview\">\n<head>\n",
+        f"<!doctype html>\n<html lang=\"en\" data-page=\"overview\"{accent_attr}>\n<head>\n",
         "<meta charset=\"utf-8\">\n",
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n",
         "<meta name=\"color-scheme\" content=\"dark light\">\n",

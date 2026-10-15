@@ -48,52 +48,66 @@
 
 :root {
     /* The Viewer's ground, as the scheme's (molecule-viewer.js). */
-    --viewer-ground: #0c0c0d;
+    --viewer-ground: #000000;
     color-scheme: dark;
 
-    /* Dark, the default: a neutral ground, as the lab's website has it
-       (#1c1c1d, cards #212529), with nothing tinted. The first dark scheme
-       was #050505 under cyan and violet glows, which read as green. */
+    /* Dark, the default: a black ground under raised cards, nothing tinted.
+       The cards sat on a grey 1.10:1 from them (light 1.05:1) and the page
+       read as one flat surface; on black they stand at 1.27:1 (light
+       1.12:1). */
 
     /* Backgrounds */
-    --background-primary: #1c1c1d;
-    --background-secondary: #171718;
-    --background-elevated: #232629;
-    --background-soft: #2a2d31;
+    --background-primary: #000000;
+    --background-secondary: #1b1f23;
+    --background-elevated: #22272c;
+    --background-soft: #2c3137;
 
     /* Cards */
-    --panel-glass: #212529;
-    --panel-hover: #272b30;
+    --panel-glass: #1b1f23;
+    --panel-hover: #252a2f;
 
     /* Borders */
     --border-primary: rgba(255, 255, 255, 0.12);
     --border-strong: rgba(255, 255, 255, 0.24);
     --border-subtle: rgba(255, 255, 255, 0.07);
 
-    /* Text */
-    --text-primary: #ececee;
-    --text-secondary: #b4b6ba;
-    /* At least 4.5:1 on every ground of its scheme (WCAG AA for text). */
-    --text-muted: #9a9ca1;
+    /* Text: solid colours, not white at an opacity, as the same token sits
+       on cards, menus and chips. At least 4.5:1 on every ground of its
+       scheme (WCAG AA for text); tests/test_five_accents_on_a_black_ground.py
+       works the ratios out from this file. */
+    --text-primary: #e8e9e9;
+    --text-secondary: #c6c7c8;
+    --text-muted: #a4a5a7;
 
-    /* Accents: one, cyan, the lab website's dark-mode link colour, 4.5:1
-       or more on every ground of the scheme. */
+    /* The accent: one of five, chosen in the settings popup (frame.js,
+       `data-accent` on the root element) or by the service hosting the GUI
+       (`fastmdx gui --accent`). Each scheme's value of each is below;
+       `--accent` fills (buttons, the focus ring, the tab chosen, sliders),
+       `--accent-text` is words in the accent, `--accent-soft` the tint
+       behind a row or chip chosen, `--on-accent` text on a fill. Cyan is
+       the default. Words are 5.0:1 or more on every ground of the scheme,
+       text on a fill 8.0:1 (dark) or 5.95:1 (light). The values of each
+       are under "The five accents" below. */
+    --accent: var(--accent-d);
+    --accent-text: var(--accent-d);
+    --accent-soft: var(--accent-soft-d);
+    /* Text on a filled accent. */
+    --on-accent: #000000;
+
+    /* Fixed hues: a chart's series, the Viewer's marks, the product's
+       mark. They are hues, not the accent, and stay whatever is chosen. */
     --accent-white: #f5f5f7;
     --accent-silver: #d8d8dd;
-    --accent-cyan: #2698ba;
-    /* The same cyan a step lighter for words, which sit on cards and
-       menus as well as the ground: #2698ba is 4.4:1 on a menu. */
-    --accent-text: #33a6c8;
+    --hue-cyan: #00aed8;
     --accent-blue: #6ea8ff;
     --accent-violet: #a78bfa;
     --accent-green: #67e8a3;
     --accent-orange: #ffb86b;
     --accent-red: #ff7272;
-    /* Text on a filled accent button. */
-    --on-accent: #0b1316;
 
-    /* Status */
-    --status-live: var(--accent-cyan);
+    /* Status: never the accent. Live is cyan under every accent, so a
+       running study never reads as a stale one under Graphite. */
+    --status-live: var(--hue-cyan);
     --status-waiting: var(--accent-orange);
     --status-error: var(--accent-red);
     --status-completed: var(--accent-green);
@@ -127,7 +141,7 @@
 
     /* Controls: one corner, and one ring where the keyboard is. */
     --radius-control: 6px;
-    --focus-ring: 2px solid var(--accent-cyan);
+    --focus-ring: 2px solid var(--accent);
 
     /* Motion */
     --duration-fast: 120ms;
@@ -161,25 +175,28 @@
 body[data-theme="light"] {
     --viewer-ground: #ffffff;
     color-scheme: light;
-    --background-primary: #faf9f5;
-    --background-secondary: #f3f2ed;
+    /* A warm grey ground under white cards, each card drawn with a hairline
+       as white on that grey needs. */
+    --background-primary: #f4f2ee;
+    --background-secondary: #ffffff;
     --background-elevated: #ffffff;
-    --background-soft: #efeee9;
+    --background-soft: #edebe7;
     --border-subtle: rgba(0, 0, 0, 0.08);
     --border-primary: rgba(0, 0, 0, 0.14);
     --border-strong: rgba(0, 0, 0, 0.22);
-    --text-primary: #141413;
-    --text-secondary: #4a4a48;
-    --text-muted: #696965;
+    --text-primary: #191919;
+    --text-secondary: #404040;
+    --text-muted: #666666;
     --accent-white: #141413;
-    /* The dark scheme's cyan, darkened to 4.5:1 on each light ground. */
-    --accent-cyan: #1b7590;
-    --accent-text: #1b7590;
+    --accent: var(--accent-l);
+    --accent-text: var(--accent-l);
+    --accent-soft: var(--accent-soft-l);
+    --hue-cyan: #056c87;
     --shadow-color: rgba(0, 0, 0, 0.14);
-    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.06);
+    --shadow-card: 0 0 0 1px rgba(140, 140, 140, 0.2), 0 1px 2px rgba(0, 0, 0, 0.06);
     --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.16);
     --panel-glass: #ffffff;
-    --panel-hover: #ffffff;
+    --panel-hover: #f3f2f0;
     /* The same hues, dark enough to read on white: the pastels that read
        on black measured 1.5:1 here. Each is at least 4.5:1 on the ground.
        The status tokens are these, so green is still done and red still
@@ -187,8 +204,47 @@ body[data-theme="light"] {
     --accent-silver: #3a3a38;
     --accent-blue: #1f5fa8;
     --accent-violet: #6541c8;
-    --accent-green: #1b7a45;
+    /* #1b7a45 was 4.50:1 on the soft ground, the edge. */
+    --accent-green: #17703f;
     --accent-orange: #a65300;
     --accent-red: #c0262d;
     --on-accent: #ffffff;
+}
+
+/* ---------------------------------------------------------------------------
+   The five accents, set as `data-accent` on the root element (Cyan, the
+   default, is the first). Kept clear of the three status
+   hues: green done, amber qualified, red refused. Graphite has no hue: a
+   grey for words would be the muted text, so its words are the main text,
+   underlined where they are links, and its fill the main text colour.
+   --------------------------------------------------------------------------- */
+:root {
+    --accent-d: #00aed8; --accent-soft-d: #173640;
+    --accent-l: #056c87; --accent-soft-l: #e6f0f3;
+}
+:root[data-accent="blue"] {
+    --accent-d: #61a1fe; --accent-soft-d: #263446;
+    --accent-l: #1760c3; --accent-soft-l: #e8eff9;
+}
+:root[data-accent="violet"] {
+    --accent-d: #b68afd; --accent-soft-d: #343046;
+    --accent-l: #7b48bf; --accent-soft-l: #f2edf9;
+}
+:root[data-accent="magenta"] {
+    --accent-d: #f872b7; --accent-soft-d: #3e2c3b;
+    --accent-l: #b02e79; --accent-soft-l: #f7eaf2;
+}
+:root[data-accent="graphite"] {
+    --accent-d: #e8e9e9; --accent-soft-d: #303437;
+    --accent-l: #191919; --accent-soft-l: #efefef;
+}
+/* Graphite's links, in the main text's colour, are underlined: the links
+   in running text alone (a plain link, and the few named here). Links
+   drawn as buttons, tiles, menu items, a table's names or the sidebar's
+   places are not. */
+:root[data-accent="graphite"] :is(a:not([class]):not([role]):not([data-goto-analysis]),
+                                  a.ghost-link, a.builder-agent-link, a.files-mono,
+                                  a.overview-all-link, a.sidebar-fix) {
+    text-decoration: underline;
+    text-underline-offset: 2px;
 }

@@ -537,7 +537,7 @@ def test_dashboard_css_uses_black_scientific_palette() -> None:
     # dashboard.css carries the layout that consumes them.
     theme = (static / "theme.css").read_text(encoding="utf-8")
     css = (static / "dashboard.css").read_text(encoding="utf-8")
-    for token in ("--background-primary", "--accent-cyan", "--accent-violet",
+    for token in ("--background-primary", "--accent-text", "--accent-violet",
                   "--text-primary", "Inter"):
         assert token in theme
     assert "prefers-reduced-motion" in css
@@ -1287,7 +1287,7 @@ def test_live_gui_and_static_report_share_one_theme(tmp_path: Path) -> None:
     assert theme.is_file(), "theme.css must ship with the package"
     tokens = theme.read_text(encoding="utf-8")
     assert "--background-primary" in tokens
-    assert "--accent-cyan" in tokens
+    assert "--accent-text" in tokens
 
     # The GUI links it ahead of its own stylesheet.
     template = Path(gui_pkg.__file__).with_name("templates") / "dashboard.html"
@@ -1309,7 +1309,7 @@ def test_live_gui_and_static_report_share_one_theme(tmp_path: Path) -> None:
         live_html="",
     )
     assert "--background-primary" in html
-    assert "--accent-cyan" in html
+    assert "--accent-text" in html
     # The superseded navy palette must not reappear.
     assert "#07101b" not in html
     assert "var(--bg)" not in html

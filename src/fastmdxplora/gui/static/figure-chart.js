@@ -41,7 +41,7 @@
 
   function colours() {
     return {
-      line: token("--accent-cyan", "#2698ba"),
+      line: token("--hue-cyan", "#00aed8"),
       warm: token("--accent-orange", "#ffb86b"),
       grid: token("--border-subtle", "rgba(255,255,255,0.07)"),
       axis: token("--text-muted", "#85858f"),
@@ -321,7 +321,7 @@
     var f = frame(host, data, { height: 310, legend: true, said: data.title + ", " + data.residues.length +
       " residues over " + data.x.length + " frames" });
     var c = f.c;
-    var fill = { H: hexToRgb(c.line.charAt(0) === "#" ? c.line : "#2698ba"),
+    var fill = { H: hexToRgb(c.line.charAt(0) === "#" ? c.line : "#00aed8"),
                  E: hexToRgb(c.warm.charAt(0) === "#" ? c.warm : "#ffb86b"),
                  C: hexToRgb(c.shade.charAt(0) === "#" ? c.shade : "#2a2d31") };
     var n = data.x.length, residues = data.residues.length;

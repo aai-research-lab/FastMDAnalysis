@@ -76,6 +76,12 @@ fastmdx gui --hosted ... --product-name "Example Lab MD" \
     --product-logo /srv/brand/logo.png
 ```
 
+`--accent` chooses the accent the GUI opens with for the service's people
+(`cyan`, `blue`, `violet`, `magenta` or `graphite`), and the reports of the
+studies it runs take it, so a report shared looks the same wherever it is
+opened. A person can still choose their own in the settings. Without the
+flag, `FASTMDX_ACCENT` gives it, if set.
+
 `--product-logo` replaces FastMDXplora's mark, as the tab's icon and over the
 folded sidebar, and the AAi Research Lab's logo, the avatar at the foot of the
 sidebar where nobody is signed in: a PNG, JPEG,

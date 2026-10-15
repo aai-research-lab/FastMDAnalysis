@@ -50,6 +50,13 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   before and a bookmark opens it again. Undo follows a tag, a note or a saved
   view changed, and the Config Builder takes Cmd+Z and Shift+Cmd+Z. See
   `docs/gui.md`, The settings.
+- The GUI's dark scheme is a black ground under raised cards, and the light
+  one a warm grey under white cards with a hairline: the cards stood on a
+  ground hardly apart from them. Five accents to choose from in the
+  settings, Cyan, Blue, Violet, Magenta and Graphite, each read at 5:1 or
+  more on every ground; `fastmdx gui --accent` sets the one a service's people and
+  its studies' reports open with. A study running is cyan, and done,
+  qualified and refused keep their colours, with every accent.
 
 ### Fixed
 

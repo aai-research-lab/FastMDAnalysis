@@ -68,6 +68,28 @@
     document.dispatchEvent(new CustomEvent("fmx:theme", { detail: name }));
   }
 
+  /* ---- Accent ------------------------------------------------------ */
+  /* One of five (theme.css), set as data-accent on the root element; Cyan,
+   * the default, as none. Kept once chosen, over the service's default,
+   * which theme-first.js applied before the first paint. */
+  var ACCENTS = ["cyan", "blue", "violet", "magenta", "graphite"];
+
+  function accentShown() {
+    var named = document.documentElement.getAttribute("data-accent");
+    return ACCENTS.indexOf(named) >= 0 ? named : "cyan";
+  }
+
+  function applyAccent(name, chosen) {
+    if (ACCENTS.indexOf(name) < 0) name = "cyan";
+    if (name === "cyan") document.documentElement.removeAttribute("data-accent");
+    else document.documentElement.setAttribute("data-accent", name);
+    $$(".accent-swatch[data-accent]").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.accent === name));
+    });
+    if (chosen) store.set("accent", name);
+    document.dispatchEvent(new CustomEvent("fmx:accent", { detail: name }));
+  }
+
   /* With System chosen, the page follows the system as it changes. */
   function followTheSystem() {
     try {
@@ -958,6 +980,10 @@
     $$(".seg-btn[data-theme]").forEach(function (b) {
       b.addEventListener("click", function () { applyTheme(b.dataset.theme, true); });
     });
+    applyAccent(accentShown(), false);
+    $$(".accent-swatch[data-accent]").forEach(function (b) {
+      b.addEventListener("click", function () { applyAccent(b.dataset.accent, true); });
+    });
 
     var sw = parseInt(store.get("sidebarWidth", "232"), 10);
     var pw = parseInt(store.get("panelWidth", String(PANEL_WIDTH)), 10);
@@ -1406,5 +1432,6 @@
   }
 
   window.FastMDXFrame = { showTab: showTab, setCollapsed: setCollapsed, applyTheme: applyTheme,
+                          applyAccent: applyAccent,
                           previewPath: previewPath, previewing: previewing };
 })();

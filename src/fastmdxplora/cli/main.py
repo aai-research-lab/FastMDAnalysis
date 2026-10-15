@@ -1197,6 +1197,12 @@ def _build_parser() -> argparse.ArgumentParser:
     gui.add_argument("--binding-pocket-cutoff-A", type=float, default=None,
                      metavar="ANGSTROM",
                      help="Binding-pocket cutoff used by the viewer.")
+    gui.add_argument("--accent", default=None, type=str.lower,
+                     choices=("cyan", "blue", "violet", "magenta", "graphite"),
+                     help="The interface's accent for everyone it serves, and for "
+                          "the reports of the studies it runs (default: "
+                          "FASTMDX_ACCENT if set, else cyan). A person's own "
+                          "choice, in the settings, comes first.")
     hosted = gui.add_argument_group(
         "serving it to someone else",
         "For a service that runs the GUI for other people, behind a proxy "
@@ -2978,6 +2984,11 @@ def _cmd_gui(args: argparse.Namespace, *, panel: str = "") -> int:
     """
     from fastmdxplora.gui.server import DashboardConfig, serve_dashboard
 
+    if getattr(args, "accent", None):
+        # For the page, and for the runs it starts, whose reports take it.
+        from fastmdxplora.gui.accents import ACCENT_ENV
+
+        os.environ[ACCENT_ENV] = args.accent
     if getattr(args, "open", None):
         if getattr(args, "hosted", False) or getattr(args, "output", None) \
                 or getattr(args, "demo", None) is not None:
