@@ -54,9 +54,13 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   one a warm grey under white cards with a hairline: the cards stood on a
   ground hardly apart from them. Five accents to choose from in the
   settings, Cyan, Blue, Violet, Magenta and Graphite, each read at 5:1 or
-  more on every ground; `fastmdx gui --accent` sets the one a service's people and
-  its studies' reports open with. A study running is cyan, and done,
-  qualified and refused keep their colours, with every accent.
+  more on every ground (Graphite, which has no hue, underlines its links
+  and makes bold a changed setting and a study in the picker);
+  `fastmdx gui --accent` sets the one a service's people and the reports
+  of the studies it starts on this machine open with, and a
+  `FASTMDX_ACCENT` not among the five is said at start. A study running is
+  cyan, and done, qualified and refused keep their colours, with every
+  accent.
 
 ### Fixed
 

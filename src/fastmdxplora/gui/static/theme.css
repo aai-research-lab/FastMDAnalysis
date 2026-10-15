@@ -248,3 +248,9 @@ body[data-theme="light"] {
     text-decoration: underline;
     text-underline-offset: 2px;
 }
+/* Words marked by the accent's colour alone (a setting changed, a study in
+   the picker) would read as the main text under Graphite: bold there. */
+:root[data-accent="graphite"] :is(.builder-field.is-changed > .builder-head .builder-default,
+                                  .fastmdx-picker-row.is-study .name) {
+    font-weight: 600;
+}

@@ -432,6 +432,7 @@ fastmdx gui --output runs/study    # open a run, live or finished
 | `--open-most-gb GB` | `2` | The largest archive `--open` downloads and opens |
 | `--ligand-resname NAME` | auto-detected | Which residue the viewer treats as the ligand |
 | `--binding-pocket-cutoff-A X` | `5.0` | How near counts as the pocket |
+| `--accent NAME` | `FASTMDX_ACCENT` if set, else `cyan` | The accent for everyone it serves (`cyan`, `blue`, `violet`, `magenta` or `graphite`), and for the reports of the studies it starts on this machine; a person's own choice, in the settings, comes first |
 
 **These, and the flags for serving it to someone else ([hosting](hosting.md)), are the whole of `fastmdx gui`.** The dashboard flags below
 (`--dashboard-host`, `--dashboard-port` and the rest) belong to `explore` and

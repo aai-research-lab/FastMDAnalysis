@@ -200,8 +200,8 @@ is undone and redone in the field itself, as in any text field.
 Green done, amber qualified and red refused mean the same in all three
 schemes, and with every accent; a study running is shown in cyan with every
 accent. `fastmdx gui --accent NAME` sets the accent the GUI opens with for
-everyone it serves, and the reports of the studies it runs take it; a
-person's own choice comes first.
+everyone it serves, and the reports of the studies it starts on this
+machine take it; a person's own choice comes first.
 
 Every page, in every scheme, is held to WCAG 2.1 AA's contrast: 4.5 to 1 for
 text, 3 to 1 for large text, measured against what is behind it by a test
@@ -506,7 +506,7 @@ than one release are said to be. See
 | `--open SOURCE` | Open a shared study from its DOI, its Zenodo address or its zip, checked file by file before it opens; `--open-into DIR` says where it is unpacked and `--open-most-gb` how large an archive is allowed (2 GB). See [Sharing a study](sharing.md) | off |
 | `--ligand-resname NAME` | Which residue the viewer treats as the ligand | auto-detected |
 | `--binding-pocket-cutoff-A X` | How near counts as the pocket | `5.0` |
-| `--accent NAME` | The accent for everyone it serves, and for the reports of the studies it runs: `cyan`, `blue`, `violet`, `magenta` or `graphite`. A person's own choice, in the settings, comes first | `FASTMDX_ACCENT` if set, else `cyan` |
+| `--accent NAME` | The accent for everyone it serves, and for the reports of the studies it starts on this machine: `cyan`, `blue`, `violet`, `magenta` or `graphite`. A person's own choice, in the settings, comes first | `FASTMDX_ACCENT` if set, else `cyan` |
 | `--hosted` | Serve it to someone else, through a proxy that signs them in; see [Serving the GUI to other people](hosting.md) | off |
 | `--workspace DIR` | With `--hosted`: the one folder it reads and writes | current directory |
 | `--allowed-host NAME` | With `--hosted`: a name the proxy serves it under; repeat for more | none; required |

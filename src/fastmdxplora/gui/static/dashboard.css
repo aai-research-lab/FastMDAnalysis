@@ -66,6 +66,10 @@ button {
 }
 
 ::selection { background: color-mix(in srgb, var(--accent) 32%, transparent); color: var(--accent-white); }
+/* Every box ticked, option chosen and slider in the accent, the browser's
+   blue nowhere: resolved at each control, so the canvas's dark blocks
+   keep theirs. */
+:where(input, select, progress) { accent-color: var(--accent); }
 
 .mono,
 .metric-value,
@@ -1278,7 +1282,7 @@ button {
     color: var(--text-muted); background: color-mix(in srgb, var(--text-primary) 2%, transparent);
     flex: 1 1 220px; max-width: 340px;
 }
-.files-search:focus-within { border-color: color-mix(in srgb, var(--accent-blue) 55%, transparent); }
+.files-search:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
 .files-search input {
     background: none; border: 0; outline: 0; color: var(--text-primary);
     font-size: var(--text-xs); width: 100%; min-width: 0;
@@ -1297,8 +1301,8 @@ button {
 .files-filter b { font-weight: 500; color: var(--text-muted); margin-left: 4px; font-family: var(--font-mono); font-size: var(--text-2xs); }
 .files-filter:hover { border-color: var(--border-strong); color: var(--text-primary); }
 .files-filter[aria-pressed="true"] {
-    background: color-mix(in srgb, var(--accent-blue) 16%, transparent);
-    border-color: color-mix(in srgb, var(--accent-blue) 45%, transparent); color: var(--text-primary);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent); color: var(--text-primary);
 }
 /* The count on the tinted chip in the scheme's second text colour: muted,
    it read 4.1:1 on the tint in Light. */
@@ -1426,7 +1430,7 @@ button {
     display: block; width: 100%; padding: 7px 10px; border: 0; background: transparent; color: var(--text-primary);
     font-size: var(--text-xs); text-align: left; border-radius: 6px; cursor: pointer; text-decoration: none;
 }
-.files-menu [role="menuitem"]:hover, .files-menu [role="menuitem"]:focus-visible { background: var(--panel-hover); outline: none; }
+.files-menu [role="menuitem"]:hover, .files-menu [role="menuitem"]:focus-visible { background: var(--background-soft); outline: none; }
 .files-menu-path { display: block; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-muted); margin-top: 2px; overflow-wrap: anywhere; }
 
 .files-deposit-panel { width: min(760px, 100%); }
@@ -2184,12 +2188,12 @@ body.state-ready .loading-screen {
     transition: background var(--duration-fast, 120ms) ease;
 }
 .analyse-row[data-chosen="true"] {
-    background: var(--panel-hover);
+    background: var(--background-soft);
     /* The chosen ones read as a group down the left edge, so the selection
        can be taken in at a glance rather than counted. */
     box-shadow: inset 3px 0 0 var(--accent);
 }
-.analyse-row:hover { background: var(--panel-hover); }
+.analyse-row:hover { background: var(--background-soft); }
 
 .analyse-row-head {
     display: flex;
@@ -2322,7 +2326,7 @@ body.state-ready .loading-screen {
     text-align: left;
     width: 100%;
 }
-.analyse-folder-row:hover { background: var(--panel-hover); color: var(--text-primary); }
+.analyse-folder-row:hover { background: var(--background-soft); color: var(--text-primary); }
 .analyse-folder-row:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: -2px;
@@ -2407,9 +2411,9 @@ body.state-ready .loading-screen {
     transition: border-color var(--duration-fast, 120ms) ease,
                 background var(--duration-fast, 120ms) ease;
 }
-.run-start-choice:hover { background: var(--panel-hover); }
+.run-start-choice:hover { background: var(--background-soft); }
 .run-start-choice[data-chosen="true"] {
-    background: var(--panel-hover);
+    background: var(--background-soft);
     border-color: var(--accent);
 }
 .run-start-choice:focus-visible {
@@ -2439,7 +2443,7 @@ body.state-ready .loading-screen {
     gap: 12px;
     padding: 12px 16px;
 }
-.run-phase[data-chosen="true"] { border-color: var(--accent); background: var(--background-elevated); }
+.run-phase[data-chosen="true"] { border-color: var(--accent); background: var(--background-soft); }
 .run-phase:hover { border-color: var(--border-primary); }
 .run-phase input { accent-color: var(--accent); margin-top: 3px; }
 .run-phase-naming { display: flex; flex-direction: column; gap: 3px; }
@@ -3536,7 +3540,7 @@ html[data-page="viewer"] .page-shell { max-width: 1480px; }
 }
 .agent-starter:hover, .agent-starter:focus-visible {
     border-color: var(--accent);
-    background: var(--panel-hover);
+    background: var(--background-soft);
     outline: none;
 }
 .agent-msg { max-width: 860px; }
@@ -3575,7 +3579,7 @@ html[data-page="viewer"] .page-shell { max-width: 1480px; }
     font-size: var(--text-xs); color: var(--text-muted); }
 .agent-feedback { border: 1px solid transparent; background: none; color: var(--text-muted);
     border-radius: 999px; padding: 0; font: inherit; cursor: pointer; }
-.agent-msg-tools .agent-usage-toggle[aria-expanded="true"] { color: var(--accent-text); }
+.agent-msg-tools .agent-usage-toggle[aria-expanded="true"] { color: var(--accent-text); background: color-mix(in srgb, var(--accent) 16%, transparent); }
 /* The marks keep their 28 px target on Copy's row, the tokens icon with them. */
 .agent-msg-tools .agent-feedback, .agent-msg-tools .agent-usage-toggle { width: 28px; height: 28px; }
 .agent-meta .agent-usage { margin-left: 6px; }
@@ -6386,7 +6390,7 @@ html[data-page="run"] .page-shell { max-width: 1340px; }
 /* Choices of a few: a row of buttons, and cards for enhanced sampling. */
 .page[data-page="run"] .builder-seg {
     display: inline-flex; flex-wrap: wrap; align-self: flex-start; overflow: hidden;
-    border: 1px solid var(--border-primary); border-radius: var(--radius-control); background: var(--background-primary);
+    border: 1px solid var(--border-primary); border-radius: var(--radius-control); background: var(--panel-glass);
 }
 .page[data-page="run"] .builder-seg-btn {
     padding: 6px 12px; border: 0; border-right: 1px solid var(--border-subtle); background: none;

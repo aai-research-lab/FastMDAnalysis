@@ -82,6 +82,10 @@ def test_every_word_reads_on_every_ground(scheme, accent) -> None:
     assert _ratio(t["--on-accent"], t["--accent"]) >= (8.0 if scheme == "dark" else 5.95)
     assert _ratio(t["--accent"], t["--accent-soft"]) >= 4.8
     assert _ratio(t["--text-primary"], t["--accent-soft"]) >= 4.5
+    assert _ratio(t["--text-secondary"], t["--accent-soft"]) >= 4.5
+    # The tint marks a choice on a card's ground (the Config Builder's
+    # segmented choices sit on one): seen there, Graphite's grey too.
+    assert _ratio(t["--accent-soft"], t["--panel-glass"]) >= 1.1
 
 
 @pytest.mark.parametrize("scheme", ["dark", "light"])
@@ -92,8 +96,9 @@ def test_the_cards_stand_off_the_ground(scheme) -> None:
 
 
 # A state drawn on its own ground: hovered, chosen, pressed or open.
-STATE = re.compile(r":hover|\.active|aria-(?:selected|pressed|expanded|current|checked)"
-                   r"|is-(?:chosen|open|current|on|selected)|\[open\]")
+STATE = re.compile(r":hover|:focus-visible|:focus-within|:has\([^)]*:checked\)|\.active"
+                   r"|\.selected|\.current|\[data-chosen|aria-(?:selected|pressed|expanded"
+                   r"|current|checked)|is-(?:chosen|open|current|on|selected)|\[open\]")
 WHITE_IN_LIGHT = ("--background-elevated", "--panel-glass", "--background-secondary")
 
 
@@ -105,12 +110,37 @@ def test_no_row_hovered_or_chosen_is_white_on_white() -> None:
     unseen = []
     for rule in re.finditer(r"([^{}]+)\{([^{}]*)\}", text):
         selector, body = " ".join(rule.group(1).split()), rule.group(2)
-        painted = re.search(r"background(?:-color)?:\s*var\((--[\w-]+)\)", body)
+        painted = re.search(r"background(?:-color)?:\s*var\((--[\w-]+)[,)]", body)
+        # A row on the elevated ground (a menu, the analyses to choose, the
+        # ways to start) hovered or chosen needs the soft one in dark too:
+        # the hover ground is 1.04:1 from it.
+        if (selector.startswith((".files-menu", ".analyse-row", ".analyse-folder-row",
+                                 ".run-start-choice", ".agent-starter"))
+                and painted and painted.group(1) == "--panel-hover"):
+            unseen.append(selector)
         # An icon button hovered keeps its border; it is seen on any ground.
         if (STATE.search(selector) and painted and painted.group(1) in WHITE_IN_LIGHT
                 and selector != ".icon-btn:hover"):
             unseen.append(selector)
     assert unseen == []
+
+
+def _mixed(colour: str, share: float, ground: str) -> str:
+    one, two = (bytes.fromhex(c.lstrip("#")) for c in (colour, ground))
+    return "#" + "".join(f"{round(a * share + b * (1 - share)):02x}" for a, b in zip(one, two))
+
+
+@pytest.mark.parametrize("scheme", ["dark", "light"])
+@pytest.mark.parametrize("accent", ACCENTS)
+def test_a_tint_of_the_accent_shows_on_the_page_s_ground(scheme, accent) -> None:
+    t = _tokens(scheme, accent)
+    ground = t["--background-primary"]
+    tint = _mixed(t["--accent"], 0.16, ground)
+    assert _ratio(tint, ground) >= 1.1, (tint, ground)
+    for words in ("--text-primary", "--text-secondary"):
+        assert _ratio(t[words], tint) >= 4.5, words
+    # The usage toggle's icon, in the accent, on it: 3:1 for a mark.
+    assert _ratio(t["--accent-text"], tint) >= 3.0
 
 
 @pytest.mark.parametrize("scheme", ["dark", "light"])
@@ -174,8 +204,21 @@ def test_a_chosen_tint_is_the_soft_accent_and_an_accepted_config_is_done() -> No
                    '.builder-seg-btn[aria-checked="true"]'):
         said = rule(chosen)
         assert "background: var(--accent-soft)" in said and "var(--accent-text)" in said
+    # The segmented choices sit on a card's ground, where the tint shows.
+    assert "background: var(--panel-glass)" in rule('.page[data-page="run"] .builder-seg {')
     # The canvas's dark blocks take the dark tint with the dark accent.
     assert sheet.count("--accent-soft: var(--accent-soft-d);") == 2
+    # Every control in the accent, not the browser's blue; the Files page's
+    # chosen chip and its search in the accent too.
+    assert ":where(input, select, progress) { accent-color: var(--accent); }" in sheet
+    for chosen in ('.files-filter[aria-pressed="true"] {', ".files-search:focus-within {"):
+        assert "--accent-blue" not in rule(chosen), chosen
+    # On the page's own ground (the Files page's chips, the usage shown under
+    # an Agent message), a chosen one is tinted with the accent itself: the
+    # soft tint is for a card's ground and is lost on the warm grey.
+    for chosen in ('.files-filter[aria-pressed="true"] {',
+                   '.agent-usage-toggle[aria-expanded="true"]'):
+        assert "background: color-mix(in srgb, var(--accent) 16%, transparent)" in rule(chosen)
     # An accepted config is a state, not the accent.
     assert "var(--status-completed)" in rule(".agent-attempt.ok {")
 
@@ -201,6 +244,31 @@ def test_a_service_s_accent_is_the_default_and_a_report_s(monkeypatch, tmp_path)
     assert '<html lang="en" data-page="overview" data-accent="violet">' in report()
     monkeypatch.setenv(ACCENT_ENV, "orange")
     assert default_accent() == "cyan"
+
+
+def test_a_service_s_accent_not_among_the_five_is_said(monkeypatch, capsys, tmp_path) -> None:
+    from fastmdxplora.cli.main import main
+    from fastmdxplora.gui.accents import ACCENT_ENV
+
+    served = []
+    monkeypatch.setattr("fastmdxplora.gui.server.serve_dashboard",
+                        lambda *a, **k: served.append(1) or 0)
+    monkeypatch.setenv(ACCENT_ENV, "orange")
+    main(["gui", "--no-browser", "--output", str(tmp_path)])
+    said = capsys.readouterr().err
+    assert "fastmdx: FASTMDX_ACCENT='orange' is not one of cyan, blue, violet, magenta, graphite" in said
+    monkeypatch.setenv(ACCENT_ENV, "Violet")
+    main(["gui", "--no-browser", "--output", str(tmp_path)])
+    assert "is not one of" not in capsys.readouterr().err
+    monkeypatch.setenv(ACCENT_ENV, "orange")
+    monkeypatch.chdir(tmp_path)
+    # `fastmdx agent` opens the same page, and says it the same way.
+    main(["agent", "--no-browser"])
+    assert "fastmdx: FASTMDX_ACCENT='orange' is not one of" in capsys.readouterr().err
+    # A command refused says why, and not this as well.
+    monkeypatch.setenv(ACCENT_ENV, "orange")
+    assert main(["gui", "--demo", str(tmp_path), "--output", str(tmp_path)]) == 2
+    assert "is not one of" not in capsys.readouterr().err
 
 
 @pytest.fixture(scope="module")
@@ -326,6 +394,20 @@ def test_graphite_underlines_its_links_and_the_swatches_take_the_keyboard(browse
             document.body.append(all, fix);
             const said = [a, all, fix].map(e => getComputedStyle(e).textDecorationLine);
             a.remove(); all.remove(); fix.remove(); return said; }""")
+        # A study in the picker, marked by the accent's colour alone
+        # elsewhere, is bold under Graphite.
+        bold = page.evaluate("""() => {
+            const row = document.createElement('div');
+            row.className = 'fastmdx-picker-row is-study';
+            row.innerHTML = '<span class="name">ubiquitin</span>';
+            const page = document.createElement('div');
+            page.className = 'page'; page.dataset.page = 'run';
+            page.innerHTML = '<div class="builder-field is-changed"><div class="builder-head">'
+                + '<span class="builder-default">Default 7.0</span></div></div>';
+            document.body.append(row, page);
+            const said = [row.querySelector('.name'), page.querySelector('.builder-default')]
+                .map(e => getComputedStyle(e).fontWeight);
+            row.remove(); page.remove(); return said; }""")
         # The sidebar's places, the buttons drawn as links, an Overview tile
         # and a menu's item are not underlined.
         page.evaluate("""() => {
@@ -349,6 +431,7 @@ def test_graphite_underlines_its_links_and_the_swatches_take_the_keyboard(browse
                      ["BUTTON", "Magenta"], ["BUTTON", "Graphite"]]
     assert focused == chosen == "magenta"
     assert line == ["underline"] * 3
+    assert bold == ["600", "600"]
     assert plain[0] > 5 and plain[1] == [], plain
 
 

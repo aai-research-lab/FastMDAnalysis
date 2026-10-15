@@ -4,7 +4,8 @@ The colours are in ``gui/static/theme.css``; each is set as ``data-accent``
 on a page's root element (Cyan, the default, as none). A person chooses
 theirs in the settings popup, kept in the browser; a service sets the
 default for its people with ``fastmdx gui --accent``, which is put in
-:data:`ACCENT_ENV` so the reports its runs write take it too.
+:data:`ACCENT_ENV` so the reports of the studies it starts on this machine
+take it too.
 """
 
 from __future__ import annotations
