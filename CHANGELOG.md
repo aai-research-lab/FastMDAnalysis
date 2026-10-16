@@ -83,6 +83,12 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- A path longer than its column in the Config Builder (a structure, a
+  setting for one system, a config file not found) breaks where it must in
+  the system's row and its chips, the plan, what setup will build and the
+  config's verdict, and the plan's one line saying why there is none yet
+  wraps in its card; each ran past its card, and in a narrow window
+  scrolled the page sideways.
 - An AI app's `check_study`, the Agent's `check_config` and a study sent to
   another machine fill your defaults (`fastmdx-defaults.yml`) as a run does,
   from the study's folder up. `check_study` read them from the workspace's

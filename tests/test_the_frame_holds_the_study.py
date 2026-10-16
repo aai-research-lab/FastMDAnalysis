@@ -778,6 +778,9 @@ class TestTheCentreIsCentredInEveryStateRendered(unittest.TestCase):
                         "() => document.body.classList.contains('sidebar-collapsed')"):
                     page.click("#sidebar-collapse")
                 page.wait_for_timeout(300)
+                self.assertEqual(page.evaluate(
+                    "() => ['sidebar-collapsed', 'panel-collapsed']"
+                    ".map(c => document.body.classList.contains(c))"), [True, True])
                 # The centre column spans the viewport and its content is
                 # centred within it, not pinned to an edge.
                 self.assertGreater(width(".main"), 1000)

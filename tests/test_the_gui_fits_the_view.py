@@ -151,7 +151,8 @@ def test_send_waits_for_something_to_send(browser, session) -> None:
             const probe = document.createElement('i'); probe.style.color = accent;
             document.body.appendChild(probe); const fill = getComputedStyle(probe).color; probe.remove();
             return [b.classList.contains('is-blank'), s.backgroundColor === fill,
-                    b.getAttribute('aria-disabled'), b.getAttribute('aria-label'), b.tabIndex >= 0]; }"""))
+                    b.getAttribute('aria-disabled'), b.getAttribute('aria-label'), b.tabIndex >= 0,
+                    b.title]; }"""))
 
     look()
     tab.focus("#agent-request")
@@ -171,8 +172,9 @@ def test_send_waits_for_something_to_send(browser, session) -> None:
     tab.wait_for_timeout(300)
     sent = tab.evaluate("() => document.querySelectorAll('#agent-thread .agent-msg-user').length")
     tab.context.close()
-    quiet = [True, False, "true", "Send", True]
-    ready = [False, True, "false", "Send", True]
+    # Quiet, it says why it waits (CM, 10-16: the title was not asserted).
+    quiet = [True, False, "true", "Send", True, "Write a message to send it"]
+    ready = [False, True, "false", "Send", True, "Send (Enter). Shift+Enter for a new line."]
     assert said == [quiet, ready, quiet, quiet, ready, quiet]
     assert sent == 0
 
@@ -475,6 +477,160 @@ def test_a_seam_dragged_refits_the_page(browser, session) -> None:
     assert after[0] is True and after[1] >= 480, after
 
 
+def test_a_column_dragged_wider_holds_until_the_page_changes(browser, session) -> None:
+    """The log's seam dragged 150px wider at 1280: as the window narrows to
+    1000 the log keeps its width and the sidebar folds, though the page then
+    has less than its least; on another page it is fitted again (CM, 10-16:
+    no test narrowed the window after a drag)."""
+    tab = _page(browser, session, width=1280, stored={"panelCollapsed": "0"})
+    handle = tab.evaluate("""() => { const b = document.querySelector('.col-handle[data-handle="panel"]')
+        .getBoundingClientRect(); return [b.left + b.width / 2, b.top + 200]; }""")
+    tab.mouse.move(*handle)
+    tab.mouse.down()
+    tab.mouse.move(handle[0] - 150, handle[1], steps=8)
+    tab.mouse.up()
+    tab.wait_for_timeout(150)
+    width = "() => Math.round(document.querySelector('.side-panel').getBoundingClientRect().width)"
+    dragged = tab.evaluate(width)
+    tab.set_viewport_size({"width": 1000, "height": 900})
+    tab.wait_for_timeout(300)
+    _two_frames(tab)
+    narrowed = [tab.evaluate("() => document.body.classList.contains('panel-collapsed')"),
+                _folded(tab), tab.evaluate(width), tab.evaluate(GEOMETRY)["room"] < 480]
+    _go(tab, "analysis")
+    _two_frames(tab)
+    elsewhere = [tab.evaluate("() => document.body.classList.contains('panel-collapsed')"),
+                 tab.evaluate(GEOMETRY)["room"] >= 480]
+    tab.context.close()
+    assert dragged >= 560, dragged
+    assert narrowed == [False, True, dragged, True], (dragged, narrowed)
+    assert elsewhere == [True, True], elsewhere
+
+
+def test_a_long_path_breaks_in_the_form_and_the_summary(browser, session) -> None:
+    """A structure path longer than its column, at 1440 (the summary beside)
+    and 912 (the form at its least): what the system's file holds, what
+    setup will build and the plan break it, nothing past its card or the
+    page (CN, 10-16: it ran under the row's button, into the summary, and
+    at 900 scrolled the page sideways)."""
+    long = "/a/rather/long/path/to/a/structure/file/named/receptor_ligand_complex_prepared.pdb"
+    found = {}
+    for width in (1440, 912):
+        tab = _page(browser, session, width=width, page="run")
+        tab.click('#run-start .builder-start-card[data-start="structure"]')
+        tab.click("#run-add-system")
+        tab.fill('[aria-label="Structure of system 2"]', long)
+        tab.keyboard.press("Tab")
+        tab.wait_for_function("() => [...document.querySelectorAll('.builder-system-holds')]"
+                              ".some(e => e.textContent.includes('receptor_ligand'))"
+                              " && !document.getElementById('run-system-preview').hidden"
+                              " && [...document.querySelectorAll('.builder-plan-lines dd')]"
+                              ".some(e => e.textContent.includes('receptor_ligand'))")
+        tab.wait_for_timeout(200)
+        found[width] = tab.evaluate("""() => {
+            const wider = e => e.scrollWidth > e.clientWidth + 1
+                && !['INPUT', 'TEXTAREA', 'SELECT'].includes(e.tagName);
+            const holds = [...document.querySelectorAll('.builder-system-holds')]
+                .filter(e => e.textContent.includes('receptor_ligand'))
+                .map(e => [wider(e), e.getBoundingClientRect().right
+                           <= e.closest('.builder-system-row').getBoundingClientRect().right + 1]);
+            const preview = document.getElementById('run-system-preview');
+            const plan = [...document.querySelectorAll('.builder-plan-lines dd')];
+            const main = document.querySelector('.page[data-page="run"] .builder-main')
+                .getBoundingClientRect();
+            const page = document.querySelector('.page[data-page="run"]');
+            return {holds,
+                    preview: preview.hidden ? null : [...preview.querySelectorAll('*')].some(wider),
+                    plan: plan.filter(e => e.textContent.includes('receptor_ligand'))
+                        .map(e => !wider(e) && e.getBoundingClientRect().right <= main.right + 1),
+                    page: page.scrollWidth <= page.clientWidth + 1}; }""")
+        tab.context.close()
+    for width, seen in found.items():
+        assert seen["holds"] and all(h == [False, True] for h in seen["holds"]), (width, seen)
+        # The preview and the plan shown and checked, not passed over empty
+        # (CO, 10-16: the plan's box held, its text ran past).
+        assert seen["preview"] is False and seen["plan"] and all(seen["plan"]), (width, seen)
+        assert seen["page"], (width, seen)
+
+
+def test_a_long_path_breaks_in_a_chip_and_a_config_s_verdict(browser, session) -> None:
+    """A setting for one system whose value is a long path, in its chip, and
+    a config file not found under a long path, in the verdict under it: each
+    broken in its place at 912, nothing past the form or the page (CO and
+    CP, 10-16: the chip ran under the summary, the verdict across it)."""
+    forcefield = "/a/rather/long/path/to/a/force/field/named/custom_forcefield_parameters_for_ligand.xml"
+    config = "/a/rather/long/path/to/a/folder/of/studies/named/fastmdxplora_receptor_ligand.yml"
+    state = {"start": "structure", "include_phase": ["setup", "simulation"],
+             "systems": [{"id": "s1", "system": "1UBQ", "setup": {"forcefield": forcefield}}],
+             "phases": {}}
+    tab = _page(browser, session, width=912, page="run")
+    tab.evaluate("(s) => window.FastMDXRun.applyLoadedState(s, {})", state)
+    tab.wait_for_function("() => [...document.querySelectorAll('.builder-chip')]"
+                          ".some(e => e.textContent.includes('custom_forcefield'))")
+    check = """(said) => {
+        const main = document.querySelector('.page[data-page="run"] .builder-main')
+            .getBoundingClientRect();
+        const page = document.querySelector('.page[data-page="run"]');
+        const e = [...document.querySelectorAll('.page[data-page="run"] .builder-main *')]
+            .filter(x => x.children.length === 0 && x.textContent.includes(said))[0];
+        return [!!e, e && e.scrollWidth <= e.clientWidth + 1,
+                e && e.getBoundingClientRect().right <= main.right + 1,
+                page.scrollWidth <= page.clientWidth + 1]; }"""
+    chip = tab.evaluate(check, "custom_forcefield")
+    tab.click('#run-start .builder-start-card[data-start="config"]')
+    tab.fill("#run-config-path", config)
+    tab.click("#run-check-config")
+    tab.wait_for_function("() => document.getElementById('run-config-verdict')"
+                          ".textContent.includes('fastmdxplora_receptor_ligand')")
+    verdict = tab.evaluate(check, "fastmdxplora_receptor_ligand")
+    tab.context.close()
+    assert chip == [True, True, True, True], chip
+    assert verdict == [True, True, True, True], verdict
+
+
+def test_a_chip_s_corners_keep_inside_its_padding(browser, session) -> None:
+    """A chip of a setting for one system: a pill on one line, and over
+    several lines (a long path broken) corners within its padding, so its
+    words do not cross its border (CR, 10-16: a pill four lines high)."""
+    long = "/a/rather/long/path/to/a/force/field/named/custom_forcefield_parameters_for_ligand.xml"
+    state = {"start": "structure", "include_phase": ["setup", "simulation"],
+             "systems": [{"id": "s1", "system": "1UBQ", "setup": {"forcefield": long}},
+                         {"id": "s2", "system": "1UBQ", "setup": {"forcefield": "amber14"}}],
+             "phases": {}}
+    tab = _page(browser, session, width=912, page="run")
+    tab.evaluate("(s) => window.FastMDXRun.applyLoadedState(s, {})", state)
+    tab.wait_for_function("() => document.querySelectorAll('.builder-system-own .builder-chip').length === 2")
+    chips = tab.evaluate("""() => [...document.querySelectorAll('.builder-system-own .builder-chip')]
+        .map(c => { const s = getComputedStyle(c);
+                    return [c.getBoundingClientRect().height, parseFloat(s.borderTopLeftRadius),
+                            parseFloat(s.paddingLeft)]; })""")
+    tab.context.close()
+    (high, radius, pad), (one, one_radius, _) = chips
+    assert high > 2 * one and radius * (1 - 0.5 ** 0.5) <= pad, chips
+    assert one_radius >= one / 2 - 0.5, chips
+
+
+@pytest.mark.parametrize("width", [390, 912])
+def test_why_there_is_no_plan_yet_stays_in_its_card(browser, session, width) -> None:
+    """The plan's one line saying why there is none yet (Setup not ticked)
+    across both columns, wrapped in its card, the page not scrolled
+    sideways (CR, 10-16: put in the first column at its whole width, 966px,
+    it ran across the summary and a phone scrolled 627px)."""
+    state = {"start": "structure", "include_phase": ["simulation"],
+             "systems": [{"id": "s1", "system": "1UBQ"}], "phases": {}}
+    tab = _page(browser, session, width=width, page="run")
+    tab.evaluate("(s) => window.FastMDXRun.applyLoadedState(s, {})", state)
+    tab.wait_for_function("() => (document.getElementById('run-plan').textContent || '')"
+                          ".includes('needs Setup')")
+    seen = tab.evaluate("""() => {
+        const plan = document.getElementById('run-plan'), line = plan.querySelector('dd');
+        const page = document.querySelector('.page[data-page="run"]');
+        return [plan.children.length, line.getBoundingClientRect().right
+                <= plan.getBoundingClientRect().right + 1, page.scrollWidth <= page.clientWidth + 1]; }""")
+    tab.context.close()
+    assert seen == [1, True, True], seen
+
+
 def test_a_peek_left_goes_through_a_fit(browser, session) -> None:
     """The pointer leaves the sidebar shown over the page; a refit in the
     moment before it goes (the window, the Agent) does not keep it there."""
@@ -728,6 +884,27 @@ def test_every_page_fits_the_window(browser, session, width, agent) -> None:
             tab.wait_for_timeout(100)
         found[page] = tab.evaluate(GEOMETRY)
     tab.context.close()
+    _each_page_fits(found, agent)
+
+
+@pytest.mark.parametrize("width", [1024, 1280, 1440, 1920])
+def test_every_page_fits_the_window_with_the_log_open(browser, session, width) -> None:
+    """The same walk with the log kept open (as a run leaves it): the side
+    panel at its least where shown, and every page at its least, the
+    sidebar folded first, then the log (CM, 10-16: the walk never had the
+    side panel open)."""
+    tab = _page(browser, session, width=width,
+                stored={"panelCollapsed": "0", "builderPanelOpen": "1", "viewerPanelOpen": "1"})
+    found = {}
+    for page in PAGES:
+        _go(tab, page)
+        found[page] = tab.evaluate(GEOMETRY)
+    tab.context.close()
+    assert any(g["panel"] for g in found.values()), found
+    _each_page_fits(found, False)
+
+
+def _each_page_fits(found, agent):
     for page, g in found.items():
         columns = [g[name] for name in ("sidebar", "main", "panel", "drawer") if g[name]]
         columns.sort()
@@ -796,6 +973,58 @@ def test_the_builder_s_form_fits_beside_its_summary(browser, session, width, age
             if (r.right > m.right + 1 || r.left < m.left - 1) wrong.push(['past the form', said]);
             else if (e.scrollWidth > e.clientWidth + 1 && ['hidden', 'clip'].includes(s.overflowX)
                      && s.textOverflow !== 'ellipsis') wrong.push(['cut', said]);
+        }
+        // Nothing over anything else: each control and each run of text, by
+        // its own boxes (a line of text each), the start cards' unseen radio
+        // buttons, which cover their cards, left out (CM, 10-16).
+        const seen = e => { const s = getComputedStyle(e);
+            return s.visibility !== 'hidden' && s.opacity !== '0' && e.getClientRects().length; };
+        const marks = [...main.querySelectorAll('input, select, textarea, button, *')]
+            .filter((e, i, all) => all.indexOf(e) === i && seen(e)
+                && (['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(e.tagName)
+                    || [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())));
+        // A control by its box; text by its own lines, where they are drawn
+        // (an element's box holds its text only while the text fits it).
+        // Each line cut to what its clipping boxes show (a description held
+        // to three lines, a name hidden but read out).
+        const shownOf = (e, r) => {
+            let left = r.left, right = r.right, top = r.top, bottom = r.bottom;
+            for (let a = e; a && a !== main.parentElement; a = a.parentElement) {
+                const s = getComputedStyle(a);
+                if (s.clipPath !== 'none') return null;
+                if (a !== e && s.overflowX === 'visible' && s.overflowY === 'visible') continue;
+                if (a === e && !['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(e.tagName)
+                    && s.overflowX === 'visible' && s.overflowY === 'visible') continue;
+                const c = a.getBoundingClientRect();
+                left = Math.max(left, c.left); right = Math.min(right, c.right);
+                top = Math.max(top, c.top); bottom = Math.min(bottom, c.bottom);
+            }
+            return right - left > 0 && bottom - top > 0 ? {left, right, top, bottom} : null;
+        };
+        const lines = e => {
+            if (['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(e.tagName))
+                return [...e.getClientRects()];
+            const out = [];
+            for (const n of e.childNodes) {
+                if (n.nodeType !== 3 || !n.textContent.trim()) continue;
+                const r = document.createRange(); r.selectNodeContents(n);
+                out.push(...r.getClientRects());
+            }
+            return out;
+        };
+        const boxes = marks.map(e => [e, lines(e).filter(r => r.width && r.height)
+            .map(r => shownOf(e, r)).filter(Boolean)]);
+        for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+            const [a, ra] = boxes[i], [b, rb] = boxes[j];
+            // A control's own words are its own; text inside any other
+            // element is still compared with it (CQ, 10-16).
+            const control = e => ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(e.tagName);
+            if ((control(a) && a.contains(b)) || (control(b) && b.contains(a))) continue;
+            const over = ra.some(p => rb.some(q =>
+                Math.min(p.right, q.right) - Math.max(p.left, q.left) > 2
+                && Math.min(p.bottom, q.bottom) - Math.max(p.top, q.top) > 2));
+            if (over) wrong.push(['over', (a.textContent || a.tagName).trim().slice(0, 20),
+                                  (b.textContent || b.tagName).trim().slice(0, 20)]);
         }
         const holds = [...document.querySelectorAll('.builder-system-holds')]
             .filter(e => e.textContent.trim()).map(e => e.getBoundingClientRect().width);

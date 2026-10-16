@@ -6393,7 +6393,7 @@ html[data-page="run"] .page-shell { max-width: 1340px; }
 .page[data-page="run"] .builder-limit { color: var(--status-error); font-size: var(--text-xs); }
 .page[data-page="run"] .builder-limit[hidden] { display: none; }
 .page[data-page="run"] .builder-field input[type="checkbox"] { align-self: flex-start; accent-color: var(--accent); width: 16px; height: 16px; }
-.page[data-page="run"] .builder-help { color: var(--text-muted); font-size: var(--text-xs); line-height: 1.5; }
+.page[data-page="run"] .builder-help { color: var(--text-muted); font-size: var(--text-xs); line-height: 1.5; overflow-wrap: anywhere; }
 .page[data-page="run"] .builder-help code,
 .page[data-page="run"] .builder-group-head code { font-size: inherit; }
 .page[data-page="run"] .builder-help-rest { display: block; margin-top: 4px; }
@@ -6452,12 +6452,16 @@ html[data-page="run"] .page-shell { max-width: 1340px; }
 .page[data-page="run"] .builder-system-head span {
     color: var(--text-muted); font-size: var(--text-2xs); letter-spacing: .06em; text-transform: uppercase;
 }
-.page[data-page="run"] .builder-system-holds { font-size: var(--text-sm); color: var(--text-secondary); }
+.page[data-page="run"] .builder-system-holds { font-size: var(--text-sm); color: var(--text-secondary); overflow-wrap: anywhere; }
 .page[data-page="run"] .builder-system-own { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .page[data-page="run"] .builder-chip {
     display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
     border: 1px solid var(--border-primary); border-radius: 999px; font-size: var(--text-xs);
 }
+/* A setting for one system whose value is a path: broken in its chip, whose
+   corners stay inside its padding over several lines (a pill on one). */
+.page[data-page="run"] .builder-system-own .builder-chip { border-radius: 12px; }
+.page[data-page="run"] .builder-chip > .mono { overflow-wrap: anywhere; }
 .page[data-page="run"] .builder-icon-btn {
     padding: 0 4px; border: 0; background: none; color: var(--text-muted); font-size: var(--text-lg); line-height: 1; cursor: pointer;
 }
@@ -6539,8 +6543,10 @@ html[data-page="run"] .page-shell { max-width: 1340px; }
 
 /* Review. */
 .page[data-page="run"] .builder-plan-lines { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: var(--text-sm); }
+/* Why there is no plan yet, alone: across both columns, wrapped. */
+.page[data-page="run"] .builder-plan-lines > dd:only-child { grid-column: 1 / -1; }
 .page[data-page="run"] .builder-plan-lines dt { color: var(--text-muted); }
-.page[data-page="run"] .builder-plan-lines dd { margin: 0; color: var(--text-primary); }
+.page[data-page="run"] .builder-plan-lines dd { margin: 0; color: var(--text-primary); overflow-wrap: anywhere; }
 .page[data-page="run"] .builder-plan-lines dd.is-default { color: var(--text-secondary); }
 .page[data-page="run"] .builder-default-mark { margin-left: 8px; color: var(--text-muted); font-size: var(--text-2xs); }
 .page[data-page="run"] .builder-checked { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-subtle); }
