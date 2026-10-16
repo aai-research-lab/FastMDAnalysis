@@ -224,15 +224,21 @@ def _source_frame(out: Path, source: dict[str, Any] | None, frame: int) -> Any:
     if len(shown) == 0:
         shown = np.arange(whole.n_atoms)
     topology = whole.subset(shown)
-    with suppress_native_output(), md.formats.DCDTrajectoryFile(str(source["trajectory"])) as handle:
+    with (
+        suppress_native_output(),
+        md.formats.DCDTrajectoryFile(str(source["trajectory"])) as handle,
+    ):
         handle.seek(frame)
         xyz, lengths, angles = handle.read(1, atom_indices=shown)
     if not len(xyz):
         raise ValueError("the source frame could not be read")
     boxed = lengths is not None and np.all(np.asarray(lengths) > 0)
-    result = md.Trajectory(np.asarray(xyz, dtype=np.float32) / 10.0, topology,
-                           unitcell_lengths=np.asarray(lengths, dtype=np.float32) / 10.0 if boxed else None,
-                           unitcell_angles=np.asarray(angles, dtype=np.float32) if boxed else None)
+    result = md.Trajectory(
+        np.asarray(xyz, dtype=np.float32) / 10.0,
+        topology,
+        unitcell_lengths=np.asarray(lengths, dtype=np.float32) / 10.0 if boxed else None,
+        unitcell_angles=np.asarray(angles, dtype=np.float32) if boxed else None,
+    )
     return _made_whole(result) if boxed else result
 
 
@@ -450,7 +456,9 @@ def _from_trajectory(source: dict[str, Any], simulation: Path, most_frames: int,
     # Which atoms of which topology the frames are, so an atom clicked in
     # them is named in that topology exactly (gui/selection.py).
     try:
-        source_topology = topology_path.resolve().relative_to(simulation.parent.resolve()).as_posix()
+        source_topology = (
+            topology_path.resolve().relative_to(simulation.parent.resolve()).as_posix()
+        )
     except ValueError:
         source_topology = str(topology_path.resolve())
     # Each frame's box, in angstroms and degrees as the DCD holds it, for the

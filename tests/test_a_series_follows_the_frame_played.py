@@ -151,17 +151,21 @@ def test_the_series_is_plotted_under_the_frames_and_follows_them(study) -> None:
             start.fill(str(rmsd["x"][2]))
             end.fill(str(rmsd["x"][4]))
             end.press("Enter")
-            page.wait_for_function("() => document.querySelectorAll("
-                                   "'.series-chart[data-analysis=\\\"rmsd\\\"] .series-line').length === 1")
+            page.wait_for_function(
+                "() => document.querySelectorAll("
+                "'.series-chart[data-analysis=\\\"rmsd\\\"] .series-line').length === 1"
+            )
             chart_svg = page.locator('.series-chart[data-analysis="rmsd"] .series-svg')
             chart_svg.scroll_into_view_if_needed()
             chart_box = chart_svg.bounding_box()
             page.mouse.click(chart_box["x"] + (chart_box["width"] / 2),
                              chart_box["y"] + 110)
             page.wait_for_function("() => document.documentElement.dataset.page === 'viewer'")
-            page.wait_for_function("() => { const s = window.FastMDXMoleculeViewer.STATE;"
-                                   " const i = Number(document.getElementById('traj-slider').value);"
-                                   " return s.playbackFrameIndices[i] === 3; }")
+            page.wait_for_function(
+                "() => { const s = window.FastMDXMoleculeViewer.STATE;"
+                " const i = Number(document.getElementById('traj-slider').value);"
+                " return s.playbackFrameIndices[i] === 3; }"
+            )
 
             page.evaluate("() => window.FastMDXDashboard.navigate('analysis')")
             range_form = page.locator('.series-chart[data-analysis="rmsd"] .series-range')
@@ -174,9 +178,11 @@ def test_the_series_is_plotted_under_the_frames_and_follows_them(study) -> None:
             range_form.locator('[data-range="to"]').fill(str(rmsd["x"][4]))
             range_form.get_by_role("button", name="Apply range").click()
             page.evaluate("() => window.dispatchEvent(new CustomEvent('dashboard:run-changed'))")
-            page.wait_for_function("() => Number(document.querySelector("
-                                   "'.series-chart[data-analysis=\\\"rmsd\\\"] [data-range=\\\"from\\\"]').value)"
-                                   " === " + str(rmsd["x"][0]))
+            page.wait_for_function(
+                "() => Number(document.querySelector("
+                '\'.series-chart[data-analysis=\\"rmsd\\"] [data-range=\\"from\\"]\').value)'
+                " === " + str(rmsd["x"][0])
+            )
             browser.close()
     finally:
         session.server.shutdown()

@@ -15,11 +15,11 @@ frame, from the analysis manifest), and the time as the loader set it: frame
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import math
 import re
-import csv
-import io
 from pathlib import Path
 from typing import Any
 
@@ -251,7 +251,10 @@ def _profile_entities(root: Path, path: Path, record: dict[str, Any],
         return [None] * len(rows)
     try:
         from fastmdxplora.analysis.residues import (
-            chain_name, insertion_code, number, remember_insertion_codes,
+            chain_name,
+            insertion_code,
+            number,
+            remember_insertion_codes,
         )
         from fastmdxplora.utils.native_output import topology_quietly
 

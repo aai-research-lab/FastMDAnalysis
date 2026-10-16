@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from io import BytesIO
 from pathlib import Path
-import hashlib
-import time
 
 import pytest
 
@@ -343,8 +343,13 @@ def test_terminal_token_endpoint_errors_are_safe_and_require_new_sign_in(monkeyp
     from fastmdxplora.agent import openai_chatgpt as oauth
 
     def rejected(_request, **_kwargs):
-        raise urllib.error.HTTPError(oauth.TOKEN_URL, 400, "bad grant", {},
-                                     BytesIO(json.dumps({"error": error, "secret": "test-secret"}).encode()))
+        raise urllib.error.HTTPError(
+            oauth.TOKEN_URL,
+            400,
+            "bad grant",
+            {},
+            BytesIO(json.dumps({"error": error, "secret": "test-secret"}).encode()),
+        )
 
     monkeypatch.setattr(urllib.request, "urlopen", rejected)
     with pytest.raises(oauth.InvalidGrant) as caught:
@@ -573,7 +578,9 @@ def test_responses_stream_requires_completed_and_reports_incomplete_or_failed(mo
                        "incomplete_details": {"reason": "max_output_tokens"}}}],
                    [{"type": "response.failed", "response": {
                        "error": {"code": "subscription_sharing_usage_limit_exceeded"}}}]):
-        monkeypatch.setattr(urllib.request, "urlopen", lambda *_a, events=events, **_kw: Reply(events))
+        monkeypatch.setattr(
+            urllib.request, "urlopen", lambda *_a, events=events, **_kw: Reply(events)
+        )
         with pytest.raises(StudyError):
             turns.take_turn(url="https://api.openai.com/v1/responses",
                             headers={"Authorization": "Bearer route-test-token"},
@@ -657,7 +664,9 @@ def test_macos_console_login_sanitizes_the_existing_terminal_environment(monkeyp
     monkeypatch.setattr(anthropic_cli, "_login_pending", False)
     monkeypatch.setattr(anthropic_cli, "_login_started", None)
     monkeypatch.setattr(anthropic_cli, "_login_process", None)
-    monkeypatch.setattr(anthropic_cli.subprocess, "Popen", lambda args, **_kw: launched.append(args))
+    monkeypatch.setattr(
+        anthropic_cli.subprocess, "Popen", lambda args, **_kw: launched.append(args)
+    )
     assert anthropic_cli.connect()["ok"]
     script = launched[0][-1]
     assert "/usr/bin/env -i" in script
@@ -665,7 +674,9 @@ def test_macos_console_login_sanitizes_the_existing_terminal_environment(monkeyp
     assert "never-inherit" not in script and "ANTHROPIC_API_KEY" not in script
 
 
-def test_disconnect_removes_the_saved_key_even_when_environment_auth_is_active(monkeypatch, tmp_path):
+def test_disconnect_removes_the_saved_key_even_when_environment_auth_is_active(
+    monkeypatch, tmp_path
+):
     from fastmdxplora.agent import models
     from fastmdxplora.gui.agent_panel import auth_endpoint
 
@@ -680,7 +691,9 @@ def test_disconnect_removes_the_saved_key_even_when_environment_auth_is_active(m
     assert models._stored_api_key(choice) == ""
 
 
-def test_disconnect_reports_a_locked_vault_without_claiming_the_key_was_removed(monkeypatch, tmp_path):
+def test_disconnect_reports_a_locked_vault_without_claiming_the_key_was_removed(
+    monkeypatch, tmp_path
+):
     from types import SimpleNamespace
 
     from fastmdxplora.agent import models
@@ -697,7 +710,9 @@ def test_disconnect_reports_a_locked_vault_without_claiming_the_key_was_removed(
     assert "test-key" not in result["status"]["message"]
 
 
-def test_settings_save_failure_preserves_the_previous_choice_and_reports_the_error(monkeypatch, tmp_path):
+def test_settings_save_failure_preserves_the_previous_choice_and_reports_the_error(
+    monkeypatch, tmp_path
+):
     from pathlib import Path
 
     from fastmdxplora.agent import models
@@ -811,7 +826,9 @@ def test_live_agent_settings_switch_provider_method_and_persist_the_real_selecti
             page.set_default_timeout(30000)
             page.goto(session.url + "#agent", wait_until="domcontentloaded")
             page.wait_for_function("() => document.body.classList.contains('state-ready')")
-            page.wait_for_function("() => document.getElementById('agent-provider').options.length >= 3")
+            page.wait_for_function(
+                "() => document.getElementById('agent-provider').options.length >= 3"
+            )
             page.click("#agent-settings-open")
             page.wait_for_selector("#agent-settings:not([hidden])")
 
@@ -823,7 +840,9 @@ def test_live_agent_settings_switch_provider_method_and_persist_the_real_selecti
             assert page.locator("#agent-auth-connect").inner_text() == "Continue with ChatGPT"
             page.wait_for_function("() => document.getElementById('agent-auth-status')"
                                    ".textContent.includes('No ChatGPT account is connected')")
-            assert "No ChatGPT account is connected" in page.locator("#agent-auth-status").inner_text()
+            assert (
+                "No ChatGPT account is connected" in page.locator("#agent-auth-status").inner_text()
+            )
 
             def check_auth_layout():
                 page.locator("#agent-auth-test").scroll_into_view_if_needed()
@@ -872,7 +891,9 @@ def test_live_agent_settings_switch_provider_method_and_persist_the_real_selecti
             page.reload(wait_until="domcontentloaded")
             page.wait_for_function("() => document.body.classList.contains('state-ready')")
             page.click("#agent-settings-open")
-            page.wait_for_function("() => document.getElementById('agent-provider').value === 'openai'")
+            page.wait_for_function(
+                "() => document.getElementById('agent-provider').value === 'openai'"
+            )
             assert page.locator("#agent-auth-method").input_value() == "chatgpt_plan"
             assert "Saved for Agent requests: OpenAI · gpt-5 · ChatGPT plan sign-in" \
                 in page.locator("#agent-model-current").inner_text()
@@ -884,7 +905,8 @@ def test_live_agent_settings_switch_provider_method_and_persist_the_real_selecti
             console_option = page.locator(
                 "#agent-auth-method option[value='anthropic_console']")
             assert page.locator("#agent-auth-method option").evaluate_all(
-                "options => options.map(option => option.value)") == ["api_key", "anthropic_console"]
+                "options => options.map(option => option.value)"
+            ) == ["api_key", "anthropic_console"]
             from fastmdxplora.agent.anthropic_cli import can_launch_login, executable
 
             console_available = bool(executable() and can_launch_login())
@@ -899,15 +921,17 @@ def test_live_agent_settings_switch_provider_method_and_persist_the_real_selecti
             summary = page.locator("#agent-model-current").inner_text()
             assert "Saved for Agent requests: OpenAI · gpt-5 · ChatGPT plan sign-in" in summary
             method = "Claude Console OAuth (official ant CLI)" if console_available else "API key"
-            assert f"Current selection (unsaved): Anthropic · claude-sonnet-4-6 · {method}" in summary
+            assert (
+                f"Current selection (unsaved): Anthropic · claude-sonnet-4-6 · {method}" in summary
+            )
             browser.close()
     finally:
         session.server.shutdown()
 
 
 def test_concurrent_refresh_reads_are_serialized(chatgpt_vault):
-    from concurrent.futures import ThreadPoolExecutor
     import threading
+    from concurrent.futures import ThreadPoolExecutor
 
     oauth, _ = chatgpt_vault
     entered = threading.Event()

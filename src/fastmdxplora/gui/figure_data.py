@@ -701,7 +701,11 @@ def _residue_entities(root: Path, labels: list[str]) -> list[dict[str, Any] | No
         return [None] * len(labels)
     try:
         from fastmdxplora.analysis.residues import (
-            chain_name, insertion_code, named, number, remember_insertion_codes,
+            chain_name,
+            insertion_code,
+            named,
+            number,
+            remember_insertion_codes,
             several_chains,
         )
         from fastmdxplora.utils.native_output import topology_quietly

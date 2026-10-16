@@ -148,10 +148,14 @@ def _exchange(form: dict[str, str], *, timeout: float = 20.0) -> dict[str, Any]:
         except (ValueError, UnicodeError, AttributeError):
             code = ""
         if isinstance(code, str) and code in _UNUSABLE_GRANTS:
-            raise InvalidGrant("This sign-in code or refresh token expired. Start sign-in again.") from None
+            raise InvalidGrant(
+                "This sign-in code or refresh token expired. Start sign-in again."
+            ) from None
         raise SignInError(f"OpenAI sign-in returned HTTP {exc.code}. Try again.") from None
     except (urllib.error.URLError, OSError, TimeoutError):
-        raise SignInError("OpenAI sign-in could not be reached. Check the connection and try again.") from None
+        raise SignInError(
+            "OpenAI sign-in could not be reached. Check the connection and try again."
+        ) from None
     except (UnicodeError, ValueError):
         raise SignInError("OpenAI sign-in returned an unreadable response. Try again.") from None
     if not isinstance(answer, dict):
@@ -165,7 +169,9 @@ def _fetch_json(url: str, *, timeout: float = 15.0) -> dict[str, Any]:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             value = json.loads(response.read().decode("utf-8"))
     except (urllib.error.URLError, OSError, TimeoutError, UnicodeError, ValueError):
-        raise SignInError("OpenAI authentication metadata could not be reached. Try again.") from None
+        raise SignInError(
+            "OpenAI authentication metadata could not be reached. Try again."
+        ) from None
     if not isinstance(value, dict):
         raise SignInError("OpenAI authentication metadata was not valid JSON.")
     return value
@@ -244,7 +250,13 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
         with _lock:
             attempt = _pending.get(state)
         if attempt is None:
-            self._answer(400, "This sign-in callback is expired or did not match. Return to FastMDXplora and try again.")
+            self._answer(
+                400,
+                (
+                    "This sign-in callback is expired or did not match. Return to "
+                    "FastMDXplora and try again."
+                ),
+            )
             return
         try:
             error = (query.get("error") or [""])[0]
@@ -259,11 +271,15 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
                 raise SignInError("The sign-in callback did not include an authorization code.")
             if expected_client:
                 if callback_client and callback_client != expected_client:
-                    raise SignInError("The sign-in callback returned a different account registration.")
+                    raise SignInError(
+                        "The sign-in callback returned a different account registration."
+                    )
                 client_id = expected_client
             else:
                 if not callback_client or callback_client == "dynamic_agent_client":
-                    raise SignInError("OpenAI did not return the newly registered client ID. Try again.")
+                    raise SignInError(
+                        "OpenAI did not return the newly registered client ID. Try again."
+                    )
                 client_id = callback_client
                 store = _read_store()
                 store["pending_client_id"] = client_id
@@ -279,9 +295,13 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
             existing = _account(store, client_id)
             subject = tokens["subject"]
             if existing is not None and str(existing.get("subject") or "") != subject:
-                raise SignInError("This client ID belongs to another ChatGPT account. Its saved credentials were kept.")
-            tokens.update({"client_id": client_id, "issuer": ISSUER,
-                           "ext_agent_host_id": attempt["host_id"]})
+                raise SignInError(
+                    "This client ID belongs to another ChatGPT account. Its saved "
+                    "credentials were kept."
+                )
+            tokens.update(
+                {"client_id": client_id, "issuer": ISSUER, "ext_agent_host_id": attempt["host_id"]}
+            )
             if existing is not None:
                 store["accounts"].remove(existing)
             store["accounts"].append(tokens)
@@ -291,12 +311,16 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
             store["host_id"] = attempt["host_id"]
             with _lock:
                 if _pending.get(state) is not attempt:
-                    raise SignInError("This ChatGPT sign-in was canceled. Start it again when ready.")
+                    raise SignInError(
+                        "This ChatGPT sign-in was canceled. Start it again when ready."
+                    )
                 _write_store(store)
-                _pending_note = ("ChatGPT sign-in completed; test model access before saving this route."
-                                 if PLAN_SCOPE in tokens["scopes"] else
-                                 "Signed in, but ChatGPT plan use was not authorized. "
-                                 "Choose Continue with ChatGPT and approve plan use, or use an API key.")
+                _pending_note = (
+                    "ChatGPT sign-in completed; test model access before saving this route."
+                    if PLAN_SCOPE in tokens["scopes"]
+                    else "Signed in, but ChatGPT plan use was not authorized. "
+                    "Choose Continue with ChatGPT and approve plan use, or use an API key."
+                )
             self._answer(200, "ChatGPT sign-in is complete. You can return to FastMDXplora.")
         except SignInError as exc:
             _pending_note = str(exc)
@@ -309,7 +333,7 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
 
     def _answer(self, status: int, message: str) -> None:
         body = ("<!doctype html><meta charset=utf-8><title>FastMDXplora sign-in</title>"
-                f"<p>{html.escape(message)}</p>").encode("utf-8")
+                f"<p>{html.escape(message)}</p>").encode()
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
@@ -366,8 +390,13 @@ def connect(*, client_id: str = "", add_account: bool = False) -> dict[str, Any]
     """Start a documented loopback public-client OAuth attempt in a browser."""
     global _pending_note
     if _vault() is None:
-        return {"ok": False, "message":
-                "A supported OS credential vault is required for ChatGPT sign-in. Use an OpenAI API key instead."}
+        return {
+            "ok": False,
+            "message": (
+                "A supported OS credential vault is required for ChatGPT sign-in. Use"
+                " an OpenAI API key instead."
+            ),
+        }
     with _lock:
         if _pending:
             return {"ok": False, "message": "A ChatGPT sign-in is already waiting in the browser."}
@@ -385,7 +414,13 @@ def connect(*, client_id: str = "", add_account: bool = False) -> dict[str, Any]
     try:
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _CallbackHandler)
     except OSError:
-        return {"ok": False, "message": "The local sign-in callback could not be started. Close another dashboard and retry."}
+        return {
+            "ok": False,
+            "message": (
+                "The local sign-in callback could not be started. Close another "
+                "dashboard and retry."
+            ),
+        }
     server.daemon_threads = True
     port = int(server.server_address[1])
     redirect_uri = f"http://127.0.0.1:{port}/auth/callback"
@@ -436,9 +471,22 @@ def connect(*, client_id: str = "", add_account: bool = False) -> dict[str, Any]
         opened = False
     if not opened:
         _finish_attempt(state)
-        return {"ok": False, "message": "The system browser could not open. Check the default browser and try again."}
-    return {"ok": True, "pending": True,
-            "message": "Continue with ChatGPT in the system browser. Approve the requested access or cancel there; this dashboard will update when the callback returns."}
+        return {
+            "ok": False,
+            "message": (
+                "The system browser could not open. Check the default browser and try"
+                " again."
+            ),
+        }
+    return {
+        "ok": True,
+        "pending": True,
+        "message": (
+            "Continue with ChatGPT in the system browser. Approve the requested "
+            "access or cancel there; this dashboard will update when the callback"
+            " returns."
+        ),
+    }
 
 
 def _expire_attempt(state: str) -> None:
@@ -495,7 +543,9 @@ def access_token() -> str:
                 "ChatGPT plan use is not authorized for this account. Continue with ChatGPT "
                 "in Agent Settings and approve plan use, or choose API-key authentication.")
         if str(active.get("token_type") or "Bearer").casefold() != "bearer":
-            raise SignInError("The saved ChatGPT sign-in does not use bearer tokens. Sign in again.")
+            raise SignInError(
+                "The saved ChatGPT sign-in does not use bearer tokens. Sign in again."
+            )
         if int(active.get("expires_at") or 0) <= int(time.time()) + 60:
             try:
                 response = _exchange({
@@ -512,7 +562,9 @@ def access_token() -> str:
             access = str(response.get("access_token") or "")
             if not access:
                 raise SignInError("OpenAI token refresh returned no access token. Sign in again.")
-            scopes = sorted(set(str(response.get("scope") or " ".join(active.get("scopes", []))).split()))
+            scopes = sorted(
+                set(str(response.get("scope") or " ".join(active.get("scopes", []))).split())
+            )
             try:
                 expires_in = int(response.get("expires_in") or 0)
             except (TypeError, ValueError):
@@ -532,16 +584,25 @@ def access_token() -> str:
             if PLAN_SCOPE not in scopes:
                 store["active_client_id"] = ""
                 _write_store(store)
-                raise SignInError("OpenAI refresh no longer includes ChatGPT plan permission. Sign in again.")
+                raise SignInError(
+                    "OpenAI refresh no longer includes ChatGPT plan permission. Sign in again."
+                )
             _write_store(store)
         return str(active["access_token"])
 
 
 def status() -> dict[str, Any]:
     if _vault() is None:
-        return {"available": False, "connected": False,
-                "message": "A supported OS credential vault is required for ChatGPT sign-in. Use an OpenAI API key instead.",
-                "accounts": [], "active_client_id": ""}
+        return {
+            "available": False,
+            "connected": False,
+            "message": (
+                "A supported OS credential vault is required for ChatGPT sign-in. Use"
+                " an OpenAI API key instead."
+            ),
+            "accounts": [],
+            "active_client_id": "",
+        }
     store = _read_store()
     active = _account(store, str(store.get("active_client_id") or ""))
     pending = bool(_pending)
@@ -562,9 +623,13 @@ def status() -> dict[str, Any]:
                    "but ChatGPT plan use was not authorized. Continue with ChatGPT to approve it.")
     else:
         message = _pending_note or (
-            "A ChatGPT client registration is waiting for sign-in. Continue with ChatGPT to finish it."
-            if store.get("pending_client_id") else
-            "No ChatGPT account is connected. Continue with ChatGPT to sign in.")
+            (
+                "A ChatGPT client registration is waiting for sign-in. Continue with "
+                "ChatGPT to finish it."
+            )
+            if store.get("pending_client_id")
+            else "No ChatGPT account is connected. Continue with ChatGPT to sign in."
+        )
     return {"available": True, "connected": connected, "pending": pending, "message": message,
             "accounts": account_choices(store),
             "active_client_id": store.get("active_client_id", "")}
@@ -581,14 +646,22 @@ def list_models(*, timeout: float = 12.0) -> list[dict[str, str]]:
             answer = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         if exc.code == 401:
-            raise SignInError("OpenAI rejected the active ChatGPT sign-in. Reconnect it in Agent Settings.") from None
+            raise SignInError(
+                "OpenAI rejected the active ChatGPT sign-in. Reconnect it in Agent Settings."
+            ) from None
         if exc.code == 403:
-            raise SignInError("OpenAI policy or account permissions prevent listing models.") from None
+            raise SignInError(
+                "OpenAI policy or account permissions prevent listing models."
+            ) from None
         if exc.code == 503:
-            raise SignInError("ChatGPT plan routing is temporarily unavailable. Try again shortly.") from None
+            raise SignInError(
+                "ChatGPT plan routing is temporarily unavailable. Try again shortly."
+            ) from None
         raise SignInError(f"OpenAI model listing returned HTTP {exc.code}.") from None
     except (urllib.error.URLError, OSError, TimeoutError, UnicodeError, ValueError):
-        raise SignInError("OpenAI models could not be reached. Check the connection and try again.") from None
+        raise SignInError(
+            "OpenAI models could not be reached. Check the connection and try again."
+        ) from None
     rows = answer.get("models") if isinstance(answer, dict) else None
     if not isinstance(rows, list):
         raise SignInError("OpenAI returned an unrecognized ChatGPT model catalog.")
@@ -610,8 +683,13 @@ def disconnect(*, client_id: str = "") -> dict[str, Any]:
     selected_id = client_id or str(store.get("active_client_id") or "")
     account = _account(store, selected_id)
     if account is None:
-        return {"ok": True, "remote_revoked": True,
-                "message": "ChatGPT sign-in canceled." if canceled else "No saved ChatGPT sign-in was found."}
+        return {
+            "ok": True,
+            "remote_revoked": True,
+            "message": "ChatGPT sign-in canceled."
+            if canceled
+            else "No saved ChatGPT sign-in was found.",
+        }
     refresh = str(account.get("refresh_token") or "")
     remote_revoked = not refresh
     remote_error = ""
@@ -665,7 +743,13 @@ def activate(*, client_id: str) -> dict[str, Any]:
     if account is None:
         return {"ok": False, "message": "Select a saved ChatGPT account."}
     if PLAN_SCOPE not in account.get("scopes", []) or not account.get("refresh_token"):
-        return {"ok": False, "message": "This account has no active ChatGPT plan grant. Continue with ChatGPT first."}
+        return {
+            "ok": False,
+            "message": (
+                "This account has no active ChatGPT plan grant. Continue with ChatGPT"
+                " first."
+            ),
+        }
     previous_id = str(store.get("active_client_id") or "")
     store["active_client_id"] = client_id
     _write_store(store)
@@ -674,7 +758,9 @@ def activate(*, client_id: str) -> dict[str, Any]:
     except SignInError as exc:
         store = _read_store()
         previous = _account(store, previous_id)
-        store["active_client_id"] = previous_id if previous and previous.get("refresh_token") else ""
+        store["active_client_id"] = (
+            previous_id if previous and previous.get("refresh_token") else ""
+        )
         _write_store(store)
         return {"ok": False, "message": str(exc)}
     return {"ok": True, "message": "The selected ChatGPT account is active."}

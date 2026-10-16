@@ -333,16 +333,20 @@ def forget_api_key(choice: ModelChoice, path: Path | None = None) -> bool:
     """Remove a saved provider key without changing environment variables."""
     keyring = _secure_keyring()
     if keyring is None:
-        raise StudyError("The OS credential vault is unavailable. Unlock it and try disconnecting again.",
-                         code="environment.credentials.secure_store_unavailable")
+        raise StudyError(
+            "The OS credential vault is unavailable. Unlock it and try disconnecting again.",
+            code="environment.credentials.secure_store_unavailable",
+        )
     service, username = _credential_identity(choice, path)
     try:
         if keyring.get_password(service, username) is None:
             return False
         keyring.delete_password(service, username)
     except Exception:  # noqa: BLE001 - vault errors must not expose credentials
-        raise StudyError("The saved API key could not be removed. Unlock the OS credential vault and retry.",
-                         code="environment.credentials.secure_store_unavailable") from None
+        raise StudyError(
+            "The saved API key could not be removed. Unlock the OS credential vault and retry.",
+            code="environment.credentials.secure_store_unavailable",
+        ) from None
     return True
 
 
@@ -461,7 +465,8 @@ def list_models(choice: ModelChoice | None = None, *,
     fallback = tuple(spec.get("models") or ())
 
     if chosen.auth_method == "chatgpt_plan":
-        from fastmdxplora.agent.openai_chatgpt import SignInError, list_models as siwc_models
+        from fastmdxplora.agent.openai_chatgpt import SignInError
+        from fastmdxplora.agent.openai_chatgpt import list_models as siwc_models
 
         try:
             return tuple(item["id"] for item in siwc_models(timeout=timeout))
@@ -520,7 +525,8 @@ def probe_connection(choice: ModelChoice | None = None, *,
         return {"connected": False, "message": "Save a provider and model first."}
     spec = PROVIDERS[settled.provider]
     if settled.auth_method == "chatgpt_plan":
-        from fastmdxplora.agent.openai_chatgpt import SignInError, list_models as siwc_models
+        from fastmdxplora.agent.openai_chatgpt import SignInError
+        from fastmdxplora.agent.openai_chatgpt import list_models as siwc_models
 
         try:
             options = siwc_models(timeout=timeout)
@@ -559,7 +565,9 @@ def probe_connection(choice: ModelChoice | None = None, *,
         elif exc.code == 429:
             message = "The provider rate limit or account quota was reached. Try again later."
         else:
-            message = f"The provider returned HTTP {exc.code}. Check the model access and try again."
+            message = (
+                f"The provider returned HTTP {exc.code}. Check the model access and try again."
+            )
         return {"connected": False, "message": message}
     except (urllib.error.URLError, OSError, ValueError, TimeoutError):
         return {"connected": False,
@@ -575,9 +583,11 @@ def probe_connection(choice: ModelChoice | None = None, *,
                 "message": ("Connected, but the selected model is not visible to this "
                             "credential. Choose one of the provider's listed models."),
                 "models": model_names}
-    return {"connected": True,
-            "message": f"Connected. {len(model_names)} available model(s) reported by the provider.",
-            "models": model_names}
+    return {
+        "connected": True,
+        "message": f"Connected. {len(model_names)} available model(s) reported by the provider.",
+        "models": model_names,
+    }
 
 
 def completion_for(choice: ModelChoice | None = None, *,

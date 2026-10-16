@@ -76,8 +76,11 @@ def status() -> dict[str, Any]:
         result = _run(["models", "list", "--format", "json"])
         if result.returncode == 0:
             _login_pending = False
-            return {"available": True, "connected": True,
-                    "message": "Connected to the Claude API through the app's Claude Console profile."}
+            return {
+                "available": True,
+                "connected": True,
+                "message": "Connected to the Claude API through the app's Claude Console profile.",
+            }
         message = "Claude Console access is not ready. Sign in again from Agent Settings."
     except subprocess.TimeoutExpired:
         message = "Claude Console did not respond. Check the connection and try again."
@@ -90,8 +93,14 @@ def status() -> dict[str, Any]:
             return {"available": True, "connected": None, "pending": True,
                     "message": "Waiting for Claude Console sign-in in the opened terminal/browser."}
         _login_pending = False
-        return {"available": True, "connected": False,
-                "message": "Claude Console sign-in was canceled, failed, or timed out. Start it again from Agent Settings."}
+        return {
+            "available": True,
+            "connected": False,
+            "message": (
+                "Claude Console sign-in was canceled, failed, or timed out. Start it "
+                "again from Agent Settings."
+            ),
+        }
     return {"available": True, "connected": False, "message": message}
 
 
@@ -155,8 +164,13 @@ def connect() -> dict[str, Any]:
                                                stdout=subprocess.DEVNULL,
                                                stderr=subprocess.DEVNULL, close_fds=True)
     except OSError:
-        return {"ok": False, "message":
-                "The Claude sign-in terminal could not be opened. Check the system terminal and retry from Agent Settings."}
+        return {
+            "ok": False,
+            "message": (
+                "The Claude sign-in terminal could not be opened. Check the system "
+                "terminal and retry from Agent Settings."
+            ),
+        }
     _login_started = time.monotonic()
     _login_pending = True
     return {"ok": True, "message":

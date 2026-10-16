@@ -90,7 +90,9 @@ def test_exact_frame_routes_validate_source_signature_and_bounds(tmp_path):
 
 def test_exact_xtc_and_dcd_fallback_hold_the_requested_coordinates(tmp_path):
     from fastmdxplora.gui.trajectory_frames import (
-        exact_frame_xtc, exact_frames_dcd, frames_info,
+        exact_frame_xtc,
+        exact_frames_dcd,
+        frames_info,
     )
 
     root = _study(tmp_path / "study")
@@ -126,7 +128,9 @@ def test_nonzero_analysis_start_and_stride_keep_source_frame_numbers(tmp_path):
 @pytest.mark.parametrize("to", ["first", "start"])
 def test_exact_frame_uses_the_viewers_backbone_alignment(tmp_path, to):
     from fastmdxplora.gui.trajectory_frames import (
-        exact_frame_xtc, frames_info, superposed_frames,
+        exact_frame_xtc,
+        frames_info,
+        superposed_frames,
     )
 
     root = _study(tmp_path / "study")
@@ -179,8 +183,8 @@ def test_a_chart_click_shows_exact_frame_coordinates_and_playback_order(tmp_path
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
 
-    from fastmdxplora.gui.server import DashboardConfig, start_dashboard_session
     from fastmdxplora.gui import trajectory_frames
+    from fastmdxplora.gui.server import DashboardConfig, start_dashboard_session
 
     root = _study(tmp_path / "study")
     _series(root)
@@ -212,20 +216,30 @@ def test_a_chart_click_shows_exact_frame_coordinates_and_playback_order(tmp_path
             page.wait_for_function(
                 "() => window.FastMDXMoleculeViewer.STATE.engine"
                 ".find({atom: 'CA'})[0]?.x > 6.98", timeout=90000)
-            got = page.evaluate("() => ({frame: document.getElementById('traj-current').textContent,"
+            got = page.evaluate(
+                "() => ({frame: document.getElementById('traj-current').textContent,"
                 " slider: document.getElementById('traj-slider').value,"
                 " sources: window.FastMDXMoleculeViewer.STATE.playbackFrameIndices,"
                 " engine: window.FastMDXMoleculeViewer.STATE.playbackEngineIndices,"
-                " x: window.FastMDXMoleculeViewer.STATE.engine.find({atom:'CA'})[0].x})")
+                " x: window.FastMDXMoleculeViewer.STATE.engine.find({atom:'CA'})[0].x})"
+            )
             assert got["frame"] == "3"
             assert got["sources"] == [0, 5, 7, 10]
             assert got["engine"] == [0, 1, 3, 2]
             assert got["x"] == pytest.approx(7.0, abs=0.02)
             # The next slider step is source frame 10 and the previous one is 5.
-            page.locator("#traj-slider").evaluate("el => { el.value = '3'; el.dispatchEvent(new Event('input')); }")
-            page.wait_for_function("() => document.getElementById('traj-current').textContent === '4'")
-            page.locator("#traj-slider").evaluate("el => { el.value = '1'; el.dispatchEvent(new Event('input')); }")
-            page.wait_for_function("() => document.getElementById('traj-current').textContent === '2'")
+            page.locator("#traj-slider").evaluate(
+                "el => { el.value = '3'; el.dispatchEvent(new Event('input')); }"
+            )
+            page.wait_for_function(
+                "() => document.getElementById('traj-current').textContent === '4'"
+            )
+            page.locator("#traj-slider").evaluate(
+                "el => { el.value = '1'; el.dispatchEvent(new Event('input')); }"
+            )
+            page.wait_for_function(
+                "() => document.getElementById('traj-current').textContent === '2'"
+            )
 
             def select_chart_frame(frame: int) -> None:
                 page.evaluate("() => window.FastMDXDashboard.navigate('analysis')")
@@ -238,11 +252,15 @@ def test_a_chart_click_shows_exact_frame_coordinates_and_playback_order(tmp_path
                 page.mouse.click(point_x, rect["y"] + rect["height"] / 2)
 
             select_chart_frame(0)
-            page.wait_for_function("() => document.getElementById('traj-current').textContent === '1'")
+            page.wait_for_function(
+                "() => document.getElementById('traj-current').textContent === '1'"
+            )
             page.wait_for_function("() => window.FastMDXMoleculeViewer.STATE.engine"
                 ".find({atom:'CA'})[0]?.x < 0.02")
             select_chart_frame(10)
-            page.wait_for_function("() => document.getElementById('traj-current').textContent === '4'")
+            page.wait_for_function(
+                "() => document.getElementById('traj-current').textContent === '4'"
+            )
             page.wait_for_function("() => window.FastMDXMoleculeViewer.STATE.engine"
                 ".find({atom:'CA'})[0]?.x > 9.98")
 
@@ -271,12 +289,14 @@ def test_a_chart_click_shows_exact_frame_coordinates_and_playback_order(tmp_path
             rect = svg.bounding_box()
             page.mouse.click(rect["x"] + 64 + (rect["width"] - 64 - 28) * 0.9,
                              rect["y"] + rect["height"] / 2)
-            page.wait_for_function("() => window.FastMDXMoleculeViewer.STATE.exactFrame?.frame === 9",
-                                   timeout=60000)
+            page.wait_for_function(
+                "() => window.FastMDXMoleculeViewer.STATE.exactFrame?.frame === 9", timeout=60000
+            )
             page.wait_for_timeout(1000)
             assert page.evaluate("() => window.FastMDXMoleculeViewer.STATE.exactFrame.frame") == 9
-            assert page.evaluate("() => window.FastMDXMoleculeViewer.STATE.engine.find({atom:'CA'})[0].x") \
-                == pytest.approx(9.0, abs=0.02)
+            assert page.evaluate(
+                "() => window.FastMDXMoleculeViewer.STATE.engine.find({atom:'CA'})[0].x"
+            ) == pytest.approx(9.0, abs=0.02)
 
             original_xtc = trajectory_frames.exact_frame_xtc
             def interrupted_frame(output_dir, frame, **kwargs):
@@ -393,10 +413,12 @@ def test_figure_chart_supports_keyboard_navigation_and_ignores_clicks_outside_it
             page.mouse.move(box["x"] + 62 + (box["width"] - 82) * 0.2, point_y)
             page.mouse.click(box["x"] + 30, point_y)
             page.wait_for_timeout(700)
-            stayed = page.evaluate("() => { const s = window.FastMDXMoleculeViewer.STATE;"
-                                   " const i = Number(document.getElementById('traj-slider').value);"
-                                   " return {frame: s.playbackFrameIndices[i],"
-                                   " x: s.engine.find({atom:'CA'})[0].x}; }")
+            stayed = page.evaluate(
+                "() => { const s = window.FastMDXMoleculeViewer.STATE;"
+                " const i = Number(document.getElementById('traj-slider').value);"
+                " return {frame: s.playbackFrameIndices[i],"
+                " x: s.engine.find({atom:'CA'})[0].x}; }"
+            )
             browser.close()
     finally:
         session.server.shutdown()

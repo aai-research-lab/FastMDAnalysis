@@ -46,34 +46,51 @@ def _auth_methods(provider: str, *, local_auth_allowed: bool = True) -> list[dic
 
         installed = bool(anthropic_cli.executable())
         terminal_available = installed and anthropic_cli.can_launch_login()
-        methods.append({
-            "id": "anthropic_console", "label": "Claude Console OAuth (official ant CLI)",
-            "available": local_auth_allowed and terminal_available,
-            "requires_api_key": False,
-            "reason": ("Provider credentials and interactive sign-in are available only in the local dashboard."
-                       if not local_auth_allowed else
-                       "Install Anthropic's official ant CLI to enable this method. "
-                       "This is Claude Console API OAuth."
-                       if not installed else
-                       "A local interactive terminal is required."
-                       if not terminal_available else
-                       "This is Claude Console API OAuth."),
-        })
+        methods.append(
+            {
+                "id": "anthropic_console",
+                "label": "Claude Console OAuth (official ant CLI)",
+                "available": local_auth_allowed and terminal_available,
+                "requires_api_key": False,
+                "reason": (
+                    (
+                        "Provider credentials and interactive sign-in are available only in "
+                        "the local dashboard."
+                    )
+                    if not local_auth_allowed
+                    else "Install Anthropic's official ant CLI to enable this method. "
+                    "This is Claude Console API OAuth."
+                    if not installed
+                    else "A local interactive terminal is required."
+                    if not terminal_available
+                    else "This is Claude Console API OAuth."
+                ),
+            }
+        )
     if provider == "openai":
         from fastmdxplora.agent.models import _secure_keyring
 
         vault_available = _secure_keyring() is not None
-        methods.append({
-            "id": "chatgpt_plan", "label": "ChatGPT plan sign-in",
-            "available": local_auth_allowed and vault_available,
-            "requires_api_key": False,
-            "reason": ("Provider credentials and interactive sign-in are available only in the local dashboard."
-                       if not local_auth_allowed else
-                       "A supported OS credential vault is required to save ChatGPT tokens. "
-                       "Use an OpenAI API key instead." if not vault_available else
-                       "Sign in locally with ChatGPT. The signed-in account must authorize "
-                       "ChatGPT plan usage; API keys remain a separate option."),
-        })
+        methods.append(
+            {
+                "id": "chatgpt_plan",
+                "label": "ChatGPT plan sign-in",
+                "available": local_auth_allowed and vault_available,
+                "requires_api_key": False,
+                "reason": (
+                    (
+                        "Provider credentials and interactive sign-in are available only in "
+                        "the local dashboard."
+                    )
+                    if not local_auth_allowed
+                    else "A supported OS credential vault is required to save ChatGPT tokens. "
+                    "Use an OpenAI API key instead."
+                    if not vault_available
+                    else "Sign in locally with ChatGPT. The signed-in account must authorize "
+                    "ChatGPT plan usage; API keys remain a separate option."
+                ),
+            }
+        )
     return methods
 
 
@@ -123,8 +140,14 @@ def model_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) 
     and, if a key came with it, the key.
     """
     from fastmdxplora.agent.models import (
-        CACHE_FOR, PROVIDERS, ModelChoice, _takes_tools, default_model, load_choice,
-        model_path, save_choice,
+        CACHE_FOR,
+        PROVIDERS,
+        ModelChoice,
+        _takes_tools,
+        default_model,
+        load_choice,
+        model_path,
+        save_choice,
     )
 
     if not payload.get("provider"):
@@ -207,7 +230,13 @@ def model_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) 
     except StudyError as exc:
         return {"ok": False, "error": str(exc), "code": exc.code}
     except OSError:
-        return {"ok": False, "error": "Agent settings could not be saved. Check the settings folder permissions and retry."}
+        return {
+            "ok": False,
+            "error": (
+                "Agent settings could not be saved. Check the settings folder "
+                "permissions and retry."
+            ),
+        }
     # Ask the provider what it actually has, now that there is a key to ask
     # with. The written list is what to show before this can be answered.
     options = _model_options(choice)
@@ -225,11 +254,21 @@ def auth_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) -
     returns status and safe explanations, never a key, token, or CLI output.
     """
     if not local_auth_allowed:
-        return {"ok": False,
-                "error": "Provider credentials and interactive sign-in are available only in the local dashboard."}
+        return {
+            "ok": False,
+            "error": (
+                "Provider credentials and interactive sign-in are available only in "
+                "the local dashboard."
+            ),
+        }
 
     from fastmdxplora.agent.models import (
-        AUTH_METHODS, PROVIDERS, ModelChoice, forget_api_key, load_choice, probe_connection,
+        AUTH_METHODS,
+        PROVIDERS,
+        ModelChoice,
+        forget_api_key,
+        load_choice,
+        probe_connection,
     )
 
     action = str(payload.get("action") or "status")
@@ -257,34 +296,55 @@ def auth_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) -
             result = connect(client_id=str(payload.get("client_id") or ""),
                              add_account=bool(payload.get("add_account")))
             current_status = status()
-            current_status.update({
-                "available": True,
-                "connected": None if result.get("pending") else current_status.get("connected", False),
-                "pending": bool(result.get("pending")),
-                "message": result.get("message") or current_status.get("message", ""),
-            })
+            current_status.update(
+                {
+                    "available": True,
+                    "connected": None
+                    if result.get("pending")
+                    else current_status.get("connected", False),
+                    "pending": bool(result.get("pending")),
+                    "message": result.get("message") or current_status.get("message", ""),
+                }
+            )
             return {"ok": bool(result.get("ok")), "auth_method": auth_method,
                     "status": current_status}
         if provider != "anthropic" or auth_method != "anthropic_console":
-            return {"ok": False, "error": "Interactive sign-in is not supported for this selection."}
+            return {
+                "ok": False,
+                "error": "Interactive sign-in is not supported for this selection.",
+            }
         from fastmdxplora.agent.anthropic_cli import connect
 
         result = connect()
-        return {"ok": bool(result.get("ok")), "auth_method": auth_method,
-                "status": {"available": bool(result.get("ok")),
-                           "connected": None if result.get("ok") else False,
-                           "pending": bool(result.get("ok")),
-                           "message": result.get("message") or "Claude Console sign-in could not start."}}
+        return {
+            "ok": bool(result.get("ok")),
+            "auth_method": auth_method,
+            "status": {
+                "available": bool(result.get("ok")),
+                "connected": None if result.get("ok") else False,
+                "pending": bool(result.get("ok")),
+                "message": result.get("message") or "Claude Console sign-in could not start.",
+            },
+        }
     if action == "activate":
         if provider != "openai" or auth_method != "chatgpt_plan":
-            return {"ok": False, "error": "Saved-account switching is available for ChatGPT sign-in."}
+            return {
+                "ok": False,
+                "error": "Saved-account switching is available for ChatGPT sign-in.",
+            }
         from fastmdxplora.agent.openai_chatgpt import activate, list_models, status
 
         result = activate(client_id=str(payload.get("client_id") or ""))
         if not result.get("ok"):
-            return {"ok": False, "auth_method": auth_method,
-                    "status": {"available": True, "connected": False,
-                               "message": result.get("message") or "That account could not be selected."}}
+            return {
+                "ok": False,
+                "auth_method": auth_method,
+                "status": {
+                    "available": True,
+                    "connected": False,
+                    "message": result.get("message") or "That account could not be selected.",
+                },
+            }
         try:
             options = list_models()
         except Exception as exc:  # noqa: BLE001 - use safe provider error text
@@ -305,10 +365,15 @@ def auth_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) -
             from fastmdxplora.agent.anthropic_cli import disconnect
 
             result = disconnect()
-            return {"ok": bool(result.get("ok")), "auth_method": auth_method,
-                    "status": {"available": True,
-                               "connected": False if result.get("ok") else None,
-                               "message": result.get("message") or "Claude Console sign-out failed."}}
+            return {
+                "ok": bool(result.get("ok")),
+                "auth_method": auth_method,
+                "status": {
+                    "available": True,
+                    "connected": False if result.get("ok") else None,
+                    "message": result.get("message") or "Claude Console sign-out failed.",
+                },
+            }
         base_url = str(payload.get("base_url") or
                        (saved.base_url if saved and saved.provider == provider else ""))
         choice = ModelChoice(provider, str(payload.get("model") or
@@ -321,22 +386,43 @@ def auth_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) -
             return {"ok": False, "auth_method": auth_method,
                     "status": {"available": True, "connected": None, "message": str(exc)}}
         if os.environ.get(PROVIDERS[provider]["env"]):
-            return {"ok": True, "auth_method": auth_method,
-                    "status": {"available": True, "connected": None,
-                               "message": ("The saved key was removed. The environment variable "
-                                           f"{PROVIDERS[provider]['env']} is still active; unset it "
-                                           "to disconnect completely.")}}
-        return {"ok": True, "auth_method": auth_method,
-                "status": {"available": True, "connected": False,
-                           "message": "Saved API key removed from the OS credential vault."
-                           if removed else "No saved API key was found in the OS credential vault."}}
+            return {
+                "ok": True,
+                "auth_method": auth_method,
+                "status": {
+                    "available": True,
+                    "connected": None,
+                    "message": (
+                        "The saved key was removed. The environment variable "
+                        f"{PROVIDERS[provider]['env']} is still active; unset it "
+                        "to disconnect completely."
+                    ),
+                },
+            }
+        return {
+            "ok": True,
+            "auth_method": auth_method,
+            "status": {
+                "available": True,
+                "connected": False,
+                "message": "Saved API key removed from the OS credential vault."
+                if removed
+                else "No saved API key was found in the OS credential vault.",
+            },
+        }
     if action == "test":
         oauth_method = auth_method in {"anthropic_console", "chatgpt_plan"}
         if not oauth_method and (saved is None or saved.provider != provider
                                  or saved.auth_method != auth_method):
-            return {"ok": False, "auth_method": auth_method,
-                    "status": {"available": True, "connected": False,
-                               "message": "Save this provider and authentication method before testing it."}}
+            return {
+                "ok": False,
+                "auth_method": auth_method,
+                "status": {
+                    "available": True,
+                    "connected": False,
+                    "message": "Save this provider and authentication method before testing it.",
+                },
+            }
         choice = (saved if saved and saved.provider == provider
                   and saved.auth_method == auth_method else
                   ModelChoice(provider, str(payload.get("model") or

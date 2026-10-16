@@ -499,7 +499,9 @@ def _responses_streamed(response: Any, on_text: Callable[[str], None] | None,
         if kind == "response.incomplete":
             response_data = event.get("response") or {}
             reason = (response_data.get("incomplete_details") or {}).get("reason")
-            detail = "The ChatGPT response was incomplete" + (f" ({reason})" if reason else "") + "."
+            detail = (
+                "The ChatGPT response was incomplete" + (f" ({reason})" if reason else "") + "."
+            )
             raise StudyError(redacted(detail, secrets),
                              code="environment.service.unusable_response", url=url)
         if kind == "response.output_text.delta":

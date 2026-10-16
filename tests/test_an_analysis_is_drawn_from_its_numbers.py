@@ -138,8 +138,8 @@ class TestTheSeries:
 
     def test_atom_rows_are_tied_to_the_analyzed_topology(self, tmp_path) -> None:
         pytest.importorskip("mdtraj")
-        from tests.test_the_drawing_scripts_run_in_a_browser import _write_study
         from fastmdxplora.utils.native_output import topology_quietly
+        from tests.test_the_drawing_scripts_run_in_a_browser import _write_study
 
         root = _write_study(tmp_path / "study")
         topology_path = root / "simulation" / "trajectory_topology.pdb"
@@ -367,7 +367,9 @@ class TestTheChart:
         assert chart.locator(".series-mean").count() == 1
         assert chart.locator(".series-error").count() == 1
         label = chart.locator("svg").get_attribute("aria-label")
-        assert label.startswith("RMSD, 20 points; full-analysis mean 0.112 nm plus or minus 0.00200")
+        assert label.startswith(
+            "RMSD, 20 points; full-analysis mean 0.112 nm plus or minus 0.00200"
+        )
         assert page.errors == []
 
     def test_pointing_gives_the_value_time_and_frame(self, page) -> None:
@@ -383,7 +385,12 @@ class TestTheChart:
         svg.focus()
         for _ in range(3):
             page.keyboard.press("ArrowRight")
-        assert page.locator('.series-chart[data-analysis="rmsd"] .series-plot').get_attribute("data-at") == "3"
+        assert (
+            page.locator('.series-chart[data-analysis="rmsd"] .series-plot').get_attribute(
+                "data-at"
+            )
+            == "3"
+        )
 
     def test_the_figure_is_a_click_away(self, page) -> None:
         card = page.locator(".analysis-card", has=page.locator('[data-series="rmsd"]'))
@@ -414,7 +421,9 @@ class TestTheChart:
         page.evaluate("() => window.FastMDXDashboard.navigate('viewer')")
         page.wait_for_function("() => document.documentElement.dataset.page === 'viewer'")
         assert page.evaluate("async () => window.FastMDXMoleculeViewer.movie.frames()")
-        page.wait_for_function("() => window.FastMDXMoleculeViewer.STATE.playbackLoaded", timeout=30000)
+        page.wait_for_function(
+            "() => window.FastMDXMoleculeViewer.STATE.playbackLoaded", timeout=30000
+        )
         page.evaluate("() => window.FastMDXMoleculeViewer.movie.showFrame(7)")
         page.wait_for_function("() => window.FastMDXMoleculeViewer.STATE.engine.frame() === 7",
                                timeout=15000)
@@ -440,7 +449,9 @@ class TestTheChart:
             {"chain": "A", "resi": 6, "icode": "", "resn": "ALA"}]
         page.locator("#seq-clear").click()
         page.wait_for_function("() => window.FastMDXMoleculeViewer.STATE.selection === null")
-        assert "selection" not in page.evaluate("() => window.FastMDXMoleculeViewer.currentViewHints()")
+        assert "selection" not in page.evaluate(
+            "() => window.FastMDXMoleculeViewer.currentViewHints()"
+        )
 
 
 def test_clicking_atom_rmsf_selects_the_named_atom_in_the_viewer(tmp_path) -> None:
@@ -448,9 +459,9 @@ def test_clicking_atom_rmsf_selects_the_named_atom_in_the_viewer(tmp_path) -> No
     pytest.importorskip("mdtraj")
     from playwright.sync_api import sync_playwright
 
-    from tests.test_the_drawing_scripts_run_in_a_browser import _write_study
     from fastmdxplora.gui.server import start_dashboard_session
     from fastmdxplora.utils.native_output import topology_quietly
+    from tests.test_the_drawing_scripts_run_in_a_browser import _write_study
 
     root = _write_study(tmp_path / "atom-rmsf")
     topology_path = root / "simulation" / "trajectory_topology.pdb"
@@ -531,8 +542,9 @@ def test_backbone_order_parameter_points_open_the_named_residue(tmp_path) -> Non
             chart.locator("svg circle").first.click()
             page.wait_for_function("""() => document.documentElement.dataset.page === 'viewer'
               && window.FastMDXMoleculeViewer.currentViewHints().selection?.[0]?.resi === 2""")
-            assert page.evaluate("() => window.FastMDXMoleculeViewer.currentViewHints().selection") == [
-                {"chain": "A", "resi": 2, "icode": "", "resn": "ALA"}]
+            assert page.evaluate(
+                "() => window.FastMDXMoleculeViewer.currentViewHints().selection"
+            ) == [{"chain": "A", "resi": 2, "icode": "", "resn": "ALA"}]
             page.get_by_role("link", name="Analysis", exact=True).click()
             chart.locator("svg").press("End")
             chart.locator("svg").press("Enter")

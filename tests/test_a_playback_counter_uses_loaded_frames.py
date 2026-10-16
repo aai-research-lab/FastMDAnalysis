@@ -83,7 +83,8 @@ def test_live_dashboard_counter_and_transport_use_the_same_loaded_frame(tmp_path
                 timeout=60_000,
             )
             page.locator("#traj-slider").evaluate(
-                "element => { element.value = element.max; element.dispatchEvent(new Event('input')); }"
+                "element => { element.value = element.max; element.dispatchEvent(new "
+                "Event('input')); }"
             )
             page.wait_for_function(
                 "() => document.getElementById('traj-current').textContent === '200'"
@@ -101,32 +102,44 @@ def test_live_dashboard_counter_and_transport_use_the_same_loaded_frame(tmp_path
             page.locator("#traj-slider").evaluate(
                 "element => { element.value = '42'; element.dispatchEvent(new Event('input')); }"
             )
-            page.wait_for_function("() => document.getElementById('traj-current').textContent === '43'")
+            page.wait_for_function(
+                "() => document.getElementById('traj-current').textContent === '43'"
+            )
             page.click('#trajectory-row [data-action="prev-frame"]')
-            page.wait_for_function("() => document.getElementById('traj-current').textContent === '42'")
+            page.wait_for_function(
+                "() => document.getElementById('traj-current').textContent === '42'"
+            )
             page.click('#trajectory-row [data-traj="first"]')
-            page.wait_for_function("() => document.getElementById('traj-current').textContent === '1'")
+            page.wait_for_function(
+                "() => document.getElementById('traj-current').textContent === '1'"
+            )
             page.click('#trajectory-row [data-traj="last"]')
-            page.wait_for_function("() => document.getElementById('traj-current').textContent === '200'")
+            page.wait_for_function(
+                "() => document.getElementById('traj-current').textContent === '200'"
+            )
 
             page.locator("#traj-speed").select_option("4")
             assert page.evaluate("() => window.FastMDXMoleculeViewer.STATE.playbackSpeed") == 4
             page.locator("#trajectory-row [data-traj='first']").click()
             page.locator("#trajectory-row [data-action='play-trajectory']").click()
-            page.wait_for_function("() => Number(document.getElementById('traj-current').textContent) >= 4",
-                                   timeout=10_000)
+            page.wait_for_function(
+                "() => Number(document.getElementById('traj-current').textContent) >= 4",
+                timeout=10_000,
+            )
             page.locator("#trajectory-row [data-action='play-trajectory']").click()
             paused_at = page.locator("#traj-current").inner_text()
             page.wait_for_timeout(300)
             assert page.locator("#traj-current").inner_text() == paused_at
             page.locator("#traj-loop").check()
             page.locator("#traj-slider").evaluate(
-                "element => { element.value = element.max; element.dispatchEvent(new Event('input')); }"
+                "element => { element.value = element.max; element.dispatchEvent(new "
+                "Event('input')); }"
             )
             page.locator("#trajectory-row [data-action='play-trajectory']").click()
             page.wait_for_function(
                 "() => Number(document.getElementById('traj-current').textContent) < 200",
-                timeout=10_000)
+                timeout=10_000,
+            )
             page.locator("#trajectory-row [data-action='play-trajectory']").click()
             # The real pointer click may arrive after another timer tick. The
             # loop must cross the boundary and Pause must hold the frame it
@@ -238,9 +251,13 @@ def test_switching_studies_reconciles_playback_counts_and_position(tmp_path):
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(session.url + "#viewer", wait_until="domcontentloaded")
             page.locator("#viewer-under-fold").evaluate("e => {e.open = true;}")
-            page.wait_for_function("() => document.getElementById('traj-total').textContent === '200'")
+            page.wait_for_function(
+                "() => document.getElementById('traj-total').textContent === '200'"
+            )
             page.locator('#trajectory-row [data-traj="last"]').click()
-            page.wait_for_function("() => document.getElementById('traj-current').textContent === '200'")
+            page.wait_for_function(
+                "() => document.getElementById('traj-current').textContent === '200'"
+            )
             for name, count in (("short", 3), ("single", 1), ("empty", 0), ("large", 200)):
                 page.evaluate("() => window.FastMDXDashboard.navigate('studies')")
                 page.evaluate("path => window.FastMDXStudies.load(path)", str(tmp_path))
@@ -250,14 +267,18 @@ def test_switching_studies_reconciles_playback_counts_and_position(tmp_path):
                     arg=name)
                 page.evaluate("() => window.FastMDXDashboard.navigate('viewer')")
                 page.wait_for_function(
-                    "n => document.getElementById('traj-total').textContent === String(n)", arg=count)
+                    "n => document.getElementById('traj-total').textContent === String(n)",
+                    arg=count,
+                )
                 assert page.locator("#traj-current").inner_text() == ("1" if count else "0")
                 assert page.locator("#traj-slider").input_value() == "0"
                 if count:
                     page.locator("#viewer-under-fold").evaluate("e => {e.open = true;}")
                     page.locator('#trajectory-row [data-traj="last"]').click()
                     page.wait_for_function(
-                        "n => document.getElementById('traj-current').textContent === String(n)", arg=count)
+                        "n => document.getElementById('traj-current').textContent === String(n)",
+                        arg=count,
+                    )
                 else:
                     assert page.locator("#trajectory-row").is_hidden()
             assert errors == []
