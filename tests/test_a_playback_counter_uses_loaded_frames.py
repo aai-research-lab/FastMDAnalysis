@@ -124,10 +124,18 @@ def test_live_dashboard_counter_and_transport_use_the_same_loaded_frame(tmp_path
                 "element => { element.value = element.max; element.dispatchEvent(new Event('input')); }"
             )
             page.locator("#trajectory-row [data-action='play-trajectory']").click()
-            page.wait_for_function("() => document.getElementById('traj-current').textContent === '1'",
-                                   timeout=10_000)
+            page.wait_for_function(
+                "() => Number(document.getElementById('traj-current').textContent) < 200",
+                timeout=10_000)
             page.locator("#trajectory-row [data-action='play-trajectory']").click()
-            assert page.locator("#traj-current").inner_text() == "1"
+            # The real pointer click may arrive after another timer tick. The
+            # loop must cross the boundary and Pause must hold the frame it
+            # actually reached, rather than racing a particular display value.
+            assert not page.evaluate("() => window.FastMDXMoleculeViewer.STATE.playbackPlaying")
+            loop_paused_at = page.locator("#traj-current").inner_text()
+            assert 1 <= int(loop_paused_at) < 200
+            page.wait_for_timeout(300)
+            assert page.locator("#traj-current").inner_text() == loop_paused_at
             assert errors == []
             browser.close()
     finally:
@@ -204,6 +212,55 @@ def test_empty_trajectory_keeps_transport_hidden_and_at_zero_of_zero(tmp_path):
             assert page.locator("#trajectory-row").is_hidden()
             assert page.locator("#traj-current").inner_text() == "0"
             assert page.locator("#traj-total").inner_text() == "0"
+            browser.close()
+    finally:
+        session.server.shutdown()
+
+
+def test_switching_studies_reconciles_playback_counts_and_position(tmp_path):
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+    from tests.test_a_graph_opens_exact_source_frame import _study
+
+    large = _study(tmp_path / "large", frame_count=200)
+    _study(tmp_path / "short", frame_count=3)
+    _study(tmp_path / "single", frame_count=1)
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    (empty / "manifest.json").write_text("{}", encoding="utf-8")
+    session = start_dashboard_session(output=str(large), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#viewer", wait_until="domcontentloaded")
+            page.locator("#viewer-under-fold").evaluate("e => {e.open = true;}")
+            page.wait_for_function("() => document.getElementById('traj-total').textContent === '200'")
+            page.locator('#trajectory-row [data-traj="last"]').click()
+            page.wait_for_function("() => document.getElementById('traj-current').textContent === '200'")
+            for name, count in (("short", 3), ("single", 1), ("empty", 0), ("large", 200)):
+                page.evaluate("() => window.FastMDXDashboard.navigate('studies')")
+                page.evaluate("path => window.FastMDXStudies.load(path)", str(tmp_path))
+                page.locator(f'.study-card[data-path$="{name}"] .study-open').click()
+                page.wait_for_function(
+                    "name => document.getElementById('study-folder')?.textContent.trim() === name",
+                    arg=name)
+                page.evaluate("() => window.FastMDXDashboard.navigate('viewer')")
+                page.wait_for_function(
+                    "n => document.getElementById('traj-total').textContent === String(n)", arg=count)
+                assert page.locator("#traj-current").inner_text() == ("1" if count else "0")
+                assert page.locator("#traj-slider").input_value() == "0"
+                if count:
+                    page.locator("#viewer-under-fold").evaluate("e => {e.open = true;}")
+                    page.locator('#trajectory-row [data-traj="last"]').click()
+                    page.wait_for_function(
+                        "n => document.getElementById('traj-current').textContent === String(n)", arg=count)
+                else:
+                    assert page.locator("#trajectory-row").is_hidden()
+            assert errors == []
             browser.close()
     finally:
         session.server.shutdown()

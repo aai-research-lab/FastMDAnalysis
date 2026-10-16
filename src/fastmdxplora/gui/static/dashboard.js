@@ -37,7 +37,6 @@
     bindingPocketCutoff: 5,
     playbackAvailable: false,
     playbackFrames: 0,
-    playbackTotalFrames: 0,
     playbackFrameTimes: [],
     playbackSimulationSteps: [],
     playbackSignature: null,
@@ -725,7 +724,6 @@
     state.phases = [];
     state.playbackAvailable = false;
     state.playbackFrames = 0;
-    state.playbackTotalFrames = 0;
     state.playbackFrameTimes = [];
     state.playbackSimulationSteps = [];
     state.playbackSignature = null;
@@ -2096,7 +2094,6 @@
     if (viewerKeepsGrowingHistory) {
       state.playbackFrames = Math.min(state.playbackFrames, Number(viewer.playbackFrames || 0));
     }
-    state.playbackTotalFrames = state.playbackFrames;
     state.playbackFrameTimes = viewerKeepsGrowingHistory
       ? viewer.playbackFrameTimes : (Array.isArray(payload?.frame_times_ns) ? payload.frame_times_ns : []);
     state.playbackSimulationSteps = viewerKeepsGrowingHistory
@@ -2110,7 +2107,6 @@
     if (!state.playbackAvailable || state.playbackFrames < 1) {
       state.playbackAvailable = false;
       state.playbackFrames = 0;
-      state.playbackTotalFrames = 0;
       slider.min = "0";
       slider.max = "0";
       slider.value = "0";
@@ -2567,6 +2563,12 @@
     window.dispatchEvent(new CustomEvent(`dashboard:${name}`, {detail}));
   }
 
+  function focusEntity(entity) {
+    if (!entity) return;
+    navigate("viewer");
+    emit("residue-focus", entity);
+  }
+
   function setExactFrame(frame, time, signature) {
     if (state.playbackSignature !== signature || !Number.isInteger(frame) || frame < 0) return false;
     state.exactFrame = {frame, time: Number.isFinite(time) ? time : null, signature};
@@ -2585,6 +2587,7 @@
     get state() { return JSON.parse(JSON.stringify(state)); },
     navigate,
     showAnalysis,
+    focusEntity,
     applyStatus,
     applyAppState,
     applyMetrics,

@@ -293,8 +293,7 @@
 
   function focusResidue(entity) {
     if (!entity || !window.FastMDXDashboard) return;
-    window.FastMDXDashboard.navigate("viewer");
-    window.dispatchEvent(new CustomEvent("dashboard:residue-focus", { detail: entity }));
+    window.FastMDXDashboard.focusEntity(entity);
   }
 
   function openFrameAndResidue(data, index, entity) {

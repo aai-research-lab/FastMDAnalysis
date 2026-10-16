@@ -101,6 +101,21 @@ def _key_availability(choice: Any) -> dict[str, Any]:
             "message": f"No API key is set. Enter one here or set {env_name}."}
 
 
+def _model_options(choice: Any) -> list[dict[str, str]]:
+    """Fetch once, keeping the configured choices usable while offline.
+
+    Authentication status is reported separately; a fallback list never
+    establishes that a connection succeeded.
+    """
+    from fastmdxplora.agent.models import PROVIDERS, list_model_options
+
+    try:
+        return list(list_model_options(choice))
+    except Exception:  # noqa: BLE001 - settings remain usable if discovery fails
+        return [{"id": model, "label": model}
+                for model in PROVIDERS[choice.provider].get("models", ())]
+
+
 def model_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) -> dict[str, Any]:
     """Read or set which AI model to ask.
 
@@ -121,14 +136,9 @@ def model_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) 
         live: dict[str, list] = {}
         options: dict[str, list[dict[str, str]]] = {}
         if current is not None:
-            from fastmdxplora.agent.models import list_model_options, list_models
-
-            try:
-                found_options = list(list_model_options(current))
-                options[current.provider] = found_options
-                found = [item["id"] for item in found_options]
-            except Exception:  # noqa: BLE001 - a fallback list still works
-                found = list(list_models(current))
+            found_options = _model_options(current)
+            options[current.provider] = found_options
+            found = [item["id"] for item in found_options]
             if found:
                 live[current.provider] = found
         return {
@@ -200,14 +210,8 @@ def model_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) 
         return {"ok": False, "error": "Agent settings could not be saved. Check the settings folder permissions and retry."}
     # Ask the provider what it actually has, now that there is a key to ask
     # with. The written list is what to show before this can be answered.
-    from fastmdxplora.agent.models import list_model_options, list_models
-
-    try:
-        options = list(list_model_options(choice))
-        offered = [item["id"] for item in options]
-    except Exception:  # noqa: BLE001 - a stale list beats a broken save
-        offered = list(PROVIDERS[provider].get("models") or ())
-        options = [{"id": model_name, "label": model_name} for model_name in offered]
+    options = _model_options(choice)
+    offered = [item["id"] for item in options]
     # The choice, not the key. A browser that never receives one cannot
     # leak one.
     return {"ok": True, "models": offered, "model_options": options,

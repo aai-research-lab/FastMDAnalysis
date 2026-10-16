@@ -341,9 +341,7 @@
     if (data.kind === "residue" || data.kind === "atom") {
       var entity = Array.isArray(data.entities) ? data.entities[index] : null;
       if (!entity) return;
-      window.FastMDXDashboard.navigate("viewer");
-      window.dispatchEvent(new CustomEvent("dashboard:residue-focus",
-        { detail: entity }));
+      window.FastMDXDashboard.focusEntity(entity);
       return;
     }
     if (!data.linked) return;

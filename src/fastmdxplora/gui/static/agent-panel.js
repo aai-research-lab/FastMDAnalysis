@@ -616,16 +616,6 @@
     return line;
   }
 
-  /* Ready or not, and nothing else. The AI model is recorded on the study --
-   * `agent_model` in the config and the manifest -- which is where a
-   * reader needs it. It does not belong in the chrome. */
-  function describeEngine(current) {
-    /* Inside the settings dialog, where somebody is choosing. It was on
-     * the page itself, as "Ready. Drafting with <model>." -- a status line
-     * about an engine, on a page about a study. */
-    return current ? engineLabel(current) : "No provider or model saved yet.";
-  }
-
   function providerSpec(id) {
     return providers.filter(function (p) { return p.id === id; })[0] || null;
   }

@@ -934,3 +934,26 @@ def test_concurrent_refresh_reads_are_serialized(chatgpt_vault):
         first_result.result(timeout=5)
         second_result.result(timeout=5)
     assert second_entered.is_set()
+
+
+def test_settings_model_discovery_does_not_repeat_a_failed_request(monkeypatch):
+    from fastmdxplora.agent import models
+    from fastmdxplora.gui import agent_panel
+
+    calls = []
+
+    def unavailable(choice):
+        calls.append(choice)
+        raise RuntimeError("Provider unavailable")
+
+    choice = models.ModelChoice("openai", "gpt-5", auth_method="chatgpt_plan")
+    monkeypatch.setattr(models, "list_model_options", unavailable)
+    monkeypatch.setattr(models, "load_choice", lambda: choice)
+    monkeypatch.setattr(agent_panel, "_key_availability", lambda _: {
+        "connected": False, "message": "Sign in to continue."})
+    answer = agent_panel.model_endpoint({})
+    provider = next(item for item in answer["providers"] if item["id"] == "openai")
+    assert calls == [choice]
+    assert provider["models"] == list(models.PROVIDERS["openai"]["models"])
+    assert answer["auth_status"]["connected"] is False
+    assert answer["current"] == choice.as_record()
