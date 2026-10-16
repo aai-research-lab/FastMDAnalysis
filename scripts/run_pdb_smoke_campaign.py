@@ -30,6 +30,7 @@ SUMMARY_FIELDS = [
     "bug_classification",
     "error_type",
     "error_message",
+    "notes",
     "setup_completed",
     "simulation_completed",
     "analysis_completed",
@@ -300,6 +301,11 @@ def _summarize_run_result(run_result: Any, validation: ValidationResult) -> dict
         failed_phase = infer_phase_from_validation(validation.issues)
         error_message = "; ".join(validation.issues)
         error_type = "ValidationError"
+    elif messages and _phase_ok(phases, "simulation") and _phase_ok(phases, "analysis"):
+        # A run that simulated and was analysed did what was asked of it; a
+        # note (which model of an NMR entry setup took, say) is kept, not
+        # read as a limitation.
+        pass
     elif messages:
         status = "expected_limitation"
         failed_phase = infer_phase_from_message(message_text)
@@ -313,6 +319,7 @@ def _summarize_run_result(run_result: Any, validation: ValidationResult) -> dict
         "failure_category": category if status != "ok" else "",
         "error_type": error_type,
         "error_message": error_message,
+        "notes": message_text,
         "setup_completed": _phase_ok(phases, "setup"),
         "simulation_completed": _phase_ok(phases, "simulation"),
         "analysis_completed": _phase_ok(phases, "analysis"),

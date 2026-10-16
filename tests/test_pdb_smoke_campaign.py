@@ -269,6 +269,19 @@ def test_a_note_from_setup_does_not_stop_the_simulation(tmp_path: Path) -> None:
     assert row["simulation_completed"] is True
 
 
+def test_a_run_that_finished_with_a_note_is_ok(tmp_path: Path) -> None:
+    # 1L2Y simulated and was analysed on aailab01 on 2026-10-16 and was still
+    # reported as an expected limitation, for the note naming its model.
+    with patch("fastmdxplora.FastMDXplora", FakeFastMDXploraInTwoCalls), patch.object(
+        campaign, "check_trajectory_coordinates", return_value=[]
+    ):
+        row = campaign.run_one("1L2Y", _args(tmp_path, max_setup_atoms=100_000))
+
+    assert row["status"] == "ok"
+    assert row["bug_classification"] == "none"
+    assert "38 models" in row["notes"]
+
+
 def test_parse_input_list_prefers_clean_local_lines(tmp_path: Path) -> None:
     pdb = tmp_path / "local.pdb"
     pdb.write_text("END\n", encoding="utf-8")
