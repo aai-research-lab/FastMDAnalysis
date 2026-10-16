@@ -39,6 +39,7 @@
     playbackFrames: 0,
     playbackTotalFrames: 0,
     playbackFrameTimes: [],
+    playbackSimulationSteps: [],
     playbackSignature: null,
     playbackData: null,
     exactFrame: null,
@@ -726,9 +727,19 @@
     state.playbackFrames = 0;
     state.playbackTotalFrames = 0;
     state.playbackFrameTimes = [];
+    state.playbackSimulationSteps = [];
     state.playbackSignature = null;
     state.playbackData = null;
     state.exactFrame = null;
+    const slider = byId("traj-slider");
+    if (slider) {
+      slider.min = "0";
+      slider.max = "0";
+      slider.value = "0";
+    }
+    const row = byId("trajectory-row");
+    if (row) row.hidden = true;
+    setPlaybackPosition(0, 0, null, null);
     if (window.FastMDXCharts) window.FastMDXCharts.update([]);
     renderLiveProgress({});
     renderStructureTab({valid: false, reason: "missing"});
@@ -2046,59 +2057,93 @@
 
   function applyPlayback(payload) {
     const previousSignature = state.playbackSignature;
+    const previousPayload = state.playbackData;
     const signature = payload?.source_signature || payload?.compiled_at || null;
     const previousFrame = parseInt(byId("traj-slider")?.value || "0", 10) || 0;
+    const sourceChanged = previousSignature !== null && previousSignature !== signature;
 
     if (previousSignature && signature !== previousSignature) state.exactFrame = null;
     state.playbackData = payload || null;
     if (state.exactFrame && state.exactFrame.signature === signature
         && payload?.playback_available && Array.isArray(payload.frame_indices)) {
       const entries = payload.frame_indices.map((frame, index) => ({
-        frame, time: payload.frame_times_ns?.[index] ?? null,
+        frame,
+        time: payload.frame_times_ns?.[index] ?? null,
+        step: payload.simulation_steps?.[index] ?? null,
       }));
       if (!entries.some((entry) => entry.frame === state.exactFrame.frame)) {
-        entries.push({frame: state.exactFrame.frame, time: state.exactFrame.time});
+        entries.push({frame: state.exactFrame.frame, time: state.exactFrame.time, step: null});
       }
       entries.sort((a, b) => a.frame - b.frame);
       payload = Object.assign({}, payload, {
         n_frames_browser: entries.length,
         frame_indices: entries.map((entry) => entry.frame),
         frame_times_ns: entries.map((entry) => entry.time),
+        simulation_steps: entries.map((entry) => entry.step),
       });
     }
 
     state.playbackAvailable = !!payload?.playback_available;
     state.playbackFrames = Number(payload?.n_frames_browser || 0);
-    state.playbackTotalFrames = Number(payload?.n_frames_total || 0);
-    state.playbackFrameTimes = Array.isArray(payload?.frame_times_ns) ? payload.frame_times_ns : [];
+    // The range and counter describe only frames the browser can play. A
+    // live-history payload may grow while the viewer intentionally keeps its
+    // already-loaded snapshot until the user reloads it.
+    const viewer = window.FastMDXMoleculeViewer?.STATE;
+    const viewerKeepsGrowingHistory = !sourceChanged
+      && previousPayload?.source_kind === "live-history"
+      && payload?.source_kind === "live-history"
+      && viewer?.playbackLoaded;
+    if (viewerKeepsGrowingHistory) {
+      state.playbackFrames = Math.min(state.playbackFrames, Number(viewer.playbackFrames || 0));
+    }
+    state.playbackTotalFrames = state.playbackFrames;
+    state.playbackFrameTimes = viewerKeepsGrowingHistory
+      ? viewer.playbackFrameTimes : (Array.isArray(payload?.frame_times_ns) ? payload.frame_times_ns : []);
+    state.playbackSimulationSteps = viewerKeepsGrowingHistory
+      ? viewer.playbackFrameSteps : (Array.isArray(payload?.simulation_steps)
+        ? payload.simulation_steps : []);
     state.playbackSignature = signature;
 
     const slider = byId("traj-slider");
     const row = byId("trajectory-row");
     if (!slider || !row) return;
-    if (!state.playbackAvailable) {
+    if (!state.playbackAvailable || state.playbackFrames < 1) {
+      state.playbackAvailable = false;
+      state.playbackFrames = 0;
+      state.playbackTotalFrames = 0;
+      slider.min = "0";
+      slider.max = "0";
+      slider.value = "0";
+      setPlaybackPosition(0, 0, null, null);
       row.hidden = true;
       emit("playback-ready", payload || {});
       return;
     }
 
     const maxFrame = Math.max(0, state.playbackFrames - 1);
-    const frame = Math.min(previousFrame, maxFrame);
+    const frame = sourceChanged ? 0 : Math.min(previousFrame, maxFrame);
     slider.min = "0";
     slider.max = String(maxFrame);
-    // Do not reset the user's scrubber on every three-second API poll.
+    // A different trajectory starts at its first loaded frame; a periodic
+    // update to the same source preserves the position.
     slider.value = String(frame);
-    setText("traj-current", String(payload.frame_indices?.[frame] ?? frame));
-    setText("traj-total", String(state.playbackTotalFrames || state.playbackFrames));
-    setText(
-      "traj-simtime",
-      state.playbackFrameTimes[frame] != null
-        ? formatNumber(state.playbackFrameTimes[frame], 3) : "—"
-    );
+    setPlaybackPosition(frame, state.playbackFrames,
+      state.playbackFrameTimes[frame], state.playbackSimulationSteps[frame]);
     row.hidden = false;
     emit("playback-ready", Object.assign({}, payload, {
-      source_changed: previousSignature !== null && previousSignature !== signature,
+      source_changed: sourceChanged,
     }));
+  }
+
+  function setPlaybackPosition(index, total, time, step) {
+    const frameCount = Math.max(0, Number(total) || 0);
+    const frameIndex = frameCount ? Math.min(frameCount - 1, Math.max(0, Number(index) || 0)) : 0;
+    setText("traj-current", String(frameCount ? frameIndex + 1 : 0));
+    setText("traj-total", String(frameCount));
+    setText("traj-step", step == null || !Number.isFinite(Number(step))
+      ? "—" : `step ${Number(step).toLocaleString()}`);
+    setText("traj-simtime", time == null || !Number.isFinite(Number(time))
+      ? "—" : `time ${formatNumber(time, 3)} ns`);
   }
 
   /* ------------------------------------------------------------------ */
@@ -2545,6 +2590,7 @@
     applyMetrics,
     applyStructure,
     applyPlayback,
+    setPlaybackPosition,
     setExactFrame,
     clearExactFrame,
     applyResults,

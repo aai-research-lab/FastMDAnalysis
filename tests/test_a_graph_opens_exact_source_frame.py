@@ -217,15 +217,15 @@ def test_a_chart_click_shows_exact_frame_coordinates_and_playback_order(tmp_path
                 " sources: window.FastMDXMoleculeViewer.STATE.playbackFrameIndices,"
                 " engine: window.FastMDXMoleculeViewer.STATE.playbackEngineIndices,"
                 " x: window.FastMDXMoleculeViewer.STATE.engine.find({atom:'CA'})[0].x})")
-            assert got["frame"] == "7"
+            assert got["frame"] == "3"
             assert got["sources"] == [0, 5, 7, 10]
             assert got["engine"] == [0, 1, 3, 2]
             assert got["x"] == pytest.approx(7.0, abs=0.02)
             # The next slider step is source frame 10 and the previous one is 5.
             page.locator("#traj-slider").evaluate("el => { el.value = '3'; el.dispatchEvent(new Event('input')); }")
-            page.wait_for_function("() => document.getElementById('traj-current').textContent === '10'")
+            page.wait_for_function("() => document.getElementById('traj-current').textContent === '4'")
             page.locator("#traj-slider").evaluate("el => { el.value = '1'; el.dispatchEvent(new Event('input')); }")
-            page.wait_for_function("() => document.getElementById('traj-current').textContent === '5'")
+            page.wait_for_function("() => document.getElementById('traj-current').textContent === '2'")
 
             def select_chart_frame(frame: int) -> None:
                 page.evaluate("() => window.FastMDXDashboard.navigate('analysis')")
@@ -238,11 +238,11 @@ def test_a_chart_click_shows_exact_frame_coordinates_and_playback_order(tmp_path
                 page.mouse.click(point_x, rect["y"] + rect["height"] / 2)
 
             select_chart_frame(0)
-            page.wait_for_function("() => document.getElementById('traj-current').textContent === '0'")
+            page.wait_for_function("() => document.getElementById('traj-current').textContent === '1'")
             page.wait_for_function("() => window.FastMDXMoleculeViewer.STATE.engine"
                 ".find({atom:'CA'})[0]?.x < 0.02")
             select_chart_frame(10)
-            page.wait_for_function("() => document.getElementById('traj-current').textContent === '10'")
+            page.wait_for_function("() => document.getElementById('traj-current').textContent === '4'")
             page.wait_for_function("() => window.FastMDXMoleculeViewer.STATE.engine"
                 ".find({atom:'CA'})[0]?.x > 9.98")
 

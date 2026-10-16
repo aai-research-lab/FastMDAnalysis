@@ -112,6 +112,8 @@
     framesArriving: null,
     // Browser-local coordinates and their absolute source-frame identities.
     playbackFrameIndices: [],
+    // Integrator steps label snapshots but do not index browser-playable frames.
+    playbackFrameSteps: [],
     // Logical source-frame order can differ from the encoded XTC append order.
     playbackEngineIndices: [],
     exactFrame: null,
@@ -207,6 +209,7 @@
     STATE.playbackFrames = 0;
     STATE.playbackFrameTimes = [];
     STATE.playbackFrameIndices = [];
+    STATE.playbackFrameSteps = [];
     STATE.playbackEngineIndices = [];
     STATE.exactFrame = null;
     STATE.trajectorySeekAsked += 1;
@@ -253,6 +256,8 @@
     });
     document.getElementById("viewer-canvas-frame")?.removeAttribute("data-ready");
     document.getElementById("mini-preview-frame")?.removeAttribute("data-ready");
+    window.FastMDXDashboard?.setPlaybackPosition?.(0, 0, null, null);
+    setOverlay(false, {clear: true});
   }
 
   /* ------------------------------------------------------------------ */
@@ -1158,7 +1163,9 @@
     // frame says its own again, live updates paused or not.
     if (STATE.mode === "structure") {
       setText("overlay-frame", "");
+      setText("overlay-step", "");
       setText("overlay-stage", "");
+      setText("overlay-age", "");
       setText("overlay-simtime", "");
       setOverlay(false, {});
     } else if (STATE.liveOverlay) {
@@ -2103,19 +2110,25 @@
     if (changed && !sameLiveHistorySource) STATE.exactFrame = null;
     const indices = Array.isArray(payload?.frame_indices) ? payload.frame_indices : [];
     const times = Array.isArray(payload?.frame_times_ns) ? payload.frame_times_ns : [];
+    const steps = Array.isArray(payload?.simulation_steps) ? payload.simulation_steps : [];
     if (STATE.exactFrame && STATE.exactFrame.signature === signature) {
       const baseIndices = STATE.framesPieces?.baseIndices
         || indices.filter((frame) => frame !== STATE.exactFrame.frame);
       const baseTimes = STATE.framesPieces?.baseTimes || times.filter((_, index) =>
         indices[index] !== STATE.exactFrame.frame);
+      const baseSteps = STATE.framesPieces?.baseSteps || steps.filter((_, index) =>
+        indices[index] !== STATE.exactFrame.frame);
       const loaded = Number(STATE.framesPieces?.baseLoaded ?? Math.max(0, indices.length - 1));
-      const map = playbackFrameMap(baseIndices, baseTimes, loaded, STATE.exactFrame, loaded);
+      const map = playbackFrameMap(baseIndices, baseTimes, loaded, STATE.exactFrame, loaded,
+        baseSteps);
       STATE.playbackFrameIndices = map.frames;
       STATE.playbackFrameTimes = map.times;
+      STATE.playbackFrameSteps = map.steps;
       STATE.playbackEngineIndices = map.engineIndices;
     } else {
       STATE.playbackFrameTimes = times;
       STATE.playbackFrameIndices = indices;
+      STATE.playbackFrameSteps = steps;
       STATE.playbackEngineIndices = indices.map((_, index) => index);
     }
     // While frames still arrive in pieces, the frames there are those the
@@ -2185,6 +2198,8 @@
         STATE.playbackFrameTimes = Array.isArray(available.frame_times_ns) ? available.frame_times_ns : [];
         STATE.playbackFrameIndices = Array.isArray(available.frame_indices)
           ? available.frame_indices.slice() : [];
+        STATE.playbackFrameSteps = Array.isArray(available.simulation_steps)
+          ? available.simulation_steps.slice() : [];
         STATE.playbackEngineIndices = STATE.playbackFrameIndices.map((_, index) => index);
         STATE.exactFrame = null;
         STATE.mode = "playback";
@@ -2203,6 +2218,7 @@
         STATE.playbackFrames = engine.frameCount();
         STATE.playbackFrameIndices = STATE.playbackFrameIndices.slice(0, STATE.playbackFrames);
         STATE.playbackFrameTimes = STATE.playbackFrameTimes.slice(0, STATE.playbackFrames);
+        STATE.playbackFrameSteps = STATE.playbackFrameSteps.slice(0, STATE.playbackFrames);
         STATE.playbackEngineIndices = STATE.playbackEngineIndices.slice(0, STATE.playbackFrames);
         STATE.model = {atoms: loaded.atoms, frames: STATE.playbackFrames, of: "frames"};
         window.dispatchEvent(new CustomEvent("dashboard:viewer-rendered", {detail: {of: "frames"}}));
@@ -2273,11 +2289,14 @@
     const loaded = await engine.loadFramesFromBytes(topology, joinedBytes(parts), "xtc");
     const sourceIndices = Array.isArray(payload?.frame_indices) ? payload.frame_indices : [];
     const sourceTimes = Array.isArray(payload?.frame_times_ns) ? payload.frame_times_ns : [];
+    const sourceSteps = Array.isArray(payload?.simulation_steps) ? payload.simulation_steps : [];
     STATE.framesPieces = {total: pieces.total, loaded: loaded.frames, baseLoaded: loaded.frames,
       pieces: pieces.pieces.length, baseParts: parts, exactBytes: null,
-      baseIndices: sourceIndices.slice(), baseTimes: sourceTimes.slice()};
+      baseIndices: sourceIndices.slice(), baseTimes: sourceTimes.slice(),
+      baseSteps: sourceSteps.slice()};
     STATE.playbackFrameIndices = sourceIndices.slice(0, loaded.frames);
     STATE.playbackFrameTimes = sourceTimes.slice(0, loaded.frames);
+    STATE.playbackFrameSteps = sourceSteps.slice(0, loaded.frames);
     STATE.playbackEngineIndices = STATE.playbackFrameIndices.map((_, index) => index);
     sayFramesLoaded();
     if (pieces.pieces.length > 1) {
@@ -2305,19 +2324,24 @@
             STATE.framesPieces.baseLoaded);
           STATE.playbackFrameTimes = STATE.framesPieces.baseTimes.slice(0,
             STATE.framesPieces.baseLoaded);
+          STATE.playbackFrameSteps = STATE.framesPieces.baseSteps.slice(0,
+            STATE.framesPieces.baseLoaded);
           if (STATE.framesPieces.exactBytes && STATE.exactFrame) {
             const map = playbackFrameMap(STATE.framesPieces.baseIndices,
               STATE.framesPieces.baseTimes, STATE.framesPieces.baseLoaded,
-              STATE.exactFrame, STATE.framesPieces.baseLoaded);
+              STATE.exactFrame, STATE.framesPieces.baseLoaded,
+              STATE.framesPieces.baseSteps);
             STATE.playbackFrameIndices = map.frames;
             STATE.playbackFrameTimes = map.times;
+            STATE.playbackFrameSteps = map.steps;
             STATE.playbackEngineIndices = map.engineIndices;
           } else {
             STATE.playbackEngineIndices = STATE.playbackFrameIndices.map((_, index) => index);
           }
-          if (wasExactShown && STATE.exactFrame) {
-            await setPlaybackFrame(STATE.playbackFrameIndices.indexOf(STATE.exactFrame.frame));
-          }
+          const wanted = wasExactShown && STATE.exactFrame
+            ? STATE.playbackFrameIndices.indexOf(STATE.exactFrame.frame)
+            : Number(slider?.value || 0);
+          await setPlaybackFrame(wanted);
           if (STATE.model && STATE.model.of === "frames") STATE.model.frames = count;
           sayFramesLoaded();
         }
@@ -2338,20 +2362,23 @@
 
   /* The temporary exact frame is encoded after the sampled XTC frames, but
    * playback follows source order so Step and Play still move in time. */
-  function playbackFrameMap(baseIndices, baseTimes, baseLoaded, exact, exactEngineIndex) {
+  function playbackFrameMap(baseIndices, baseTimes, baseLoaded, exact, exactEngineIndex,
+                            baseSteps = []) {
     const entries = [];
     (baseIndices || []).slice(0, baseLoaded).forEach((frame, index) => {
       if (!Number.isInteger(frame)) return;
-      entries.push({frame, time: (baseTimes || [])[index] ?? null, engineIndex: index});
+      entries.push({frame, time: (baseTimes || [])[index] ?? null,
+        step: (baseSteps || [])[index] ?? null, engineIndex: index});
     });
     if (exact && Number.isInteger(exact.frame)
         && !entries.some((entry) => entry.frame === exact.frame)) {
-      entries.push({frame: exact.frame, time: exact.time ?? null,
+      entries.push({frame: exact.frame, time: exact.time ?? null, step: null,
         engineIndex: exactEngineIndex});
     }
     entries.sort((a, b) => a.frame - b.frame);
     return {frames: entries.map((entry) => entry.frame),
       times: entries.map((entry) => entry.time),
+      steps: entries.map((entry) => entry.step),
       engineIndices: entries.map((entry) => entry.engineIndex)};
   }
 
@@ -2443,10 +2470,15 @@
     const sourceTimes = STATE.framesPieces?.baseTimes
       || (STATE.playbackFrameTimes || []).filter((_, index) =>
         !exactBefore || STATE.playbackFrameIndices[index] !== exactBefore.frame);
+    const sourceSteps = STATE.framesPieces?.baseSteps
+      || (STATE.playbackFrameSteps || []).filter((_, index) =>
+        !exactBefore || STATE.playbackFrameIndices[index] !== exactBefore.frame);
     const baseCount = Math.min(STATE.playbackFrames, sourceIndices.length);
-    const baseMap = playbackFrameMap(sourceIndices, sourceTimes, baseCount, null, baseCount);
+    const baseMap = playbackFrameMap(sourceIndices, sourceTimes, baseCount, null, baseCount,
+      sourceSteps);
     STATE.playbackFrameIndices = baseMap.frames;
     STATE.playbackFrameTimes = baseMap.times;
+    STATE.playbackFrameSteps = baseMap.steps;
     STATE.playbackEngineIndices = baseMap.engineIndices;
     STATE.superposedUrl = on === "none" ? null : url;
     // Fitted to the deposited structure, the molecule is where that
@@ -2805,6 +2837,10 @@
       return;
     }
     if (!STATE.playbackPlaying || asked !== STATE.playbackAsked) return;
+    if (STATE.playbackFrames < 2) {
+      pausePlayback();
+      return;
+    }
     // Played from the end it stands at, as a player does: from the first
     // frame where the last is shown (the last, played backwards).
     const shown = Number(document.getElementById("traj-slider")?.value || 0);
@@ -2840,6 +2876,10 @@
 
   async function seekRelative(delta, fromTimer) {
     if (!STATE.playbackLoaded && !(await loadPlayback(STATE.playbackPayload))) return;
+    if (STATE.playbackFrames < 1) {
+      if (fromTimer) pausePlayback();
+      return;
+    }
     const slider = document.getElementById("traj-slider");
     const current = Number(slider?.value || 0);
     let next = current + delta;
@@ -2963,11 +3003,13 @@
       STATE.playbackFrames = count;
       const exactEngineIndex = STATE.framesPieces
         ? Number(STATE.framesPieces.baseLoaded || baseLoaded) : baseLoaded;
+      const baseSteps = STATE.framesPieces?.baseSteps || STATE.playbackFrameSteps;
       const map = playbackFrameMap(baseIndices, baseTimes,
         STATE.framesPieces ? STATE.framesPieces.baseLoaded : baseLoaded,
-        STATE.exactFrame, exactEngineIndex);
+        STATE.exactFrame, exactEngineIndex, baseSteps);
       STATE.playbackFrameIndices = map.frames;
       STATE.playbackFrameTimes = map.times;
+      STATE.playbackFrameSteps = map.steps;
       STATE.playbackEngineIndices = map.engineIndices;
       if (STATE.model && STATE.model.of === "frames") STATE.model.frames = count;
       if (STATE.framesPieces) sayFramesLoaded();
@@ -2985,18 +3027,21 @@
 
   async function setPlaybackFrame(frame) {
     const generation = STATE.viewerGeneration;
-    if (!STATE.engine || !STATE.framesRendered) return;
-    const index = clamp(Math.round(Number(frame)), 0, Math.max(0, STATE.playbackFrames - 1), 0);
+    if (!STATE.engine || !STATE.framesRendered || STATE.playbackFrames < 1) return;
+    const index = clamp(Math.round(Number(frame)), 0, STATE.playbackFrames - 1, 0);
     const trajectoryFrame = Number.isInteger(STATE.playbackFrameIndices[index])
       ? STATE.playbackFrameIndices[index] : index;
     const slider = document.getElementById("traj-slider");
-    if (slider) slider.value = String(index);
-    setText("traj-current", String(trajectoryFrame));
-    const total = Number(STATE.playbackPayload?.n_frames_total || 0);
-    setText("traj-total", String(total || STATE.playbackFrames));
+    if (slider) {
+      slider.min = "0";
+      slider.max = String(Math.max(0, STATE.playbackFrames - 1));
+      slider.value = String(index);
+    }
     const time = STATE.playbackFrameTimes[index];
-    setText("traj-simtime", time != null ? Number(time).toFixed(3) : "\u2014");
-    setOverlay(false, {stage: "playback", frame: trajectoryFrame, simtime: time});
+    const step = STATE.playbackFrameSteps[index];
+    window.FastMDXDashboard?.setPlaybackPosition?.(index, STATE.playbackFrames, time, step);
+    setOverlay(false, {stage: "playback", frame: index + 1,
+      total: STATE.playbackFrames, step, simtime: time});
     try {
       const engineIndex = Number.isInteger(STATE.playbackEngineIndices[index])
         ? STATE.playbackEngineIndices[index] : index;
@@ -3016,7 +3061,7 @@
     if (STATE.picks.length) sayMeasurement();
     // And the series under the transport follows it (frame-series.js).
     window.dispatchEvent(new CustomEvent("dashboard:frame-shown",
-      {detail: {index, trajectoryFrame}}));
+      {detail: {index, trajectoryFrame, simulationStep: step, timeNs: time}}));
   }
 
   function updatePlaybackButtons() {
@@ -3035,8 +3080,19 @@
       button.classList.toggle("active", !!STATE.playbackReverse);
     });
     document.querySelectorAll('[data-action="prev-frame"], [data-action="next-frame"]').forEach((button) => {
-      button.setAttribute("aria-disabled", String(!STATE.playbackPayload?.playback_available));
+      button.disabled = playbackCountForControls() < 2;
     });
+    document.querySelectorAll('[data-traj="first"], [data-traj="last"]').forEach((button) => {
+      button.disabled = playbackCountForControls() < 1;
+    });
+    const slider = document.getElementById("traj-slider");
+    if (slider) slider.disabled = playbackCountForControls() < 2;
+    if (toolbar) toolbar.disabled = playbackCountForControls() < 1;
+  }
+
+  function playbackCountForControls() {
+    return STATE.playbackLoaded ? STATE.playbackFrames
+      : Number(STATE.playbackPayload?.n_frames_browser || 0);
   }
 
   /* ------------------------------------------------------------------ */
@@ -3626,17 +3682,16 @@
     setText("overlay-tag", shown ? "LIVE"
       : (STATE.mode === "playback" ? "PLAYBACK" : (ended ? "LAST FRAME" : "STATIC")));
     if (ended) setText("overlay-age", "");
-    if (info?.stage != null) setText("overlay-stage", info.stage);
-    // A live frame is named by the step it was written at, which is what
-    // the engine records; a frame of the trajectory by its place in it. Both
-    // read "frame" once, and the label flipped between the frames written
-    // and the step number as the two updates arrived.
-    if (info?.step != null) setText("overlay-frame", `step ${Number(info.step).toLocaleString()}`);
-    if (info?.frame != null) setText("overlay-frame", `frame ${info.frame}`);
-    if (info?.age != null && !ended) setText("overlay-age", `age ${info.age}`);
-    if (info?.simtime != null) {
-      setText("overlay-simtime",
-        `${info.simtimeOf ? info.simtimeOf + " " : ""}${Number(info.simtime).toFixed(3)} ns`);
+    if (Object.keys(info || {}).length) {
+      setText("overlay-stage", info?.stage ?? "");
+      setText("overlay-frame", info?.frame != null
+        ? `frame ${info.frame}${info.total != null ? ` / ${info.total}` : ""}` : "");
+      setText("overlay-step", info?.step != null && Number.isFinite(Number(info.step))
+        ? `step ${Number(info.step).toLocaleString()}` : "");
+      setText("overlay-age", info?.age != null && !ended ? `age ${info.age}` : "");
+      setText("overlay-simtime", info?.simtime != null && Number.isFinite(Number(info.simtime))
+        ? `${info.simtimeOf ? info.simtimeOf + " " : "sim time "}${Number(info.simtime).toFixed(3)} ns`
+        : "");
     }
     tidyOverlay();
   }
