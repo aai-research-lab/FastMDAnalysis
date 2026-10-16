@@ -2073,6 +2073,28 @@ body.state-ready .loading-screen {
     background: color-mix(in srgb, var(--text-primary) 2.8%, transparent);
     font-family: var(--font-mono);
 }
+#agent-auth-account-field {
+    display: grid;
+    gap: 5px;
+    flex: 1 1 220px;
+    min-width: min(100%, 220px);
+}
+#agent-auth-account-field select {
+    width: 100%;
+    min-height: 34px;
+    padding: 6px 8px;
+    color: var(--text-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 7px;
+    background: var(--background-soft);
+    font: inherit;
+}
+.agent-auth-buttons {
+    display: flex;
+    align-items: end;
+    flex-wrap: wrap;
+    gap: 8px;
+}
 
 .builder-field input:focus,
 .builder-field select:focus {
@@ -4709,6 +4731,20 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
 .series-svg { display: block; width: 100%; height: 260px; cursor: crosshair; outline: none; }
 .series-svg:focus-visible { box-shadow: 0 0 0 2px var(--accent); border-radius: 6px; }
 .series-svg text { font-family: var(--font-mono); }
+.series-range {
+    display: flex; align-items: end; flex-wrap: wrap; gap: 8px 12px;
+    margin: 0 0 6px; font-size: var(--text-2xs); color: var(--text-muted);
+}
+.series-range-field { display: grid; gap: 3px; }
+.series-range-field input {
+    width: 112px; min-height: 30px; padding: 4px 7px; border-radius: 5px;
+    border: 1px solid var(--border-primary); background: var(--background-soft);
+    color: var(--text-primary); font: inherit; font-variant-numeric: tabular-nums;
+}
+.series-range-field input[aria-invalid="true"] { border-color: var(--accent-red); }
+.series-range .line-btn { min-height: 30px; padding: 4px 9px; }
+.series-range-status { flex: 1 1 180px; min-height: 1.4em; }
+.series-range-empty { margin: 18px 0; color: var(--text-muted); font-size: var(--text-sm); }
 .series-tip {
     position: absolute;
     z-index: 3;

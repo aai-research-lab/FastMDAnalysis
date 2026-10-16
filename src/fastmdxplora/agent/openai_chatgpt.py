@@ -1,0 +1,654 @@
+"""OpenAI's documented Sign in with ChatGPT flow for this local open app.
+
+This is the public-client OAuth flow for eligible open-source apps, not a
+ChatGPT website session or a copied Codex credential. OAuth tokens stay in
+the OS credential vault; the dashboard only receives account labels and
+connection status. Inference uses the documented public Responses API route.
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import hmac
+import html
+import http.server
+import json
+import os
+import secrets
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+import webbrowser
+from contextlib import contextmanager
+from typing import Any
+
+from fastmdxplora.user_dir import user_config_dir
+
+ISSUER = "https://auth.openai.com"
+AUTHORIZE_URL = f"{ISSUER}/api/accounts/authorize"
+TOKEN_URL = f"{ISSUER}/api/accounts/oauth/token"
+DISCOVERY_URL = f"{ISSUER}/.well-known/openid-configuration"
+RESOURCE = "https://api.openai.com/v1"
+MODEL_LIST_URL = f"{RESOURCE}/models"
+RESPONSES_URL = f"{RESOURCE}/responses"
+CLIENT_NAME = "FastMDXplora"
+PLAN_SCOPE = "chatgpt.tokens.use.direct"
+SCOPES = "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct"
+_SERVICE = "FastMDXplora ChatGPT sign-in"
+_lock = threading.RLock()
+_pending: dict[str, dict[str, Any]] = {}
+_pending_note = ""
+
+
+class SignInError(RuntimeError):
+    """A safe-to-show authentication failure without provider credentials."""
+
+
+class InvalidGrant(SignInError):
+    """An OAuth grant was revoked or consumed and must be removed locally."""
+
+
+def _b64url(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+
+
+def _unb64url(value: str) -> bytes:
+    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+
+
+def _vault():
+    from fastmdxplora.agent.models import _secure_keyring
+
+    return _secure_keyring()
+
+
+def _vault_user() -> str:
+    return hashlib.sha256(str(user_config_dir().resolve()).casefold().encode()).hexdigest()
+
+
+def _read_store() -> dict[str, Any]:
+    vault = _vault()
+    if vault is None:
+        return {"host_id": "", "active_client_id": "", "accounts": []}
+    try:
+        raw = vault.get_password(_SERVICE, _vault_user())
+        record = json.loads(raw) if raw else {}
+    except Exception:  # noqa: BLE001 - locked or unavailable OS credential vault
+        record = {}
+    if not isinstance(record, dict):
+        record = {}
+    accounts = record.get("accounts")
+    return {
+        "host_id": str(record.get("host_id") or ""),
+        "active_client_id": str(record.get("active_client_id") or ""),
+        "pending_client_id": str(record.get("pending_client_id") or ""),
+        "accounts": [item for item in accounts if isinstance(item, dict)]
+        if isinstance(accounts, list) else [],
+    }
+
+
+def _write_store(record: dict[str, Any]) -> None:
+    vault = _vault()
+    if vault is None:
+        raise SignInError(
+            "No supported OS credential vault is available. Use an OpenAI API key instead.")
+    try:
+        vault.set_password(_SERVICE, _vault_user(), json.dumps(record, separators=(",", ":")))
+    except Exception:  # noqa: BLE001 - do not expose vault errors or credential data
+        raise SignInError(
+            "The OS credential vault could not save the ChatGPT sign-in. "
+            "Use an OpenAI API key or unlock the vault and try again.") from None
+
+
+def _host_id(record: dict[str, Any]) -> str:
+    if record.get("host_id"):
+        return str(record["host_id"])
+    record["host_id"] = f"urn:uuid:{uuid.uuid4()}"
+    return str(record["host_id"])
+
+
+def _account(record: dict[str, Any], client_id: str) -> dict[str, Any] | None:
+    return next((item for item in record["accounts"]
+                 if str(item.get("client_id") or "") == client_id), None)
+
+
+def account_choices(record: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    store = record if record is not None else _read_store()
+    return [{
+        "client_id": str(item.get("client_id") or ""),
+        "email": str(item.get("email") or ""),
+        "subject_hint": str(item.get("subject") or "")[-8:],
+        "connected": bool(item.get("access_token") and PLAN_SCOPE in item.get("scopes", [])),
+        "active": str(item.get("client_id") or "") == store.get("active_client_id"),
+    } for item in store["accounts"]]
+
+
+def _exchange(form: dict[str, str], *, timeout: float = 20.0) -> dict[str, Any]:
+    data = urllib.parse.urlencode(form).encode("ascii")
+    request = urllib.request.Request(
+        TOKEN_URL, data=data, headers={"content-type": "application/x-www-form-urlencoded"},
+        method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            answer = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        # Do not let an OAuth response (which may echo parameters) reach UI or logs.
+        if exc.code == 400 and "invalid_grant" in exc.read().decode("utf-8", "replace"):
+            raise InvalidGrant("This sign-in code or refresh token expired. Start sign-in again.") from None
+        raise SignInError(f"OpenAI sign-in returned HTTP {exc.code}. Try again.") from None
+    except (urllib.error.URLError, OSError, TimeoutError):
+        raise SignInError("OpenAI sign-in could not be reached. Check the connection and try again.") from None
+    except (UnicodeError, ValueError):
+        raise SignInError("OpenAI sign-in returned an unreadable response. Try again.") from None
+    if not isinstance(answer, dict):
+        raise SignInError("OpenAI sign-in returned an unreadable response. Try again.")
+    return answer
+
+
+def _fetch_json(url: str, *, timeout: float = 15.0) -> dict[str, Any]:
+    request = urllib.request.Request(url, headers={"accept": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            value = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, TimeoutError, UnicodeError, ValueError):
+        raise SignInError("OpenAI authentication metadata could not be reached. Try again.") from None
+    if not isinstance(value, dict):
+        raise SignInError("OpenAI authentication metadata was not valid JSON.")
+    return value
+
+
+def _verify_id_token(token: str, *, client_id: str, nonce: str,
+                     timeout: float = 15.0) -> dict[str, Any]:
+    parts = token.split(".")
+    if len(parts) != 3:
+        raise SignInError("OpenAI returned an invalid identity token.")
+    try:
+        header = json.loads(_unb64url(parts[0]))
+        claims = json.loads(_unb64url(parts[1]))
+        signature = _unb64url(parts[2])
+    except (ValueError, UnicodeError, json.JSONDecodeError):
+        raise SignInError("OpenAI returned an invalid identity token.") from None
+    if not isinstance(header, dict) or not isinstance(claims, dict) or header.get("alg") != "RS256":
+        raise SignInError("OpenAI returned an unsupported identity-token signature.")
+    discovery = _fetch_json(DISCOVERY_URL, timeout=timeout)
+    if discovery.get("issuer") != ISSUER:
+        raise SignInError("OpenAI identity metadata has an unexpected issuer.")
+    jwks_url = str(discovery.get("jwks_uri") or "")
+    if not jwks_url.startswith(ISSUER + "/"):
+        raise SignInError("OpenAI identity metadata has an unexpected signing-key URL.")
+    keys = _fetch_json(jwks_url, timeout=timeout).get("keys")
+    jwk = next((item for item in keys if isinstance(item, dict)
+                and item.get("kid") == header.get("kid") and item.get("kty") == "RSA"
+                and item.get("use", "sig") == "sig" and item.get("alg", "RS256") == "RS256"),
+               None) if isinstance(keys, list) else None
+    if jwk is None:
+        raise SignInError("OpenAI's identity signing key was not recognized.")
+    try:
+        modulus = int.from_bytes(_unb64url(str(jwk["n"])), "big")
+        exponent = int.from_bytes(_unb64url(str(jwk["e"])), "big")
+        size = (modulus.bit_length() + 7) // 8
+        encoded = pow(int.from_bytes(signature, "big"), exponent, modulus).to_bytes(size, "big")
+    except (KeyError, ValueError, OverflowError):
+        raise SignInError("OpenAI's identity signing key was malformed.") from None
+    digest = hashlib.sha256(f"{parts[0]}.{parts[1]}".encode("ascii")).digest()
+    digest_info = bytes.fromhex("3031300d060960864801650304020105000420") + digest
+    padding_len = size - len(digest_info) - 3
+    expected = b"\x00\x01" + b"\xff" * padding_len + b"\x00" + digest_info
+    if padding_len < 8 or not hmac.compare_digest(encoded, expected):
+        raise SignInError("OpenAI's identity-token signature did not validate.")
+
+    now = int(time.time())
+    audience = claims.get("aud")
+    audiences = [audience] if isinstance(audience, str) else audience
+    if (claims.get("iss") != ISSUER or not isinstance(audiences, list)
+            or client_id not in audiences or int(claims.get("exp") or 0) <= now
+            or (claims.get("nbf") is not None and int(claims["nbf"]) > now + 60)
+            or not hmac.compare_digest(str(claims.get("nonce") or ""), nonce)
+            or not claims.get("sub")):
+        raise SignInError("OpenAI's identity, audience, expiry, or nonce did not validate.")
+    return claims
+
+
+class _CallbackHandler(http.server.BaseHTTPRequestHandler):
+    server_version = "FastMDXploraCallback"
+
+    def log_message(self, _format: str, *_args: Any) -> None:
+        return
+
+    def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        global _pending_note
+        parsed = urllib.parse.urlsplit(self.path)
+        if parsed.path != "/auth/callback":
+            self._answer(404, "This is not the sign-in callback.")
+            return
+        query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+        state = (query.get("state") or [""])[0]
+        with _lock:
+            attempt = _pending.get(state)
+        if attempt is None:
+            self._answer(400, "This sign-in callback is expired or did not match. Return to FastMDXplora and try again.")
+            return
+        try:
+            error = (query.get("error") or [""])[0]
+            if error:
+                if error == "access_denied":
+                    raise SignInError("Sign-in was cancelled or plan use was not authorized.")
+                raise SignInError("OpenAI sign-in was not completed. Try again.")
+            code = (query.get("code") or [""])[0]
+            callback_client = (query.get("client_id") or [""])[0]
+            expected_client = str(attempt.get("client_id") or "")
+            if not code:
+                raise SignInError("The sign-in callback did not include an authorization code.")
+            if expected_client:
+                if callback_client and callback_client != expected_client:
+                    raise SignInError("The sign-in callback returned a different account registration.")
+                client_id = expected_client
+            else:
+                if not callback_client or callback_client == "dynamic_agent_client":
+                    raise SignInError("OpenAI did not return the newly registered client ID. Try again.")
+                client_id = callback_client
+                store = _read_store()
+                store["pending_client_id"] = client_id
+                _write_store(store)
+            response = _exchange({
+                "grant_type": "authorization_code", "client_id": client_id,
+                "code": code, "code_verifier": attempt["verifier"],
+                "redirect_uri": attempt["redirect_uri"], "resource": RESOURCE,
+            })
+            tokens = _validate_tokens(response, client_id=client_id,
+                                      nonce=attempt["nonce"])
+            store = _read_store()
+            existing = _account(store, client_id)
+            subject = tokens["subject"]
+            if existing is not None and str(existing.get("subject") or "") != subject:
+                raise SignInError("This client ID belongs to another ChatGPT account. Its saved credentials were kept.")
+            tokens.update({"client_id": client_id, "issuer": ISSUER,
+                           "email": tokens.pop("email", ""),
+                           "ext_agent_host_id": attempt["host_id"]})
+            if existing is not None:
+                store["accounts"].remove(existing)
+            store["accounts"].append(tokens)
+            store["active_client_id"] = client_id
+            if store.get("pending_client_id") == client_id:
+                store.pop("pending_client_id", None)
+            store["host_id"] = attempt["host_id"]
+            _write_store(store)
+            _pending_note = ("ChatGPT sign-in completed; test model access before saving this route."
+                             if PLAN_SCOPE in tokens["scopes"] else
+                             "Signed in, but ChatGPT plan use was not authorized. "
+                             "Choose Continue with ChatGPT and approve plan use, or use an API key.")
+            self._answer(200, "ChatGPT sign-in is complete. You can return to FastMDXplora.")
+        except SignInError as exc:
+            _pending_note = str(exc)
+            self._answer(400, str(exc))
+        except Exception:  # noqa: BLE001 - callback failures must not leak protocol data
+            _pending_note = "ChatGPT sign-in failed while validating the response. Try again."
+            self._answer(400, _pending_note)
+        finally:
+            with _lock:
+                _pending.pop(state, None)
+            threading.Thread(target=_stop_callback_server, args=(self.server,),
+                             daemon=True).start()
+
+    def _answer(self, status: int, message: str) -> None:
+        body = ("<!doctype html><meta charset=utf-8><title>FastMDXplora sign-in</title>"
+                f"<p>{html.escape(message)}</p>").encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+def _validate_tokens(response: dict[str, Any], *, client_id: str,
+                     nonce: str) -> dict[str, Any]:
+    access = str(response.get("access_token") or "")
+    refresh = str(response.get("refresh_token") or "")
+    identity = str(response.get("id_token") or "")
+    if not access or not refresh or not identity:
+        raise SignInError("OpenAI did not return the tokens needed for a renewable sign-in.")
+    claims = _verify_id_token(identity, client_id=client_id, nonce=nonce)
+    scope_value = response.get("scope")
+    scopes = sorted(set(str(scope_value or "").split()))
+    try:
+        expires_in = int(response.get("expires_in") or 0)
+    except (TypeError, ValueError):
+        expires_in = 0
+    if expires_in <= 0:
+        raise SignInError("OpenAI did not return a valid token expiry. Sign in again.")
+    token_type = str(response.get("token_type") or "Bearer")
+    if token_type.casefold() != "bearer":
+        raise SignInError("OpenAI returned an unsupported token type. Sign in again.")
+    return {
+        "subject": str(claims["sub"]), "email": str(claims.get("email") or ""),
+        "id_token": identity, "access_token": access, "refresh_token": refresh,
+        "token_type": token_type,
+        "expires_at": int(time.time()) + expires_in, "scopes": scopes,
+    }
+
+
+def _stop_callback_server(server: Any) -> None:
+    server.shutdown()
+    server.server_close()
+
+
+def connect(*, client_id: str = "", add_account: bool = False) -> dict[str, Any]:
+    """Start a documented loopback public-client OAuth attempt in a browser."""
+    global _pending_note
+    if _vault() is None:
+        return {"ok": False, "message":
+                "A supported OS credential vault is required for ChatGPT sign-in. Use an OpenAI API key instead."}
+    with _lock:
+        if _pending:
+            return {"ok": False, "message": "A ChatGPT sign-in is already waiting in the browser."}
+    store = _read_store()
+    selected = _account(store, client_id) if client_id else None
+    if client_id and selected is None:
+        return {"ok": False, "message": "Select a saved ChatGPT account, then try again."}
+    if add_account:
+        selected = None
+    pending_client_id = str(store.get("pending_client_id") or "")
+    state = _b64url(secrets.token_bytes(32))
+    nonce = _b64url(secrets.token_bytes(32))
+    verifier = _b64url(secrets.token_bytes(32))
+    challenge = _b64url(hashlib.sha256(verifier.encode("ascii")).digest())
+    try:
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _CallbackHandler)
+    except OSError:
+        return {"ok": False, "message": "The local sign-in callback could not be started. Close another dashboard and retry."}
+    server.daemon_threads = True
+    port = int(server.server_address[1])
+    redirect_uri = f"http://127.0.0.1:{port}/auth/callback"
+    host_id = _host_id(store)
+    try:
+        _write_store(store)
+    except SignInError as exc:
+        server.server_close()
+        return {"ok": False, "message": str(exc)}
+    attempt = {
+        "state": state, "nonce": nonce, "verifier": verifier,
+        "redirect_uri": redirect_uri, "host_id": host_id,
+        "client_id": (str(selected.get("client_id") or "") if selected else
+                      pending_client_id),
+        "account_subject": str(selected.get("subject") or "") if selected else "",
+    }
+    params = {
+        "client_id": attempt["client_id"] or "dynamic_agent_client",
+        "ext_agent_host_id": host_id, "response_type": "code",
+        "redirect_uri": redirect_uri, "scope": SCOPES, "resource": RESOURCE,
+        "state": state, "nonce": nonce, "code_challenge_method": "S256",
+        "code_challenge": challenge,
+    }
+    if not attempt["client_id"]:
+        params["agent_name_hint"] = CLIENT_NAME
+    else:
+        if selected and selected.get("id_token"):
+            params["id_token_hint"] = str(selected["id_token"])
+        if selected and selected.get("email"):
+            params["login_hint"] = str(selected["email"])
+        if not selected or PLAN_SCOPE not in selected.get("scopes", []):
+            # Official recovery guidance: ask for consent only after an earlier
+            # valid sign-in did not grant direct plan use.
+            params["prompt"] = "consent"
+    authorize = AUTHORIZE_URL + "?" + urllib.parse.urlencode(params)
+    with _lock:
+        _pending[state] = attempt
+        _pending_note = ""
+    threading.Thread(target=server.serve_forever, name="chatgpt-oauth-callback",
+                     daemon=True).start()
+    try:
+        opened = webbrowser.open(authorize, new=1, autoraise=True)
+    except Exception:  # noqa: BLE001 - browser launch is platform-provided
+        opened = False
+    if not opened:
+        with _lock:
+            _pending.pop(state, None)
+        threading.Thread(target=_stop_callback_server, args=(server,), daemon=True).start()
+        return {"ok": False, "message": "The system browser could not open. Check the default browser and try again."}
+    timer = threading.Timer(300.0, _expire_attempt, args=(state, server))
+    timer.daemon = True
+    timer.start()
+    return {"ok": True, "pending": True,
+            "message": "Continue with ChatGPT in the system browser. Approve the requested access or cancel there; this dashboard will update when the callback returns."}
+
+
+def _expire_attempt(state: str, server: Any) -> None:
+    """Close an abandoned loopback listener and make a canceled attempt visible."""
+    global _pending_note
+    with _lock:
+        if _pending.pop(state, None) is not None:
+            _pending_note = "ChatGPT sign-in timed out or was closed. Start it again when ready."
+            threading.Thread(target=_stop_callback_server, args=(server,), daemon=True).start()
+
+
+@contextmanager
+def _process_lock():
+    """Serialize token refreshes across dashboard processes on this host."""
+    path = user_config_dir() / "openai-chatgpt-refresh.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("a+b")
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            handle.seek(0)
+            if handle.read(1) == b"":
+                handle.seek(0)
+                handle.write(b"0")
+                handle.flush()
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        yield
+    finally:
+        if os.name == "nt":
+            import msvcrt
+
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
+
+
+def access_token() -> str:
+    """Return a refreshed token only to the local request process."""
+    with _process_lock():
+        store = _read_store()
+        active = _account(store, str(store.get("active_client_id") or ""))
+        if active is None or not active.get("refresh_token"):
+            raise SignInError("No active ChatGPT sign-in. Continue with ChatGPT in Agent Settings.")
+        if PLAN_SCOPE not in active.get("scopes", []):
+            raise SignInError(
+                "ChatGPT plan use is not authorized for this account. Continue with ChatGPT "
+                "in Agent Settings and approve plan use, or choose API-key authentication.")
+        if str(active.get("token_type") or "Bearer").casefold() != "bearer":
+            raise SignInError("The saved ChatGPT sign-in does not use bearer tokens. Sign in again.")
+        if int(active.get("expires_at") or 0) <= int(time.time()) + 60:
+            try:
+                response = _exchange({
+                    "grant_type": "refresh_token", "client_id": active["client_id"],
+                    "refresh_token": active["refresh_token"], "resource": RESOURCE,
+                })
+            except InvalidGrant:
+                for key in ("access_token", "refresh_token", "id_token", "token_type",
+                            "expires_at", "scopes"):
+                    active.pop(key, None)
+                store["active_client_id"] = ""
+                _write_store(store)
+                raise
+            access = str(response.get("access_token") or "")
+            if not access:
+                raise SignInError("OpenAI token refresh returned no access token. Sign in again.")
+            scopes = sorted(set(str(response.get("scope") or " ".join(active.get("scopes", []))).split()))
+            try:
+                expires_in = int(response.get("expires_in") or 0)
+            except (TypeError, ValueError):
+                expires_in = 0
+            token_type = str(response.get("token_type") or active.get("token_type") or "Bearer")
+            if expires_in <= 0 or token_type.casefold() != "bearer":
+                store["active_client_id"] = ""
+                _write_store(store)
+                raise SignInError("OpenAI returned invalid refreshed credentials. Sign in again.")
+            active.update({
+                "access_token": access,
+                "refresh_token": str(response.get("refresh_token") or active["refresh_token"]),
+                "expires_at": int(time.time()) + expires_in,
+                "scopes": scopes,
+                "token_type": token_type,
+            })
+            if PLAN_SCOPE not in scopes:
+                store["active_client_id"] = ""
+                _write_store(store)
+                raise SignInError("OpenAI refresh no longer includes ChatGPT plan permission. Sign in again.")
+            _write_store(store)
+        return str(active["access_token"])
+
+
+def status() -> dict[str, Any]:
+    if _vault() is None:
+        return {"available": False, "connected": False,
+                "message": "A supported OS credential vault is required for ChatGPT sign-in. Use an OpenAI API key instead.",
+                "accounts": [], "active_client_id": ""}
+    store = _read_store()
+    active = _account(store, str(store.get("active_client_id") or ""))
+    if _pending:
+        return {"available": True, "connected": None, "pending": True,
+                "message": "Waiting for ChatGPT sign-in in the system browser.",
+                "accounts": account_choices(store),
+                "active_client_id": store.get("active_client_id", "")}
+    if active and PLAN_SCOPE in active.get("scopes", []) and active.get("refresh_token"):
+        try:
+            access_token()
+            return {"available": True, "connected": True,
+                    "message": "Signed in to ChatGPT as "
+                               f"{active.get('email') or 'the selected account'}. Test model access before using this route.",
+                    "accounts": account_choices(store),
+                    "active_client_id": store.get("active_client_id", "")}
+        except SignInError as exc:
+            return {"available": True, "connected": False, "message": str(exc),
+                    "accounts": account_choices(_read_store()),
+                    "active_client_id": _read_store().get("active_client_id", "")}
+    if active:
+        message = (f"Signed in as {active.get('email') or 'the selected account'}, "
+                   "but ChatGPT plan use was not authorized. Continue with ChatGPT to approve it.")
+    else:
+        message = (_pending_note or ("A ChatGPT client registration is waiting for sign-in. "
+                                    "Continue with ChatGPT to finish it.")
+                   if store.get("pending_client_id") else
+                   _pending_note or "No ChatGPT account is connected. Continue with ChatGPT to sign in.")
+    return {"available": True, "connected": False, "message": message,
+            "accounts": account_choices(store),
+            "active_client_id": store.get("active_client_id", "")}
+
+
+def list_models(*, timeout: float = 12.0) -> list[dict[str, str]]:
+    """Return account-visible SIWC models using OpenAI's documented catalog."""
+    token = access_token()
+    request = urllib.request.Request(
+        MODEL_LIST_URL, headers={"Authorization": f"Bearer {token}",
+                                 "accept": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            answer = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        if exc.code == 401:
+            raise SignInError("OpenAI rejected the active ChatGPT sign-in. Reconnect it in Agent Settings.") from None
+        if exc.code == 403:
+            raise SignInError("OpenAI policy or account permissions prevent listing models.") from None
+        if exc.code == 503:
+            raise SignInError("ChatGPT plan routing is temporarily unavailable. Try again shortly.") from None
+        raise SignInError(f"OpenAI model listing returned HTTP {exc.code}.") from None
+    except (urllib.error.URLError, OSError, TimeoutError, UnicodeError, ValueError):
+        raise SignInError("OpenAI models could not be reached. Check the connection and try again.") from None
+    rows = answer.get("models") if isinstance(answer, dict) else None
+    if not isinstance(rows, list):
+        raise SignInError("OpenAI returned an unrecognized ChatGPT model catalog.")
+    return [{"id": str(row["slug"]), "label": str(row.get("display_name") or row["slug"])}
+            for row in rows if isinstance(row, dict) and row.get("slug")
+            and row.get("visibility") == "list"]
+
+
+def disconnect(*, client_id: str = "") -> dict[str, Any]:
+    """Revoke the selected renewable session, then clear its local tokens."""
+    store = _read_store()
+    selected_id = client_id or str(store.get("active_client_id") or "")
+    account = _account(store, selected_id)
+    if account is None:
+        return {"ok": True, "remote_revoked": True,
+                "message": "No saved ChatGPT sign-in was found."}
+    refresh = str(account.get("refresh_token") or "")
+    remote_revoked = not refresh
+    remote_error = ""
+    if refresh:
+        try:
+            discovery = _fetch_json(DISCOVERY_URL)
+            endpoint = str(discovery.get("revocation_endpoint") or "")
+            if not endpoint.startswith(ISSUER + "/"):
+                raise SignInError("OpenAI revocation metadata was not valid.")
+            data = urllib.parse.urlencode({
+                "token": refresh, "token_type_hint": "refresh_token",
+                "client_id": selected_id,
+            }).encode("ascii")
+            for attempt in range(3):
+                request = urllib.request.Request(endpoint, data=data,
+                    headers={"content-type": "application/x-www-form-urlencoded"}, method="POST")
+                try:
+                    with urllib.request.urlopen(request, timeout=15.0) as response:
+                        remote_revoked = response.status == 200
+                    if remote_revoked:
+                        break
+                except urllib.error.HTTPError as exc:
+                    if exc.code < 500 or attempt == 2:
+                        remote_error = f"OpenAI returned HTTP {exc.code} during remote sign-out."
+                        break
+                except (urllib.error.URLError, OSError, TimeoutError):
+                    if attempt == 2:
+                        remote_error = "OpenAI could not be reached for remote sign-out."
+                        break
+                time.sleep(attempt + 1)
+        except SignInError as exc:
+            remote_error = str(exc)
+    for key in ("access_token", "refresh_token", "id_token", "token_type",
+                "expires_at", "scopes"):
+        account.pop(key, None)
+    if store.get("active_client_id") == selected_id:
+        store["active_client_id"] = ""
+    _write_store(store)
+    message = "Disconnected from ChatGPT. The account registration is kept for later sign-in."
+    if not remote_revoked:
+        message += " The local tokens were cleared, but remote revocation was not confirmed. "
+        message += remote_error or "Disconnect the app in ChatGPT Settings if needed."
+    return {"ok": True, "remote_revoked": remote_revoked,
+            "message": message}
+
+
+def activate(*, client_id: str) -> dict[str, Any]:
+    """Use a previously validated, still renewable account registration."""
+    store = _read_store()
+    account = _account(store, client_id)
+    if account is None:
+        return {"ok": False, "message": "Select a saved ChatGPT account."}
+    if PLAN_SCOPE not in account.get("scopes", []) or not account.get("refresh_token"):
+        return {"ok": False, "message": "This account has no active ChatGPT plan grant. Continue with ChatGPT first."}
+    store["active_client_id"] = client_id
+    _write_store(store)
+    try:
+        access_token()
+    except SignInError as exc:
+        store = _read_store()
+        store["active_client_id"] = ""
+        _write_store(store)
+        return {"ok": False, "message": str(exc)}
+    return {"ok": True, "message": "The selected ChatGPT account is active."}

@@ -62,6 +62,9 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [
+    # Agent API keys and local provider OAuth credentials belong in the OS
+    # credential vault, never in the ordinary model settings file.
+    "keyring>=25",
     # np.trapezoid (simulation/binding.py) is the NumPy 2.0 rename of
     # np.trapz and does not exist on 1.x, so binding_free_energy() raised
     # AttributeError across most of the range this floor used to claim.

@@ -450,7 +450,7 @@ def _from_trajectory(source: dict[str, Any], simulation: Path, most_frames: int,
     # Which atoms of which topology the frames are, so an atom clicked in
     # them is named in that topology exactly (gui/selection.py).
     try:
-        source_topology = str(topology_path.resolve().relative_to(simulation.parent.resolve()))
+        source_topology = topology_path.resolve().relative_to(simulation.parent.resolve()).as_posix()
     except ValueError:
         source_topology = str(topology_path.resolve())
     # Each frame's box, in angstroms and degrees as the DCD holds it, for the
@@ -471,6 +471,7 @@ def _from_history(source: dict[str, Any], simulation: Path, most_frames: int) ->
     import mdtraj as md
 
     from fastmdxplora.gui.live_frames import cell_of, made_whole_frames
+    from fastmdxplora.simulation.runner import chose_its_own_step
     records = source["records"]
     first = _atom_lines(_read(simulation / str(records[-1].get("path") or "")))
     chosen_positions = _even(len(records), frames_for_binary(len(first), most_frames))
@@ -519,7 +520,11 @@ def _from_history(source: dict[str, Any], simulation: Path, most_frames: int) ->
                               if isinstance(record.get("sequence"), int) else position
                               for position, record in zip(source_positions, used)],
             "simulation_steps": [record.get("frame_index") for record in used],
-            "frame_times_ns": [record.get("simulation_time_ns") for record in used],
+            # Older adaptive-step snapshots store step * nominal timestep,
+            # which is not their physical time. Until the history records an
+            # actual integrator clock, do not present that estimate as time.
+            "frame_times_ns": ([None] * len(used) if chose_its_own_step(simulation)
+                               else [record.get("simulation_time_ns") for record in used]),
             "made_whole": whole is not None}
 
 
@@ -935,7 +940,18 @@ def _temporary(target: Path) -> Path:
 def _write_text(target: Path, text: str) -> None:
     temporary = _temporary(target)
     temporary.write_text(text, encoding="utf-8")
-    temporary.replace(target)
+    # Two local dashboard requests can atomically replace the same Windows
+    # target at once. Windows may briefly refuse the second rename while the
+    # first replacement is settling; retry that transient sharing failure.
+    for attempt in range(6):
+        try:
+            temporary.replace(target)
+            return
+        except PermissionError:
+            if os.name != "nt" or attempt == 5:
+                temporary.unlink(missing_ok=True)
+                raise
+            time.sleep(0.01 * (attempt + 1))
 
 
 def _has_a_cell(path: Path) -> bool:

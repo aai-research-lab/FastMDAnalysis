@@ -235,7 +235,8 @@ def _secondary_structure(root: Path) -> dict[str, Any] | None:
     return {
         "kind": "states", "title": "Secondary structure (DSSP)",
         "x": x, "x_label": x_label, "frames": frames, "linked": _linked(root),
-        "residues": residues, "y_label": "Residue", "states": states,
+        "residues": residues, "entities": _residue_entities(root, residues),
+        "y_label": "Residue", "states": states,
         "classes": [{"code": code, "label": label} for code, label in SS_CLASSES],
         "thinned": len(rows) if len(keep) < len(rows) else None,
     }
@@ -392,19 +393,31 @@ def _rmsd_matrix(root: Path) -> dict[str, Any] | None:
             rows = np.add.reduceat(values, starts, axis=0)
             values = np.add.reduceat(rows, starts, axis=1) / np.outer(sizes, sizes)
         timed = times is not None and len(times) == n and bool(np.all(np.isfinite(times)))
+        source_frames = (loaded.tolist() if loaded is not None and len(loaded) == n
+                         else _clock(root, list(range(n)))[0])
         if timed:
             axis = times
         else:
-            indices = loaded.tolist() if loaded is not None and len(loaded) == n else list(range(n))
-            axis = np.asarray(_clock(root, indices)[0], dtype=float)
+            # `frames` in this file are already source trajectory identifiers.
+            # Applying the analysis start/stride clock to them again changes
+            # their identity.
+            axis = np.asarray(source_frames, dtype=float)
         step = float(np.median(np.diff(axis))) if n > 1 else 1.0
         cells = math.ceil(n / block)
+        groups = []
+        for start in range(0, n, block):
+            stop = min(n, start + block)
+            group = source_frames[start:stop]
+            groups.append({"first": int(group[0]), "last": int(group[-1]),
+                           "count": len(group)})
         payload = {
             "kind": "matrix", "title": "RMSD between frames",
             "values": _grid(values),
             # Each cell is `block` frames wide, the last one too.
             "extent": [float(axis[0]) - step / 2, float(axis[0]) + (cells * block - 0.5) * step],
             "axis_label": "Time (ns)" if timed else "Frame", "label": "RMSD", "unit": "nm",
+            "frames": source_frames if block == 1 else None,
+            "frame_groups": groups if block > 1 else None,
             "block": block if block > 1 else None, "low": 0.0,
         }
     _keep(path, payload)
@@ -618,8 +631,11 @@ def _contacts(root: Path) -> dict[str, Any] | None:
         return {"kind": "hbars", "title": "Protein-ligand contact frequency by residue",
                 "x_label": "Contact frequency (fraction of frames)", "x_low": 0.0, "x_high": 1.0,
                 "bars": [], "note": "No protein-ligand contacts detected."}
-    bars = [{"label": name, "value": f, "said": [name, f"in contact in {_percent(f)} of frames"]}
-            for name, f in rows[:MOST_BARS]]
+    names = [name for name, _ in rows[:MOST_BARS]]
+    entities = _residue_entities(root, names)
+    bars = [{"label": name, "value": f, "entity": entity,
+             "said": [name, f"in contact in {_percent(f)} of frames"]}
+            for (name, f), entity in zip(rows[:MOST_BARS], entities)]
     note = (f"The {MOST_BARS} most often in contact of {len(rows)} residues."
             if len(rows) > MOST_BARS else "")
     return {"kind": "hbars", "title": "Protein-ligand contact frequency by residue",
@@ -659,8 +675,9 @@ def _interactions(root: Path) -> dict[str, Any] | None:
             said.append(f"\u00b1 {error:.2f}")
         if episodes is not None:
             said.append(f"formed {episodes:.0f} " + ("time" if episodes == 1 else "times"))
-        bars.append({"label": label, "value": occupancy, "error": error, "hollow": not well,
-                     "said": said})
+        entity = _residue_entities(root, [str(row.get("residue") or "")])[0]
+        bars.append({"label": label, "value": occupancy, "error": error,
+                     "hollow": not well, "entity": entity, "said": said})
     thin = sum(1 for b in bars if b["hollow"])
     notes = []
     if not bars:
@@ -672,6 +689,36 @@ def _interactions(root: Path) -> dict[str, Any] | None:
     return {"kind": "hbars", "title": "Protein-ligand interactions by type",
             "x_label": "Fraction of frames present", "x_low": 0.0, "x_high": 1.0,
             "bars": bars, "note": " ".join(notes)}
+
+
+def _residue_entities(root: Path, labels: list[str]) -> list[dict[str, Any] | None]:
+    """Resolve saved residue labels only when the analyzed topology makes
+    each label unique. An ambiguous or unavailable label remains value-only."""
+    from fastmdxplora.gui.selection import topology_the_analyses_read
+
+    path = topology_the_analyses_read(root)
+    if path is None:
+        return [None] * len(labels)
+    try:
+        from fastmdxplora.analysis.residues import (
+            chain_name, insertion_code, named, number, remember_insertion_codes,
+            several_chains,
+        )
+        from fastmdxplora.utils.native_output import topology_quietly
+
+        remember_insertion_codes(path)
+        topology = topology_quietly(path)
+        qualified = several_chains(topology)
+        by_label: dict[str, dict[str, Any] | None] = {}
+        for residue in topology.residues:
+            label = named(residue, qualified=qualified)
+            entity = {"kind": "residue", "chain": chain_name(residue),
+                      "resi": number(residue), "icode": insertion_code(residue),
+                      "resn": str(residue.name)}
+            by_label[label] = entity if label not in by_label else None
+        return [by_label.get(label) for label in labels]
+    except (OSError, ValueError, TypeError, AttributeError, KeyError):
+        return [None] * len(labels)
 
 
 # ---------------------------------------------------------------------------

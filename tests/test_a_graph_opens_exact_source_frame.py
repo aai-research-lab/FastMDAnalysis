@@ -310,6 +310,102 @@ def test_a_chart_click_shows_exact_frame_coordinates_and_playback_order(tmp_path
         session.server.shutdown()
 
 
+def test_figure_chart_supports_keyboard_navigation_and_ignores_clicks_outside_its_plot(tmp_path):
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import DashboardConfig, start_dashboard_session
+    from tests.test_an_analysis_is_drawn_from_its_numbers import _figure
+
+    root = _study(tmp_path / "study")
+    _series(root)
+    folder = root / "analysis" / "cluster"
+    folder.mkdir(parents=True)
+    (folder / "cluster_kmeans.dat").write_text(
+        "frame,cluster\n" + "".join(f"{frame},{frame % 2}\n" for frame in range(11)),
+        encoding="utf-8")
+    _figure(folder / "cluster_kmeans.png")
+    manifest_path = root / "analysis" / "analysis_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["results"]["cluster_kmeans"] = {"status": "done"}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    session = start_dashboard_session(output=str(root), host="127.0.0.1", port=0,
+                                     config=DashboardConfig(max_browser_frames=3))
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.add_init_script(
+                "try { localStorage.setItem('fmx.viewerPlaybackOpen', '1'); } catch (e) {}")
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#analysis", wait_until="domcontentloaded")
+            if not page.evaluate("() => !!document.createElement('canvas').getContext('webgl')"):
+                pytest.skip("this browser has no WebGL, so the viewer cannot render")
+            chart = page.locator('.figure-chart[data-figure-kind="labels"] svg')
+            chart.wait_for()
+            chart.scroll_into_view_if_needed()
+            box = chart.bounding_box()
+            point_x = box["x"] + 62 + (box["width"] - 82) * 0.7
+            point_y = box["y"] + box["height"] * 0.5
+            page.mouse.click(point_x, point_y)
+            page.wait_for_function(
+                "() => window.FastMDXMoleculeViewer?.STATE.exactFrame?.frame === 7",
+                timeout=60000)
+            page.wait_for_function(
+                "() => window.FastMDXMoleculeViewer.STATE.engine.find({atom:'CA'})[0]?.x > 6.98",
+                timeout=90000)
+
+            # Reopen the analysis chart after the exact-frame action so its
+            # keyboard state is initialized against the updated playback map.
+            page.evaluate("() => window.FastMDXDashboard.navigate('viewer')")
+            page.wait_for_function("() => document.documentElement.dataset.page === 'viewer'")
+            page.evaluate("() => window.FastMDXDashboard.navigate('analysis')")
+            page.wait_for_function("() => document.documentElement.dataset.page === 'analysis'")
+            chart = page.locator('.figure-chart[data-figure-kind="labels"] svg')
+            chart.wait_for(state="visible")
+            page.wait_for_function("() => document.querySelector("
+                                   "'.figure-chart[data-figure-kind=labels] svg')"
+                                   "?.getAttribute('role') === 'application'")
+            chart.scroll_into_view_if_needed()
+            chart.focus()
+            chart.press("End")
+            chart.press("Enter")
+            page.wait_for_function(
+                "() => { const s = window.FastMDXMoleculeViewer.STATE;"
+                " const i = Number(document.getElementById('traj-slider').value);"
+                " return s.playbackFrameIndices[i] === 10; }",
+                timeout=60000)
+            page.wait_for_function(
+                "() => window.FastMDXMoleculeViewer.STATE.engine.find({atom:'CA'})[0]?.x > 9.98",
+                timeout=90000)
+
+            # Frame navigation can put the viewer page in front. Return to
+            # Analysis and wait for the replacement chart to be visible before
+            # checking that a click outside its plot leaves the frame alone.
+            page.evaluate("() => window.FastMDXDashboard.navigate('analysis')")
+            page.wait_for_function("() => document.documentElement.dataset.page === 'analysis'")
+            chart = page.locator('.figure-chart[data-figure-kind="labels"] svg')
+            chart.wait_for(state="visible")
+            chart.scroll_into_view_if_needed()
+            box = chart.bounding_box()
+            page.mouse.move(box["x"] + 62 + (box["width"] - 82) * 0.2, point_y)
+            page.mouse.click(box["x"] + 30, point_y)
+            page.wait_for_timeout(700)
+            stayed = page.evaluate("() => { const s = window.FastMDXMoleculeViewer.STATE;"
+                                   " const i = Number(document.getElementById('traj-slider').value);"
+                                   " return {frame: s.playbackFrameIndices[i],"
+                                   " x: s.engine.find({atom:'CA'})[0].x}; }")
+            browser.close()
+    finally:
+        session.server.shutdown()
+
+    assert errors == []
+    assert stayed["frame"] == 10
+    assert stayed["x"] == pytest.approx(10.0, abs=0.02)
+
+
 def test_a_larger_exact_frame_remains_bounded(tmp_path):
     from fastmdxplora.gui.trajectory_frames import exact_frame_xtc, frames_info
 

@@ -169,9 +169,29 @@ class TestEachFigureIsGivenInItsShape:
         cells = math.ceil(n / 2)
         assert matrix["block"] == 2 and len(matrix["values"]) == cells
         assert matrix["values"][0][0] == pytest.approx(big[:2, :2].mean(), rel=1e-4)
+        assert matrix["frame_groups"][0] == {"first": 0, "last": 1, "count": 2}
         # The last cell is a block wide too: the axis ends where it does.
         assert matrix["extent"] == pytest.approx([-0.005, (cells * 2 - 0.5) * 0.01])
+        assert matrix["frame_groups"][-1] == {"first": n - 1, "last": n - 1, "count": 1}
         assert matrix["values"][-1][-1] == pytest.approx(float(big[-1, -1]), rel=1e-4)
+
+    def test_the_rmsd_matrix_keeps_source_frames_without_applying_start_and_stride_twice(
+            self, tmp_path) -> None:
+        root = _write(tmp_path / "study")
+        manifest_path = root / "analysis" / "analysis_manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["load_kwargs"].update({"first": 2, "stride": 2})
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        np.savez_compressed(
+            root / "analysis" / "cluster" / "cluster_rmsd_matrix.npz",
+            rmsd_nm=np.zeros((3, 3), dtype=np.float32),
+            frames=np.array([4, 6, 8]), time_ns=np.full(3, np.nan))
+
+        matrix = _get(root, "cluster/cluster_rmsd_matrix")
+
+        assert matrix["frames"] == [4, 6, 8]
+        assert matrix["axis_label"] == "Frame"
+        assert matrix["extent"] == pytest.approx([3.0, 9.0])
 
     def test_a_projection_names_its_components_by_their_share(self, study) -> None:
         pca = _get(study, "dimred/dimred_pca")

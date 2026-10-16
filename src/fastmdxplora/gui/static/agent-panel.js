@@ -34,9 +34,9 @@
    * because this is where somebody needs it; a GUI that tells you to run
    * a command is a GUI that has given up. */
   var KEY_HELP = {
-    anthropic: "Get one at platform.claude.com, under Settings \u2192 API " +
-               "keys. A developer account: a chat subscription is " +
-               "not the same thing.",
+    anthropic: "Create a Claude Console API key at platform.claude.com. Eligible Max or Team plans " +
+               "may claim promotional credits into a linked Console organization; " +
+               "Claude.ai sign-in is separate.",
     openai: "Get one at platform.openai.com, under API keys.",
     compatible: "A local server usually needs none; leave this blank."
   };
@@ -48,7 +48,7 @@
     "environment.model.unset":
       "I am not set up yet. Open Settings to set me up.",
     "environment.credentials.absent":
-      "API key required. Open Settings and paste one."
+      "Authentication required. Open Settings to connect or enter a key."
   };
 
   function el(id) { return document.getElementById(id); }
@@ -625,7 +625,126 @@
     /* Inside the settings dialog, where somebody is choosing. It was on
      * the page itself, as "Ready. Drafting with <model>." -- a status line
      * about an engine, on a page about a study. */
-    return current ? current.model : "Nothing set yet.";
+    return current ? engineLabel(current) : "No provider or model saved yet.";
+  }
+
+  function providerSpec(id) {
+    return providers.filter(function (p) { return p.id === id; })[0] || null;
+  }
+
+  function authMethodLabel(provider, id) {
+    var spec = providerSpec(provider);
+    var method = spec && (spec.auth_methods || []).filter(function (m) {
+      return m.id === id;
+    })[0];
+    return method ? method.label : (id === "anthropic_console" ? "Claude Console OAuth"
+      : id === "chatgpt_plan" ? "ChatGPT plan sign-in" : "API key");
+  }
+
+  function engineLabel(choice) {
+    var spec = providerSpec(choice.provider);
+    var label = spec ? spec.label : choice.provider;
+    var location = choice.base_url ? " at " + choice.base_url : "";
+    return label + " · " + (choice.model || "no model") + location +
+      " · " + authMethodLabel(choice.provider, choice.auth_method || "api_key");
+  }
+
+  var savedEngineChoice = null;
+
+  function updateEngineSummary() {
+    var saved = savedEngineChoice;
+    var selected = { provider: el("agent-provider").value,
+      model: chosenModel(), base_url: el("agent-base-url").value.trim(),
+      auth_method: el("agent-auth-method").value || "api_key" };
+    var line = saved ? "Saved for Agent requests: " + engineLabel(saved)
+      : "No provider or model saved yet.";
+    var same = saved && saved.provider === selected.provider && saved.model === selected.model &&
+      (saved.base_url || "") === selected.base_url &&
+      (saved.auth_method || "api_key") === selected.auth_method;
+    if (!same && (selected.model || selected.provider)) {
+      line += "\nCurrent selection (unsaved): " + engineLabel(selected);
+    }
+    el("agent-model-current").textContent = line;
+  }
+
+  var authRequest = 0;
+  var authPollTimer = null;
+  var authPollCount = 0;
+
+  function setAuthStatus(status) {
+    var target = el("agent-auth-status");
+    target.textContent = status && status.message ? status.message : "No authentication status is available.";
+    target.classList.toggle("is-connected", !!status && status.connected === true);
+    target.classList.toggle("is-disconnected", !!status && status.connected === false);
+    target.classList.toggle("is-unverified", !status || status.connected == null);
+    var pending = !!(status && status.pending);
+    el("agent-auth-test").disabled = pending;
+    el("agent-auth-disconnect").disabled = pending;
+    var method = providerSpec(el("agent-provider").value);
+    var selected = method && (method.auth_methods || []).filter(function (item) {
+      return item.id === el("agent-auth-method").value;
+    })[0];
+    el("agent-auth-connect").disabled = pending || !selected || !selected.available;
+    el("agent-auth-add-account").disabled = pending;
+    el("agent-auth-activate").disabled = pending;
+    updateAccountChoices(status || {});
+  }
+
+  function updateAccountChoices(status) {
+    var field = el("agent-auth-account-field");
+    var select = el("agent-auth-account");
+    var isChatGPT = el("agent-auth-method").value === "chatgpt_plan";
+    var previous = select.value;
+    var accounts = status.accounts || [];
+    select.replaceChildren();
+    accounts.forEach(function (account) {
+      var option = document.createElement("option");
+      option.value = account.client_id;
+      var label = account.email || ("ChatGPT account ···" + account.subject_hint);
+      option.textContent = label + (account.active ? " (active)" : "");
+      select.appendChild(option);
+    });
+    field.hidden = !isChatGPT || !accounts.length;
+    if (status.active_client_id) {
+      select.value = status.active_client_id;
+    } else if (previous && accounts.some(function (account) { return account.client_id === previous; })) {
+      select.value = previous;
+    }
+    el("agent-auth-add-account").hidden = !isChatGPT || !accounts.length;
+    el("agent-auth-activate").hidden = !isChatGPT || !select.value ||
+      !!(accounts.filter(function (account) {
+        return account.client_id === select.value && account.active;
+      })[0]);
+  }
+
+  function applyModelOptions(options) {
+    if (!Array.isArray(options) || !options.length) return;
+    var spec = providerSpec(el("agent-provider").value);
+    if (!spec) return;
+    spec.model_options = options;
+    spec.models = options.map(function (item) { return item.id; });
+    var selected = chosenModel();
+    fillModels(spec, selected);
+    updateEngineSummary();
+  }
+
+  function refreshAuthStatus(action) {
+    var request = ++authRequest;
+    return post("/api/agent/auth", {
+      action: action || "status", provider: el("agent-provider").value,
+      auth_method: el("agent-auth-method").value || "api_key",
+      model: chosenModel(), base_url: el("agent-base-url").value.trim()
+    }).then(function (data) {
+      if (request !== authRequest) return data;
+      setAuthStatus(data.status || {connected: false, message: data.error});
+      applyModelOptions(data.model_options || (data.status && data.status.model_options));
+      return data;
+    }).catch(function () {
+      if (request === authRequest) {
+        setAuthStatus({connected: false, message: "The local authentication status could not be reached."});
+      }
+      return null;
+    });
   }
 
   var OTHER = "__other__";
@@ -638,10 +757,13 @@
   function fillModels(spec, chosen) {
     var select = el("agent-model");
     select.innerHTML = "";
-    (spec.models || []).forEach(function (name) {
+    var modelOptions = spec.model_options || (spec.models || []).map(function (name) {
+      return {id: name, label: name};
+    });
+    modelOptions.forEach(function (item) {
       var option = document.createElement("option");
-      option.value = name;
-      option.textContent = name;
+      option.value = item.id;
+      option.textContent = item.label || item.id;
       select.appendChild(option);
     });
     var other = document.createElement("option");
@@ -671,9 +793,78 @@
       : el("agent-model").value;
   }
 
-  function showProvider(id, chosen) {
+  function showAuthMethods(spec, preferred) {
+    var select = el("agent-auth-method");
+    select.innerHTML = "";
+    (spec.auth_methods || [{id: "api_key", label: "API key", available: true,
+      requires_api_key: true}]).forEach(function (method) {
+      var option = document.createElement("option");
+      option.value = method.id;
+      option.textContent = method.label + (method.available ? "" : " — unavailable");
+      option.disabled = !method.available;
+      option.dataset.requiresKey = method.requires_api_key ? "true" : "false";
+      option.dataset.reason = method.reason || "";
+      select.appendChild(option);
+    });
+    var hasPreferred = (spec.auth_methods || []).some(function (method) {
+      return method.id === preferred;
+    });
+    select.value = hasPreferred ? preferred : "api_key";
+    updateAuthControls(spec);
+  }
+
+  function updateAuthControls(spec) {
+    var method = (spec.auth_methods || []).filter(function (item) {
+      return item.id === el("agent-auth-method").value;
+    })[0] || {id: "api_key", requires_api_key: true};
+    var usesKey = !!method.requires_api_key;
+    el("agent-key").closest("label").hidden = !usesKey;
+    if (!usesKey) el("agent-key").value = "";
+    el("agent-key-help").textContent = usesKey
+      ? (KEY_HELP[spec.id] || "") + " A new key is saved only in the OS credential vault; " +
+        "you may instead set " + (spec.environment_variable || "the provider's key variable") +
+        " in the environment. It is never sent back to the page or written to settings files."
+      : "";
+    var isConsole = method.id === "anthropic_console";
+    var isChatGPT = method.id === "chatgpt_plan";
+    var usesOAuth = isConsole || isChatGPT;
+    el("agent-auth-connect").hidden = !usesOAuth || !method.available;
+    el("agent-auth-connect").disabled = !method.available;
+    el("agent-auth-connect").textContent = isChatGPT
+      ? "Continue with ChatGPT" : "Continue with Claude Console";
+    el("agent-auth-account-field").hidden = !isChatGPT;
+    el("agent-auth-add-account").hidden = true;
+    el("agent-auth-activate").hidden = true;
+    el("agent-auth-test").hidden = false;
+    el("agent-auth-disconnect").hidden = false;
+    var help = method.reason || (isConsole
+      ? "Signs into the Claude Console API through an app-isolated ant CLI profile. " +
+        "This does not sign into a Claude.ai account."
+      : isChatGPT
+      ? "OpenAI's documented Sign in with ChatGPT supports this local open-source Agent " +
+        "through the public Responses API. Approve ChatGPT plan usage in the system browser. " +
+        "Tokens stay in the OS credential vault."
+      : usesKey ? "API-key authentication uses the provider's documented API endpoint. " +
+        "Environment keys take precedence over a key saved in the OS vault."
+      : "This authentication method is unavailable.");
+    var unavailable = (spec.auth_methods || []).filter(function (item) {
+      return item.id !== method.id && !item.available;
+    });
+    if (unavailable.length) {
+      help += " " + unavailable.map(function (item) {
+        return item.label + " unavailable: " + (item.reason || "not supported here");
+      }).join(" ");
+    }
+    el("agent-auth-help").textContent = help;
+    refreshAuthStatus("status");
+  }
+
+  function showProvider(id, chosen, authMethod) {
     var spec = providers.filter(function (p) { return p.id === id; })[0];
     if (!spec) return;
+    /* A pasted key belongs to the provider that was selected when it was
+     * entered. Never carry it across a provider or auth-method switch. */
+    el("agent-key").value = "";
     el("agent-url-field").hidden = !spec.needs_url;
     /* Only Anthropic is told how long to keep its cache. */
     el("agent-cache-field").hidden = id !== "anthropic";
@@ -682,16 +873,18 @@
      * in place -- OpenAI selected and claude-sonnet-4-6 still showing. */
     fillModels(spec, chosen || spec.default_model || "");
     el("agent-key-help").textContent =
-      (KEY_HELP[id] || "") + " Stored in a file of its own, readable only " +
-      "by you, and never written into a config, a manifest or a log.";
+      KEY_HELP[id] || "";
     el("agent-url-examples").textContent =
       (spec.examples || []).map(function (e) {
         return e.label + ": " + e.url;
       }).join("  \u00b7  ");
+    showAuthMethods(spec, authMethod);
+    updateEngineSummary();
   }
 
   function engineIsSet(current) {
-    el("agent-model-current").textContent = describeEngine(current);
+    savedEngineChoice = current ? Object.assign({}, current) : null;
+    updateEngineSummary();
     engineChosen = !!current;
     syncStart();
   }
@@ -1167,25 +1360,29 @@
         el("agent-base-url").value = data.current.base_url || "";
       }
       el("agent-cache").value = data.cache_for || "auto";
-      showProvider(select.value, data.current && data.current.model);
+      showProvider(select.value, data.current && data.current.model,
+                   data.current && data.current.auth_method);
       engineIsSet(data.current);
+      if (data.current && data.auth_status) setAuthStatus(data.auth_status);
     });
   }
 
-  function saveEngine() {
+  function saveEngine(keepOpen) {
     var button = el("agent-save-model");
     button.disabled = true;
-    post("/api/agent/model", {
+    var authMethod = el("agent-auth-method").value || "api_key";
+    return post("/api/agent/model", {
       provider: el("agent-provider").value,
       model: chosenModel(),
       base_url: el("agent-base-url").value,
-      api_key: el("agent-key").value,
+      auth_method: el("agent-auth-method").value || "api_key",
+      api_key: authMethod === "api_key" ? el("agent-key").value : "",
       cache_for: el("agent-cache").value
     }).then(function (data) {
       button.disabled = false;
       if (!data.ok) {
         el("agent-model-current").textContent = data.error;
-        return;
+        return false;
       }
       /* Cleared rather than left in the field: a key sitting in an input
        * survives a screenshot and a shoulder. */
@@ -1196,11 +1393,105 @@
         var spec = providers.filter(function (p) {
           return p.id === el("agent-provider").value;
         })[0];
-        if (spec) spec.models = data.models;
+        if (spec) {
+          spec.models = data.models;
+          spec.model_options = data.model_options || data.models.map(function (model) {
+            return {id: model, label: model};
+          });
+          fillModels(spec, data.current.model);
+        }
       }
       engineIsSet(data.current);
-      closeSettings();
+      refreshAuthStatus("status");
+      if (!keepOpen) closeSettings();
+      return true;
+    }).catch(function () {
+      button.disabled = false;
+      el("agent-model-current").textContent = "The provider settings could not be saved.";
+      return false;
     });
+  }
+
+  function connectAuth(addAccount) {
+    var button = el("agent-auth-connect");
+    button.disabled = true;
+    var request = {action: "connect", provider: el("agent-provider").value,
+      auth_method: el("agent-auth-method").value};
+    if (request.auth_method === "chatgpt_plan") {
+      request.client_id = addAccount ? "" : el("agent-auth-account").value;
+      request.add_account = !!addAccount;
+    }
+    post("/api/agent/auth", request).then(function (data) {
+      setAuthStatus(data.status || {connected: false, message: data.error});
+      if (data.status && data.status.pending) startAuthPolling();
+    }).catch(function () {
+      setAuthStatus({connected: false, message: "Provider sign-in could not be started."});
+    });
+  }
+
+  function startAuthPolling() {
+    if (authPollTimer) window.clearTimeout(authPollTimer);
+    authPollCount = 0;
+    function poll() {
+      if (authPollCount++ >= 150) {
+        setAuthStatus({connected: false,
+          message: "Sign-in timed out. Return to Agent Settings and start again."});
+        authPollTimer = null;
+        return;
+      }
+      authPollTimer = window.setTimeout(function () {
+        refreshAuthStatus("status").then(function (data) {
+          var status = data && data.status;
+          if (status && status.pending) poll();
+          else {
+            authPollTimer = null;
+            if (status && status.connected === true &&
+                ["chatgpt_plan", "anthropic_console"].indexOf(
+                  el("agent-auth-method").value) !== -1) {
+              refreshAuthStatus("test");
+            }
+          }
+        });
+      }, 2000);
+    }
+    poll();
+  }
+
+  function activateAuthAccount() {
+    var button = el("agent-auth-activate");
+    button.disabled = true;
+    post("/api/agent/auth", {
+      action: "activate", provider: "openai", auth_method: "chatgpt_plan",
+      client_id: el("agent-auth-account").value, model: chosenModel()
+    }).then(function (data) {
+      setAuthStatus(data.status || {connected: false, message: data.error});
+      applyModelOptions(data.model_options || []);
+    }).catch(function () {
+      setAuthStatus({connected: false, message: "That ChatGPT account could not be activated."});
+    }).then(function () { button.disabled = false; });
+  }
+
+  function testAuth() {
+    var button = el("agent-auth-test");
+    button.disabled = true;
+    refreshAuthStatus("test").then(function () { button.disabled = false; });
+  }
+
+  function disconnectAuth() {
+    var button = el("agent-auth-disconnect");
+    button.disabled = true;
+    post("/api/agent/auth", {
+      action: "disconnect", provider: el("agent-provider").value,
+      auth_method: el("agent-auth-method").value || "api_key",
+      base_url: el("agent-base-url").value.trim(), model: chosenModel(),
+      client_id: el("agent-auth-account").value
+    }).then(function (data) {
+      if (data.status) setAuthStatus(data.status);
+      else setAuthStatus({connected: false, message: data.error || "Disconnect failed."});
+      el("agent-key").value = "";
+    }).catch(function () {
+      setAuthStatus({connected: false, message: "The credential could not be disconnected."});
+    }).then(function () { button.disabled = false; });
   }
 
   /* ---- The conversation ---------------------------------------------- */
@@ -3825,8 +4116,27 @@
     el("agent-provider").addEventListener("change", function () {
       showProvider(this.value);
     });
-    el("agent-model").addEventListener("change", modelChanged);
-    el("agent-save-model").addEventListener("click", saveEngine);
+    el("agent-model").addEventListener("change", function () {
+      modelChanged();
+      updateEngineSummary();
+    });
+    el("agent-model-other").addEventListener("input", updateEngineSummary);
+    el("agent-base-url").addEventListener("input", updateEngineSummary);
+    el("agent-auth-method").addEventListener("change", function () {
+      updateAuthControls(providerSpec(el("agent-provider").value) || {id: el("agent-provider").value});
+      updateEngineSummary();
+    });
+    el("agent-save-model").addEventListener("click", function () { saveEngine(false); });
+    el("agent-auth-connect").addEventListener("click", connectAuth);
+    el("agent-auth-add-account").addEventListener("click", function () { connectAuth(true); });
+    el("agent-auth-account").addEventListener("change", function () {
+      updateAccountChoices({accounts: Array.prototype.map.call(this.options, function (option) {
+        return {client_id: option.value, active: option.textContent.indexOf("(active)") !== -1};
+      })});
+    });
+    el("agent-auth-activate").addEventListener("click", activateAuthAccount);
+    el("agent-auth-test").addEventListener("click", testAuth);
+    el("agent-auth-disconnect").addEventListener("click", disconnectAuth);
     el("agent-settings-open").addEventListener("click", openSettings);
     el("agent-settings-close").addEventListener("click", closeSettings);
     el("agent-propose").addEventListener("click", function () {
