@@ -59,8 +59,13 @@ def _busy(url: str) -> urllib.error.HTTPError:
 def _rcsb(failures):
     """RCSB, with the first requests answered by ``failures`` (an entry of
     None passes that request on) and every request after by RCSB itself.
-    ``failures`` may be a callable, which answers every request."""
-    real = urllib.request.urlretrieve
+    ``failures`` may be a callable, which answers every request.
+
+    Each request is caught where the pipeline makes it: `pipeline._download`
+    where there is one (it fetches with a timeout), `urlretrieve` before it."""
+    owner, name = ((pipeline, "_download") if hasattr(pipeline, "_download")
+                   else (urllib.request, "urlretrieve"))
+    real = getattr(owner, name)
     calls: list[str] = []
     waits: list[float] = []
     queue = None if callable(failures) else list(failures)
@@ -78,12 +83,12 @@ def _rcsb(failures):
         waits.append(seconds)
         sleep(seconds)
 
-    urllib.request.urlretrieve = urlretrieve
+    setattr(owner, name, urlretrieve)
     pipeline._sleep = wait
     try:
         yield calls, waits
     finally:
-        urllib.request.urlretrieve = real
+        setattr(owner, name, real)
         pipeline._sleep = sleep
 
 
