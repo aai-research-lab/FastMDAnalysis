@@ -732,7 +732,7 @@ def test_failed_console_disconnect_does_not_claim_to_be_disconnected(monkeypatch
     assert "timed out" in result["status"]["message"]
 
 
-def test_unsupported_claude_subscription_sign_in_stays_unavailable_and_hosted_oauth_cannot_save(
+def test_unavailable_console_and_hosted_sign_in_cannot_save(
         monkeypatch, tmp_path):
     from fastmdxplora.agent import anthropic_cli
     from fastmdxplora.agent.models import load_choice
@@ -745,8 +745,10 @@ def test_unsupported_claude_subscription_sign_in_stays_unavailable_and_hosted_oa
     console = next(row for row in claude["auth_methods"]
                    if row["id"] == "anthropic_console")
     assert console["available"] is False
-    assert "Claude.ai account sign-in is not supported" in console["reason"]
+    assert "Claude Console API OAuth" in console["reason"]
     assert console["requires_api_key"] is False
+    assert {method["id"] for method in claude["auth_methods"]} == {
+        "api_key", "anthropic_console"}
 
     rejected = model_endpoint({"provider": "openai", "model": "gpt-5",
                                "auth_method": "chatgpt_plan"},
@@ -881,6 +883,8 @@ def test_live_agent_settings_switch_provider_method_and_persist_the_real_selecti
             assert page.locator("#agent-key").is_visible()
             console_option = page.locator(
                 "#agent-auth-method option[value='anthropic_console']")
+            assert page.locator("#agent-auth-method option").evaluate_all(
+                "options => options.map(option => option.value)") == ["api_key", "anthropic_console"]
             from fastmdxplora.agent.anthropic_cli import can_launch_login, executable
 
             console_available = bool(executable() and can_launch_login())
@@ -889,7 +893,7 @@ def test_live_agent_settings_switch_provider_method_and_persist_the_real_selecti
                 page.locator("#agent-auth-method").select_option("anthropic_console")
                 assert page.locator("#agent-key").is_hidden()
                 assert page.locator("#agent-auth-connect").is_visible()
-            assert "Claude.ai account sign-in is not supported" \
+            assert "Claude Console API OAuth" \
                 in page.locator("#agent-auth-help").inner_text()
             check_auth_layout()
             summary = page.locator("#agent-model-current").inner_text()
@@ -899,3 +903,34 @@ def test_live_agent_settings_switch_provider_method_and_persist_the_real_selecti
             browser.close()
     finally:
         session.server.shutdown()
+
+
+def test_concurrent_refresh_reads_are_serialized(chatgpt_vault):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+
+    oauth, _ = chatgpt_vault
+    entered = threading.Event()
+    release = threading.Event()
+    second_entered = threading.Event()
+
+    def first():
+        with oauth._process_lock():
+            entered.set()
+            assert release.wait(5)
+
+    def second():
+        with oauth._process_lock():
+            second_entered.set()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first_result = pool.submit(first)
+        assert entered.wait(5)
+        second_result = pool.submit(second)
+        try:
+            assert not second_entered.wait(0.1)
+        finally:
+            release.set()
+        first_result.result(timeout=5)
+        second_result.result(timeout=5)
+    assert second_entered.is_set()

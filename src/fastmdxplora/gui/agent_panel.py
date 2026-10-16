@@ -53,11 +53,11 @@ def _auth_methods(provider: str, *, local_auth_allowed: bool = True) -> list[dic
             "reason": ("Provider credentials and interactive sign-in are available only in the local dashboard."
                        if not local_auth_allowed else
                        "Install Anthropic's official ant CLI to enable this method. "
-                       "This is Claude Console API OAuth. Claude.ai account sign-in is not supported."
+                       "This is Claude Console API OAuth."
                        if not installed else
                        "A local interactive terminal is required."
                        if not terminal_available else
-                       "This is Claude Console API OAuth. Claude.ai account sign-in is not supported."),
+                       "This is Claude Console API OAuth."),
         })
     if provider == "openai":
         from fastmdxplora.agent.models import _secure_keyring

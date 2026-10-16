@@ -34,9 +34,7 @@
    * because this is where somebody needs it; a GUI that tells you to run
    * a command is a GUI that has given up. */
   var KEY_HELP = {
-    anthropic: "Create a Claude Console API key at platform.claude.com. Eligible Max or Team plans " +
-               "may claim promotional credits into a linked Console organization; " +
-               "Claude.ai sign-in is separate.",
+    anthropic: "Create a Claude Console API key at platform.claude.com.",
     openai: "Get one at platform.openai.com, under API keys.",
     compatible: "A local server usually needs none; leave this blank."
   };
@@ -839,8 +837,7 @@
     el("agent-auth-test").hidden = false;
     el("agent-auth-disconnect").hidden = false;
     var help = method.reason || (isConsole
-      ? "Signs into the Claude Console API through an app-isolated ant CLI profile. " +
-        "This does not sign into a Claude.ai account."
+      ? "Signs into the Claude Console API through an app-isolated ant CLI profile."
       : isChatGPT
       ? "OpenAI's documented Sign in with ChatGPT supports this local open-source Agent " +
         "through the public Responses API. Approve ChatGPT plan usage in the system browser. " +

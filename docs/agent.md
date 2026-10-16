@@ -130,9 +130,8 @@ and [models and inference](https://developers.openai.com/siwc/token-sharing-open
 Anthropic offers API keys and **Claude Console OAuth** through the official
 `ant` CLI's [local authentication](https://platform.claude.com/docs/en/cli-sdks-libraries/cli/authentication)
 and [HTTP scripting flow](https://platform.claude.com/docs/en/cli-sdks-libraries/cli/scripting).
-FastMDXplora uses its own isolated CLI profile. Claude.ai subscription OAuth is
-unavailable for this integration. The sign-in option explains missing CLI or
-terminal requirements and stays disabled until they are available.
+FastMDXplora uses its own isolated CLI profile. The Console option explains
+missing CLI or terminal requirements and stays disabled until they are available.
 
 Settings shows the saved provider, model and authentication method separately
 from unsaved edits. **Test connection** checks the selected route's model access.

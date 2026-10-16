@@ -1,7 +1,7 @@
 """Use Anthropic's documented local ``ant`` OAuth profile for API calls.
 
-This is Claude Console OAuth for the Claude API, not Claude.ai subscription
-sign-in. FastMDXplora gives the CLI its own config directory and deliberately
+This is Claude Console OAuth for the Claude API. FastMDXplora gives the CLI
+its own config directory and deliberately
 passes no inherited API-key/profile environment variables, so an existing
 Claude CLI session is neither inspected nor reused.
 """

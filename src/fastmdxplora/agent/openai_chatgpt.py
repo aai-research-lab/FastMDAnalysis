@@ -40,6 +40,7 @@ PLAN_SCOPE = "chatgpt.tokens.use.direct"
 SCOPES = "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct"
 _SERVICE = "FastMDXplora ChatGPT sign-in"
 _lock = threading.RLock()
+_refresh_lock = threading.RLock()
 _pending: dict[str, dict[str, Any]] = {}
 _pending_note = ""
 _UNUSABLE_GRANTS = {
@@ -452,34 +453,34 @@ def _process_lock():
     """Serialize token refreshes across dashboard processes on this host."""
     path = user_config_dir() / "openai-chatgpt-refresh.lock"
     path.parent.mkdir(parents=True, exist_ok=True)
-    handle = path.open("a+b")
-    try:
-        if os.name == "nt":
-            import msvcrt
+    with _refresh_lock, path.open("a+b") as handle:
+        acquired = False
+        try:
+            if os.name == "nt":
+                import msvcrt
 
-            handle.seek(0)
-            if handle.read(1) == b"":
+                # Windows permits a byte lock beyond EOF. Reading or initializing
+                # this byte before locking races with another refresh process.
                 handle.seek(0)
-                handle.write(b"0")
-                handle.flush()
-            handle.seek(0)
-            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
-        else:
-            import fcntl
+                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            else:
+                import fcntl
 
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        yield
-    finally:
-        if os.name == "nt":
-            import msvcrt
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            acquired = True
+            yield
+        finally:
+            if acquired:
+                if os.name == "nt":
+                    import msvcrt
 
-            handle.seek(0)
-            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
 
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-        handle.close()
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
 
 
 def access_token() -> str:

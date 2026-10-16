@@ -781,8 +781,7 @@ class TestThePageIsATextareaAndButtons(unittest.TestCase):
         help_text = script[script.index("KEY_HELP"):script.index("IN_THE_GUI")]
         self.assertIn("platform.claude.com", help_text)
         self.assertIn("platform.openai.com", help_text)
-        # Claude Console OAuth calls the Claude API; it is not Claude.ai OAuth.
-        self.assertIn("Claude.ai sign-in is separate", help_text)
+        self.assertIn("Create a Claude Console API key", help_text)
 
     def test_the_actions_are_the_ones_asked_for(self):
         # The builder's own set, under the Agent: there is no need to go
