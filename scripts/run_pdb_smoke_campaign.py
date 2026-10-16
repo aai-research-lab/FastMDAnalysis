@@ -158,7 +158,10 @@ def run_one(input_value: str, args: argparse.Namespace) -> dict[str, Any]:
             setup_results = fmdx.explore(include=["setup"])
             setup_result = setup_results[0] if setup_results else None
             setup_summary = _summarize_run_result(setup_result, validate_output_dir(output_dir))
-            if setup_summary["status"] not in {"ok", "validation_failed"}:
+            # A note setup records (which model of an NMR entry it took, say)
+            # is not a reason to stop; only a setup that did not complete is.
+            if (setup_summary["status"] not in {"ok", "validation_failed"}
+                    and not setup_summary["setup_completed"]):
                 row.update(setup_summary)
                 row["runtime_seconds"] = f"{time.monotonic() - started:.3f}"
                 if not row["bug_classification"]:

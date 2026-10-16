@@ -238,6 +238,37 @@ def test_the_trajectory_is_read_against_the_atoms_it_saved(tmp_path: Path) -> No
     assert campaign._trajectory_topology(sim) == sim / "trajectory_topology.pdb"
 
 
+class FakeFastMDXploraInTwoCalls(FakeFastMDXploraSuccess):
+    """Setup in a call of its own, as --max-setup-atoms runs it, with a note
+    recorded, as setup records which model of an NMR entry it took."""
+
+    def explore(self, *, include=None, options=None, report=True):
+        if include == ["setup"]:
+            results = super().explore(options=options, report=report)
+            (self.output_dir / "setup" / "setup_parameters.json").write_text(
+                json.dumps({"notes": ["The structure holds 38 models; model 1 is prepared."]}),
+                encoding="utf-8")
+            return [SimpleNamespace(output_dir=self.output_dir, phases=[_phase("setup")])]
+        FakeFastMDXploraInTwoCalls.simulated = True
+        phases = [_phase(name) for name in include]
+        return [SimpleNamespace(output_dir=self.output_dir, phases=phases)]
+
+
+def test_a_note_from_setup_does_not_stop_the_simulation(tmp_path: Path) -> None:
+    # 1L2Y was prepared on aailab01 on 2026-10-16 and never simulated: its
+    # setup noted which of its 38 models it took, and the campaign read any
+    # note as a limitation and stopped there.
+    FakeFastMDXploraInTwoCalls.simulated = False
+    with patch("fastmdxplora.FastMDXplora", FakeFastMDXploraInTwoCalls), patch.object(
+        campaign, "check_trajectory_coordinates", return_value=[]
+    ):
+        row = campaign.run_one("1L2Y", _args(tmp_path, max_setup_atoms=100_000))
+
+    assert FakeFastMDXploraInTwoCalls.simulated
+    assert row["setup_completed"] is True
+    assert row["simulation_completed"] is True
+
+
 def test_parse_input_list_prefers_clean_local_lines(tmp_path: Path) -> None:
     pdb = tmp_path / "local.pdb"
     pdb.write_text("END\n", encoding="utf-8")
