@@ -201,5 +201,5 @@ def test_new_study_opens_the_builder_with_the_agent_beside_it(browser, session) 
     assert opened["overlap"] is False and focused != "agent-request"
     # Pressed again, it stays open, and the page's own prompt is put back
     # once it closes.
-    assert again["beside"] and placeholder == "Ask about this study, or describe one."
+    assert again["beside"] and placeholder == "Ask, or describe a study"
     assert closed != placeholder

@@ -2581,7 +2581,9 @@ body.state-ready .loading-screen {
 .run-checkbox-group {
     display: grid;
     gap: 6px 14px;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    /* One a row where the field is narrower than one: an analysis's
+       settings in the builder's two columns of analyses. */
+    grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
 }
 .run-checkbox {
     align-items: center;
@@ -3717,6 +3719,12 @@ html[data-page="viewer"] .page-shell { max-width: 1480px; }
     font-size: var(--text-xl); line-height: 1; cursor: pointer;
 }
 .agent-send:disabled { opacity: .45; cursor: default; }
+/* Nothing written yet: a quiet control, the accent kept for when there is
+   something to send (agent-panel.js, sendReady). */
+.agent-send.is-blank {
+    border-color: var(--border-primary); background: transparent; color: var(--text-muted);
+    cursor: default;
+}
 /* The Agent's prose in Inter, the font FastMDXplora ships, as the rest of
    the page (user, 10-07: "Reply font: Inter"). It was in Georgia, a
    system serif shipped by nobody here. The two voices are told apart by
@@ -3991,7 +3999,16 @@ body.sidebar-collapsed .sidebar-expand { display: inline-flex; }
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* Folds the sidebar as the side panel's button folds the panel. */
-.sidebar .sidebar-collapse { flex: none; margin: 0; padding: 4px 8px; font-size: var(--text-2xs); }
+.sidebar .sidebar-collapse {
+    flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; margin: 0; padding: 0; font-size: var(--text-2xs);
+}
+/* Its right edge on the buttons' under it (the Agent beside, New in a
+   list's head): the brand row is padded 16px, the rows under it 10px and
+   their buttons 1px in. */
+@media (min-width: 801px) {
+    .sidebar .sidebar-brand .sidebar-collapse { margin-right: -6px; }
+}
 .sidebar-tool {
     display: inline-flex; align-items: center; justify-content: center;
     flex: none; width: 28px; height: 28px; padding: 0; margin: 0; order: 0;
@@ -4201,11 +4218,22 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
 /* The viewer answers the width it is given, not the window's. At 1440
    pixels with the log open the page had 640 of them, the 1200-pixel
    breakpoint never fired, and the canvas got what the info pane left:
-   240. Below 900 pixels of page the pane goes under the canvas. The
+   240. Below 788 pixels of page the pane goes under the canvas. The
    container is the viewer's page alone: a query container holds its
    fixed-position descendants, and the dialogs on other pages are those. */
 .page[data-page="viewer"] { container-type: inline-size; container-name: viewerpage; }
-@container viewerpage (max-width: 900px) {
+/* The least width each page needs, read by frame.js, which folds the
+   sidebar and then the side panel before a page has less (user, 10-15).
+   The Viewer's tools and the Config Builder's summary are the pages' own
+   right panels: they stay beside the page down to its least, and go under
+   it below. The tools take their widest, 390px, before the molecule takes
+   any, so at 788px of page the molecule's column is about 380px (the
+   canvas a little less, by the column's scroll gutter); the builder's
+   784px, above. */
+.page { --page-least: 480px; --own-right-panel: 0; }
+.page[data-page="viewer"] { --page-least: 788px; --own-right-panel: 1; }
+.page[data-page="run"] { --page-least: 784px; --own-right-panel: 1; }
+@container viewerpage (width < 788px) {
     .viewer-layout { grid-template-columns: minmax(0, 1fr); }
     .viewer-canvas-frame { max-width: calc(68vh * 4 / 3); margin-inline: auto; }
 }
@@ -4519,7 +4547,7 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
 .sel-pick:hover { color: var(--accent-text); }
 .sel-count { flex: 0 0 auto; }
 .sel-shape { flex: 1 1 auto; min-width: 0; font-size: var(--text-xs); }
-@container viewerpage (min-width: 901px) {
+@container viewerpage (width >= 788px) {
     .viewer-layout {
         /* The canvas's column as wide as its shape and the window's height
            allow, the settings beside it, the two centred on the page. */
@@ -5502,7 +5530,7 @@ html[data-page="viewer"] .page-shell { --shell-pad-bottom: 0px; padding-bottom: 
    the page keeps its width where the window has room, and is covered by it
    where it has not. The conversation is the Agent page's, moved here.
    =========================================================================== */
-:root { --agent-width: 440px; }
+:root { --agent-width: clamp(340px, 28vw, 440px); }
 .agent-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .agent-drawer {
     position: fixed; top: 0; right: 0; bottom: 0; z-index: 45;
@@ -5535,7 +5563,10 @@ body.agent-beside { --panel-width: 0px; }
 body.agent-beside .side-panel,
 body.agent-beside .col-handle[data-handle="panel"],
 body.agent-beside .side-expand { visibility: hidden; overflow: hidden; }
-@media (min-width: 1100px) {
+/* Beside the page, not over it, wherever the strip of icons (56px), the
+   Agent at its least (340px) and a page at its least (480px) with its
+   margins (28px a side) fit: from 932px. */
+@media (min-width: 932px) {
     .agent-drawer { box-shadow: none; }
     body.agent-beside .app-shell { padding-right: var(--agent-width); }
 }
@@ -5820,7 +5851,7 @@ body.agent-beside .nav-beside { color: var(--accent-text); }
     border-color: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 .rail-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-@container viewerpage (max-width: 900px) {
+@container viewerpage (width < 788px) {
     .viewer-side.has-rail { grid-template-columns: minmax(0, 1fr); }
     .viewer-side.has-rail > .viewer-rail {
         grid-row: auto; position: static; flex-direction: row; overflow-x: auto;
@@ -6039,7 +6070,7 @@ body.agent-beside .nav-beside { color: var(--accent-text); }
     content: ""; position: absolute; top: 4px; right: 4px; width: 6px; height: 6px;
     border-radius: 50%; background: var(--accent);
 }
-@container viewerpage (max-width: 900px) {
+@container viewerpage (width < 788px) {
     .viewer-rail .rail-keys { margin: 0 0 0 6px; }
     .viewer-rail .rail-keys::before { top: 6px; bottom: 6px; left: -5px; right: auto; border-top: none;
                                       border-left: 1px solid var(--border-subtle); }
@@ -6583,9 +6614,12 @@ html[data-page="run"] .page-shell { max-width: 1340px; }
 .page[data-page="run"] .builder-phone-bar { display: none; }
 
 /* One column where the page is narrow, by the page's own width: the Agent
-   opened beside the builder takes the window's room, not the page's rules. */
+   opened beside the builder takes the window's room, not the page's rules.
+   The summary stays beside the form down to a page of 784px: the summary
+   at its widest, 380px, and the gap leave the form 380px; frame.js folds
+   the sidebar and the side panel to keep it there (--page-least). */
 .page[data-page="run"] { container: builder / inline-size; }
-@container builder (max-width: 940px) {
+@container builder (width < 784px) {
     .page[data-page="run"] .builder-layout { grid-template-columns: minmax(0, 1fr); }
     .page[data-page="run"] .builder-summary { position: static; max-height: none; overflow: visible; }
     .page[data-page="run"] .builder-actions { position: static; }
@@ -6597,6 +6631,28 @@ html[data-page="run"] .page-shell { max-width: 1340px; }
         border: 1px solid var(--border-primary); border-radius: var(--radius-control);
     }
     .page[data-page="run"] .builder-phone-bar .primary-btn { margin-left: auto; min-height: 36px; }
+}
+/* The form by its own width: beside the summary at the page's least it has
+   380px, as narrow as on a phone, so it is laid out as on a phone there. */
+.page[data-page="run"] .builder-main { container: builderform / inline-size; }
+@container builderform (width < 680px) {
+    .page[data-page="run"] .builder-start,
+    .page[data-page="run"] .builder-grid,
+    .page[data-page="run"] .builder-mapping-rows { grid-template-columns: minmax(0, 1fr); }
+    .page[data-page="run"] .builder-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .page[data-page="run"] .builder-analyses-grid { columns: 1; }
+    .page[data-page="run"] .builder-system-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) 28px; }
+    .page[data-page="run"] .builder-system-row .builder-system-holds { grid-column: 1 / -1; order: 3; }
+    .page[data-page="run"] .builder-system-head { display: none; }
+    .page[data-page="run"] .builder-stopping-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
+/* The steps' names take 540px: under that, the numbers alone show, the
+   names still read out. */
+@container builderform (width < 560px) {
+    .page[data-page="run"] .builder-step-link span {
+        position: absolute; width: 1px; height: 1px; overflow: hidden;
+        clip-path: inset(50%); white-space: nowrap;
+    }
 }
 @media (max-width: 800px) {
     .page[data-page="run"] .builder-find { width: 140px; }

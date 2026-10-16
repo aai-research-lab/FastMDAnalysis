@@ -61,6 +61,16 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   `FASTMDX_ACCENT` not among the five is said at start. A study running is
   cyan, and done, qualified and refused keep their colours, with every
   accent.
+- The GUI fits the window. Where a page would have less than it needs, the
+  sidebar folds to its strip, then the side panel, before the Viewer's
+  tools or the Config Builder's summary go under the page (only below 788
+  and 784 pixels of page: a window under 900 pixels, or about 1250 with the
+  Agent beside); the Agent opened beside either folds the sidebar, and
+  closing it gives it back. The builder's form is laid out as on a phone
+  where it has less than 680 pixels. A column opened or widened by hand is
+  not folded to fit until the page changes. Send is in the accent only once
+  something is written, and the sidebar's fold button lines up with the
+  buttons under it.
 - The Agent and an AI app (`fastmdx mcp`) are offered their tools from one
   list, each tool defined once and run by the same code, and a test holds
   both to it. The Agent can now read a study's saved views, the machines a
