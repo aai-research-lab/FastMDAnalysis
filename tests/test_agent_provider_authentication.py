@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import ssl
 import time
 import urllib.error
 import urllib.parse
@@ -388,7 +389,9 @@ def test_chatgpt_disconnect_revokes_and_clears_tokens_but_keeps_client_registrat
         def __exit__(self, *_args):
             self.close()
 
-    def urlopen(request, timeout=None):
+    def urlopen(request, timeout=None, **_kwargs):
+        assert _kwargs["context"].verify_mode == ssl.CERT_REQUIRED
+        assert _kwargs["context"].check_hostname is True
         sent.append(request)
         return Reply(b"")
 
@@ -465,7 +468,9 @@ def test_chatgpt_model_catalog_uses_public_list_and_only_visible_models(
 
     requests = []
 
-    def urlopen(request, timeout=None):
+    def urlopen(request, timeout=None, **_kwargs):
+        assert _kwargs["context"].verify_mode == ssl.CERT_REQUIRED
+        assert _kwargs["context"].check_hostname is True
         requests.append(request)
         return Reply(json.dumps({"models": [
             {"slug": "gpt-visible", "display_name": "GPT Visible", "visibility": "list"},
@@ -513,7 +518,9 @@ def test_responses_route_sends_full_context_and_reads_function_calls(
 
     sent = []
 
-    def urlopen(request, timeout=None):
+    def urlopen(request, timeout=None, **_kwargs):
+        assert _kwargs["context"].verify_mode == ssl.CERT_REQUIRED
+        assert _kwargs["context"].check_hostname is True
         sent.append(request)
         return Reply()
 
@@ -1000,3 +1007,27 @@ def test_settings_model_discovery_does_not_repeat_a_failed_request(monkeypatch):
     assert provider["models"] == list(models.PROVIDERS["openai"]["models"])
     assert answer["auth_status"]["connected"] is False
     assert answer["current"] == choice.as_record()
+
+
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_chatgpt_certificate_failure_is_actionable_without_exposing_request(monkeypatch, wrapped):
+    from fastmdxplora.agent import openai_chatgpt as oauth
+
+    def rejected(_request, **_kwargs):
+        error = ssl.SSLCertVerificationError(1, "test-secret certificate has expired")
+        raise urllib.error.URLError(error) if wrapped else error
+
+    monkeypatch.setattr(urllib.request, "urlopen", rejected)
+    with pytest.raises(oauth.SignInError, match="certificate could not be verified") as caught:
+        oauth._exchange({"code": "test-secret"})
+    assert "test-secret" not in str(caught.value)
+    with pytest.raises(oauth.SignInError, match="certificate could not be verified"):
+        oauth._fetch_json(oauth.DISCOVERY_URL)
+
+
+def test_chatgpt_https_context_requires_certificate_and_hostname_verification():
+    from fastmdxplora.agent import openai_chatgpt as oauth
+
+    context = oauth._https_context()
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname is True

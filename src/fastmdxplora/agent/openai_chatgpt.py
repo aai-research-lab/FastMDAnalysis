@@ -16,6 +16,8 @@ import http.server
 import json
 import os
 import secrets
+import ssl
+import sys
 import threading
 import time
 import urllib.error
@@ -132,13 +134,35 @@ def account_choices(record: dict[str, Any] | None = None) -> list[dict[str, Any]
     } for item in store["accounts"]]
 
 
+def _https_context() -> ssl.SSLContext:
+    """Use Windows chain verification without changing global TLS behavior."""
+    if sys.platform == "win32":
+        import truststore
+
+        return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    return ssl.create_default_context()
+
+
+def _transport_message(error: BaseException) -> str:
+    reason = error.reason if isinstance(error, urllib.error.URLError) else error
+    if isinstance(reason, ssl.SSLCertVerificationError):
+        return (
+            "OpenAI's HTTPS certificate could not be verified. Check the system date "
+            "and Windows certificate updates or your network's certificate settings, "
+            "then start sign-in again."
+        )
+    if isinstance(reason, TimeoutError):
+        return "OpenAI sign-in timed out. Check the connection and start sign-in again."
+    return "OpenAI sign-in could not be reached. Check the connection and try again."
+
+
 def _exchange(form: dict[str, str], *, timeout: float = 20.0) -> dict[str, Any]:
     data = urllib.parse.urlencode(form).encode("ascii")
     request = urllib.request.Request(
         TOKEN_URL, data=data, headers={"content-type": "application/x-www-form-urlencoded"},
         method="POST")
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urllib.request.urlopen(request, timeout=timeout, context=_https_context()) as response:
             answer = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         # Do not let an OAuth response (which may echo parameters) reach UI or logs.
@@ -152,10 +176,8 @@ def _exchange(form: dict[str, str], *, timeout: float = 20.0) -> dict[str, Any]:
                 "This sign-in code or refresh token expired. Start sign-in again."
             ) from None
         raise SignInError(f"OpenAI sign-in returned HTTP {exc.code}. Try again.") from None
-    except (urllib.error.URLError, OSError, TimeoutError):
-        raise SignInError(
-            "OpenAI sign-in could not be reached. Check the connection and try again."
-        ) from None
+    except (urllib.error.URLError, OSError, TimeoutError) as exc:
+        raise SignInError(_transport_message(exc)) from None
     except (UnicodeError, ValueError):
         raise SignInError("OpenAI sign-in returned an unreadable response. Try again.") from None
     if not isinstance(answer, dict):
@@ -166,12 +188,12 @@ def _exchange(form: dict[str, str], *, timeout: float = 20.0) -> dict[str, Any]:
 def _fetch_json(url: str, *, timeout: float = 15.0) -> dict[str, Any]:
     request = urllib.request.Request(url, headers={"accept": "application/json"})
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urllib.request.urlopen(request, timeout=timeout, context=_https_context()) as response:
             value = json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, OSError, TimeoutError, UnicodeError, ValueError):
-        raise SignInError(
-            "OpenAI authentication metadata could not be reached. Try again."
-        ) from None
+    except (urllib.error.URLError, OSError, TimeoutError) as exc:
+        raise SignInError(_transport_message(exc)) from None
+    except (UnicodeError, ValueError):
+        raise SignInError("OpenAI authentication metadata was not valid JSON.") from None
     if not isinstance(value, dict):
         raise SignInError("OpenAI authentication metadata was not valid JSON.")
     return value
@@ -642,7 +664,7 @@ def list_models(*, timeout: float = 12.0) -> list[dict[str, str]]:
         MODEL_LIST_URL, headers={"Authorization": f"Bearer {token}",
                                  "accept": "application/json"})
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urllib.request.urlopen(request, timeout=timeout, context=_https_context()) as response:
             answer = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         if exc.code == 401:
@@ -707,7 +729,8 @@ def disconnect(*, client_id: str = "") -> dict[str, Any]:
                 request = urllib.request.Request(endpoint, data=data,
                     headers={"content-type": "application/x-www-form-urlencoded"}, method="POST")
                 try:
-                    with urllib.request.urlopen(request, timeout=15.0) as response:
+                    with urllib.request.urlopen(
+                            request, timeout=15.0, context=_https_context()) as response:
                         remote_revoked = response.status == 200
                     if remote_revoked:
                         break
