@@ -2214,7 +2214,6 @@
         // Frames written again are superposed again, as they were asked.
         STATE.superposedUrl = null;
         STATE.framesCoordinatesUrl = coordinates;
-        STATE.playbackFrames = loaded.frames;
         STATE.playbackFrames = engine.frameCount();
         STATE.playbackFrameIndices = STATE.playbackFrameIndices.slice(0, STATE.playbackFrames);
         STATE.playbackFrameTimes = STATE.playbackFrameTimes.slice(0, STATE.playbackFrames);
