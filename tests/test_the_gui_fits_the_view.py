@@ -611,6 +611,40 @@ def test_a_chip_s_corners_keep_inside_its_padding(browser, session) -> None:
 
 
 @pytest.mark.parametrize("width", [390, 912])
+def test_a_long_force_field_path_breaks_in_what_setup_will_build(browser, session,
+                                                                width) -> None:
+    """A force field set for one system by a long path, in the rows of what
+    setup will build: broken in its row, nothing past the card or the page
+    (CT, 10-16: the rows' second column 755px in a 376px card, the Solute
+    and Padding rows cut, and at 390 the page scrolled 413px sideways)."""
+    long = "/a/rather/long/path/to/a/force/field/named/custom_forcefield_parameters_for_ligand.xml"
+    tab = _page(browser, session, width=width, page="run")
+    tab.click('#run-start .builder-start-card[data-start="structure"]')
+    seen = tab.evaluate("""(long) => {
+        const card = document.getElementById('run-system-preview');
+        card.hidden = false;
+        const body = document.getElementById('run-system-preview-body');
+        body.textContent = '';
+        const rows = document.createElement('dl');
+        rows.className = 'system-preview-rows';
+        for (const [label, value] of [['Solute', '76 residues in chain A'],
+                                      ['Force field', long],
+                                      ['Padding', '1.0 nm between the solute and its nearest periodic image']]) {
+            const dt = document.createElement('dt'); dt.textContent = label;
+            const dd = document.createElement('dd'); dd.textContent = value;
+            rows.append(dt, dd);
+        }
+        body.appendChild(rows);
+        const box = card.getBoundingClientRect();
+        const page = document.querySelector('.page[data-page="run"]');
+        return [...rows.querySelectorAll('dd')].map(d =>
+                    d.scrollWidth <= d.clientWidth + 1 && d.getBoundingClientRect().right <= box.right + 1)
+               .concat([page.scrollWidth <= page.clientWidth + 1]); }""", long)
+    tab.context.close()
+    assert seen == [True, True, True, True], seen
+
+
+@pytest.mark.parametrize("width", [390, 912])
 def test_why_there_is_no_plan_yet_stays_in_its_card(browser, session, width) -> None:
     """The plan's one line saying why there is none yet (Setup not ticked)
     across both columns, wrapped in its card, the page not scrolled
@@ -983,7 +1017,7 @@ def test_the_builder_s_form_fits_beside_its_summary(browser, session, width, age
             .filter((e, i, all) => all.indexOf(e) === i && seen(e)
                 && (['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(e.tagName)
                     || [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())));
-        // A control by its box; text by its own lines, where they are drawn
+        // A control by its box; text by its own lines, where they are shown
         // (an element's box holds its text only while the text fits it).
         // Each line cut to what its clipping boxes show (a description held
         // to three lines, a name hidden but read out).

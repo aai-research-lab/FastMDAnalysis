@@ -4919,7 +4919,7 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
     margin: 0;
 }
 .system-preview-rows dt { color: var(--text-muted); }
-.system-preview-rows dd { margin: 0; color: var(--text-primary); }
+.system-preview-rows dd { margin: 0; color: var(--text-primary); overflow-wrap: anywhere; }
 .system-preview-rows dd.is-note { color: var(--accent-orange); }
 .system-preview-rows dd.is-warning { color: var(--status-error, var(--accent-orange)); font-weight: 600; }
 .system-preview-rows dd.is-muted { color: var(--text-muted); }
