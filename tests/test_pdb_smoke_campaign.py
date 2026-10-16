@@ -226,6 +226,18 @@ def test_large_local_input_is_skipped_before_running_pipeline(tmp_path: Path) ->
     assert row["bug_classification"] == "expected limitation/input issue"
 
 
+def test_the_trajectory_is_read_against_the_atoms_it_saved(tmp_path: Path) -> None:
+    # The trajectory has held the solute since 2.5.3, with its own topology
+    # beside it; read against the whole solvated system, every run that
+    # simulated was reported as validation_failed on aailab01 on 2026-10-16.
+    sim = tmp_path / "simulation"
+    sim.mkdir()
+    (sim / "topology.pdb").write_text("whole system\n")
+    assert campaign._trajectory_topology(sim) == sim / "topology.pdb"
+    (sim / "trajectory_topology.pdb").write_text("solute\n")
+    assert campaign._trajectory_topology(sim) == sim / "trajectory_topology.pdb"
+
+
 def test_parse_input_list_prefers_clean_local_lines(tmp_path: Path) -> None:
     pdb = tmp_path / "local.pdb"
     pdb.write_text("END\n", encoding="utf-8")

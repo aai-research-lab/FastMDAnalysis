@@ -199,6 +199,9 @@ def run_one(input_value: str, args: argparse.Namespace) -> dict[str, Any]:
         run_result = results[0] if results else None
         validation = validate_output_dir(output_dir)
         row.update(_summarize_run_result(run_result, validation))
+        if args.max_setup_atoms and args.max_setup_atoms > 0:
+            # Setup ran in its own call above, so this one's phases leave it out.
+            row["setup_completed"] = setup_summary["setup_completed"]
     except Exception as exc:  # noqa: BLE001 -- campaign must continue and summarize
         (output_dir / "campaign_exception.txt").write_text(
             traceback.format_exc(), encoding="utf-8"
@@ -358,7 +361,7 @@ def validate_output_dir(output_dir: Path) -> ValidationResult:
     result.has_trajectory = (sim_dir / "production.dcd").exists()
     result.issues.extend(check_pdb_coordinates(output_dir))
     result.issues.extend(
-        check_trajectory_coordinates(sim_dir / "production.dcd", sim_dir / "topology.pdb")
+        check_trajectory_coordinates(sim_dir / "production.dcd", _trajectory_topology(sim_dir))
     )
     particle_check = check_particle_counts(output_dir)
     if particle_check is not None:
@@ -389,6 +392,14 @@ def check_pdb_coordinates(output_dir: Path) -> list[str]:
         except (OSError, ValueError) as exc:
             issues.append(f"{pdb}: could not validate PDB coordinates ({exc})")
     return issues
+
+
+def _trajectory_topology(sim_dir: Path) -> Path:
+    """The topology of the atoms the trajectory saved: the solute, in
+    ``trajectory_topology.pdb``, where the run wrote one, as every run since
+    the trajectory has held the solute does; the whole system otherwise."""
+    saved = sim_dir / "trajectory_topology.pdb"
+    return saved if saved.exists() else sim_dir / "topology.pdb"
 
 
 def check_trajectory_coordinates(trajectory: Path, topology: Path) -> list[str]:
