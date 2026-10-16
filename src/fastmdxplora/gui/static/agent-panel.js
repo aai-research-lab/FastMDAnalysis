@@ -857,6 +857,8 @@
       }).join(" ");
     }
     el("agent-auth-help").textContent = help;
+    setAuthStatus({connected: null,
+      message: "Checking " + authMethodLabel(spec.id, method.id) + "…"});
     refreshAuthStatus("status");
   }
 
