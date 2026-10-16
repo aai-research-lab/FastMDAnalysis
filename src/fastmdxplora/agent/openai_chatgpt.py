@@ -43,6 +43,7 @@ SCOPES = "openid profile email offline_access resource.invoke chatgpt.tokens.use
 _SERVICE = "FastMDXplora ChatGPT sign-in"
 _lock = threading.RLock()
 _refresh_lock = threading.RLock()
+_store_lock = threading.RLock()
 _pending: dict[str, dict[str, Any]] = {}
 _pending_note = ""
 _UNUSABLE_GRANTS = {
@@ -77,15 +78,38 @@ def _vault_user() -> str:
     return hashlib.sha256(str(user_config_dir().resolve()).casefold().encode()).hexdigest()
 
 
+def _chunk_keys(raw: str | None) -> list[str]:
+    record = json.loads(raw) if raw else {}
+    chunks = record.get("vault_chunks") if isinstance(record, dict) else None
+    if chunks is None:
+        return []
+    generation, count = chunks.get("generation"), chunks.get("count")
+    if (not isinstance(generation, str) or len(generation) != 32
+            or any(c not in "0123456789abcdef" for c in generation)
+            or not isinstance(count, int) or not 1 <= count <= 4096):
+        raise ValueError("Invalid vault manifest")
+    return [f"{_SERVICE}:{_vault_user()}:{generation}:{index}" for index in range(count)]
+
+
 def _read_store() -> dict[str, Any]:
     vault = _vault()
     if vault is None:
         return {"host_id": "", "active_client_id": "", "accounts": []}
     try:
-        raw = vault.get_password(_SERVICE, _vault_user())
-        record = json.loads(raw) if raw else {}
-    except Exception:  # noqa: BLE001 - locked or unavailable OS credential vault
-        record = {}
+        with _process_lock(store=True):
+            raw = vault.get_password(_SERVICE, _vault_user())
+            keys = _chunk_keys(raw)
+            if keys:
+                parts = [vault.get_password(key, _vault_user()) for key in keys]
+                if any(part is None for part in parts):
+                    raise ValueError("Incomplete vault record")
+                raw = "".join(parts)
+            record = json.loads(raw) if raw else {}
+    except Exception:  # noqa: BLE001 - do not expose vault data or backend errors
+        raise SignInError(
+            "The OS credential vault could not read the ChatGPT sign-in. "
+            "Unlock the vault and try again."
+        ) from None
     if not isinstance(record, dict):
         record = {}
     accounts = record.get("accounts")
@@ -103,12 +127,38 @@ def _write_store(record: dict[str, Any]) -> None:
     if vault is None:
         raise SignInError(
             "No supported OS credential vault is available. Use an OpenAI API key instead.")
+    written = []
+    committed = False
     try:
-        vault.set_password(_SERVICE, _vault_user(), json.dumps(record, separators=(",", ":")))
-    except Exception:  # noqa: BLE001 - do not expose vault errors or credential data
+        with _process_lock(store=True):
+            user = _vault_user()
+            previous = _chunk_keys(vault.get_password(_SERVICE, user))
+            # ASCII JSON gives a predictable UTF-16 size on Windows: each
+            # 1000-character entry stays below its 2560-byte credential limit.
+            raw = json.dumps(record, separators=(",", ":"), ensure_ascii=True)
+            parts = [raw[i:i + 1000] for i in range(0, len(raw), 1000)]
+            manifest = json.dumps({"vault_chunks": {
+                "generation": uuid.uuid4().hex, "count": len(parts)}})
+            for key, part in zip(_chunk_keys(manifest), parts):
+                vault.set_password(key, user, part)
+                written.append(key)
+            # Publish only after every part exists. Readers share this lock,
+            # so an old manifest cannot race deletion of its previous parts.
+            vault.set_password(_SERVICE, user, manifest)
+            committed = True
+            for key in previous:
+                vault.delete_password(key, user)
+    except Exception:  # noqa: BLE001 - do not expose credential data or vault errors
+        if not committed:
+            for key in written:
+                try:
+                    vault.delete_password(key, _vault_user())
+                except Exception:  # noqa: BLE001 - best effort after a failed write
+                    pass
         raise SignInError(
-            "The OS credential vault could not save the ChatGPT sign-in. "
-            "Use an OpenAI API key or unlock the vault and try again.") from None
+            "The OS credential vault could not save or finish updating the ChatGPT sign-in. "
+            "Unlock the vault and try again."
+        ) from None
 
 
 def _host_id(record: dict[str, Any]) -> str:
@@ -519,11 +569,12 @@ def _expire_attempt(state: str) -> None:
 
 
 @contextmanager
-def _process_lock():
-    """Serialize token refreshes across dashboard processes on this host."""
-    path = user_config_dir() / "openai-chatgpt-refresh.lock"
+def _process_lock(*, store: bool = False):
+    """Serialize refreshes or vault transactions across dashboard processes."""
+    name = "store" if store else "refresh"
+    path = user_config_dir() / f"openai-chatgpt-{name}.lock"
     path.parent.mkdir(parents=True, exist_ok=True)
-    with _refresh_lock, path.open("a+b") as handle:
+    with (_store_lock if store else _refresh_lock), path.open("a+b") as handle:
         acquired = False
         try:
             if os.name == "nt":

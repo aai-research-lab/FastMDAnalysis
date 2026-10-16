@@ -5,10 +5,13 @@ from __future__ import annotations
 import hashlib
 import json
 import ssl
+import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from io import BytesIO
 from pathlib import Path
 
@@ -1031,3 +1034,123 @@ def test_chatgpt_https_context_requires_certificate_and_hostname_verification():
     context = oauth._https_context()
     assert context.verify_mode == ssl.CERT_REQUIRED
     assert context.check_hostname is True
+
+
+@pytest.mark.parametrize("fail_at", [1, 3, "manifest"])
+def test_a_failed_chunk_write_preserves_the_previous_complete_sign_in(
+        monkeypatch, chatgpt_vault, fail_at):
+    oauth, vault = chatgpt_vault
+    original = {"host_id": "old-host", "accounts": [_account(expires_at=9999999999)]}
+    oauth._write_store(original)
+    saved = oauth._read_store()
+    manifest = vault.get_password(oauth._SERVICE, oauth._vault_user())
+    real_write = vault.set_password
+    writes = []
+
+    def limited_write(service, user, value):
+        assert len(value.encode("utf-16-le")) <= 2560
+        writes.append(service)
+        if len(writes) == fail_at or (fail_at == "manifest" and service == oauth._SERVICE):
+            raise OSError("synthetic vault write failure")
+        real_write(service, user, value)
+
+    monkeypatch.setattr(vault, "set_password", limited_write)
+    large = dict(original, host_id="new-host", accounts=[dict(
+        original["accounts"][0], access_token="synthetic" * 1000)])
+    with pytest.raises(oauth.SignInError, match="could not save"):
+        oauth._write_store(large)
+    assert oauth._read_store() == saved
+    assert vault.get_password(oauth._SERVICE, oauth._vault_user()) == manifest
+    for service in writes:
+        if service != oauth._SERVICE:
+            assert vault.get_password(service, oauth._vault_user()) is None
+
+
+def test_large_sign_in_records_fit_the_vault_and_old_parts_are_removed(chatgpt_vault):
+    oauth, vault = chatgpt_vault
+    user = oauth._vault_user()
+    record = {"host_id": "host", "active_client_id": "oaiapp_test", "accounts": [dict(
+        _account(expires_at=9999999999), access_token="synthetic" * 1000,
+        id_token="identity" * 1000, email="unicode-\u03b1@example.invalid")]}
+    # Read the app's existing unchunked format as well as the bounded format.
+    vault.set_password(oauth._SERVICE, user, json.dumps(record))
+    assert oauth._read_store()["accounts"] == record["accounts"]
+    oauth._write_store(record)
+    keys = oauth._chunk_keys(vault.get_password(oauth._SERVICE, user))
+    assert len(keys) > 10
+    assert all(len(vault.get_password(key, user).encode("utf-16-le")) <= 2560 for key in keys)
+    assert oauth._read_store()["accounts"] == record["accounts"]
+    oauth._write_store({"host_id": "host", "accounts": []})
+    assert oauth._read_store()["accounts"] == []
+    assert all(vault.get_password(key, user) is None for key in keys)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows native vault size regression")
+def test_a_large_synthetic_sign_in_round_trips_through_the_windows_vault(monkeypatch, tmp_path):
+    from keyring.backends.Windows import WinVaultKeyring
+
+    from fastmdxplora.agent import openai_chatgpt as oauth
+
+    vault = WinVaultKeyring()
+    monkeypatch.setattr(oauth, "_vault", lambda: vault)
+    monkeypatch.setattr(oauth, "_SERVICE", "FastMDXplora synthetic regression " + uuid.uuid4().hex)
+    monkeypatch.setattr(oauth, "user_config_dir", lambda: tmp_path)
+    record = {"host_id": "synthetic-host", "accounts": [dict(
+        _account(expires_at=9999999999), access_token="synthetic" * 1000,
+        id_token="synthetic-identity" * 1000)]}
+    try:
+        oauth._write_store(record)
+        assert oauth._read_store()["accounts"] == record["accounts"]
+        oauth._write_store({"host_id": "synthetic-host", "accounts": []})
+        assert oauth._read_store()["accounts"] == []
+    finally:
+        user = oauth._vault_user()
+        raw = vault.get_password(oauth._SERVICE, user)
+        for key in oauth._chunk_keys(raw):
+            vault.delete_password(key, user)
+        if raw:
+            vault.delete_password(oauth._SERVICE, user)
+
+
+def test_vault_readers_wait_for_the_whole_sign_in_write(monkeypatch, chatgpt_vault):
+    oauth, vault = chatgpt_vault
+    oauth._write_store({"host_id": "old", "accounts": []})
+    entered, release, read_started, read_done = (threading.Event() for _ in range(4))
+    real_write = vault.set_password
+    failures, records = [], []
+
+    def delayed_write(service, user, value):
+        if service != oauth._SERVICE and not entered.is_set():
+            entered.set()
+            if not release.wait(15):
+                raise TimeoutError("test did not release the vault write")
+        real_write(service, user, value)
+
+    def write():
+        try:
+            oauth._write_store({"host_id": "new", "accounts": []})
+        except Exception as exc:
+            failures.append(type(exc).__name__)
+
+    def read():
+        read_started.set()
+        records.append(oauth._read_store())
+        read_done.set()
+
+    monkeypatch.setattr(vault, "set_password", delayed_write)
+    writer = threading.Thread(target=write)
+    reader = threading.Thread(target=read)
+    writer.start()
+    try:
+        assert entered.wait(10)
+        reader.start()
+        assert read_started.wait(10)
+        assert not read_done.wait(0.1)
+    finally:
+        release.set()
+        writer.join(15)
+        if reader.ident is not None:
+            reader.join(15)
+    assert not failures
+    assert read_done.is_set()
+    assert records[0]["host_id"] == "new"
