@@ -32,7 +32,8 @@ from typing import Any
 import numpy as np
 
 __all__ = ["BINARY_ATOM_FRAMES", "FRAMES_FILE", "FRAMES_TOPOLOGY", "PIECE_ATOM_FRAMES",
-           "SUPERPOSED_ON", "as_xtc", "frames_for_binary", "frames_info", "frames_pieces",
+           "SUPERPOSED_ON", "as_xtc", "exact_frame_info", "exact_frame_xtc",
+           "exact_frames_dcd", "frames_for_binary", "frames_info", "frames_pieces",
            "pocket_backbone", "superposed_frames", "superposed_name"]
 
 FRAMES_FILE = "frames.dcd"
@@ -77,6 +78,200 @@ def frames_info(output_dir: str | Path, *, most_frames: int = MOST_FRAMES,
     with lock:
         return _frames_info(out, most_frames=most_frames,
                             simulation_time_ns_total=simulation_time_ns_total, force=force)
+
+
+def exact_frame_info(output_dir: str | Path, frame: Any, *, most_frames: int = MOST_FRAMES,
+                     source_signature: str | None = None, on: str = "none",
+                     ligand: str | None = None, cutoff_angstrom: Any = 5.0,
+                     to: str = "first") -> dict[str, Any]:
+    """Validate one source-frame request and describe its bounded coordinate loads.
+
+    A caller names only a frame number and optional viewer alignment settings;
+    the study's recorded trajectory and its source signature are resolved here.
+    """
+    from urllib.parse import urlencode
+
+    out = Path(output_dir)
+    if type(frame) is not int or frame < 0:
+        return {"ok": False, "reason": "A source frame is a non-negative integer."}
+    payload = frames_info(out, most_frames=most_frames)
+    if not payload.get("playback_available") or payload.get("source_kind") != "production-dcd":
+        return {"ok": False, "reason": payload.get("reason") or
+                "An exact frame is available only from this study's production trajectory."}
+    signature = str(payload.get("source_signature") or "")
+    if source_signature is not None and source_signature != signature:
+        return {"ok": False, "reason": "The trajectory changed; reload its charts before seeking."}
+    source = _source(out)
+    if source is None or source.get("kind") != "trajectory":
+        return {"ok": False, "reason": "The study's source trajectory is unavailable."}
+    total = int(payload.get("n_frames_total") or 0)
+    if frame >= total:
+        return {"ok": False, "reason": f"The source frame is outside 0 to {max(0, total - 1)}."}
+    if on != "none":
+        name, _, reason = superposed_name(on, ligand, cutoff_angstrom, to, 1)
+        if name is None:
+            return {"ok": False, "reason": reason or "The alignment settings are unavailable."}
+    simulation = _load_json(out / "simulation" / "simulation_parameters.json")
+    exact_time = _times([frame], total, simulation.get("duration_ns_actual"),
+                        _interval_ns(out, source))[0]
+    query: dict[str, Any] = {"frame": frame, "signature": signature}
+    dcd_query: dict[str, Any] = {"exact_frame": frame, "signature": signature}
+    for values in (query, dcd_query):
+        if on != "none":
+            values.update(on=on, to=to)
+            if on == "pocket":
+                values.update(ligand=ligand or "", cutoff=f"{float(cutoff_angstrom):g}")
+    return {"ok": True, "frame": frame, "time_ns": exact_time,
+            "source_signature": signature, "frame_indices": payload["frame_indices"],
+            "frame_times_ns": payload["frame_times_ns"], "n_frames_total": total,
+            "exact_url": "/structure/exact-frame.xtc?" + urlencode(query),
+            "dcd_url": "/structure/frames.dcd?" + urlencode(dcd_query)}
+
+
+def exact_frame_xtc(output_dir: str | Path, frame: int, *, most_frames: int = MOST_FRAMES,
+                    source_signature: str | None = None, on: str = "none",
+                    ligand: str | None = None, cutoff_angstrom: Any = 5.0,
+                    to: str = "first") -> tuple[bytes | None, dict[str, Any]]:
+    """The one requested frame, made whole and optionally fitted, as one XTC."""
+    import tempfile
+
+    import mdtraj as md
+
+    out = Path(output_dir)
+    details = exact_frame_info(out, frame, most_frames=most_frames,
+                               source_signature=source_signature, on=on, ligand=ligand,
+                               cutoff_angstrom=cutoff_angstrom, to=to)
+    if not details.get("ok"):
+        return None, details
+    source = _source(out)
+    try:
+        exact = _source_frame(out, source, frame)
+        if on != "none":
+            # Match the viewer's bounded playback coordinates. Reading the
+            # whole production trajectory here would turn one-frame seeks
+            # into an unbounded load for large studies.
+            from fastmdxplora.utils.native_output import suppress_native_output
+
+            with suppress_native_output():
+                playback = md.load_dcd(str(out / "simulation" / FRAMES_FILE),
+                                       top=str(out / "simulation" / FRAMES_TOPOLOGY))
+            exact = _fit_exact_frame(out, exact, on=on, ligand=ligand,
+                                     cutoff_angstrom=float(cutoff_angstrom), to=to,
+                                     reference_frames=playback)
+        with tempfile.TemporaryDirectory(prefix="fastmdx-exact-") as directory:
+            target = Path(directory) / "frame.xtc"
+            exact.save_xtc(str(target))
+            return target.read_bytes(), details
+    except Exception as exc:  # noqa: BLE001 - report an unavailable exact frame to the page
+        return None, {"ok": False, "reason": f"Frame {frame} could not be prepared: {exc}"}
+
+
+def exact_frames_dcd(output_dir: str | Path, frame: int, *, most_frames: int = MOST_FRAMES,
+                     source_signature: str | None = None, on: str = "none",
+                     ligand: str | None = None, cutoff_angstrom: Any = 5.0,
+                     to: str = "first") -> tuple[bytes | None, dict[str, Any]]:
+    """The bounded browser sample plus one exact frame, for a DCD-only engine path."""
+    import tempfile
+
+    import mdtraj as md
+
+    out = Path(output_dir)
+    details = exact_frame_info(out, frame, most_frames=most_frames,
+                               source_signature=source_signature, on=on, ligand=ligand,
+                               cutoff_angstrom=cutoff_angstrom, to=to)
+    if not details.get("ok"):
+        return None, details
+    simulation = out / "simulation"
+    try:
+        base_path = simulation / FRAMES_FILE
+        if on != "none":
+            fitted = superposed_frames(out, on, ligand=ligand,
+                                       cutoff_angstrom=float(cutoff_angstrom), to=to, smooth=1)
+            if not fitted.get("ok"):
+                return None, fitted
+            base_path = simulation / str(fitted["file"])
+        from fastmdxplora.utils.native_output import suppress_native_output
+
+        with suppress_native_output():
+            base = md.load_dcd(str(base_path), top=str(simulation / FRAMES_TOPOLOGY))
+            exact = _source_frame(out, _source(out), frame)
+            if on != "none":
+                exact = _fit_exact_frame(out, exact, on=on, ligand=ligand,
+                                         cutoff_angstrom=float(cutoff_angstrom), to=to,
+                                         reference_frames=base)
+        # Keep exactly one temporary frame beside the bounded browser sample.
+        joined = md.join([base, exact], check_topology=False)
+        with tempfile.TemporaryDirectory(prefix="fastmdx-exact-") as directory:
+            target = Path(directory) / "frames.dcd"
+            joined.save_dcd(str(target))
+            return target.read_bytes(), details
+    except Exception as exc:  # noqa: BLE001 - report an unavailable exact frame to the page
+        return None, {"ok": False, "reason": f"Frame {frame} could not be prepared: {exc}"}
+
+
+def _source_frame(out: Path, source: dict[str, Any] | None, frame: int) -> Any:
+    """Read one source frame using the topology and solvent rule of playback."""
+    import mdtraj as md
+
+    if source is None or source.get("kind") != "trajectory":
+        raise ValueError("the source trajectory is unavailable")
+    from fastmdxplora.analysis.loading import _made_whole
+    from fastmdxplora.utils.native_output import suppress_native_output, topology_quietly
+
+    topology_path: Path = source["topology"]
+    whole = topology_quietly(topology_path)
+    shown = whole.select("not water")
+    if len(shown) == 0:
+        shown = np.arange(whole.n_atoms)
+    topology = whole.subset(shown)
+    with suppress_native_output(), md.formats.DCDTrajectoryFile(str(source["trajectory"])) as handle:
+        handle.seek(frame)
+        xyz, lengths, angles = handle.read(1, atom_indices=shown)
+    if not len(xyz):
+        raise ValueError("the source frame could not be read")
+    boxed = lengths is not None and np.all(np.asarray(lengths) > 0)
+    result = md.Trajectory(np.asarray(xyz, dtype=np.float32) / 10.0, topology,
+                           unitcell_lengths=np.asarray(lengths, dtype=np.float32) / 10.0 if boxed else None,
+                           unitcell_angles=np.asarray(angles, dtype=np.float32) if boxed else None)
+    return _made_whole(result) if boxed else result
+
+
+def _fit_exact_frame(out: Path, exact: Any, *, on: str, ligand: str | None,
+                     cutoff_angstrom: float, to: str,
+                     reference_frames: Any | None = None) -> Any:
+    """Fit an exact frame by the viewer's current saved alignment settings."""
+    import mdtraj as md
+
+    from fastmdxplora.utils.native_output import pdb_quietly, suppress_native_output
+
+    simulation = out / "simulation"
+    if reference_frames is None:
+        with suppress_native_output():
+            reference_frames = md.load_dcd(str(simulation / FRAMES_FILE),
+                                           top=str(simulation / FRAMES_TOPOLOGY))
+    atoms = (reference_frames.topology.select("protein and backbone") if on == "backbone"
+             else pocket_backbone(reference_frames, str(ligand or "").upper(),
+                                  cutoff_angstrom)[0])
+    if atoms is None or len(atoms) < 3:
+        raise ValueError("the selected alignment has fewer than three matching backbone atoms")
+    reference, reference_atoms = reference_frames, atoms
+    if to == "start":
+        reference = pdb_quietly(simulation / FRAMES_TOPOLOGY)
+    elif to == "deposited":
+        matched, xyz, reason = _deposited_reference(out, simulation / FRAMES_TOPOLOGY, atoms)
+        if matched is None:
+            raise ValueError(reason)
+        atoms = matched
+        reference = md.Trajectory(xyz[None].astype(np.float32), exact.topology.subset(atoms))
+        reference_atoms = np.arange(len(atoms))
+    from fastmdxplora.analysis.base import superposed
+
+    fitted = superposed(exact, atom_indices=atoms, reference=reference,
+                        ref_atom_indices=reference_atoms)
+    if exact.unitcell_lengths is not None and fitted.unitcell_lengths is None:
+        fitted.unitcell_lengths = exact.unitcell_lengths
+        fitted.unitcell_angles = exact.unitcell_angles
+    return fitted
 
 
 def _source(out: Path) -> dict[str, Any] | None:

@@ -40,6 +40,8 @@
     playbackTotalFrames: 0,
     playbackFrameTimes: [],
     playbackSignature: null,
+    playbackData: null,
+    exactFrame: null,
     metrics: [],
     status: {},
     health: {},
@@ -725,6 +727,8 @@
     state.playbackTotalFrames = 0;
     state.playbackFrameTimes = [];
     state.playbackSignature = null;
+    state.playbackData = null;
+    state.exactFrame = null;
     if (window.FastMDXCharts) window.FastMDXCharts.update([]);
     renderLiveProgress({});
     renderStructureTab({valid: false, reason: "missing"});
@@ -2045,6 +2049,24 @@
     const signature = payload?.source_signature || payload?.compiled_at || null;
     const previousFrame = parseInt(byId("traj-slider")?.value || "0", 10) || 0;
 
+    if (previousSignature && signature !== previousSignature) state.exactFrame = null;
+    state.playbackData = payload || null;
+    if (state.exactFrame && state.exactFrame.signature === signature
+        && payload?.playback_available && Array.isArray(payload.frame_indices)) {
+      const entries = payload.frame_indices.map((frame, index) => ({
+        frame, time: payload.frame_times_ns?.[index] ?? null,
+      }));
+      if (!entries.some((entry) => entry.frame === state.exactFrame.frame)) {
+        entries.push({frame: state.exactFrame.frame, time: state.exactFrame.time});
+      }
+      entries.sort((a, b) => a.frame - b.frame);
+      payload = Object.assign({}, payload, {
+        n_frames_browser: entries.length,
+        frame_indices: entries.map((entry) => entry.frame),
+        frame_times_ns: entries.map((entry) => entry.time),
+      });
+    }
+
     state.playbackAvailable = !!payload?.playback_available;
     state.playbackFrames = Number(payload?.n_frames_browser || 0);
     state.playbackTotalFrames = Number(payload?.n_frames_total || 0);
@@ -2066,8 +2088,8 @@
     slider.max = String(maxFrame);
     // Do not reset the user's scrubber on every three-second API poll.
     slider.value = String(frame);
-    setText("traj-current", String(frame));
-    setText("traj-total", String(state.playbackFrames));
+    setText("traj-current", String(payload.frame_indices?.[frame] ?? frame));
+    setText("traj-total", String(state.playbackTotalFrames || state.playbackFrames));
     setText(
       "traj-simtime",
       state.playbackFrameTimes[frame] != null
@@ -2500,6 +2522,20 @@
     window.dispatchEvent(new CustomEvent(`dashboard:${name}`, {detail}));
   }
 
+  function setExactFrame(frame, time, signature) {
+    if (state.playbackSignature !== signature || !Number.isInteger(frame) || frame < 0) return false;
+    state.exactFrame = {frame, time: Number.isFinite(time) ? time : null, signature};
+    applyPlayback(state.playbackData);
+    return true;
+  }
+
+  function clearExactFrame(signature) {
+    if (signature && state.exactFrame?.signature !== signature) return false;
+    state.exactFrame = null;
+    applyPlayback(state.playbackData);
+    return true;
+  }
+
   window.FastMDXDashboard = {
     get state() { return JSON.parse(JSON.stringify(state)); },
     navigate,
@@ -2509,6 +2545,8 @@
     applyMetrics,
     applyStructure,
     applyPlayback,
+    setExactFrame,
+    clearExactFrame,
     applyResults,
     on(eventName, handler) {
       window.addEventListener(`dashboard:${eventName}`, (event) => handler(event.detail));
