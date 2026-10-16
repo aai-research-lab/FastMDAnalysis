@@ -102,8 +102,29 @@ esac''')
     return home, bin_dir
 
 
+#: What the laid-out machine has or lacks by its own stand-ins, so the
+#: computer the tests run on cannot answer for it.
+_STOOD_IN = {"apptainer", "singularity", "fastmdx", "nvidia-smi", "sbatch",
+             "sinfo", "curl", "conda", "mamba", "micromamba"}
+
+
+def _system_path(root: Path) -> str:
+    """This computer's /usr/bin and /bin, less the tools the laid-out machine
+    stands in for. A workstation with Singularity in /usr/bin would otherwise
+    give the laid-out machine a container it was not given (aailab01 did, on
+    2026-10-16, and the image in its home was asked what it loads)."""
+    tools = root / "system-bin"
+    if not tools.exists():
+        tools.mkdir()
+        for folder in (Path("/usr/bin"), Path("/bin")):
+            for tool in (folder.iterdir() if folder.is_dir() else ()):
+                if tool.name not in _STOOD_IN and not (tools / tool.name).exists():
+                    (tools / tool.name).symlink_to(tool)
+    return str(tools)
+
+
 def _run_probe(home: Path, bin_dir: Path) -> str:
-    system_path = "/usr/bin:/bin"
+    system_path = _system_path(bin_dir.parent)
     done = subprocess.run(
         [SH, "-s"], input=PROBE_SCRIPT, capture_output=True, text=True,
         env={"HOME": str(home), "PATH": f"{bin_dir}:{system_path}"},
@@ -126,7 +147,10 @@ def test_the_probe_finds_what_an_installer_left(tmp_path):
     assert found.cuda_driver == "12.7"
     # Found where installers put it, though nothing put it on PATH.
     assert f"{home}/miniforge3" in found.conda_roots
-    assert sorted(found.environments, key=lambda e: e.path) == sorted([
+    # Only what is in the laid-out home: /opt/conda is looked in wherever
+    # the probe runs, and a workstation's own environments are found there.
+    laid_out = [e for e in found.environments if e.path.startswith(f"{home}/")]
+    assert sorted(laid_out, key=lambda e: e.path) == sorted([
         Environment(f"{home}/.conda/envs/working", "9.9.9.dev1+gold",
                     "eae609edbbf9", "no", f"{home}/src/FastMDXplora"),
         Environment(f"{home}/miniforge3/envs/fastmdx-9.9.9", "9.9.9"),
