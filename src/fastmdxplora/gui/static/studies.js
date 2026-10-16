@@ -194,6 +194,7 @@
       event.preventDefault();
       if (adding.value.trim()) add();
       save.disabled = true;
+      var before = { tags: (study.tags || []).slice(), note: study.note || "" };
       fetch("/api/study-tags", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -210,6 +211,8 @@
         tagsUsed = countTags();
         offerTags();
         draw();
+        tagsOfFocused(study);
+        offerUndoOfTags(study, before);
       }).catch(function () {
         save.disabled = false;
         said.textContent = "The server did not answer.";
@@ -221,6 +224,49 @@
     buttons.append(save, cancel);
     form.append(list, row, note, buttons, said);
     return form;
+  }
+
+  /* Tags and a note kept, said in the page's notice with Undo, which keeps
+   * them as they were. */
+  // The keyboard on a card's Tags, drawn anew (where the person was, and
+  // where the notice's Undo brings it back to).
+  function tagsOfFocused(study) {
+    Array.prototype.forEach.call(document.querySelectorAll(".study-card"), function (card) {
+      if (card.dataset.path === study.path) {
+        var edit = card.querySelector(".study-tag-edit");
+        if (edit) edit.focus({ preventScroll: true });
+      }
+    });
+  }
+
+  function offerUndoOfTags(study, before) {
+    var board = window.FastMDXDashboard;
+    if (!board || !board.toast) return;
+    board.toast("Kept the tags and note of " + (study.name || "the study") + ".", "ok", { label: "Undo", run: function () {
+      fetch("/api/study-tags", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: study.path, tags: before.tags, note: before.note })
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        if (!d || !d.ok) {
+          board.toast((d && (d.reason || d.error)) || "It could not be undone.", "warning");
+          return;
+        }
+        // The card as listed now: the list is built again on each visit,
+        // and the old one's tags edited next would be saved back.
+        studies.filter(function (one) { return one.path === study.path; })
+          .concat([study]).forEach(function (one) {
+            one.tags = d.tags;
+            one.note = d.note;
+          });
+        tagsUsed = countTags();
+        offerTags();
+        draw();
+        // The card drawn anew took the keyboard with it: back on its Tags.
+        if (document.activeElement === document.body) tagsOfFocused(study);
+        board.toast("The tags and note are back as they were.", "ok");
+      }).catch(function () { board.toast("The server did not answer.", "warning"); });
+    } });
   }
 
   function countTags() {
@@ -305,7 +351,7 @@
     var x0 = xs[0], x1 = xs[xs.length - 1] > x0 ? xs[xs.length - 1] : x0 + 1;
     var px = function (x) { return pad.left + (x - x0) / (x1 - x0) * (width - pad.left - pad.right); };
     var py = function (y) { return pad.top + (1 - (y - lo) / (hi - lo)) * (height - pad.top - pad.bottom); };
-    var line = token("--accent-cyan", "#2698ba");
+    var line = token("--hue-cyan", "#00aed8");
     var muted = token("--text-muted", "#9a9ca1");
     var plot = svg("svg", { viewBox: "0 0 " + width + " " + height, class: "study-series",
                             role: "img", "aria-label": data.label + " over the run" }, null);
@@ -1044,8 +1090,7 @@
     }).then(function (r) { return r.json(); }).then(function (d) {
       button.disabled = false;
       if (d && d.ok) {
-        location.hash = "#overview";
-        location.reload();
+        window.FastMDXDashboard.studyOpened(d);
       } else {
         notOpened(button, (d && d.error) || "Could not open it.");
       }
@@ -1234,8 +1279,7 @@
         var answer = await response.json();
         if (answer && answer.ok) {
           said.textContent = "Opened. Every file matched its SHA-256.";
-          location.hash = "#overview";
-          location.reload();
+          window.FastMDXDashboard.studyOpened(answer);
           return;
         }
         said.textContent = (answer && answer.error) || "It could not be opened.";

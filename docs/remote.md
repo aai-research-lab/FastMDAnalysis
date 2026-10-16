@@ -214,22 +214,60 @@ file or folder of that name beside the Config.
 
 **Only files in the study's own folder travel,** the folder holding the
 Config. A file named outside it is refused (`remote.input.outside`) and nothing
-is sent, whoever wrote the Config: one written by an AI model naming
-`~/.ssh/id_ed25519` would otherwise copy the key to the machine. Links are
+is sent, whoever wrote the Config: one naming `~/.ssh/id_ed25519` would
+otherwise copy the key to the machine. Links are
 resolved first, so a link in the folder leading out of it is outside too, and a
 folder that travels is refused if a link in it, or in a folder one of its links
 leads to, leads out of it or back into itself, since the copy follows links.
 Copy the file into the study's folder and name it there. A Config in your home
 folder (the one your account names, or the one `HOME` names), or at the top of
 the file system, is refused, since its folder is what
-travels; and nothing in a place keys and credentials are kept (`.ssh`,
+travels; where no home folder can be found at all, every Config is refused,
+since its folder could be your home folder (set `HOME` and send it again);
+and nothing in a place keys and credentials are kept (`.ssh`,
 `.gnupg`, `.aws`, `.kube` and the like, and FastMDXplora's own settings) is
 ever sent: a folder that travels is refused if one is anywhere in it, reached
-directly or through a link. The link and key checks are made again as the copy
-starts.
+directly or through a link. Nor is a Config, or a prepared study it names,
+kept where programs keep their settings and tokens, and no results folder
+is fetched into such a place: a folder directly in your home folder whose
+name starts with a dot (`~/.config`, `~/.local`), or that is `AppData` or
+`Library` (its `CloudStorage` and `Mobile Documents` aside); the folders
+`XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `APPDATA` and `LOCALAPPDATA` name, where
+they are full paths other than your home folder or one above it; and
+wherever a link leads from one of your home folder's own entries whose name
+starts with a dot (`~/.ssh -> ~/dotfiles/ssh`), or from a place of keys
+(`.ssh`, `.aws`, `.gnupg`, `.kube` and the like, `~/.config/gh`,
+`~/.config/gcloud`, `~/.config/rclone`, `~/Library/Keychains`),
+`~/.config`, `~/.local/share` or the folders `XDG_CONFIG_HOME`,
+`XDG_DATA_HOME` and `APPDATA` name, or from a folder up to two levels
+inside one of them (`~/.config/gh -> ~/dotfiles/gh`, a key a dotfiles
+manager links into `~/.ssh`). A link to your home folder or a folder above
+it never makes that folder a place of keys, and a link from `~/.config`,
+`~/.local/share` or the named folders does not make one of your own
+folders directly in your home folder (`~/Documents`) one either; a link
+from your home folder's own dot entry or from a place of keys does, so a
+key kept in `~/keys` through `~/.ssh -> ~/keys` never travels. Links are
+not followed deeper than that, nor in `LOCALAPPDATA`, `~/Library/Containers`,
+`~/Library/Application Support`, Wine's folders, the Trash, or folders
+named `cache`, `caches`, `temp`, `tmp` or `pkgs`, since programs keep links
+there to your own folders or to their own files. A place with more than
+100,000 entries cannot be looked through, and nothing is sent until it is
+smaller. Each place is judged as named and where links lead. Your own folders whose names start with a dot deeper down
+(`~/projects/.runs`) are not such places. A hard link to a key, which no
+path tells apart from any other file, is not caught: keep keys out of a
+study's folder. The link and key checks are made again as the copy
+starts. A results folder refused here is set with `--output` at the
+command line, and with `output` in the config in the GUI.
 
-**Your defaults travel in the Config.** A `fastmdx-defaults.yml` beside the
-Config or above it fills what the Config leaves unset here, as `explore -c`
+**Only a study's config is sent.** A file that names no `systems` (nor a
+study it carries on, by `simulation.resume_from`, or `setup_from` or its
+other name `prepared_from`) is no
+study's config, and is refused (`config.option.missing_companion`): a file
+of settings or tokens never travels as one, wherever it is kept.
+
+**Your defaults travel in the Config.** The nearest `fastmdx-defaults.yml`
+in the study's results folder or above it (with none named, beside the
+Config or above it) fills what the Config leaves unset here, as `explore -c`
 would on this computer, and the plan says which settings it filled; the run
 there is started with `--no-defaults`, so no defaults file on the machine (one
 another user could have left up its folders) is laid over it.
@@ -515,9 +553,11 @@ found to be when last inspected.
   on. A file it names by a relative path is read from there too, as a run
   here reads it, and the plan says where its results come back to, by
   their full path. A results folder left blank is given the name the plan
-  chose, in the form (a bare name, as **Run on this machine** reads it),
-  kept while the plan stands and after a send that went, so the study
-  planned again is saved to the same file.
+  chose, in the form (a bare name, as **Run on this machine** reads it).
+  It is kept while the plan stands, so the study planned again is saved to
+  the same file, and after a send that went, so the form names the folder
+  its results come back to; planned again then, it is refused as a job of
+  that name until **Results folder** names a new folder.
 - **Where new studies would go in your home folder,** the top of a disk or
   a folder above your home folder (a GUI opened on a folder directly in
   your home folder, on the home folder itself, or on a folder at the top
@@ -526,9 +566,10 @@ found to be when last inspected.
   before anything is asked, naming a folder to open it on instead
   (`fastmdx gui --output ~/md/first` in place of `~/md`). Your home folder
   is taken to be both the one your account names and the one `HOME`
-  names; where neither is found, nothing built in the form is sent either,
-  and the note says to set `HOME`. A config file can still be sent with **A config
-  I have**.
+  names. A config file can still be sent with **A config I have**. Where
+  neither names a home folder, nothing is sent from the GUI at all, a
+  config file included, since any folder could be your home folder, and
+  the note says to set `HOME`.
 - **A plan let go** (**Not now**, taken away as the form changed, a send
   refused, or kept past its ten minutes) takes back the config saved for
   it, unless the config has been changed since, another plan is of it or a
@@ -544,7 +585,47 @@ found to be when last inspected.
   named by a relative path is read from the folder the GUI was started in,
   as its check reads it, and refused (`remote.config.read_elsewhere`)
   where the plan would read another file, or none, or where that folder is
-  gone: give its full path.
+  gone: give its full path. Where the file checked is outside the folders
+  the routes reach, its full path would be refused too, so the refusal
+  says so and names the ways to send it: open the GUI on its folder (`cd`
+  there, then `fastmdx gui` with no `--output`; or, started there with
+  `--output`, start it again without), or copy it, with the files
+  it names, into a new folder inside the folder the GUI was opened on and
+  give its full path there. A way that would be refused in turn is left
+  out: opening the GUI on a config's folder that is your home folder or
+  above it, or a copy where the GUI was opened above your home folder or on
+  the top of a disk. A config named by its full path outside those folders
+  is refused (`remote.input.outside`) with the same ways.
+- **Files kept apart.** A way of its own is offered only for a study's
+  config: a `.yml` or `.yaml` file of at most 64 KiB that names its `system`
+  or `systems`, or the study it carries on (`simulation.resume_from`,
+  `setup_from` or `prepared_from`). A file of keys or settings (a kubeconfig, a list of tokens)
+  is none, wherever it is kept and however a link leads to it. Nor is a way
+  offered for a config whose name starts with a dot, under a folder whose
+  name starts with a dot at any depth (`~/.config`, and your own
+  `~/projects/.runs` too, though a config there is still sent once copied
+  out, or from a GUI opened on its folder's parent) or is `AppData`, under
+  your home folder's own `Library` (its `CloudStorage` and `Mobile
+  Documents` folders aside), in a place keys or settings are kept
+  (FastMDXplora's own, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `APPDATA`,
+  `LOCALAPPDATA`, or a folder one of these leads to by a link), or in a
+  folder holding one of these, your home folder among them; nor for a name
+  that is a link from such a place, or that goes up through one. A name
+  through a place keys are kept (`.ssh` and the like) is not followed at
+  all, even where it leads into the folders the GUI reaches. Such a file
+  reads as a name not there reads. By its full path, it is no config file
+  in the workspace. By a relative path, it is asked for by its full path,
+  without saying where a link leads. Both end with the way any config kept
+  elsewhere can be sent: copy it, with the files it names, into a new
+  folder inside the folder the GUI was opened on and give its full path
+  there (left out where the GUI was opened above your home folder or on the
+  top of a disk). So the page never tells which of these files exist
+  outside the folders it reaches. In a GUI opened on your home folder,
+  where those folders are its own, a file in another program's settings
+  folder is named as kept there ("The config" for a study's config, "The
+  file" for anything else), as the page could list it anyway. The
+  way of its own names a config's folder as it was given, not where a link
+  in the name leads.
 - **One at a time.** One plan or send is out at a time, and what it answers
   is said on the page, left and come back to or not; the form changed while
   a send is out takes nothing away.

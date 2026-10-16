@@ -616,9 +616,9 @@ fastmdx resume runs/study
 
 | What the study holds | What is run |
 |---|---|
-| Every phase of its plan recorded as done | Nothing |
+| Every phase of its plan recorded as done, and no extension since | Nothing |
 | All of production, and not its analyses or report | The analyses and the report, over the whole trajectory |
-| Part of production | The rest of it, from the last sealed checkpoint, then the join and the analyses, as [extending a study](#long-runs-and-segments) does; a segment that stopped before its first checkpoint is set aside (`segment-001-stopped-before-its-checkpoint`, its frames kept) and run again from the piece before it |
+| Part of production | The rest of it, from the last sealed checkpoint, then the join and the analyses, as [extending a study](#long-runs-and-segments) does; a segment that stopped before its first checkpoint is set aside (`segment-001-stopped-before-its-checkpoint`, its frames kept) and run again from the piece before it, for the length it was asked to run; an extension stopped past its checkpoint runs the rest of what it was asked, past the plan too |
 | No production yet, or none as far as its first checkpoint | The whole study again: nothing it wrote can be continued from |
 
 **A study of several runs is carried on run by run.** A sweep, several systems
@@ -638,8 +638,18 @@ interruption. Production that is written and cannot be continued, a checkpoint
 off the frame grid for instance, or an extended study with no checkpoint left
 to carry it on, is not thrown away by starting again: the reason is said
 instead. Running `fastmdx resume` twice does the work once, so a service can
-run it every time a job restarts; `--json` prints the outcome as one line for
-a program to read.
+run it every time a job restarts; a resume or an extension of a study another
+process is carrying on is refused. `--json` prints the outcome as one line for
+a program to read. An extension of a finished study that was stopped before
+the join is carried on the same way; extending such a study again sets a
+piece stopped before its first checkpoint aside first (a checkpoint whose
+record of itself was never written counts as none), and carries on one stopped
+past it from that checkpoint. A piece carried on that stopped with an error of
+its own is said, as the study's would be, with how to run it again anyway:
+moved out of the study's folder, then resumed, or extended again by what it
+was asked to run past the plan. Whether a finished study was extended since is
+read from its join (`joined/joined.json`): a study whose `joined` folder is
+gone is joined and analysed again.
 
 **By hand, recovery is at phase boundaries.** A finished setup or trajectory in a
 directory is reused rather than redone, and `--include` picks up from the phase

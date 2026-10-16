@@ -126,7 +126,7 @@ def test_printed_it_is_the_document_alone_in_black_on_white(browser, sessions) -
         assert shown == {"sidebar": False, "log": False, "notices": False,
                          "buttons": False, "document": True,
                          "ink": "rgb(0, 0, 0)", "ground": "rgb(255, 255, 255)",
-                         "done": "#1b7a45"}
+                         "done": "#17703f"}
     finally:
         page.close()
 

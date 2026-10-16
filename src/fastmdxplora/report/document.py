@@ -691,6 +691,9 @@ def _results_section(project_root: Path, report_dir: Path | None = None) -> str:
         shown = [(k, v) for k, v in opts.items() if v is not None and v != ""]
         if selection or shown:
             lines.append("**Parameters:**")
+            # A list straight after a line of text runs into it as one
+            # paragraph in Python-Markdown, which the Report is rendered with.
+            lines.append("")
             if selection:
                 lines.append(f"- `selection`: `{_code_text(selection)}`")
             for k, v in shown:
@@ -702,6 +705,13 @@ def _results_section(project_root: Path, report_dir: Path | None = None) -> str:
         # read the tuples.
         findings = per_analysis.get("findings") or {}
         notes = _findings_notes(findings)
+        if notes:
+            # A list of its own: straight after the parameters, the findings
+            # read as more of them.
+            if selection or shown:
+                lines.append("")
+            lines.append("**Findings:**")
+            lines.append("")
         for note in notes:
             lines.append(f"- {note}")
         # A `for ... else` runs its else when the loop finishes without a
@@ -1032,7 +1042,7 @@ def _findings_notes(findings: dict[str, Any]) -> list[str]:
     """
     notes: list[str] = []
 
-    # What the analysis measured. Recorded for every per-frame analysis and
+    # What the analysis found. Recorded for every per-frame analysis and
     # shown nowhere: a results section carried a figure and the settings that
     # produced it, and no number.
     measured = findings.get("mean")
@@ -1046,11 +1056,14 @@ def _findings_notes(findings: dict[str, Any]) -> list[str]:
             value += f" {measured['unit']}"
         independent = measured.get("effective_samples")
         said = f"Mean over the equilibrated part of the run: {value}"
-        if isinstance(independent, (int, float)):
-            said += f", from {independent:.0f} independent samples"
+        if isinstance(independent, (int, float)) and not isinstance(independent, bool):
+            from fastmdxplora.statistics import independent_samples_said
+
+            said += ", from " + independent_samples_said(independent)
         discarded = measured.get("discard")
         if isinstance(discarded, int) and discarded:
-            said += f" after discarding {discarded:,} frames"
+            said += f" after discarding {discarded:,} " + (
+                "frame" if discarded == 1 else "frames")
         notes.append(said + ".")
     if isinstance(measured, dict) and measured.get("not_a_measurement"):
         notes.append(str(measured["not_a_measurement"]))

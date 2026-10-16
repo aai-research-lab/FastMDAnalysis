@@ -13,6 +13,8 @@
   "use strict";
 
   function el(id) { return document.getElementById(id); }
+  // The page shown, as its address names it.
+  function currentPage() { return (location.hash || "#overview").slice(1).split("/")[0] || "overview"; }
   function $$(sel, root) { return Array.from((root || document).querySelectorAll(sel)); }
 
   var store = {
@@ -66,6 +68,28 @@
     document.dispatchEvent(new CustomEvent("fmx:theme", { detail: name }));
   }
 
+  /* ---- Accent ------------------------------------------------------ */
+  /* One of five (theme.css), set as data-accent on the root element; Cyan,
+   * the default, as none. Kept once chosen, over the service's default,
+   * which theme-first.js applied before the first paint. */
+  var ACCENTS = ["cyan", "blue", "violet", "magenta", "graphite"];
+
+  function accentShown() {
+    var named = document.documentElement.getAttribute("data-accent");
+    return ACCENTS.indexOf(named) >= 0 ? named : "cyan";
+  }
+
+  function applyAccent(name, chosen) {
+    if (ACCENTS.indexOf(name) < 0) name = "cyan";
+    if (name === "cyan") document.documentElement.removeAttribute("data-accent");
+    else document.documentElement.setAttribute("data-accent", name);
+    $$(".accent-swatch[data-accent]").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.accent === name));
+    });
+    if (chosen) store.set("accent", name);
+    document.dispatchEvent(new CustomEvent("fmx:accent", { detail: name }));
+  }
+
   /* With System chosen, the page follows the system as it changes. */
   function followTheSystem() {
     try {
@@ -100,9 +124,15 @@
         .getPropertyValue("--" + which + "-width")) || (which === "sidebar" ? 232 : PANEL_WIDTH);
       handle.classList.add("dragging");
       document.body.classList.add("col-dragging");
+      var moved = false;
       function move(e) {
         // The sidebar grows to the right; the panel grows to the left.
         var delta = e.clientX - startX;
+        if (!moved && !delta) return;
+        // Widened or narrowed by the person: kept, as they made it; a press
+        // or a double-click that moves nothing is not a width chosen.
+        moved = true;
+        widened[which === "sidebar" ? "sidebar" : "panel"] = true;
         setWidth(which, which === "sidebar" ? startW + delta : startW - delta);
       }
       function up() {
@@ -110,13 +140,18 @@
         document.body.classList.remove("col-dragging");
         window.removeEventListener("mousemove", move);
         window.removeEventListener("mouseup", up);
+        // Widened, the column is the person's; the other folds to make room.
+        fitThePage();
       }
       window.addEventListener("mousemove", move);
       window.addEventListener("mouseup", up);
     });
-    // Double-click puts it back.
+    // Double-click puts it back, and the column is fitted again as any.
     handle.addEventListener("dblclick", function () {
       setWidth(which, which === "sidebar" ? 232 : PANEL_WIDTH);
+      // Its width is no longer the person's; opened by hand, it still is.
+      widened[which === "sidebar" ? "sidebar" : "panel"] = false;
+      fitThePage();
     });
   }
 
@@ -145,21 +180,108 @@
   var onTheBuilder = false;
   var keptOnTheBuilder = false;
 
+  /* The page fitted to the window (user, 10-15: "the Whole GUI that the
+   * user is seeing should be responsive to the current view and adjust
+   * unless user insist otherwise"). Each page says the least width its
+   * content needs (`--page-least` in dashboard.css: the Viewer's tools and
+   * the Config Builder's summary stay beside the page down to it, and go
+   * under it below). Where the window leaves the page less, the columns
+   * beside it fold, in this order: the sidebar to its strip of icons, then
+   * the side panel. The Agent beside a page with its own right panel
+   * (`--own-right-panel`) folds the sidebar too, whatever the room
+   * (user, 10-12). A column a person opens, closes or widens is theirs
+   * until the page changes (and, for the sidebar folded for the Agent,
+   * until the Agent closes). */
+  var fitFold = { sidebar: false, panel: false };
+  var heldOpen = { sidebar: false, panel: false };
+  // A column whose seam the person dragged: its width theirs, on this page.
+  var widened = { sidebar: false, panel: false };
+  /* The Agent's fold is apart from the person's own choice: opened beside
+   * a page with its own right panel, the Agent folds the sidebar, opened
+   * by hand before or not; reopened by the person then, it is open until
+   * the Agent closes; and as the Agent closes, the sidebar is as it was. */
+  var agentFold = false;
+  var reopenedBeside = false;
+  var fitting = false;
+
+  function agentBeside() { return document.body.classList.contains("agent-beside"); }
+
+  function shownPage() {
+    var name = document.documentElement.getAttribute("data-page");
+    return document.querySelector('.page[data-page="' + name + '"]');
+  }
+
+  // The width the page's container queries read, to the fraction of a
+  // pixel: its box less its borders, a scroll bar and its padding.
+  function pageRoom(page) {
+    var style = getComputedStyle(page);
+    return page.getBoundingClientRect().width - (page.offsetWidth - page.clientWidth)
+      - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0);
+  }
+
+  function fitThePage() {
+    var page = shownPage();
+    fitFold = { sidebar: false, panel: false };
+    agentFold = false;
+    if (!page || window.innerWidth <= 800) { showTheColumns(); return; }
+    var style = getComputedStyle(page);
+    var least = parseFloat(style.getPropertyValue("--page-least")) || 0;
+    var ownRight = style.getPropertyValue("--own-right-panel").trim() === "1";
+    agentFold = agentBeside() && ownRight && !reopenedBeside;
+    /* Each fold tried and checked in one go, shown once it is decided: a
+     * column shown by the pointer (a peek) is left to the pointer. */
+    fitting = true;
+    try {
+      showTheColumns();
+      ["sidebar", "panel"].forEach(function (which) {
+        if (heldOpen[which] || widened[which] || (which === "sidebar" && reopenedBeside)) return;
+        if (document.body.classList.contains(which + "-collapsed")) return;
+        if (pageRoom(page) >= least) return;
+        fitFold[which] = true;
+        showTheColumns();
+      });
+      // The side panel folded, the sidebar may have room again: no column
+      // stays folded that the page does not need folded.
+      if (fitFold.sidebar && fitFold.panel) {
+        fitFold.sidebar = false;
+        showTheColumns();
+        if (pageRoom(page) < least) {
+          fitFold.sidebar = true;
+          showTheColumns();
+        }
+      }
+    } finally {
+      fitting = false;
+    }
+    showTheColumns();
+  }
+
+  var fitPending = 0;
+  function fitSoon() {
+    if (fitPending) return;
+    fitPending = requestAnimationFrame(function () { fitPending = 0; fitThePage(); });
+  }
+
   function showTheColumns() {
-    var sidebar = onTheViewer ? !keptOnTheViewer.sidebar : sidebarClosed;
-    var panel = onTheViewer ? !keptOnTheViewer.panel
-      : onTheBuilder ? !keptOnTheBuilder : panelClosed;
+    var sidebar = !reopenedBeside && ((onTheViewer ? !keptOnTheViewer.sidebar : sidebarClosed)
+      || (fitFold.sidebar && !heldOpen.sidebar && !widened.sidebar) || agentFold);
+    var panel = (onTheViewer ? !keptOnTheViewer.panel
+      : onTheBuilder ? !keptOnTheBuilder : panelClosed)
+      || (fitFold.panel && !heldOpen.panel && !widened.panel);
     document.body.classList.toggle("sidebar-collapsed", sidebar);
     document.body.classList.toggle("panel-collapsed", panel);
     var expand = el("sidebar-expand");
     if (expand) expand.hidden = !sidebar;
     expand = el("side-expand");
     if (expand) expand.hidden = !panel;
-    if (!sidebar) peek("sidebar", false);
-    if (!panel) peek("panel", false);
+    if (fitting) return;
+    if (!sidebar && document.body.classList.contains("sidebar-peek")) peek("sidebar", false);
+    if (!panel && document.body.classList.contains("panel-peek")) peek("panel", false);
   }
 
   function setCollapsed(yes, chosen) {
+    // Opened by the person: theirs, on this page, not folded to fit.
+    if (chosen !== false) heldOpen.panel = !yes;
     if (onTheBuilder && !onTheViewer && chosen !== false) {
       keptOnTheBuilder = !yes;
       store.set("builderPanelOpen", yes ? "0" : "1");
@@ -170,7 +292,7 @@
       panelClosed = yes;
       if (chosen !== false) store.set("panelCollapsed", yes ? "1" : "0");
     }
-    showTheColumns();
+    fitThePage();
   }
 
   /* Pointing at a closed column's button shows it over the page for as
@@ -222,14 +344,21 @@
     });
   }
 
+  var pageFollowed = null;
   function followThePage() {
     var page = document.documentElement.getAttribute("data-page");
     var viewer = page === "viewer";
     var builder = page === "run";
-    if (viewer === onTheViewer && builder === onTheBuilder) return;
+    // Another page: what the person chose on the last one is theirs there.
+    if (page !== pageFollowed) {
+      heldOpen = { sidebar: false, panel: false };
+      widened = { sidebar: false, panel: false };
+      reopenedBeside = false;
+    }
+    pageFollowed = page;
     onTheViewer = viewer;
     onTheBuilder = builder;
-    showTheColumns();
+    fitThePage();
   }
 
   /* Until someone opens or closes the log, it is open while a study runs,
@@ -255,6 +384,24 @@
   }
 
   function setSidebarCollapsed(yes, chosen) {
+    if (chosen !== false) {
+      // Reopened while the Agent holds it folded: open until the Agent
+      // closes, then as it was before, nothing of it kept.
+      if (!yes && agentFold) {
+        reopenedBeside = true;
+        fitThePage();
+        return;
+      }
+      // Folded again while the Agent is beside: the Agent's fold, as before
+      // the person reopened it; nothing of it kept for after.
+      if (yes && reopenedBeside) {
+        reopenedBeside = false;
+        fitThePage();
+        return;
+      }
+      reopenedBeside = false;
+      heldOpen.sidebar = !yes;
+    }
     if (onTheViewer && chosen !== false) {
       keptOnTheViewer.sidebar = !yes;
       store.set("viewerSidebarOpen", yes ? "0" : "1");
@@ -262,7 +409,7 @@
       sidebarClosed = yes;
       if (chosen !== false) store.set("sidebarCollapsed", yes ? "1" : "0");
     }
-    showTheColumns();
+    fitThePage();
   }
 
   /* ---- The log ------------------------------------------------------ */
@@ -733,10 +880,35 @@
     body.appendChild(host);
   }
 
+  /* The file last opened in the reader, and the study it is of: what the
+   * Agent is told the person has open (`agent-panel.js` `pageHints`). */
+  var previewed = null;
+  function studyOpen() {
+    var dash = window.FastMDXDashboard && window.FastMDXDashboard.state;
+    return (dash && dash.appState && dash.appState.active_run) || null;
+  }
+  /* The file open in the reader, by its path in the study open: only while
+   * the reader is on screen (the Files tab shown, the panel open or peeking),
+   * and none once another study is open. The reader stays filled when the
+   * panel turns to the Log or folds, and a file read an hour ago is not what
+   * is looked at. A folded panel is hidden by visibility, so its own class
+   * says so, not the reader's layout. */
+  function previewing() {
+    var pane = el("side-preview");
+    if (!previewed || !pane || pane.hidden || pane.offsetParent === null) return null;
+    var body = document.body.classList;
+    if (body.contains("panel-collapsed") && !body.contains("panel-peek")) return null;
+    // With no study open there is no file of it to read (one opened from a
+    // list of a study closed reads as not found).
+    var open = studyOpen();
+    return open && previewed.study === open ? previewed.path : null;
+  }
+
   function preview(item) {
     var pane = el("side-preview");
     var body = el("side-preview-body");
     if (!pane || !body) return;
+    var kept = previewed = { path: item.path, study: studyOpen() };
     pane.hidden = false;
     var seam = el("side-seam");
     if (seam) seam.hidden = false;
@@ -779,6 +951,13 @@
     fetch("/api/file-text?path=" + encodeURIComponent(item.path))
       .then(function (r) { return r.json(); })
       .then(function (data) {
+        // Another file opened since, or this one again: an answer late
+        // shows nothing over it, and says nothing of it.
+        if (previewed !== kept) return;
+        // Of the study the server read it from: on a page just loaded the
+        // page may not know its study yet (the file was kept as of none, and
+        // never said), and the study may change as the list is read.
+        if (data && data.ok && data.study) kept.study = data.study;
         if (!data || !data.ok) {
           var note = document.createElement("div");
           note.className = "side-preview-note";
@@ -811,6 +990,7 @@
         showText(body, data, mode);
       })
       .catch(function () {
+        if (previewed !== kept) return;
         var note = document.createElement("div");
         note.className = "side-preview-note";
         note.textContent = "Could not read it here. Open or download it instead.";
@@ -923,6 +1103,10 @@
     $$(".seg-btn[data-theme]").forEach(function (b) {
       b.addEventListener("click", function () { applyTheme(b.dataset.theme, true); });
     });
+    applyAccent(accentShown(), false);
+    $$(".accent-swatch[data-accent]").forEach(function (b) {
+      b.addEventListener("click", function () { applyAccent(b.dataset.accent, true); });
+    });
 
     var sw = parseInt(store.get("sidebarWidth", "232"), 10);
     var pw = parseInt(store.get("panelWidth", String(PANEL_WIDTH)), 10);
@@ -966,6 +1150,21 @@
     followThePage();
     new MutationObserver(followThePage).observe(document.documentElement,
       { attributes: true, attributeFilter: ["data-page"] });
+    window.addEventListener("resize", fitSoon);
+    // The centre column's width changes with nothing else changing where
+    // scroll bars take room: a page grown long enough to scroll loses the
+    // bar's width. Fitted again then too; not while a seam is dragged.
+    var centre = document.querySelector(".main");
+    if (centre && window.ResizeObserver) {
+      new ResizeObserver(function () {
+        if (!document.body.classList.contains("col-dragging")) fitSoon();
+      }).observe(centre);
+    }
+    document.addEventListener("fmx:agent-beside", function () {
+      reopenedBeside = false;
+      fitThePage();
+    });
+    fitThePage();
 
     $$(".side-tab").forEach(function (t) {
       t.addEventListener("click", function () { showTab(t.dataset.sideTab); });
@@ -1115,12 +1314,9 @@
           loadStudy.textContent = "Load study";
           loadPath.value = "";
           if (d && d.ok) {
-            // Read the new study at once rather than waiting for the poll,
-            // and land on the overview.
-            if (window.FastMDXDashboard && window.FastMDXDashboard.navigate) {
-              window.FastMDXDashboard.navigate("overview");
-            }
-            location.reload();
+            // Read the new study at once, on its overview, as a step of
+            // its own.
+            window.FastMDXDashboard.studyOpened(d);
           } else {
             window.alert((d && d.error) || "Could not load that folder.");
           }
@@ -1163,7 +1359,9 @@
           fetch("/api/explore/switch", {
             method: "POST", headers: { "content-type": "application/json" },
             body: JSON.stringify({ folder: elsewherePath })
-          }).then(function () { location.reload(); });
+          }).then(function (r) { return r.json(); }).then(function (d) {
+            window.FastMDXDashboard.studyOpened(d, currentPage());
+          });
         });
       }
     }
@@ -1175,7 +1373,9 @@
       fetch("/api/explore/switch", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ folder: folder })
-      }).then(function () { location.reload(); });
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        window.FastMDXDashboard.studyOpened(d, currentPage());
+      });
     }
     function shortAxis(axis) { return String(axis).split(".").pop(); }
     function valuesText(values) {
@@ -1201,7 +1401,7 @@
            * many are shown is remembered across polls. */
           var FIRST = 7, STEP = 3;
           var ordered = runs.slice().sort(function (a, b) {
-            var rank = { running: 0, waiting: 1, failed: 2, completed: 3 };
+            var rank = { running: 0, waiting: 1, failed: 2, stopped: 2, interrupted: 2, completed: 3 };
             return (rank[a.state] - rank[b.state]) || (runs.indexOf(a) - runs.indexOf(b));
           });
           var shown = Math.min(ordered.length, parseInt(runsBlock.dataset.shown, 10) || FIRST);
@@ -1218,8 +1418,14 @@
             name.title = r.path;
             var pct = document.createElement("span");
             pct.className = "study-running-pct mono";
+            // A run between its study's rounds: how far towards the round's
+            // length, not "waiting" as a run not yet begun says.
             pct.textContent = r.state === "running" && typeof r.fraction === "number"
-              ? (100 * r.fraction).toFixed(0) + "%" : r.state;
+              ? (100 * r.fraction).toFixed(0) + "%"
+              : r.state === "waiting" && r.so_far
+                ? "next round" + (typeof r.fraction === "number"
+                  ? ", " + (100 * r.fraction).toFixed(0) + "%" : "")
+                : r.state;
             var view = window.FastMDXIcons.button("eye", "View this run");
             view.addEventListener("click", function () { switchTo(r.path); });
             row.appendChild(dot); row.appendChild(name); row.appendChild(pct); row.appendChild(view);
@@ -1364,5 +1570,6 @@
   }
 
   window.FastMDXFrame = { showTab: showTab, setCollapsed: setCollapsed, applyTheme: applyTheme,
-                          previewPath: previewPath };
+                          applyAccent: applyAccent, fitThePage: fitThePage,
+                          previewPath: previewPath, previewing: previewing };
 })();

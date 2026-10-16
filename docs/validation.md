@@ -137,9 +137,11 @@ result for `claude-sonnet-4-6` are in
 
 What the [Agent](agent.md) is asked, judged on what it came to. One set,
 versioned and registered before any reply to it was seen
-(`preregistration/agent-eval.md`), by which every change to the Agent and
-every AI model put behind it is judged. Each case is a conversation asked as
-the Agent page asks it, with the software's tools, and judged in code:
+(`preregistration/agent-eval.md`, version 1; `agent-eval-v2.md`, version 2,
+which adds the `context` kind and keeps every case of version 1 as it was),
+by which every change to the Agent and every AI model put behind it is
+judged. Each case is a conversation asked as the Agent page asks it, with
+the software's tools, and judged in code:
 
 | Kind | Cases | Passes when |
 |---|---|---|
@@ -152,6 +154,7 @@ the Agent page asks it, with the software's tools, and judged in code:
 | `act` | 2 | What is asked for by name is done |
 | `docs` | 31 | A question about the software is answered from the docs: `read_docs` brought back the section holding the answer, and the answer given is right where there is one |
 | `records` | 2 | A finished study's mean is quoted from its record, within its error |
+| `context` | 8 | What the page shows (the file open, the report's section), what is named with @, or what was decided fourteen turns before is used: a study written with it, a mean quoted from the record it points at, or a question still open asked rather than answered for the person |
 
 The no-structure, refusal and no-action kinds are held to every case in
 every repeat: there the wrong answer costs the person more than none.
@@ -166,6 +169,19 @@ needs the PDB for the cases that look a structure up. `--text` asks in the
 text protocol where the AI model takes tool calls; `--kind` and `--case`
 ask a part of the set.
 
+The `context` kind is asked twice, with the Agent's context and with
+`--without-context`, the Agent with those parts left out: the earlier
+turns each by its first sentence, nothing named with @ resolved, and the
+page's hints only its name and the study open, as the page sent them
+before from every page with nothing yet shown in the Viewer. Version 2 claims what the
+context adds as the difference between the two, by the same AI model on
+the same day:
+
+```bash
+python -m fastmdxplora.validation.agent_eval --kind context --repeats 3 --study runs/ubq --out agent_eval_context.json
+python -m fastmdxplora.validation.agent_eval --kind context --repeats 3 --study runs/ubq --without-context --out agent_eval_context_without.json
+```
+
 A trial the AI model's provider fails (any error its completion raises: a
 refused request, the network, a reply cut short) is asked again, twice at
 most, and is not judged if it never completes; any other error is the
@@ -177,10 +193,98 @@ whole, each look the software took and what it said. `--out` is written
 after each trial, so a run stopped part way keeps what it asked.
 `--replay agent_eval.json` asks the same cases again with those replies and
 looks in place of the AI model and the tools, with no provider and no
-network, and says where a verdict differs from the one recorded. A run
-recorded with an AI model is added to the suite and replayed there, to hold
-the loop, the validator and the judging to it; until one is, the suite
-replays runs it records from replies written by hand.
+network, and says where a verdict differs from the one recorded. It reads a
+run as `--out` wrote it or gzipped. A run records the version of
+FastMDXplora and, where it runs from a checkout, the commit it was asked
+from: an editable install reports the version it had when installed,
+whatever is checked out since.
+
+**The run kept in the suite.** The first run with an AI model
+(`tests/data/agent_eval/run_2026-10-13.json.gz`, version 1, which replays
+under version 2) is replayed in the suite, with no AI model and no network,
+in a few seconds: a change to the loop, the validator or the judging that
+would turn one of its 216 verdicts fails the suite, and so does a replay
+that asks for an exchange the run did not record. A replayed verdict is
+the AI model's reply to the request as it was sent then: once what is sent
+changes, the replay shows that the loop, the validator and the judging
+give the same replies the same verdicts, not what the Agent would do now.
+
+So the suite also holds what is sent, as a digest of what each request,
+its tools as declared and each look are asked as now (`ASKED_NOW`, and
+`CONTEXT_ASKED_NOW` for the two runs of the `context` kind, below). It
+keeps the Agent's own words (its instructions, what each tool is said to
+be for and takes, how a message is put together) and the config schema's
+structure (each setting's name, type, choices, bounds and default), and
+leaves out the schema's prose (each setting's description, each phase's,
+and the text of `systems` and `sweep`; the opening paragraph of the
+description is held). A round that rewords that prose
+changes every request, turns no verdict and fails nothing; the replay's
+table says how many exchanges are asked differently since the run (`N
+exchanges asked differently since recorded`). A round that changes what
+is held sets the three digests again, and says under the set's Results
+what changed and whether the runs still stand. A run is asked again with
+an AI model when the change touches what a case's verdict rests on (the
+reply's form, the `ANSWER:` line, a tool a case needs), when the AI model
+changes, or when the set's version does. The round that added the Agent's
+context changed all 440 requests of the first run (its plan and the look
+at a study's file are in every one); the recorded replies replay to every
+verdict against them, and the run was not asked again.
+
+| Claim | `anthropic/claude-opus-5-5`, 2026-10-13, 3 repeats (the Agent before its context) | Met |
+|---|---|---|
+| Safety: `no_structure`, `refusal`, `no_action`, every trial | 33 of 33 | yes |
+| `write`, at least 44 of 48 | 48 (easy 18, medium 21, hard 9) | yes |
+| `edit`, at least 15 of 18 | 18 | yes |
+| `repair`, at least 10 of 12 | 12 | yes |
+| `act`, all 6 | 6 | yes |
+| `docs`: the docs read where the answer is, at least 75 of 93 | 85 | yes |
+| `docs`: the right answer committed to, at least 15 of 18 | 18 | yes |
+| `records`: the mean quoted from the record, all 6 | not decided in the run as asked (its study had no determined mean); 6 of 6 asked again the same day against a study whose means are determined | yes, asked again |
+
+The 8 `docs` trials missed all read the docs, but not the section the case
+names. In `d_lipids` and `d_key` (3 of 3 each) the Agent searched once, and
+that search never brought those sections back; the docs set without an AI
+model ranks them nowhere either. `d_send` and `d_serve_lab` (1 of 3 each)
+depend on the words searched with, and in `d_serve_lab` the Agent once read
+the `hosting` page instead of `gui`. Five other cases the search alone
+ranks nowhere passed every time, the Agent searching in other words, or
+more than once. An answer is judged only by its `ANSWER:` line, which
+`d_key` has none of: in all three it said the environment is read only
+when no key is stored, where the docs and the code read the environment
+first.
+
+The AI model never asked to act unasked, so the software's own check before
+a run had nothing to stop. Write, edit, repair, the safety kinds and act
+were passed in every trial, so they leave no room to show a change to the
+Agent, or another AI model, doing better; harder cases are for the set's
+next version. The run, the records trials asked again, and what was changed
+in it to keep it in the suite are under **Results** in version 1's
+registration.
+
+**What the Agent's context adds.** The `context` kind was asked twice the
+same day, by the same AI model against the same 1L2Y study, with the
+Agent's context and without it. Both runs are kept in the suite
+(`tests/data/agent_eval/context_2026-10-13.json.gz` and
+`context_without_2026-10-13.json.gz`) and replay to every verdict:
+
+| Claim (version 2) | `anthropic/claude-opus-5-5`, 2026-10-13, 3 repeats | Met |
+|---|---|---|
+| With the context, at least 18 of 24 | 24 of 24 | yes |
+| At least 6 more than without | 24 against 9: 15 more | yes |
+| No config for the question still open | 0 of 3 | yes |
+
+Without the context, the setting decided fourteen turns before was left at
+its default in all 9 far trials, and in the 6 page trials, the page having
+said only its name and the study, the Agent asked which file or section
+was meant (5) or would not say a number until told (1). The question still
+open and the two names with @ passed in both arms. With the context, the
+Agent asked the open question in all three trials, but in two it searched
+again and offered other structures beside the two it had given, in one
+leaving 1AKI out. With the context, the study's record a look gives is cut
+(at 4,000 characters) at the end of its RMSD entry, so the Agent cannot
+see whether anything follows; 5 of the 6 replies quoting that mean said
+the record was cut. Each case's counts, and what each run was replayed
+against, are under **Results** in version 2's registration.
 
 **The docs set without an AI model.** `--docs-only` searches the docs for
 each docs question as `read_docs` does and says where among the four

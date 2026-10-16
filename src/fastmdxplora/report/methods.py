@@ -521,7 +521,12 @@ def methods_paragraphs(
             platform = _get(sim, "platform")
             if platform == "auto":
                 platform = None
-        precision = _get(sim, "precision")
+        # Precision is a setting of the GPU platforms only (the runner sets it
+        # there and nowhere else), so a run on the CPU is not said to have used
+        # the precision it asked for.
+        from fastmdxplora.simulation.runner import PRECISION_PLATFORMS
+
+        precision = _get(sim, "precision") if platform in PRECISION_PLATFORMS else None
         seed = _get(sim, "random_seed")
 
         protocol = []
@@ -735,7 +740,7 @@ def _estimator_sentences(means: dict[str, dict[str, Any]]) -> list[str]:
     """
     from fastmdxplora.statistics import (EQUILIBRATION_TOLERANCE,
                                          MINIMUM_EFFECTIVE_SAMPLES, RESOLVED_SAMPLES,
-                                         WHOLE_RUN_UNLESS_GAIN)
+                                         UNCORRELATED_INEFFICIENCY, WHOLE_RUN_UNLESS_GAIN)
 
     names = sorted(means)
     said = ((f"Each per-frame quantity ({_listed(names)})" if len(names) > 1
@@ -762,9 +767,13 @@ def _estimator_sentences(means: dict[str, dict[str, Any]]) -> list[str]:
         "autocorrelation taken about the sample mean.",
         "Where frames were discarded, the error is that of the whole run scaled to "
         f"the frames kept, unless the discard at least {gain} the independent samples.",
-        "An error is given only where the frames averaged span at least "
-        f"{RESOLVED_SAMPLES:g} times their own statistical inefficiency and hold at "
-        f"least {MINIMUM_EFFECTIVE_SAMPLES:g} independent samples.",
+        "An error is given only where the frames averaged hold at least "
+        f"{MINIMUM_EFFECTIVE_SAMPLES:g} independent samples and span at least "
+        f"{RESOLVED_SAMPLES:g} times their own statistical inefficiency.",
+        "Frames whose statistical inefficiency, before the correction for the "
+        f"sample mean, is under {UNCORRELATED_INEFFICIENCY:g} are exempt from the "
+        "second condition; their error is still computed with the corrected "
+        "inefficiency.",
     ]
 
 

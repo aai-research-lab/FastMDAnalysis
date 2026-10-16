@@ -459,7 +459,7 @@ def _findings_bullets(project_root: Path) -> list[str]:
     if not assessed:
         return []
 
-    from fastmdxplora.statistics import with_its_error
+    from fastmdxplora.statistics import independent_samples_said, with_its_error
 
     bullets: list[str] = []
     for record in assessed["observables"].values():
@@ -469,7 +469,7 @@ def _findings_bullets(project_root: Path) -> list[str]:
                 None: " (too short to say if equilibrated)"}[record.get("equilibrated", record.get("settled"))]
         bullets.append(
             f"{record['observable']}: {value}"
-            f"  [{record['effective_samples']:.0f} independent samples]{note}")
+            f"  [{independent_samples_said(record['effective_samples'])}]{note}")
 
     for finding in (assessed.get("findings") or [])[:3]:
         bullets.append("")

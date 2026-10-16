@@ -481,17 +481,19 @@ class TestTheAgentIsAConversation(unittest.TestCase):
         self.assertIn("last error: no structure", prompt)
 
     def test_the_conversation_is_bounded(self):
-        # The last twelve turns whole and the 48 before them by their first
-        # sentence. A conversation of a hundred is not a prompt of a
-        # hundred, and what was settled early in it is not lost.
+        # The last twelve turns whole and the 48 before them kept as what was
+        # decided, the person's words whole. A conversation of a hundred is
+        # not a prompt of a hundred, and what was settled early in it is
+        # not lost.
         from fastmdxplora.agent.propose import prompt_for
 
         turns = [{"role": "user", "text": f"turn {i}. And more."} for i in range(100)]
         prompt = prompt_for("x", history=turns)
         self.assertNotIn("turn 0.", prompt)
         self.assertNotIn("turn 39.", prompt)
-        self.assertIn("- Person: turn 40.\n", prompt)
-        self.assertNotIn("turn 87. And more.", prompt)
+        self.assertIn("- Turn 41, the person: turn 40. And more.\n", prompt)
+        self.assertIn("- Turn 88, the person: turn 87. And more.\n", prompt)
+        self.assertNotIn("Turn 89, the person", prompt)
         self.assertIn("Person: turn 88. And more.", prompt)
         self.assertIn("Person: turn 99. And more.", prompt)
 

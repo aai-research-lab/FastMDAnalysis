@@ -17,8 +17,9 @@
   function el(id) { return document.getElementById(id); }
 
   var body, drawer, slot, home, after = null, lastPage = "overview", placeholder = "";
-  /* The page's prompt runs to two lines in the narrower column. */
-  var BESIDE_PROMPT = "Ask about this study, or describe one.";
+  /* The page's prompt runs to two lines in the narrower column; this one
+   * fits the box on one line at the column's least, 340px. */
+  var BESIDE_PROMPT = "Ask, or describe a study";
 
   function onTheAgentPage() {
     return document.documentElement.getAttribute("data-page") === "agent";
@@ -44,6 +45,10 @@
       box.placeholder = BESIDE_PROMPT;
       if (quiet !== true) box.focus();
     }
+    // The frame makes the room (frame.js): the sidebar folds beside a page
+    // with its own right panel; the Agent's box words its prompt for the
+    // column (agent-panel.js).
+    document.dispatchEvent(new CustomEvent("fmx:agent-beside", { detail: true }));
   }
 
   /* A dialog over the page has the keyboard: the drawer opened behind
@@ -63,6 +68,7 @@
     var box = el("agent-request");
     if (box && placeholder) box.placeholder = placeholder;
     delete drawer.dataset.placeholder;
+    document.dispatchEvent(new CustomEvent("fmx:agent-beside", { detail: false }));
     if (hadFocus) {
       var back = el("agent-beside-open");
       if (back && back.offsetParent !== null) back.focus();

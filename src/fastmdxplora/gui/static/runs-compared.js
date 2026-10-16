@@ -61,6 +61,8 @@
 
     document.getElementById("runs-compared-meta").textContent =
       data.completed + " of " + data.runs.length + " runs completed" +
+      (data.so_far ? "; " + data.so_far + " read as far as their finished pieces go, between rounds"
+        : "") +
       (data.replicas ? "; replicas, differing only by seed" : "");
 
     var table = document.getElementById("runs-compared-table");
@@ -161,7 +163,7 @@
     if (!chart || !analysis) return;
     var measure = data.measures.filter(function (m) { return m.analysis === analysis; })[0];
     var finished = data.runs.map(function (run, i) { return { run: run, index: i }; })
-      .filter(function (r) { return r.run.state === "completed"; });
+      .filter(function (r) { return r.run.state === "completed" || r.run.so_far; });
     chart.setAttribute("data-analysis", analysis);
     chart.setAttribute("data-drawn", "");
     Promise.all(finished.map(function (r) {

@@ -46,6 +46,11 @@ from fastmdxplora.refusals import (
 
 logger = get_logger("simulation.runner")
 
+#: The OpenMM platforms that take a `Precision` property (the GPU platforms).
+#: On any other the precision asked for is not applied, and nothing may say
+#: it was.
+PRECISION_PLATFORMS = ("CUDA", "OpenCL", "HIP")
+
 
 # ---------------------------------------------------------------------------
 # Defaults — production-cadence reporters and standard
@@ -214,7 +219,7 @@ def _probe_platform(omm: Any, platform: Any, name: str,
     forces. So does this now: two particles and a NonbondedForce, which
     is the kernel every real system needs.
     """
-    if name not in ("CUDA", "OpenCL", "HIP"):
+    if name not in PRECISION_PLATFORMS:
         return True
     try:
         mm = omm["openmm"]
@@ -353,7 +358,7 @@ def select_platform(
 
     def _make_props(name: str) -> dict[str, str]:
         props: dict[str, str] = {}
-        if name in ("CUDA", "OpenCL", "HIP"):
+        if name in PRECISION_PLATFORMS:
             props["Precision"] = precision
             if device_index is not None:
                 prop_key = {
@@ -381,8 +386,8 @@ def select_platform(
             continue
         # What was applied, not what was asked for. `Precision` is a property
         # of the GPU platforms; the CPU platform has only `Threads` and
-        # `DeterministicForces`, so a run there is single precision whatever
-        # was requested. Reporting the request made the banner say
+        # `DeterministicForces`, so it has no precision setting and the one
+        # requested is not applied. Reporting the request made the banner say
         # "CPU (precision=mixed)", and the diagnosis printed after a
         # non-finite coordinate suggests `--simulate-precision double` --
         # which on CPU changes nothing at all, so somebody chasing an

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-page="overview">
+<html lang="en" data-page="overview" data-accent-default="__FASTMDX_ACCENT__">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -356,6 +356,16 @@
         <button type="button" class="seg-btn" data-theme="dark" aria-pressed="false">Dark</button>
       </div>
     </div>
+    <div class="settings-row settings-row-accent">
+      <span id="settings-accent-label">Accent</span>
+      <div class="accent-swatches" role="group" aria-labelledby="settings-accent-label">
+        <button type="button" class="accent-swatch" data-accent="cyan" aria-pressed="true"><span class="accent-dot" aria-hidden="true"></span>Cyan</button>
+        <button type="button" class="accent-swatch" data-accent="blue" aria-pressed="false"><span class="accent-dot" aria-hidden="true"></span>Blue</button>
+        <button type="button" class="accent-swatch" data-accent="violet" aria-pressed="false"><span class="accent-dot" aria-hidden="true"></span>Violet</button>
+        <button type="button" class="accent-swatch" data-accent="magenta" aria-pressed="false"><span class="accent-dot" aria-hidden="true"></span>Magenta</button>
+        <button type="button" class="accent-swatch" data-accent="graphite" aria-pressed="false"><span class="accent-dot" aria-hidden="true"></span>Graphite</button>
+      </div>
+    </div>
     <div class="settings-divider"></div>
     <div class="settings-section">Agent</div>
     <div class="settings-row"><span>Engine</span><span class="settings-value" id="settings-engine">none</span></div>
@@ -675,7 +685,7 @@
               <input type="search" class="builder-find" id="run-find" autocomplete="off"
                      placeholder="Find a setting" aria-label="Find a setting">
               <button type="button" class="line-btn" id="run-reset" aria-label="Reset"
-                      title="Reset: every setting back to its default, and the draft discarded"><!--icon:undo:line-icon--></button>
+                      title="Reset: every setting back to its default"><!--icon:undo:line-icon--></button>
             </div>
           </div>
 
@@ -1105,6 +1115,12 @@
                   <div class="legend-ends"><span class="legend-low"></span><span class="legend-high"></span></div>
                   <div class="legend-none" hidden></div>
                 </div>
+                <!-- A scene shown before it is written (the Agent's), with the
+                     way back to the view before it (molecule-viewer.js). -->
+                <div class="viewer-scene-notice" id="viewer-scene-notice" hidden>
+                  <span id="viewer-scene-said"></span>
+                  <button type="button" class="chip-btn" id="viewer-scene-back">Back to my view</button>
+                </div>
                 <div class="viewer-empty" id="viewer-empty">
                   <div class="empty-title">Waiting for structure</div>
                   <div class="empty-detail muted">The 3D viewer will initialize when a topology or prepared PDB becomes available.</div>
@@ -1414,7 +1430,7 @@
                 <!-- What each mark of the plot is, with the mark itself. -->
                 <ul class="plot-key" id="rama-key">
                   <li><svg class="key-mark" viewBox="0 0 24 12" aria-hidden="true"><rect x="2" y="2" width="8" height="8" style="fill: var(--text-muted); opacity: .45"/><rect x="12" y="2" width="8" height="8" style="fill: var(--text-muted); opacity: .2"/></svg>All residues, all frames (darker where more often)</li>
-                  <li><svg class="key-mark" viewBox="0 0 24 12" aria-hidden="true"><circle cx="6" cy="6" r="3.5" style="fill: var(--accent-cyan)"/><circle cx="17" cy="6" r="3" style="fill: none; stroke: var(--accent-cyan); stroke-width: 1.4"/></svg>Each residue at the frame shown (hollow: glycine)</li>
+                  <li><svg class="key-mark" viewBox="0 0 24 12" aria-hidden="true"><circle cx="6" cy="6" r="3.5" style="fill: var(--hue-cyan)"/><circle cx="17" cy="6" r="3" style="fill: none; stroke: var(--hue-cyan); stroke-width: 1.4"/></svg>Each residue at the frame shown (hollow: glycine)</li>
                   <li data-key="path" hidden><svg class="key-mark" viewBox="0 0 24 12" aria-hidden="true"><polyline points="2,9 8,4 14,8 21,3" style="fill: none; stroke: var(--accent-orange); stroke-width: 1.4"/><circle cx="2.5" cy="9" r="1.6" style="fill: var(--accent-orange); opacity: .35"/><circle cx="8" cy="4" r="1.6" style="fill: var(--accent-orange); opacity: .55"/><circle cx="14" cy="8" r="1.6" style="fill: var(--accent-orange); opacity: .8"/><circle cx="21" cy="3" r="1.6" style="fill: var(--accent-orange)"/></svg><span><span class="rama-key-chosen"></span> over the frames, faint at the first, solid at the last</span></li>
                   <li data-key="ring" hidden><svg class="key-mark" viewBox="0 0 24 12" aria-hidden="true"><circle cx="12" cy="6" r="4.5" style="fill: none; stroke: var(--text-primary); stroke-width: 1.6"/></svg><span><span class="rama-key-chosen"></span> at the frame shown</span></li>
                   <li data-key="choose">Choose a residue above, or click one in the structure, to follow it over the frames.</li>

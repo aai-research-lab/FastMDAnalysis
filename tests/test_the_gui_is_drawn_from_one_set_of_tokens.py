@@ -52,7 +52,7 @@ class TestTheSheet:
     def test_one_ring_for_the_keyboard(self):
         assert re.search(r":where\(button, a, input, select, textarea, summary, \[tabindex\]\)"
                          r":focus-visible \{\s*outline: var\(--focus-ring\);", CSS)
-        assert "--focus-ring: 2px solid var(--accent-cyan);" in THEME
+        assert "--focus-ring: 2px solid var(--accent);" in THEME
 
 
 @pytest.fixture(scope="module")
@@ -87,18 +87,18 @@ def _rgb(text: str) -> tuple[float, ...]:
 
 
 def test_a_tint_follows_the_scheme(paper) -> None:
-    """An active chip on Light is tinted with Light's cyan, not the dark
+    """An active chip on Light is tinted with Light's accent, not the dark
     scheme's."""
     tint = paper.evaluate("""() => {
         const b = document.createElement('button');
         b.className = 'chip-btn active'; document.body.appendChild(b);
         const border = getComputedStyle(b).borderColor; b.remove(); return border; }""")
     accent = paper.evaluate(
-        "() => getComputedStyle(document.documentElement).getPropertyValue('--accent-cyan').trim()")
-    assert accent == "#1b7590"
-    # 50% of #1b7590 over transparent: the cyan's own channels.
+        "() => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()")
+    assert accent == "#056c87"
+    # 50% of #056c87 over transparent: the accent's own channels.
     red, green, blue = _rgb(tint)
-    assert (round(red), round(green), round(blue)) == (27, 117, 144)
+    assert (round(red), round(green), round(blue)) == (5, 108, 135)
 
 
 def test_the_toast_is_on_the_schemes_ground(paper) -> None:

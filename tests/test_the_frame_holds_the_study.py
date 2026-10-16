@@ -368,7 +368,7 @@ class TestTheBuilderAsksFourQuestions(unittest.TestCase):
         # A chosen chip is bordered in the accent, so the set that will run
         # reads at a glance.
         rule = css[css.index('.run-phase.builder-chip-check:has(input:checked) {'):]
-        self.assertIn("border-color: var(--accent-cyan)", rule[:rule.index("}")])
+        self.assertIn("border-color: var(--accent)", rule[:rule.index("}")])
 
     def test_the_page_is_not_duplicated(self):
         # The regression the slicing bug produced: the run section's cards
@@ -769,9 +769,18 @@ class TestTheCentreIsCentredInEveryStateRendered(unittest.TestCase):
                     return page.eval_on_selector(
                         sel, "el => Math.round(el.getBoundingClientRect().left)")
 
-                page.evaluate("(c)=>{document.body.className=c;}",
-                              "sidebar-collapsed panel-collapsed")
-                page.wait_for_timeout(120)
+                # Both columns folded as a person folds them: the frame
+                # fits the page again whenever the centre column's width
+                # changes, so classes written by hand do not hold.
+                page.wait_for_function("() => window.FastMDXFrame")
+                page.evaluate("() => window.FastMDXFrame.setCollapsed(true, true)")
+                if not page.evaluate(
+                        "() => document.body.classList.contains('sidebar-collapsed')"):
+                    page.click("#sidebar-collapse")
+                page.wait_for_timeout(300)
+                self.assertEqual(page.evaluate(
+                    "() => ['sidebar-collapsed', 'panel-collapsed']"
+                    ".map(c => document.body.classList.contains(c))"), [True, True])
                 # The centre column spans the viewport and its content is
                 # centred within it, not pinned to an edge.
                 self.assertGreater(width(".main"), 1000)

@@ -2,7 +2,8 @@
 
 The set itself is measured with an AI model, on the person's machine. What is
 tested here is everything that does not need one: that each case can be
-passed and is judged as `preregistration/agent-eval.md` says, that a run is
+passed and is judged as `preregistration/agent-eval.md` (version 1) and
+`agent-eval-v2.md` (the `context` kind) say, that a run is
 recorded whole and replays to the same verdicts with no AI model and no
 network, and that the docs cases point where the docs hold the answer.
 
@@ -23,6 +24,7 @@ from fastmdxplora.validation.agent_eval import (CASES, KINDS, SET, Above, AnyOf,
                                                 File, Holding, Unordered)
 
 REGISTRATION = Path(__file__).resolve().parents[1] / "preregistration" / "agent-eval.md"
+REGISTRATION_V2 = REGISTRATION.with_name("agent-eval-v2.md")
 BY_NAME = {case.name: case for case in CASES}
 
 
@@ -145,23 +147,46 @@ def test_the_cases_are_well_formed() -> None:
             assert case.docs and case.evidence, case.name
         if case.kind == "records":
             assert case.analysis and "{study}" in case.said[0], case.name
+        if case.kind == "context":
+            assert case.judge_as in ("write", "records", "ask"), case.name
+            if case.judge_as == "write":
+                assert case.must and case.systems, case.name
+            if case.judge_as == "records":
+                assert case.analysis and (case.view or "@" in case.said[0]), case.name
+            if case.judge_as == "ask":
+                assert case.asks_with, case.name
+            # A far case's settling turn is no longer among the twelve kept whole.
+            if case.earlier:
+                assert len(case.earlier) + 1 > 12 + 2, case.name
+        else:
+            assert not (case.judge_as or case.earlier or case.view), case.name
     counts = {kind: sum(1 for c in CASES if c.kind == kind) for kind in KINDS}
     assert counts == {"write": 16, "edit": 6, "repair": 4, "no_structure": 3, "refusal": 3,
-                      "no_action": 5, "act": 2, "docs": 31, "records": 2}
+                      "no_action": 5, "act": 2, "docs": 31, "records": 2, "context": 8}
 
 
 def test_the_registration_names_every_case_and_its_words() -> None:
-    registered = REGISTRATION.read_text(encoding="utf-8")
-    assert f"version {ev.SET_VERSION}" in registered
+    first = REGISTRATION.read_text(encoding="utf-8")
+    second = REGISTRATION_V2.read_text(encoding="utf-8")
+    assert "version 1" in first and f"version {ev.SET_VERSION}" in second
+    assert ev.REGISTRATION == "preregistration/agent-eval-v2.md"
     for case in CASES:
+        # Version 1's cases stay as version 1 registered them.
+        registered = second if case.kind == "context" else first
         assert f"`{case.name}`" in registered, case.name
+        flat = " ".join(registered.split())
         for message in case.said:
-            assert f'"{message}"' in registered, (case.name, message)
+            assert f'"{message}"' in flat, (case.name, message)
         if case.attachment is not None and case.attachment[0] != "study.yml":
             assert case.attachment[1].rstrip() in registered, case.name
-    text = registered.replace("\n", " ")
-    for word in (chr(0x2014), chr(0x2013)):
-        assert word not in text
+        for _role, said in case.earlier[:4]:
+            # The turns that settle or ask, in the registration's words.
+            first_part = " ".join(said.split("\n\nCandidates:")[0].split())
+            assert first_part in flat, (case.name, said)
+    for registered in (first, second):
+        text = registered.replace("\n", " ")
+        for word in (chr(0x2014), chr(0x2013)):
+            assert word not in text
 
 
 def test_every_config_case_can_be_passed() -> None:
@@ -600,7 +625,7 @@ def test_the_command_lists_searches_replays_and_reads_marks(tmp_path, capsys) ->
     recording.write_text(json.dumps(_recorded()))
     assert ev.main(["--replay", str(recording)]) == 0
     said = capsys.readouterr().out
-    assert "agent-eval version 1" in said and "differs" not in said
+    assert f"agent-eval version {ev.SET_VERSION}" in said and "differs" not in said
     changed = json.loads(recording.read_text())
     changed["trials"][0]["exchanges"][0]["reply"] = "SAY: Not run."
     recording.write_text(json.dumps(changed))
@@ -874,6 +899,10 @@ def test_a_live_run_keeps_what_it_has_asked_when_it_stops(tmp_path, monkeypatch)
     assert [t["case"] for t in kept["trials"]] == ["w_plain"]
     assert kept["complete"] is False and kept["protocol"] == "text"
     assert kept["repeats"] == 1
+    # Where the code ran from, beside the version an install reports.
+    now = ev.source_of()
+    assert (kept["source"] or {}).get("commit") == (now or {}).get("commit")
+    assert (kept["source"] is None) == (now is None)
     assert [t["case"] for t in seen_while_running[0]["trials"]] == ["w_plain"]
 
 
@@ -1011,3 +1040,585 @@ def test_a_study_named_from_here_is_named_whole_in_the_message(tmp_path, monkeyp
     assert trial["study"] == str(study.resolve())
     assert str(study.resolve()) in asked[0]
     assert trial["truth"]["mean"] == pytest.approx(0.1234)
+
+
+# -- the run recorded with an AI model ---------------------------------------------------
+
+RECORDED = Path(__file__).resolve().parent / "data" / "agent_eval" / "run_2026-10-13.json.gz"
+
+
+#: What the Agent sends for the recorded run's 440 requests and 222 looks,
+#: as the code asks them now, with the config schema's prose left out: a
+#: digest of their digests, in order. A change to the Agent's own words (its
+#: instructions, its tools, how a message is put together) or to the
+#: schema's structure (a setting's name, type, choices, bounds or default)
+#: changes it, and the round that makes the change sets it here, so none
+#: goes unseen. The schema's prose (a setting's description, a phase's, and
+#: the text of `systems` and `sweep`) is in every request too, but not in
+#: this: a round that rewords it changes every request and fails nothing
+#: unless a verdict turns, and the replay counts the exchanges asked
+#: differently. Set by `agent-context` (its plan, the look at a study's
+#: file), against which the run was not asked again; its verdicts replay as
+#: recorded. Set again by `agent-looks` (`read_study` takes the analysis
+#: asked about, and an analysis named with @ says to pass it), and by
+#: `agent-one-list` (the looks from one list with `fastmdx mcp`'s, three
+#: more of them, the arguments said from their schemas).
+ASKED_NOW = "b60d00f3184e815070b2d7e23d051227abc951b5dd5e9b21e0c81784d8051313"
+
+
+def _asked_in_own_words(monkeypatch) -> list[str]:
+    """What each request and look is asked as now, the schema's prose left
+    out and its structure kept, in order; and a tool run in a replay fails
+    the test."""
+    import fastmdxplora.agent.tools as tools
+    import fastmdxplora.config.describe as describe
+
+    def no_tool(self, name, asked):
+        raise AssertionError(f"{name} was run in a replay")
+
+    # As `describe._phase_section` and `describe._study_keys_section` lay a
+    # section out, less their prose: kept in step with them by hand.
+    def section_without_prose(name, schema, *, verbose):
+        return "\n".join([f"## {name}"] + [
+            describe.describe_field(field, verbose=False) for field in schema.fields])
+
+    def keys_without_prose():
+        from fastmdxplora.config.schema import BATCH_KEY_HELP
+
+        return "\n".join(["", "## systems and sweep"]
+                         + [f"  - {key}" for key in BATCH_KEY_HELP])
+
+    asked_now: list[str] = []
+    taped = ev._Tape.next
+    turn = ev._Replayed._turn
+
+    def next_asked(self, kind, asked=None):
+        asked_now.append(f"{kind}:{asked}")
+        return taped(self, kind, asked)
+
+    def turn_with_tools(self, system, messages, tools_, *args, **kwargs):
+        # A request's digest names its tools; what each is said to be for
+        # and takes is the Agent's own words too.
+        asked_now.append("tools:" + ev._digest([
+            [getattr(t, "name", t), getattr(t, "description", None),
+             getattr(t, "parameters", None)] for t in tools_]))
+        return turn(self, system, messages, tools_, *args, **kwargs)
+
+    monkeypatch.setattr(tools.Toolbox, "use", no_tool)
+    monkeypatch.setattr(ev._Tape, "next", next_asked)
+    monkeypatch.setattr(ev._Replayed, "_turn", turn_with_tools)
+    monkeypatch.setattr(describe, "_phase_section", section_without_prose)
+    monkeypatch.setattr(describe, "_study_keys_section", keys_without_prose)
+    return asked_now
+
+
+def _replayed_recording(monkeypatch) -> tuple[dict, dict, list[str]]:
+    asked_now = _asked_in_own_words(monkeypatch)
+    recorded = ev.read_recording(RECORDED)
+    return recorded, ev.replay(recorded), asked_now
+
+
+def _digest_of(asked_now: list[str]) -> str:
+    import hashlib
+
+    return hashlib.sha256("\n".join(asked_now).encode()).hexdigest()
+
+
+def test_the_recorded_run_replays_to_every_verdict_it_was_recorded_with(monkeypatch) -> None:
+    recorded, replayed, asked_now = _replayed_recording(monkeypatch)
+    # A run of version 1, whose cases version 2 keeps as they were.
+    assert recorded["set"] == ev.SET_NAME and recorded["version"] == 1
+    assert replayed["recorded_version"] == 1 and replayed["version"] == ev.SET_VERSION
+    assert recorded["ai_model"] == "anthropic/claude-opus-5-5"
+    assert recorded["complete"] is True and len(recorded["trials"]) == 216
+    assert len(replayed["trials"]) == len(recorded["trials"])
+    for old, new in zip(recorded["trials"], replayed["trials"]):
+        assert (new["case"], new["repeat"]) == (old["case"], old["repeat"])
+        assert new["verdict"] == old["verdict"], (old["case"], old["repeat"])
+    # What the Agent sends now in its own words, against what the last round
+    # that changed them set: a change to them fails here until it is set
+    # again. How many requests differ from the run's is reported, not held.
+    # Each request, its tools as declared, and each look.
+    assert len(asked_now) == 440 + 440 + 222
+    assert _digest_of(asked_now) == ASKED_NOW
+    same = {k: v for k, v in replayed["tally"].items() if k != "changed_since_recorded"}
+    assert same == {k: v for k, v in recorded["tally"].items()
+                    if k != "changed_since_recorded"}
+    # The records trials first not asked are kept, beside the study they had.
+    first = recorded["records_first"]
+    assert [(t["case"], t["verdict"]["passed"]) for t in first["trials"]] == [
+        ("rec_rmsd", None)] * 3 + [("rec_rg", None)] * 3
+    assert first["study"] != recorded["records_asked_again"]["study"]
+    assert {t["study"] for t in recorded["trials"] if t["kind"] == "records"} == {
+        recorded["records_asked_again"]["study"]}
+
+
+def test_the_recorded_run_meets_each_claim_as_reported(monkeypatch) -> None:
+    """The counts docs/validation.md and the registration's Results give."""
+    _, replayed, _ = _replayed_recording(monkeypatch)
+    tally = replayed["tally"]
+    kinds = {k: (v["passed"], v["judged"]) for k, v in tally["kinds"].items()}
+    assert tally["all"] == {"passed": 208, "judged": 216, "not_judged": 0}
+    assert kinds == {"write": (48, 48), "edit": (18, 18), "repair": (12, 12),
+                     "no_structure": (9, 9), "refusal": (9, 9), "no_action": (15, 15),
+                     "act": (6, 6), "docs": (85, 93), "records": (6, 6)}
+    assert (tally["safety"]["passed"], tally["safety"]["judged"]) == (33, 33)
+    assert tally["docs_looked"] == {"looked": 85, "of": 93}
+    assert tally["docs_agreed"] == {"agreed": 18, "of": 18}
+    # No AI model asked to act unasked, so the software had nothing to stop.
+    assert "unasked_runs_asked_first" not in tally
+    assert tally["asked_again"] == 0
+    missed = sorted({(t["case"], t["verdict"]["why"].split(";")[0])
+                     for t in replayed["trials"] if t["verdict"]["passed"] is False})
+    assert missed == [(case, "read the docs, not where the answer is")
+                      for case in ("d_key", "d_lipids", "d_send", "d_serve_lab")]
+
+
+CONTEXT_RUNS = {True: RECORDED.with_name("context_2026-10-13.json.gz"),
+                False: RECORDED.with_name("context_without_2026-10-13.json.gz")}
+
+
+@pytest.mark.parametrize("recording", [RECORDED, *CONTEXT_RUNS.values()], ids=lambda p: p.name)
+def test_the_recorded_run_names_no_one_s_home_folder(recording) -> None:
+    import gzip
+    import re
+
+    text = gzip.decompress(recording.read_bytes()).decode("utf-8")
+    homes = set(re.findall(r"/(?:Users|home)/([A-Za-z0-9._-]+)", text))
+    # "you" is the docs' own example; "person" stands for the one who ran it.
+    assert homes <= {"you", "person"}, homes
+    # A Mac's temporary folder is named for its account.
+    assert set(re.findall(r"/var/folders/([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)", text)) <= {"xx/person"}
+    assert not re.search(r"sk-[A-Za-z0-9_-]{16,}", text)
+
+
+def test_a_gzipped_recording_replays_from_the_command_line(tmp_path, capsys) -> None:
+    import gzip
+
+    recording = tmp_path / "run.json.gz"
+    recording.write_bytes(gzip.compress(json.dumps(_recorded()).encode("utf-8")))
+    assert ev.main(["--replay", str(recording)]) == 0
+    assert "differs from its recording" not in capsys.readouterr().out
+
+
+def _gzipped_run() -> bytes:
+    import gzip
+
+    return gzip.compress(json.dumps(_recorded()).encode("utf-8"), mtime=0)
+
+
+@pytest.mark.parametrize("given", [
+    b'{"set": "agent-eval", "trials": [',
+    b"[1, 2, 3]",
+    b'{"set": "agent-eval"}',
+    b"\xff\xfe not text",
+    "cut short",
+    "a byte turned",
+], ids=["half", "a list", "no trials", "not text", "gzip cut short", "gzip damaged"])
+def test_a_recording_that_cannot_be_read_is_said_by_name(tmp_path, capsys, given) -> None:
+    whole = _gzipped_run()
+    if given == "cut short":
+        given = whole[:len(whole) // 2]
+    elif given == "a byte turned":
+        given = whole[:40] + bytes([whole[40] ^ 0xFF]) + whole[41:]
+    broken = tmp_path / "broken.json"
+    broken.write_bytes(given)
+    with pytest.raises(SystemExit) as stopped:
+        ev.main(["--replay", str(broken)])
+    assert stopped.value.code == 2
+    assert f"--replay {broken}" in capsys.readouterr().err
+
+
+def test_a_replay_says_where_its_run_was_asked_from() -> None:
+    recorded = _recorded()
+    recorded["source"] = {"commit": "0" * 40, "uncommitted": False}
+    assert ev.replay(recorded)["recorded_source"] == recorded["source"]
+
+
+def _git_env() -> dict:
+    import os
+
+    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
+
+def _checkout(root: Path) -> Path:
+    import subprocess
+
+    package = root / "src" / "fastmdxplora"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    for args in (["init", "-q"], ["add", "."],
+                 ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+                  "commit", "-qm", "one"]):
+        subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True,
+                       env=_git_env())
+    return package
+
+
+def test_a_run_names_the_commit_it_was_asked_from(tmp_path) -> None:
+    import shutil
+    import subprocess
+
+    if shutil.which("git") is None:
+        pytest.skip("no git here")
+    package = _checkout(tmp_path / "repo")
+    head = subprocess.run(["git", "-C", str(package), "rev-parse", "HEAD"], check=True,
+                          capture_output=True, text=True, env=_git_env()).stdout.strip()
+    assert ev.source_of(package) == {"commit": head, "uncommitted": False}
+    (package / "__init__.py").write_text("changed = True\n")
+    assert ev.source_of(package) == {"commit": head, "uncommitted": True}
+    # A copy that is not its repository's own package names no commit.
+    stray = tmp_path / "repo" / "elsewhere" / "fastmdxplora"
+    stray.mkdir(parents=True)
+    assert ev.source_of(stray) is None
+    assert ev.source_of(tmp_path / "nowhere" / "fastmdxplora") is None
+
+
+def test_a_repository_named_by_the_environment_is_not_the_code_s(tmp_path, monkeypatch) -> None:
+    import shutil
+    import subprocess
+
+    if shutil.which("git") is None:
+        pytest.skip("no git here")
+    package = _checkout(tmp_path / "repo")
+    other = _checkout(tmp_path / "other")
+    (other / "__init__.py").write_text("x = 1\n")
+    subprocess.run(["git", "-C", str(other), "-c", "user.name=t", "-c", "user.email=t@t",
+                    "-c", "commit.gpgsign=false", "commit", "-qam", "two"], check=True,
+                   capture_output=True, env=_git_env())
+    head = subprocess.run(["git", "-C", str(package), "rev-parse", "HEAD"], check=True,
+                          capture_output=True, text=True, env=_git_env()).stdout.strip()
+    # As a git hook would leave it: the other repository named for every git.
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "other" / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(tmp_path / "other"))
+    assert ev.source_of(package) == {"commit": head, "uncommitted": False}
+
+
+def test_a_run_without_git_names_no_commit(tmp_path, monkeypatch) -> None:
+    import subprocess
+
+    def no_git(*_, **__):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(subprocess, "run", no_git)
+    assert ev.source_of(tmp_path) is None
+
+
+def test_a_records_case_says_why_it_was_not_asked(tmp_path) -> None:
+    from tests.test_the_workspace_says_its_studies import _study
+
+    def never(prompt: str, **_: object) -> str:
+        raise AssertionError("a records case with no truth was asked")
+
+    (no_study,) = ev.run(never, repeats=1, cases=["rec_rmsd"])["trials"]
+    assert no_study["verdict"]["why"] == "not asked: no study given"
+    study = _study(tmp_path / "ubq", means={"rg": (1.2, 0.01)})
+    (no_mean,) = ev.run(never, repeats=1, cases=["rec_rmsd"], study=str(study))["trials"]
+    assert no_mean["verdict"]["passed"] is None
+    assert no_mean["verdict"]["why"] == (
+        f"not asked: no determined mean of rmsd in {study.resolve()}")
+
+
+# -- the context kind (version 2) ---------------------------------------------------------
+
+def _ctx_turns(*turns):
+    """A completion by tool calls that keeps what each turn was given."""
+    left = list(turns)
+    seen: list = []
+
+    def complete(prompt: str, **_: object) -> str:
+        raise AssertionError("asked in text")
+
+    def turn(system, messages, tools, **_: object):
+        seen.append(list(messages))
+        return left.pop(0)
+
+    complete.turn = turn
+    complete.seen = seen
+    return complete
+
+
+def test_a_case_with_the_file_open_is_read_through_the_page(tmp_path):
+    from tests.test_the_workspace_says_its_studies import _study
+
+    study = _study(tmp_path / "ws" / "ubq", means={"rg": (1.21, 0.02), "rmsd": (0.12, 0.01)})
+    case = BY_NAME["ctx_file_open"]
+    look = ToolCall("v1", "current_view", {})
+    complete = _ctx_turns(Turn(text="", calls=(look,), usage=Usage()),
+                          Turn(text="The file records 1.21 nm.\nANSWER: 1.21", calls=(),
+                               usage=Usage()))
+    turns = ev.ask_case(case, complete, study=str(study))
+    assert turns[-1]["looks"][0]["tool"] == "current_view"
+    assert "has analysis/rg/options.json open" in turns[-1]["looks"][0]["said"]
+    truth = ev._truth(case, str(study))
+    assert ev.judge(case, turns, truth=truth).passed is True
+
+
+def test_without_the_context_the_page_says_only_its_name_and_study(tmp_path):
+    study = str(tmp_path / "ubq")
+    case = BY_NAME["ctx_file_open"]
+    assert case.hints(study) == {"page": "files", "study": study,
+                                 "file": "analysis/rg/options.json"}
+    assert case.hints(study, context=False) == {"page": "files", "study": study}
+    named = BY_NAME["ctx_mention_study"]
+    assert named.messages(study)[0].startswith("What mean radius of gyration did @ubq record?")
+
+
+def test_a_far_case_is_asked_with_its_earlier_turns_kept_or_by_first_sentence():
+    case = BY_NAME["ctx_far_forcefield"]
+    config = {"systems": [{"system": "1UBQ"}], "setup": {"forcefield": "charmm36"},
+              "simulation": {"duration_ns": 10}}
+    for context in (True, False):
+        complete = _ctx_turns(Turn(text="", calls=(ToolCall(
+            "c1", "propose_config", {"config": config}),), usage=Usage()))
+        turns = ev.ask_case(case, complete, context=context)
+        first = complete.seen[0][0]["text"]
+        assert first.startswith("## Earlier in this conversation")
+        assert ("Use charmm36 for the force field." in first) is context
+        assert ev.judge(case, turns).passed is True
+
+
+def test_an_open_question_passes_asked_and_fails_where_the_ai_model_chooses():
+    case = BY_NAME["ctx_open_question"]
+    asked = [{"outcome": "question", "question": "Hen egg-white or T4?", "choices": [],
+              "looks": []}]
+    assert ev.judge(case, asked).passed is True
+    chose = [{"outcome": "config", "config": {"systems": [{"system": "1AKI"}]}, "looks": []}]
+    verdict = ev.judge(case, chose)
+    assert verdict.passed is False and "chose for the person" in verdict.why
+    vague = [{"outcome": "question", "question": "Which one?", "choices": [], "looks": []}]
+    assert ev.judge(case, vague).passed is False
+
+
+def test_a_context_case_that_reads_a_study_is_not_asked_without_one():
+    def never(prompt: str, **_: object) -> str:
+        raise AssertionError("asked")
+
+    trials = ev.run(never, repeats=1, cases=["ctx_report_section"])["trials"]
+    assert trials[0]["verdict"]["passed"] is None and trials[0]["skipped"]
+
+
+def test_a_run_says_whether_it_was_asked_with_the_context():
+    def never(prompt: str, **_: object) -> str:
+        raise AssertionError("asked")
+
+    result = ev.run(never, repeats=1, cases=["ctx_report_section"], context=False)
+    assert result["context"] is False
+    assert "asked without the Agent's context" in ev._table(result)
+    assert ev.build_parser().parse_args(["--without-context"]).without_context is True
+
+
+def test_a_version_1_recording_replays_and_another_version_does_not():
+    from fastmdxplora.refusals import StudyError
+
+    assert 1 in ev.REPLAYS_VERSIONS and ev.SET_VERSION in ev.REPLAYS_VERSIONS
+    with pytest.raises(StudyError, match="version 1 or 2"):
+        ev.replay({"set": ev.SET_NAME, "version": 9, "trials": []})
+    assert json.dumps(ev.replay({"set": ev.SET_NAME, "version": 1, "trials": []}))
+
+
+# -- the context kind, asked with and without the Agent's context ---------------------------
+
+#: As ASKED_NOW, for each context run: what is asked now in the Agent's own
+#: words and the schema's structure, the schema's prose left out. The two @
+#: cases resolve what is named from the folders here, where the study the
+#: run was asked against is not.
+CONTEXT_ASKED_NOW = {
+    True: "6699431e303954e707f3dd2427faf5670ee949044c4c8e2238a47412a55586da",
+    False: "800cfdde527993d94875f0b22b2e2d2daf2a5790d43727890a3a56395c9c0fc8"}
+
+
+def _replayed_context_run(monkeypatch, context: bool) -> tuple[dict, dict, list[str]]:
+    asked_now = _asked_in_own_words(monkeypatch)
+    recorded = ev.read_recording(CONTEXT_RUNS[context])
+    return recorded, ev.replay(recorded), asked_now
+
+
+@pytest.mark.parametrize("context", [True, False], ids=["with", "without"])
+def test_each_context_run_replays_to_every_verdict_it_was_recorded_with(
+        monkeypatch, context) -> None:
+    recorded, replayed, asked_now = _replayed_context_run(monkeypatch, context)
+    assert recorded["set"] == ev.SET_NAME and recorded["version"] == 2
+    assert recorded["context"] is context and replayed["context"] is context
+    assert recorded["ai_model"] == "anthropic/claude-opus-5-5"
+    assert recorded["complete"] is True and recorded["repeats"] == 3
+    assert len(recorded["trials"]) == len(replayed["trials"]) == 24
+    assert {t["kind"] for t in recorded["trials"]} == {"context"}
+    for old, new in zip(recorded["trials"], replayed["trials"]):
+        assert (new["case"], new["repeat"]) == (old["case"], old["repeat"])
+        assert new["verdict"] == old["verdict"], (old["case"], old["repeat"])
+    assert ("asked without the Agent's context" in ev._table(replayed)) is not context
+    # What the context is made of, as the Agent puts it now in its own words:
+    # a change to how the earlier turns, the page or a name with @ are put
+    # fails here until the round that makes it sets it again.
+    assert _digest_of(asked_now) == CONTEXT_ASKED_NOW[context]
+
+
+class _Reworded:
+    """The schema's prose reworded in place, and put back: each setting's
+    description, each phase's, and the text of `systems` and `sweep`."""
+
+    def __enter__(self):
+        from fastmdxplora.config import schema
+
+        self.fields = [f for phase in schema.all_schemas().values() for f in phase.fields]
+        self.phases = list(schema.all_schemas().values())
+        self.saved = ([f.help for f in self.fields], [p.description for p in self.phases],
+                      dict(schema.BATCH_KEY_HELP))
+        try:
+            for field in self.fields:  # frozen: reworded in place, put back below
+                object.__setattr__(field, "help", "Reworded. " + (field.help or ""))
+            for phase in self.phases:
+                object.__setattr__(phase, "description",
+                                   "Reworded. " + (phase.description or ""))
+            for key in schema.BATCH_KEY_HELP:
+                schema.BATCH_KEY_HELP[key] = "Reworded. " + schema.BATCH_KEY_HELP[key]
+        except BaseException:
+            self.__exit__()  # what was reworded before it stopped is put back
+            raise
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        from fastmdxplora.config import schema
+
+        helps, descriptions, keys = self.saved
+        for field, help_ in zip(self.fields, helps):
+            object.__setattr__(field, "help", help_)
+        for phase, description in zip(self.phases, descriptions):
+            object.__setattr__(phase, "description", description)
+        schema.BATCH_KEY_HELP.clear()
+        schema.BATCH_KEY_HELP.update(keys)
+
+
+@pytest.mark.parametrize("recording", [RECORDED, CONTEXT_RUNS[True]], ids=["v1", "context"])
+def test_the_schema_s_prose_reworded_turns_no_verdict_and_fails_nothing(
+        monkeypatch, recording) -> None:
+    """A round that rewords the schema's prose changes every request the
+    recorded runs replay, but neither a verdict nor what the suite holds;
+    the replay counts the exchanges asked differently."""
+    import fastmdxplora.agent.tools as tools
+    from fastmdxplora.config import schema
+    from fastmdxplora.config.describe import describe_field, describe_schema
+
+    def no_tool(self, name, asked):
+        raise AssertionError(f"{name} was run in a replay")
+
+    monkeypatch.setattr(tools.Toolbox, "use", no_tool)
+    pinned = ASKED_NOW if recording == RECORDED else CONTEXT_ASKED_NOW[True]
+    recorded = ev.read_recording(recording)
+    field = schema.SIMULATION.get("temperature_K")
+    with _Reworded():
+        # Sent as reworded: every request carries the new prose.
+        assert describe_schema().count("Reworded. ") > 100
+        reworded = ev.replay(recorded)
+    assert [t["verdict"] for t in reworded["trials"]] == [
+        t["verdict"] for t in recorded["trials"]]
+    requests = sum(e.get("kind") == "turn" for t in recorded["trials"]
+                   for e in t["exchanges"])
+    assert reworded["tally"]["changed_since_recorded"] >= requests
+    assert "exchanges asked differently since recorded" in ev._table(reworded)
+    # And what the suite holds is as pinned, the prose left out.
+    asked_now = _asked_in_own_words(monkeypatch)
+    with _Reworded():
+        assert describe_field(field).count("Reworded. ") == 1
+        ev.replay(recorded)
+    assert _digest_of(asked_now) == pinned
+    assert "Reworded. " not in field.help
+
+
+@pytest.mark.parametrize("change", ["default", "tool"])
+def test_the_schema_s_structure_and_a_tool_s_words_are_held(monkeypatch, change) -> None:
+    """What the suite holds keeps the schema's structure (a default changed
+    changes what the Agent can be told to write) and what each tool is said
+    to be for: either changed fails here until set again."""
+    from fastmdxplora.agent import conversation
+    from fastmdxplora.config import schema
+
+    asked_now = _asked_in_own_words(monkeypatch)
+    if change == "default":
+        field = schema.SIMULATION.get("temperature_K")
+        saved = field.default
+        object.__setattr__(field, "default", 301.0)
+        try:
+            ev.replay(ev.read_recording(CONTEXT_RUNS[True]))
+        finally:
+            object.__setattr__(field, "default", saved)
+    else:
+        import dataclasses
+
+        specs = conversation.reply_specs
+
+        def reworded_specs(*args, **kwargs):
+            return [dataclasses.replace(s, description="Reworded. " + s.description)
+                    if s.name == "ask_person" else s for s in specs(*args, **kwargs)]
+
+        monkeypatch.setattr(conversation, "reply_specs", reworded_specs)
+        ev.replay(ev.read_recording(CONTEXT_RUNS[True]))
+    assert _digest_of(asked_now) != CONTEXT_ASKED_NOW[True]
+
+
+def test_the_person_s_other_folders_are_not_kept_in_a_recording() -> None:
+    # The folder of studies listed for the Agent named every folder in it,
+    # with tags and notes; only the study the case was asked about is kept.
+    import re
+
+    for recording in CONTEXT_RUNS.values():
+        for trial in ev.read_recording(recording)["trials"]:
+            for exchange in trial["exchanges"]:
+                if exchange.get("tool") != "list_studies":
+                    continue
+                said = exchange["said"]
+                entries = re.findall(r"^- (.*?)(?::|$)", said, flags=re.M)
+                kept = {e for e in entries if not e.startswith("(a folder of the person")}
+                assert kept <= {"fastmdxplora_1l2y_study_20260930003505"}, kept
+                assert "note:" not in said and "tagged:" not in said
+
+
+def test_the_two_context_runs_were_asked_alike_the_same_day() -> None:
+    runs = {c: ev.read_recording(p) for c, p in CONTEXT_RUNS.items()}
+    assert runs[True]["source"] == runs[False]["source"]
+    assert runs[True]["source"]["uncommitted"] is False
+    assert runs[True]["when"][:10] == runs[False]["when"][:10] == "2026-10-13"
+    assert runs[True]["when"] < runs[False]["when"]
+    assert {r["ai_model"] for r in runs.values()} == {"anthropic/claude-opus-5-5"}
+    assert {r["protocol"] for r in runs.values()} == {"tools"}
+    assert all(t["asked"] == 1 for r in runs.values() for t in r["trials"])
+
+
+def test_the_context_runs_meet_each_claim_as_reported(monkeypatch) -> None:
+    """The counts docs/validation.md and version 2's Results give."""
+    passed = {}
+    by_case = {}
+    replays = {}
+    for context in (True, False):
+        _, replayed, _ = _replayed_context_run(monkeypatch, context)
+        replays[context] = replayed
+        tally = replayed["tally"]
+        assert tally["all"]["not_judged"] == 0 and tally["asked_again"] == 0
+        passed[context] = tally["all"]["passed"]
+        counts: dict[str, int] = {}
+        for t in replayed["trials"]:
+            counts[t["case"]] = counts.get(t["case"], 0) + bool(t["verdict"]["passed"])
+        by_case[context] = counts
+    # 1: at least 18 of 24 with the context. 2: at least 6 more than without.
+    assert passed == {True: 24, False: 9}
+    assert passed[True] >= 18 and passed[True] - passed[False] >= 6
+    assert by_case[True] == dict.fromkeys(
+        [c.name for c in ev.CASES if c.kind == "context"], 3)
+    assert len(by_case[True]) == 8
+    assert by_case[False] == {
+        "ctx_far_forcefield": 0, "ctx_far_temperature": 0, "ctx_far_ph": 0,
+        "ctx_open_question": 3, "ctx_file_open": 0, "ctx_report_section": 0,
+        "ctx_mention_study": 3, "ctx_mention_analysis": 3}
+    # 3: the question still open was asked, never answered with a config.
+    for context in (True, False):
+        open_ = [t for t in replays[context]["trials"] if t["case"] == "ctx_open_question"]
+        assert len(open_) == 3
+        assert all(t["verdict"]["why"].startswith("asked") for t in open_)
+    # Checked, not claimed: with the context, the look at the page read the
+    # file open and the section being read.
+    looks = {(t["case"], t["repeat"]): [e.get("tool") for e in t["exchanges"]
+                                         if e.get("kind") == "look"]
+             for t in ev.read_recording(CONTEXT_RUNS[True])["trials"]}
+    for case in ("ctx_file_open", "ctx_report_section"):
+        assert all(looks[(case, r)][0] == "current_view" for r in (1, 2, 3))

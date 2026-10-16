@@ -176,6 +176,21 @@
     chipFigures(doc, data.figure_provenance || {});
   }
 
+  /* For the Agent: the section of the report being read, by its heading,
+   * the last one scrolled to the top of the window. Where to look, never
+   * what is so (`current_view`, `agent/tools.py`). */
+  window.FastMDXPageHints = window.FastMDXPageHints || {};
+  window.FastMDXPageHints.report = function () {
+    var doc = el("report-document");
+    if (!doc || doc.hidden) return null;
+    var reading = null;
+    Array.prototype.forEach.call(doc.querySelectorAll("h2, h3"), function (heading) {
+      if (heading.getBoundingClientRect().top <= 160) reading = heading;
+    });
+    var words = reading ? reading.textContent.replace(/\s+/g, " ").trim() : "";
+    return words ? { section: words.slice(0, 200) } : null;
+  };
+
   /* Under each figure an analysis plotted, the chip the Analysis page gives
    * it: what made it and the command that plots it again. The records are
    * the study's (figure_provenance.py); the chip and its panel are the

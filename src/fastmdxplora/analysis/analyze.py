@@ -339,6 +339,9 @@ def _detect_ligand_resname(project_root: Path) -> str | None:
     if not ligand:
         return None
     name = ligand.get("name")
+    if isinstance(name, list):
+        # Several ligands: one selection naming each, `resname AAA L01`.
+        name = " ".join(str(n) for n in name if n)
     return str(name) if name else None
 
 

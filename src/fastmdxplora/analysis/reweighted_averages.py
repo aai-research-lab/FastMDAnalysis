@@ -43,7 +43,7 @@ from fastmdxplora.analysis.reweight import (
 )
 from fastmdxplora.utils.logging import get_logger
 from fastmdxplora.refusals import StudyError
-from fastmdxplora.statistics import MINIMUM_EFFECTIVE_SAMPLES
+from fastmdxplora.statistics import MINIMUM_EFFECTIVE_SAMPLES, independent_samples_said
 from fastmdxplora.analysis.plotting import closes_what_it_opens as _closes_what_it_opens
 
 logger = get_logger("analysis.reweighted")
@@ -903,9 +903,9 @@ def reweight_results(
     if weights.effective_sample_size < USABLE_EFFECTIVE_FRAMES:
         warnings.append(
             f"The weights concentrate into {weights.effective_sample_size:.0f} "
-            f"weight-concentration effective frames of {n_frames}, about "
-            f"{independent:.0f} independent samples once their correlation in "
-            "time is counted. These reweighted averages rest on that many, "
+            f"weight-concentration effective frames of {n_frames}, "
+            f"{independent_samples_said(independent, about=True)} once their "
+            "correlation in time is counted. These reweighted averages rest on so few, "
             "and they and the standard deviations beside them are "
             "correspondingly uncertain; a longer run is what fixes it.")
     elif independent < MINIMUM_EFFECTIVE_SAMPLES:
@@ -914,7 +914,7 @@ def reweight_results(
             f"effective frames of {n_frames}, but the collective variable "
             f"decorrelates once every "
             f"{provenance.get('cv_statistical_inefficiency', 1.0):.0f} frames, "
-            f"so they hold about {independent:.1f} independent samples. No "
+            f"so they hold {independent_samples_said(independent, about=True)}. No "
             "error is given on these reweighted averages; a longer run is "
             "what fixes it.")
     if not weights.converged:
@@ -1047,10 +1047,11 @@ def _plot(record: dict[str, Any], path: Path) -> None:
 
     ess = record["effective_sample_size"]
     caption = (f"{ess:.0f} weight-concentration effective frames of "
-               f"{record['n_frames']}, about "
-               f"{record.get('independent_samples', ess):.0f} independent")
+               f"{record['n_frames']}, "
+               + independent_samples_said(record.get("independent_samples", ess),
+                                          about=True))
     if not record.get("converged", record.get("settled")):
-        caption += " — provisional, the bias had not converged"
+        caption += "; provisional, the bias had not converged"
     ax.set_xlabel(f"Change from the biased average (%)\n{caption}")
 
     margin = max([abs(s) for s in shifts] + [1.0]) * 0.45

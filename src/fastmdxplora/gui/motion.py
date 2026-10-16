@@ -55,14 +55,11 @@ def _from_the_analysis(out: Path) -> dict[str, Any] | None:
     source = _source(out)
     if source is None:
         return None
-    import mdtraj as md
-
-    from fastmdxplora.utils.native_output import suppress_native_output
+    from fastmdxplora.utils.native_output import topology_quietly
 
     with np.load(path) as saved:
         modes = {key: saved[key] for key in saved.files}
-    with suppress_native_output():
-        whole = md.load_topology(str(source["topology"]))
+    whole = topology_quietly(source["topology"])
     shown = whole.select("not water")
     places = np.searchsorted(shown, modes["atoms"])
     if np.any(places >= len(shown)) or np.any(shown[places] != modes["atoms"]):

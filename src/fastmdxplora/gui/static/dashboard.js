@@ -66,9 +66,12 @@
     wireTrajectoryControls();
     wireSettings();
     navigate(location.hash.replace(/^#/, "") || "overview", {updateHash: false});
-    startLoadingChecklist();
-    schedulePoll(0);
-    openChangeStream();
+    // The study the address names, opened before the page reads one.
+    openAskedFirst().finally(() => {
+      startLoadingChecklist();
+      schedulePoll(0);
+      openChangeStream();
+    });
   }
 
   /* ------------------------------------------------------------------ */
@@ -91,8 +94,7 @@
           });
           const answer = await response.json();
           if (answer && answer.ok) {
-            location.hash = "#overview";
-            location.reload();
+            studyOpened(answer);
             return;
           }
           demoButton.textContent = (answer && answer.error) || "Could not open it.";
@@ -113,26 +115,97 @@
         navigate(element.getAttribute("data-view-link"));
       });
     });
-    window.addEventListener("hashchange", () => {
-      const page = location.hash.replace(/^#/, "");
-      if (state.pages.includes(page) || DIALOG_OF[page]) navigate(page, {updateHash: false});
+    // Back or Forward to a step of this page naming another study (the
+    // address followed a study opened elsewhere): that study is opened.
+    window.addEventListener("popstate", () => {
+      const asked = studyInAddress();
+      // A dialog closed onto the page's step, named before another study
+      // was opened: not the person going Back, so it is not opened again.
+      if (window.FastMDXDialog?.landingOwnStep?.()) {
+        if (state.addressKnown && asked !== studyNamed()) {
+          history.replaceState(history.state, "", addressFor(studyNamed()));
+        }
+        return;
+      }
+      if (asked && state.addressKnown && asked !== studyNamed() && !state.addressAsking) {
+        openAsked(asked);
+        return;
+      }
+      // A dialog's address typed over the page: its hashchange, which
+      // follows, opens it as a step of its own.
+      if (DIALOG_OF[location.hash.replace(/^#/, "")]) return;
+      const was = state.activePage;
+      followAddress();
+      // Back or Forward to another page: the keyboard and a screen reader
+      // are on its heading, not left on what the page before had.
+      if (state.activePage !== was) headTheShownPage();
     });
+    // A page kept by the browser and shown again on Back is read afresh.
+    window.addEventListener("pageshow", (event) => {
+      if (event.persisted) {
+        state.addressKnown = false;
+        state.addressRecheck = true;
+        schedulePoll(0);
+      }
+    });
+    window.addEventListener("hashchange", followAddress);
+  }
+
+  /* The page and place the address names, opened where they are not the
+   * ones shown. Back to a step whose address differs from this one by more
+   * than its hash (the study named in one, not yet in the step before) is
+   * a popstate with no hashchange after it: the page stayed as it was. */
+  function followAddress(event) {
+    const page = location.hash.replace(/^#/, "");
+    const [name, place] = page.split(/\/(.*)/);
+    if (!state.pages.includes(name) && !DIALOG_OF[page]) return;
+    if (!DIALOG_OF[page] && name === state.activePage
+        && (name === "analysis" ? place || "" : "") === (state.activePlace || "")) return;
+    // An address typed over the page shown (no step of the page's own).
+    navigate(page, {updateHash: false, typed: Boolean(event && event.type === "hashchange")});
+  }
+
+  function headTheShownPage() {
+    const heading = document.querySelector(`.page[data-page="${state.activePage}"] .page-title`);
+    if (!heading || heading.offsetParent === null) return;
+    if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
+    heading.focus({preventScroll: true});
   }
 
   /* Preferences and the citation were pages and are dialogs over the page
    * shown; a link to either (#settings, #cite) opens it. */
   const DIALOG_OF = {settings: "prefs-dialog", preferences: "prefs-dialog", cite: "cite-dialog"};
 
+  /* A page and the place on it the address names: `#analysis/rmsd` is the
+   * Analysis page at the RMSD's section. */
+  function addressOfPage(page, place) {
+    return place ? `#${page}/${place}` : `#${page}`;
+  }
+
   function navigate(page, options) {
     const opts = options || {};
     if (DIALOG_OF[page] && byId(DIALOG_OF[page])) {
-      if (!state.activePage) navigate("overview");
-      else history.replaceState(null, "", `#${state.activePage}`);
-      window.FastMDXDialog?.open(DIALOG_OF[page]);
+      // The link's own step becomes the dialog's, over the page shown. One
+      // typed over a page shown was a step after that page's: closed, it is
+      // taken back; the GUI's first step is the page's again.
+      const typed = Boolean(state.activePage) && Boolean(opts.typed);
+      if (!state.activePage) navigate("overview", {replace: true});
+      else history.replaceState(null, "", addressOfPage(state.activePage, state.activePlace));
+      window.FastMDXDialog?.open(DIALOG_OF[page], undefined, typed ? "link" : "replace");
       return;
     }
-    if (!state.pages.includes(page)) page = "overview";
+    let place = opts.place || "";
+    if (!place && String(page).includes("/")) {
+      [page, place] = String(page).split(/\/(.*)/);
+    }
+    if (!state.pages.includes(page)) {
+      page = "overview";
+      place = "";
+    }
+    // Only the Analysis page has places the address names, so far.
+    if (page !== "analysis") place = "";
     state.activePage = page;
+    state.activePlace = place;
     $$('.page').forEach((element) => {
       const hidden = element.getAttribute("data-page") !== page;
       element.hidden = hidden;
@@ -149,9 +222,18 @@
     // thread landed at the foot of the report.
     const column = document.querySelector(".main");
     if (column) column.scrollTop = 0;
-    if (opts.updateHash !== false && location.hash !== `#${page}`) {
-      history.replaceState(null, "", `#${page}`);
+    // Each page a step of its own, so Back and Forward go between them;
+    // an address only put right replaces its step.
+    const address = addressOfPage(page, place);
+    if (opts.updateHash !== false && location.hash !== address) {
+      const step = () => {
+        if (opts.replace) history.replaceState(null, "", address);
+        else history.pushState(null, "", address);
+      };
+      if (window.FastMDXDialog?.afterHistory) window.FastMDXDialog.afterHistory(step);
+      else step();
     }
+    if (place) revealAnalysis(place);
     requestAnimationFrame(() => {
       // The live panels moved onto the overview, so opening that is
       // what starts the polling they need. Keyed to a page that no
@@ -526,9 +608,11 @@
     if (!state.initialRouteResolved) {
       state.initialRouteResolved = true;
       const requested = location.hash.replace(/^#/, "");
-      if (requested && state.pages.includes(requested)) navigate(requested);
-      else if (activeRun) navigate("overview");
-      else navigate("run");
+      // Where the page opens is put right in its address, not a step of
+      // its own: Back from it leaves the GUI.
+      if (requested && state.pages.includes(requested.split("/")[0])) navigate(requested, {replace: true});
+      else if (activeRun) navigate("overview", {replace: true});
+      else navigate("run", {replace: true});
     }
 
     if (!activeRun) {
@@ -745,6 +829,137 @@
     // The folder read, so a listener can tell one study's status from
     // another's (a study opened elsewhere between two polls).
     emit("status-updated", {status, health, times: state.times, study: payload.study || ""});
+    state.studyIsOne = payload.study_named !== false;
+    addressTheStudy(payload.study || "");
+  }
+
+  /* ---- The study in the address ------------------------------------ */
+  /* The address names the open study by the server's key for it, never its
+   * path: Back returns to the study before, a bookmark opens this one, and
+   * an address naming another study opens it. */
+  function studyInAddress() {
+    try { return new URL(location.href).searchParams.get("study") || ""; } catch (e) { return ""; }
+  }
+
+  // The open study as the address names it: a folder not yet a study,
+  // which cannot be opened again as one, is not named.
+  function studyNamed() {
+    return state.studyIsOne === false ? "" : (state.studyShown || "");
+  }
+
+  function addressFor(key, hash) {
+    const url = new URL(location.href);
+    if (key) url.searchParams.set("study", key);
+    else url.searchParams.delete("study");
+    if (hash !== undefined) url.hash = hash;
+    return url.pathname + url.search + url.hash;
+  }
+
+  // The page loaded again, its address and the study it opens the same.
+  function goTo(address, replace) {
+    if (address.split("#")[0] === location.pathname + location.search) {
+      if (address !== location.pathname + location.search + location.hash) {
+        history.replaceState(history.state, "", address);
+      }
+      location.reload();
+    } else if (replace) {
+      location.replace(address);
+    } else {
+      location.assign(address);
+    }
+  }
+
+  /* A study opened from the page: a step of its own, so Back opens the one
+   * before. A switch's answer names it; an answer that does not (the demo,
+   * a shared study) leaves the address to name what the page then finds. */
+  function studyOpened(answer, page) {
+    goTo(addressFor((answer && answer.study_key) || "", `#${page || "overview"}`), false);
+  }
+
+  async function switchToKeyed(asked) {
+    try {
+      const response = await fetch("/api/explore/switch", {
+        method: "POST", headers: {"content-type": "application/json"},
+        body: JSON.stringify({study: asked}),
+      });
+      return await response.json();
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /* Opened as the page starts, so what it reads first is that study. */
+  async function openAskedFirst() {
+    const asked = studyInAddress();
+    if (!asked) return;
+    // A reload leaves the study the GUI has open (another study's
+    // conversation opened, a study opened in another tab): its address is
+    // put right to it, rather than the study before opened again.
+    const how = performance.getEntriesByType?.("navigation")?.[0]?.type;
+    if (how === "reload") return;
+    // A link from another site does not choose the study shown here.
+    let from = "";
+    try { from = document.referrer ? new URL(document.referrer).origin : ""; } catch (error) { from = "elsewhere"; }
+    if (from && from !== location.origin) {
+      // Asked first (a sign-in elsewhere on the way to a bookmark is one).
+      state.addressOffered = asked;
+      return;
+    }
+    // Already open: nothing is asked of the server (a GUI watched from
+    // another machine may not switch, and need not).
+    try {
+      const status = await (await fetch("/api/status", {cache: "no-store"})).json();
+      if (status && status.study === asked) return;
+    } catch (error) {
+      // Asked to switch below; its answer says what went wrong.
+    }
+    const answer = await switchToKeyed(asked);
+    if (!answer || !answer.ok) {
+      state.addressRefused = (answer && answer.error) || "The study this address names could not be opened.";
+    }
+  }
+
+  function addressTheStudy(key) {
+    const asked = studyInAddress();
+    state.studyShown = key;
+    if (!state.addressKnown) {
+      state.addressKnown = true;
+      if (state.addressRefused) showToast(state.addressRefused, "warning");
+      state.addressRefused = "";
+      const offered = state.addressOffered;
+      state.addressOffered = "";
+      if (offered && offered !== key) {
+        showToast("This address, from another site, names another study.", "warning",
+                  {label: "Open it", run: () => openAsked(offered)});
+      }
+      // Shown again by the browser on Back, with another study open since.
+      if (state.addressRecheck && asked && asked !== key) {
+        state.addressRecheck = false;
+        openAsked(asked);
+        return;
+      }
+    }
+    if (asked !== studyNamed() && !state.addressAsking) {
+      history.replaceState(history.state, "", addressFor(studyNamed()));
+    }
+  }
+
+  /* Opened once the page is shown (Back or Forward to a step naming
+   * another study): read again from the start. */
+  async function openAsked(asked) {
+    state.addressAsking = true;
+    const answer = await switchToKeyed(asked);
+    if (answer && answer.ok) {
+      goTo(addressFor(answer.study_key || asked), true);
+      return;
+    }
+    showToast((answer && answer.error) || "The study this address names could not be opened.",
+              "warning");
+    state.addressAsking = false;
+    history.replaceState(history.state, "", addressFor(studyNamed()));
+    // The page the step names, with the study open: address and page agree.
+    followAddress();
+    headTheShownPage();
   }
 
   /* The Overview's blocks in the order they are read, in the page itself,
@@ -789,7 +1004,10 @@
     // A study with no live record (finished before it kept one, or a study
     // of several runs) is said from the phases it recorded.
     const quiet = ["unknown", "waiting", "stale", ""];
-    if (quiet.includes(statusName) && quiet.includes(String(status.status || "").toLowerCase())) {
+    // A run waiting for its study's next round has its phases so far done,
+    // and is not finished (telemetry.between_rounds).
+    if (quiet.includes(statusName) && quiet.includes(String(status.status || "").toLowerCase())
+        && !status.between_rounds) {
       const phases = (state.results?.phases || []).map((p) => String(p.status || "").toLowerCase());
       if (phases.some((s) => ["error", "failed"].includes(s))) statusName = "failed";
       else if (phases.some((s) => ["ok", "complete", "completed"].includes(s))
@@ -1055,7 +1273,9 @@
 
       // Older/completed runs may not have the new live stage map, so retain
       // manifest-based fallback without overwriting a real current/failed state.
-      if (stageState === "waiting") {
+      // Not for a run waiting for its study's next round: its phases so far
+      // are recorded done, and its production, analyses and report are not.
+      if (stageState === "waiting" && !status?.between_rounds) {
         if (stage === "setup") stageState = phaseVisualState(phaseMap.setup);
         if (["minimization", "nvt", "npt", "production"].includes(stage) && simulationDone) {
           stageState = "completed";
@@ -1064,7 +1284,8 @@
         if (stage === "report") stageState = phaseVisualState(phaseMap.report);
       }
 
-      if (currentIndex >= 0 && stageState === "waiting") {
+      // A run waiting for its study's next round is at no stage now.
+      if (currentIndex >= 0 && stageState === "waiting" && !status?.between_rounds) {
         const index = order.indexOf(stage);
         if (index < currentIndex) stageState = "completed";
         if (index === currentIndex) stageState = "current";
@@ -1109,9 +1330,12 @@
     const runs = Array.isArray(app.runs) ? app.runs : null;
     if (runs) {
       const count = (s) => runs.filter((r) => r.state === s).length;
-      const where = count("running")
-        ? `${count("running")} running, ${count("completed")} of ${runs.length} completed.`
-        : `${count("completed")} of ${runs.length} completed.`;
+      // Runs its rounds still extend, waiting for their turn.
+      const between = runs.filter((r) => r.state === "waiting" && r.so_far).length;
+      const where = (count("running")
+        ? `${count("running")} running, ${count("completed")} of ${runs.length} completed`
+        : `${count("completed")} of ${runs.length} completed`)
+        + (between ? `, ${between} waiting for the next round.` : ".");
       return {
         title: `A study of ${runs.length} runs`,
         body: `${where} Each run keeps its own record of its simulation: view one from Runs in the sidebar.`,
@@ -2101,7 +2325,9 @@
       .replace(/\b\w/g, (character) => character.toUpperCase());
   }
 
-  function showToast(message, kind) {
+  /* The page's notice. With an action ({label, run}), a button for it, Undo
+   * above all, offered while the notice shows, and longer. */
+  function showToast(message, kind, action) {
     let toast = byId("dashboard-toast");
     if (!toast) {
       toast = document.createElement("div");
@@ -2110,11 +2336,67 @@
       toast.setAttribute("role", "status");
       document.body.appendChild(toast);
     }
-    toast.textContent = message;
+    // The message is the status read out; its button beside it, not in it.
+    let said = toast.querySelector(".dashboard-toast-said");
+    if (!said) {
+      toast.removeAttribute("role");
+      toast.textContent = "";
+      said = document.createElement("span");
+      said.className = "dashboard-toast-said";
+      said.setAttribute("role", "status");
+      toast.append(said);
+    }
+    toast.querySelectorAll(".dashboard-toast-action").forEach((old) => old.remove());
+    said.textContent = message;
     toast.setAttribute("data-kind", kind || "ok");
+    const offered = action && action.label && typeof action.run === "function";
+    toast.style.pointerEvents = offered ? "auto" : "";
+    if (offered) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "file-action dashboard-toast-action";
+      button.textContent = action.label;
+      // Said with what it undoes, as it is reached with Tab.
+      button.setAttribute("aria-label", `${action.label}: ${message}`);
+      // What made the change, for the keyboard to go back to after Undo.
+      const from = document.activeElement;
+      button.addEventListener("click", () => {
+        toast.classList.remove("show");
+        toast.style.pointerEvents = "";
+        const hadFocus = document.activeElement === button;
+        button.remove();
+        if (hadFocus && from && from !== document.body && document.contains(from)) {
+          from.focus({preventScroll: true});
+        }
+        action.run();
+      }, {once: true});
+      // Spaced from the message by itself, so nothing is left when it goes.
+      button.style.marginLeft = "0.5em";
+      toast.append(button);
+    }
     toast.classList.add("show");
-    window.clearTimeout(showToast.timer);
-    showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 3500);
+    const hide = () => {
+      toast.classList.remove("show");
+      toast.style.pointerEvents = "";
+      // Hidden, it is not offered: nothing to reach with Tab and press.
+      toast.querySelectorAll(".dashboard-toast-action").forEach((old) => old.remove());
+    };
+    const wait = (ms) => {
+      window.clearTimeout(showToast.timer);
+      showToast.timer = window.setTimeout(hide, ms);
+    };
+    wait(offered ? 10000 : 3500);
+    if (offered) {
+      // Kept while the person is on it, with the keyboard or the pointer.
+      const button = toast.querySelector(".dashboard-toast-action");
+      const hold = () => window.clearTimeout(showToast.timer);
+      // Not while the keyboard is still on it.
+      const go = () => { if (document.activeElement !== button) wait(4000); };
+      button.addEventListener("focus", hold);
+      button.addEventListener("mouseenter", hold);
+      button.addEventListener("blur", go);
+      button.addEventListener("mouseleave", go);
+    }
   }
 
   function escapeHTML(value) {
@@ -2147,8 +2429,13 @@
    * while the Analysis page stays open, for up to a minute. */
   const CITED_LOOK_MS = 60000;
 
+  /* An analysis opened from anywhere: a step to its place on the Analysis
+   * page, which a reload or Back opens again. */
   function showAnalysis(name) {
-    navigate("analysis");
+    navigate("analysis", {place: String(name || "")});
+  }
+
+  function revealAnalysis(name) {
     const wanted = String(name || "");
     const started = Date.now();
     let timer = null;
@@ -2163,7 +2450,8 @@
       }
       const card = $$(`.page[data-page="analysis"] .analysis-card[data-analysis]`)
         .find((element) => element.getAttribute("data-analysis") === wanted
-          && element.offsetParent !== null);
+          && element.offsetParent !== null)
+        || (byId(`analysis-section-${wanted}`)?.offsetParent ? byId(`analysis-section-${wanted}`) : null);
       if (!card) return;
       finish();
       // Which figure the page was opened on, kept after the mark fades.
@@ -2231,7 +2519,9 @@
     /* The settings as the fields say them, as "settings-updated" sends. */
     settings: () => currentSettings(),
     /* The page's notice, seen and read out (icons.js says a copy in it). */
-    toast: (message, kind) => showToast(message, kind),
+    toast: (message, kind, action) => showToast(message, kind, action),
+    /* A study opened from the page, by the switch's answer. */
+    studyOpened: (answer, page) => studyOpened(answer, page),
     figureChip: (name, made) => provenanceChip(name, made),
     listenForFigureChips: (host, lookup) => listenForProvenance(host, lookup),
     /* A name shortened in its middle to the width given (studies.js). */

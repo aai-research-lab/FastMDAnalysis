@@ -6,7 +6,7 @@
   /* Colours are the theme's, read when a chart is drawn: fixed to the dark
      scheme's, the axis labels and the pale series vanished on Paper. */
   const FALLBACK = {
-    cyan: "#2698ba",
+    cyan: "#00aed8",
     orange: "#ffb86b",
     violet: "#a78bfa",
     silver: "#d8d8dd",
@@ -15,7 +15,7 @@
     axis: "#85858f",
   };
   const TOKENS = {
-    cyan: "--accent-cyan", orange: "--accent-orange", violet: "--accent-violet",
+    cyan: "--hue-cyan", orange: "--accent-orange", violet: "--accent-violet",
     silver: "--accent-silver", green: "--accent-green",
     grid: "--border-subtle", axis: "--text-muted",
   };

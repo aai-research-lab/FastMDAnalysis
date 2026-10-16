@@ -8,7 +8,6 @@ and caches the result.
 
 from __future__ import annotations
 
-import hashlib
 import io
 import csv
 import json
@@ -483,6 +482,11 @@ def make_handler(
     html = html.replace("__FASTMDX_VERSION__", _escape(__version__))
     html = html.replace("__FASTMDX_BIBTEX__", _escape(__bibtex__))
     html = html.replace("__FASTMDX_COPYRIGHT__", _escape(__copyright__))
+    # The accent the page opens with before a person chooses one: the
+    # service's (`fastmdx gui --accent`), or Cyan (theme-first.js).
+    from fastmdxplora.gui.accents import default_accent
+
+    html = html.replace("__FASTMDX_ACCENT__", default_accent())
     # Hosted behind a service, the service's name and line are shown where
     # this software's would be; its name without a line of its own has none,
     # not this software's (the citation and the links to it stay). The
@@ -689,6 +693,11 @@ def make_handler(
                                      "error": "That file is outside this study."})
                     return
                 answer = read_text_file(target, within=root)
+                if answer.get("ok") and not _no_study(root):
+                    # The study it was read from, as the app state names it
+                    # (`active_run`): a page just loaded may not know it yet,
+                    # and another study may be opened as it reads.
+                    answer["study"] = str(root)
                 if answer.get("ok") and answer.get("suffix") in ("md", "markdown"):
                     from fastmdxplora.gui.report_page import render_markdown
 
@@ -839,6 +848,7 @@ def make_handler(
                 status = status_as_it_stands(root)
                 metrics = read_metrics(root)
                 from fastmdxplora.gui.simulated_time import simulated_times
+                from fastmdxplora.gui.workspace import study_key
 
                 payload = {
                     "status": status,
@@ -855,7 +865,10 @@ def make_handler(
                     # this computer): a page told of a run ending tells it
                     # from another study's status, read as a study was
                     # opened elsewhere between two polls.
-                    "study": hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:16],
+                    "study": study_key(root),
+                    # A folder that is not yet a study is not named in the
+                    # address: it cannot be opened again as one.
+                    "study_named": is_study(root),
                 }
                 self._send_json(payload)
                 return
@@ -1786,7 +1799,34 @@ def make_handler(
                 self._send_json(app_runtime.open_shared_study(source))
                 return
             if path == "/api/explore/switch":
+                # A folder, or a study an address names by its key (a page
+                # opened, or gone back to, on a study): the answer names
+                # the study now open by its key, for the page's address.
+                from fastmdxplora.gui.workspace import study_key, study_keyed
+
                 folder = str((payload or {}).get("folder") or "").strip()
+                keyed = str((payload or {}).get("study") or "").strip()
+                # The folders opened in this session, by their keys, and the
+                # one the GUI started on (a study or not yet): Back to any of
+                # them finds it at once, wherever it is, with no search.
+                opened_here = getattr(app_runtime, "studies_opened", None)
+                if opened_here is None:
+                    opened_here = {}
+                    app_runtime.studies_opened = opened_here
+                for one in (getattr(app_runtime, "workspace_root", None),
+                            getattr(app_runtime, "active_root", None)):
+                    if one is not None:
+                        opened_here.setdefault(study_key(one), Path(one))
+                if keyed and not folder:
+                    found = opened_here.get(keyed) or study_keyed(keyed, [
+                        getattr(app_runtime, "active_root", None),
+                        getattr(app_runtime, "running_root", None),
+                    ], [getattr(app_runtime, "exploration_root", None)])
+                    if found is None:
+                        self._send_json({"ok": False, "error": "The study this address names "
+                                         "is not among the studies here."}, status=404)
+                        return
+                    folder = str(found)
                 if not folder:
                     self._send_json({"ok": False, "error": "No folder given."},
                                     status=400)
@@ -1794,7 +1834,19 @@ def make_handler(
                 named = self._path_for(folder)
                 if named is None:
                     return
-                self._send_json(app_runtime.switch_to(named))
+                opened = getattr(app_runtime, "active_root", None)
+                if keyed and opened is not None and Path(named) == opened:
+                    # Already open: a page loaded again on its own address
+                    # leaves the study, and what its run is doing, as it is.
+                    self._send_json({"ok": True, "state": app_runtime.snapshot(),
+                                     "study_key": study_key(opened)})
+                    return
+                answer = app_runtime.switch_to(named)
+                opened = getattr(app_runtime, "active_root", None)
+                if answer.get("ok") and opened is not None:
+                    opened_here[study_key(opened)] = Path(opened)
+                    answer = {**answer, "study_key": study_key(opened)}
+                self._send_json(answer)
                 return
             self.send_error(404, "Not found")
 
@@ -2680,6 +2732,11 @@ def start_dashboard_session(
     """
     root = Path(output).resolve()
     root.mkdir(parents=True, exist_ok=True)
+    # Before the server's threads: MDTraj's notes on reading a structure,
+    # its frames' included, kept out of the terminal for every one of them.
+    from fastmdxplora.utils.native_output import keep_notes_on_reading_quiet
+
+    keep_notes_on_reading_quiet()
     if hosting is not None:
         exploration_root = hosting.workspace
     runtime = DashboardRuntime(

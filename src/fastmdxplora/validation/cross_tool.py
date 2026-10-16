@@ -261,7 +261,11 @@ def _configured_ligand_resname(run_dir: Path) -> str | None:
         data = {}
     ligand = (data.get("resolved_forcefield") or {}).get("ligand")
     if ligand and ligand.get("name"):
-        return str(ligand["name"])
+        name = ligand["name"]
+        if isinstance(name, list):
+            # Several ligands: one selection naming each, `resname AAA L01`.
+            return " ".join(str(n) for n in name if n)
+        return str(name)
 
     # Older runs, and runs whose setup phase did not write a record, fall
     # back to the config -- but only where it says something a default
@@ -290,11 +294,12 @@ def ligand_resname(run_dir: Path) -> str:
 
 
 def topology_has_resname(topology: Path, resname: str) -> bool:
-    """Return whether a PDB topology contains the requested residue name."""
-    target = str(resname).upper()
+    """Return whether a PDB topology contains the requested residue name,
+    or one of the names, space-separated, of several ligands."""
+    targets = set(str(resname).upper().split())
     for line in topology.read_text(errors="replace").splitlines():
         if line.startswith(("ATOM  ", "HETATM")):
-            if line[17:20].strip().upper() == target:
+            if line[17:20].strip().upper() in targets:
                 return True
     return False
 

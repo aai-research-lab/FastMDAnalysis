@@ -108,6 +108,8 @@
     environmentUrl: null,
     playbackSignature: null,
     playbackLoadPromise: null,
+    // The rest of the frames coming in pieces, until all are here.
+    framesArriving: null,
     playbackLoaded: false,
     // The frames are in the engine (playbackLoaded: and shown, ready).
     framesRendered: false,
@@ -173,9 +175,11 @@
     // reset; each async path captures and checks this generation.
     STATE.viewerGeneration += 1;
     STATE.playbackLoadPromise = null;
+    STATE.framesArriving = null;
     pausePlayback();
     STATE.liveUpdates = true;
     STATE.liveFrameIndex = null;
+    STATE.liveOverlay = null;
     STATE.liveTopology = null;
     STATE.liveTopologyAtoms = 0;
     STATE.liveCoordinates = null;
@@ -213,6 +217,10 @@
     STATE.runsHidden = new Set();
     STATE.extraResults = {};
     STATE.runsShownSignature = null;
+    SHOWN_SCENE.before = null;
+    SHOWN_SCENE.asked += 1;
+    SHOWN_SCENE.notes = [];
+    hideTheScene();
     sayTheRuns(null);
     offerResultColours();
     sayTheSecondaryStructure();
@@ -564,6 +572,8 @@
    * and the live poll, which goes on for the preview, says nothing there.
    * It said "production step 55,000" beside Playback's frame 39. */
   function sayLive(on, overlay) {
+    // Kept, to be said again once the frames are left.
+    STATE.liveOverlay = {on, overlay};
     if (STATE.mode === "playback") return;
     setOverlay(on, overlay);
   }
@@ -1122,17 +1132,35 @@
     });
   }
 
+  /** The frames left for the structure, or the live frame, as rendered
+   * before them; live updates left as they are. */
+  async function leavePlayback() {
+    pausePlayback();
+    STATE.mode = STATE.liveFrameIndex != null ? "live" : "structure";
+    STATE.playbackLoaded = false;
+    STATE.framesRendered = false;
+    if (STATE.currentPdb) {
+      await mountStructure(STATE.currentPdb, {main: true});
+      await mountStructure(STATE.currentPdb, {mini: true});
+    }
+    // The structure shown says no frame of the frames left; the live
+    // frame says its own again, live updates paused or not.
+    if (STATE.mode === "structure") {
+      setText("overlay-frame", "");
+      setText("overlay-stage", "");
+      setText("overlay-simtime", "");
+      setOverlay(false, {});
+    } else if (STATE.liveOverlay) {
+      setOverlay(STATE.liveOverlay.on, STATE.liveOverlay.overlay);
+    }
+  }
+
   async function handleToolbarAction(action, button) {
+    // The live frame or the publication look chosen over the Agent's scene.
+    if (action === "live-toggle" || action === "publication") changedOverTheScene();
     if (action === "live-toggle") {
-      pausePlayback();
       STATE.liveUpdates = true;
-      STATE.mode = STATE.liveFrameIndex != null ? "live" : "structure";
-      STATE.playbackLoaded = false;
-      STATE.framesRendered = false;
-      if (STATE.currentPdb) {
-        await mountStructure(STATE.currentPdb, {main: true});
-        await mountStructure(STATE.currentPdb, {mini: true});
-      }
+      await leavePlayback();
       button?.classList.add("active");
       updatePlaybackButtons();
       announce("Live molecular updates enabled.");
@@ -1339,6 +1367,372 @@
     return true;
   }
 
+  /* The Agent's scene shown here before anything is written (the Agent's
+   * card, Show in the Viewer): its frame, representation, colour and
+   * superposition set as a saved view's are, the camera kept, and its
+   * highlighted atoms (read by MDTraj on the server, as every selection is)
+   * drawn with their labels, never saved. A part the study cannot show is
+   * said in the notice over the molecule and the rest shown; Back to my view
+   * puts back the view from before the first scene shown. */
+  const SHOWN_SCENE = {before: null, asked: 0, notes: [], written: "", changed: false};
+  // The names a scene may give a representation, as the Viewer calls it.
+  const REPRESENTATIONS = {"ball and stick": "ballAndStick", "ball-and-stick": "ballAndStick",
+    spheres: "spacefill"};
+  const SHOWN_AS = {ballAndStick: "ball and stick", spacefill: "spheres"};
+  const SCENE_PARTS = ["frame", "representation", "colour", "superposed", "highlight"];
+  const LONGEST_HIGHLIGHT = 200;
+
+  function offered(id, value) {
+    return [...(document.getElementById(id)?.options || [])]
+      .some((option) => option.value === value && !option.disabled);
+  }
+
+  function quoted(text, most = 60) {
+    return text.length > most ? `${text.slice(0, most - 3)}...` : text;
+  }
+
+  function sayTheScene() {
+    const notice = document.getElementById("viewer-scene-notice");
+    const said = document.getElementById("viewer-scene-said");
+    // No scene shown (ended, or Back): nothing to say over the view.
+    if (!notice || !said || !SHOWN_SCENE.before) return;
+    const lead = SHOWN_SCENE.written
+      ? `The Agent's scene, written as scenes/${SHOWN_SCENE.written}.mvsx`
+      : "The Agent's scene, not written";
+    said.textContent = [`${lead}${SHOWN_SCENE.changed ? ", changed here since." : "."}`,
+      ...SHOWN_SCENE.notes].join(" ");
+    notice.hidden = false;
+    // Read out through the page's one live region: a status that appears
+    // with its words in it is often not read at all.
+    announce(said.textContent);
+  }
+
+  function hideTheScene() {
+    const notice = document.getElementById("viewer-scene-notice");
+    if (notice) notice.hidden = true;
+  }
+
+  // One scene, or Back, at a time, in the order asked: one overtaken
+  // before its turn came is not shown at all, so nothing of it is left on
+  // the canvas under the one shown after it.
+  let sceneTurn = Promise.resolve();
+  const OVERTAKEN = "Another view was asked for before this one was shown.";
+  const STUDY_CHANGED = "The study changed before the scene was shown.";
+
+  // While a scene or Back is being shown, what it changes is not the
+  // person changing the view over it.
+  let sceneWork = 0;
+
+  function inTurn(work) {
+    const doing = async () => {
+      sceneWork += 1;
+      try {
+        return await work();
+      } finally {
+        sceneWork -= 1;
+      }
+    };
+    const run = sceneTurn.then(doing, doing);
+    sceneTurn = run.catch(() => {});
+    return run;
+  }
+
+  function showScene(parts) {
+    const asked = ++SHOWN_SCENE.asked;
+    return inTurn(() => showSceneNow(parts, asked));
+  }
+
+  /** The frame a scene names: a whole number, or its digits. */
+  function sceneFrame(value) {
+    if (typeof value === "number") return Number.isInteger(value) && value >= 0 ? value : null;
+    if (typeof value === "string" && /^\d+$/.test(value.trim())) return Number(value.trim());
+    return null;
+  }
+
+  /* As a written scene shows it (scenes.py): a frame named and in the
+   * frames, the frames at it, superposed as asked; otherwise the
+   * structure, and a superposition said, not shown. */
+  async function showSceneNow(parts, asked) {
+    if (asked !== SHOWN_SCENE.asked) return {shown: false, notes: [OVERTAKEN]};
+    const scene = parts && typeof parts === "object" ? parts : {};
+    if (!SCENE_PARTS.some((part) => scene[part] != null && scene[part] !== "")) {
+      // A scene shown before stays as it was, its notice too.
+      if (SHOWN_SCENE.before && SHOWN_SCENE.notes.some((note) => note.startsWith("Waiting"))) {
+        SHOWN_SCENE.notes = SHOWN_SCENE.notes.filter((note) => !note.startsWith("Waiting"));
+        sayTheScene();
+      }
+      return {shown: false, notes: ["The scene has no parts to show."]};
+    }
+    const now = viewNow();
+    if (!now || !STATE.model) {
+      return {shown: false, notes: ["The Viewer is not rendering a structure yet."]};
+    }
+    const generation = STATE.viewerGeneration;
+    const stale = () => {
+      if (!isViewerGenerationCurrent(generation)) return {shown: false, notes: [STUDY_CHANGED]};
+      if (asked !== SHOWN_SCENE.asked) return {shown: false, notes: [OVERTAKEN]};
+      return null;
+    };
+    // A second scene shown over the first goes back to the same view.
+    if (!SHOWN_SCENE.before) {
+      SHOWN_SCENE.before = now;
+      SHOWN_SCENE.liveUpdates = STATE.liveUpdates;
+      SHOWN_SCENE.colourChosen = STATE.colourChosen;
+      SHOWN_SCENE.ground = STATE.ground;
+      SHOWN_SCENE.publication = STATE.publication;
+      SHOWN_SCENE.playing = !!STATE.playbackPlaying;
+      SHOWN_SCENE.following = !!document.getElementById("traj-follow")?.checked;
+    }
+    SHOWN_SCENE.written = "";
+    SHOWN_SCENE.changed = false;
+    const view = Object.assign({}, now);
+    delete view.frame;
+    // The ground and the publication look are the person's, as chosen
+    // ("as the scheme" kept as such), not a part of a scene.
+    delete view.ground;
+    view.publication = STATE.publication;
+    const notes = [];
+    if (scene.representation != null) {
+      const named = String(scene.representation);
+      const shape = REPRESENTATIONS[named.toLowerCase()] || named;
+      if (offered("viewer-rep", shape)) view.representation = shape;
+      else notes.push(`The Viewer has no representation called ${quoted(SHOWN_AS[shape] || shape)}.`);
+    }
+    if (scene.colour != null) {
+      const named = String(scene.colour);
+      // Spelt as the Viewer spells it, whatever the case.
+      const colour = offered("viewer-color", named) ? named : named.toLowerCase();
+      // The study's results are offered once asked for; asked again here
+      // where the list does not have them yet.
+      if (colour.startsWith(RESULT_PREFIX) && colour.length > RESULT_PREFIX.length
+          && !offered("viewer-color", colour)) {
+        STATE.residueValuesAsked = 0;
+        await askForResidueValues();
+      }
+      if (colour === RESULT_PREFIX) {
+        notes.push("The scene names no result to colour by, so the colours are as they were.");
+      } else if (offered("viewer-color", colour)) {
+        view.colour = colour;
+      } else if (colour.startsWith(RESULT_PREFIX)) {
+        const result = quoted(colour.slice(RESULT_PREFIX.length).replace(/_/g, " "));
+        notes.push(`This study has no ${result} result by residue to colour by, so the colours `
+          + "are as they were.");
+      } else {
+        notes.push(`The Viewer cannot colour by ${quoted(colour.replace(/_/g, " "))}.`);
+      }
+    }
+    let frame = null;
+    // Where no frame is shown: the frame the run is writing, while it
+    // writes them, which a written scene shows as the structure.
+    const live = STATE.liveFrameIndex != null;
+    const instead = live ? "the frame the run wrote last is shown, where a written scene shows "
+      + "the structure" : "the structure is shown";
+    if (scene.frame != null) {
+      const asking = sceneFrame(scene.frame);
+      const payload = STATE.playbackPayload?.playback_available
+        ? STATE.playbackPayload : await requestPlaybackPayload(false);
+      const count = payload?.playback_available ? Number(payload.n_frames_browser || 0) : 0;
+      if (asking !== null && asking < count) frame = asking;
+      else notes.push(`The study has no frame ${quoted(String(scene.frame))} to show; ${instead}.`);
+    } else if (live) {
+      notes.push("The frame the run wrote last is shown, where a written scene shows the structure.");
+    }
+    const on = scene.superposed != null ? String(scene.superposed).toLowerCase() : "none";
+    if (frame !== null) {
+      view.frame = frame;
+      // Fitted as a written scene fits them (scenes.py): to the first
+      // frame, not smoothed, the pocket at its default cutoff.
+      view.superposed_to = "first";
+      view.smoothed_over = 1;
+      view.pocket_cutoff = 5;
+      if (on === "none" || offered("traj-superpose", on)) view.superposed = on;
+      else if (on === "pocket") notes.push("This structure has no ligand, so nothing is superposed on the pocket.");
+      else notes.push(`The frames cannot be superposed on the ${quoted(on)} in this study.`);
+    } else if (on !== "none") {
+      notes.push(scene.frame != null ? `Nothing is superposed on the ${quoted(on)}.`
+        : `The frames are not shown, so nothing is superposed on the ${quoted(on)}.`);
+    }
+    if (stale()) return stale();
+    // The scene's frame held: playing on would leave it at once.
+    pausePlayback();
+    if (frame === null && STATE.mode === "playback") await leavePlayback();
+    const loaded = frame !== null && (await loadPlayback(STATE.playbackPayload));
+    if (stale()) return stale();
+    if (loaded && STATE.playbackFrames <= frame && STATE.framesArriving) {
+      // Frames that come in pieces: the scene waits for the one with its
+      // frame, and no longer than until Back or another scene is asked for.
+      SHOWN_SCENE.notes = [`Waiting for frame ${frame} to arrive.`];
+      sayTheScene();
+      const held = () => (STATE.engine && STATE.engine.frameCount ? STATE.engine.frameCount()
+        : STATE.playbackFrames);
+      while (held() <= frame && STATE.framesArriving && !stale()) {
+        await new Promise((done) => window.setTimeout(done, 200));
+      }
+    }
+    if (stale()) return stale();
+    let shown = await showView(view);
+    if (stale()) return stale();
+    if (frame !== null && STATE.engine && STATE.engine.frame() !== frame) {
+      notes.push(`Frame ${frame} could not be shown.`);
+    }
+    if (frame !== null && view.superposed && view.superposed !== "none"
+        && STATE.superposed !== view.superposed) {
+      notes.push(`The frames could not be superposed on the ${view.superposed}.`);
+    }
+    const selections = window.FastMDXSelections;
+    if (scene.highlight != null && scene.highlight !== "") {
+      const expression = String(scene.highlight);
+      if (expression.length > LONGEST_HIGHLIGHT) {
+        selections?.clearForNow?.();
+        notes.push(`The atoms to highlight are named in more than ${LONGEST_HIGHLIGHT} characters,`
+          + " so none are highlighted.");
+      } else {
+        const answer = selections && selections.showForNow
+          ? await selections.showForNow(expression, !!scene.labels) : null;
+        if (!answer || !answer.ok) {
+          const reason = (answer && answer.reason) || "the selections are not loaded";
+          notes.push(`The atoms of ${quoted(expression)} are not highlighted: ${quoted(reason, 200)}`);
+        } else if (!answer.atoms.length) {
+          notes.push(`No atom of the structure shown matches ${quoted(expression)}.`);
+        }
+      }
+    } else if (selections && selections.clearForNow) {
+      selections.clearForNow();
+    }
+    // The study changed meanwhile: its highlight is not this scene's.
+    if (!isViewerGenerationCurrent(generation)) {
+      selections?.clearForNow?.();
+      return stale();
+    }
+    // Overtaken now: its highlight is not drawn under the next in turn,
+    // which draws its own or none.
+    if (stale()) {
+      selections?.clearForNow?.();
+      return stale();
+    }
+    await restyleViewers();
+    if (!shown) notes.push("The view could not be shown here.");
+    shown = !!shown;
+    // Said by the notice, read out as a status: not announced again.
+    SHOWN_SCENE.notes = notes;
+    SHOWN_SCENE.frame = frame;
+    sayTheScene();
+    return {shown, notes};
+  }
+
+  /** The person's own view shown (a saved view, a written scene): the
+   * Agent's scene is over, its notice and highlight gone. */
+  function endTheScene(next) {
+    // A scene still waiting its turn is not shown after the person's view.
+    SHOWN_SCENE.asked += 1;
+    const before = SHOWN_SCENE.before;
+    SHOWN_SCENE.before = null;
+    hideTheScene();
+    window.FastMDXSelections?.clearForNow?.();
+    const follow = document.getElementById("traj-follow");
+    if (before && follow && SHOWN_SCENE.following) follow.checked = true;
+    // After a scene still on its way has stopped: the frames it loaded are
+    // left where neither the view before it nor the one shown now has them.
+    return inTurn(async () => {
+      window.FastMDXSelections?.clearForNow?.();
+      if (before && !Number.isInteger(before.frame) && !Number.isInteger(next && next.frame)
+          && STATE.mode === "playback") await leavePlayback();
+    });
+  }
+
+  /* The view changed by the person over the scene: said, and Back still
+   * puts back the one from before it. */
+  function changedOverTheScene() {
+    if (!SHOWN_SCENE.before || SHOWN_SCENE.changed || sceneWork) return;
+    SHOWN_SCENE.changed = true;
+    sayTheScene();
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    document.getElementById("viewer-scene-back")?.addEventListener("click", () => {
+      void backToMyView();
+    });
+    const changed = changedOverTheScene;
+    ["viewer-rep", "viewer-color", "traj-superpose", "traj-superpose-to", "traj-smooth",
+     "pocket-cutoff", "viewer-ground"].forEach((id) => {
+      document.getElementById(id)?.addEventListener("change", changed);
+    });
+    document.querySelectorAll(".chip-toggle input[data-vis]").forEach((box) => {
+      box.addEventListener("change", changed);
+    });
+    document.getElementById("traj-slider")?.addEventListener("input", changed);
+    // A frame stepped to, played or jumped to, as the slider does not say.
+    window.addEventListener("dashboard:frame-shown", (event) => {
+      const index = event.detail && event.detail.index;
+      if (SHOWN_SCENE.before && index !== SHOWN_SCENE.frame) changed();
+    });
+  });
+
+  /** The view from before the Agent's scene, put back. */
+  function backToMyView() {
+    const asked = ++SHOWN_SCENE.asked;
+    return inTurn(() => backNow(asked));
+  }
+
+  async function backNow(asked) {
+    // A scene asked for after Back is shown in its place.
+    if (asked !== SHOWN_SCENE.asked) return false;
+    const generation = STATE.viewerGeneration;
+    // The study changed meanwhile: the view before is of another study.
+    const gone = () => !isViewerGenerationCurrent(generation);
+    const before = SHOWN_SCENE.before;
+    SHOWN_SCENE.before = null;
+    const back = document.getElementById("viewer-scene-back");
+    const hadFocus = !!back && document.activeElement === back;
+    hideTheScene();
+    window.FastMDXSelections?.clearForNow?.();
+    if (!before) {
+      await restyleViewers();
+      return false;
+    }
+    // Frames still loading land first, so the view before is the last shown.
+    if (STATE.playbackLoadPromise) await STATE.playbackLoadPromise.catch(() => null);
+    if (gone()) return false;
+    // The frames left for the structure or the live frame shown before,
+    // with live updates as they were then.
+    if (!Number.isInteger(before.frame) && STATE.mode === "playback") {
+      await leavePlayback();
+      if (gone()) return false;
+      STATE.liveUpdates = SHOWN_SCENE.liveUpdates !== false;
+      const pause = document.querySelector('[data-action="pause-toggle"]');
+      if (pause) {
+        pause.classList.toggle("active", !STATE.liveUpdates);
+        pause.textContent = STATE.liveUpdates ? "Pause Updates" : "Resume Updates";
+      }
+      if (STATE.liveUpdates) await pollLiveFrame();
+    }
+    if (gone()) return false;
+    const shown = await showView(before);
+    if (gone()) return false;
+    // As the person had them: the colour chosen or left to the run, and
+    // the newest frame followed.
+    STATE.colourChosen = !!SHOWN_SCENE.colourChosen;
+    const follow = document.getElementById("traj-follow");
+    if (follow && SHOWN_SCENE.following) follow.checked = true;
+    // The ground as chosen ("as the scheme" following the scheme again),
+    // the publication look, and the frames playing where they played.
+    if (SHOWN_SCENE.ground) setGround(SHOWN_SCENE.ground);
+    setPublication(!!SHOWN_SCENE.publication);
+    if (SHOWN_SCENE.playing && STATE.mode === "playback" && !STATE.playbackPlaying) {
+      await handleToolbarAction("play-trajectory");
+    }
+    // The button gone, the focus goes to the molecule rather than the page.
+    if (hadFocus) {
+      const canvas = document.getElementById("viewer-canvas");
+      if (canvas) {
+        if (!canvas.hasAttribute("tabindex")) canvas.setAttribute("tabindex", "-1");
+        canvas.focus({preventScroll: true});
+      }
+    }
+    announce(shown ? "Back to the view before the Agent's scene." : "The view before could not be shown again.");
+    return shown;
+  }
+
   /* The keys a player has: Space plays and pauses, the arrows step a frame
    * (Shift for ten), Home and End go to the ends, R centres the structure,
    * F fills the screen. Only on the viewer's page, and never while typing. */
@@ -1421,6 +1815,7 @@
   }
 
   async function handleLigandAction(action) {
+    changedOverTheScene();
     const engine = await mainEngine();
     const ligands = ligandResnames();
     if (!engine || !ligands.length) {
@@ -1679,7 +2074,12 @@
     }
     STATE.playbackSignature = signature;
     STATE.playbackFrameTimes = Array.isArray(payload?.frame_times_ns) ? payload.frame_times_ns : [];
-    STATE.playbackFrames = Number(payload?.n_frames_browser || 0);
+    // While frames still arrive in pieces, the frames there are those the
+    // engine holds, not all the study has: a frame past them was said
+    // shown, and the engine showed its last.
+    STATE.playbackFrames = STATE.framesArriving && STATE.framesPieces && !changed
+      ? Math.min(Number(payload?.n_frames_browser || 0), Number(STATE.framesPieces.loaded || 0))
+      : Number(payload?.n_frames_browser || 0);
     if (changed && !sameLiveHistorySource) {
       STATE.playbackLoaded = false;
       STATE.framesRendered = false;
@@ -1823,7 +2223,7 @@
     sayFramesLoaded();
     if (pieces.pieces.length > 1) {
       announce(`Playing the first ${loaded.frames} of ${pieces.total} frames while the rest arrive.`);
-      void (async () => {
+      const arriving = (async () => {
         for (const piece of pieces.pieces.slice(1)) {
           const bytes = await fetched(piece);
           if (!isViewerGenerationCurrent(generation) || STATE.engine !== engine) return;
@@ -1837,7 +2237,9 @@
           sayFramesLoaded();
         }
         announce(`All ${pieces.total} frames have arrived.`);
-      })().catch((error) => console.debug("the rest of the frames did not arrive", error));
+      })().catch((error) => console.debug("the rest of the frames did not arrive", error))
+        .finally(() => { if (STATE.framesArriving === arriving) STATE.framesArriving = null; });
+      STATE.framesArriving = arriving;
     }
     return loaded;
   }
@@ -3173,6 +3575,15 @@
     viewNow,
     currentViewHints,
     showView,
+    // The Agent's scene shown before it is written, and the view before it.
+    showScene,
+    backToMyView,
+    sceneWritten: (name) => {
+      if (!SHOWN_SCENE.before) return;
+      SHOWN_SCENE.written = String(name || "");
+      sayTheScene();
+    },
+    endTheScene,
     setPublication,
     resize: resizeViewers,
     measurements,

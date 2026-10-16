@@ -197,6 +197,134 @@ def test_the_overview_card_runs_it_after_asking(stopped) -> None:
     assert errors == []
 
 
+def _drawn_again(page) -> None:
+    """The card drawn again as a study change draws it: the fixes asked for
+    again and drawn afresh."""
+    page.evaluate("document.querySelectorAll('#fixes-card .fix')"
+                  ".forEach(f => f.dataset.old = '1')")
+    page.evaluate("window.dispatchEvent(new CustomEvent('dashboard:run-changed'))")
+    page.wait_for_selector("#fixes-card .fix:not([data-old])", state="attached")
+
+
+def _has_keyboard(page) -> str:
+    """The control with the keyboard, with the index of its fix."""
+    return page.evaluate(
+        "(() => { const a = document.activeElement;"
+        " const item = a.closest('.fix');"
+        " const at = [...document.querySelectorAll('#fixes-card .fix')].indexOf(item);"
+        " return at + ' ' + a.className; })()")
+
+
+def _opened(stopped, also=None):
+    """The Overview of the stopped study in a browser, its fixes as the
+    server gives them (and `also`, a second runnable fix, when given)."""
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    session = start_dashboard_session(output=str(stopped), host="127.0.0.1", port=0)
+    pw = sync_playwright().start()
+    browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+    page = browser.new_page(viewport={"width": 1400, "height": 1000})
+    page.set_default_timeout(60000)
+    page.ran, page.errors = [], []
+    page.on("pageerror", lambda error: page.errors.append(str(error)))
+
+    def run(route):
+        page.ran.append(json.loads(route.request.post_data or "{}"))
+        route.fulfill(json={"ok": True})
+
+    def close():
+        browser.close()
+        pw.stop()
+        session.server.shutdown()
+    try:
+        page.route("**/api/fix", run)
+        _routed(page, also)
+        page.goto(session.url + "#overview", wait_until="domcontentloaded")
+        page.wait_for_selector("#fixes-card:not([hidden]) .fix .fix-run")
+    except BaseException:
+        close()
+        raise
+    return page, close
+
+
+def _routed(page, also) -> None:
+    if also:
+        def fixes(route):
+            given = route.fetch().json()
+            given["fixes"].append(dict(given["fixes"][0], index=1, **also))
+            route.fulfill(json=given)
+        page.route("**/api/fixes", fixes)
+
+
+def test_a_question_asked_stays_when_the_card_is_drawn_again(stopped) -> None:
+    """The card is drawn again whenever the study changes, the first time a
+    moment after the page loads. A Run pressed in that moment had its
+    question drawn away, and Yes with it (CI on a5bcec3a: 60 s waiting for
+    Yes). The keyboard stays where it was: on Not now it is not moved to
+    Yes, where Enter would start what the person was declining."""
+    pytest.importorskip("playwright.sync_api")
+    page, close = _opened(stopped)
+    try:
+        page.click("#fixes-card .fix-run")
+        _drawn_again(page)
+        asked = page.query_selector("#fixes-card .fix-said")
+        asked = asked.text_content() if asked else ""
+        on_yes = _has_keyboard(page)
+        page.focus("#fixes-card .fix-cancel")
+        _drawn_again(page)
+        on_no = _has_keyboard(page)
+        # Not now is the person's answer: Run is offered, and kept so.
+        page.click("#fixes-card .fix-cancel")
+        after_no = _has_keyboard(page)
+        _drawn_again(page)
+        offered = _has_keyboard(page)
+        page.click("#fixes-card .fix-run")
+        page.click("#fixes-card .fix-confirm")
+        page.wait_for_selector("#fixes-card .fix-said:has-text('Started')")
+        # Started is what it says, not Run it again.
+        _drawn_again(page)
+        started = page.text_content("#fixes-card .fix-actions")
+        run_again = page.query_selector("#fixes-card .fix-run")
+        ran, errors = page.ran, page.errors
+    finally:
+        close()
+    assert asked.startswith("Run the command above now?")
+    assert on_yes == "0 primary-btn fix-confirm"
+    assert on_no == "0 ghost-btn fix-cancel"
+    assert after_no == offered == "0 primary-btn fix-run"
+    assert started.startswith("Started.") and run_again is None
+    assert ran == [{"index": 0}]
+    assert errors == []
+
+
+def test_each_question_is_kept_with_its_own_fix(stopped) -> None:
+    """Two fixes, both asked: drawn again, both questions stay, and the
+    keyboard stays on the first fix's Yes, not the second's."""
+    pytest.importorskip("playwright.sync_api")
+    page, close = _opened(stopped, also={"where": "the other run"})
+    try:
+        # Found again at each step: the page draws the card again itself
+        # once, a moment after it loads.
+        fix = page.locator("#fixes-card .fix")
+        fix.nth(0).locator(".fix-run").click()
+        fix.nth(1).locator(".fix-run").click()
+        fix.nth(0).locator(".fix-confirm").focus()
+        _drawn_again(page)
+        questions = len(page.query_selector_all("#fixes-card .fix-confirm"))
+        on = _has_keyboard(page)
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#fixes-card .fix-said:has-text('Started')")
+        ran, errors = page.ran, page.errors
+    finally:
+        close()
+    assert questions == 2
+    assert on == "0 primary-btn fix-confirm"
+    assert ran == [{"index": 0}]
+    assert errors == []
+
+
 def test_the_agent_asks_then_runs_it(stopped, monkeypatch) -> None:
     pytest.importorskip("playwright.sync_api")
     import tempfile

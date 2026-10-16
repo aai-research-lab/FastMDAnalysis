@@ -149,12 +149,45 @@ class TestMachinesAndPlans:
 
     def test_a_config_outside_the_workspace_is_refused(self, served, tmp_path):
         address, machine = served
-        outside = tmp_path / "elsewhere.yml"
+        root = machine.study.parent.resolve()
+        far = (tmp_path / "far").resolve()
+        far.mkdir()
+        outside = far / "elsewhere.yml"
         outside.write_text(machine.study.read_text())
+        (far / "top.pdb").write_text((root / "top.pdb").read_text())
+        (far / "notes.txt").write_text("not a config\n")
         status, said = _ask(address, "/api/remote/plan", {"config": str(outside),
                                                           "machine": "box"})
-        assert said["ok"] is False and "not a config file in the workspace" in said["error"]
-        assert machine.commands == []
+        # Round 3 of the last round: it was called "not a config file", and
+        # named no way to send it.
+        assert said["ok"] is False and said["code"] == "remote.input.outside"
+        assert said["error"].startswith(f"{outside} is outside the workspace")
+        # Round 2: the copy named a file that may already be there.
+        assert (f"Open the GUI on the config's folder (`cd {far}`, then `fastmdx gui` with "
+                "no `--output`), or copy the config, with the files it names, into a new "
+                f"folder inside {root} and give its full path there.") in said["error"]
+        # Round 1: what is no config file is said as that, wherever it is;
+        # remote-b4's round 3: with a way said alike for every such name.
+        for named in (tmp_path / "gone.yml", far / "notes.txt"):
+            _, none = _ask(address, "/api/remote/plan", {"config": str(named),
+                                                         "machine": "box"})
+            assert none["error"] == (
+                f"{named} is not a config file in the workspace ({root}). To send a config "
+                "kept elsewhere, copy it, with the files it names, into a new folder inside "
+                f"{root} and give its full path there."), named
+        # Each way, followed, plans it.
+        (root / "new").mkdir()
+        for name in ("elsewhere.yml", "top.pdb"):
+            (root / "new" / name).write_bytes((far / name).read_bytes())
+        _, copied = _ask(address, "/api/remote/plan", {
+            "config": str(root / "new" / "elsewhere.yml"), "machine": "box"})
+        assert copied["ok"], copied
+        with _serving(DashboardRuntime(workspace_root=far, exploration_root=far.parent)
+                      ) as there:
+            _, opened = _ask(there, "/api/remote/plan", {"config": str(outside),
+                                                         "machine": "box"})
+        assert opened["ok"], opened
+        assert machine.commands == [] or not _sent(machine)
 
     def test_a_results_folder_in_use_is_refused(self, served):
         address, machine = served
@@ -420,8 +453,7 @@ class TestTheConfigBuilder:
         monkeypatch.chdir(started)
         status, said = _ask(address, "/api/remote/plan", {"config": "study.yml",
                                                           "machine": "box"})
-        assert said["ok"] is False and "full path" in said["error"]
-        assert said["code"] == "remote.config.read_elsewhere"
+        assert said["ok"] is False and said["code"] == "remote.config.read_elsewhere"
         assert str(started.resolve()) in said["error"]
         status, full = _ask(address, "/api/remote/plan", {"config": str(machine.study),
                                                           "machine": "box"})
@@ -452,7 +484,14 @@ class TestTheConfigBuilder:
         monkeypatch.chdir(started / "sub")
         _, up = _ask(address, "/api/remote/plan", {"config": "../up/study.yml",
                                                    "machine": "box"})
+        # Round 2: of a file outside the routes nothing tells whether it is
+        # there; a missing one and one there read alike.
         assert f"is {(started / 'up' / 'study.yml').resolve()};" in up["error"]
+        # remote-b5's round 1: the copy way was reached only a step later.
+        assert up["error"].endswith(
+            "Give the full path of a config in the workspace, or, to send a config kept "
+            "elsewhere, copy it, with the files it names, into a new folder inside "
+            f"{root} and give its full path there.")
         assert (f"a plan reads a relative name only inside the folder the GUI "
                 f"was opened on ({root}), and ../up/study.yml leads out of it.") in up["error"]
         assert up["code"] == "remote.config.read_elsewhere"
@@ -487,6 +526,1130 @@ class TestTheConfigBuilder:
         assert said["ok"] is False and said["code"] == "remote.config.read_elsewhere"
         assert "is gone" in said["error"] and "full path" in said["error"]
         assert not _sent(machine)
+
+    def test_a_relative_config_checked_outside_the_routes_says_how_to_send_it(
+            self, served, tmp_path, monkeypatch):
+        """Round 3 of the last round: the refusal said to give the full path,
+        which is refused too where the file checked is outside the folders
+        the routes reach; and a plan's reading of a file not there was named
+        as if it were."""
+        _, machine = served
+        root = machine.study.parent.resolve()
+        opened = root / "opened"
+        opened.mkdir()
+        desk = RemoteDesk(DashboardRuntime(workspace_root=opened, exploration_root=root))
+        far = (tmp_path / "far").resolve()
+        far.mkdir()
+        (far / "study.yml").write_text(machine.study.read_text())
+        (far / "top.pdb").write_text((root / "top.pdb").read_text())
+        monkeypatch.chdir(far)
+        said = desk.plan("study.yml", "box")
+        assert said["code"] == "remote.config.read_elsewhere"
+        assert "Give its full path" not in said["error"]
+        assert (f"The file checked is outside the workspace ({opened}, and {root} where "
+                "new studies go), so its full path would be refused too") in said["error"]
+        # Round 1: started in its folder, it was told to start the GUI there;
+        # round 2: the two ways ran together, and the copy could overwrite.
+        # remote-b4's round 3: "here" and the two "it"s read ambiguously.
+        assert ("Start the GUI again in the config's folder without `--output`, so it "
+                "opens there, or copy the config, with the files it names, into a new "
+                f"folder inside {opened} and give its full path there.") in said["error"]
+        # A plan's reading inside the routes says a file is not there.
+        assert f"opened on ({opened}), where there is no such file." in said["error"]
+        # Round 1: the copy given by its bare name was refused as before; by
+        # its full path, as said, it plans. So does a GUI opened on its folder.
+        (opened / "new").mkdir()
+        for name in ("study.yml", "top.pdb"):
+            (opened / "new" / name).write_bytes((far / name).read_bytes())
+        assert desk.plan("new/study.yml", "box")["code"] == "remote.config.read_elsewhere"
+        copied = desk.plan(str(opened / "new" / "study.yml"), "box")
+        assert copied["ok"], copied
+        on_it = RemoteDesk(DashboardRuntime(workspace_root=far, exploration_root=far.parent))
+        assert on_it.plan("study.yml", "box")["ok"]
+        # Checked inside the routes, its full path is the way.
+        monkeypatch.chdir(root)
+        inside = desk.plan("study.yml", "box")
+        assert inside["code"] == "remote.config.read_elsewhere"
+        assert inside["error"].endswith(
+            "Give its full path, so the file planned is the one checked.")
+        assert not _sent(machine)
+
+    def test_no_way_is_offered_for_a_file_kept_with_keys_or_settings(
+            self, served, tmp_path, monkeypatch):
+        """Round 1: a key, a settings file or any file outside the routes was
+        told how to be sent (open the GUI on its folder, or copy it in), and
+        the answer told such a file from one not there. Round 2: another
+        tool's settings under a dot-folder (a token in `~/.config/doctl`),
+        and a folder beside `Library`, were still told how."""
+        address, machine = served
+        keys = tmp_path / "account" / ".ssh"
+        keys.mkdir(parents=True)
+        (keys / "id_ed25519").write_text("KEY\n")
+        (keys / "c.yml").write_text(machine.study.read_text())
+        beside = tmp_path / "beside"
+        (beside / ".ssh").mkdir(parents=True)
+        (beside / "c.yml").write_text(machine.study.read_text())
+        tool = tmp_path / "account" / ".config" / "doctl"
+        tool.mkdir(parents=True)
+        (tool / "config.yaml").write_text("access-token: x\n")
+        windows = tmp_path / "account" / "AppData" / "Roaming" / "GitHub CLI"
+        windows.mkdir(parents=True)
+        (windows / "hosts.yml").write_text("github.com: {oauth_token: x}\n")
+        xdg = tmp_path / "xdg"
+        (xdg / "glab-cli").mkdir(parents=True)
+        (xdg / "glab-cli" / "config.yml").write_text("token: x\n")
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+        root = machine.study.parent.resolve()
+        # Each said as a name that is no config, alike whether it is there.
+        for named in (keys / "id_ed25519", keys / "c.yml", beside / "c.yml",
+                      tool / "config.yaml", windows / "hosts.yml",
+                      xdg / "glab-cli" / "config.yml", Path("/etc/passwd"),
+                      tmp_path / "missing.yml"):
+            _, said = _ask(address, "/api/remote/plan", {"config": str(named),
+                                                         "machine": "box"})
+            assert said["error"] == (
+                f"{named} is not a config file in the workspace ({root}). To send a config "
+                "kept elsewhere, copy it, with the files it names, into a new folder inside "
+                f"{root} and give its full path there."), named
+        # Round 2: named by a relative path, a file there and one not there
+        # read alike, and say no way.
+        monkeypatch.chdir(keys)
+        for name in ("c.yml", "id_ed25519", "id_rsa"):
+            _, typed = _ask(address, "/api/remote/plan", {"config": name, "machine": "box"})
+            assert typed["code"] == "remote.config.read_elsewhere"
+            assert typed["error"] == (
+                f"Checked from the folder the GUI was started in ({keys.resolve()}), {name} "
+                f"is {keys.resolve() / name}; a plan reads it from the folder the GUI was "
+                f"opened on ({root}), where there is no such file. Give the full path of "
+                "a config in the workspace, or, to send a config kept elsewhere, copy it, "
+                f"with the files it names, into a new folder inside {root} and give its full "
+                "path there."), name
+        assert not _sent(machine)
+
+    def test_a_config_kept_by_the_home_folder_is_told_only_to_be_copied(
+            self, machine, tmp_path, monkeypatch):
+        """Round 2: a config directly in the home folder was told no way to
+        be sent. remote-b4's round 3: the way told it apart from a name not
+        there, and from a dot-named file of secrets, in a home holding keys;
+        and a link in `.ssh` to a config elsewhere was followed."""
+        import pwd
+
+        home = tmp_path / "account"
+        (home / ".ssh").mkdir(parents=True)
+        (home / "other").mkdir()
+        (home / "other" / "s.yml").write_text(machine.study.read_text())
+        (home / ".ssh" / "l.yml").symlink_to(home / "other" / "s.yml")
+        (home / "direct.yml").write_text(machine.study.read_text())
+        (home / ".secrets.yml").write_text("token: x\n")
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        opened = (home / "md" / "first").resolve()
+        opened.mkdir(parents=True)
+        desk = RemoteDesk(DashboardRuntime(workspace_root=opened, exploration_root=opened.parent))
+        for named in (home / "direct.yml", home / ".secrets.yml", home / "missing.yml",
+                      home / ".ssh" / "l.yml"):
+            said = desk.plan(str(named), "box")
+            assert said["error"] == (
+                f"{named} is not a config file in {desk._workspace()}. To send a "
+                "config kept elsewhere, copy it, with the files it names, into a new folder "
+                f"inside {opened} and give its full path there."), named
+        # The config a link in `.ssh` leads to is kept apart (remote-b6's
+        # round 2); another beside it is told the ways.
+        assert "Open the GUI" not in desk.plan(str(home / "other" / "s.yml"), "box")["error"]
+        (home / "other" / "t.yml").write_text(machine.study.read_text())
+        assert "Open the GUI on the config's folder" in desk.plan(
+            str(home / "other" / "t.yml"), "box")["error"]
+
+    def test_a_cloud_folder_or_a_library_in_a_study_is_no_place_of_keys(
+            self, machine, tmp_path, monkeypatch):
+        """remote-b4's round 3: `Library` anywhere, so a cloud folder under
+        the home folder's `~/Library/CloudStorage` and a study's own
+        `library` of ligands, was taken for a place of keys, and the config
+        told no way to be sent."""
+        import pwd
+
+        home = tmp_path / "account"
+        cloud = home / "Library" / "CloudStorage" / "Dropbox" / "study"
+        cloud.mkdir(parents=True)
+        (cloud / "study.yml").write_text(machine.study.read_text())
+        (home / "Library" / "Keychains").mkdir()
+        (home / "Library" / "Keychains" / "k.yml").write_text("k: x\n")
+        project = home / "proj"
+        (project / "library").mkdir(parents=True)
+        (project / "study.yml").write_text(machine.study.read_text())
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        opened = (home / "md" / "first").resolve()
+        opened.mkdir(parents=True)
+        desk = RemoteDesk(DashboardRuntime(workspace_root=opened, exploration_root=opened.parent))
+        for config in (cloud / "study.yml", project / "study.yml"):
+            assert "Open the GUI on the config's folder" in desk.plan(str(config), "box")[
+                "error"], config
+        assert "Open the GUI" not in desk.plan(
+            str(home / "Library" / "Keychains" / "k.yml"), "box")["error"]
+
+    def test_where_a_link_outside_the_routes_leads_is_not_said(
+            self, served, tmp_path, monkeypatch):
+        """remote-b4's round 3: a relative name read through a link outside
+        the routes said where the link leads, which a name not there does
+        not."""
+        address, machine = served
+        # Two folders down, so the name read from there and from the folder
+        # opened are not one path.
+        started = tmp_path / "a" / "started"
+        started.mkdir(parents=True)
+        secret = tmp_path / "keys" / ".config" / "gh"
+        secret.mkdir(parents=True)
+        (secret / "hosts.yml").write_text("token: x\n")
+        other = tmp_path / "other"
+        other.mkdir()
+        (other / "lnk.yml").symlink_to(secret / "hosts.yml")
+        (other / "dangling.yml").symlink_to(tmp_path / "nowhere" / "x.yml")
+        monkeypatch.chdir(started)
+        answers = set()
+        for name in ("lnk.yml", "dangling.yml", "none.yml"):
+            _, said = _ask(address, "/api/remote/plan", {"config": f"../../other/{name}",
+                                                         "machine": "box"})
+            assert said["code"] == "remote.config.read_elsewhere", name
+            assert "hosts.yml" not in said["error"] and "nowhere" not in said["error"], name
+            answers.add(said["error"].replace(name, "NAME"))
+        # The three read alike but for the name typed.
+        assert len(answers) == 1, answers
+
+    def test_a_link_crossed_before_going_up_is_not_followed(
+            self, served, tmp_path, monkeypatch):
+        """remote-b5's round 1: a relative name through a link in `.ssh`
+        and then up (`.ssh/lnk/../../x.yml`) was followed, and the answer
+        said where the link leads, which a name with no such link does not."""
+        address, machine = served
+        home = tmp_path / "home"
+        started = home / "md"
+        started.mkdir(parents=True)
+        (home / ".ssh").mkdir()
+        far = tmp_path / "far"
+        (far / "a" / "b").mkdir(parents=True)
+        (far / "proj").mkdir()
+        (far / "proj" / "c.yml").write_text(machine.study.read_text())
+        (home / ".ssh" / "lnk").symlink_to(far / "a" / "b")
+        monkeypatch.chdir(started)
+        answers = set()
+        for link in ("lnk", "none"):
+            _, said = _ask(address, "/api/remote/plan", {
+                "config": f"../.ssh/{link}/../../proj/c.yml", "machine": "box"})
+            assert said["code"] == "remote.config.read_elsewhere", link
+            assert str(far) not in said["error"] and "GUI on the" not in said["error"], link
+            answers.add(said["error"].replace(link, "NAME"))
+        assert len(answers) == 1, answers
+
+    def test_a_settings_folder_kept_by_a_link_is_kept_apart(
+            self, machine, tmp_path, monkeypatch):
+        """remote-b5's round 1: a settings folder kept elsewhere by a link
+        (`~/.config/gh -> ~/dotfiles/gh`) was offered a way when named where
+        it really is."""
+        import pwd
+
+        home = tmp_path / "account"
+        dotfiles = home / "dotfiles" / "gh"
+        dotfiles.mkdir(parents=True)
+        (dotfiles / "hosts.yml").write_text("github.com: {oauth_token: x}\n")
+        (home / ".config").mkdir()
+        (home / ".config" / "gh").symlink_to(dotfiles)
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        opened = (tmp_path / "work" / "first").resolve()
+        opened.mkdir(parents=True)
+        desk = RemoteDesk(DashboardRuntime(workspace_root=opened, exploration_root=opened.parent))
+        for named in (dotfiles / "hosts.yml", dotfiles / "missing.yml"):
+            said = desk.plan(str(named), "box")
+            assert said["error"].startswith(f"{named} is not a config file in"), named
+
+    def test_with_no_home_found_every_plan_says_so_alike(
+            self, machine, tmp_path, monkeypatch):
+        """remote-b5's round 1: with no home folder found, a config inside
+        the workspace met an unclassified error from the machine's record,
+        and a config in the real home folder read otherwise than a name not
+        there."""
+        import pwd
+
+        def nowhere(cls=None):
+            raise RuntimeError("Could not determine home directory.")
+
+        def no_entry(uid):
+            raise KeyError(uid)
+
+        root = machine.study.parent
+        desk = RemoteDesk(DashboardRuntime(workspace_root=root, exploration_root=root))
+        monkeypatch.setattr(Path, "home", classmethod(nowhere))
+        monkeypatch.setattr(pwd, "getpwuid", no_entry)
+        for named in (str(machine.study), str(tmp_path / "missing.yml"), "study.yml"):
+            said = desk.plan(named, "box")
+            assert said == {"ok": False, "error": (
+                "No home folder was found, so nothing is sent from any folder. Set "
+                "`HOME` to your home folder and start the GUI again."),
+                "code": "remote.input.outside"}, named
+
+    def test_only_a_study_s_config_is_told_how_to_be_sent(
+            self, machine, tmp_path, monkeypatch):
+        """remote-b5's round 2: a file of keys reached by a link from a place
+        of keys (`~/.kube -> ~/dotfiles/kube`, a single file linked from
+        `~/.config/gh`), or kept by the system, was told how to be sent, as
+        a study's config would be; and the way named the folder a link in
+        the name leads to."""
+        import pwd
+
+        home = tmp_path / "account"
+        kube = home / "dotfiles" / "kube"
+        kube.mkdir(parents=True)
+        (kube / "prod.yaml").write_text(
+            "apiVersion: v1\nclusters: []\nusers: [{name: x, user: {token: t}}]\n")
+        (home / ".kube").symlink_to(kube)
+        dots = home / "dots"
+        dots.mkdir()
+        (dots / "gh-hosts.yml").write_text("github.com: {oauth_token: x}\n")
+        (home / ".config" / "gh").mkdir(parents=True)
+        (home / ".config" / "gh" / "hosts.yml").symlink_to(dots / "gh-hosts.yml")
+        system = tmp_path / "etc" / "k3s"
+        system.mkdir(parents=True)
+        (system / "k3s.yaml").write_text("apiVersion: v1\nclusters: []\n")
+        far = tmp_path / "far" / "deep"
+        far.mkdir(parents=True)
+        (far / "c.yml").write_text(machine.study.read_text())
+        (home / "proj").mkdir()
+        (home / "proj" / "lnk").symlink_to(far)
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        opened = (tmp_path / "work" / "first").resolve()
+        opened.mkdir(parents=True)
+        desk = RemoteDesk(DashboardRuntime(workspace_root=opened, exploration_root=opened.parent))
+        for named in (kube / "prod.yaml", dots / "gh-hosts.yml", system / "k3s.yaml",
+                      kube / "missing.yaml"):
+            said = desk.plan(str(named), "box")
+            assert said["error"].startswith(f"{named} is not a config file in"), named
+        # A study's config behind a link is told the way by its name as given.
+        said = desk.plan(str(home / "proj" / "lnk" / "c.yml"), "box")
+        assert f"`cd {home / 'proj' / 'lnk'}`" in said["error"]
+        assert str(far) not in said["error"]
+
+    def test_a_name_through_a_place_of_keys_into_the_routes_is_not_followed(
+            self, served, tmp_path, monkeypatch):
+        """remote-b5's round 2: a name through a link in `.ssh` that leads
+        into the folders the routes reach was followed, and planned, which
+        told what is in `.ssh`."""
+        address, machine = served
+        root = machine.study.parent.resolve()
+        keys = tmp_path / "home" / ".ssh"
+        keys.mkdir(parents=True)
+        (keys / "lnk").symlink_to(root)
+        for named in (str(keys / "lnk" / "study.yml"), str(keys / "none" / "study.yml")):
+            _, said = _ask(address, "/api/remote/plan", {"config": named, "machine": "box"})
+            assert said["ok"] is False and "is not a config file in" in said["error"], named
+        monkeypatch.chdir(tmp_path / "home")
+        answers = set()
+        for link in ("lnk", "none"):
+            _, said = _ask(address, "/api/remote/plan", {"config": f".ssh/{link}/study.yml",
+                                                         "machine": "box"})
+            assert str(root / "study.yml") not in said["error"].split("; ")[0], link
+            answers.add(said["error"].replace(link, "NAME"))
+        assert len(answers) == 1, answers
+        assert not _sent(machine)
+
+    def test_a_name_read_alike_from_both_folders_is_said_as_named(
+            self, served, tmp_path):
+        """remote-b5's round 2: where the GUI was started in the folder it
+        opened, the refusal spoke of "the file checked", a check it never
+        mentions."""
+        address, machine = served
+        root = machine.study.parent.resolve()
+        far = (tmp_path / "far").resolve()
+        far.mkdir()
+        (far / "c.yml").write_text(machine.study.read_text())
+        _, said = _ask(address, "/api/remote/plan", {"config": "../far/c.yml", "machine": "box"})
+        assert said["error"].startswith(
+            f"A plan reads a relative name only inside the folder the GUI was opened on "
+            f"({root}), and ../far/c.yml leads out of it. The file ../far/c.yml names is "
+            f"outside the workspace ({root}), so its full path would be refused too: nothing "
+            "outside the workspace is sent from here.")
+        # remote-b5's round 3: a blank name read as " is not a config file".
+        _, blank = _ask(address, "/api/remote/plan", {"config": "  ", "machine": "box"})
+        assert blank["error"] == ("No config file was named. Give the full path of the "
+                                  "config to send.")
+
+    def test_a_window_on_the_home_folder_is_told_the_copy_way(
+            self, machine, tmp_path, monkeypatch):
+        """remote-b5's round 2: in a window opened on the home folder the
+        copy into a new folder was left out, though such a copy is sent."""
+        import pwd
+
+        home = (tmp_path / "account").resolve()
+        home.mkdir()
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        desk = RemoteDesk(DashboardRuntime(workspace_root=home, exploration_root=home.parent))
+        said = desk.plan(str(tmp_path / "far" / "none.yml"), "box")
+        assert said["error"].endswith(
+            "To send a config kept elsewhere, copy it, with the files it names, into a new "
+            f"folder inside {home} and give its full path there.")
+        above = RemoteDesk(DashboardRuntime(workspace_root=home.parent,
+                                            exploration_root=home.parent))
+        assert "To send" not in above.plan(str(tmp_path / "far" / "none.yml"), "box")["error"]
+
+    def test_a_config_or_results_in_a_place_of_settings_never_travel(
+            self, served, tmp_path, monkeypatch):
+        """remote-b5's round 3: in a window opened on the home folder, a
+        settings file there (`~/.config/gh/hosts.yml`) was planned and sent
+        as a study's config, token and all, and so was a config reached
+        through a link to `.ssh`; a results folder in `.ssh` was planned
+        too, for a fetch to fill. The same from the command line."""
+        import pwd
+
+        from fastmdxplora.refusals import refusal_of
+        from fastmdxplora.remote import send
+
+        _, machine = served
+        home = (tmp_path / "account").resolve()
+        study = machine.study.read_text()
+        (home / ".config" / "gh").mkdir(parents=True)
+        (home / ".config" / "gh" / "hosts.yml").write_text(study)
+        (home / ".config" / "doctl").mkdir()
+        (home / ".config" / "doctl" / "config.yaml").write_text(study)
+        (home / ".ssh").mkdir()
+        (home / ".ssh" / "c.yml").write_text(study)
+        (home / "proj").mkdir()
+        (home / "proj" / "keys").symlink_to(home / ".ssh")
+        (home / "proj" / "c.yml").write_text(study + f"output: {home / '.ssh' / 'run'}\n")
+        for name in ("top.pdb",):
+            for folder in (home / ".config" / "gh", home / ".config" / "doctl",
+                           home / ".ssh", home / "proj"):
+                (folder / name).write_text((machine.study.parent / name).read_text())
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        desk = RemoteDesk(DashboardRuntime(workspace_root=home, exploration_root=home.parent))
+        # A place of keys by name (`.config/gh`) or by a link on the way is
+        # not looked into: it reads as no config file. Others say the place.
+        for named in (home / ".config" / "gh" / "hosts.yml",
+                      home / "proj" / "keys" / "c.yml"):
+            said = desk.plan(str(named), "box")
+            assert said["ok"] is False and "is not a config file in" in said["error"], named
+        # remote-b6's round 2: other programs' settings, in the workspace,
+        # were said to be no config: the place is named.
+        said = desk.plan(str(home / ".config" / "doctl" / "config.yaml"), "box")
+        assert said["error"] == (
+            f"The config {home / '.config' / 'doctl' / 'config.yaml'} is in "
+            f"{home / '.config'}, where keys or settings are kept, so it is not sent. Put "
+            "the study's config and its files in a folder of their own.")
+        said = desk.plan(str(home / "proj" / "c.yml"), "box")
+        assert said["ok"] is False and said["code"] == "remote.input.outside"
+        assert said["error"] == (
+            f"The results folder {home / '.ssh' / 'run'} is in {home / '.ssh'}, where keys "
+            "or settings are kept, so nothing is fetched into it. Set `output` in the "
+            "config (or Results folder in the form) to a folder outside such places.")
+        assert not _sent(machine)
+        # The command line refuses them as well, config and results.
+        for config, output in ((home / ".config" / "gh" / "hosts.yml", None),
+                               (home / "proj" / "keys" / "c.yml", None),
+                               (machine.study, str(home / ".ssh" / "run"))):
+            with pytest.raises(Exception) as caught:
+                send.prepare(config, "box", output=output)
+            found = refusal_of(caught.value)
+            assert found.code == "remote.input.outside", config
+            assert "where keys or settings are kept" in found.message, config
+
+    def test_settings_kept_by_a_link_or_by_name_never_travel(
+            self, served, tmp_path, monkeypatch):
+        """remote-b6's round 1: a settings folder kept elsewhere by a link
+        (`~/.config/gh -> ~/dotfiles/gh`) was sent from a window on the home
+        folder, token and all, and from anywhere when named where it really
+        is; a key under `~/.ssh -> ~/dotfiles/ssh` travelled as an input; a
+        settings folder named by `XDG_CONFIG_HOME` or kept in `~/Library`,
+        and a prepared study in `~/.local/share`, were sent too."""
+        import pwd
+
+        from fastmdxplora.refusals import refusal_of
+        from fastmdxplora.remote import send
+        from fastmdxplora.remote.inputs import gather_inputs, kept_place_of
+
+        _, machine = served
+        home = (tmp_path / "account").resolve()
+        study = machine.study.read_text()
+        pdb = (machine.study.parent / "top.pdb").read_text()
+        gh = home / "dotfiles" / "gh"
+        gh.mkdir(parents=True)
+        (gh / "hosts.yml").write_text(study + "oauth_token: gho_SECRET\n")
+        (gh / "top.pdb").write_text(pdb)
+        (home / ".config").mkdir()
+        (home / ".config" / "gh").symlink_to(gh)
+        (home / "dotfiles" / "ssh").mkdir()
+        (home / "dotfiles" / "ssh" / "id_ed25519").write_text("KEY\n")
+        (home / ".ssh").symlink_to(home / "dotfiles" / "ssh")
+        conf = home / "conf" / "doctl"
+        conf.mkdir(parents=True)
+        (conf / "c.yml").write_text(study)
+        support = home / "Library" / "Application Support" / "tool"
+        support.mkdir(parents=True)
+        (support / "c.yml").write_text(study)
+        cloud = home / "Library" / "CloudStorage" / "Dropbox" / "s"
+        cloud.mkdir(parents=True)
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(home / "conf"))
+        desk = RemoteDesk(DashboardRuntime(workspace_root=home, exploration_root=home.parent))
+        for named in (home / ".config" / "gh" / "hosts.yml", gh / "hosts.yml",
+                      conf / "c.yml", support / "c.yml"):
+            said = desk.plan(str(named), "box")
+            assert said["ok"] is False, named
+            with pytest.raises(Exception) as caught:
+                send.prepare(named, "box")
+            assert refusal_of(caught.value).code == "remote.input.outside", named
+        assert not _sent(machine)
+        # The person's own files there are not kept apart.
+        assert kept_place_of(cloud / "c.yml", a_file=True) is None
+        # A key reached through the link is not sent as an input.
+        with pytest.raises(Exception) as caught:
+            gather_inputs({"systems": [{"system": "top.pdb"}], "keys": "ssh/id_ed25519"},
+                          home / "dotfiles")
+        assert refusal_of(caught.value).code == "remote.input.outside"
+        assert "keys and credentials are kept" in refusal_of(caught.value).message
+        # Nor a prepared study kept in a settings folder.
+        prepared = home / ".local" / "share" / "tool"
+        prepared.mkdir(parents=True)
+        (prepared / "manifest.json").write_text('{"phases": ["setup"]}')
+        (home / ".local" / "share" / "s.yml").write_text(study)
+        with pytest.raises(Exception) as caught:
+            gather_inputs({"systems": [{"system": "top.pdb"}],
+                           "simulation": {"resume_from": str(prepared)}},
+                          home / "proj")
+        assert refusal_of(caught.value).code == "remote.input.outside"
+        assert "keys and credentials are kept" in refusal_of(caught.value).message
+
+    def test_the_place_named_is_the_folder_and_only_home_s_own_dot_folders(
+            self, tmp_path, monkeypatch):
+        """remote-b6's round 1: the refusal named the file as the place keys
+        are kept, and took the person's own dot folders at any depth
+        (`~/projects/.hidden`) for places of settings; a home folder typed
+        in other letters on a disk that ignores them was not seen."""
+        import pwd
+
+        from fastmdxplora.remote import inputs
+        from fastmdxplora.remote.inputs import kept_place_of
+
+        home = (tmp_path / "account").resolve()
+        (home / ".ssh" / "s1").mkdir(parents=True)
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        assert kept_place_of(home / ".ssh" / "s1" / "study.yml", a_file=True) == home / ".ssh"
+        assert kept_place_of(home / ".ssh" / "run") == home / ".ssh"
+        assert kept_place_of(home / ".config" / "x" / "c.yml", a_file=True) == home / ".config"
+        for own in (home / "projects" / ".hidden" / "study.yml",
+                    home / "md" / "s2" / ".runs" / "r1" / "c.yml"):
+            assert kept_place_of(own, a_file=True) is None, own
+        monkeypatch.setattr(inputs.sys, "platform", "darwin")
+        typed = Path(str(home).upper()) / ".config" / "x" / "c.yml"
+        assert kept_place_of(typed, a_file=True) is not None
+
+    def test_links_into_places_of_keys_are_found_however_they_are_kept(
+            self, tmp_path, monkeypatch):
+        """remote-b6's round 2: links were looked for only in a few places
+        and the search stopped at the first folder it could not read, so a
+        key a dotfiles manager linked into `~/.ssh` or `~/.aws`, an app's
+        folder in `~/Library/Application Support` linked to Dropbox, a link
+        three folders down in `~/.config`, and one listed after an unreadable
+        folder, all travelled; a link to the home folder's own parent kept
+        everything back, and an XDG variable that is no full path raised or
+        kept the folder the send was started in."""
+        import os
+        import pwd
+
+        from fastmdxplora.refusals import refusal_of
+        from fastmdxplora.remote import inputs
+        from fastmdxplora.remote.inputs import gather_inputs, kept_place_of
+
+        home = (tmp_path / "account").resolve()
+        dots = home / "dotfiles"
+        (dots / "ssh").mkdir(parents=True)
+        (dots / "ssh" / "id_ed25519").write_text("KEY\n")
+        (dots / "aws").mkdir()
+        (dots / "aws" / "credentials").write_text("[default]\n")
+        (dots / "deep").mkdir()
+        (dots / "deep" / "c.yml").write_text("token: x\n")
+        (dots / "late").mkdir()
+        (dots / "late" / "hosts.yml").write_text("token: x\n")
+        (home / ".ssh").mkdir()
+        (home / ".ssh" / "id_ed25519").symlink_to(dots / "ssh" / "id_ed25519")
+        (home / ".aws").mkdir()
+        (home / ".aws" / "credentials").symlink_to(dots / "aws" / "credentials")
+        (home / "Dropbox" / "App").mkdir(parents=True)
+        (home / "Dropbox" / "App" / "c.yml").write_text("token: x\n")
+        support = home / "Library" / "Application Support"
+        support.mkdir(parents=True)
+        (support / "App").symlink_to(home / "Dropbox" / "App")
+        (home / ".config" / "a" / "b").mkdir(parents=True)
+        (home / ".config" / "a" / "b" / "c").symlink_to(dots / "deep")
+        (home / ".config" / "aaa").mkdir()
+        (home / ".config" / "zzz").symlink_to(dots / "late")
+        (home / ".foo").symlink_to(home.parent)
+        (home / "proj").mkdir()
+        unreadable = home / ".config" / "aaa"
+        listing = os.scandir
+
+        def scandir(path="."):
+            if Path(path) == unreadable:
+                raise PermissionError(13, "Permission denied", str(path))
+            return listing(path)
+
+        monkeypatch.setattr(inputs.os, "scandir", scandir)
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("XDG_DATA_HOME", ".")
+        monkeypatch.setenv("XDG_CONFIG_HOME", "~nosuchuser/x")
+        inputs._KEPT_CACHE.clear()
+        for kept in (dots / "ssh" / "id_ed25519", dots / "aws" / "credentials",
+                     dots / "deep" / "c.yml", dots / "late" / "hosts.yml"):
+            assert kept_place_of(kept, a_file=True) is not None, kept
+        with pytest.raises(Exception) as caught:
+            gather_inputs({"systems": [{"system": "top.pdb"}], "key": "ssh/id_ed25519"}, dots)
+        assert refusal_of(caught.value).code == "remote.input.outside"
+        # Nothing else is kept back by the link to home's parent, nor by an
+        # XDG folder given as `.`.
+        monkeypatch.chdir(home / "proj")
+        assert kept_place_of(home / "proj" / "c.yml", a_file=True) is None
+
+    def test_the_person_s_own_folders_are_not_kept_by_apps_links(
+            self, tmp_path, monkeypatch):
+        """remote-b6's round 3: every link found in the home folder's
+        settings made its target a place of keys, so the links sandboxed
+        apps keep to `~/Documents` and `~/Desktop` (`~/Library/Containers`),
+        Wine's to `~/Documents`, and a link in the Trash refused ordinary
+        studies on every Mac."""
+        import pwd
+
+        from fastmdxplora.remote import inputs
+        from fastmdxplora.remote.inputs import kept_place_of
+
+        home = (tmp_path / "account").resolve()
+        for own in ("Documents", "Desktop", "md"):
+            (home / own).mkdir(parents=True)
+        (home / "md" / "project").mkdir()
+        data = home / "Library" / "Containers" / "app" / "Data"
+        data.mkdir(parents=True)
+        (data / "Documents").symlink_to(home / "Documents")
+        (data / "Desktop").symlink_to(home / "Desktop")
+        wine = home / ".wine" / "drive_c" / "users" / "me"
+        wine.mkdir(parents=True)
+        (wine / "Documents").symlink_to(home / "Documents")
+        trash = home / ".local" / "share" / "Trash" / "files"
+        trash.mkdir(parents=True)
+        (trash / "data").symlink_to(home / "md" / "project")
+        support = home / "Library" / "Application Support"
+        support.mkdir(parents=True)
+        (support / "App").symlink_to(home / "Documents")
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        inputs._KEPT_CACHE.clear()
+        for study in (home / "Documents" / "lysozyme" / "study.yml",
+                      home / "Desktop" / "s" / "study.yml",
+                      home / "md" / "project" / "study.yml"):
+            assert kept_place_of(study, a_file=True) is None, study
+
+    def test_a_home_whose_name_folds_to_other_letters_is_seen(self, tmp_path, monkeypatch):
+        """remote-b6's round 2: a home folder named in letters that fold to
+        more (`Stra\u00dfe` for `strasse`) was cut at the wrong place, and its
+        own `.local` was missed."""
+        import pwd
+
+        from fastmdxplora.remote import inputs
+        from fastmdxplora.remote.inputs import kept_place_of
+
+        home = (tmp_path / "strasse").resolve()
+        home.mkdir()
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setattr(inputs.sys, "platform", "darwin")
+        # Typed with the letter that folds to two.
+        typed = home.parent / "Stra\u00dfe" / ".local" / "x" / "c.yml"
+        assert kept_place_of(typed, a_file=True) is not None
+
+    def test_only_a_study_s_config_travels_and_each_refusal_says_its_way(
+            self, served, tmp_path, monkeypatch):
+        """remote-b6's round 3: a file of settings could travel as a config
+        wherever no rule of places reached it; the command line's results
+        remedy offered a way that fails where `--output` was given; a
+        settings folder named with a trailing `/` was not kept; a place one
+        cannot read, or one too large to look through, broke or passed the
+        send; and the refusal did not say a link led there."""
+        import os
+        import pwd
+
+        from fastmdxplora.refusals import StudyError, refusal_of
+        from fastmdxplora.remote import inputs, send
+        from fastmdxplora.remote.inputs import kept_place_of
+
+        _, machine = served
+        home = (tmp_path / "account").resolve()
+        work = home / "work"
+        work.mkdir(parents=True)
+        (work / "hosts.yml").write_text("github.com: {oauth_token: x}\n")
+        conf = home / "conf"
+        (conf / "tool").mkdir(parents=True)
+        dots = home / "dotfiles" / "gh"
+        dots.mkdir(parents=True)
+        (home / ".config").mkdir()
+        (home / ".config" / "gh").symlink_to(dots)
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(conf) + "/")
+        inputs._KEPT_CACHE.clear()
+        with pytest.raises(StudyError) as caught:
+            send.prepare(work / "hosts.yml", "box")
+        assert refusal_of(caught.value).code == "config.option.missing_companion"
+        assert kept_place_of(conf / "tool" / "c.yml", a_file=True) is not None
+        with pytest.raises(StudyError) as caught:
+            send.prepare(machine.study, "box", output=str(home / ".ssh" / "run"))
+        assert caught.value.args[0].endswith(
+            "Give `--output` naming a folder outside such places.")
+        said = inputs.kept_place_said(dots / "hosts.yml", kept_place_of(dots / "hosts.yml"))
+        assert f"(a link, {home / '.config' / 'gh'}, leads there)" in said
+        # A place that cannot be read is passed over; one too large refuses.
+        listing = os.scandir
+
+        def scandir(path="."):
+            if Path(path) == home / ".config":
+                raise PermissionError(13, "Permission denied", str(path))
+            return listing(path)
+
+        monkeypatch.setattr(inputs.os, "scandir", scandir)
+        inputs._KEPT_CACHE.clear()
+        assert kept_place_of(work / "c.yml", a_file=True) is None
+        monkeypatch.setattr(inputs.os, "scandir", listing)
+        monkeypatch.setattr(inputs, "_LINK_ENTRIES", 3)
+        for n in range(5):
+            (home / ".config" / f"f{n}").write_text("")
+        inputs._KEPT_CACHE.clear()
+        with pytest.raises(StudyError) as caught:
+            kept_place_of(work / "c.yml", a_file=True)
+        assert "nothing is sent" in caught.value.args[0]
+
+    def test_a_key_behind_a_link_from_a_place_of_keys_never_travels(
+            self, tmp_path, monkeypatch):
+        """remote-b7's round 1: a link from `~/.ssh`, a place of keys in
+        `.config` or a home's own dot entry into a folder directly in the
+        home folder (`~/.ssh -> ~/keys`) was taken for an app's link into
+        `~/Documents`, so a study in `~/keys` sent the key; a continuation
+        named by `prepared_from` was told it named no study; and a link
+        four folders down in `~/.config/gcloud` was not seen."""
+        import pwd
+
+        from fastmdxplora.refusals import StudyError, refusal_of
+        from fastmdxplora.remote import inputs
+        from fastmdxplora.remote.inputs import gather_inputs, kept_place_of, names_a_study
+
+        home = (tmp_path / "account").resolve()
+        for own in ("keys", "gh", "pass", "Documents", "creds"):
+            (home / own).mkdir(parents=True)
+        (home / "keys" / "id_ed25519").write_text("KEY\n")
+        (home / ".ssh").symlink_to(home / "keys")
+        (home / ".config" / "gcloud" / "legacy_credentials" / "me").mkdir(parents=True)
+        (home / ".config" / "gh").symlink_to(home / "gh")
+        (home / ".config" / "gcloud" / "legacy_credentials" / "me" / "adc").symlink_to(
+            home / "creds")
+        (home / ".password-store").symlink_to(home / "pass")
+        # A program's link in `.config` into the person's own folder.
+        (home / ".config" / "app").mkdir()
+        (home / ".config" / "app" / "docs").symlink_to(home / "Documents")
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        inputs._KEPT_CACHE.clear()
+        for kept in ("keys", "gh", "pass", "creds"):
+            assert kept_place_of(home / kept / "study.yml", a_file=True) == home / kept, kept
+        assert kept_place_of(home / "Documents" / "s" / "study.yml", a_file=True) is None
+        with pytest.raises(StudyError) as caught:
+            gather_inputs({"systems": [{"system": "x.pdb"}],
+                           "ligand": {"file": "id_ed25519"}}, home / "keys")
+        assert refusal_of(caught.value).code == "remote.input.outside"
+        said = inputs.kept_place_said(home / "keys" / "study.yml", home / "keys")
+        assert f"(a link, {home / '.ssh'}, leads there)" in said
+        assert said.endswith(f"Move the study's config and its files out of {home / 'keys'}.")
+        assert names_a_study({"simulation": {"prepared_from": "../first"}})
+
+    def test_no_send_is_kept_back_by_programs_own_large_folders(
+            self, tmp_path, monkeypatch):
+        """remote-b7's round 1: `LOCALAPPDATA` (its `Temp`) and package
+        stores such as `~/.local/share/mamba/pkgs` were looked through for
+        links, so one too large to look through refused every send; an XDG
+        folder set to the home folder was looked through as one; and a
+        place too large was looked through again at every check."""
+        import os
+        import pwd
+
+        from fastmdxplora.refusals import StudyError
+        from fastmdxplora.remote import inputs
+        from fastmdxplora.remote.inputs import kept_place_of
+
+        home = (tmp_path / "account").resolve()
+        local = home / "AppData" / "Local"
+        (local / "Temp").mkdir(parents=True)
+        pkgs = home / ".local" / "share" / "mamba" / "pkgs"
+        pkgs.mkdir(parents=True)
+        (home / "Documents" / "st").mkdir(parents=True)
+        (home / "Documents" / "ref").symlink_to(home / "Documents" / "st")
+        for n in range(5):
+            (local / "Temp" / f"t{n}").write_text("")
+            (local / f"l{n}").write_text("")
+            (pkgs / f"p{n}").mkdir()
+            (home / f"h{n}").write_text("")
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("LOCALAPPDATA", str(local))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(home))
+        monkeypatch.setattr(inputs, "_LINK_ENTRIES", 3)
+        inputs._KEPT_CACHE.clear()
+        study = home / "Documents" / "st" / "study.yml"
+        assert kept_place_of(study, a_file=True) is None
+        # LOCALAPPDATA is still a place of settings by its name.
+        assert kept_place_of(local / "x" / "c.yml", a_file=True) is not None
+        # A place too large refuses once, and is not looked through again.
+        for n in range(5):
+            (home / ".config" / f"f{n}").mkdir(parents=True)
+        inputs._KEPT_CACHE.clear()
+        listing = os.scandir
+        looked = []
+
+        def scandir(path="."):
+            looked.append(Path(path))
+            return listing(path)
+
+        monkeypatch.setattr(inputs.os, "scandir", scandir)
+        for _ in range(2):
+            with pytest.raises(StudyError) as caught:
+                kept_place_of(study, a_file=True)
+        assert looked.count(home / ".config") == 1
+        assert "holds more than 3 entries" in caught.value.args[0]
+        assert "Remove old caches or data you no longer need" in caught.value.args[0]
+
+    def test_a_place_too_large_to_look_through_is_said_in_the_gui(
+            self, tmp_path, monkeypatch):
+        """remote-b7's round 1: in the GUI the refusal of a place of settings
+        too large to look through was read as any error, so a study's config
+        outside the window was told to be copied in, which was refused in
+        turn for the real reason."""
+        import pwd
+
+        from fastmdxplora.remote import inputs
+
+        home = (tmp_path / "account").resolve()
+        root = home / "md" / "first"
+        root.mkdir(parents=True)
+        study = home / "Documents" / "proj" / "study.yml"
+        study.parent.mkdir(parents=True)
+        study.write_text("systems: [{system: 1L2Y}]\n")
+        share = home / ".local" / "share"
+        share.mkdir(parents=True)
+        for n in range(5):
+            (share / f"s{n}").write_text("")
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setattr(inputs, "_LINK_ENTRIES", 3)
+        inputs._KEPT_CACHE.clear()
+        said = RemoteDesk(root).plan(str(study), "box")
+        assert said["ok"] is False
+        assert f"{share} holds more than 3 entries" in said["error"], said
+        assert "copy the config" not in said["error"]
+
+    def test_a_config_that_cannot_be_read_is_said_without_its_lines(self, served):
+        """remote-b6's round 1: a config that could not be read was said with
+        the YAML reader's message, which quotes a line of the file."""
+        address, machine = served
+        bad = machine.study.parent / "bad.yml"
+        bad.write_text("token: SECRET_LINE: [\n")
+        _, said = _ask(address, "/api/remote/plan", {"config": str(bad), "machine": "box"})
+        assert said["ok"] is False and "could not be read" in said["error"]
+        assert "SECRET_LINE" not in said["error"]
+
+    def test_a_name_through_a_link_into_a_place_of_keys_is_not_followed(
+            self, served, tmp_path, monkeypatch):
+        """remote-b5's round 3: a name through a link to `.ssh` with no dot
+        in its own parts (`proj/keys/lnk/x.yml`, `keys -> ~/.ssh`) was
+        followed into the routes, and told what is in `.ssh`."""
+        address, machine = served
+        root = machine.study.parent.resolve()
+        home = tmp_path / "home"
+        (home / ".ssh").mkdir(parents=True)
+        (home / ".ssh" / "lnk").symlink_to(root)
+        (home / "proj").mkdir()
+        (home / "proj" / "keys").symlink_to(home / ".ssh")
+        monkeypatch.chdir(home)
+        answers = set()
+        for link in ("lnk", "none"):
+            _, said = _ask(address, "/api/remote/plan", {
+                "config": f"proj/keys/{link}/study.yml", "machine": "box"})
+            assert said["ok"] is False, link
+            answers.add(said["error"].replace(link, "NAME"))
+            _, full = _ask(address, "/api/remote/plan", {
+                "config": str(home / "proj" / "keys" / link / "study.yml"), "machine": "box"})
+            assert "is not a config file in" in full["error"], link
+        assert len(answers) == 1, answers
+        assert not _sent(machine)
+
+    def test_a_config_is_judged_without_waiting_or_reading_much(self, tmp_path):
+        """remote-b5's round 3: a config outside the routes was read whole
+        once its size was seen, so a file grown since was read in full and a
+        pipe put in its place held the request."""
+        import os
+
+        from fastmdxplora.gui.remote_routes import _CONFIG_READ_BYTES, _a_study_config
+
+        pipe = tmp_path / "c.yml"
+        os.mkfifo(pipe)
+        said: list[bool] = []
+        # In a thread, so a read held by the pipe fails the test, not the run.
+        reading = threading.Thread(target=lambda: said.append(_a_study_config(pipe)),
+                                   daemon=True)
+        reading.start()
+        reading.join(timeout=5)
+        assert said == [False], "held by a pipe"
+        big = tmp_path / "big.yml"
+        big.write_text("systems: []\n" + "# x\n" * _CONFIG_READ_BYTES)
+        assert _a_study_config(big) is False
+        small = tmp_path / "small.yml"
+        small.write_text("systems: [{system: 1UBQ}]\n")
+        assert _a_study_config(small) is True
+
+    def test_a_send_from_the_command_line_with_no_home_found_says_so(
+            self, machine, tmp_path, monkeypatch):
+        """remote-b4's round 3: with no home folder found, a send was
+        refused by the look for your defaults, as an unclassified error,
+        before its own refusal could say why."""
+        import pwd
+
+        from fastmdxplora.refusals import refusal_of
+        from fastmdxplora.remote import send
+
+        def nowhere(cls=None):
+            raise RuntimeError("Could not determine home directory.")
+
+        def no_entry(uid):
+            raise KeyError(uid)
+
+        monkeypatch.setattr(Path, "home", classmethod(nowhere))
+        monkeypatch.setattr(pwd, "getpwuid", no_entry)
+        with pytest.raises(Exception) as caught:
+            send.prepare(machine.study, "box")
+        found = refusal_of(caught.value)
+        assert found.code == "remote.input.outside"
+        assert "No home folder was found" in found.message
+
+    def test_a_hard_link_to_the_config_planned_is_not_the_one_checked(
+            self, served, tmp_path, monkeypatch):
+        """Round 1: the same file reached from another folder was taken for
+        the one planned, though the files it names by relative paths are
+        read from that other folder."""
+        address, machine = served
+        far = tmp_path / "far"
+        far.mkdir()
+        (far / "study.yml").hardlink_to(machine.study)
+        (far / "top.pdb").write_text("ATOM      other\n")
+        monkeypatch.chdir(far)
+        _, said = _ask(address, "/api/remote/plan", {"config": "study.yml", "machine": "box"})
+        assert said["ok"] is False and said["code"] == "remote.config.read_elsewhere"
+        assert not _sent(machine)
+
+    def test_a_command_in_a_note_is_quoted_or_not_shown(self, machine, tmp_path):
+        """Round 1: the note's commands named their folders unquoted, so a
+        name with a space or `$(...)` broke the command or ran another; and
+        a name no quoting holds safely is said in words."""
+        from fastmdxplora.gui.remote_routes import _as_typed
+
+        root = machine.study.parent.resolve()
+        odd = root / "my $(touch x) runs"
+        odd.mkdir()
+        desk = RemoteDesk(DashboardRuntime(workspace_root=odd, exploration_root=Path("/")))
+        said = desk.machines()["not_built_here"]
+        assert f"`fastmdx gui --output '{odd / 'first'}'`" in said
+        curly = root / "it\u2019s"
+        assert _as_typed(curly) is None
+        # Round 2: fish reads a backslash in single quotes as an escape.
+        assert _as_typed(root / "a\\';echo x;'") is None
+        assert _as_typed(root / "it's") is None
+        # remote-b4's round 3: csh reads `!` inside single quotes.
+        assert _as_typed(root / "a!b") is None
+        curly.mkdir()
+        words = RemoteDesk(DashboardRuntime(workspace_root=curly, exploration_root=Path("/")))
+        said = words.machines()["not_built_here"]
+        assert f"with `fastmdx gui --output` naming a new folder in {curly}." in said
+
+    def test_a_name_the_folder_started_in_cannot_follow_is_refused(
+            self, served, tmp_path, monkeypatch):
+        """Round 3 of the last round: a name that could not be followed from
+        the folder the GUI was started in (a loop of links there) was let
+        through to the plan, which read another file."""
+        address, machine = served
+        root = machine.study.parent
+        started = tmp_path / "typed-here"
+        started.mkdir()
+        (started / "loop").symlink_to(started / "loop")
+        (root / "loop").mkdir()
+        (root / "loop" / "study.yml").write_text(machine.study.read_text())
+        monkeypatch.chdir(started)
+        status, said = _ask(address, "/api/remote/plan", {"config": "loop/study.yml",
+                                                          "machine": "box"})
+        # Refused, whether the loop is said (Python before 3.13) or read
+        # through as another file.
+        assert said["ok"] is False and said["code"] == "remote.config.read_elsewhere"
+        assert not _sent(machine)
+
+    def test_a_config_the_disk_reads_as_the_one_checked_is_planned(
+            self, machine, tmp_path, monkeypatch):
+        """Round 3 of the last round: where the disk ignores the case of
+        letters, the file checked and the one planned were told apart by
+        their names' text, and the plan refused."""
+        import os
+
+        root = machine.study.parent.resolve()
+        desk = RemoteDesk(DashboardRuntime(workspace_root=root, exploration_root=root))
+        # A folder of its own: beside the fixture's `study`, a disk that
+        # ignores case (macOS's usual one) reads `Study` as that folder,
+        # which already exists (CI on b9c66bbd).
+        started = tmp_path / "typed-here" / "Study"
+        started.mkdir(parents=True)
+        (started / "study.yml").write_text("output: other\n")
+        monkeypatch.chdir(started)
+        real = os.path.samefile
+        # The disk reads the folder and the file in other letters as these.
+        alike = ({str(started.resolve() / "study.yml"), str(root / "study.yml")},
+                 {str(started.resolve()), str(root)})
+        monkeypatch.setattr(os.path, "samefile", lambda a, b: (
+            {str(a), str(b)} in alike or real(a, b)))
+        assert desk._read_elsewhere_here("study.yml") is None
+
+    def test_a_home_folder_that_cannot_be_looked_in_still_opens_the_panel(
+            self, machine, tmp_path, monkeypatch):
+        """Round 3 of the last round: a home folder whose look raised (no
+        permission to search it) broke the machines route, and the panel did
+        not open."""
+        import pwd
+
+        top = tmp_path / "homes"
+        home = top / "account"
+        home.mkdir(parents=True)
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(home))
+        looked = Path.is_dir
+
+        def is_dir(self, *args, **kwargs):
+            if self == home.resolve():
+                raise PermissionError(13, "Permission denied", str(self))
+            return looked(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "is_dir", is_dir)
+        desk = RemoteDesk(DashboardRuntime(workspace_root=top, exploration_root=tmp_path))
+        said = desk.machines()["not_built_here"]
+        assert said.startswith("Studies built in the form would be saved in")
+        assert f"`fastmdx gui --output {home.resolve() / 'md' / 'first'}`" in said
+
+    def test_the_settings_under_the_account_s_home_never_travel_whatever_home_says(
+            self, tmp_path, monkeypatch):
+        """Round 3 of the last round: FastMDXplora's settings were found
+        through `HOME` alone, so with `HOME` naming another folder the ones
+        under the account's own home were not kept back."""
+        import pwd
+
+        from fastmdxplora.remote.inputs import private_in
+
+        home = tmp_path / "account"
+        model = home / ".config" / "fastmdxplora" / "model.json"
+        model.parent.mkdir(parents=True)
+        model.write_text("{}")
+        real = pwd.getpwuid(0)
+        account = type(real)((real.pw_name, real.pw_passwd, real.pw_uid, real.pw_gid,
+                              real.pw_gecos, str(home), real.pw_shell))
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+        monkeypatch.setenv("HOME", str(tmp_path / "elsewhere"))
+        monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+        assert private_in(model) == model
+        assert private_in(home / ".config" / "fastmdxplora") is not None
+
+    def test_with_no_home_found_no_config_travels(self, tmp_path, monkeypatch):
+        """Round 3 of the last round: with no home folder to be found, a
+        config was sent from any folder, though that folder could be the
+        home folder."""
+        import pwd
+
+        from fastmdxplora.refusals import refusal_of
+        from fastmdxplora.remote.inputs import gather_inputs
+
+        def nowhere(cls=None):
+            raise RuntimeError("Could not determine home directory.")
+
+        def no_entry(uid):
+            raise KeyError(uid)
+
+        monkeypatch.setattr(Path, "home", classmethod(nowhere))
+        monkeypatch.setattr(pwd, "getpwuid", no_entry)
+        folder = tmp_path / "study"
+        folder.mkdir()
+        (folder / "top.pdb").write_text("ATOM\n")
+        with pytest.raises(Exception) as caught:
+            gather_inputs({"systems": [{"system": "top.pdb"}]}, folder)
+        found = refusal_of(caught.value)
+        assert found.code == "remote.input.outside"
+        assert "No home folder was found" in found.message
+        assert "Set `HOME` to your home folder" in found.message
+        # Round 2: the GUI said nothing of it for a config outside its reach.
+        opened = tmp_path / "opened"
+        opened.mkdir()
+        (folder / "c.yml").write_text("output: c\n")
+        desk = RemoteDesk(DashboardRuntime(workspace_root=opened, exploration_root=opened))
+        said = desk.plan(str(folder / "c.yml"), "box")
+        assert said["error"].endswith("No home folder was found, so nothing is sent from "
+                                      "any folder. Set `HOME` to your home folder and start "
+                                      "the GUI again.")
 
     def test_a_results_name_written_in_the_form_is_a_bare_name(self, machine, tmp_path):
         """Round 1 of the next round: the empty Results box was filled with
@@ -525,9 +1688,14 @@ class TestTheConfigBuilder:
             status, said = _ask(address, "/api/remote/machines")
         assert status == 200 and said["ok"], said
         # Round 3 of the last round: it named no remedy, and said "here" twice.
-        assert "no home folder was found" in said["not_built_here"]
-        assert "set `HOME` and start the GUI again" in said["not_built_here"]
-        assert said["not_built_here"].count("here") == 0
+        assert said["not_built_here"].startswith("No home folder was found")
+        assert "Set `HOME` to your home folder and start the GUI again" in said["not_built_here"]
+        assert " here" not in said["not_built_here"]
+        # Round 3 of the last round: it said "neither `HOME` nor the account
+        # names one", untrue where `HOME` is `/`, and offered A config I
+        # have, which a send then refuses with no home found.
+        assert "neither" not in said["not_built_here"]
+        assert "A config I have" not in said["not_built_here"]
         desk = RemoteDesk(runtime)
         assert desk.roots == [opened.resolve()]
         saved, refused, _ = desk._saved(STATE)

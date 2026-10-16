@@ -301,8 +301,10 @@ def reweighted_estimate(
     from fastmdxplora.statistics import (
         MINIMUM_EFFECTIVE_SAMPLES,
         RESOLVED_SAMPLES,
+        UNCORRELATED_INEFFICIENCY,
         Withholding,
         correlation_is_resolved,
+        independent_samples_said,
     )
 
     array = np.asarray(values, dtype=float).ravel()
@@ -315,7 +317,7 @@ def reweighted_estimate(
         "independent_samples": independent,
     }
     n = int(array.size)
-    cv_resolved = (not np.isfinite(inefficiency) or inefficiency < 2.0
+    cv_resolved = (not np.isfinite(inefficiency) or inefficiency < UNCORRELATED_INEFFICIENCY
                    or n / float(inefficiency) >= RESOLVED_SAMPLES)
     reason = None
     if n < 3 or not (correlation_is_resolved(array) and cv_resolved):
@@ -332,7 +334,7 @@ def reweighted_estimate(
         reason = Withholding(
             f"{weights.effective_sample_size:.0f} weight-concentration "
             f"effective frames, correlated over {g:.0f} frames, hold "
-            f"{independent:.1f} independent samples. Below "
+            f"{independent_samples_said(independent, about=True)}. Below "
             f"{MINIMUM_EFFECTIVE_SAMPLES:g} an error on a reweighted mean "
             "describes how this run happened to go rather than the system. "
             "The remedy is a longer run, or replicas.",

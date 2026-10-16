@@ -22,6 +22,7 @@ FastMDXplora/
 │       ├── study_tags.py          # Tags and a note a person gives a study, kept in its folder
 │       ├── structure_search.py    # A structure found by its name: the PDB's entries by protein, AlphaFold DB's models
 │       ├── workspace_studies.py   # The studies in a workspace listed and compared, for the Agent and an AI app
+│       ├── offered_tools.py       # Every tool the Agent and an AI app are offered, each defined once
 │       ├── software_docs.py       # The software's own docs, packaged as `_docs/`: their pages, sections and a search
 │       ├── system_id.py           # A study's system as four capitals: its PDB ID, or its file's first four
 │       ├── replaced.py            # What a phase run again replaces, and what it leaves stale
@@ -145,6 +146,7 @@ FastMDXplora/
 │       │   ├── exploration.py     # Study builder, config export, run control
 │       │   ├── remote_routes.py   # The routes to your machines: plan, send, watch, fetch, stop
 │       │   ├── server.py          # Dependency-free ThreadingHTTPServer, on loopback unless bound elsewhere
+│       │   ├── accents.py         # The five accents, and the one a service hosting the GUI chose
 │       │   ├── telemetry.py       # Phase/progress telemetry feed
 │       │   ├── trajectory_frames.py, live_frames.py   # Frame streaming
 │       │   ├── protein_preview.py, structure_info.py, ligand_detection.py

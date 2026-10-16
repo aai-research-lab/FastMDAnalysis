@@ -875,7 +875,8 @@ def run_ended_unsaid(project_root: str | Path, status: dict[str, Any] | None = N
 
 def status_as_it_stands(project_root: str | Path) -> dict[str, Any]:
     """The run's record as the GUI shows it: as written, except for a run
-    that ended without saying so. One that had taken every step it planned
+    that ended without saying so, and a run of a study of several waiting
+    for its study's next round (`between_rounds`, said `waiting`). One that had taken every step it planned
     in a stage of the simulation finished it (the Python API's `simulate`
     writes no end of its own); any other is `interrupted`, with how that is
     known as `ended_by`. What the record said is kept as `recorded_status`.
@@ -884,13 +885,216 @@ def status_as_it_stands(project_root: str | Path) -> dict[str, Any]:
     status = read_study_status(project_root)
     ended = how_the_run_ended(project_root, status) if status else None
     if ended is None:
-        return status
+        waiting = between_rounds(project_root, status) if status else None
+        if waiting is None:
+            return status
+        return _waiting_for_the_round(status, waiting)
     step, total = status.get("current_step"), status.get("total_planned_steps")
     finished = (str(status.get("stage") or "").lower() in _STEPPED_STAGES
                 and isinstance(step, (int, float)) and isinstance(total, (int, float))
                 and 0 < total <= step)
     return {**status, "status": "completed" if finished else "interrupted",
             "ended_by": ended, "recorded_status": status.get("status")}
+
+
+# ---------------------------------------------------------------------------
+# A run of a study of several, between rounds.
+#
+# A study run until what it asks is determined (`simulation.stop_when`) with
+# replicas judges its runs, extends each by what is needed and judges again,
+# one run after another unless it runs them side by side. A run waiting for
+# its turn had finished every piece so far, its analyses and its report: its
+# card said Completed, its last stage Report at 100%, while the study was
+# extending the run beside it and would extend this one next.
+# ---------------------------------------------------------------------------
+
+def _rounds_record(study: Path) -> dict[str, Any] | None:
+    from fastmdxplora.simulation.stopping import RECORD
+
+    try:
+        record = json.loads((study / RECORD).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return record if isinstance(record, dict) else None
+
+
+def _going(root: Path) -> bool:
+    """Whether a run's newest record says it is going and it has not ended
+    without saying so."""
+    status = read_study_status(root)
+    return (str(status.get("status") or "").lower() in _GOING_STATUSES
+            and how_the_run_ended(root, status) is None)
+
+
+#: A run's production as its pieces count it, kept while its pieces are as
+#: they were: a run waiting for a round does not change, and is asked at
+#: every poll of the page.
+_DONE: dict[tuple[Any, ...], float | None] = {}
+
+
+def _pieces_as_they_stand(root: Path) -> tuple[Any, ...]:
+    """Each piece of a run by its name and the times its records were last
+    written: a piece that finishes in place keeps its name."""
+    stood = []
+    try:
+        pieces = sorted(root.glob("segment-*"))
+    except OSError:
+        return ()
+    for piece in pieces:
+        times = []
+        for name in ("simulation", "simulation/checkpoint.chk.json",
+                     "simulation/live_status.json", "manifest.json"):
+            try:
+                times.append((piece / name).stat().st_mtime_ns)
+            except OSError:
+                times.append(None)
+        stood.append((piece.name, *times))
+    return tuple(stood)
+
+
+def _production_done(root: Path) -> float | None:
+    from fastmdxplora.simulation.resume import production_done_ns
+
+    key = (str(root), _pieces_as_they_stand(root))
+    if key not in _DONE:
+        if len(_DONE) > 512:
+            _DONE.clear()
+        try:
+            _DONE[key] = production_done_ns(root)
+        except Exception:  # noqa: BLE001 - a record, not a verdict
+            _DONE[key] = None
+    return _DONE[key]
+
+
+def rounds_of_a_study(study: Path) -> dict[str, Any] | None:
+    """What a study run until what it asks is determined says of its rounds,
+    read once for all its runs: its runs in the order it extends them, how
+    many it extends side by side, the length its last judgement runs each
+    to, and whether its own process is going ("running", "gone" or None
+    where that cannot be asked here). Each run's production so far is read
+    once, by the first of them asked (`between_rounds`). None where it is not in rounds
+    now: no record, its rounds ended, or before its first judgement."""
+    from fastmdxplora.orchestrator import RUN_PROCESS_FILE
+
+    record = _rounds_record(study)
+    if record is None or str(record.get("outcome") or "") != "running":
+        return None
+    rounds = [entry for entry in record.get("rounds") or [] if isinstance(entry, dict)]
+    # Before its first judgement the study has decided nothing for its runs.
+    if not rounds or rounds[-1].get("decision") != "extend":
+        return None
+    try:
+        to_ns = float(rounds[-1]["production_ns"]) + float(rounds[-1]["more_ns"])
+    except (KeyError, TypeError, ValueError):
+        to_ns = None
+    named = [str(name) for name in record.get("runs") or []]
+    if not named:
+        try:
+            named = [folder.name for folder in sorted((study / "runs").iterdir())
+                     if folder.is_dir()]
+        except OSError:
+            named = []
+    try:
+        process = json.loads((study / RUN_PROCESS_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        process = None
+    said = _what_its_process_says(study, process) if isinstance(process, dict) else None
+    try:
+        at_once = max(1, int(record.get("at_once") or 1))
+    except (TypeError, ValueError):
+        at_once = 1
+    return {"study": study, "runs": named, "to_ns": to_ns, "process": said,
+            "at_once": at_once}
+
+
+def between_rounds(project_root: str | Path, status: dict[str, Any] | None = None, *,
+                   going: list[str] | None = None,
+                   rounds: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """For a run of a study of several that is being run until what it asks
+    is determined, that finished its pieces so far and waits for the round
+    its study decided after judging them: the study's runs going now, the
+    one extended now or next where none is going, the production that round
+    runs each run to, and this run's own. None otherwise: a run going or
+    one that failed or stopped, a study before its first judgement, one
+    whose rounds have ended, or one that ended without saying so.
+    ``going`` names the study's runs going now and ``rounds`` is
+    `rounds_of_a_study`, where the caller has read them; else they are read
+    here. The runs behind, and each run's production, are worked out once
+    for all the study's runs and kept in ``rounds``."""
+    root = Path(project_root)
+    if root.name == "simulation":
+        root = root.parent
+    if root.parent.name != "runs":
+        return None
+    study = root.parent.parent
+    status = read_study_status(root) if status is None else status
+    # Only a run that finished what it was asked so far waits: one that failed
+    # or stopped is said as it is, one going as going.
+    if str(status.get("status") or "").lower() not in ("completed", "complete", "ok"):
+        return None
+    rounds = rounds_of_a_study(study) if rounds is None else rounds
+    if rounds is None or root.name not in rounds["runs"]:
+        return None
+    if rounds["process"] == "gone":
+        return None
+    if going is None:
+        going = [name for name in rounds["runs"] if name != root.name
+                 and (study / "runs" / name / "simulation").is_dir()
+                 and _going(study / "runs" / name)]
+    going = [name for name in going if name != root.name]
+    # The study's own process says whether its rounds go on; where it cannot
+    # be asked, a run of it going does.
+    if rounds["process"] is None and not going:
+        return None
+    to_ns = rounds["to_ns"]
+    # The runs not yet run to the round's length, in the order the study
+    # extends them (a run going is read as going, its production not asked):
+    # between one run's extension and the next (its analyses and report, a
+    # worker starting) nothing of the study is going, and the first of them,
+    # or as many as it runs side by side, are the ones extended next.
+    # The same for every run of the study: worked out once for each set of
+    # runs going, kept with the study's rounds.
+    known = rounds.get("_behind")
+    if known is not None and known[0] == tuple(going):
+        behind, done_of = list(known[1]), known[2]
+    else:
+        behind, done_of = [], {}
+        if isinstance(to_ns, (int, float)):
+            for name in rounds["runs"]:
+                if name in going:
+                    continue
+                done = done_of[name] = _production_done(study / "runs" / name)
+                # A piece's length is rounded to whole steps: a run that did
+                # its extension can fall short of the round's length by a few
+                # femtoseconds, and is not behind.
+                if isinstance(done, (int, float)) and done < to_ns - 1e-5:
+                    behind.append(name)
+        rounds["_behind"] = (tuple(going), tuple(behind), done_of)
+    done = done_of[root.name] if root.name in done_of else _production_done(root)
+    return {"study": str(study), "running": going, "behind": behind, "to_ns": to_ns,
+            "done_ns": done, "run": root.name,
+            "at_once": rounds.get("at_once", 1)}
+
+
+def _waiting_for_the_round(status: dict[str, Any], waiting: dict[str, Any]) -> dict[str, Any]:
+    """The run's record as the card shows it while it waits for the study's
+    next round: waiting, its production to be carried on, its analyses and
+    report to be made again, and its progress the production it has done of
+    the length that round runs it to."""
+    states = dict(status.get("stage_states") or {})
+    for stage in ("production", *_PHASES_AFTER):
+        if stage in states:
+            states[stage] = "waiting"
+    out = {**status, "status": "waiting", "recorded_status": status.get("status"),
+           "stage": "production", "stage_states": states, "between_rounds": waiting}
+    # Its steps so far are those of the pieces it was asked for; the round's
+    # are not yet planned in steps, so none are said beside its progress.
+    out["current_step"] = None
+    out["total_planned_steps"] = None
+    to_ns, done = waiting.get("to_ns"), waiting.get("done_ns")
+    if isinstance(to_ns, (int, float)) and to_ns > 0 and isinstance(done, (int, float)):
+        out["progress_percent"] = round(min(100.0, 100.0 * done / to_ns), 1)
+    return out
 
 
 #: The files a run leaves behind that say what it was asked to do. The first
@@ -1201,6 +1405,59 @@ COMPLETED_EXPLANATION = (
 )
 
 
+def _names(names: list[str]) -> str:
+    """Names as a sentence says them: a, a and b, a, b and c."""
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def _said_between_rounds(waiting: dict[str, Any]) -> dict[str, str]:
+    """A run waiting for its study's next round, said as such."""
+    from fastmdxplora.gui.simulated_time import say_length
+
+    going = [str(name) for name in waiting.get("running") or []]
+    behind = [str(name) for name in waiting.get("behind") or []]
+    here = str(waiting.get("run") or "")
+    to_ns = waiting.get("to_ns")
+    length = (f" to {say_length(to_ns)} of production"
+              if isinstance(to_ns, (int, float)) else "")
+    reached = here not in behind and isinstance(to_ns, (int, float))
+    # Where none is going, the first runs behind are the ones extended next:
+    # one, or as many as the study runs side by side.
+    try:
+        at_once = max(1, int(waiting.get("at_once") or 1))
+    except (TypeError, ValueError):
+        at_once = 1
+    now = going or behind[:at_once]
+    if here in now and not going:
+        beside = [name for name in now if name != here]
+        message = (f"This run is extended next{',' if length else ''}{length}"
+                   + (f", beside {_names(beside)}" if beside else "") + ".")
+    elif reached and (going or behind):
+        others = going + [name for name in behind if name != here]
+        message = (f"This run has been extended{length}; its study still has "
+                   f"{_names(others)} to extend, and judges every run once that is done.")
+    elif now:
+        # Before this run: those going now, then those behind ahead of it.
+        ahead = [name for name in behind[:behind.index(here)] if name not in now] \
+            if here in behind else []
+        message = (f"Its study is extending {_names(now)}{length}; "
+                   + (f"{_names(ahead)} {'comes' if len(ahead) == 1 else 'come'} next, then "
+                      "this run." if ahead else
+                      f"this run is extended after {'it' if len(now) == 1 else 'them'}."))
+    else:
+        message = ("Its study is judging its runs between rounds; this run is extended "
+                   "next if what the study asks is not yet determined.")
+    return {
+        "state": "waiting",
+        "headline": "Waiting for the study's next round",
+        "message": message,
+        "explanation": ("The study runs until what it asks is determined "
+                        "(simulation.stop_when): it judges its runs, extends each by what "
+                        "is needed, and judges them again. This run's analyses and report "
+                        "are made again once it is extended."),
+    }
+
+
 def analyze_health(
     status: dict[str, Any],
     metrics: list[dict[str, Any]],
@@ -1215,6 +1472,9 @@ def analyze_health(
     """
     latest_error = status.get("latest_error")
     stage = str(status.get("stage") or "").lower()
+    waiting = status.get("between_rounds")
+    if isinstance(waiting, dict):
+        return _said_between_rounds(waiting)
     if str(status.get("status", "")).lower() in _GOING_STATUSES and stage in _PHASES_AFTER:
         # The trajectory analysed or the report written, again or for the
         # first time: nothing of the simulation is being sampled, so its

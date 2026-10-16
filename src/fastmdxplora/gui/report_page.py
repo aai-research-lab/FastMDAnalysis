@@ -194,8 +194,10 @@ def _study_of_runs_payload(base: Path) -> dict[str, Any]:
     from fastmdxplora.gui.exploration import runs_of_a_study
 
     runs = runs_of_a_study(base) or []
-    completed = [r for r in runs if r["state"] == "completed"]
-    pending = len(runs) - len(completed)
+    # Read with the runs a study still extends in rounds, as their pieces so
+    # far say them; counted apart, as they have not completed.
+    completed = [r for r in runs if r["state"] == "completed" or r.get("so_far")]
+    pending = sum(1 for r in runs if r["state"] != "completed")
     comparison = base / "comparison" / "comparison_report.md"
     if comparison.is_file():
         text = comparison.read_text(encoding="utf-8", errors="replace")
@@ -268,8 +270,17 @@ def _so_far(base: Path, runs: list[dict[str, Any]], completed: list[dict[str, An
                 if analysis not in measures:
                     measures.append(analysis)
         means[run["run_id"]] = row
+    # Read so far between rounds where it says so; else completed.
+    done = sum(1 for r in completed if not (r.get("so_far") and r.get("state") != "completed"))
+    between = len(completed) - done
+    # Still to run: neither completed nor read so far between rounds.
     pending = len(runs) - len(completed)
-    lines = [f"# {base.name}: {len(completed)} of {len(runs)} runs completed", ""]
+    lines = [f"# {base.name}: {done} of {len(runs)} runs completed", ""]
+    if between:
+        lines += [f"_{between} {'is' if between == 1 else 'are'} read as far as "
+                  f"{'its' if between == 1 else 'their'} finished pieces go: the study extends "
+                  f"{'it' if between == 1 else 'them'} in rounds until what it asks is "
+                  "determined._", ""]
     if pending:
         lines += [f"_{pending} still to run. The comparison across all of them, with its "
                   "figures, is written when the last one finishes._", ""]

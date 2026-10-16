@@ -572,7 +572,7 @@ def _dssp(text: str, coordinates: Any = None) -> dict[str, Any]:
     import mdtraj as md
     import numpy as np
 
-    from fastmdxplora.utils.native_output import suppress_native_output
+    from fastmdxplora.utils.native_output import pdb_quietly, suppress_native_output
 
     models = _models(text)
     if not models:
@@ -586,8 +586,7 @@ def _dssp(text: str, coordinates: Any = None) -> dict[str, Any]:
         with tempfile.TemporaryDirectory() as folder:
             one = Path(folder) / "model.pdb"
             one.write_text("\n".join(first) + "\nEND\n", encoding="utf-8")
-            with suppress_native_output():
-                topology = md.load_pdb(str(one)).topology
+            topology = pdb_quietly(one).topology
     except Exception as exc:  # noqa: BLE001 - said, not raised
         return {"available": False, "reason": f"MDTraj could not read it: {exc}"}
     if not _same_residues(topology, runs, len(first)):

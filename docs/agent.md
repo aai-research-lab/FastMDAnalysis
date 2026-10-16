@@ -613,8 +613,9 @@ fastmdx.FastMDXplora(config_data=proposal.config, output_dir="runs/study").explo
 Each request goes to the AI model with three things beside the schema:
 
 - **The conversation so far**, the last twelve turns whole, and up to 48
-  before them by their first sentence, so a request that refers to one can
-  be read and what was settled early in a long thread is not lost.
+  before them kept as what was decided and what is still open (below), so a
+  request that refers to one can be read and what was settled early in a
+  long thread is not lost.
 - **The current Config**, the last one the Agent wrote. A request is a change
   to it unless it plainly describes a different study: the whole Config comes
   back with the change applied and everything else kept. "Make it 5 ns" is an
@@ -650,8 +651,53 @@ Each request goes to the AI model with three things beside the schema:
 
 The Agent does not open files on its own: its tools read a structure you
 name, the PDB's and AlphaFold DB's records, the studies in the workspace and
-their records (below), and nothing else. What else it needs, it is
+their records and files (below), and nothing else. What else it needs, it is
 handed; what you want it to see, you attach.
+
+### What you are looking at, and what you name
+
+**The page.** With each message the page says where you are, as where to
+look and never as what is so: the page's name and the study open on every
+page; the file open in the side panel's reader; on the Report, the section
+you are reading (the heading last scrolled to the top); in the Viewer, its
+view as before (the frame, the representation, the colouring, the residues
+chosen). "What mean does the file I have open record?" and "What value does
+this section give?" are read through `current_view`, which reads the facts
+from the study's records. The Analysis page, the Config Builder and Ask
+about... on residues chosen in the Viewer are still to come.
+
+**Names with @.** Type `@` and a name, and it is shown as a chip under the
+box as you type: `@study` (the study open), an analysis of it (`@rmsd`,
+`@rg`), a study in the workspace by its folder's name
+(`@fastmdxplora_1L2Y_study_20260930003505`), `@frame 120`, a residue
+(`@Trp6`, `@A:45`), `@docs`, or a file of the study open
+(`@file analysis/rg/options.json`). The software finds what each names and
+tells the Agent where its record is and which look reads it; the record's
+numbers are never pasted in, so they are read, with their errors, as any
+look reads them. A name that matches nothing is said to match nothing, and
+the Agent asks what you meant rather than guess; two studies of one name
+are asked about. An address (`a@b.org`) is not a name.
+
+**What was decided.** The last twelve turns go whole. Those before, up to
+48, go as what was decided and what is still open, each line with the turn
+it came from: your words whole (cut, and said to be, past 600 characters);
+a Config the Agent wrote as the settings it set, then as what each later
+one changed (`simulation.temperature_K 300 to 310`), counted from the first
+turn kept rather than by the page's version numbers; a question it asked
+with its candidates; an action named, and a run started from the page.
+Still open: a question your next message moved past and nothing after
+answered (no later message naming one of its candidates, no Config written
+after it), and a Config written and not run.
+"Thanks, that helps. Use charmm36." keeps its force field twenty turns on.
+
+**The plan.** Asked for something of several steps (find the structure,
+write the study, run it, analyse it), the Agent may keep a plan: shown
+under its reply as a checklist, the steps done ticked. The newest goes back
+with each message, so the Agent keeps to it and ticks a step once the
+conversation shows it done. The checklist does nothing: each step is still
+done only when you say so, as everything is. Kept with the conversation and
+shown again when it is opened. An AI model asked in the text protocol keeps
+no plan.
 
 A reply is one of four things:
 
@@ -672,14 +718,25 @@ four times per reply:
 | `find_structure` | The PDB entries a name answers to ("lysozyme", "trp-cage"), by the names the entries give their molecules or their titles: grouped by protein with the most studied first, each by its best-resolved entry of the protein alone (unmutated, unfused, with no other protein) and the first such entry determined (1VII for the villin headpiece), with method, resolution, year, organism, chains and ligands; for a name of no protein (a designed peptide), the entries the first determined first (1L2Y for trp-cage). AlphaFold DB's predicted models, with their mean pLDDT, where the PDB holds none or where asked. A PDB identifier is described as it is |
 | `inspect_structure` | The chains, protein residues, ligands, ions and water a structure holds (a PDB identifier or a PDB or mmCIF file), the residues whose protonation state a study may set, any side chain within 3 Å of a structural metal, and what is worth knowing about it |
 | `preview_setup` | What setup will build from a Config (particles, box, solute, water, ions, a padding grown for the cutoff) and how long the whole study takes on this machine, where it has been timed: what the builder says under a structure |
-| `check_config` | Whether the validator accepts a Config, and if not, why and what would fix it; if so, the plan you will read, defaults marked |
+| `check_config` | Whether the validator accepts a Config, and if not, why and what would fix it; if so, the plan you will read, defaults marked, [your defaults](config.md#your-defaults-fastmdx-defaultsyml) filling what it leaves unset (looked for from the study's folder up, as a run looks for them), the study it carries on, if any, and whether this machine can run it |
 | `check_selection` | How many atoms, and which residues, an MDTraj selection matches in a structure, as `fastmdx select` says |
-| `read_study` | Another study's record, not the one on screen: its Config, what its analyses found, the checks it was held to, how long it ran and why, and what would fix it |
+| `read_study` | A study's record: where it stands (its step and time left while it runs), its Config, what its analyses found, the checks it was held to, how long it ran and why, and what would fix it. The analysis asked about (`analysis`) is given first, with its reasons whole; any other reason a mean is not determined gives its own first sentence on its line, and only the rest is said once under the list. The look at what the page shows passes the analysis the page is on (the Report's section being read, or the analysis whose file is open), and an analysis named with @ says to pass it. The Agent's own context gives the record of the study open the same way |
+| `read_study_file` | One text file of a study by its path inside it (`analysis/rg/options.json`, a log, a manifest), as the Files page shows it: its head and tail where it is long. Only of a folder holding a study's record (a manifest or a resolved Config), and on your own computer only the study open or one in the workspace. Never a hidden file, a path out of the study, a link out of it, a binary file or one over 4 MB |
 | `methods_of_study` | A study's methods paragraphs as its report gives them, written from what it recorded, to quote when asked how it was set up, simulated or analysed, or for a methods section |
 | `list_studies` | The studies in the workspace, newest first, each with its system, state, length, force field, tags, your note and the means it recorded; optionally only those with a tag |
 | `compare_studies` | How two studies differ: each setting one asks for and the other does not, and their means side by side, a difference called resolved only where it is more than the stated multiple of its combined standard error |
+| `views_of_study` | The views you saved with a study in the Viewer (each a frame, a representation and colouring, a superposition), the selections you named, and the scenes written with it |
+| `list_machines` | The machines inspected from this computer for [running elsewhere](remote.md), as last recorded, each with its GPUs and whether it is ready, and the jobs sent from here; nothing is asked of the machines |
+| `remote_status` | How a job sent to another machine is doing, and the last lines of its log, asked of the machine at most every 30 s |
 | `read_docs` | What these docs say, from the copy installed with the software (nothing is fetched): the passages that answer a question, each with its page and section; a page's sections and its opening; or one section whole, a long one in parts. With nothing asked, the pages |
-| `current_view` | In the GUI, what the page shows (the study, the frame, the view and the residues chosen) as where to look, then the facts from that study's record or structure, read by `read_study`, `inspect_structure` or `check_selection`. It reads the page's own view, never one the AI model writes |
+| `current_view` | In the GUI, what the page shows (the page, the study, the file open in the reader, the report's section being read; in the Viewer the frame, the view and the residues chosen) as where to look, then the facts from that study's record, file or structure, read by `read_study`, `read_study_file`, `inspect_structure` or `check_selection`. It reads the page's own view, never one the AI model writes |
+
+Each of these but `current_view` is also a tool of [`fastmdx mcp`](mcp.md)
+(`check_config` is its `check_study`), defined once for both and run by the
+same code, so the Agent and an AI app are told the same about a study and a
+config. What changes something is an AI app's tool, called as it asks you,
+and the Agent's action (run, stop, run the fix, analyse again), for you to
+confirm; tagging a study, a movie and a scene file are an AI app's alone.
 
 It is told to look rather than guess: to find a structure named in words
 before writing its PDB identifier, to preview before stating a size or a

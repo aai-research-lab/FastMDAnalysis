@@ -95,10 +95,20 @@ def _production_speed(root: Path) -> float | None:
     fix card prices a carry-on: the line beside it gave the live record's
     average from the run's start, setup and minimisation in it, half the
     price's."""
+    import re
+
     from fastmdxplora.remedies import _speed
 
-    pieces = sorted(root.glob("segment-*/simulation/live_status.json"))
-    folder = pieces[-1].parent.parent if pieces else root
+    # The last piece run, by its number: by name, a piece set aside
+    # (`segment-002-stopped-before-its-checkpoint`) lists after the one run
+    # in its place, and `segment-010` before `segment-9`. Read from the
+    # folders' names, as this is asked at every poll of the Overview.
+    pieces = []
+    for folder in root.glob("segment-*"):
+        number = re.fullmatch(r"segment-(\d+)", folder.name)
+        if number and (folder / "simulation" / "live_status.json").is_file():
+            pieces.append((int(number.group(1)), folder))
+    folder = max(pieces)[1] if pieces else root
     # The one speed every price is read at: the run's cost record where it
     # wrote one, else its production's own steps and times.
     seconds, _platform = _speed(folder, root)
@@ -452,12 +462,17 @@ def _phases(root: Path) -> list[dict[str, Any]]:
     # A study being carried on in a piece: its Manifest still says how the
     # first piece ended ("Simulation stopped" the whole carry-on through).
     carried_on = None
+    waiting = False
     if any(root.glob("segment-*")):
         from fastmdxplora.gui.telemetry import status_as_it_stands
 
         going = status_as_it_stands(root)
         production = str((going.get("stage_states") or {}).get("production") or "").lower()
-        if going.get("piece"):
+        if going.get("between_rounds"):
+            # Its study extends it again in its next round, then analyses and
+            # reports it again: done so far, not done.
+            waiting = True
+        elif going.get("piece"):
             # Its simulation finished in the piece, while the joined
             # trajectory is analysed and reported ("Simulation stopped"
             # read until the end); or still going in it.
@@ -483,6 +498,8 @@ def _phases(root: Path) -> list[dict[str, Any]]:
             status = "stopped"
         if carried_on and phase.get("name") == "simulation" and status in ("stopped", "error"):
             status = carried_on
+        if waiting and phase.get("name") in ("simulation", "analysis", "report"):
+            status = "waiting"
         phases.append({"name": str(phase["name"]), "status": status, "seconds": seconds})
     return phases
 

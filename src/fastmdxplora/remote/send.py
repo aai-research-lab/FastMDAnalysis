@@ -86,6 +86,9 @@ from fastmdxplora.remote.inputs import (
     gather_inputs,
     link_out_of,
     private_in,
+    refuse_home_or_above,
+    refuse_kept_place,
+    refuse_no_study,
     size_of,
 )
 from fastmdxplora.remote.jobs import (
@@ -453,12 +456,22 @@ def prepare(config_path: str | Path, machine_name: str, *,
                 f"{value!r} cannot be given as {said}: letters, digits and . , : + _ - "
                 "only, as SLURM writes them.", code="config.option.not_permitted",
                 setting=said)
+    # Before your defaults are looked for, up to the home folder: where
+    # none can be found, or the config is in it, nothing travels.
+    refuse_home_or_above(config_path.resolve().parent)
+    refuse_kept_place(config_path)
+    # A file that names no systems is no study's config: a file of settings
+    # or keys never travels as one, wherever it is kept.
+    refuse_no_study(raw, config_path)
     defaults_note = ""
     if isinstance(raw, dict):
-        raw, defaults_note = _with_your_defaults(raw, config_path)
+        raw, defaults_note = _with_your_defaults(raw, config_path, output)
     # Before the machine is reached: a file that may not travel is refused
     # here, having connected to nothing.
     inputs = gather_inputs(raw, config_path.resolve().parent)
+    if output:
+        # Results are fetched there: never into a place keys are kept.
+        refuse_kept_place(Path(output), results=True, output_given=True)
 
     machine = load_machine(machine_name)
     link = transport or Transport(machine_name)
@@ -518,6 +531,7 @@ def prepare(config_path: str | Path, machine_name: str, *,
     # Absolute, so the record says the same folder whatever folder a later
     # caller asks from.
     local_output = str((Path(output) if output else Path.cwd() / name).resolve())
+    refuse_kept_place(Path(local_output), results=True, output_given=bool(output))
     found = machine.inspection
     base = found.scratch or found.home
     remote_dir = f"{base}/fastmdxplora-jobs/{name}"
@@ -548,12 +562,19 @@ def prepare(config_path: str | Path, machine_name: str, *,
     return sending
 
 
-def _with_your_defaults(raw: dict, config_path: Path) -> tuple[dict, str]:
+def _with_your_defaults(raw: dict, config_path: Path,
+                        output: str | None = None) -> tuple[dict, str]:
     """The config with your defaults here filling what it leaves unset, as
     `explore -c` would fill it on this computer, and a line saying so."""
     from fastmdxplora.config.defaults_file import defaults_for, refused_with, with_defaults
+    from fastmdxplora.workspace_studies import defaults_start
 
-    defaults = defaults_for(config_path.resolve().parent)
+    # From the study's folder up (the results folder given, else the
+    # config's `output`), else the config file's, as `explore -c` and an AI
+    # app's check_study look.
+    seen = {**raw, "output": str(Path(output).expanduser().resolve())} if output else raw
+    defaults = defaults_for(defaults_start(seen, file=config_path.resolve(),
+                                           root=config_path.resolve().parent))
     if defaults is None:
         return raw, ""
     filled_config, filled = with_defaults(raw, defaults)
@@ -1289,6 +1310,7 @@ def _still_its_own(sending: Sending) -> None:
 
 def _status_script(job: Job) -> str:
     where = shlex.quote(job.remote_dir)
+    late = ""
     if job.scheduler == "slurm":
         # Asked once, its output and complaints together: a state is one of
         # SLURM's words at the start of a line (a warning the queue prints is
@@ -1321,8 +1343,18 @@ def _status_script(job: Job) -> str:
             # that died leaves its runs going, in its group or out of it).
             alive = (_the_job_going(_send_id(job), job.handle)
                      + '[ "$went" = 1 ] && echo fmdx:alive=1\n'
-                     'if [ "$proc" = 1 ] && { [ "$went" = 0 ] || [ -f exit_code ]; }; '
-                     'then echo "fmdx:left=$n"; fi\n')
+                     'left_said=0\n'
+                     'if [ "$proc" = 1 ] && [ "$went" = 0 ] && [ ! -f exit_code ]; '
+                     'then echo "fmdx:left=$n"; left_said=1; fi\n')
+            # With its exit code, what its run left is counted once more,
+            # after the exit code is read: its run is gone by then, which the
+            # count above, made as the job was looked for, cannot say. A job
+            # that ended between the two was read failed with nothing of the
+            # process it left (CI #749), and a run counted as it ended was
+            # said as one more process left working there.
+            late = ('if [ "$proc" = 1 ] && [ "$left_said" = 0 ] && [ -f exit_code ]; then\n'
+                    + _by_send(_send_id(job), job.handle)
+                    + 'echo "fmdx:left=$n"; fi\n')
         else:
             alive = (f"{{ kill -0 {job.handle} || kill -0 -{job.handle}; }} 2>/dev/null "
                      "&& echo fmdx:alive=1\n")
@@ -1348,7 +1380,7 @@ def _status_script(job: Job) -> str:
             + alive +
             "[ -f exit_code ] && echo \"fmdx:exit_code=$(head -c 20 exit_code "
             "| tr -d '\\n')\"\n"
-            + after +
+            + late + after +
             "[ -f run/simulation/live_status.json ] && printf 'fmdx:live=%s\\n' "
             "\"$(tr -d '\\n' < run/simulation/live_status.json)\"\n"
             "[ -f job.log ] && tail -n 12 job.log | sed 's/^/fmdx:log=/'\n")

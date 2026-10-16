@@ -97,11 +97,11 @@ class Occupancy:
         reads low there, and the error with it, 0.72 to 0.76 of the spread
         over replicas of a contact slow against the run.
         """
-        from fastmdxplora.statistics import RESOLVED_SAMPLES
+        from fastmdxplora.statistics import RESOLVED_SAMPLES, UNCORRELATED_INEFFICIENCY
 
         if self.episodes < 2 or not np.isfinite(self.inefficiency):
             return float("nan")
-        if (self.inefficiency >= 2.0
+        if (self.inefficiency >= UNCORRELATED_INEFFICIENCY
                 and self.frames_total / self.inefficiency < RESOLVED_SAMPLES):
             return float("nan")
         p = self.fraction

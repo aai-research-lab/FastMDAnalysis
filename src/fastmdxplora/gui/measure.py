@@ -31,9 +31,9 @@ def over_frames(root: Path | str, a: str, b: str) -> dict[str, Any]:
     if where is None:
         return {"ok": False, "reason": "No topology to check the atoms against."}
     try:
-        import mdtraj as md
+        from fastmdxplora.utils.native_output import topology_quietly
 
-        topology = md.load_topology(str(where))
+        topology = topology_quietly(where)
     except Exception as exc:  # noqa: BLE001 - said, not raised
         return {"ok": False, "reason": f"Could not read {where.name}: {exc}"}
     for selection in picked:

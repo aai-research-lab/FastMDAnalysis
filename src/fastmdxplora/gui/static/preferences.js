@@ -3,7 +3,9 @@
  *
  * FastMDXDialog opens and closes them: Escape, a click on the dimmed page
  * or Close shuts the one on top, focus stays inside while it is open and
- * goes back to what opened it. The preferences are kept in this browser
+ * goes back to what opened it. Each opened adds a step to the browser's
+ * history, so Back closes it before it leaves the page, and Forward opens
+ * it again. The preferences are kept in this browser
  * (`fmx.preferences`) and put into their fields before the page reads
  * them, so a reload keeps them; a study's display name and ligand residue
  * are kept by the study's folder (`fmx.study:<folder>`). Nothing here is
@@ -41,10 +43,85 @@
     return $$(FOCUSABLE, dialog).filter(function (n) { return n.offsetParent !== null; });
   }
 
-  function openDialog(id, opener) {
+  /* ---- Back and Forward over a dialog ------------------------------ */
+  // The dialogs that are the same however they are opened: each has a
+  // step of its own. Those filled for what opened them (the palette, the
+  // Agent's settings, a file's) have none, as Forward could not open them
+  // again; Back closes them with the page's own step.
+  var AGAIN = ["prefs-dialog", "cite-dialog", "viewer-help"];
+  // The dialogs with a step of their own in the history, the newest last.
+  var stepped = [];
+  // A step back of a dialog's own on its way: what waits for it to land.
+  var awaited = null;
+
+  // Set from a dialog's own step back until it has landed: the page's
+  // listeners leave that step alone (it is not the person going Back).
+  var landingOwn = false;
+
+  function stepBack() {
+    var waiting = awaited = [];
+    landingOwn = true;
+    history.back();
+    // Should the browser not answer, nothing waits for ever.
+    setTimeout(function () { if (awaited === waiting) land(); }, 600);
+  }
+  function land() {
+    var waiting = awaited || [];
+    awaited = null;
+    setTimeout(function () { landingOwn = false; }, 0);
+    waiting.forEach(function (go) { go(); });
+  }
+  /* A page's own step waits for a dialog's step back to land, so it is
+   * not taken back with it. */
+  function afterHistory(go) {
+    if (awaited) awaited.push(go); else go();
+  }
+
+  window.addEventListener("popstate", function (e) {
+    if (awaited) { land(); return; }
+    var wanted = e.state && e.state.fmxDialog;
+    // Back: each dialog above the step landed on is closed, the top first.
+    for (var i = stepped.length - 1; i >= 0 && stepped[i] !== wanted; i--) {
+      var gone = el(stepped[i]);
+      stepped.splice(i, 1);
+      closeDialog(gone, true);
+    }
+    // Forward onto a dialog's step: open again, as it was opened. Those
+    // filled for what opened them (a file, a search) are not opened bare.
+    if (wanted && stepped.indexOf(wanted) === -1 && el(wanted)) {
+      if (wanted === "study-field-dialog") {
+        if (STUDY_FIELDS[e.state.field]) openStudyField(e.state.field, null, true);
+      } else if (AGAIN.indexOf(wanted) !== -1) {
+        openDialog(wanted, null, "history");
+      }
+    }
+  });
+
+  // Reloaded with a dialog's step: it is opened again where it can be,
+  // else the step is the page's, so the first Back is not lost on it.
+  document.addEventListener("DOMContentLoaded", function () {
+    var was = history.state && history.state.fmxDialog;
+    if (!was) return;
+    if (AGAIN.indexOf(was) !== -1 && el(was)) openDialog(was, null, "history");
+    else history.replaceState(null, "", location.href);
+  });
+
+  function openDialog(id, opener, step) {
     var dialog = el(id);
     if (!dialog) return null;
     openers[id] = opener || document.activeElement;
+    var stepOfItsOwn = AGAIN.indexOf(id) !== -1 || id === "study-field-dialog";
+    if (stepOfItsOwn && step !== "history" && stepped.indexOf(id) === -1) {
+      // A link's own step made the dialog's ("replace"): closed, it is the
+      // page's again, not taken back (it may be the GUI's first step).
+      var entry = { fmxDialog: id, field: id === "study-field-dialog" ? editing : null,
+                    replaced: step === "replace" };
+      afterHistory(function () {
+        if (step === "replace" || step === "link") history.replaceState(entry, "", location.href);
+        else history.pushState(entry, "", location.href);
+      });
+    }
+    if (stepped.indexOf(id) === -1) stepped.push(id);
     dialog.hidden = false;
     // The first of its fields, or Close where it has none.
     var body = dialog.querySelector(".agent-dialog-body");
@@ -54,9 +131,18 @@
     return dialog;
   }
 
-  function closeDialog(dialog) {
+  function closeDialog(dialog, byHistory) {
     if (!dialog || dialog.hidden) return;
     dialog.hidden = true;
+    var at = stepped.indexOf(dialog.id);
+    if (!byHistory && at !== -1) {
+      stepped.splice(at, 1);
+      // Its step taken back, so Back then leaves the page as it would have.
+      if (history.state && history.state.fmxDialog === dialog.id) {
+        if (history.state.replaced) history.replaceState(null, "", location.href);
+        else stepBack();
+      }
+    }
     var back = openers[dialog.id];
     delete openers[dialog.id];
     if (back && document.contains(back) && back.offsetParent !== null) back.focus();
@@ -114,7 +200,10 @@
     return item;
   }
 
-  window.FastMDXDialog = { open: openDialog, close: function (id) { closeDialog(el(id)); } };
+  window.FastMDXDialog = {
+    open: openDialog, close: function (id) { closeDialog(el(id)); }, afterHistory: afterHistory,
+    landingOwnStep: function () { return landingOwn; },
+  };
 
   /* ---- Copy --------------------------------------------------------- */
   document.addEventListener("click", function (e) {
@@ -268,7 +357,7 @@
   }
 
   var editing = "";
-  function openStudyField(which, opener) {
+  function openStudyField(which, opener, again) {
     var spec = STUDY_FIELDS[which];
     if (!spec) return;
     editing = which;
@@ -279,7 +368,7 @@
     input.placeholder = spec.placeholder;
     input.value = (el(spec.field) || {}).value || "";
     el("study-field-refused").hidden = true;
-    openDialog("study-field-dialog", opener);
+    openDialog("study-field-dialog", opener, again ? "history" : undefined);
     input.select();
   }
 

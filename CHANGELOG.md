@@ -7,12 +7,193 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- The Agent's evaluation has its first run with an AI model
+  (`anthropic/claude-opus-5-5`, the 72 cases three times each). The safety,
+  write, edit, repair, act and docs claims are met; the records cases, not
+  decided as first asked for want of a study with determined means, are met
+  when asked again against one. The 8 of 93 docs trials missed all read the
+  docs elsewhere than where the answer is. The run is kept in the suite and
+  replayed there with no AI model, so a change that would turn one of its
+  verdicts fails the suite. A run now records the commit it was asked from,
+  and `--replay` reads a gzipped run. See `docs/validation.md`, The Agent's
+  evaluation.
+- The Agent knows where you are. It is told the page you are on and what is
+  open in it (the file in the file reader, the Report's section being
+  read); a name written with @ (a study, an analysis, a residue, a frame, a
+  file) is shown as a chip and resolved to the record it names; the turns
+  before the last twelve are kept as what was decided and what is still
+  open, not each by its first sentence; and for a request of several steps
+  the Agent may keep a plan, shown under its reply as a checklist. It can
+  read a file of a study (`read_study_file`). The evaluation's version 2
+  adds a `context` kind of 8 cases, asked with and without the context: 24
+  of 24 passed with it and 9 of 24 without, by `anthropic/claude-opus-5-5`,
+  and both runs are kept in the suite. See `docs/agent.md`, What you are
+  looking at, and what you name, and `docs/validation.md`.
+
+- A ligand file holding several molecules is read as several ligands, each
+  prepared as its own, in the order they are written. A molecule is named
+  for its title (an SDF record's first line, a MOL2 molecule's line after
+  `@<TRIPOS>MOLECULE`) when that is one to three letters or digits starting
+  with a letter, not shared by another molecule, and not the name of a
+  protein or nucleic acid residue, water or ion; otherwise `L01`, `L02` and
+  on, skipping names in use. A molecule takes its pose from the structure's
+  residue of its name, so the study says how each file was divided, and
+  which molecules take their pose from the file where the structure holds a
+  ligand none of them is named for. One `ligand_net_charge` for several
+  molecules is refused, and so is a title that is the name of a ligand given
+  as its own file (`setup.ligand.names_collide`). The analyses select every
+  ligand of a study with several.
+- Back and Forward move between the GUI's pages and dialogs. The address
+  names the open study and an analysis's place, so Back returns to the study
+  before and a bookmark opens it again. Undo follows a tag, a note or a saved
+  view changed, and the Config Builder takes Cmd+Z and Shift+Cmd+Z. See
+  `docs/gui.md`, The settings.
+- The GUI's dark scheme is a black ground under raised cards, and the light
+  one a warm grey under white cards with a hairline: the cards stood on a
+  ground hardly apart from them. Five accents to choose from in the
+  settings, Cyan, Blue, Violet, Magenta and Graphite, each read at 5:1 or
+  more on every ground (Graphite, which has no hue, underlines its links
+  and makes bold a changed setting and a study in the picker);
+  `fastmdx gui --accent` sets the one a service's people and the reports
+  of the studies it starts on this machine open with, and a
+  `FASTMDX_ACCENT` not among the five is said at start. A study running is
+  cyan, and done, qualified and refused keep their colours, with every
+  accent.
+- The GUI fits the window. Where a page would have less than it needs, the
+  sidebar folds to its strip, then the side panel, before the Viewer's
+  tools or the Config Builder's summary go under the page (only below 788
+  and 784 pixels of page: a window under 900 pixels, or about 1250 with the
+  Agent beside); the Agent opened beside either folds the sidebar, and
+  closing it gives it back. The builder's form is laid out as on a phone
+  where it has less than 680 pixels. A column opened or widened by hand is
+  not folded to fit until the page changes. Send is in the accent only once
+  something is written, and the sidebar's fold button lines up with the
+  buttons under it.
+- The Agent and an AI app (`fastmdx mcp`) are offered their tools from one
+  list, each tool defined once and run by the same code, and a test holds
+  both to it. The Agent can now read a study's saved views, the machines a
+  study can be sent to and how a study sent to one is doing; an AI app can
+  read a file of a study and the docs. A study's record is one for both (the
+  Agent now told where a running study stands, an AI app able to ask for one
+  analysis first), and so is the check of a config. What one does not offer
+  (an AI app's actions, which the Agent proposes on the page) is listed with
+  why. See `docs/agent.md`, Looking before it answers, and `docs/mcp.md`.
+
 ### Fixed
 
+- A path longer than its column in the Config Builder (a structure, a
+  setting for one system, a config file not found) breaks where it must in
+  the system's row and its chips, the plan, what setup will build and the
+  config's verdict, and the plan's one line saying why there is none yet
+  wraps in its card; each ran past its card, and in a narrow window
+  scrolled the page sideways.
+- An AI app's `check_study`, the Agent's `check_config` and a study sent to
+  another machine fill your defaults (`fastmdx-defaults.yml`) as a run does,
+  from the study's folder up. `check_study` read them from the workspace's
+  top and a send from beside its config, so a nearer file applied to the run
+  and not to the plan checked; the Agent's check filled none. A study that
+  has run is said not to be filled.
+- Two or more ligand files given without `ligand_name` are named from their
+  files. The default `LIG` was counted as one name given for all of them, and
+  the study was refused. A study run again from its own `resolved_config.yml`
+  is named the same way.
+
+- A setting's description reworded in the config schema no longer fails the
+  suite. The suite replays the Agent's recorded runs and fails on a verdict
+  turned, on a replay that diverges from the run, or on a change to what it
+  holds of what is sent: the Agent's own words (its instructions, its tools,
+  how a message is put together) and the schema's structure (names, types,
+  choices, bounds, defaults), not the schema's prose. The replay's table
+  counts the exchanges asked differently since a run. See
+  `docs/validation.md`, The run kept in the suite.
+- The Agent's look at a study's record gives the analysis asked about first,
+  and no longer loses it at the look's 4,000 characters. `read_study` takes
+  the analysis (named by its folder or its heading); the look at what the
+  page shows passes the Report's section or the analysis whose file is open;
+  an analysis named with @ says to pass it. A reason a mean is not
+  determined gives its first sentence on its own line and the rest once
+  under the list, so a short run's record, each analysis saying the same
+  rule, fits one look.
 - A structure fetched from RCSB is tried up to three times when the connection
   is dropped, the transfer is cut short, or RCSB answers 429 or 5xx. A study
   stopped by such a failure is told so, not that the machine may have no route
   to the internet.
+- The Report and its Methods say what the records hold. Methods now states
+  that frames whose statistical inefficiency, before the correction for the
+  sample mean, is under 2 are given an error without spanning 25
+  statistical inefficiencies, as the estimator already did; a withheld error
+  says so too. A count of
+  independent samples under one is said as fewer than one, not 0. An
+  analysis's parameters and its findings are two lists, rendered as lists. A
+  run on the CPU platform is not said to have used the precision it asked
+  for, which only the GPU platforms take.
+- In the GUI, a config named outside the folders the window reaches, or by
+  a relative path that a plan would read elsewhere, is refused with the ways
+  to send it that work: open the GUI on the config's folder, or copy it, with
+  the files it names, into a new folder inside the folder opened. No way is
+  offered for a file that is no study's config, or one kept where keys or
+  settings are kept. See `docs/remote.md`, From the GUI.
+- The Config Builder's draft is saved as the page goes: a reload right after a
+  change, a value still being typed, or Reset then a reload no longer opens
+  the draft from before, and a study started discards a save still waiting.
+  A page closed does not write its older draft over one another tab saved
+  since. Ctrl+Enter from a field sends the value typed, and where the study
+  is not started the field keeps the focus and the refusal stays said.
+  "Saved" plays once for each save that changed the draft, not again when the
+  page is shown, and not for a save made while the page was hidden.
+- The slides and the reweighted averages, in their own text and in the
+  Report, say a count of independent samples as the rest of the Report
+  does: under one as fewer than one, and one as one sample. The start
+  banner gives a precision beside a GPU platform, and beside `auto` as the
+  one a GPU would use; beside the CPU it gives none.
+- `fastmdx resume` carries on a finished study's extension that was stopped
+  before it was joined, to the length the extension asked, past the plan
+  too. A piece stopped before its first checkpoint, or killed as it wrote it,
+  counts nothing and is run again from the checkpoint before it; production
+  off the frame grid is carried on rather than refused; and a piece that
+  stopped with an error is said, not run again, with how to run it again
+  anyway. A study is carried on by one process at a time: a resume or an
+  extension of a study another process is carrying on is refused. The
+  Overview's speed is read from the last piece run.
+- MDTraj's notes on reading a structure (a placeholder CRYST1 cell, two
+  residues under one number) no longer print in the terminal under
+  `fastmdx gui`; any other warning still shows, and two of the GUI's reads
+  at once no longer leave the terminal showing nothing after them.
+- A job sent to a workstation that ended as its status was read now says
+  the processes its run left working there. It was read failed with only
+  its exit code, and `fastmdx remote cancel` then stopped nothing; a run
+  counted as it ended was said as one more process left.
+- A run of a study of several run until what it asks is determined
+  (`simulation.stop_when`) is said waiting for the study's next round while
+  the study extends another run: its card no longer reads Completed, Report
+  at 100%, from the pieces it finished so far, but how far its production is
+  towards the length the round runs it to, and which run the study extends
+  first. The study's list of runs, its Overview and Files pages, its pages
+  of all runs and the Records answer read it the same way; a run going on in
+  a later piece reads running, and one killed or failed there reads so.
+- A text file opened in the side panel's reader as the page was still
+  loading is told to the Agent as the one open. Opened before the page knew
+  its study, it was kept as of no study and never said once the study was
+  known. It is now kept as of the study the server read it from; an answer
+  come late, after another file was opened, is not shown; and no file is
+  said while no study is open.
+
+### Security
+
+- `fastmdx remote send`, from the command line, MCP, the Python API and the
+  GUI, sends only a study's config: a file that names no `systems`, nor a
+  study it carries on (`resume_from`, `setup_from` or `prepared_from`), is
+  refused. A GUI opened on the home folder could send `~/.config/gh/hosts.yml`,
+  its token included, as a config. A config, a prepared study it names, or a
+  results folder kept where programs keep settings or keys (a dot folder
+  directly in the home folder, `AppData`, `Library`, the folders the `XDG_`
+  and `APPDATA` variables name, or where a link from a place of keys or
+  settings leads) is refused too, and the refusal names the link. A place of
+  settings with more than 100,000 entries, whose links cannot be looked
+  through, refuses every send until it is smaller. See `docs/remote.md`,
+  What travels.
 
 ## [2.6.0] - 2026-10-11
 

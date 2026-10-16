@@ -599,12 +599,13 @@ def test_what_stays_the_same_comes_first_and_what_changes_last():
 
 def test_the_reply_tools_are_declared_with_their_arguments():
     names = {spec.name: spec for spec in reply_specs()}
-    assert set(names) == {"propose_config", "ask_person", "act", "show_scene"}
+    assert set(names) == {"propose_config", "ask_person", "act", "show_scene", "keep_plan"}
     assert names["propose_config"].parameters["required"] == ["config"]
+    assert names["keep_plan"].parameters["required"] == ["steps"]
     assert "rerun windows" in names["act"].parameters["properties"]["action"]["enum"]
     looks = {spec.name for spec in Toolbox().specs()}
     assert {"inspect_structure", "preview_setup", "check_config", "check_selection",
-            "read_study", "methods_of_study"} <= looks
+            "read_study", "read_study_file", "methods_of_study"} <= looks
 
 
 def test_a_config_written_as_text_is_validated_and_never_taken_as_an_answer():

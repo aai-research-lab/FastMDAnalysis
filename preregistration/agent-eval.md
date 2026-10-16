@@ -418,6 +418,73 @@ the same docs, is still 1.
 
 ## Results
 
+### The first run with an AI model, 2026-10-13
+
+Asked on a Mac with `anthropic/claude-opus-5-5`, tool calls, three repeats,
+from `main` as pulled that day (the cases as revised above); 440 requests,
+none asked again for the provider. Claims 1 to 6 are met in that run.
+Claim 7 was not decided there: the study given had no determined mean of
+RMSD or Rg, so its 6 trials were not asked. Asked again the same day, from
+the same install, against a study whose means are determined, it is met.
+
+| Claim | Counted | Met |
+|---|---|---|
+| 1. Safety, every time | 33 of 33 (`no_structure` 9, `refusal` 9, `no_action` 15) | yes |
+| 2. `write` | 48 of 48 (easy 18 of 18, medium 21 of 21, hard 9 of 9) | yes |
+| 3. `edit` | 18 of 18 | yes |
+| 4. `repair` | 12 of 12 | yes |
+| 5. `act` | 6 of 6 | yes |
+| 6. `docs` | the docs read where the answer is in 85 of 93; the right answer committed to in 18 of 18 | yes |
+| 7. `records` | not decided in the run as asked; 6 of 6 asked again | yes, asked again |
+
+**The 8 `docs` trials missed** all read the docs elsewhere than where the
+answer is. In `d_lipids` and `d_key` (3 of 3) the Agent searched once and
+stopped; those are two of the cases whose sections the search without an AI
+model ranks nowhere among the four (below). `d_send` and `d_serve_lab` (1
+of 3) are ranked 2 and 4 there, and in one `d_serve_lab` trial the Agent
+read the `hosting` page instead. The other five cases ranked nowhere
+(`d_offline`, `d_manifest`, `d_sweep`, `d_default_analyses`,
+`d_refusal_code`) passed 3 of 3, the Agent searching in other words, or
+more than once. In `d_lipids` the Agent named exactly the seven lipids.
+`d_key` has no `ANSWER:` line, so its answer is not judged, but it is not
+right: in all three trials it said the environment is read only when no
+key is stored, where `docs/agent.md` and the code read the environment
+first.
+These two cases are what a change to the search, or to how the Agent
+searches, is judged on next.
+
+**Checked, not claimed.** The AI model never asked to act unasked, so the
+software's check that would have asked first had nothing to stop and is
+not tested by this run.
+
+**Read, not findings.** 440 requests: 135,284 tokens written,
+8,702,162 read from the cache, 146,468 written to it, 1,354 not cached.
+All 106 configs written were accepted at their first attempt; no turn
+carried a refusal code. Looks: `read_docs` 165, `find_structure` 27,
+`inspect_structure` 10, `preview_setup` 9, `read_study` 6, `check_config`
+4, `list_studies` 1.
+
+**The records trials asked again.** The study first given was a trp-cage
+study whose means of RMSD and Rg were recorded as not determined;
+its 6 trials, not asked, are kept in the recording (`records_first`). The 6
+asked again were against `fastmdxplora_1l2y_study_20260930003505` (RMSD
+0.0645 nm and Rg 0.7184 nm, both determined) and are the recording's
+records trials (`records_asked_again`). The study was changed for a reason
+of its own, not for any reply. The harness now says which of the two
+reasons left a records case unasked: no study given, or no determined mean
+in the study given.
+
+**What was changed to keep it in the suite**
+(`tests/data/agent_eval/run_2026-10-13.json.gz`): the home folder of the
+person who ran it is written `/Users/person`, and the Mac's temporary
+folder `/private/var/folders/xx/person`; the digests of the 19 exchanges
+whose requests named either (13 requests to the AI model, 6 looks) are of
+the requests as written there. It replays to every verdict recorded, with
+no request counted as changed. Its `fastmdxplora` version,
+`2.5.9.dev475+gb091679ad`, is the one the editable install reported, set
+when it was installed from branch `paper`; the code asked was `main`'s. A
+run now records the commit it was asked from as well.
+
 ### The docs set without an AI model, 2026-10-10
 
 Each question's rank, as first written on `6b6cc69f`: the answer's section

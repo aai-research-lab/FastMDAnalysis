@@ -93,9 +93,9 @@ def selection_for(root: Path | str, *, chain: str, resseq: Any, resname: str,
     if where is None:
         return {"ok": False, "reason": "no topology to check a selection against"}
     try:
-        import mdtraj as md
+        from fastmdxplora.utils.native_output import topology_quietly
 
-        topology = md.load_topology(str(where))
+        topology = topology_quietly(where)
     except Exception as exc:  # noqa: BLE001 - the panel says why
         return {"ok": False, "reason": f"could not read {where.name}: {exc}"}
 

@@ -2997,7 +2997,7 @@
     const cell = periodicCell(boxVectors(e.box_shape, Number(e.width_nm) * 10));
     const centre = e.centre_angstrom || [0, 0, 0];
     const at = (v) => [v[0] + centre[0], v[1] + centre[1], v[2] + centre[2]];
-    const colour = tone("--accent-cyan", "#2698ba");
+    const colour = tone("--hue-cyan", "#00aed8");
     const tubes = cell.edges.map(([i, j]) => ({ start: at(cell.vertices[i]),
       end: at(cell.vertices[j]), radius: 0.35, colour }));
     // Turned a little off the box's axes, so the cell reads as a solid, and
@@ -3133,11 +3133,14 @@
 
   /* The form as it stands, saved in this browser for this person, so a
    * reload or a visit to another page loses nothing. Nothing leaves the
-   * browser; a study run or Reset discards it. */
+   * browser; a study run discards it, and Reset writes it over. */
   const DRAFT_KEY = "fmx.builderDraft";
   let draftTimer = null;
   let draftReady = false;
   let draftEndWired = false;
+  // The draft as this page last wrote or opened it: another tab's newer one
+  // stored since is not written over as this page goes.
+  let draftSeen = null;
 
   function draftKey() {
     const where = (state.schema && state.schema.workspace) || "";
@@ -3147,56 +3150,112 @@
   function saveDraft() {
     if (!draftReady) return;
     clearTimeout(draftTimer);
-    draftTimer = setTimeout(() => {
-      const draft = {
-        start: state.start, phases: Array.from(state.phases), values: state.values,
-        analyses: Array.from(state.analyses), analysisOptions: state.analysisOptions,
-        sweep: state.sweep, decisions: state.decisions, full: Boolean(state.full),
-        analysisMode: state.analysisMode, lengthMode: state.lengthMode || null,
-        systems: state.systems.map((row) => ({ id: row.id, system: row.system, own: row.own || {} })),
-        output: (el("run-output") && el("run-output").value) || "",
-        trajectory: (el("run-trajectory") && el("run-trajectory").value) || "",
-        topology: (el("run-topology") && el("run-topology").value) || "",
-        configPath: (el("run-config-path") && el("run-config-path").value) || "",
-      };
-      try {
-        const written = JSON.stringify(draft);
-        const before = window.localStorage.getItem(draftKey());
-        if (!draft.start) window.localStorage.removeItem(draftKey());
-        else window.localStorage.setItem(draftKey(), written);
-        const said = el("run-draft");
-        if (said) {
-          said.hidden = !draft.start;
-          // Each save that changed the draft is said again: the class is
-          // taken off and put back so its animation plays once more, and
-          // taken off as it ends, so nothing shown again replays it.
-          if (!draftEndWired) {
-            draftEndWired = true;
-            said.addEventListener("animationend", (event) => {
-              if (event.animationName === "builder-saved") said.classList.remove("just-saved");
-            });
-          }
-          said.classList.remove("just-saved");
-          if (draft.start && written !== before) {
-            void said.offsetWidth;
-            said.classList.add("just-saved");
-          }
+    draftTimer = setTimeout(writeDraft, 300);
+  }
+
+  /* A value typed into a field of the form and not yet left has had no
+   * change event: the field is let go of, so the browser sends one where
+   * the value changed (and none for a choice already made, which would
+   * set its defaults again). */
+  function commitTyping() {
+    const typing = document.activeElement;
+    if (!typing || !typing.closest || !typing.closest(".page[data-page='run']")) return null;
+    typing.blur();
+    return typing;
+  }
+
+  // A save still waiting as the page goes (a reload, Reset then a reload)
+  // is made now, or the draft opened next is the one before it; the field
+  // being typed in first, as the browser does not let go of it as the page
+  // goes.
+  window.addEventListener("pagehide", () => {
+    if (draftReady) commitTyping();
+    madeNow();
+  });
+  // A phone may close a page switched away from without its pagehide.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") madeNow();
+  });
+
+  function madeNow() {
+    if (!draftTimer) return;
+    clearTimeout(draftTimer);
+    writeDraft(true);
+  }
+
+  function writeDraft(leaving) {
+    draftTimer = null;
+    if (leaving) {
+      let stored = null;
+      try { stored = window.localStorage.getItem(draftKey()); } catch (error) { stored = null; }
+      // Another tab saved its draft since this one: the newer is kept.
+      if (stored !== draftSeen) return;
+    }
+    const draft = {
+      start: state.start, phases: Array.from(state.phases), values: state.values,
+      analyses: Array.from(state.analyses), analysisOptions: state.analysisOptions,
+      sweep: state.sweep, decisions: state.decisions, full: Boolean(state.full),
+      analysisMode: state.analysisMode, lengthMode: state.lengthMode || null,
+      systems: state.systems.map((row) => ({ id: row.id, system: row.system, own: row.own || {} })),
+      output: (el("run-output") && el("run-output").value) || "",
+      trajectory: (el("run-trajectory") && el("run-trajectory").value) || "",
+      topology: (el("run-topology") && el("run-topology").value) || "",
+      configPath: (el("run-config-path") && el("run-config-path").value) || "",
+    };
+    try {
+      const written = JSON.stringify(draft);
+      const before = window.localStorage.getItem(draftKey());
+      if (!draft.start) window.localStorage.removeItem(draftKey());
+      else window.localStorage.setItem(draftKey(), written);
+      draftSeen = draft.start ? written : null;
+      const said = el("run-draft");
+      if (said) {
+        said.hidden = !draft.start;
+        // Each save that changed the draft is said again: the class is
+        // taken off and put back so its animation plays once more, and
+        // taken off as it ends or is cut short by the page being hidden,
+        // so nothing shown again replays it. A play cut short by the next
+        // save is not one of those: its cancel comes after the class is
+        // back, and the note is still shown.
+        if (!draftEndWired) {
+          draftEndWired = true;
+          said.addEventListener("animationend", (event) => {
+            if (event.animationName === "builder-saved") said.classList.remove("just-saved");
+          });
+          said.addEventListener("animationcancel", (event) => {
+            if (event.animationName === "builder-saved" && !said.getClientRects().length) {
+              said.classList.remove("just-saved");
+            }
+          });
         }
-      } catch (error) {
-        // No storage here: the form works without it, and says no save.
-        const said = el("run-draft");
-        if (said) {
-          said.hidden = true;
+        // A save that changed nothing leaves a play going; one made while
+        // the page or the tab is hidden is not played, nor kept to play
+        // when shown.
+        if (draft.start && written !== before && said.getClientRects().length
+            && document.visibilityState === "visible") {
+          said.classList.remove("just-saved");
+          void said.offsetWidth;
+          said.classList.add("just-saved");
+        } else if (!draft.start) {
           said.classList.remove("just-saved");
         }
       }
-    }, 300);
+    } catch (error) {
+      // No storage here: the form works without it, and says no save.
+      const said = el("run-draft");
+      if (said) {
+        said.hidden = true;
+        said.classList.remove("just-saved");
+      }
+    }
   }
 
   function restoreDraft() {
     let draft = null;
-    try { draft = JSON.parse(window.localStorage.getItem(draftKey()) || "null"); }
-    catch (error) { draft = null; }
+    try {
+      draftSeen = window.localStorage.getItem(draftKey());
+      draft = JSON.parse(draftSeen || "null");
+    } catch (error) { draft = null; }
     if (!draft || !draft.start || !STARTING_POINTS[draft.start]) return false;
     forgetWhatWasSetAside();
     state.start = draft.start;
@@ -3220,7 +3279,11 @@
   }
 
   function discardDraft() {
+    // A save still waiting would write the draft back as the page goes.
+    clearTimeout(draftTimer);
+    draftTimer = null;
     try { window.localStorage.removeItem(draftKey()); } catch (error) { /* nothing to discard */ }
+    draftSeen = null;
     const said = el("run-draft");
     if (said) said.hidden = true;
   }
@@ -3359,6 +3422,9 @@
     }
     const { from: origin, note } = options;
     openedAConfig = true;
+    // The form as it was, so the config loaded (the Agent's, a file
+    // opened) is one step of its own for Cmd+Z, not the next edit's.
+    beforeActing();
     const snap = snapshotOfLoaded(from);
     state.start = snap.start;
     state.phases = new Set(snap.phases);
@@ -3388,6 +3454,7 @@
     describeOutput();
     if (note) text(el("run-note"), note);
     saveDraft();
+    afterActing();
     return undefined;
   }
 
@@ -3543,7 +3610,17 @@
 
   async function start() {
     const button = el("run-start-button");
-    if (!ready()) return;
+    // Ctrl+Enter from a field: the value typed is the study's, and the
+    // field has the focus again where the study is not started.
+    const typed = commitTyping();
+    const backToTyping = () => {
+      if (typed && typed.isConnected && (!document.activeElement
+          || document.activeElement === document.body)) typed.focus({ preventScroll: true });
+    };
+    if (!ready()) {
+      backToTyping();
+      return;
+    }
     button.disabled = true;
     const phone = el("run-phone-start");
     if (phone) phone.disabled = true;
@@ -3557,15 +3634,20 @@
       started = await response.json();
     } catch (error) {
       text(el("run-note"), "Could not reach the server.");
+      // Kept when the summary's check comes back.
+      el("run-note").dataset.ok = "false";
       button.disabled = false;
       if (phone) phone.disabled = false;
+      backToTyping();
       return;
     }
     if (!started.ok) {
       text(el("run-note"), started.error || "Could not start.");
+      el("run-note").dataset.ok = "false";
       sayRefusal(started);
       button.disabled = false;
       if (phone) phone.disabled = false;
+      backToTyping();
       return;
     }
     sayRefusal(started);
@@ -3647,6 +3729,153 @@
     // The draft written over, not discarded first: the note stays, and
     // plays only where Reset changed what was saved.
     saveDraft();
+  }
+
+  // ------------------------------------------------------------------- undo
+
+  /* Cmd+Z (Ctrl+Z elsewhere) takes the form back one change at a time, and
+   * Shift+Cmd+Z (or Ctrl+Y) forward again: a field typed, a box ticked, a
+   * revert, a system added. Inside a text field being typed in, the
+   * browser's own undo of the typing is left alone. */
+  const UNDO_MOST = 100;
+  const undo = { back: [], ahead: [], before: null, typedFrom: null };
+
+  function formNow() {
+    return JSON.stringify({
+      start: state.start, phases: Array.from(state.phases || []), values: state.values,
+      analyses: Array.from(state.analyses || []), analysisOptions: state.analysisOptions,
+      sweep: state.sweep, decisions: state.decisions, full: Boolean(state.full),
+      analysisMode: state.analysisMode, lengthMode: state.lengthMode || null,
+      systems: (state.systems || []).map((row) => ({ id: row.id, system: row.system, own: row.own || {} })),
+      output: (el("run-output") && el("run-output").value) || "",
+      trajectory: (el("run-trajectory") && el("run-trajectory").value) || "",
+      topology: (el("run-topology") && el("run-topology").value) || "",
+      configPath: (el("run-config-path") && el("run-config-path").value) || "",
+    });
+  }
+
+  function onTheBuilder(event) {
+    const page = document.querySelector('.page[data-page="run"]');
+    if (!page || page.hidden || !event.target) return false;
+    // Its path as dispatched: a box whose own change drew its row again
+    // is no longer in the page by the time the event reaches the document.
+    return page.contains(event.target) || event.composedPath().includes(page);
+  }
+
+  // A change or a click is read once its own handlers have run: after
+  // them, or as the next press or key begins, whichever comes first. A
+  // busy page runs its timers after the keys waiting, so a field left for
+  // another and typed in at once was read with its first letter, and the
+  // typing taken back in two steps.
+  let afterDue = false;
+  function afterSoon() {
+    afterDue = true;
+    setTimeout(() => { if (afterDue) afterActing(); }, 0);
+  }
+
+  // Before a person acts on the form: what it held.
+  function beforeActing() {
+    if (afterDue) afterActing();
+    if (draftReady && undo.before === null) undo.before = formNow();
+  }
+
+  // After: a change from what it held is a step back to take.
+  function afterActing() {
+    afterDue = false;
+    if (!draftReady) return;
+    const now = formNow();
+    if (undo.before !== null && now !== undo.before) {
+      undo.back.push(undo.before);
+      if (undo.back.length > UNDO_MOST) undo.back.shift();
+      undo.ahead = [];
+    }
+    undo.before = now;
+  }
+
+  function useForm(kept) {
+    const form = JSON.parse(kept);
+    forgetWhatWasSetAside();
+    state.start = form.start;
+    state.phases = new Set(form.phases || []);
+    state.values = form.values || {};
+    state.analyses = new Set(form.analyses || []);
+    state.analysisOptions = form.analysisOptions || {};
+    state.sweep = form.sweep || [];
+    state.decisions = form.decisions || {};
+    state.full = Boolean(form.full);
+    state.analysisMode = form.analysisMode || "all";
+    state.lengthMode = form.lengthMode || null;
+    state.systems = (form.systems || []).map((row) => ({ id: row.id || "", system: row.system || "", own: row.own || {}, facts: null }));
+    if (el("run-output")) el("run-output").value = form.output || "";
+    if (el("run-trajectory")) el("run-trajectory").value = form.trajectory || "";
+    if (el("run-topology")) el("run-topology").value = form.topology || "";
+    if (el("run-config-path")) el("run-config-path").value = form.configPath || "";
+    // As a loaded config clears them: what a part of the form drew from
+    // before (a stop being set, residues on their way) is the form's now.
+    state.editing = null;
+    stoppingDraft = null;
+    stashedStop = null;
+    residuesPending = [];
+    state.samplingChosen = null;
+    state.refused = null;
+    state.estimate = null;
+    renderAll();
+    saveDraft();
+    undo.before = formNow();
+    // A field still focused starts again from what it now holds.
+    const focused = document.activeElement;
+    if (focused && /^(INPUT|TEXTAREA)$/.test(focused.tagName)) undo.typedFrom = focused.value;
+  }
+
+  function stepThrough(from, to, said) {
+    afterActing();
+    if (!from.length) return false;
+    to.push(formNow());
+    useForm(from.pop());
+    sayOnTheForm(said);
+    return true;
+  }
+
+  function wireUndo() {
+    // `beforeinput`: text pasted or composed, with no key of its own; a
+    // click on what takes no focus (no `focusin` before it).
+    ["pointerdown", "keydown", "beforeinput", "focusin", "click"].forEach((kind) => {
+      document.addEventListener(kind, (event) => { if (onTheBuilder(event)) beforeActing(); }, true);
+    });
+    ["change", "click"].forEach((kind) => {
+      document.addEventListener(kind, (event) => {
+        // A click into a field changes nothing (its change is said by
+        // itself), and one read later would take in what was typed since.
+        if (kind === "click" && /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
+        if (onTheBuilder(event)) afterSoon();
+      });
+    });
+    document.addEventListener("focusin", (event) => {
+      const field = event.target;
+      undo.typedFrom = field && /^(INPUT|TEXTAREA)$/.test(field.tagName) ? field.value : null;
+    });
+    document.addEventListener("keydown", (event) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+      if (document.documentElement.getAttribute("data-page") !== "run") return;
+      const key = String(event.key || "").toLowerCase();
+      const again = (key === "z" && event.shiftKey) || (key === "y" && !event.shiftKey);
+      if (key !== "z" && !again) return;
+      const field = event.target;
+      // A field anywhere but the form (the Agent's composer beside it, a
+      // dialog over it) keeps the keys for its own typing.
+      const typing = field && (/^(INPUT|TEXTAREA|SELECT)$/.test(field.tagName) || field.isContentEditable);
+      if (typing && !onTheBuilder(event)) return;
+      if (field && field.isContentEditable) return;
+      if (field && field.closest && field.closest(".agent-dialog, #agent-drawer")) return;
+      // Typing still to be undone in its own field is the browser's, both
+      // ways; a field a step changed starts again from what it then held.
+      if (field && /^(INPUT|TEXTAREA)$/.test(field.tagName) && undo.typedFrom !== null
+          && field.value !== undo.typedFrom) return;
+      const moved = again
+        ? stepThrough(undo.ahead, undo.back, "Done again.")
+        : stepThrough(undo.back, undo.ahead, "Undone.");
+      if (moved) event.preventDefault();
+    });
   }
 
   // ------------------------------------------------------------------- wire
@@ -3733,7 +3962,11 @@
     });
 
     const configPath = el("run-config-path");
-    if (configPath) configPath.addEventListener("change", checkConfigFile);
+    if (configPath) {
+      configPath.addEventListener("change", checkConfigFile);
+      // Kept in the draft as it is typed, as the other paths are.
+      configPath.addEventListener("input", saveDraft);
+    }
     const wire = (id, handler) => { const button = el(id); if (button) button.addEventListener("click", handler); };
     wire("run-check-config", checkConfigFile);
     wire("run-open-config", loadConfigIntoForm);
@@ -3786,6 +4019,7 @@
     }
     watchForARun();
     followTheSteps();
+    wireUndo();
 
     loadSchema().then(() => {
       if (!openedAConfig) restoreDraft();
@@ -3805,6 +4039,8 @@
   }
 
   window.FastMDXRun = {
+    // Whether the form takes steps yet (its draft read first).
+    get ready() { return draftReady; },
     state, currentState, PHASES, STARTING_POINTS, applyLoadedState, setStart,
     /* The four actions the Agent panel offers on a config it just wrote.
      * They read the builder's state, which the panel loads silently first,

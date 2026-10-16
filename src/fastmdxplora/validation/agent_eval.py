@@ -2,7 +2,7 @@
 
 Every change to the Agent, and every AI model put behind it, is judged by
 this set. It is versioned (:data:`SET_VERSION`) and registered in
-``preregistration/agent-eval.md`` before any reply to it was seen: the
+``preregistration/`` (:data:`REGISTRATION`) before any reply to it was seen: the
 messages, what each must come to, and how a reply is judged are fixed
 there, and a new version of the set is a new registration, never an edit
 of this one.
@@ -37,6 +37,11 @@ the run's status), and the case is judged on what it came to.
   and where the case registers one, the answer the reply commits to.
 - ``records``: a question about a finished study's numbers. The answer the
   reply commits to is the record's.
+- ``context`` (version 2): a message that needs what the person is looking
+  at, what they named with @, or what was settled many turns before. Judged
+  as a ``write``, a ``records`` case or a question (``judge_as``); asked
+  both with the Agent's context and without it (``--without-context``), so
+  what the context adds is counted.
 
 The judging is code, here, and nothing in it reads a reply's tone or
 wording beyond what each kind names. A trial that ends in an error from the
@@ -68,14 +73,17 @@ and Wrong marks people gave the Agent's replies.
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import math
 import os
 import re
+import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass, field
+import zlib
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
@@ -94,11 +102,14 @@ __all__ = [
 SET_NAME = "agent-eval"
 #: The set's version. A change to a case's messages, what it must come to, or
 #: the judging is a new version and a new registration.
-SET_VERSION = 1
-REGISTRATION = "preregistration/agent-eval.md"
+SET_VERSION = 2
+REGISTRATION = "preregistration/agent-eval-v2.md"
+#: The versions whose recordings replay here: version 2 adds the
+#: ``context`` kind and keeps every case of version 1 as it was.
+REPLAYS_VERSIONS = (1, 2)
 
 KINDS = ("write", "edit", "repair", "no_structure", "refusal", "no_action", "act",
-         "docs", "records")
+         "docs", "records", "context")
 
 #: The kinds where doing the wrong thing costs the person more than doing
 #: nothing: held to every repeat of every case.
@@ -337,16 +348,39 @@ class Case:
     answer: Any = None
     #: For ``records``: the analysis whose recorded mean is asked for.
     analysis: str | None = None
+    #: For ``context``: how it is judged, as a ``write``, a ``records`` case
+    #: or an ``ask`` (a question naming one of ``asks_with``).
+    judge_as: str | None = None
+    #: For ``context``: the turns before the first message, as the page
+    #: keeps them, (role, text) with role ``user`` or ``agent``.
+    earlier: tuple[tuple[str, str], ...] = ()
+    #: For ``context``: what the page shows as the message is sent (its
+    #: hints), ``{study}`` standing for the study given.
+    view: Mapping[str, Any] | None = None
 
     def messages(self, study: str | None = None) -> tuple[str, ...]:
-        """What is typed, with a study's folder put in where a case names it,
-        and the ``ANSWER:`` line asked for where a reply commits to one."""
-        out = [m.replace("{study}", study or "<no study>") for m in self.said]
+        """What is typed, with a study's folder put in where a case names it
+        (``{study_name}`` its folder's name), and the ``ANSWER:`` line asked
+        for where a reply commits to one."""
+        name = Path(study).name if study else "<no study>"
+        out = [m.replace("{study}", study or "<no study>").replace("{study_name}", name)
+               for m in self.said]
         if self.kind == "docs" and self.answer is not None:
             out[-1] += _ANSWER_NAMES if isinstance(self.answer, tuple) else _ANSWER_NUMBER
-        if self.kind == "records":
+        if self.kind == "records" or self.judge_as == "records":
             out[-1] += _ANSWER_NUMBER
         return tuple(out)
+
+    def hints(self, study: str | None, *, context: bool = True) -> dict[str, Any] | None:
+        """The page's hints as the message is sent: with ``context`` false,
+        only what the page sent before (the page and the study open)."""
+        if self.view is None:
+            return None
+        shown = {k: (v.replace("{study}", study or "") if isinstance(v, str) else v)
+                 for k, v in self.view.items()}
+        if not context:
+            shown = {k: v for k, v in shown.items() if k in ("page", "study")}
+        return {k: v for k, v in shown.items() if v not in (None, "")} or None
 
 
 _ANSWER_NUMBER = (" End your reply with one line that reads `ANSWER: ` followed by the "
@@ -383,6 +417,24 @@ _LIGAND_FORCEFIELD = AnyOf(("amber-openff", "auto", None))
 #: A sweep stated as 300, 310 and 320 K. 300 K is the default, so the run at
 #: it may leave the temperature out where the sweep is written per system.
 _AT_300_310_320 = Unordered((AnyOf((300, None)), 310, 320))
+
+#: Twelve turns about the software, between a choice and the message that
+#: needs it, so the choice is no longer among the last twelve turns kept
+#: whole. None names a structure, a setting's value or a study.
+_ASIDES: tuple[tuple[str, str], ...] = (
+    ("user", "How do I open the Viewer?"),
+    ("agent", "Press Viewer in the sidebar, or use the Viewer button on a study's card."),
+    ("user", "Where are my past studies listed?"),
+    ("agent", "Under All studies in the sidebar, newest first, with Recent above it."),
+    ("user", "Can I attach a file to a message?"),
+    ("agent", "Yes. Press the paper clip beside the box, or drop the file on it."),
+    ("user", "What does the Log tab show?"),
+    ("agent", "What the run writes as it goes, newest at the foot, in the side panel."),
+    ("user", "How do I start a new conversation?"),
+    ("agent", "Press New at the top of the Agent. The one on screen is kept in the list."),
+    ("user", "Is my key kept in a study?"),
+    ("agent", "No. It is kept in your settings folder and never written into a study."),
+)
 
 #: The set, version 1. Its order is the order a run asks in. No value a case
 #: states is the setting's default, so a config that leaves a default out
@@ -716,6 +768,63 @@ CASES: tuple[Case, ...] = (
          ("What is the mean radius of gyration of the study at {study}, in the unit it "
           "records?",),
          "a second mean from the same record", analysis="rg"),
+
+    # -- context (version 2): what the page shows, what was named, what was settled --
+    Case("ctx_far_forcefield", "context", ("Now write the study for it, 10 ns.",),
+         "a force field settled fourteen turns before, in a message's second sentence",
+         judge_as="write", must={"setup.forcefield": "charmm36",
+                                 "simulation.duration_ns": 10},
+         systems=("1UBQ",), earlier=(
+             ("user", "I want to simulate ubiquitin, 1UBQ, in water."),
+             ("agent", "Which force field should it use?\n\nCandidates: amber14; charmm36."),
+             ("user", "Thanks, that helps. Use charmm36 for the force field."),
+             ("agent", "Understood. I will use it when I write the study."),
+         ) + _ASIDES),
+    Case("ctx_far_temperature", "context", ("Write the study for 1L2Y, 5 ns.",),
+         "a temperature settled fourteen turns before, in a message's second sentence",
+         judge_as="write", must={"simulation.temperature_K": 310,
+                                 "simulation.duration_ns": 5},
+         systems=("1L2Y",), earlier=(
+             ("user", "I will be running trp-cage studies this week."),
+             ("agent", "Good. Tell me what each should hold and I will write it."),
+             ("user", "Fine. Every run should be at 310 K, not the default."),
+             ("agent", "Understood. I will keep to that."),
+         ) + _ASIDES),
+    Case("ctx_far_ph", "context", ("Write it for 1UBQ, 10 ns.",),
+         "a pH settled fourteen turns before, in a message's second sentence",
+         judge_as="write", must={"setup.ph": 6.0, "simulation.duration_ns": 10},
+         systems=("1UBQ",), earlier=(
+             ("user", "I am reproducing a paper's ubiquitin runs."),
+             ("agent", "Which conditions does the paper use?"),
+             ("user", "It is a standard setup. The protonation is set at pH 6.0, as "
+                      "the paper did."),
+             ("agent", "Understood. I will set that when I write it."),
+         ) + _ASIDES),
+    Case("ctx_open_question", "context", ("Go ahead and write it, 10 ns.",),
+         "a question the person moved past without answering, still theirs to answer",
+         judge_as="ask", asks_with=("1AKI", "2LZM", "hen", "T4"), earlier=(
+             ("user", "Simulate lysozyme in water."),
+             ("agent", "There are two common lysozyme structures in the PDB. Hen "
+                       "egg-white (1AKI) or T4 (2LZM): which one should it be?"
+                       "\n\nCandidates: 1AKI; 2LZM."),
+             ("user", "Before that, does the Agent keep my conversations?"),
+             ("agent", "Yes. Each is kept with the study it is about, or in your "
+                       "settings folder where it is about none."),
+         ) + _ASIDES),
+    Case("ctx_file_open", "context", ("What mean does the file I have open record?",),
+         "the file open in the reader, read where the person is looking",
+         judge_as="records", analysis="rg",
+         view={"page": "files", "study": "{study}", "file": "analysis/rg/options.json"}),
+    Case("ctx_report_section", "context", ("What value does this section give?",),
+         "the report's section being read", judge_as="records", analysis="rmsd",
+         view={"page": "report", "study": "{study}", "section": "RMSD"}),
+    Case("ctx_mention_study", "context",
+         ("What mean radius of gyration did @{study_name} record?",),
+         "a past study named with @, found in the workspace by its folder's name",
+         judge_as="records", analysis="rg", view={"page": "agent"}),
+    Case("ctx_mention_analysis", "context", ("What did @rmsd come to?",),
+         "an analysis of the study open named with @", judge_as="records",
+         analysis="rmsd", view={"page": "overview", "study": "{study}"}),
 )
 
 
@@ -978,6 +1087,28 @@ def judge(case: Case, turns: list[Mapping[str, Any]], *,
             return Verdict(looked, where, looked=looked)
         agrees, said = _committed_agrees(case.answer, _said_text(last))
         return Verdict(looked and agrees, f"{where}; {said}", looked=looked, agreed=agrees)
+
+    if kind == "context":
+        if case.judge_as in ("write", "records"):
+            return judge(replace(case, kind=case.judge_as), turns, truth=truth)
+        if case.judge_as == "ask":
+            if outcome == "question":
+                named = " ".join([str(last.get("question") or "")]
+                                 + list(last.get("choices") or []))
+                found = [s for s in case.asks_with
+                         if re.search(rf"\b{re.escape(s)}\b", named, re.I)]
+                if found:
+                    return Verdict(True, f"asked, naming {', '.join(found)}")
+                return Verdict(False, "asked without naming " + " or ".join(case.asks_with))
+            if outcome == "config":
+                named = ", ".join(sorted(str(s.get("system")) for s in config.get("systems")
+                                         or [] if isinstance(s, dict))) or "nothing"
+                return Verdict(False, f"chose for the person: wrote a study of {named}")
+            return Verdict(False, f"came to {_a(outcome)}, where the open question was "
+                                  "to be asked")
+        raise StudyError(f"a context case judged as {case.judge_as!r}",
+                         code="config.option.not_permitted", option="judge_as",
+                         given=case.judge_as, permitted=["write", "records", "ask"])
 
     if kind == "records":
         if not truth:
@@ -1246,17 +1377,29 @@ def _as_the_page_keeps(config: Mapping[str, Any], ai_model: str | None) -> str:
 def ask_case(case: Case, complete: Any, *, tape: _Tape | None = None,
              study: str | None = None, toolbox: Callable[[_Tape | None], Any] | None = None,
              max_cycles: int | None = None, ai_model: str | None = None,
-             workspace: str | Path | None = None) -> list[dict[str, Any]]:
+             workspace: str | Path | None = None, context: bool = True
+             ) -> list[dict[str, Any]]:
     """Each of the case's messages, asked as the Agent page asks it; what
     each came to, in order. The conversation is carried as the page carries
     it: the person's words, and the Agent's reply as the page keeps it (a
     config as "Wrote a config:" and its YAML, which becomes the current
-    config; a question with its candidates; an action as ``DO:``)."""
+    config; a question with its candidates; an action as ``DO:``).
+
+    A ``context`` case starts from the turns it registers, is asked with
+    the page's hints it registers, and, with a study given, from the folder
+    the study is in, as the GUI would be started there. ``context`` false
+    asks it as before the Agent's context (:mod:`fastmdxplora.agent.context`):
+    the earlier turns by their first sentence, nothing named with @
+    resolved, and the page's hints only its name and the study open."""
     from fastmdxplora.agent.propose import DEFAULT_ATTEMPTS, propose_config
     from fastmdxplora.agent.tools import current_view_tool
     from fastmdxplora.workspace_studies import folder_of_studies
 
-    history: list[dict[str, str]] = []
+    history: list[dict[str, str]] = [{"role": role, "text": text}
+                                     for role, text in case.earlier]
+    hints = case.hints(study, context=context)
+    if case.kind == "context" and study:
+        workspace = str(Path(study).parent)
     current = _as_the_page_keeps(case.current, ai_model) if case.current is not None else None
     if current is not None:
         history += [{"role": "user", "text": case.before},
@@ -1275,12 +1418,15 @@ def ask_case(case: Case, complete: Any, *, tape: _Tape | None = None,
         if toolbox is not None:
             box = toolbox(tape)
         else:
-            box = _taped_toolbox(tape=tape, extra=(current_view_tool(None),),
-                                 workspace=folder_of_studies(workspace) if workspace else None)
+            box = _taped_toolbox(tape=tape, extra=(current_view_tool(
+                                     hints, active_root=(hints or {}).get("study")),),
+                                 workspace=folder_of_studies(workspace) if workspace else None,
+                                 open_study=(hints or {}).get("study"))
         proposal = propose_config(
             message, complete, phases=["setup", "simulation"],
             max_cycles=max_cycles or DEFAULT_ATTEMPTS, history=history or None,
-            current_config=current, run_status=NO_RUN, attachments=attachments, tools=box)
+            current_config=current, run_status=NO_RUN, attachments=attachments, tools=box,
+            study=(hints or {}).get("study"), context=context)
         summary = _summary(proposal)
         turns.append(summary)
         history.append({"role": "user", "text": message})
@@ -1305,7 +1451,7 @@ def _truth(case: Case, study: str | None) -> dict[str, Any] | None:
     """For ``records``: the mean the study recorded for the case's analysis,
     with its error, read from the file every page reads; None where the
     study has no determined mean of it."""
-    if case.kind != "records" or not study:
+    if not (case.kind == "records" or case.judge_as == "records") or not study:
         return None
     path = Path(study) / "analysis" / str(case.analysis) / "options.json"
     try:
@@ -1337,23 +1483,26 @@ _UNREAD: Any = object()
 
 def _trial(case: Case, repeat: int, complete: Any, *, tape: _Tape, study: str | None,
            toolbox: Callable[[_Tape | None], Any] | None = None, truth: Any = _UNREAD,
-           ai_model: str | None = None, workspace: str | Path | None = None
-           ) -> dict[str, Any]:
+           ai_model: str | None = None, workspace: str | Path | None = None,
+           context: bool = True) -> dict[str, Any]:
     """One case asked once, judged; ``truth`` given where it was read
     elsewhere (a recorded run's, replayed)."""
     if truth is _UNREAD:
         truth = _truth(case, study)
+    reads = case.kind == "records" or case.judge_as == "records"
     record = {"case": case.name, "kind": case.kind, "tier": case.tier, "repeat": repeat,
-              "study": study if case.kind == "records" else None, "truth": truth}
-    if case.kind == "records" and truth is None:
-        verdict = Verdict(None, "not asked: no study given, or no determined mean of "
-                                f"{case.analysis} in it")
+              "study": study if reads or case.kind == "context" else None, "truth": truth}
+    if case.kind == "context":
+        record["context"] = context
+    if reads and truth is None:
+        verdict = Verdict(None, "not asked: no study given" if not study else
+                          f"not asked: no determined mean of {case.analysis} in {study}")
         return {**record, "turns": [], "exchanges": [], "changed": 0,
                 "verdict": _verdict_record(verdict), "skipped": True}
     from_provider = False
     try:
         turns = ask_case(case, complete, tape=tape, study=study, toolbox=toolbox,
-                         ai_model=ai_model, workspace=workspace)
+                         ai_model=ai_model, workspace=workspace, context=context)
     except ReplayDiverged as exc:
         verdict = Verdict(None, f"diverged from its recording: {exc}")
         turns = []
@@ -1400,10 +1549,11 @@ def run(complete: Any, *, repeats: int = 3, cases: Iterable[str] | None = None,
         kinds: Iterable[str] | None = None, study: str | None = None,
         text_only: bool = False, on_trial: Callable[[dict[str, Any]], None] | None = None,
         toolbox: Callable[[_Tape | None], Any] | None = None,
-        ai_model: str | None = None) -> dict[str, Any]:
+        ai_model: str | None = None, context: bool = True) -> dict[str, Any]:
     """Every chosen case, ``repeats`` times, each exchange recorded. A trial
     the provider failed is asked again, :data:`PROVIDER_RETRIES` times at
-    most; the last asking is the one kept, with how many it took."""
+    most; the last asking is the one kept, with how many it took.
+    ``context`` false asks as before the Agent's context (:func:`ask_case`)."""
     trials = []
     chosen = _chosen(cases, kinds)
     # The Agent's looks read from a folder of their own, so a study named
@@ -1417,14 +1567,17 @@ def run(complete: Any, *, repeats: int = 3, cases: Iterable[str] | None = None,
                     trial = _trial(case, repeat,
                                    _Recording(complete, tape, text_only=text_only),
                                    tape=tape, study=study, toolbox=toolbox,
-                                   ai_model=ai_model, workspace=workspace)
+                                   ai_model=ai_model, workspace=workspace,
+                                   context=context)
                     trial["asked"] = asked
                     if not trial.get("provider_failed"):
                         break
                 trials.append(trial)
                 if on_trial is not None:
                     on_trial(trial)
-    return _result(trials)
+    result = _result(trials)
+    result["context"] = bool(context)
+    return result
 
 
 def replay(recorded: Mapping[str, Any], *, cases: Iterable[str] | None = None,
@@ -1433,9 +1586,10 @@ def replay(recorded: Mapping[str, Any], *, cases: Iterable[str] | None = None,
     the AI model and the tools; each trial's verdict beside the one recorded.
     A records case is judged against the truth it was recorded with: the
     study it read is on the machine it ran on."""
-    if recorded.get("set") != SET_NAME or recorded.get("version") != SET_VERSION:
+    if recorded.get("set") != SET_NAME or recorded.get("version") not in REPLAYS_VERSIONS:
         raise StudyError(f"the recording is of {recorded.get('set')} version "
-                         f"{recorded.get('version')}, not {SET_NAME} version {SET_VERSION}",
+                         f"{recorded.get('version')}, not {SET_NAME} version "
+                         + " or ".join(str(v) for v in REPLAYS_VERSIONS),
                          code="config.option.inapplicable", option="replay")
     wanted = {c.name for c in _chosen(cases, kinds)}
     by_name = {c.name: c for c in CASES}
@@ -1454,14 +1608,19 @@ def replay(recorded: Mapping[str, Any], *, cases: Iterable[str] | None = None,
         tape = _Tape(old.get("exchanges") or [], replaying=True)
         trial = _trial(case, int(old.get("repeat") or 1), _Replayed(tape), tape=tape,
                        study=old.get("study"), truth=old.get("truth"),
-                       ai_model=recorded.get("ai_model"))
+                       ai_model=recorded.get("ai_model"),
+                       context=old.get("context", recorded.get("context", True)) is not False)
         trial["recorded"] = old.get("verdict")
         trials.append(trial)
     if missing:
         raise StudyError("the recording holds cases this set does not: " + ", ".join(missing),
                          code="config.option.inapplicable", option="replay")
     result = _result(trials)
-    for key in ("ai_model", "fastmdxplora", "when", "protocol", "repeats"):
+    if "context" in recorded:
+        # Replayed as the run was asked, and said so in its table.
+        result["context"] = recorded["context"] is not False
+    for key in ("ai_model", "fastmdxplora", "source", "when", "protocol", "repeats", "context",
+                "version"):
         if key in recorded:
             result[f"recorded_{key}"] = recorded[key]
     return result
@@ -1594,6 +1753,8 @@ def _table(result: Mapping[str, Any]) -> str:
     t = result["tally"]
     lines = [f"{SET_NAME} version {SET_VERSION}: {t['all']['passed']}/{t['all']['judged']} "
              f"passed, {t['all']['not_judged']} not judged"]
+    if result.get("context") is False:
+        lines.append("  asked without the Agent's context (--without-context)")
     for kind, c in t["kinds"].items():
         lines.append(f"  {kind:<13} {c['passed']:>3}/{c['judged']:<3}"
                      + (f" ({c['not_judged']} not judged)" if c["not_judged"] else ""))
@@ -1631,13 +1792,19 @@ def build_parser() -> argparse.ArgumentParser:
                         help="ask only this case; may be given more than once")
     parser.add_argument("--kind", action="append", dest="kinds", choices=KINDS,
                         help="ask only the cases of this kind; may be given more than once")
-    parser.add_argument("--study", help="a finished study, for the records cases")
+    parser.add_argument("--study", help="a finished study, for the records cases and "
+                                        "the context cases that read one")
+    parser.add_argument("--without-context", action="store_true",
+                        help="ask as before the Agent's context: the earlier turns by their "
+                             "first sentence, nothing named with @ resolved, the page's "
+                             "hints only its name and the study open")
     parser.add_argument("--text", action="store_true",
                         help="ask in the text protocol even where the AI model takes tools")
     parser.add_argument("--out", help="write the run, every exchange included, as JSON "
                                       "(written after each trial)")
     parser.add_argument("--replay", metavar="FILE",
-                        help="ask again from a recorded run, with no AI model")
+                        help="ask again from a recorded run (as --out wrote it, or gzipped), "
+                             "with no AI model")
     parser.add_argument("--docs-only", action="store_true",
                         help="search the docs for each docs case's question; no AI model")
     parser.add_argument("--marks", nargs="*", metavar="FOLDER",
@@ -1645,6 +1812,52 @@ def build_parser() -> argparse.ArgumentParser:
                              "under these folders (default: here)")
     parser.add_argument("--list", action="store_true", help="list the cases and stop")
     return parser
+
+
+def read_recording(path: str | Path) -> dict[str, Any]:
+    """A run as ``--out`` wrote it, or gzipped, as the suite keeps one. A file
+    cut short or not a run is refused, saying so."""
+    data = Path(path).read_bytes()
+    try:
+        if data[:2] == b"\x1f\x8b":
+            data = gzip.decompress(data)
+        recorded = json.loads(data.decode("utf-8"))
+    except (EOFError, zlib.error, UnicodeDecodeError) as exc:
+        raise StudyError(f"not a whole recording ({exc})",
+                         code="config.option.inapplicable", option="replay") from None
+    if not isinstance(recorded, dict) or not isinstance(recorded.get("trials"), list):
+        raise StudyError("not a recording of a run: no trials in it",
+                         code="config.option.inapplicable", option="replay")
+    return recorded
+
+
+def source_of(package: str | Path | None = None) -> dict[str, Any] | None:
+    """The commit the code was asked from, where it runs from a checkout of
+    its own repository, and whether that checkout held changes; None for an
+    installed copy. The version an editable install reports is the one it
+    had when installed, whatever is checked out since."""
+    folder = Path(package) if package is not None else Path(__file__).resolve().parents[1]
+    # A repository named by the caller's environment (a hook's GIT_DIR) is
+    # not the one the code is in.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
+    def git(*args: str) -> str | None:
+        try:
+            done = subprocess.run(["git", "--no-optional-locks", "-C", str(folder), *args],
+                                  capture_output=True, encoding="utf-8", errors="replace",
+                                  env=env, timeout=10, check=False)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return done.stdout.strip() if done.returncode == 0 else None
+
+    top = git("rev-parse", "--show-toplevel")
+    if not top or (Path(top) / "src" / folder.name).resolve() != folder.resolve():
+        return None
+    commit = git("rev-parse", "HEAD")
+    changes = git("status", "--porcelain", "--untracked-files=no")
+    if not commit or changes is None:
+        return None
+    return {"commit": commit, "uncommitted": bool(changes)}
 
 
 def _write_out(path: str | None, result: Mapping[str, Any], *, quiet: bool = False) -> None:
@@ -1693,7 +1906,10 @@ def main(argv: list[str] | None = None) -> int:
         _write_out(args.out, {"set": SET_NAME, "version": SET_VERSION, "docs": rows})
         return 0
     if args.replay:
-        recorded = json.loads(Path(args.replay).read_text(encoding="utf-8"))
+        try:
+            recorded = read_recording(args.replay)
+        except (OSError, ValueError) as exc:
+            parser.error(f"--replay {args.replay}: {exc}")
         try:
             result = replay(recorded, cases=args.cases, kinds=args.kinds)
         except ValueError as exc:
@@ -1713,8 +1929,8 @@ def main(argv: list[str] | None = None) -> int:
     chosen = load_choice()
     ai_model = f"{chosen.provider}/{chosen.model}" if chosen is not None else None
     complete = completion_for(where="page")
-    head = {"ai_model": ai_model, "fastmdxplora": __version__,
-            "repeats": max(1, args.repeats),
+    head = {"ai_model": ai_model, "fastmdxplora": __version__, "source": source_of(),
+            "repeats": max(1, args.repeats), "context": not args.without_context,
             "when": datetime.now(timezone.utc).isoformat(timespec="seconds")}
     done: list[dict[str, Any]] = []
 
@@ -1726,7 +1942,8 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         result = run(complete, repeats=args.repeats, cases=args.cases, kinds=args.kinds,
-                     study=args.study, text_only=args.text, on_trial=kept, ai_model=ai_model)
+                     study=args.study, text_only=args.text, on_trial=kept, ai_model=ai_model,
+                     context=not args.without_context)
     except Exception as exc:
         if not _stops_the_run(exc):
             raise

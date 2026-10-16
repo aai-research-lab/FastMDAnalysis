@@ -64,6 +64,7 @@ __all__ = [
     "mean_record",
     "shared_start",
     "with_its_error",
+    "independent_samples_said",
     "four_figures",
     "convergence_of",
 ]
@@ -82,6 +83,33 @@ MINIMUM_EFFECTIVE_SAMPLES = 10.0
 #: estimates, which on series 50 to 250 times their inefficiency withheld 19%
 #: to 41% at random and passed the ones whose estimate had read low.
 RESOLVED_SAMPLES = 25.0
+
+#: Frames this close to independent (a statistical inefficiency, as first
+#: estimated and before :func:`_for_the_mean`'s correction, under this) have
+#: no correlation time for a longer run to pin down, so they are not held to
+#: :data:`RESOLVED_SAMPLES`: their error may be given at fewer independent
+#: samples than that, never fewer than :data:`MINIMUM_EFFECTIVE_SAMPLES`.
+UNCORRELATED_INEFFICIENCY = 2.0
+
+
+def independent_samples_said(count: float, *, about: bool = False) -> str:
+    """A count of independent samples in words, the same on every page: a
+    count under one is "fewer than one independent sample", never rounded
+    to 0; any other is a whole number, and one is a sample, not samples. A
+    count under :data:`MINIMUM_EFFECTIVE_SAMPLES` is never rounded up to
+    it: 9.6 is said as 9, beside a rule that withholds an error under 10.
+    ``about`` hedges it, as an estimate is."""
+    count = float(count)
+    if not np.isfinite(count):
+        return "a number of independent samples that could not be counted"
+    if count < 1:
+        return "fewer than one independent sample"
+    whole = int(round(count))
+    if count < MINIMUM_EFFECTIVE_SAMPLES <= whole:
+        whole = int(np.floor(count))
+    return (("about " if about else "") + f"{whole} independent "
+            + ("sample" if whole == 1 else "samples"))
+
 
 #: Equilibration is detected as the latest start that keeps at least this
 #: share of the most independent samples any start keeps. The start that
@@ -329,8 +357,9 @@ def _corrected_for_the_mean(g: float, pairs: int, n: int) -> tuple[float, float]
 
 
 def correlation_is_resolved(series: np.ndarray) -> bool:
-    """Whether the series is long enough to measure its own correlation time:
-    at least :data:`RESOLVED_SAMPLES` times its inefficiency.
+    """Whether the series is long enough to resolve its own correlation time:
+    at least :data:`RESOLVED_SAMPLES` times its inefficiency, or so little
+    correlated that its inefficiency is under :data:`UNCORRELATED_INEFFICIENCY`.
 
     A run shorter than a few times its correlation time reads that time low,
     and its own error with it: on an AR(1) series with a true inefficiency of
@@ -358,7 +387,7 @@ def correlation_is_resolved(series: np.ndarray) -> bool:
 
     # Nothing to resolve. Frames this close to independent have no
     # correlation time for a longer run to pin down.
-    if statistical_inefficiency(values) < 2.0:
+    if statistical_inefficiency(values) < UNCORRELATED_INEFFICIENCY:
         return True
     g, _dof = _for_the_mean(values)
     return values.size / g >= RESOLVED_SAMPLES
@@ -533,7 +562,7 @@ def _summary(
             if whole > error:
                 error, dof = whole, dof_whole
     effective = (spread / error) ** 2 if error > 0.0 else kept.size / g
-    resolved = raw < 2.0 or effective >= RESOLVED_SAMPLES
+    resolved = raw < UNCORRELATED_INEFFICIENCY or effective >= RESOLVED_SAMPLES
 
     equilibrated = Equilibrated(
         discard=discard,
@@ -558,7 +587,9 @@ def _summary(
             f"This run is not long against its own correlation time: "
             f"{kept.size} frames hold {effective:.1f} independent samples by "
             f"their own estimate, and a correlated run shorter than "
-            f"{RESOLVED_SAMPLES:g} of them reads its correlation time low. "
+            f"{RESOLVED_SAMPLES:g} of them reads its correlation time low (only frames "
+            "whose statistical inefficiency, before the correction for the sample "
+            f"mean, is under {UNCORRELATED_INEFFICIENCY:g} are exempt). "
             "That count is an upper bound, so an error computed from it would "
             "be a lower bound -- and none is reported here rather than one "
             "that is wrong in a knowable direction. On ten replicas of one "
