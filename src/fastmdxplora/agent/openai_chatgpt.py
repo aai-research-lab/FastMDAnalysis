@@ -44,6 +44,7 @@ _SERVICE = "FastMDXplora ChatGPT sign-in"
 _lock = threading.RLock()
 _refresh_lock = threading.RLock()
 _store_lock = threading.RLock()
+_auth_lock = threading.RLock()
 _pending: dict[str, dict[str, Any]] = {}
 _pending_note = ""
 _UNUSABLE_GRANTS = {
@@ -96,7 +97,7 @@ def _read_store() -> dict[str, Any]:
     if vault is None:
         return {"host_id": "", "active_client_id": "", "accounts": []}
     try:
-        with _process_lock(store=True):
+        with _process_lock(purpose="store"):
             raw = vault.get_password(_SERVICE, _vault_user())
             keys = _chunk_keys(raw)
             if keys:
@@ -117,6 +118,8 @@ def _read_store() -> dict[str, Any]:
         "host_id": str(record.get("host_id") or ""),
         "active_client_id": str(record.get("active_client_id") or ""),
         "pending_client_id": str(record.get("pending_client_id") or ""),
+        "auth_epoch": int(record.get("auth_epoch") or 0),
+        "pending_operation": str(record.get("pending_operation") or ""),
         "accounts": [item for item in accounts if isinstance(item, dict)]
         if isinstance(accounts, list) else [],
     }
@@ -130,7 +133,7 @@ def _write_store(record: dict[str, Any]) -> None:
     written = []
     committed = False
     try:
-        with _process_lock(store=True):
+        with _process_lock(purpose="store"):
             user = _vault_user()
             previous = _chunk_keys(vault.get_password(_SERVICE, user))
             # ASCII JSON gives a predictable UTF-16 size on Windows: each
@@ -305,6 +308,12 @@ def _verify_id_token(token: str, *, client_id: str, nonce: str,
     return claims
 
 
+def _require_attempt(store: dict[str, Any], attempt: dict[str, Any]) -> None:
+    if (store.get("pending_operation") != attempt["operation_id"]
+            or store.get("auth_epoch") != attempt["auth_epoch"]):
+        raise SignInError("This ChatGPT sign-in was canceled or superseded. Start it again.")
+
+
 class _CallbackHandler(http.server.BaseHTTPRequestHandler):
     server_version = "FastMDXploraCallback"
 
@@ -353,9 +362,11 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
                         "OpenAI did not return the newly registered client ID. Try again."
                     )
                 client_id = callback_client
-                store = _read_store()
-                store["pending_client_id"] = client_id
-                _write_store(store)
+                with _lock, _process_lock(purpose="auth"):
+                    store = _read_store()
+                    _require_attempt(store, attempt)
+                    store["pending_client_id"] = client_id
+                    _write_store(store)
             response = _exchange({
                 "grant_type": "authorization_code", "client_id": client_id,
                 "code": code, "code_verifier": attempt["verifier"],
@@ -363,36 +374,32 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
             })
             tokens = _validate_tokens(response, client_id=client_id,
                                       nonce=attempt["nonce"])
-            store = _read_store()
-            existing = _account(store, client_id)
-            subject = tokens["subject"]
-            if existing is not None and str(existing.get("subject") or "") != subject:
-                raise SignInError(
-                    "This client ID belongs to another ChatGPT account. Its saved "
-                    "credentials were kept."
-                )
-            tokens.update(
-                {"client_id": client_id, "issuer": ISSUER, "ext_agent_host_id": attempt["host_id"]}
-            )
-            if existing is not None:
-                store["accounts"].remove(existing)
-            store["accounts"].append(tokens)
-            store["active_client_id"] = client_id
-            if store.get("pending_client_id") == client_id:
-                store.pop("pending_client_id", None)
-            store["host_id"] = attempt["host_id"]
-            with _lock:
+            with _lock, _process_lock(purpose="auth"):
+                store = _read_store()
+                _require_attempt(store, attempt)
                 if _pending.get(state) is not attempt:
+                    raise SignInError("This ChatGPT sign-in was canceled. Start it again.")
+                existing = _account(store, client_id)
+                if existing is not None and str(existing.get("subject") or "") != tokens["subject"]:
                     raise SignInError(
-                        "This ChatGPT sign-in was canceled. Start it again when ready."
-                    )
+                        "This client ID belongs to another ChatGPT account. Its saved "
+                        "credentials were kept.")
+                tokens.update({"client_id": client_id, "issuer": ISSUER,
+                               "ext_agent_host_id": attempt["host_id"],
+                               "session_id": uuid.uuid4().hex})
+                if existing is not None:
+                    store["accounts"].remove(existing)
+                store["accounts"].append(tokens)
+                store.update(active_client_id=client_id, host_id=attempt["host_id"],
+                             pending_operation="", auth_epoch=store["auth_epoch"] + 1)
+                if store.get("pending_client_id") == client_id:
+                    store.pop("pending_client_id", None)
                 _write_store(store)
                 _pending_note = (
                     "ChatGPT sign-in completed; test model access before saving this route."
                     if PLAN_SCOPE in tokens["scopes"]
                     else "Signed in, but ChatGPT plan use was not authorized. "
-                    "Choose Continue with ChatGPT and approve plan use, or use an API key."
-                )
+                    "Choose Continue with ChatGPT and approve plan use, or use an API key.")
             self._answer(200, "ChatGPT sign-in is complete. You can return to FastMDXplora.")
         except SignInError as exc:
             _pending_note = str(exc)
@@ -448,13 +455,24 @@ def _stop_callback_server(server: Any) -> None:
 
 
 def _finish_attempt(state: str) -> bool:
-    """Close a finished or canceled attempt and release its timer/listener."""
-    with _lock:
-        attempt = _pending.pop(state, None)
-    if attempt is None:
-        return False
-    attempt["timer"].cancel()
-    threading.Thread(target=_stop_callback_server, args=(attempt["server"],), daemon=True).start()
+    """Invalidate this intent before closing its local timer and listener."""
+    attempt = None
+    try:
+        with _lock:
+            attempt = _pending.pop(state, None)
+            if attempt is None:
+                return False
+            with _process_lock(purpose="auth"):
+                store = _read_store()
+                if store.get("pending_operation") == attempt["operation_id"]:
+                    store["pending_operation"] = ""
+                    store["auth_epoch"] = store.get("auth_epoch", 0) + 1
+                    _write_store(store)
+    finally:
+        if attempt is not None:
+            attempt["timer"].cancel()
+            threading.Thread(target=_stop_callback_server, args=(attempt["server"],),
+                             daemon=True).start()
     return True
 
 
@@ -472,7 +490,9 @@ def connect(*, client_id: str = "", add_account: bool = False) -> dict[str, Any]
     with _lock:
         if _pending:
             return {"ok": False, "message": "A ChatGPT sign-in is already waiting in the browser."}
-    store = _read_store()
+    with _process_lock(purpose="auth"):
+        store = _read_store()
+        starting_epoch = store.get("auth_epoch", 0)
     selected = _account(store, client_id) if client_id else None
     if client_id and selected is None:
         return {"ok": False, "message": "Select a saved ChatGPT account, then try again."}
@@ -496,9 +516,16 @@ def connect(*, client_id: str = "", add_account: bool = False) -> dict[str, Any]
     server.daemon_threads = True
     port = int(server.server_address[1])
     redirect_uri = f"http://127.0.0.1:{port}/auth/callback"
-    host_id = _host_id(store)
+    operation_id = uuid.uuid4().hex
     try:
-        _write_store(store)
+        with _lock, _process_lock(purpose="auth"):
+            store = _read_store()
+            if store.get("auth_epoch", 0) != starting_epoch or _pending:
+                raise SignInError("ChatGPT sign-in changed while starting. Try again.")
+            host_id = _host_id(store)
+            store["auth_epoch"] = starting_epoch + 1
+            store["pending_operation"] = operation_id
+            _write_store(store)
     except SignInError as exc:
         server.server_close()
         return {"ok": False, "message": str(exc)}
@@ -507,7 +534,8 @@ def connect(*, client_id: str = "", add_account: bool = False) -> dict[str, Any]
         "redirect_uri": redirect_uri, "host_id": host_id,
         "client_id": (str(selected.get("client_id") or "") if selected else
                       pending_client_id),
-        "server": server,
+        "server": server, "operation_id": operation_id,
+        "auth_epoch": starting_epoch + 1,
     }
     params = {
         "client_id": attempt["client_id"] or "dynamic_agent_client",
@@ -531,9 +559,14 @@ def connect(*, client_id: str = "", add_account: bool = False) -> dict[str, Any]
     timer = threading.Timer(300.0, _expire_attempt, args=(state,))
     timer.daemon = True
     attempt["timer"] = timer
-    with _lock:
-        _pending[state] = attempt
-        _pending_note = ""
+    try:
+        with _lock, _process_lock(purpose="auth"):
+            _require_attempt(_read_store(), attempt)
+            _pending[state] = attempt
+            _pending_note = ""
+    except SignInError as exc:
+        server.server_close()
+        return {"ok": False, "message": str(exc)}
     threading.Thread(target=server.serve_forever, name="chatgpt-oauth-callback",
                      daemon=True).start()
     timer.start()
@@ -569,12 +602,16 @@ def _expire_attempt(state: str) -> None:
 
 
 @contextmanager
-def _process_lock(*, store: bool = False):
-    """Serialize refreshes or vault transactions across dashboard processes."""
-    name = "store" if store else "refresh"
-    path = user_config_dir() / f"openai-chatgpt-{name}.lock"
+def _process_lock(*, purpose: str = "refresh"):
+    """Lock order: local attempts -> refresh -> auth -> vault store.
+
+    Auth transactions never wait for refresh or perform network I/O. Store
+    transactions only protect the bounded credential entries and manifest.
+    """
+    lock = {"refresh": _refresh_lock, "auth": _auth_lock, "store": _store_lock}[purpose]
+    path = user_config_dir() / f"openai-chatgpt-{purpose}.lock"
     path.parent.mkdir(parents=True, exist_ok=True)
-    with (_store_lock if store else _refresh_lock), path.open("a+b") as handle:
+    with lock, path.open("a+b") as handle:
         acquired = False
         try:
             if os.name == "nt":
@@ -604,64 +641,96 @@ def _process_lock(*, store: bool = False):
 
 
 
+def _active_session(store: dict[str, Any]) -> dict[str, Any]:
+    active = _account(store, str(store.get("active_client_id") or ""))
+    if active is None or not active.get("refresh_token"):
+        raise SignInError("No active ChatGPT sign-in. Continue with ChatGPT in Agent Settings.")
+    if PLAN_SCOPE not in active.get("scopes", []):
+        raise SignInError(
+            "ChatGPT plan use is not authorized for this account. Continue with ChatGPT "
+            "in Agent Settings and approve plan use, or choose API-key authentication.")
+    if str(active.get("token_type") or "Bearer").casefold() != "bearer":
+        raise SignInError("The saved ChatGPT sign-in does not use bearer tokens. Sign in again.")
+    return active
+
+
+def _clear_tokens(account: dict[str, Any]) -> None:
+    for key in ("access_token", "refresh_token", "id_token", "token_type", "expires_at", "scopes"):
+        account.pop(key, None)
+
+
+def _refresh_target(store: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
+    active = _account(store, before["client_id"])
+    if (active is None or not active.get("refresh_token")
+            or active.get("refresh_token") != before.get("refresh_token")
+            or active.get("session_id") != before.get("session_id")):
+        raise SignInError(
+            "ChatGPT sign-in changed during refresh. Retry with the selected account.")
+    return active
+
+
 def access_token() -> str:
-    """Return a refreshed token only to the local request process."""
+    """Refresh one session without restoring old credentials or account selection."""
+    with _process_lock(purpose="auth"):
+        active = _active_session(_read_store())
+        if int(active.get("expires_at") or 0) > int(time.time()) + 60:
+            return str(active["access_token"])
     with _process_lock():
-        store = _read_store()
-        active = _account(store, str(store.get("active_client_id") or ""))
-        if active is None or not active.get("refresh_token"):
-            raise SignInError("No active ChatGPT sign-in. Continue with ChatGPT in Agent Settings.")
-        if PLAN_SCOPE not in active.get("scopes", []):
-            raise SignInError(
-                "ChatGPT plan use is not authorized for this account. Continue with ChatGPT "
-                "in Agent Settings and approve plan use, or choose API-key authentication.")
-        if str(active.get("token_type") or "Bearer").casefold() != "bearer":
-            raise SignInError(
-                "The saved ChatGPT sign-in does not use bearer tokens. Sign in again."
-            )
-        if int(active.get("expires_at") or 0) <= int(time.time()) + 60:
-            try:
-                response = _exchange({
-                    "grant_type": "refresh_token", "client_id": active["client_id"],
-                    "refresh_token": active["refresh_token"], "resource": RESOURCE,
-                })
-            except InvalidGrant:
-                for key in ("access_token", "refresh_token", "id_token", "token_type",
-                            "expires_at", "scopes"):
-                    active.pop(key, None)
-                store["active_client_id"] = ""
+        with _process_lock(purpose="auth"):
+            before = _active_session(_read_store())
+            if int(before.get("expires_at") or 0) > int(time.time()) + 60:
+                return str(before["access_token"])
+        try:
+            response = _exchange({
+                "grant_type": "refresh_token", "client_id": before["client_id"],
+                "refresh_token": before["refresh_token"], "resource": RESOURCE,
+            })
+        except InvalidGrant:
+            with _process_lock(purpose="auth"):
+                store = _read_store()
+                active = _refresh_target(store, before)
+                _clear_tokens(active)
+                if store["active_client_id"] == before["client_id"]:
+                    store["active_client_id"] = ""
                 _write_store(store)
-                raise
+            raise
+        with _process_lock(purpose="auth"):
+            store = _read_store()
+            active = _refresh_target(store, before)
             access = str(response.get("access_token") or "")
             if not access:
                 raise SignInError("OpenAI token refresh returned no access token. Sign in again.")
             scopes = sorted(
-                set(str(response.get("scope") or " ".join(active.get("scopes", []))).split())
-            )
+                set(str(response.get("scope") or " ".join(active.get("scopes", []))).split()))
             try:
                 expires_in = int(response.get("expires_in") or 0)
             except (TypeError, ValueError):
                 expires_in = 0
             token_type = str(response.get("token_type") or active.get("token_type") or "Bearer")
+            selected = store["active_client_id"] == before["client_id"]
             if expires_in <= 0 or token_type.casefold() != "bearer":
-                store["active_client_id"] = ""
+                _clear_tokens(active)
+                if selected:
+                    store["active_client_id"] = ""
                 _write_store(store)
                 raise SignInError("OpenAI returned invalid refreshed credentials. Sign in again.")
             active.update({
                 "access_token": access,
                 "refresh_token": str(response.get("refresh_token") or active["refresh_token"]),
                 "expires_at": int(time.time()) + expires_in,
-                "scopes": scopes,
-                "token_type": token_type,
+                "scopes": scopes, "token_type": token_type,
             })
-            if PLAN_SCOPE not in scopes:
+            if PLAN_SCOPE not in scopes and selected:
                 store["active_client_id"] = ""
-                _write_store(store)
-                raise SignInError(
-                    "OpenAI refresh no longer includes ChatGPT plan permission. Sign in again."
-                )
+            # Merge only this unchanged session into the latest store. Keep a
+            # rotating token for an inactive account without selecting it again.
             _write_store(store)
-        return str(active["access_token"])
+            if PLAN_SCOPE not in scopes:
+                raise SignInError(
+                    "OpenAI refresh no longer includes ChatGPT plan permission. Sign in again.")
+            if not selected:
+                raise SignInError("The active ChatGPT account changed during refresh. Retry.")
+            return access
 
 
 def status() -> dict[str, Any]:
@@ -678,7 +747,9 @@ def status() -> dict[str, Any]:
         }
     store = _read_store()
     active = _account(store, str(store.get("active_client_id") or ""))
-    pending = bool(_pending)
+    pending = any(attempt.get("operation_id") == store.get("pending_operation")
+                  and attempt.get("auth_epoch") == store.get("auth_epoch")
+                  for attempt in _pending.values())
     connected = None if pending else False
     if pending:
         message = "Waiting for ChatGPT sign-in in the system browser."
@@ -752,18 +823,23 @@ def disconnect(*, client_id: str = "") -> dict[str, Any]:
             _finish_attempt(state)
         if canceled:
             _pending_note = "ChatGPT sign-in canceled."
-    store = _read_store()
-    selected_id = client_id or str(store.get("active_client_id") or "")
-    account = _account(store, selected_id)
+    with _process_lock(purpose="auth"):
+        store = _read_store()
+        selected_id = client_id or str(store.get("active_client_id") or "")
+        account = _account(store, selected_id)
+        canceled = canceled or bool(store.get("pending_operation"))
+        store["pending_operation"] = ""
+        store["auth_epoch"] = store.get("auth_epoch", 0) + 1
+        refresh = str(account.get("refresh_token") or "") if account else ""
+        if account is not None:
+            _clear_tokens(account)
+        if store.get("active_client_id") == selected_id:
+            store["active_client_id"] = ""
+        _write_store(store)
     if account is None:
-        return {
-            "ok": True,
-            "remote_revoked": True,
-            "message": "ChatGPT sign-in canceled."
-            if canceled
-            else "No saved ChatGPT sign-in was found.",
-        }
-    refresh = str(account.get("refresh_token") or "")
+        return {"ok": True, "remote_revoked": True,
+                "message": "ChatGPT sign-in canceled." if canceled
+                else "No saved ChatGPT sign-in was found."}
     remote_revoked = not refresh
     remote_error = ""
     if refresh:
@@ -796,12 +872,6 @@ def disconnect(*, client_id: str = "") -> dict[str, Any]:
                 time.sleep(attempt + 1)
         except SignInError as exc:
             remote_error = str(exc)
-    for key in ("access_token", "refresh_token", "id_token", "token_type",
-                "expires_at", "scopes"):
-        account.pop(key, None)
-    if store.get("active_client_id") == selected_id:
-        store["active_client_id"] = ""
-    _write_store(store)
     message = "Disconnected from ChatGPT. The account registration is kept for later sign-in."
     if not remote_revoked:
         message += " The local tokens were cleared, but remote revocation was not confirmed. "
@@ -811,30 +881,35 @@ def disconnect(*, client_id: str = "") -> dict[str, Any]:
 
 
 def activate(*, client_id: str) -> dict[str, Any]:
-    """Use a previously validated, still renewable account registration."""
-    store = _read_store()
-    account = _account(store, client_id)
-    if account is None:
-        return {"ok": False, "message": "Select a saved ChatGPT account."}
-    if PLAN_SCOPE not in account.get("scopes", []) or not account.get("refresh_token"):
-        return {
-            "ok": False,
-            "message": (
-                "This account has no active ChatGPT plan grant. Continue with ChatGPT"
-                " first."
-            ),
-        }
-    previous_id = str(store.get("active_client_id") or "")
-    store["active_client_id"] = client_id
-    _write_store(store)
+    """Select an account without letting a delayed failure undo a newer choice."""
+    with _process_lock(purpose="auth"):
+        store = _read_store()
+        account = _account(store, client_id)
+        if account is None:
+            return {"ok": False, "message": "Select a saved ChatGPT account."}
+        if PLAN_SCOPE not in account.get("scopes", []) or not account.get("refresh_token"):
+            return {"ok": False, "message":
+                    "This account has no active ChatGPT plan grant. Continue with ChatGPT first."}
+        previous_id = str(store.get("active_client_id") or "")
+        epoch = store.get("auth_epoch", 0) + 1
+        store.update(active_client_id=client_id, auth_epoch=epoch, pending_operation="")
+        _write_store(store)
+    with _lock:
+        for state in list(_pending):
+            _finish_attempt(state)
     try:
         access_token()
     except SignInError as exc:
-        store = _read_store()
-        previous = _account(store, previous_id)
-        store["active_client_id"] = (
-            previous_id if previous and previous.get("refresh_token") else ""
-        )
-        _write_store(store)
+        with _process_lock(purpose="auth"):
+            store = _read_store()
+            if store.get("auth_epoch") == epoch and store.get("active_client_id") == client_id:
+                previous = _account(store, previous_id)
+                store["active_client_id"] = (
+                    previous_id if previous and previous.get("refresh_token") else "")
+                _write_store(store)
         return {"ok": False, "message": str(exc)}
+    with _process_lock(purpose="auth"):
+        store = _read_store()
+        if store.get("auth_epoch") != epoch or store.get("active_client_id") != client_id:
+            return {"ok": False, "message": "ChatGPT account selection changed. Retry."}
     return {"ok": True, "message": "The selected ChatGPT account is active."}
