@@ -27,6 +27,7 @@ def test_requested_chart_tooltips_fit_long_text_and_stay_within_the_chart(tmp_pa
     manifest_path = root / "analysis" / "analysis_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["results"] = {name.split("/")[0]: {"status": "ok"} for name in FIGURES}
+    manifest["resolved"] = {"trajectory": str(root / "simulation" / "production.dcd")}
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     thermo = root / "analysis" / "thermodynamics"
     with (thermo / "thermodynamics.dat").open("a", encoding="utf-8") as output:
@@ -96,6 +97,9 @@ def test_requested_chart_tooltips_fit_long_text_and_stay_within_the_chart(tmp_pa
                 if name.startswith("thermodynamics/"):
                     assert "Density" in tip.inner_text()
                     assert geometry["width"] > 260
+                else:
+                    # Navigation hints share the same fitted background.
+                    expect(tip.locator(".series-tip-hint")).to_be_visible()
             assert errors == []
             browser.close()
     finally:
