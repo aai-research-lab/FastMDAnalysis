@@ -7,8 +7,8 @@ whether a config is acceptable. The validator does that, as it does for a
 config somebody typed by hand.
 
 The key is accepted here and handed to
-:func:`fastmdxplora.agent.save_choice`, which puts it in a file of its
-own. It is never echoed back to the browser, never written into a config,
+:func:`fastmdxplora.agent.save_choice`, which puts it in the OS credential
+vault. It is never echoed back to the browser, never written into a config,
 and never logged. Server-side rather than in the page because a browser
 cannot hold a secret: anything the page keeps is readable by anything else
 the page runs.
@@ -109,7 +109,7 @@ def model_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) 
     """
     from fastmdxplora.agent.models import (
         CACHE_FOR, PROVIDERS, ModelChoice, _takes_tools, default_model, load_choice,
-        model_path, save_cache_for, save_choice,
+        model_path, save_choice,
     )
 
     if not payload.get("provider"):
@@ -193,11 +193,11 @@ def model_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) 
                     "error": (supported or {}).get("reason") or
                              "This sign-in method is unavailable in this dashboard."}
     try:
-        save_choice(choice,
-                key=str(payload.get("api_key") or ""))
+        save_choice(choice, key=str(payload.get("api_key") or ""), cache=cache)
     except StudyError as exc:
         return {"ok": False, "error": str(exc), "code": exc.code}
-    save_cache_for(cache)
+    except OSError:
+        return {"ok": False, "error": "Agent settings could not be saved. Check the settings folder permissions and retry."}
     # Ask the provider what it actually has, now that there is a key to ask
     # with. The written list is what to show before this can be answered.
     from fastmdxplora.agent.models import list_model_options, list_models
@@ -225,7 +225,7 @@ def auth_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) -
                 "error": "Provider credentials and interactive sign-in are available only in the local dashboard."}
 
     from fastmdxplora.agent.models import (
-        PROVIDERS, ModelChoice, forget_api_key, load_choice, probe_connection,
+        AUTH_METHODS, PROVIDERS, ModelChoice, forget_api_key, load_choice, probe_connection,
     )
 
     action = str(payload.get("action") or "status")
@@ -235,9 +235,7 @@ def auth_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) -
                       (saved.auth_method if saved and saved.provider == provider else "api_key"))
     if provider not in PROVIDERS:
         return {"ok": False, "error": "Choose a provider in Agent Settings first."}
-    allowed = {"anthropic": {"api_key", "anthropic_console"},
-               "openai": {"api_key", "chatgpt_plan"}, "compatible": {"api_key"}}
-    if auth_method not in allowed[provider]:
+    if auth_method not in AUTH_METHODS[provider]:
         return {"ok": False, "error": "That sign-in method is not supported for this provider."}
 
     if action == "status":
@@ -304,7 +302,8 @@ def auth_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) -
 
             result = disconnect()
             return {"ok": bool(result.get("ok")), "auth_method": auth_method,
-                    "status": {"available": True, "connected": False,
+                    "status": {"available": True,
+                               "connected": False if result.get("ok") else None,
                                "message": result.get("message") or "Claude Console sign-out failed."}}
         base_url = str(payload.get("base_url") or
                        (saved.base_url if saved and saved.provider == provider else ""))
@@ -312,13 +311,17 @@ def auth_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) -
                                             (saved.model if saved and saved.provider == provider
                                              else PROVIDERS[provider].get("default_model") or "")),
                              base_url)
+        try:
+            removed = forget_api_key(choice)
+        except StudyError as exc:
+            return {"ok": False, "auth_method": auth_method,
+                    "status": {"available": True, "connected": None, "message": str(exc)}}
         if os.environ.get(PROVIDERS[provider]["env"]):
             return {"ok": True, "auth_method": auth_method,
                     "status": {"available": True, "connected": None,
                                "message": ("The saved key was removed. The environment variable "
                                            f"{PROVIDERS[provider]['env']} is still active; unset it "
                                            "to disconnect completely.")}}
-        removed = forget_api_key(choice)
         return {"ok": True, "auth_method": auth_method,
                 "status": {"available": True, "connected": False,
                            "message": "Saved API key removed from the OS credential vault."

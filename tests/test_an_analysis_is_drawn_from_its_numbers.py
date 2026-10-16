@@ -156,7 +156,8 @@ class TestTheSeries:
                                "icode": "", "resn": "ALA", "atom": "CA"}
         assert [entity["resi"] for entity in entities] == [1, 2, 3]
 
-    def test_a_residue_number_shared_by_two_chains_is_not_guessed(self, tmp_path) -> None:
+    @pytest.mark.parametrize("analysis", ["rmsf", "order_parameters"])
+    def test_a_residue_number_shared_by_two_chains_is_not_guessed(self, tmp_path, analysis) -> None:
         pytest.importorskip("mdtraj")
         import mdtraj as md
 
@@ -174,13 +175,65 @@ class TestTheSeries:
         topology_path = simulation / "trajectory_topology.pdb"
         structure[0].save_pdb(str(topology_path))
         _manifest(tmp_path, topology=topology_path)
-        _analysis(tmp_path, "rmsf", "12 0.2\n", options={"per_residue": True},
+        _analysis(tmp_path, analysis, "12 0.2\n", options={"per_residue": True},
                   selection="name CA")
 
-        profile = series_payload(tmp_path, "rmsf")
+        profile = series_payload(tmp_path, analysis)
 
         assert profile["labels"] == ["12"]
         assert profile["entities"] == [None]
+
+    @pytest.mark.parametrize("text,reference", [
+        ("# order_parameters\n1 0.8\n2 0.9\n", [None, None]),
+        ("# columns: residue S2_simulated S2_measured\n1 0.8 0.7\n2 0.9 nan\n", [0.7, None]),
+        ("chain,residue,insertion,s2,measured\nA,1,,0.8,0.7\nA,2,,0.9,\n", [0.7, None]),
+    ])
+    def test_order_parameters_keep_simulated_and_measured_values_separate(
+            self, tmp_path, text, reference) -> None:
+        _analysis(tmp_path, "order_parameters", text)
+        data = series_payload(tmp_path, "order_parameters")
+        assert data["kind"] == "residue"
+        assert data["y"] == [0.8, 0.9]
+        assert data["reference"] == reference
+        assert data["unit"] == ""
+        assert data["y_bounds"] == [0.0, 1.05]
+        assert data["entities"] == [None, None]
+
+    def test_order_parameters_resolve_numeric_chains_and_insertion_codes(self, tmp_path) -> None:
+        md = pytest.importorskip("mdtraj")
+        topology = md.Topology()
+        for name in ("1", "2"):
+            chain = topology.add_chain(name)
+            for _ in range(2):
+                residue = topology.add_residue("ALA", chain, resSeq=12)
+                topology.add_atom("CA", md.element.carbon, residue)
+        simulation = tmp_path / "simulation"
+        simulation.mkdir()
+        topology_path = simulation / "trajectory_topology.pdb"
+        md.Trajectory(xyz=[[[i, 0, 0] for i in range(4)]], topology=topology).save_pdb(
+            str(topology_path))
+        lines = topology_path.read_text().splitlines()
+        # The second occurrence in each chain is residue 12A.
+        lines = [line[:26] + "A" + line[27:] if line.startswith("ATOM")
+                 and int(line[6:11]) in (2, 5) else line for line in lines]
+        topology_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        _manifest(tmp_path, topology=topology_path)
+        _analysis(tmp_path, "order_parameters",
+                  "chain,residue,insertion,s2,measured\n1,12,A,0.8,0.7\n2,12,,0.9,\n")
+        data = series_payload(tmp_path, "order_parameters")
+        assert data["labels"] == ["1:12A", "2:12"]
+        assert data["entities"] == [
+            {"kind": "residue", "chain": "1", "resi": 12, "icode": "A", "resn": "ALA"},
+            {"kind": "residue", "chain": "2", "resi": 12, "icode": "", "resn": "ALA"},
+        ]
+
+    def test_an_order_parameter_upper_bound_is_still_said(self, tmp_path) -> None:
+        _analysis(tmp_path, "order_parameters", "1 0.8\n")
+        path = tmp_path / "analysis" / "order_parameters" / "options.json"
+        record = json.loads(path.read_text())
+        record["findings"] = {"order_parameters": {"not_a_measurement": "Only an upper bound."}}
+        path.write_text(json.dumps(record), encoding="utf-8")
+        assert series_payload(tmp_path, "order_parameters")["notice"] == "Only an upper bound."
 
 
 class TestWhatIsLinked:
@@ -314,7 +367,7 @@ class TestTheChart:
         assert chart.locator(".series-mean").count() == 1
         assert chart.locator(".series-error").count() == 1
         label = chart.locator("svg").get_attribute("aria-label")
-        assert label.startswith("RMSD, 20 points; mean 0.112 nm plus or minus 0.00200")
+        assert label.startswith("RMSD, 20 points; full-analysis mean 0.112 nm plus or minus 0.00200")
         assert page.errors == []
 
     def test_pointing_gives_the_value_time_and_frame(self, page) -> None:
@@ -330,7 +383,7 @@ class TestTheChart:
         svg.focus()
         for _ in range(3):
             page.keyboard.press("ArrowRight")
-        assert page.locator('.series-chart[data-analysis="rmsd"]').get_attribute("data-at") == "3"
+        assert page.locator('.series-chart[data-analysis="rmsd"] .series-plot').get_attribute("data-at") == "3"
 
     def test_the_figure_is_a_click_away(self, page) -> None:
         card = page.locator(".analysis-card", has=page.locator('[data-series="rmsd"]'))
@@ -366,7 +419,7 @@ class TestTheChart:
         page.wait_for_function("() => window.FastMDXMoleculeViewer.STATE.engine.frame() === 7",
                                timeout=15000)
         page.evaluate("() => window.FastMDXDashboard.navigate('analysis')")
-        _point_at(page, "rmsf", 0.5)
+        _point_at(page, "rmsf", 5 / 9)
         page.mouse.down()
         page.mouse.up()
         page.wait_for_function(
@@ -441,3 +494,52 @@ def test_clicking_atom_rmsf_selects_the_named_atom_in_the_viewer(tmp_path) -> No
             browser.close()
     finally:
         session.server.shutdown()
+
+
+def test_backbone_order_parameter_points_open_the_named_residue(tmp_path) -> None:
+    pytest.importorskip("playwright.sync_api")
+    pytest.importorskip("mdtraj")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+    from tests.test_the_drawing_scripts_run_in_a_browser import _write_study
+
+    root = _write_study(tmp_path / "order-parameters")
+    _manifest(root, topology=root / "simulation" / "trajectory_topology.pdb")
+    text = "# residue S2_simulated S2_measured\n1 0.8 0.7\n2 0.9 nan\n3 0.6 0.5\n"
+    _analysis(root, "order_parameters", text)
+    session = start_dashboard_session(output=str(root), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.set_default_timeout(60000)
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#analysis", wait_until="domcontentloaded")
+            if not page.evaluate("() => !!document.createElement('canvas').getContext('webgl')"):
+                pytest.skip("this browser has no WebGL, so the viewer cannot render")
+            chart = page.locator('.series-chart[data-analysis="order_parameters"]')
+            chart.locator("svg").wait_for(state="visible")
+            assert chart.locator(".series-reference").count() == 2
+            form = chart.locator(".series-range")
+            form.locator('[data-range="from"]').fill("2")
+            form.locator('[data-range="to"]').fill("3")
+            form.get_by_role("button", name="Apply range").click()
+            assert chart.locator(".series-reference").count() == 1
+            # A real pointer click on residue 2, after limiting the range.
+            chart.locator("svg circle").first.click()
+            page.wait_for_function("""() => document.documentElement.dataset.page === 'viewer'
+              && window.FastMDXMoleculeViewer.currentViewHints().selection?.[0]?.resi === 2""")
+            assert page.evaluate("() => window.FastMDXMoleculeViewer.currentViewHints().selection") == [
+                {"chain": "A", "resi": 2, "icode": "", "resn": "ALA"}]
+            page.get_by_role("link", name="Analysis", exact=True).click()
+            chart.locator("svg").press("End")
+            chart.locator("svg").press("Enter")
+            page.wait_for_function("""() => document.documentElement.dataset.page === 'viewer'
+              && window.FastMDXMoleculeViewer.currentViewHints().selection?.[0]?.resi === 3""")
+            assert errors == []
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert (root / "analysis" / "order_parameters" / "order_parameters.dat").read_text() == text

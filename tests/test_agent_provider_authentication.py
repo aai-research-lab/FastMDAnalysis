@@ -236,6 +236,7 @@ def test_chatgpt_id_token_signature_issuer_audience_expiry_and_nonce_are_checked
             (signed_token(token_nonce="wrong"), "oaiapp_test", nonce),
             (signed_token(audience="different-client"), "oaiapp_test", nonce),
             (signed_token(expiry=int(time.time()) - 1), "oaiapp_test", nonce),
+            (signed_token(expiry="invalid-date"), "oaiapp_test", nonce),
             (token.rsplit(".", 1)[0] + ".invalid-signature", "oaiapp_test", nonce)):
         with pytest.raises(oauth.SignInError):
             oauth._verify_id_token(bad_token, client_id=client_id, nonce=expected_nonce)
@@ -337,6 +338,34 @@ def test_expired_revoked_refresh_grant_is_cleared_but_registration_remains(
                    ("access_token", "refresh_token", "id_token", "scopes"))
 
 
+@pytest.mark.parametrize("error", ["refresh_token_expired", {"code": "invalid_refresh_token"}])
+def test_terminal_token_endpoint_errors_are_safe_and_require_new_sign_in(monkeypatch, error):
+    from fastmdxplora.agent import openai_chatgpt as oauth
+
+    def rejected(_request, **_kwargs):
+        raise urllib.error.HTTPError(oauth.TOKEN_URL, 400, "bad grant", {},
+                                     BytesIO(json.dumps({"error": error, "secret": "test-secret"}).encode()))
+
+    monkeypatch.setattr(urllib.request, "urlopen", rejected)
+    with pytest.raises(oauth.InvalidGrant) as caught:
+        oauth._exchange({"grant_type": "refresh_token"})
+    assert "test-secret" not in str(caught.value)
+
+
+def test_failed_account_switch_keeps_the_previous_chatgpt_account(monkeypatch, chatgpt_vault):
+    oauth, _vault = chatgpt_vault
+    _enable_account(oauth, _account(expires_at=9999999999))
+    other = _account(expires_at=9999999999)
+    other["client_id"] = "oaiapp_other"
+    store = oauth._read_store()
+    store["accounts"].append(other)
+    oauth._write_store(store)
+    monkeypatch.setattr(oauth, "access_token", lambda: (_ for _ in ()).throw(
+        oauth.SignInError("Temporary provider failure.")))
+    assert oauth.activate(client_id="oaiapp_other")["ok"] is False
+    assert oauth._read_store()["active_client_id"] == "oaiapp_test"
+
+
 def test_chatgpt_disconnect_revokes_and_clears_tokens_but_keeps_client_registration(
         monkeypatch, chatgpt_vault):
     oauth, _vault = chatgpt_vault
@@ -370,6 +399,51 @@ def test_chatgpt_disconnect_revokes_and_clears_tokens_but_keeps_client_registrat
     assert saved["accounts"][0]["client_id"] == "oaiapp_test"
     assert not any(name in saved["accounts"][0] for name in
                    ("access_token", "refresh_token", "id_token", "scopes"))
+
+
+def test_disconnecting_a_pending_chatgpt_callback_cannot_reconnect_it(
+        monkeypatch, chatgpt_vault):
+    import threading
+
+    oauth, _vault = chatgpt_vault
+    urls = []
+    started, release = threading.Event(), threading.Event()
+    monkeypatch.setattr(oauth.webbrowser, "open", lambda url, **_kw: urls.append(url) or True)
+    monkeypatch.setattr(oauth, "_verify_id_token", lambda *_a, **_kw: {
+        "sub": "subject", "email": "test@example.invalid"})
+
+    def exchange(_form):
+        started.set()
+        assert release.wait(5)
+        return {"access_token": "test-access", "refresh_token": "test-refresh",
+                "id_token": "test-identity", "token_type": "Bearer", "expires_in": 3600,
+                "scope": oauth.SCOPES}
+
+    monkeypatch.setattr(oauth, "_exchange", exchange)
+    assert oauth.connect()["ok"]
+    query = urllib.parse.parse_qs(urllib.parse.urlsplit(urls[0]).query)
+    callback = query["redirect_uri"][0] + "?" + urllib.parse.urlencode({
+        "state": query["state"][0], "code": "test-code", "client_id": "oaiapp_pending"})
+    results = []
+
+    def finish_callback():
+        try:
+            urllib.request.urlopen(callback, timeout=5)
+        except urllib.error.HTTPError as exc:
+            results.append(exc.code)
+
+    worker = threading.Thread(target=finish_callback)
+    worker.start()
+    try:
+        assert started.wait(3)
+        assert oauth.disconnect()["ok"]
+    finally:
+        release.set()
+        worker.join(5)
+    assert not worker.is_alive()
+    assert results == [400]
+    assert oauth._read_store()["accounts"] == []
+    assert oauth._pending == {}
 
 
 def test_chatgpt_model_catalog_uses_public_list_and_only_visible_models(
@@ -516,10 +590,14 @@ def test_anthropic_console_profile_never_inherits_or_reads_other_cli_credentials
     monkeypatch.setenv("ANTHROPIC_API_KEY", "must-not-inherit")
     monkeypatch.setenv("ANTHROPIC_CONFIG_DIR", str(tmp_path / "some-other-profile"))
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://not-used.invalid")
+    monkeypatch.setenv("DISPLAY", ":99")
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/test/bus")
     env = anthropic_cli._environment()
     assert env["ANTHROPIC_CONFIG_DIR"] == str(tmp_path / "anthropic-console")
     assert "ANTHROPIC_API_KEY" not in env
     assert "ANTHROPIC_BASE_URL" not in env
+    assert env["DISPLAY"] == ":99"
+    assert env["DBUS_SESSION_BUS_ADDRESS"] == "unix:path=/run/user/test/bus"
     assert str(tmp_path / "some-other-profile") not in env.values()
 
 
@@ -540,6 +618,118 @@ def test_anthropic_console_uses_documented_bearer_token_command_and_logout(monke
     assert commands[-1] == ["auth", "print-credentials", "--access-token"]
     assert anthropic_cli.disconnect()["ok"] is True
     assert commands[-1] == ["auth", "logout", "--all"]
+
+
+@pytest.mark.parametrize("exit_code,finished,pending,connected", [
+    (1, None, True, None), (1, 1, False, False), (0, None, False, True),
+])
+def test_console_login_is_connected_only_after_api_access_succeeds(
+        monkeypatch, exit_code, finished, pending, connected):
+    from subprocess import CompletedProcess
+    from types import SimpleNamespace
+
+    from fastmdxplora.agent import anthropic_cli
+
+    commands = []
+    monkeypatch.setattr(anthropic_cli, "executable", lambda: "ant")
+    monkeypatch.setattr(anthropic_cli, "_login_pending", True)
+    monkeypatch.setattr(anthropic_cli, "_login_started", time.monotonic())
+    monkeypatch.setattr(anthropic_cli, "_login_process", SimpleNamespace(poll=lambda: finished))
+    monkeypatch.setattr(anthropic_cli, "_run", lambda args: (
+        commands.append(args) or CompletedProcess(args, exit_code, stdout="", stderr="")))
+    status = anthropic_cli.status()
+    assert status["connected"] is connected
+    assert bool(status.get("pending")) is pending
+    assert commands == [["models", "list", "--format", "json"]]
+
+
+def test_macos_console_login_sanitizes_the_existing_terminal_environment(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from fastmdxplora.agent import anthropic_cli
+
+    launched = []
+    monkeypatch.setattr(anthropic_cli, "os", SimpleNamespace(name="posix", environ={
+        "PATH": "/usr/bin", "HOME": "/home/test", "ANTHROPIC_API_KEY": "never-inherit"}))
+    monkeypatch.setattr(anthropic_cli, "sys", SimpleNamespace(platform="darwin"))
+    monkeypatch.setattr(anthropic_cli, "config_dir", lambda: tmp_path / "app console")
+    monkeypatch.setattr(anthropic_cli, "executable", lambda: "/usr/local/bin/ant")
+    monkeypatch.setattr(anthropic_cli, "_login_pending", False)
+    monkeypatch.setattr(anthropic_cli, "_login_started", None)
+    monkeypatch.setattr(anthropic_cli, "_login_process", None)
+    monkeypatch.setattr(anthropic_cli.subprocess, "Popen", lambda args, **_kw: launched.append(args))
+    assert anthropic_cli.connect()["ok"]
+    script = launched[0][-1]
+    assert "/usr/bin/env -i" in script
+    assert "ANTHROPIC_CONFIG_DIR=" in script
+    assert "never-inherit" not in script and "ANTHROPIC_API_KEY" not in script
+
+
+def test_disconnect_removes_the_saved_key_even_when_environment_auth_is_active(monkeypatch, tmp_path):
+    from fastmdxplora.agent import models
+    from fastmdxplora.gui.agent_panel import auth_endpoint
+
+    monkeypatch.setattr(models, "model_path", lambda: tmp_path / "model.json")
+    choice = models.ModelChoice("openai", "gpt-5")
+    models.save_choice(choice, key="saved-test-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "environment-test-key")
+    result = auth_endpoint({"action": "disconnect"})
+    assert result["ok"]
+    assert result["status"]["connected"] is None
+    assert "OPENAI_API_KEY is still active" in result["status"]["message"]
+    assert models._stored_api_key(choice) == ""
+
+
+def test_disconnect_reports_a_locked_vault_without_claiming_the_key_was_removed(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from fastmdxplora.agent import models
+    from fastmdxplora.gui.agent_panel import auth_endpoint
+
+    monkeypatch.setattr(models, "model_path", lambda: tmp_path / "model.json")
+    models.save_choice(models.ModelChoice("openai", "gpt-5"))
+    monkeypatch.setattr(models, "_secure_keyring", lambda: SimpleNamespace(
+        get_password=lambda *_a: "test-key",
+        delete_password=lambda *_a: (_ for _ in ()).throw(RuntimeError("test-key"))))
+    result = auth_endpoint({"action": "disconnect"})
+    assert result["ok"] is False
+    assert "could not be removed" in result["status"]["message"]
+    assert "test-key" not in result["status"]["message"]
+
+
+def test_settings_save_failure_preserves_the_previous_choice_and_reports_the_error(monkeypatch, tmp_path):
+    from pathlib import Path
+
+    from fastmdxplora.agent import models
+    from fastmdxplora.gui.agent_panel import model_endpoint
+
+    path = tmp_path / "model.json"
+    monkeypatch.setattr(models, "model_path", lambda: path)
+    models.save_choice(models.ModelChoice("openai", "gpt-5"), cache="5m")
+    before = path.read_bytes()
+
+    def denied(_source, _target):
+        raise PermissionError("test denied")
+
+    monkeypatch.setattr(Path, "replace", denied)
+    result = model_endpoint({"provider": "anthropic", "model": "claude-sonnet-4-6"})
+    assert result["ok"] is False
+    assert "settings could not be saved" in result["error"]
+    assert path.read_bytes() == before
+    assert list(tmp_path.iterdir()) == [path]
+
+
+def test_failed_console_disconnect_does_not_claim_to_be_disconnected(monkeypatch):
+    from fastmdxplora.agent import anthropic_cli
+    from fastmdxplora.gui.agent_panel import auth_endpoint
+
+    monkeypatch.setattr(anthropic_cli, "disconnect", lambda: {
+        "ok": False, "message": "Claude Console sign-out timed out. Try again."})
+    result = auth_endpoint({"provider": "anthropic", "auth_method": "anthropic_console",
+                            "action": "disconnect"})
+    assert result["ok"] is False
+    assert result["status"]["connected"] is None
+    assert "timed out" in result["status"]["message"]
 
 
 def test_unsupported_claude_subscription_sign_in_stays_unavailable_and_hosted_oauth_cannot_save(
@@ -578,22 +768,44 @@ def test_dashboard_test_route_reports_missing_chatgpt_sign_in_without_network_ac
     assert "No active ChatGPT sign-in" in response["status"]["message"]
 
 
+@pytest.mark.parametrize("viewport", [{"width": 1164, "height": 668},
+                                     {"width": 480, "height": 700}])
 def test_live_agent_settings_switch_provider_method_and_persist_the_real_selection(
-        monkeypatch, tmp_path):
+        monkeypatch, tmp_path, viewport):
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
 
     from fastmdxplora.agent import models
+    from fastmdxplora.agent import openai_chatgpt as oauth
     from fastmdxplora.gui.server import start_dashboard_session
     from tests.test_the_drawing_scripts_run_in_a_browser import _write_study
 
     monkeypatch.setattr(models, "model_path", lambda: tmp_path / "model.json")
+    waiting = {"pending": False}
+    original_status, original_disconnect = oauth.status, oauth.disconnect
+
+    def pending_login(**_kwargs):
+        waiting["pending"] = True
+        return {"ok": True, "pending": True, "message": "Waiting for ChatGPT sign-in."}
+
+    def login_status():
+        return ({"available": True, "connected": None, "pending": True,
+                 "message": "Waiting for ChatGPT sign-in.", "accounts": []}
+                if waiting["pending"] else original_status())
+
+    def cancel_login(**kwargs):
+        waiting["pending"] = False
+        return original_disconnect(**kwargs)
+
+    monkeypatch.setattr(oauth, "connect", pending_login)
+    monkeypatch.setattr(oauth, "status", login_status)
+    monkeypatch.setattr(oauth, "disconnect", cancel_login)
     study = _write_study(tmp_path / "study")
     session = start_dashboard_session(output=str(study), host="127.0.0.1", port=0)
     try:
         with sync_playwright() as pw:
             browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
-            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page = browser.new_page(viewport=viewport)
             page.set_default_timeout(30000)
             page.goto(session.url + "#agent", wait_until="domcontentloaded")
             page.wait_for_function("() => document.body.classList.contains('state-ready')")
@@ -611,16 +823,49 @@ def test_live_agent_settings_switch_provider_method_and_persist_the_real_selecti
                                    ".textContent.includes('No ChatGPT account is connected')")
             assert "No ChatGPT account is connected" in page.locator("#agent-auth-status").inner_text()
 
+            def check_auth_layout():
+                page.locator("#agent-auth-test").scroll_into_view_if_needed()
+                assert page.locator("#agent-auth-tools").evaluate("""tools => {
+                  const status = tools.querySelector('.agent-auth-status').getBoundingClientRect();
+                  const row = tools.querySelector('.agent-auth-buttons').getBoundingClientRect();
+                  const bounds = tools.getBoundingClientRect();
+                  const buttons = [...tools.querySelectorAll('button')].filter(b => !b.hidden);
+                  return row.top >= status.bottom && buttons.every(button => {
+                    const box = button.getBoundingClientRect();
+                    return box.width >= 90 && box.height >= 36
+                      && button.scrollWidth <= button.clientWidth + 1
+                      && button.scrollHeight <= button.clientHeight + 1
+                      && box.left >= bounds.left && box.right <= bounds.right;
+                  });
+                }""")
+                assert page.locator("#agent-settings .agent-dialog-panel").evaluate("""panel => {
+                  const box = panel.getBoundingClientRect();
+                  return box.left >= 0 && box.right <= innerWidth
+                    && box.top >= 0 && box.bottom <= innerHeight
+                    && panel.scrollWidth <= panel.clientWidth;
+                }""")
+
+            check_auth_layout()
+
+            page.locator("#agent-auth-connect").click()
+            cancel = page.get_by_role("button", name="Cancel sign-in", exact=True)
+            cancel.wait_for(state="visible")
+            assert cancel.is_enabled()
+            assert page.locator("#agent-auth-test").is_disabled()
+            cancel.click()
+            page.get_by_role("button", name="Disconnect", exact=True).wait_for(state="visible")
+            assert waiting["pending"] is False
+
             # Exercise the dashboard's real auth test endpoint while signed out.
-            page.locator("#agent-auth-test").evaluate("element => element.click()")
+            page.locator("#agent-auth-test").click()
             page.wait_for_function("() => document.getElementById('agent-auth-status')"
                                    ".textContent.includes('No active ChatGPT sign-in')")
-            page.locator("#agent-auth-disconnect").evaluate("element => element.click()")
+            page.locator("#agent-auth-disconnect").click()
             page.wait_for_function("() => document.getElementById('agent-auth-status')"
                                    ".textContent.includes('No saved ChatGPT sign-in')")
 
             page.click("#agent-save-model")
-            page.wait_for_selector("#agent-settings[hidden]", state="hidden")
+            page.locator("#agent-settings").wait_for(state="hidden")
 
             page.reload(wait_until="domcontentloaded")
             page.wait_for_function("() => document.body.classList.contains('state-ready')")
@@ -646,9 +891,11 @@ def test_live_agent_settings_switch_provider_method_and_persist_the_real_selecti
                 assert page.locator("#agent-auth-connect").is_visible()
             assert "Claude.ai account sign-in is not supported" \
                 in page.locator("#agent-auth-help").inner_text()
+            check_auth_layout()
             summary = page.locator("#agent-model-current").inner_text()
             assert "Saved for Agent requests: OpenAI · gpt-5 · ChatGPT plan sign-in" in summary
-            assert "Current selection (unsaved): Anthropic · claude-sonnet-4-6 · API key" in summary
+            method = "Claude Console OAuth (official ant CLI)" if console_available else "API key"
+            assert f"Current selection (unsaved): Anthropic · claude-sonnet-4-6 · {method}" in summary
             browser.close()
     finally:
         session.server.shutdown()

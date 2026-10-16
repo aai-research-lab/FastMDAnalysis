@@ -679,7 +679,8 @@
     target.classList.toggle("is-unverified", !status || status.connected == null);
     var pending = !!(status && status.pending);
     el("agent-auth-test").disabled = pending;
-    el("agent-auth-disconnect").disabled = pending;
+    el("agent-auth-disconnect").disabled = false;
+    el("agent-auth-disconnect").textContent = pending ? "Cancel sign-in" : "Disconnect";
     var method = providerSpec(el("agent-provider").value);
     var selected = method && (method.auth_methods || []).filter(function (item) {
       return item.id === el("agent-auth-method").value;

@@ -1544,7 +1544,7 @@ def make_handler(
             if path == "/api/agent/model":
                 # Reading and setting which AI model to ask. The key is
                 # accepted here and stored by `save_choice`, which puts it
-                # in a file of its own; it is never echoed back, never put
+                # in the OS credential vault; it is never echoed back, never put
                 # in a config, and never logged.
                 from fastmdxplora.gui.agent_panel import model_endpoint
 

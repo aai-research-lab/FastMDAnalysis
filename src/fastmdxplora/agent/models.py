@@ -14,11 +14,11 @@ Three rules, and the first is the one that matters.
 **The key never enters a study.** Not the config, not the manifest, not a
 log line, not an error message. Those files get shared, pasted into
 issues, and committed; a key in one is a key on the internet. It lives in
-a file of its own with owner-only permissions, or in the environment, and
-this module is the only thing that reads it.
+the OS credential vault or the environment, and is read only in the local
+request process.
 
 **The environment wins.** ``ANTHROPIC_API_KEY`` and ``OPENAI_API_KEY`` are
-checked before the stored file, because that is how a cluster job and a CI
+checked before the vault, because that is how a cluster job and a CI
 run get a key without anybody storing one, and because it is what people
 already expect.
 
@@ -39,6 +39,7 @@ import json
 import hashlib
 import os
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Callable
@@ -117,6 +118,12 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "env": "FASTMDX_MODEL_API_KEY",
         "auth": "bearer",
     },
+}
+
+AUTH_METHODS = {
+    "anthropic": ("api_key", "anthropic_console"),
+    "openai": ("api_key", "chatgpt_plan"),
+    "compatible": ("api_key",),
 }
 
 
@@ -216,19 +223,33 @@ def cache_for(where: str = "command line", path: Path | None = None) -> str:
 
 def save_cache_for(value: str, path: Path | None = None) -> None:
     """Store how long the instructions are kept beside the model choice."""
+    _validate_cache_for(value)
+    target = path or model_path()
+    record = _settings_record(target)
+    record["cache_for"] = value
+    _write_settings(target, record)
+
+
+def _validate_cache_for(value: str) -> None:
     if value not in CACHE_FOR:
         raise StudyError(f"The cache is kept for {', '.join(CACHE_FOR)}; not {value!r}.",
                          code="config.option.not_permitted", option="cache_for",
                          permitted=list(CACHE_FOR))
-    target = path or model_path()
-    record = _settings_record(target)
-    record["cache_for"] = value
+
+
+def _write_settings(target: Path, record: dict[str, Any]) -> None:
+    """Replace settings atomically so readers never see an incomplete save."""
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    temporary = None
     try:
-        target.chmod(0o600)
-    except OSError:  # pragma: no cover - some filesystems refuse
-        pass
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=target.parent,
+                                         prefix=f".{target.name}-", delete=False) as stream:
+            temporary = Path(stream.name)
+            json.dump(record, stream, indent=2)
+        temporary.replace(target)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def model_path() -> Path:
@@ -248,9 +269,7 @@ def _settings_record(path: Path | None = None) -> dict[str, Any]:
     if "api_key" in record:
         record.pop("api_key", None)
         try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(json.dumps(record, indent=2), encoding="utf-8")
-            target.chmod(0o600)
+            _write_settings(target, record)
         except OSError:  # pragma: no cover - read-only settings folder
             pass
     return record
@@ -314,13 +333,16 @@ def forget_api_key(choice: ModelChoice, path: Path | None = None) -> bool:
     """Remove a saved provider key without changing environment variables."""
     keyring = _secure_keyring()
     if keyring is None:
-        return False
+        raise StudyError("The OS credential vault is unavailable. Unlock it and try disconnecting again.",
+                         code="environment.credentials.secure_store_unavailable")
     service, username = _credential_identity(choice, path)
     try:
+        if keyring.get_password(service, username) is None:
+            return False
         keyring.delete_password(service, username)
-    except Exception as exc:  # noqa: BLE001 - missing is already disconnected
-        message = str(exc).casefold()
-        return "password not found" in message or "no password" in message
+    except Exception:  # noqa: BLE001 - vault errors must not expose credentials
+        raise StudyError("The saved API key could not be removed. Unlock the OS credential vault and retry.",
+                         code="environment.credentials.secure_store_unavailable") from None
     return True
 
 
@@ -331,9 +353,7 @@ def load_choice(path: Path | None = None) -> ModelChoice | None:
     if provider not in PROVIDERS:
         return None
     auth_method = str(record.get("auth_method") or "api_key")
-    allowed = {"anthropic": {"api_key", "anthropic_console"},
-               "openai": {"api_key", "chatgpt_plan"}, "compatible": {"api_key"}}
-    if auth_method not in allowed[provider]:
+    if auth_method not in AUTH_METHODS[provider]:
         auth_method = "api_key"
     return ModelChoice(provider=provider,
                        model=str(record.get("model", "")),
@@ -342,33 +362,30 @@ def load_choice(path: Path | None = None) -> ModelChoice | None:
 
 
 def save_choice(choice: ModelChoice, *, key: str = "",
-                path: Path | None = None) -> Path:
+                path: Path | None = None, cache: str | None = None) -> Path:
     """Store the choice and auth method; keep any API key in the OS vault."""
-    allowed = {"anthropic": {"api_key", "anthropic_console"},
-               "openai": {"api_key", "chatgpt_plan"}, "compatible": {"api_key"}}
-    if choice.auth_method not in allowed.get(choice.provider, set()):
+    if choice.auth_method not in AUTH_METHODS.get(choice.provider, ()):
         raise StudyError("That authentication method is not supported for this provider.",
                          code="config.option.not_permitted", option="auth_method")
+    if cache is not None:
+        _validate_cache_for(cache)
     if key:
         if choice.auth_method != "api_key":
             raise StudyError("An API key cannot be saved for this authentication method.",
                              code="config.option.not_permitted", option="api_key")
         _store_api_key(choice, key, path)
     target = path or model_path()
-    target.parent.mkdir(parents=True, exist_ok=True)
     record: dict[str, str] = dict(choice.as_record())
-    target.write_text(json.dumps(record, indent=2), encoding="utf-8")
-    try:
-        target.chmod(0o600)
-    except OSError:  # pragma: no cover - some filesystems refuse
-        pass
+    if cache is not None:
+        record["cache_for"] = cache
+    _write_settings(target, record)
     return target
 
 
 def _key_for(choice: ModelChoice, path: Path | None = None) -> str:
     """The key, environment first.
 
-    Environment before file so a cluster job, a CI run or a shared machine
+    Environment before vault so a cluster job, a CI run or a shared machine
     can supply one per session without anybody storing it, and so a stored
     key can be overridden for one run without editing anything.
     """
@@ -402,6 +419,18 @@ def _key_for(choice: ModelChoice, path: Path | None = None) -> str:
         code="environment.credentials.absent",
         provider=choice.provider, environment_variable=env_name,
     )
+
+
+def _auth_headers(choice: ModelChoice, key: str) -> dict[str, str]:
+    headers = {}
+    if key:
+        if choice.auth_style == "x-api-key":
+            headers["x-api-key"] = key
+        else:
+            headers["Authorization"] = f"Bearer {key}"
+    if choice.provider == "anthropic":
+        headers["anthropic-version"] = "2023-06-01"
+    return headers
 
 
 
@@ -449,16 +478,8 @@ def list_models(choice: ModelChoice | None = None, *,
         key = _key_for(chosen, path)
     except StudyError:
         return fallback
-    headers = {}
-    if chosen.auth_style == "x-api-key":
-        headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
-    elif key:
-        headers = {"Authorization": f"Bearer {key}"}
-        if chosen.provider == "anthropic":
-            headers["anthropic-version"] = "2023-06-01"
-
     try:
-        request = urllib.request.Request(url, headers=headers)
+        request = urllib.request.Request(url, headers=_auth_headers(chosen, key))
         with urllib.request.urlopen(request, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except (urllib.error.URLError, OSError, ValueError, TimeoutError):
@@ -524,16 +545,8 @@ def probe_connection(choice: ModelChoice | None = None, *,
     except StudyError as exc:
         return {"connected": False, "message": str(exc)}
 
-    headers: dict[str, str] = {}
-    if settled.auth_style == "x-api-key":
-        headers["x-api-key"] = key
-        headers["anthropic-version"] = "2023-06-01"
-    elif key:
-        headers["Authorization"] = f"Bearer {key}"
-        if settled.provider == "anthropic":
-            headers["anthropic-version"] = "2023-06-01"
     try:
-        request = urllib.request.Request(str(url), headers=headers)
+        request = urllib.request.Request(str(url), headers=_auth_headers(settled, key))
         with urllib.request.urlopen(request, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
@@ -597,18 +610,14 @@ def completion_for(choice: ModelChoice | None = None, *,
         the whole reply is returned either way. An exception from
         ``on_text`` (the page that asked has gone) ends the request."""
         key = _key_for(settled, path)
+        headers = _auth_headers(settled, key)
         if settled.provider == "anthropic":
-            headers = ({"x-api-key": key} if settled.auth_style == "x-api-key"
-                       else {"Authorization": f"Bearer {key}"})
-            headers["anthropic-version"] = "2023-06-01"
             body: dict[str, Any] = {
                 "model": settled.model, "max_tokens": 4000,
                 "messages": [{"role": "user", "content": prompt}]}
         elif settled.auth_method == "chatgpt_plan":
-            headers = {"Authorization": f"Bearer {key}"}
             body = {}
         else:
-            headers = {"Authorization": f"Bearer {key}"}
             body = {"model": settled.model,
                     "messages": [{"role": "user", "content": prompt}]}
         headers["content-type"] = "application/json"
@@ -687,18 +696,9 @@ def completion_for(choice: ModelChoice | None = None, *,
         from fastmdxplora.agent.turns import take_turn
 
         key = _key_for(settled, path)
-        if settled.provider == "anthropic":
-            headers = ({"x-api-key": key} if settled.auth_style == "x-api-key"
-                       else {"Authorization": f"Bearer {key}"})
-            headers["anthropic-version"] = "2023-06-01"
-            shape = "blocks"
-        elif settled.auth_method == "chatgpt_plan":
-            headers = {"Authorization": f"Bearer {key}"}
-            shape = "responses"
-        else:
-            headers = {"Authorization": f"Bearer {key}"}
-            shape = "chat"
-        return take_turn(url=settled.url, headers=headers, shape=shape,
+        shape = ("blocks" if settled.provider == "anthropic" else
+                 "responses" if settled.auth_method == "chatgpt_plan" else "chat")
+        return take_turn(url=settled.url, headers=_auth_headers(settled, key), shape=shape,
                          model=settled.model, system=system, messages=messages,
                          tools=tools, label=str(PROVIDERS[settled.provider]["label"]),
                          timeout=timeout, on_text=on_text, on_call=on_call,
@@ -751,8 +751,7 @@ def _note_no_tool_calling(path: Path | None = None,
     record["tool_use"] = False
     record["tool_use_of"] = of
     try:
-        target.write_text(json.dumps(record, indent=2), encoding="utf-8")
-        target.chmod(0o600)
+        _write_settings(target, record)
     except OSError:  # pragma: no cover - a read-only settings folder
         pass
 

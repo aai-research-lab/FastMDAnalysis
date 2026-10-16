@@ -48,6 +48,7 @@ def _environment() -> dict[str, str]:
     allowed = (
         "PATH", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "SYSTEMROOT",
         "WINDIR", "SYSTEMDRIVE", "TEMP", "TMP", "LANG", "LC_ALL",
+        "DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS",
     )
     env = {name: os.environ[name] for name in allowed if name in os.environ}
     env["ANTHROPIC_CONFIG_DIR"] = str(config_dir())
@@ -66,24 +67,23 @@ def _run(args: list[str], *, timeout: float = 15.0) -> subprocess.CompletedProce
 
 
 def status() -> dict[str, Any]:
-    """Check the isolated OAuth profile without returning credentials."""
+    """Verify API access through the isolated profile without returning secrets."""
     global _login_pending
     if not executable():
         return {"available": False, "connected": False,
                 "message": "Install Anthropic's official ant CLI to use Claude Console sign-in."}
-    if _login_pending:
-        try:
-            auth = _run(["auth", "status"], timeout=7.0)
-        except subprocess.TimeoutExpired:
-            return {"available": True, "connected": None, "pending": True,
-                    "message": "Waiting for Claude Console sign-in in the opened terminal/browser."}
-        except OSError:
-            return {"available": True, "connected": None, "pending": True,
-                    "message": "Waiting for Claude Console sign-in in the opened terminal/browser."}
-        if auth.returncode == 0:
+    try:
+        result = _run(["models", "list", "--format", "json"])
+        if result.returncode == 0:
             _login_pending = False
             return {"available": True, "connected": True,
-                    "message": "Claude Console sign-in is saved in the app's isolated CLI profile. Test model access before using it."}
+                    "message": "Connected to the Claude API through the app's Claude Console profile."}
+        message = "Claude Console access is not ready. Sign in again from Agent Settings."
+    except subprocess.TimeoutExpired:
+        message = "Claude Console did not respond. Check the connection and try again."
+    except OSError:
+        message = "The official ant CLI could not be started."
+    if _login_pending:
         finished = _login_process is not None and _login_process.poll() is not None
         expired = _login_started is not None and time.monotonic() - _login_started >= 300
         if not finished and not expired:
@@ -92,19 +92,7 @@ def status() -> dict[str, Any]:
         _login_pending = False
         return {"available": True, "connected": False,
                 "message": "Claude Console sign-in was canceled, failed, or timed out. Start it again from Agent Settings."}
-    try:
-        result = _run(["models", "list", "--format", "json"])
-    except subprocess.TimeoutExpired:
-        return {"available": True, "connected": False,
-                "message": "Claude Console did not respond. Check the connection and try again."}
-    except OSError:
-        return {"available": True, "connected": False,
-                "message": "The official ant CLI could not be started."}
-    if result.returncode == 0:
-        return {"available": True, "connected": True,
-                "message": "Connected to the Claude API through the app's Claude Console profile."}
-    return {"available": True, "connected": False,
-            "message": "Claude Console access is not ready. Sign in again from Agent Settings."}
+    return {"available": True, "connected": False, "message": message}
 
 
 def access_token() -> str:
@@ -147,8 +135,11 @@ def connect() -> dict[str, Any]:
         elif sys.platform == "darwin":
             import shlex
 
-            command = " ".join(shlex.quote(part) for part in (ant, "auth", "login"))
-            command = "ANTHROPIC_CONFIG_DIR=" + shlex.quote(env["ANTHROPIC_CONFIG_DIR"]) + " " + command
+            # Terminal may already be running with another provider session.
+            # Sanitize its shell too, rather than only osascript's process.
+            command = " ".join(shlex.quote(part) for part in (
+                "/usr/bin/env", "-i", *(f"{name}={value}" for name, value in env.items()),
+                ant, "auth", "login"))
             quoted = '"' + command.replace("\\", "\\\\").replace('"', '\\"') + '"'
             script = f'tell application "Terminal" to do script {quoted}'
             subprocess.Popen(["osascript", "-e", script], env=env,
@@ -165,7 +156,7 @@ def connect() -> dict[str, Any]:
                                                stderr=subprocess.DEVNULL, close_fds=True)
     except OSError:
         return {"ok": False, "message":
-                "The Claude sign-in terminal could not be opened. Run `ant auth login` in a terminal."}
+                "The Claude sign-in terminal could not be opened. Check the system terminal and retry from Agent Settings."}
     _login_started = time.monotonic()
     _login_pending = True
     return {"ok": True, "message":

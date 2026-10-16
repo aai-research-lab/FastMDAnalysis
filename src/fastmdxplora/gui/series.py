@@ -36,6 +36,7 @@ SERIES: dict[str, tuple[str, str]] = {
     "qvalue": ("Fraction of native contacts", "time"),
     "ligand_rmsd": ("Ligand RMSD", "time"),
     "rmsf": ("RMSF", "residue"),
+    "order_parameters": ("Backbone order parameter S²", "residue"),
 }
 
 #: More points than a line on a page can show; a longer series is thinned
@@ -85,7 +86,11 @@ def series_payload(root: Path, analysis: str) -> dict[str, Any]:
     if not kind:
         return {"ok": False, "reason": f"{analysis} is not a series"}
 
-    rows = _rows(data)
+    reference = None
+    if analysis == "order_parameters":
+        rows, reference = _order_parameter_rows(data)
+    else:
+        rows = _rows(data)
     if not rows:
         return {"ok": False, "reason": f"{analysis}'s data file holds no numbers"}
     unit = unit_of(analysis, found)
@@ -94,8 +99,8 @@ def series_payload(root: Path, analysis: str) -> dict[str, Any]:
         if analysis == "rmsf" and options.get("per_residue") is False:
             return _atoms(Path(root), analysis, label, unit, data, record, rows)
         payload = _residues(analysis, label, unit, rows)
-        if analysis == "rmsf":
-            entities = _rmsf_entities(Path(root), data, record, rows, "residue")
+        if analysis in {"rmsf", "order_parameters"}:
+            entities = _profile_entities(Path(root), data, record, rows, "residue")
             payload["entities"] = entities
             for index, entity in enumerate(entities):
                 if entity is None or not entity.get("icode"):
@@ -104,6 +109,11 @@ def series_payload(root: Path, analysis: str) -> dict[str, Any]:
                 if payload["labels"][index].startswith(f"{entity['chain']}:"):
                     name = f"{entity['chain']}:{name}"
                 payload["labels"][index] = name
+        if analysis == "order_parameters":
+            payload["reference"] = reference
+            payload["y_bounds"] = [0.0, 1.05]
+            finding = (record.get("findings") or {}).get("order_parameters") or {}
+            payload["notice"] = finding.get("not_a_measurement")
         return payload
     return _over_time(Path(root), analysis, label, unit, rows, found)
 
@@ -220,15 +230,15 @@ def _atoms(root: Path, analysis: str, label: str, unit: str, path: Path,
         "ok": True, "analysis": analysis, "label": label, "unit": unit, "kind": "atom",
         "x_label": "Atom", "x": serials, "y": values,
         "labels": [f"Atom {serial}" for serial in serials],
-        "entities": _rmsf_entities(root, path, record, rows, "atom"),
+        "entities": _profile_entities(root, path, record, rows, "atom"),
         "linked": False, "mean": None,
     }
 
 
-def _rmsf_entities(root: Path, path: Path, record: dict[str, Any],
-                   rows: list[tuple[list[str], list[float]]], kind: str
-                   ) -> list[dict[str, Any] | None]:
-    """Resolve RMSF rows against the topology that analysis actually read.
+def _profile_entities(root: Path, path: Path, record: dict[str, Any],
+                      rows: list[tuple[list[str], list[float]]], kind: str
+                      ) -> list[dict[str, Any] | None]:
+    """Resolve profile rows against the topology that analysis actually read.
 
     A chart point remains value-only when its saved label cannot be mapped
     uniquely. In particular, residue numbers alone never choose between
@@ -275,7 +285,9 @@ def _rmsf_entities(root: Path, path: Path, record: dict[str, Any],
             atom = topology.atom(index)
             ordered[atom.residue.index] = atom.residue
         residues = [ordered[index] for index in sorted(ordered)]
-        explicit = _rmsf_table_rows(path)
+        explicit = _profile_table_rows(path)
+        if explicit and len(explicit) != len(rows):
+            return [None] * len(rows)
         result = []
         for row_index, (words, values) in enumerate(rows):
             requested = explicit[row_index] if explicit and row_index < len(explicit) else {}
@@ -303,8 +315,8 @@ def _rmsf_entities(root: Path, path: Path, record: dict[str, Any],
         return [None] * len(rows)
 
 
-def _rmsf_table_rows(path: Path) -> list[dict[str, str]]:
-    """Read identity columns from RMSF's documented comma-table form."""
+def _profile_table_rows(path: Path) -> list[dict[str, str]]:
+    """Read identity columns from the analyses' comma-table form."""
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
@@ -314,14 +326,51 @@ def _rmsf_table_rows(path: Path) -> list[dict[str, str]]:
     if "," not in first:
         return []
     try:
-        reader = csv.DictReader(io.StringIO(text))
+        reader = csv.DictReader(io.StringIO("\n".join(
+            line for line in text.splitlines() if not line.lstrip().startswith("#"))))
         fields = {str(name or "").strip().lower() for name in reader.fieldnames or ()}
-        if "residue" not in fields or "rmsf_nm" not in fields:
+        if "residue" not in fields or not fields.intersection({"rmsf_nm", "s2"}):
             return []
         return [{str(key or "").strip().lower(): str(value or "").strip()
                  for key, value in row.items()} for row in reader]
     except (csv.Error, TypeError):
         return []
+
+
+def _order_parameter_rows(
+        path: Path) -> tuple[list[tuple[list[str], list[float]]], list[float | None]]:
+    """Simulated S² is column two; an optional measured value stays separate.
+
+    The chain-qualified CSV uses named columns, including insertion codes.
+    The older numeric table has residue, simulated S² and optional measured S².
+    """
+    table = _profile_table_rows(path)
+    try:
+        if table:
+            fields = ([row.get("chain", ""), row.get("residue", ""),
+                       row.get("s2", ""), row.get("measured", "nan")] for row in table)
+        else:
+            fields = (["", *line.split()[:3]]
+                      for line in path.read_text(encoding="utf-8").splitlines()
+                      if line.strip() and not line.lstrip().startswith("#"))
+        rows: list[tuple[list[str], list[float]]] = []
+        reference: list[float | None] = []
+        for row in fields:
+            try:
+                residue, value = float(row[1]), float(row[2])
+            except (ValueError, IndexError):
+                continue
+            if not math.isfinite(residue) or not residue.is_integer() or not math.isfinite(value):
+                continue
+            rows.append(([row[0]] if row[0] else [], [residue, value]))
+            try:
+                measured = float(row[3])
+            except (ValueError, IndexError):
+                measured = float("nan")
+            reference.append(measured if math.isfinite(measured) else None)
+        return rows, reference
+    except OSError:
+        return [], []
 
 
 def _of_the_played_trajectory(root: Path, manifest: dict[str, Any]) -> bool:
