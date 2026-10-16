@@ -717,14 +717,21 @@
     updateEngineSummary();
   }
 
-  function refreshAuthStatus(action) {
+  function refreshAuthStatus(action, details) {
+    // Every action shares this ordering guard, including its polling result.
     var request = ++authRequest;
-    return post("/api/agent/auth", {
+    if (["connect", "activate", "disconnect"].indexOf(action) !== -1) {
+      ["agent-auth-connect", "agent-auth-test", "agent-auth-disconnect",
+        "agent-auth-add-account", "agent-auth-activate"].forEach(function (id) {
+        el(id).disabled = true;
+      });
+    }
+    return post("/api/agent/auth", Object.assign({
       action: action || "status", provider: el("agent-provider").value,
       auth_method: el("agent-auth-method").value || "api_key",
       model: chosenModel(), base_url: el("agent-base-url").value.trim()
-    }).then(function (data) {
-      if (request !== authRequest) return data;
+    }, details || {})).then(function (data) {
+      if (request !== authRequest) return null;
       setAuthStatus(data.status || {connected: false, message: data.error});
       applyModelOptions(data.model_options || (data.status && data.status.model_options));
       return data;
@@ -803,6 +810,8 @@
   }
 
   function updateAuthControls(spec) {
+    if (authPollTimer) window.clearTimeout(authPollTimer);
+    authPollTimer = null;
     var method = (spec.auth_methods || []).filter(function (item) {
       return item.id === el("agent-auth-method").value;
     })[0] || {id: "api_key", requires_api_key: true};
@@ -1403,19 +1412,13 @@
   }
 
   function connectAuth(addAccount) {
-    var button = el("agent-auth-connect");
-    button.disabled = true;
-    var request = {action: "connect", provider: el("agent-provider").value,
-      auth_method: el("agent-auth-method").value};
-    if (request.auth_method === "chatgpt_plan") {
-      request.client_id = addAccount ? "" : el("agent-auth-account").value;
-      request.add_account = !!addAccount;
+    var details = {};
+    if (el("agent-auth-method").value === "chatgpt_plan") {
+      details.add_account = addAccount === true;
+      details.client_id = details.add_account ? "" : el("agent-auth-account").value;
     }
-    post("/api/agent/auth", request).then(function (data) {
-      setAuthStatus(data.status || {connected: false, message: data.error});
-      if (data.status && data.status.pending) startAuthPolling();
-    }).catch(function () {
-      setAuthStatus({connected: false, message: "Provider sign-in could not be started."});
+    refreshAuthStatus("connect", details).then(function (data) {
+      if (data && data.status && data.status.pending) startAuthPolling();
     });
   }
 
@@ -1448,40 +1451,19 @@
   }
 
   function activateAuthAccount() {
-    var button = el("agent-auth-activate");
-    button.disabled = true;
-    post("/api/agent/auth", {
-      action: "activate", provider: "openai", auth_method: "chatgpt_plan",
-      client_id: el("agent-auth-account").value, model: chosenModel()
-    }).then(function (data) {
-      setAuthStatus(data.status || {connected: false, message: data.error});
-      applyModelOptions(data.model_options || []);
-    }).catch(function () {
-      setAuthStatus({connected: false, message: "That ChatGPT account could not be activated."});
-    }).then(function () { button.disabled = false; });
+    refreshAuthStatus("activate", {client_id: el("agent-auth-account").value});
   }
 
   function testAuth() {
-    var button = el("agent-auth-test");
-    button.disabled = true;
-    refreshAuthStatus("test").then(function () { button.disabled = false; });
+    el("agent-auth-test").disabled = true;
+    refreshAuthStatus("test");
   }
 
   function disconnectAuth() {
-    var button = el("agent-auth-disconnect");
-    button.disabled = true;
-    post("/api/agent/auth", {
-      action: "disconnect", provider: el("agent-provider").value,
-      auth_method: el("agent-auth-method").value || "api_key",
-      base_url: el("agent-base-url").value.trim(), model: chosenModel(),
-      client_id: el("agent-auth-account").value
-    }).then(function (data) {
-      if (data.status) setAuthStatus(data.status);
-      else setAuthStatus({connected: false, message: data.error || "Disconnect failed."});
-      el("agent-key").value = "";
-    }).catch(function () {
-      setAuthStatus({connected: false, message: "The credential could not be disconnected."});
-    }).then(function () { button.disabled = false; });
+    if (authPollTimer) window.clearTimeout(authPollTimer);
+    authPollTimer = null;
+    refreshAuthStatus("disconnect", {client_id: el("agent-auth-account").value})
+      .then(function (data) { if (data) el("agent-key").value = ""; });
   }
 
   /* ---- The conversation ---------------------------------------------- */

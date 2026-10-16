@@ -799,9 +799,11 @@ def test_live_agent_settings_switch_provider_method_and_persist_the_real_selecti
 
     monkeypatch.setattr(models, "model_path", lambda: tmp_path / "model.json")
     waiting = {"pending": False}
+    connection_requests = []
     original_status, original_disconnect = oauth.status, oauth.disconnect
 
-    def pending_login(**_kwargs):
+    def pending_login(**kwargs):
+        connection_requests.append(kwargs)
         waiting["pending"] = True
         return {"ok": True, "pending": True, "message": "Waiting for ChatGPT sign-in."}
 
@@ -868,9 +870,26 @@ def test_live_agent_settings_switch_provider_method_and_persist_the_real_selecti
 
             check_auth_layout()
 
+            # Hold an older signed-out Test response until Connect has
+            # reported pending. Its late arrival must not hide Cancel.
+            held = []
+
+            def hold_old_test(route):
+                if route.request.post_data_json.get("action") == "test" and not held:
+                    held.append((route, route.fetch()))
+                else:
+                    route.continue_()
+
+            page.route("**/api/agent/auth", hold_old_test)
+            page.locator("#agent-auth-test").click()
             page.locator("#agent-auth-connect").click()
             cancel = page.get_by_role("button", name="Cancel sign-in", exact=True)
             cancel.wait_for(state="visible")
+            assert len(held) == 1
+            held[0][0].fulfill(response=held[0][1])
+            page.wait_for_timeout(200)
+            assert page.locator("#agent-auth-disconnect").inner_text() == "Cancel sign-in"
+            assert connection_requests[-1].get("add_account") is False
             assert cancel.is_enabled()
             assert page.locator("#agent-auth-test").is_disabled()
             cancel.click()
