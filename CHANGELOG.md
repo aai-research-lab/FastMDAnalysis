@@ -20,6 +20,12 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- A strip of open studies keeps each study's last page in this browser
+  window. Studies can be selected or closed individually; closing never
+  stops a run or removes files. The list survives reload. A refused switch
+  keeps the current study, and unsent Agent work or an unsaved Config draft
+  holds the switch with a reason.
+
 - Agent Config versions offer **Review each change**, with Accept and
   Reject for each setting. **Use reviewed version** checks the selected
   combination and creates a new version, preserving the earlier Configs

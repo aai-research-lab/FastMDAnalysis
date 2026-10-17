@@ -143,6 +143,8 @@
     // A page kept by the browser and shown again on Back is read afresh.
     window.addEventListener("pageshow", (event) => {
       if (event.persisted) {
+        state.addressAsking = false;
+        document.body.classList.remove("study-switching");
         state.addressKnown = false;
         state.addressRecheck = true;
         schedulePoll(0);
@@ -550,6 +552,9 @@
       "/api/structure-info", "/api/frames-info",
     ];
     const settled = await Promise.allSettled(urls.map(fetchJSON));
+    // A successful switch can precede its HTTP answer. Do not paint the
+    // new study under the previous study's address while navigation waits.
+    if (state.addressAsking) return;
     let successes = 0;
 
     settled.forEach((result, index) => {
@@ -831,6 +836,7 @@
     emit("status-updated", {status, health, times: state.times, study: payload.study || ""});
     state.studyIsOne = payload.study_named !== false;
     addressTheStudy(payload.study || "");
+    emit("study-addressed", {key: studyNamed(), title: byId("topbar-run-title")?.textContent || "Study"});
   }
 
   /* ---- The study in the address ------------------------------------ */
@@ -873,6 +879,7 @@
    * before. A switch's answer names it; an answer that does not (the demo,
    * a shared study) leaves the address to name what the page then finds. */
   function studyOpened(answer, page) {
+    emit("study-opening", {key: (answer && answer.study_key) || ""});
     goTo(addressFor((answer && answer.study_key) || "", `#${page || "overview"}`), false);
   }
 
@@ -886,6 +893,28 @@
     } catch (error) {
       return null;
     }
+  }
+
+  /* Internal workspace tabs switch through the same admitted key as Back.
+   * A pending switch has one owner; unsaved work is checked before the
+   * server changes its active study. */
+  async function openStudyTab(key, page, beforeOpen) {
+    if (state.addressAsking) return {ok: false, error: "A study is already opening."};
+    const held = window.FastMDXAgent?.beforeStudySwitch?.()
+      || window.FastMDXRun?.beforeStudySwitch?.() || "";
+    if (held) return {ok: false, error: held};
+    state.addressAsking = true;
+    document.body.classList.add("study-switching");
+    const answer = await switchToKeyed(key);
+    if (answer && answer.ok) {
+      if (beforeOpen) beforeOpen(answer);
+      studyOpened(answer, page);
+      return answer;
+    }
+    state.addressAsking = false;
+    document.body.classList.remove("study-switching");
+    if (!answer) schedulePoll(0);
+    return answer || {ok: false, error: "The server did not answer. Refresh to check which study is open."};
   }
 
   /* Opened as the page starts, so what it reads first is that study. */
@@ -2522,6 +2551,7 @@
     toast: (message, kind, action) => showToast(message, kind, action),
     /* A study opened from the page, by the switch's answer. */
     studyOpened: (answer, page) => studyOpened(answer, page),
+    openStudyTab,
     figureChip: (name, made) => provenanceChip(name, made),
     listenForFigureChips: (host, lookup) => listenForProvenance(host, lookup),
     /* A name shortened in its middle to the width given (studies.js). */
