@@ -26,6 +26,13 @@ def _write(root: Path, relative: str, value: object) -> None:
     path.write_text(json.dumps(value), encoding="utf-8")
 
 
+def _link(path: Path, target: Path, *, directory: bool = False) -> None:
+    try:
+        path.symlink_to(target, target_is_directory=directory)
+    except OSError:
+        pytest.skip("this system cannot create symbolic links")
+
+
 def _status(root: Path, state: str, **extra: object) -> None:
     _write(root, "simulation/live_status.json", {"status": state, "stage": "production",
                                                 **extra})
@@ -116,8 +123,8 @@ def test_a_manifest_stop_does_not_duplicate_or_promise_a_checkpoint(tmp_path):
     _write(tmp_path, "simulation/live_status.json", {"status": "stopped", "stage": "nvt"})
     items = problems_payload(tmp_path)["items"]
     assert len(items) == 1
-    assert "before its production began" in items[0]["fix"]
-    assert "from the start" in items[0]["fix"]
+    assert "no checkpoint" in items[0]["fix"]
+    assert "Run it again" in items[0]["fix"]
 
 
 def test_failed_analysis_keeps_its_reason_and_only_admitted_evidence_links(tmp_path):
@@ -185,6 +192,87 @@ def test_analysis_read_failure_does_not_erase_a_stopped_run(tmp_path, monkeypatc
     assert payload["items"][0]["id"] == "health:stopped"
     assert any("could not be read" in note for note in payload["notes"])
     assert "private exception" not in json.dumps(payload)
+
+
+@pytest.mark.parametrize("source", ["manifest.json", "simulation/live_status.json",
+                                    "analysis/rmsd/options.json", "analysis"])
+def test_linked_sources_outside_the_study_are_not_read(tmp_path, source):
+    root = tmp_path / "study"
+    root.mkdir()
+    external = tmp_path / "external"
+    external.mkdir()
+    secret = "PRIVATE_EXTERNAL_FINDING"
+    record = {"phases": [{"name": "setup", "status": "error", "message": secret}],
+              "status": "failed", "latest_error": secret,
+              "findings": {"mean": _mean(not_a_measurement=secret)}}
+    (external / "record.json").write_text(json.dumps(record), encoding="utf-8")
+    link = root / source
+    link.parent.mkdir(parents=True, exist_ok=True)
+    if source == "analysis":
+        (external / "rmsd").mkdir()
+        (external / "rmsd" / "options.json").write_text(json.dumps(record), encoding="utf-8")
+        _link(link, external, directory=True)
+    else:
+        _link(link, external / "record.json")
+    payload = problems_payload(root, artifacts=[{"path": source}])
+    assert payload["available"] is False
+    assert payload["items"] == []
+    assert any("link" in note for note in payload["notes"])
+    assert secret not in json.dumps(payload)
+
+
+def test_a_link_to_private_records_inside_the_study_is_not_read(tmp_path):
+    _write(tmp_path, ".private/record.json", {"status": "failed", "latest_error": "SECRET"})
+    (tmp_path / "simulation").mkdir()
+    _link(tmp_path / "simulation/live_status.json", tmp_path / ".private/record.json")
+    payload = problems_payload(tmp_path)
+    assert payload["available"] is False and payload["items"] == []
+    assert "SECRET" not in json.dumps(payload)
+
+
+def test_a_malformed_mean_is_explicit_even_when_the_run_completed(tmp_path):
+    _status(tmp_path, "completed")
+    _write(tmp_path, "analysis/analysis_manifest.json", {"results": {"rmsd": {"status": "ok"}}})
+    _write(tmp_path, "analysis/rmsd/options.json", {"findings": {"mean": "corrupt"}})
+    payload = problems_payload(tmp_path)
+    assert any("unreadable mean" in note for note in payload["notes"])
+    assert any("analysis/rmsd/options.json" in note for note in payload["notes"])
+
+
+def test_a_recorded_warning_survives_a_completed_health_state(tmp_path):
+    _status(tmp_path, "completed", latest_warning="Recorded warning: pressure unstable.")
+    _write(tmp_path, "analysis/analysis_manifest.json", {"results": {"rmsd": {"status": "ok"}}})
+    _write(tmp_path, "analysis/rmsd/options.json", {"findings": {"mean": _mean()}})
+    payload = problems_payload(tmp_path)
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["reason"] == "Recorded warning: pressure unstable."
+
+
+def test_a_stop_without_a_checkpoint_does_not_promise_continuation(tmp_path):
+    _status(tmp_path, "stopped")
+    item = problems_payload(tmp_path)["items"][0]
+    assert "no checkpoint" in item["fix"]
+    assert "Run it again" in item["fix"]
+    assert "carries it on" not in item["fix"]
+
+
+def test_the_public_endpoint_does_not_read_an_external_manifest(tmp_path):
+    from fastmdxplora.gui.exploration import DashboardRuntime
+    from tests.test_a_public_dashboard_answers_only_what_it_lists import _ask, _serving
+
+    root = tmp_path / "study"
+    root.mkdir()
+    external = tmp_path / "outside.json"
+    external.write_text(json.dumps({"phases": [{"name": "setup", "status": "failed",
+                                               "message": "PRIVATE_EXTERNAL_REASON"}]}), encoding="utf-8")
+    _link(root / "manifest.json", external)
+    runtime = DashboardRuntime(workspace_root=root, exploration_root=tmp_path, active_root=root)
+    with _serving(runtime, allow_control=False) as url:
+        status, body = _ask(url + "/api/problems")
+    assert status == 200
+    payload = json.loads(body)
+    assert payload["available"] is False and payload["items"] == []
+    assert b"PRIVATE_EXTERNAL_REASON" not in body
 
 
 def test_analysis_name_cannot_follow_a_path_outside_the_study(tmp_path):
