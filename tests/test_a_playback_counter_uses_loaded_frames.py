@@ -50,6 +50,95 @@ def test_history_payload_separates_recorded_sequence_step_and_time(tmp_path):
     assert payload["frame_times_ns"][-1] == pytest.approx(0.724)
 
 
+@pytest.mark.parametrize("reject, supersede", [(False, False), (True, False), (False, True)],
+                         ids=["delayed-render", "failed-render", "superseded-render"])
+def test_the_counter_announces_only_a_frame_the_renderer_committed(tmp_path, reject, supersede):
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+    from tests.test_a_graph_opens_exact_source_frame import _study
+
+    session = start_dashboard_session(output=str(_study(tmp_path / "study", frame_count=3)),
+                                      host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            try:
+                page.goto(session.url + "#viewer", wait_until="domcontentloaded")
+                page.locator("#viewer-under-fold").evaluate("e => { e.open = true; }")
+                page.evaluate("async () => window.FastMDXMoleculeViewer.loadPlayback("
+                              "await (await fetch('/api/frames-info')).json())")
+                page.wait_for_function("() => window.FastMDXMoleculeViewer.STATE.playbackLoaded")
+                assert page.locator("#traj-current").inner_text() == "1"
+                page.evaluate("""() => {
+                    const engine = window.FastMDXMoleculeViewer.STATE.engine;
+                    // Mol* is the external rendering boundary. Keep the real
+                    // adapter and geometry, but hold its next state commit.
+                    const build = engine.plugin.build.bind(engine.plugin);
+                    engine.plugin.build = () => {
+                        const update = build();
+                        const commit = update.commit.bind(update);
+                        update.commit = (...args) => {
+                            engine.plugin.build = build;
+                            window.__frameCommit = new Promise((resolve, reject) => {
+                                window.__finishFrameCommit = fail => fail
+                                    ? reject(new Error('synthetic render failure'))
+                                    : resolve(commit(...args));
+                            });
+                            return window.__frameCommit;
+                        };
+                        return update;
+                    };
+                    window.__shownFrames = [];
+                    window.addEventListener('dashboard:frame-shown', e =>
+                        window.__shownFrames.push(e.detail.index));
+                }""")
+                if reject:
+                    page.locator('#trajectory-row [data-traj="last"]').click()
+                else:
+                    page.locator("#traj-slider").evaluate(
+                        "e => { e.value = '2'; e.dispatchEvent(new Event('input')); }")
+                page.wait_for_function("() => !!window.__finishFrameCommit")
+                page.evaluate("() => { const d = window.FastMDXDashboard;"
+                              " d.applyPlayback(d.state.playbackData); }")
+                assert page.evaluate("() => window.FastMDXMoleculeViewer.STATE.engine.frame()") == 0
+                assert page.locator("#traj-current").inner_text() == "1"
+                assert page.locator("#traj-slider").input_value() == "0"
+                assert page.locator("#overlay-frame").inner_text() == "frame 1 / 3"
+                assert page.evaluate("() => window.__shownFrames") == []
+                if supersede:
+                    page.evaluate("""() => {
+                        window.__newFrame = window.FastMDXMoleculeViewer.movie.showFrame(1);
+                    }""")
+                page.evaluate("""async fail => {
+                    window.__finishFrameCommit(fail);
+                    await window.__frameCommit.catch(() => {});
+                    if (window.__newFrame) await window.__newFrame;
+                }""", reject)
+                if reject:
+                    page.wait_for_function("() => document.getElementById('sr-live')"
+                                           ".textContent.includes('could not be shown')")
+                    assert page.locator("#traj-current").inner_text() == "1"
+                    assert page.locator("#overlay-frame").inner_text() == "frame 1 / 3"
+                    assert page.evaluate("() => window.__shownFrames") == []
+                else:
+                    expected = 1 if supersede else 2
+                    page.wait_for_function("n => document.getElementById('traj-current')"
+                                           ".textContent === String(n + 1)", arg=expected)
+                    assert page.evaluate("() => window.FastMDXMoleculeViewer.STATE.engine.frame()") == expected
+                    assert page.locator("#overlay-frame").inner_text() == f"frame {expected + 1} / 3"
+                    assert page.evaluate("() => window.FastMDXMoleculeViewer.STATE.engine"
+                                         ".find({atom: 'CA'})[0].x") == pytest.approx(float(expected), abs=0.02)
+                    assert page.evaluate("() => window.__shownFrames") == [expected]
+            finally:
+                page.evaluate("() => window.__finishFrameCommit?.(true)")
+                browser.close()
+    finally:
+        session.server.shutdown()
+
+
 def test_live_dashboard_counter_and_transport_use_the_same_loaded_frame(tmp_path):
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
@@ -92,6 +181,8 @@ def test_live_dashboard_counter_and_transport_use_the_same_loaded_frame(tmp_path
             assert page.locator("#overlay-frame").inner_text() == "frame 1 / 200"
             assert page.locator("#overlay-step").inner_text() == "step 163,000"
             assert page.locator("#overlay-simtime").inner_text() == "sim time 0.326 ns"
+            assert page.evaluate("() => window.FastMDXMoleculeViewer.STATE.engine"
+                                 ".find({atom: 'CA'})[0].x") == pytest.approx(0.0, abs=0.006)
 
             page.click('.ctl-btn[data-action="next-frame"]')
             page.wait_for_function(
@@ -115,6 +206,8 @@ def test_live_dashboard_counter_and_transport_use_the_same_loaded_frame(tmp_path
             )
             assert page.locator("#overlay-frame").inner_text() == "frame 200 / 200"
             assert page.locator("#overlay-step").inner_text() == "step 362,000"
+            assert page.evaluate("() => window.FastMDXMoleculeViewer.STATE.engine"
+                                 ".find({atom: 'CA'})[0].x") == pytest.approx(1.99, abs=0.006)
 
             page.locator("#traj-slider").evaluate(
                 "element => { element.value = '42'; element.dispatchEvent(new Event('input')); }"
@@ -248,6 +341,7 @@ def test_empty_trajectory_keeps_transport_hidden_and_at_zero_of_zero(tmp_path):
 
 
 def test_switching_studies_reconciles_playback_counts_and_position(tmp_path):
+    pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
 
     from fastmdxplora.gui.server import start_dashboard_session

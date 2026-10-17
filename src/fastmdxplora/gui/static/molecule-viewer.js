@@ -118,6 +118,7 @@
     playbackEngineIndices: [],
     exactFrame: null,
     trajectorySeekAsked: 0,
+    playbackFrameAsked: 0,
     playbackLoaded: false,
     // The frames are in the engine (playbackLoaded: and shown, ready).
     framesRendered: false,
@@ -2239,7 +2240,9 @@
         const follow = document.getElementById("traj-follow")?.checked && runIsWriting();
         const current = Number(document.getElementById("traj-slider")?.value || 0);
         const target = follow && STATE.playbackFrames > 0 ? STATE.playbackFrames - 1 : current;
-        await setPlaybackFrame(Math.max(0, target));
+        if (!(await setPlaybackFrame(Math.max(0, target)))) {
+          throw new Error("The initial playback frame could not be rendered.");
+        }
         if (!isViewerGenerationCurrent(generation)) return false;
         // Loaded once a frame is shown, with its cartoon and its preview.
         STATE.playbackLoaded = true;
@@ -2939,13 +2942,11 @@
       const loadedAt = baseIndices.slice(0, baseLoaded).indexOf(target);
       if (loadedAt >= 0) {
         const logicalAt = STATE.playbackFrameIndices.indexOf(target);
-        await setPlaybackFrame(logicalAt >= 0 ? logicalAt : loadedAt);
-        return current();
+        return await setPlaybackFrame(logicalAt >= 0 ? logicalAt : loadedAt) && current();
       }
     }
     if (exactAlready && STATE.playbackFrameIndices.includes(target)) {
-      await setPlaybackFrame(STATE.playbackFrameIndices.lastIndexOf(target));
-      return current();
+      return await setPlaybackFrame(STATE.playbackFrameIndices.lastIndexOf(target)) && current();
     }
 
     let smoothingChanged = false;
@@ -3015,9 +3016,11 @@
       if (window.FastMDXDashboard?.setExactFrame) {
         window.FastMDXDashboard.setExactFrame(target, info.time_ns, signature);
       }
-      await setPlaybackFrame(STATE.playbackFrameIndices.indexOf(target));
-      if (smoothingChanged) announce(`Frame ${target} shown at its exact coordinates; smoothing was set to 1.`);
-      return current();
+      const shown = await setPlaybackFrame(STATE.playbackFrameIndices.indexOf(target));
+      if (shown && smoothingChanged) {
+        announce(`Frame ${target} shown at its exact coordinates; smoothing was set to 1.`);
+      }
+      return shown && current();
     } catch (error) {
       if (current()) announce(`Frame ${target} could not be shown: ${error.message || error}`);
       return false;
@@ -3026,11 +3029,37 @@
 
   async function setPlaybackFrame(frame) {
     const generation = STATE.viewerGeneration;
-    if (!STATE.engine || !STATE.framesRendered || STATE.playbackFrames < 1) return;
-    const index = clamp(Math.round(Number(frame)), 0, STATE.playbackFrames - 1, 0);
+    const engine = STATE.engine;
+    if (!engine || !STATE.framesRendered || STATE.playbackFrames < 1) return false;
+    const index = Number(frame);
+    if (!Number.isInteger(index) || index < 0 || index >= STATE.playbackFrames) return false;
+    const asked = ++STATE.playbackFrameAsked;
+    const current = () => isViewerGenerationCurrent(generation) && STATE.engine === engine
+      && STATE.framesRendered && asked === STATE.playbackFrameAsked;
     const trajectoryFrame = Number.isInteger(STATE.playbackFrameIndices[index])
       ? STATE.playbackFrameIndices[index] : index;
     const slider = document.getElementById("traj-slider");
+    const engineIndex = Number.isInteger(STATE.playbackEngineIndices[index])
+      ? STATE.playbackEngineIndices[index] : index;
+    const displayed = STATE.playbackEngineIndices.indexOf(engine.frame());
+    if (slider && displayed >= 0) slider.value = String(displayed);
+    try {
+      if (await engine.setFrame(engineIndex) === false) {
+        throw new Error("The trajectory model is unavailable.");
+      }
+    } catch (error) {
+      if (current()) {
+        pausePlayback();
+        const actual = STATE.playbackEngineIndices.indexOf(engine.frame());
+        if (slider && actual >= 0) slider.value = String(actual);
+        announce(`Frame ${index + 1} could not be shown. Try reloading the trajectory.`);
+        console.debug("trajectory frame render failed", error);
+      }
+      return false;
+    }
+    if (!current() || engine.frame() !== engineIndex) return false;
+    // The renderer has committed this frame. Only now may the counter,
+    // overlay and chart marker say that its coordinates are on screen.
     if (slider) {
       slider.min = "0";
       slider.max = String(Math.max(0, STATE.playbackFrames - 1));
@@ -3042,9 +3071,6 @@
     setOverlay(false, {stage: "playback", frame: index + 1,
       total: STATE.playbackFrames, step, simtime: time});
     try {
-      const engineIndex = Number.isInteger(STATE.playbackEngineIndices[index])
-        ? STATE.playbackEngineIndices[index] : index;
-      await STATE.engine.setFrame(engineIndex);
       if (STATE.miniEngine && STATE.miniModel?.of === "frames") {
         const base = STATE.framesPieces?.baseIndices || STATE.playbackPayload?.frame_indices || [];
         const miniIndex = base.length ? base.reduce((best, source, at) =>
@@ -3053,14 +3079,16 @@
         await STATE.miniEngine.setFrame(Math.min(miniIndex, Math.max(0, STATE.miniModel.frames - 1)));
       }
     } catch (error) {
-      console.debug("frame change skipped", error);
+      if (current()) announce("The playback frame is shown, but its overview preview could not update.");
+      console.debug("overview frame render failed", error);
     }
-    if (!isViewerGenerationCurrent(generation) || !STATE.framesRendered) return;
+    if (!current()) return false;
     // The atoms measured have moved with the frame, and so have their numbers.
     if (STATE.picks.length) sayMeasurement();
     // And the series under the transport follows it (frame-series.js).
     window.dispatchEvent(new CustomEvent("dashboard:frame-shown",
       {detail: {index, trajectoryFrame, simulationStep: step, timeNs: time}}));
+    return true;
   }
 
   function updatePlaybackButtons() {

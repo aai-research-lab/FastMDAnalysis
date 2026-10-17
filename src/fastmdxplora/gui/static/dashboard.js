@@ -2129,7 +2129,11 @@
     }
 
     const maxFrame = Math.max(0, state.playbackFrames - 1);
-    const frame = sourceChanged ? 0 : Math.min(previousFrame, maxFrame);
+    let frame = sourceChanged ? 0 : Math.min(previousFrame, maxFrame);
+    if (viewerShowsPlayback) {
+      const displayed = viewer.playbackEngineIndices.indexOf(viewer.engine.frame());
+      if (displayed >= 0) frame = displayed;
+    }
     slider.min = "0";
     slider.max = String(maxFrame);
     // A different trajectory starts at its first loaded frame; a periodic
@@ -2145,16 +2149,19 @@
   }
 
   function setPlaybackPosition(index, total, time, step) {
-    const frameCount = Math.max(0, Number(total) || 0);
-    const hasCurrentFrame = frameCount > 0 && index != null && Number.isFinite(Number(index));
-    const frameIndex = hasCurrentFrame
-      ? Math.min(frameCount - 1, Math.max(0, Number(index))) : null;
+    const frameCount = Number(total);
+    if (!Number.isInteger(frameCount) || frameCount < 0) return false;
+    const hasCurrentFrame = frameCount > 0 && index != null;
+    const frameIndex = hasCurrentFrame ? Number(index) : null;
+    if (hasCurrentFrame && (!Number.isInteger(frameIndex)
+        || frameIndex < 0 || frameIndex >= frameCount)) return false;
     setText("traj-current", frameIndex == null ? (frameCount ? "—" : "0") : String(frameIndex + 1));
     setText("traj-total", String(frameCount));
     setText("traj-step", step == null || !Number.isFinite(Number(step))
       ? "—" : `step ${Number(step).toLocaleString()}`);
     setText("traj-simtime", time == null || !Number.isFinite(Number(time))
       ? "—" : `time ${formatNumber(time, 3)} ns`);
+    return true;
   }
 
   /* ------------------------------------------------------------------ */
