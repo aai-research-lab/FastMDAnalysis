@@ -479,12 +479,13 @@ def test_rmsf_chart_does_not_wait_for_unrelated_viewer_metadata(tmp_path, delaye
 
             page.route(f"**/api/{delayed}", hold)
             try:
-                with page.expect_response("**/api/results") as results:
-                    page.goto(session.url + "#analysis", wait_until="domcontentloaded")
+                with page.expect_request(f"**/api/{delayed}"):
+                    with page.expect_response("**/api/results") as results:
+                        page.goto(session.url + "#analysis", wait_until="domcontentloaded")
                 assert results.value.status == 200
-                assert held, f"the delayed {delayed} request was not intercepted"
                 page.locator('.series-chart[data-analysis="rmsf"] svg').wait_for(
                     state="visible", timeout=5000)
+                assert held, f"the delayed {delayed} request was not intercepted"
                 # The chart really contains its ten residue measurements.
                 assert page.locator(
                     '.series-chart[data-analysis="rmsf"] svg circle[r="2.2"]'
