@@ -4820,6 +4820,18 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
 .agent-change-row .arrow { color: var(--text-muted); margin: 0 6px; }
 .agent-change-row .now { font-weight: 600; }
 .agent-change-rest { color: var(--text-muted); font-size: var(--text-sm); margin-top: 4px; }
+.agent-config-review { padding: 10px 14px; min-width: 0; }
+.agent-config-review[hidden] { display: none; }
+.agent-review-row { margin: 0 0 10px; padding: 10px; min-width: 0;
+    border: 1px solid var(--border-primary); border-radius: 8px; }
+.agent-review-row legend { font-weight: 600; max-width: 100%; overflow-wrap: anywhere; }
+.agent-review-values, .agent-review-reasons { margin: 0 0 8px; overflow-wrap: anywhere;
+    white-space: pre-wrap; font-size: var(--text-sm); }
+.agent-review-reasons, .agent-review-note { color: var(--text-secondary); font-size: var(--text-sm); }
+.agent-review-row button { margin-right: 8px; }
+.agent-review-row button[aria-pressed="true"] { border-color: var(--accent);
+    background: var(--background-soft); color: var(--accent-text); }
+.agent-review-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 /* Where each value came from, at the end of its line, and the Agent's
    reason under it. */
 .agent-study .agent-plan dd { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }

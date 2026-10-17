@@ -185,6 +185,7 @@ FastMDXplora/
 │       │   ├── again_view.py      # What the GUI offers to run again on the study on screen
 │       │   ├── directory_inspect.py  # What is in a folder, and what can be done with it
 │       │   ├── config_builder.py  # What the page holds as a config file, checked
+│       │   ├── config_review.py   # Individually selected Config changes, validated as a new version
 │       │   ├── run_from_config.py # Run what the page describes, from the file it would give
 │       │   ├── schema_payload.py  # The settings, described for the browser to lay out
 │       │   ├── starters.py        # Studies to start from, in the builder

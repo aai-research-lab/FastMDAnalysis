@@ -20,6 +20,14 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- Agent Config versions offer **Review each change**, with Accept and
+  Reject for each setting. **Use reviewed version** checks the selected
+  combination and creates a new version, preserving the earlier Configs
+  and each chosen value's decision record. Compound settings are reviewed
+  whole; equivalent setting names share one choice. The conversation keeps
+  the choices and the reviewed Config. Agent exports keep chosen values
+  and decisions for inactive phases as well as the phases running now.
+
 - A Problems tab beside Log and Files lists the open study's recorded
   refusals, run warnings and undetermined analysis means, with their
   reasons and available remedies. Its evidence controls open the record

@@ -3463,13 +3463,14 @@
    * by the form's own derivation, with somebody's draft left as it is. */
   function forLoaded(from, options = {}) {
     const body = () => Object.assign(bodyOf(snapshotOfLoaded(from)), { full: Boolean(options.full && options.full()) });
+    const exporting = () => options.config ? Object.assign({}, body(), { config: options.config }) : body();
     const say = options.say || (() => {});
     return {
-      fetchConfig: () => fetchConfig(body(), false),
-      download: () => download(body(), say),
+      fetchConfig: () => fetchConfig(exporting(), false),
+      download: () => download(exporting(), say),
       // The Agent card's button, to tick, when it is given.
-      copyCommand: (button) => copyCommand(body(), say, button || null),
-      downloadScript: () => downloadScript(body(), say),
+      copyCommand: (button) => copyCommand(exporting(), say, button || null),
+      downloadScript: () => downloadScript(exporting(), say),
       previewCost: () => previewCost(body()),
     };
   }
