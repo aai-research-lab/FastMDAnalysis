@@ -551,10 +551,13 @@
       "/api/events", "/api/results",
       "/api/structure-info", "/api/frames-info",
     ];
-    const settled = await Promise.allSettled(urls.map(fetchJSON));
+    const responses = urls.map((url) => fetchJSON(url).then(
+      (value) => ({status: "fulfilled", value}),
+      (reason) => ({status: "rejected", reason})
+    ));
     let successes = 0;
 
-    settled.forEach((result, index) => {
+    function applyResponse(result, index) {
       const name = names[index];
       if (result.status === "rejected") {
         state.apiErrors[name] = String(result.reason || "request failed");
@@ -571,7 +574,14 @@
       if (name === "results") safeApply(name, () => applyResults(payload));
       if (name === "structure") safeApply(name, () => applyStructure(payload));
       if (name === "playback") safeApply(name, () => applyPlayback(payload));
-    });
+    }
+
+    // Establish the study before its panels, but do not hold results behind
+    // an unrelated trajectory/topology request that is still being read.
+    applyResponse(await responses[0], 0);
+    await Promise.all(responses.slice(1).map(async (response, index) => {
+      applyResponse(await response, index + 1);
+    }));
 
     if (successes) {
       state.lastUpdateMs = Date.now();
