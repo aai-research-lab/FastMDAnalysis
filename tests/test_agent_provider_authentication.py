@@ -827,6 +827,24 @@ def test_console_token_refresh_cannot_return_a_session_disconnected_mid_request(
         anthropic_cli.access_token()
 
 
+def test_chatgpt_status_does_not_report_connected_after_concurrent_disconnect(
+        monkeypatch, chatgpt_vault):
+    oauth, _vault = chatgpt_vault
+    _enable_account(oauth, _account(expires_at=9999999999))
+    original = oauth.access_token
+    monkeypatch.setattr(oauth, "_fetch_json", lambda *_a, **_kw: {})
+
+    def token_then_disconnect():
+        token = original()
+        assert oauth.disconnect()["ok"]
+        return token
+
+    monkeypatch.setattr(oauth, "access_token", token_then_disconnect)
+    status = oauth.status()
+    assert status["active_client_id"] == ""
+    assert status["connected"] is False
+
+
 def test_disconnect_removes_the_saved_key_even_when_environment_auth_is_active(
     monkeypatch, tmp_path
 ):

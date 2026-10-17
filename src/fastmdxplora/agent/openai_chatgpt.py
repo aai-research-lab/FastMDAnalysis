@@ -806,9 +806,10 @@ def status() -> dict[str, Any]:
         }
     store = _read_store()
     active = _account(store, str(store.get("active_client_id") or ""))
-    pending = any(attempt.get("operation_id") == store.get("pending_operation")
-                  and attempt.get("auth_epoch") == store.get("auth_epoch")
-                  for attempt in _pending.values())
+    with _lock:
+        pending = any(attempt.get("operation_id") == store.get("pending_operation")
+                      and attempt.get("auth_epoch") == store.get("auth_epoch")
+                      for attempt in _pending.values())
     connected = None if pending else False
     if pending:
         message = "Waiting for ChatGPT sign-in in the system browser."
@@ -821,6 +822,15 @@ def status() -> dict[str, Any]:
         except SignInError as exc:
             message = str(exc)
         store = _read_store()
+        current = _account(store, str(store.get("active_client_id") or ""))
+        if connected is True and (current is None or not current.get("refresh_token")
+                                  or PLAN_SCOPE not in current.get("scopes", [])):
+            connected = False
+            message = "No active ChatGPT plan sign-in. Continue with ChatGPT to sign in."
+        elif connected is True and (current.get("client_id") != active.get("client_id")
+                                     or current.get("session_id") != active.get("session_id")):
+            connected = None
+            message = "The ChatGPT account changed while checking it. Refresh its status."
     elif active:
         message = (f"Signed in as {active.get('email') or 'the selected account'}, "
                    "but ChatGPT plan use was not authorized. Continue with ChatGPT to approve it.")
