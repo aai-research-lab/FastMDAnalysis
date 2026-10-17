@@ -16,6 +16,7 @@ import http.server
 import json
 import os
 import secrets
+import socketserver
 import ssl
 import sys
 import threading
@@ -535,6 +536,14 @@ def _finish_attempt(state: str) -> bool:
     return True
 
 
+class _LoopbackServer(http.server.ThreadingHTTPServer):
+    """Bind the numeric callback address without a blocking reverse-DNS lookup."""
+
+    def server_bind(self) -> None:
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+
 def connect(*, client_id: str = "", add_account: bool = False) -> dict[str, Any]:
     """Start a documented loopback public-client OAuth attempt in a browser."""
     global _pending_note
@@ -563,7 +572,7 @@ def connect(*, client_id: str = "", add_account: bool = False) -> dict[str, Any]
     verifier = _b64url(secrets.token_bytes(32))
     challenge = _b64url(hashlib.sha256(verifier.encode("ascii")).digest())
     try:
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _CallbackHandler)
+        server = _LoopbackServer(("127.0.0.1", 0), _CallbackHandler)
     except OSError:
         return {
             "ok": False,

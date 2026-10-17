@@ -199,10 +199,6 @@ def test_another_dashboard_process_cannot_restore_old_authentication(
 
 
 def _callback_in_another_process(root, entered, release, results):
-    import faulthandler
-
-    stack = (Path(root) / "callback-worker-stack.txt").open("w", encoding="utf-8")
-    faulthandler.dump_traceback_later(10, file=stack)
     from fastmdxplora.agent import openai_chatgpt as oauth
 
     oauth.user_config_dir = lambda: Path(root)
@@ -212,7 +208,6 @@ def _callback_in_another_process(root, entered, release, results):
     oauth._verify_id_token = lambda *_a, **_kw: {"sub": "synthetic-subject"}
 
     def exchange(_form):
-        faulthandler.cancel_dump_traceback_later()
         entered.set()
         if not release.wait(30):
             raise oauth.SignInError("Synthetic callback release timed out")
@@ -263,10 +258,7 @@ def test_another_dashboard_can_cancel_or_supersede_an_in_flight_callback(
                              args=(str(tmp_path), entered, release, results))
     worker.start()
     try:
-        assert entered.wait(20), (
-            f"Callback worker exit code: {worker.exitcode}; "
-            + ((tmp_path / "callback-worker-stack.txt").read_text(encoding="utf-8")
-               if (tmp_path / "callback-worker-stack.txt").exists() else "No worker stack"))
+        assert entered.wait(20), f"Callback worker exit code: {worker.exitcode}"
         if action == "cancel":
             assert oauth.disconnect()["ok"]
         else:
@@ -287,6 +279,35 @@ def test_another_dashboard_can_cancel_or_supersede_an_in_flight_callback(
             worker.join(10)
         results.close()
         results.join_thread()
+
+
+def test_loopback_sign_in_does_not_resolve_the_machine_name(monkeypatch, chatgpt_vault):
+    import socket
+
+    oauth, _vault = chatgpt_vault
+    urls = []
+    monkeypatch.setattr(oauth.webbrowser, "open", lambda url, **_kw: urls.append(url) or True)
+
+    def no_hostname_lookup(*_args):
+        raise AssertionError("A numeric loopback listener must not resolve a hostname")
+
+    monkeypatch.setattr(socket, "getfqdn", no_hostname_lookup)
+    try:
+        assert oauth.connect()["ok"]
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(urls[0]).query)
+        redirect = query["redirect_uri"][0]
+        assert urllib.parse.urlsplit(redirect).hostname == "127.0.0.1"
+        callback = redirect + "?" + urllib.parse.urlencode({
+            "state": query["state"][0], "error": "access_denied"})
+        loopback = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with pytest.raises(urllib.error.HTTPError) as caught:
+            loopback.open(callback, timeout=5)
+        assert caught.value.code == 400
+        assert not oauth._pending
+        assert not oauth._read_store()["pending_operation"]
+    finally:
+        for state in list(oauth._pending):
+            oauth._finish_attempt(state)
 
 
 def test_a_failed_activation_cannot_roll_back_a_newer_account_choice(monkeypatch, chatgpt_vault):

@@ -232,8 +232,7 @@ jobs:
           python -m playwright install --with-deps chromium
 
       - name: Check provider callback coordination
-        # Run the real subprocess/loopback regressions first so a platform
-        # failure reports its worker stack before the longer suite starts.
+        # Check real subprocess/loopback coordination before the longer suite.
         shell: bash
         run: pytest tests/test_chatgpt_authentication_races.py -rfEs
 
