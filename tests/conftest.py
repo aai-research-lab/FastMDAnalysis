@@ -18,6 +18,7 @@ that does not work.
 from __future__ import annotations
 
 import logging
+from subprocess import Popen
 
 import pytest
 
@@ -126,7 +127,7 @@ def _no_run_outlives_the_test_that_started_it(monkeypatch):
     @functools.wraps(spawn)
     def spawn_and_remember(self, *args, **kwargs):
         result = spawn(self, *args, **kwargs)
-        if getattr(self, "process", None) is not None:
+        if isinstance(getattr(self, "process", None), Popen):
             started.append(self.process)
         return result
 

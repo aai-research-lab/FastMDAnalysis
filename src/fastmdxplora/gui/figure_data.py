@@ -661,8 +661,10 @@ def _interactions(root: Path) -> dict[str, Any] | None:
 
     rows = [r for r in _table(path) if _number(r.get("occupancy")) is not None]
     rows.sort(key=lambda r: _number(r.get("occupancy")) or 0.0, reverse=True)
+    shown = rows[:MOST_BARS]
+    entities = _residue_entities(root, [str(row.get("residue") or "") for row in shown])
     bars = []
-    for row in rows[:MOST_BARS]:
+    for row, entity in zip(shown, entities):
         occupancy = _number(row.get("occupancy")) or 0.0
         error = _number(row.get("standard_error"))
         present, total = _number(row.get("frames_present")), _number(row.get("frames_total"))
@@ -675,7 +677,6 @@ def _interactions(root: Path) -> dict[str, Any] | None:
             said.append(f"\u00b1 {error:.2f}")
         if episodes is not None:
             said.append(f"formed {episodes:.0f} " + ("time" if episodes == 1 else "times"))
-        entity = _residue_entities(root, [str(row.get("residue") or "")])[0]
         bars.append({"label": label, "value": occupancy, "error": error,
                      "hollow": not well, "entity": entity, "said": said})
     thin = sum(1 for b in bars if b["hollow"])
@@ -694,6 +695,8 @@ def _interactions(root: Path) -> dict[str, Any] | None:
 def _residue_entities(root: Path, labels: list[str]) -> list[dict[str, Any] | None]:
     """Resolve saved residue labels only when the analyzed topology makes
     each label unique. An ambiguous or unavailable label remains value-only."""
+    if not labels:
+        return []
     from fastmdxplora.gui.selection import topology_the_analyses_read
 
     path = topology_the_analyses_read(root)

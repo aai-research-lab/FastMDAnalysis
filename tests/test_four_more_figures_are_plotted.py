@@ -108,6 +108,9 @@ def test_the_contacts_are_the_residues_most_often_touching(study) -> None:
 
 def test_contact_and_interaction_rows_select_only_topology_matched_residues(tmp_path) -> None:
     pytest.importorskip("mdtraj")
+    from unittest.mock import patch
+
+    from fastmdxplora.utils.native_output import topology_quietly
     from tests.test_a_clicked_atom_is_a_selection import _topology
 
     root = _write(tmp_path / "study")
@@ -123,7 +126,10 @@ def test_contact_and_interaction_rows_select_only_topology_matched_residues(tmp_
         encoding="utf-8")
 
     contacts = _get(root, "pl_contacts")["bars"]
-    interactions = _get(root, "pl_interactions")["bars"]
+    with patch("fastmdxplora.utils.native_output.topology_quietly",
+               wraps=topology_quietly) as read_topology:
+        interactions = _get(root, "pl_interactions")["bars"]
+    assert read_topology.call_count == 1
 
     assert [bar["entity"] for bar in contacts] == [
         {"kind": "residue", "chain": "A", "resi": 189, "icode": "", "resn": "ASP"},
