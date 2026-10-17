@@ -9,6 +9,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- The phone-to-desktop browser check waits for the side panel to return
+  after its dialog closes, avoiding a timing-sensitive assertion.
+
 - Problems confines actual record reads and helper reads to the open run's
   public files. It checks evidence candidates without recursively listing
   artifacts, so unrelated trajectory links and scratch trees do not block
