@@ -120,7 +120,7 @@ def test_phone_evidence_and_escape_keep_the_panel_usable(browser, sessions):
         expect(page.locator("#problems-summary")).to_have_text("1 recorded problem")
         page.set_viewport_size({"width": 1440, "height": 900})
         page.wait_for_function("() => !document.getElementById('problems-mobile').open")
-        assert page.locator(".app-shell > #side-panel").count() == 1
+        expect(page.locator(".app-shell > #side-panel")).to_have_count(1)
     finally:
         page.context.close()
 
