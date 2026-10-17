@@ -208,6 +208,14 @@ def test_exact_frame_routes_refuse_unreadable_or_ambiguous_indices(tmp_path, rou
         session.server.shutdown()
 
 
+def _click_chart(svg, fraction, *, left=64, right=28):
+    """Resolve the current SVG after redraw and wait until it receives clicks."""
+    svg.click(trial=True)
+    size = svg.evaluate("el => ({width:el.clientWidth, height:el.clientHeight})")
+    svg.click(position={"x": left + (size["width"] - left - right) * fraction,
+                        "y": size["height"] / 2})
+
+
 def test_a_chart_click_shows_exact_frame_coordinates_and_playback_order(tmp_path, monkeypatch):
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
@@ -235,13 +243,8 @@ def test_a_chart_click_shows_exact_frame_coordinates_and_playback_order(tmp_path
                 session.url.rstrip("/") + "/api/frames-info").read())
             assert payload["frame_indices"] == [0, 5, 10]
             chart = page.locator('.series-chart[data-analysis="rmsd"] svg')
-            chart.scroll_into_view_if_needed()
-            box = chart.bounding_box()
-            # Unlike a raw mouse coordinate, a locator click waits until
-            # the chart is stable and the loading screen cannot intercept it.
             with page.expect_request("**/api/exact-frame?frame=7*"):
-                chart.click(position={"x": 64 + (box["width"] - 64 - 28) * 0.7,
-                                      "y": box["height"] / 2})
+                _click_chart(chart, 0.7)
             page.wait_for_function(
                 "() => window.FastMDXMoleculeViewer?.STATE.exactFrame?.frame === 7",
                 timeout=60000)
@@ -295,10 +298,7 @@ def test_a_chart_click_shows_exact_frame_coordinates_and_playback_order(tmp_path
                 page.wait_for_function("() => document.documentElement.dataset.page === 'analysis'")
                 page.wait_for_selector('.series-chart[data-analysis="rmsd"] svg', state="visible")
                 svg = page.locator('.series-chart[data-analysis="rmsd"] svg')
-                svg.scroll_into_view_if_needed()
-                rect = svg.bounding_box()
-                point_x = rect["x"] + 64 + (rect["width"] - 64 - 28) * frame / 10
-                page.mouse.click(point_x, rect["y"] + rect["height"] / 2)
+                _click_chart(svg, frame / 10)
 
             select_chart_frame(0)
             page.wait_for_function(
@@ -326,18 +326,13 @@ def test_a_chart_click_shows_exact_frame_coordinates_and_playback_order(tmp_path
             page.wait_for_function("() => document.documentElement.dataset.page === 'analysis'")
             page.wait_for_selector('.series-chart[data-analysis="rmsd"] svg', state="visible")
             svg = page.locator('.series-chart[data-analysis="rmsd"] svg')
-            svg.scroll_into_view_if_needed()
-            rect = svg.bounding_box()
             with page.expect_request("**/api/exact-frame?frame=8*"):
-                page.mouse.click(rect["x"] + 64 + (rect["width"] - 64 - 28) * 0.8,
-                                 rect["y"] + rect["height"] / 2)
+                _click_chart(svg, 0.8)
             page.evaluate("() => window.FastMDXDashboard.navigate('analysis')")
             page.wait_for_function("() => document.documentElement.dataset.page === 'analysis'")
             page.wait_for_selector('.series-chart[data-analysis="rmsd"] svg', state="visible")
             svg = page.locator('.series-chart[data-analysis="rmsd"] svg')
-            rect = svg.bounding_box()
-            page.mouse.click(rect["x"] + 64 + (rect["width"] - 64 - 28) * 0.9,
-                             rect["y"] + rect["height"] / 2)
+            _click_chart(svg, 0.9)
             page.wait_for_function(
                 "() => window.FastMDXMoleculeViewer.STATE.exactFrame?.frame === 9", timeout=60000
             )
@@ -364,11 +359,8 @@ def test_a_chart_click_shows_exact_frame_coordinates_and_playback_order(tmp_path
             page.wait_for_function("() => document.documentElement.dataset.page === 'analysis'")
             page.wait_for_selector('.series-chart[data-analysis="rmsd"] svg', state="visible")
             svg = page.locator('.series-chart[data-analysis="rmsd"] svg')
-            svg.scroll_into_view_if_needed()
-            rect = svg.bounding_box()
             with page.expect_request("**/api/exact-frame?frame=6*"):
-                page.mouse.click(rect["x"] + 64 + (rect["width"] - 64 - 28) * 0.6,
-                                 rect["y"] + rect["height"] / 2)
+                _click_chart(svg, 0.6)
             page.evaluate("() => window.dispatchEvent(new CustomEvent('dashboard:run-changed',"
                 "{detail: {first: false}}))")
             page.wait_for_timeout(1100)
@@ -414,11 +406,8 @@ def test_figure_chart_supports_keyboard_navigation_and_ignores_clicks_outside_it
                 pytest.skip("this browser has no WebGL, so the viewer cannot render")
             chart = page.locator('.figure-chart[data-figure-kind="labels"] svg')
             chart.wait_for()
-            chart.scroll_into_view_if_needed()
-            box = chart.bounding_box()
-            point_x = box["x"] + 62 + (box["width"] - 82) * 0.7
-            point_y = box["y"] + box["height"] * 0.5
-            page.mouse.click(point_x, point_y)
+            with page.expect_request("**/api/exact-frame?frame=7*"):
+                _click_chart(chart, 0.7, left=62, right=20)
             page.wait_for_function(
                 "() => window.FastMDXMoleculeViewer?.STATE.exactFrame?.frame === 7",
                 timeout=60000)
@@ -437,7 +426,7 @@ def test_figure_chart_supports_keyboard_navigation_and_ignores_clicks_outside_it
             page.wait_for_function("() => document.querySelector("
                                    "'.figure-chart[data-figure-kind=labels] svg')"
                                    "?.getAttribute('role') === 'application'")
-            chart.scroll_into_view_if_needed()
+            chart.click(trial=True)
             chart.focus()
             chart.press("End")
             chart.press("Enter")
@@ -457,10 +446,11 @@ def test_figure_chart_supports_keyboard_navigation_and_ignores_clicks_outside_it
             page.wait_for_function("() => document.documentElement.dataset.page === 'analysis'")
             chart = page.locator('.figure-chart[data-figure-kind="labels"] svg')
             chart.wait_for(state="visible")
-            chart.scroll_into_view_if_needed()
-            box = chart.bounding_box()
-            page.mouse.move(box["x"] + 62 + (box["width"] - 82) * 0.2, point_y)
-            page.mouse.click(box["x"] + 30, point_y)
+            chart.click(trial=True)
+            size = chart.evaluate("el => ({width:el.clientWidth, height:el.clientHeight})")
+            chart.hover(position={"x": 62 + (size["width"] - 82) * 0.2,
+                                  "y": size["height"] / 2})
+            chart.click(position={"x": 30, "y": size["height"] / 2})
             page.wait_for_timeout(700)
             stayed = page.evaluate(
                 "() => { const s = window.FastMDXMoleculeViewer.STATE;"
