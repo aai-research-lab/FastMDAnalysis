@@ -1,9 +1,9 @@
 """Use Anthropic's documented local ``ant`` OAuth profile for API calls.
 
-This is Claude Console OAuth for the Claude API. FastMDXplora gives the CLI
+This is Anthropic Console OAuth for the Anthropic API. FastMDXplora gives the CLI
 its own config directory and deliberately
 passes no inherited API-key/profile environment variables, so an existing
-Claude CLI session is neither inspected nor reused.
+Anthropic CLI session is neither inspected nor reused.
 """
 
 from __future__ import annotations
@@ -16,7 +16,14 @@ import time
 from pathlib import Path
 from typing import Any
 
+from fastmdxplora.refusals import BackendUnavailable, CodedError
 from fastmdxplora.user_dir import user_config_dir
+
+
+class ConsoleSignInError(CodedError, RuntimeError):
+    """An isolated Console profile could not supply a current API session."""
+
+    default_code = "environment.credentials.sign_in_failed"
 
 _login_started: float | None = None
 _login_process: subprocess.Popen[str] | None = None
@@ -58,7 +65,7 @@ def _environment() -> dict[str, str]:
 def _run(args: list[str], *, timeout: float = 15.0) -> subprocess.CompletedProcess[str]:
     ant = executable()
     if not ant:
-        raise FileNotFoundError("The official Anthropic ant CLI is not installed.")
+        raise BackendUnavailable("The official Anthropic ant CLI is not installed.")
     return subprocess.run(
         [ant, *args], env=_environment(), stdin=subprocess.DEVNULL,
         capture_output=True, text=True, encoding="utf-8", errors="replace",
@@ -71,7 +78,7 @@ def status() -> dict[str, Any]:
     global _login_pending
     if not executable():
         return {"available": False, "connected": False,
-                "message": "Install Anthropic's official ant CLI to use Claude Console sign-in."}
+                "message": "Install Anthropic's official ant CLI to use Anthropic Console sign-in."}
     try:
         result = _run(["models", "list", "--format", "json"])
         if result.returncode == 0:
@@ -79,11 +86,11 @@ def status() -> dict[str, Any]:
             return {
                 "available": True,
                 "connected": True,
-                "message": "Connected to the Claude API through the app's Claude Console profile.",
+                "message": "Connected to the Anthropic API through the app's Anthropic Console profile.",
             }
-        message = "Claude Console access is not ready. Sign in again from Agent Settings."
+        message = "Anthropic Console access is not ready. Sign in again from Agent Settings."
     except subprocess.TimeoutExpired:
-        message = "Claude Console did not respond. Check the connection and try again."
+        message = "Anthropic Console did not respond. Check the connection and try again."
     except OSError:
         message = "The official ant CLI could not be started."
     if _login_pending:
@@ -91,13 +98,13 @@ def status() -> dict[str, Any]:
         expired = _login_started is not None and time.monotonic() - _login_started >= 300
         if not finished and not expired:
             return {"available": True, "connected": None, "pending": True,
-                    "message": "Waiting for Claude Console sign-in in the opened terminal/browser."}
+                    "message": "Waiting for Anthropic Console sign-in in the opened terminal/browser."}
         _login_pending = False
         return {
             "available": True,
             "connected": False,
             "message": (
-                "Claude Console sign-in was canceled, failed, or timed out. Start it "
+                "Anthropic Console sign-in was canceled, failed, or timed out. Start it "
                 "again from Agent Settings."
             ),
         }
@@ -112,16 +119,16 @@ def access_token() -> str:
     included in errors/logs.
     """
     if not executable():
-        raise RuntimeError("Install Anthropic's official ant CLI to use Claude Console sign-in.")
+        raise BackendUnavailable("Install Anthropic's official ant CLI to use Anthropic Console sign-in.")
     try:
         result = _run(["auth", "print-credentials", "--access-token"])
     except subprocess.TimeoutExpired:
-        raise RuntimeError("Claude Console token refresh timed out. Try reconnecting.") from None
+        raise ConsoleSignInError("Anthropic Console token refresh timed out. Try reconnecting.") from None
     except OSError:
-        raise RuntimeError("The official ant CLI could not be started.") from None
+        raise ConsoleSignInError("The official ant CLI could not be started.") from None
     token = result.stdout.strip()
     if result.returncode != 0 or not token:
-        raise RuntimeError("Claude Console sign-in expired or is unavailable. Sign in again.")
+        raise ConsoleSignInError("Anthropic Console sign-in expired or is unavailable. Sign in again.")
     return token
 
 
@@ -131,10 +138,10 @@ def connect() -> dict[str, Any]:
     ant = executable()
     if not ant:
         return {"ok": False, "message":
-                "Install Anthropic's official ant CLI, then try Claude Console sign-in again."}
+                "Install Anthropic's official ant CLI, then try Anthropic Console sign-in again."}
     if _login_pending:
         return {"ok": False, "message":
-                "A Claude Console sign-in is already waiting in the opened terminal/browser."}
+                "A Anthropic Console sign-in is already waiting in the opened terminal/browser."}
     env = _environment()
     try:
         if os.name == "nt":
@@ -167,7 +174,7 @@ def connect() -> dict[str, Any]:
         return {
             "ok": False,
             "message": (
-                "The Claude sign-in terminal could not be opened. Check the system "
+                "The Anthropic sign-in terminal could not be opened. Check the system "
                 "terminal and retry from Agent Settings."
             ),
         }
@@ -190,13 +197,13 @@ def disconnect() -> dict[str, Any]:
     _login_pending = False
     if not executable():
         return {"ok": True, "connected": False,
-                "message": "This app has no Claude Console profile to disconnect."}
+                "message": "This app has no Anthropic Console profile to disconnect."}
     try:
         result = _run(["auth", "logout", "--all"])
     except subprocess.TimeoutExpired:
-        return {"ok": False, "message": "Claude Console sign-out timed out. Try again."}
+        return {"ok": False, "message": "Anthropic Console sign-out timed out. Try again."}
     except OSError:
         return {"ok": False, "message": "The official ant CLI could not be started."}
     if result.returncode != 0:
-        return {"ok": False, "message": "Claude Console sign-out did not complete."}
-    return {"ok": True, "connected": False, "message": "Disconnected from Claude Console."}
+        return {"ok": False, "message": "Anthropic Console sign-out did not complete."}
+    return {"ok": True, "connected": False, "message": "Disconnected from Anthropic Console."}

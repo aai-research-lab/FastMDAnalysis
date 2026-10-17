@@ -110,12 +110,12 @@ a list of vendors goes stale and a protocol does not. It takes a base URL —
 
 The Agent ships with FastMDXplora and sends requests using Python's standard
 library. Saving credentials uses the system keyring installed with the package.
-Claude Console sign-in additionally requires Anthropic's official `ant` CLI.
+Anthropic Console sign-in additionally requires Anthropic's official `ant` CLI.
 With Go 1.25 or later, install it using `go install github.com/anthropics/anthropic-cli/cmd/ant@latest`
 and put the Go `bin` directory on `PATH`, as described in the
 [official CLI quickstart](https://platform.claude.com/docs/en/cli-sdks-libraries/cli/quickstart).
 Restart an already running dashboard after installing the CLI, then choose
-Anthropic → Claude Console OAuth in Agent Settings. Start sign-in there so
+Anthropic → Anthropic Console OAuth in Agent Settings. Start sign-in there so
 the CLI uses FastMDXplora's own profile; complete organization/workspace
 selection in the official browser flow.
 
@@ -127,7 +127,7 @@ uses the selected account's model catalog and public Responses API route, as
 documented in [OpenAI registration and sign-in](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)
 and [models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference).
 
-Anthropic offers API keys and **Claude Console OAuth** through the official
+Anthropic offers API keys and **Anthropic Console OAuth** through the official
 `ant` CLI's [local authentication](https://platform.claude.com/docs/en/cli-sdks-libraries/cli/authentication)
 and [HTTP scripting flow](https://platform.claude.com/docs/en/cli-sdks-libraries/cli/scripting).
 FastMDXplora uses its own isolated CLI profile. The Console option explains
@@ -149,7 +149,7 @@ The account registration remains available for a later sign-in, following
 API keys and ChatGPT tokens are stored in the OS credential vault. An API key
 in the environment is checked first, so a cluster job or CI run can supply one
 without saving it. If no supported vault is available, use the provider's
-environment variable. Existing ChatGPT, Codex, Claude and browser sessions are
+environment variable. Existing sessions from other tools and browsers are
 never imported.
 
 The following settings file stores provider/model choices and cache preferences,
@@ -161,7 +161,7 @@ with no API keys or OAuth tokens:
 | `$XDG_CONFIG_HOME/fastmdxplora/model.json` | otherwise, defaulting to `~/.config/` |
 | `%APPDATA%\fastmdxplora\model.json` | on Windows |
 
-Settings are replaced atomically. Claude Console credentials remain managed by
+Settings are replaced atomically. Anthropic Console credentials remain managed by
 the official CLI in this app's isolated `anthropic-console` profile directory.
 
 **The key never enters a Config, a Manifest, a log line or an error message.**

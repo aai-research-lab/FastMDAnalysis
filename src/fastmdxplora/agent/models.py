@@ -394,12 +394,13 @@ def _key_for(choice: ModelChoice, path: Path | None = None) -> str:
     key can be overridden for one run without editing anything.
     """
     if choice.auth_method == "anthropic_console":
-        from fastmdxplora.agent.anthropic_cli import access_token
+        from fastmdxplora.agent.anthropic_cli import ConsoleSignInError, access_token
+        from fastmdxplora.refusals import BackendUnavailable
 
         try:
             return access_token()
-        except RuntimeError as exc:
-            raise StudyError(str(exc), code="environment.credentials.absent",
+        except (ConsoleSignInError, BackendUnavailable) as exc:
+            raise StudyError(str(exc), code=exc.code,
                              provider=choice.provider) from None
     if choice.auth_method == "chatgpt_plan":
         from fastmdxplora.agent.openai_chatgpt import SignInError, access_token
@@ -407,7 +408,7 @@ def _key_for(choice: ModelChoice, path: Path | None = None) -> str:
         try:
             return access_token()
         except SignInError as exc:
-            raise StudyError(str(exc), code="environment.credentials.absent",
+            raise StudyError(str(exc), code=exc.code,
                              provider=choice.provider) from None
     env_name = str(PROVIDERS[choice.provider]["env"])
     from_env = os.environ.get(env_name)
@@ -531,7 +532,7 @@ def probe_connection(choice: ModelChoice | None = None, *,
         try:
             options = siwc_models(timeout=timeout)
         except SignInError as exc:
-            return {"connected": False, "message": str(exc)}
+            return {"connected": False, "message": str(exc), "code": exc.code}
         model_names = [item["id"] for item in options]
         if settled.model not in model_names:
             return {"connected": False,
@@ -549,7 +550,7 @@ def probe_connection(choice: ModelChoice | None = None, *,
     try:
         key = _key_for(settled)
     except StudyError as exc:
-        return {"connected": False, "message": str(exc)}
+        return {"connected": False, "message": str(exc), "code": exc.code}
 
     try:
         request = urllib.request.Request(str(url), headers=_auth_headers(settled, key))
@@ -809,7 +810,7 @@ def describe_choice(path: Path | None = None) -> str:
         return "No AI model chosen. Run `fastmdx agent model` to pick one."
     env_name = str(PROVIDERS[settled.provider]["env"])
     if settled.auth_method == "anthropic_console":
-        said = f"{settled}\nAuthentication: Claude Console OAuth through the official ant CLI"
+        said = f"{settled}\nAuthentication: Anthropic Console OAuth through the official ant CLI"
     elif settled.auth_method == "chatgpt_plan":
         said = f"{settled}\nAuthentication: Sign in with ChatGPT plan usage"
     else:

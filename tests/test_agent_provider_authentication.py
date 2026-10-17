@@ -293,7 +293,13 @@ def test_chatgpt_cancelled_browser_consent_does_not_exchange_or_replace_account(
     oauth, _vault = chatgpt_vault
     called = []
     connection_at_response = []
+    finished = []
+    finish = oauth._finish_attempt
     answer = oauth._CallbackHandler._answer
+
+    def finish_once(state):
+        finished.append(state)
+        return finish(state)
 
     def answer_after_invalidation(handler, status_code, message):
         if status_code == 400 and "cancelled" in message.lower():
@@ -301,6 +307,7 @@ def test_chatgpt_cancelled_browser_consent_does_not_exchange_or_replace_account(
         answer(handler, status_code, message)
 
     monkeypatch.setattr(oauth._CallbackHandler, "_answer", answer_after_invalidation)
+    monkeypatch.setattr(oauth, "_finish_attempt", finish_once)
 
     def open_authorize(url, **_kwargs):
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
@@ -319,6 +326,8 @@ def test_chatgpt_cancelled_browser_consent_does_not_exchange_or_replace_account(
     assert result["ok"] is True
     assert called == []
     assert connection_at_response == [False]
+    assert len(finished) == 1
+    assert finish(finished[0]) is False
     assert not oauth._read_store()["accounts"]
     status = oauth.status()
     assert status["connected"] is False
@@ -824,7 +833,7 @@ def test_failed_console_disconnect_does_not_claim_to_be_disconnected(monkeypatch
     from fastmdxplora.gui.agent_panel import auth_endpoint
 
     monkeypatch.setattr(anthropic_cli, "disconnect", lambda: {
-        "ok": False, "message": "Claude Console sign-out timed out. Try again."})
+        "ok": False, "message": "Anthropic Console sign-out timed out. Try again."})
     result = auth_endpoint({"provider": "anthropic", "auth_method": "anthropic_console",
                             "action": "disconnect"})
     assert result["ok"] is False
@@ -845,7 +854,7 @@ def test_unavailable_console_and_hosted_sign_in_cannot_save(
     console = next(row for row in claude["auth_methods"]
                    if row["id"] == "anthropic_console")
     assert console["available"] is False
-    assert "Claude Console API OAuth" in console["reason"]
+    assert "Anthropic Console API OAuth" in console["reason"]
     assert console["requires_api_key"] is False
     assert {method["id"] for method in claude["auth_methods"]} == {
         "api_key", "anthropic_console"}
@@ -1019,12 +1028,12 @@ def test_live_agent_settings_switch_provider_method_and_persist_the_real_selecti
                 page.locator("#agent-auth-method").select_option("anthropic_console")
                 assert page.locator("#agent-key").is_hidden()
                 assert page.locator("#agent-auth-connect").is_visible()
-            assert "Claude Console API OAuth" \
+            assert "Anthropic Console API OAuth" \
                 in page.locator("#agent-auth-help").inner_text()
             check_auth_layout()
             summary = page.locator("#agent-model-current").inner_text()
             assert "Saved for Agent requests: OpenAI · gpt-5 · ChatGPT plan sign-in" in summary
-            method = "Claude Console OAuth (official ant CLI)" if console_available else "API key"
+            method = "Anthropic Console OAuth (official ant CLI)" if console_available else "API key"
             assert (
                 f"Current selection (unsaved): Anthropic · claude-sonnet-4-6 · {method}" in summary
             )
@@ -1369,3 +1378,60 @@ def test_vault_readers_wait_for_the_whole_sign_in_write(monkeypatch, chatgpt_vau
     assert not failures
     assert read_done.is_set()
     assert records[0]["host_id"] == "new"
+
+
+@pytest.mark.parametrize("failure", ["vault", "grant", "sign-in"])
+def test_provider_refusals_keep_their_cause_at_the_completion_boundary(
+        monkeypatch, chatgpt_vault, failure):
+    from fastmdxplora.agent.models import ModelChoice, _key_for, probe_connection
+    from fastmdxplora.refusals import StudyError, known
+
+    oauth, _vault = chatgpt_vault
+    error = {"vault": oauth.CredentialStoreError,
+             "grant": oauth.InvalidGrant, "sign-in": oauth.SignInError}[failure](
+                 "Synthetic provider refusal")
+
+    def refuse(*_args, **_kwargs):
+        raise error
+
+    monkeypatch.setattr(oauth, "access_token", refuse)
+    choice = ModelChoice("openai", "synthetic-model", "", "chatgpt_plan")
+    with pytest.raises(StudyError) as caught:
+        _key_for(choice)
+    assert known(caught.value.code)
+    assert caught.value.code == error.code
+    monkeypatch.setattr(oauth, "list_models", refuse)
+    assert probe_connection(choice) == {
+        "connected": False, "message": str(error), "code": error.code}
+
+
+def test_a_failed_vault_disconnect_is_a_refusal_not_a_disconnected_account(
+        monkeypatch, chatgpt_vault):
+    from fastmdxplora.gui.agent_panel import auth_endpoint
+
+    oauth, vault = chatgpt_vault
+    _enable_account(oauth, _account(expires_at=9999999999))
+
+    def deny_write(*_args):
+        raise OSError("synthetic-sensitive-backend-detail")
+
+    monkeypatch.setattr(vault, "set_password", deny_write)
+    result = auth_endpoint({"provider": "openai", "auth_method": "chatgpt_plan",
+                            "action": "disconnect"})
+    assert result["ok"] is False
+    assert result["code"] == "environment.credentials.secure_store_unavailable"
+    assert result["status"]["connected"] is None
+    assert "synthetic-sensitive-backend-detail" not in json.dumps(result)
+    assert oauth._read_store()["accounts"][0]["refresh_token"]
+
+
+def test_an_internal_provider_error_is_not_misreported_as_missing_credentials(monkeypatch):
+    from fastmdxplora.agent import anthropic_cli
+    from fastmdxplora.agent.models import ModelChoice, _key_for
+
+    def broken():
+        raise RuntimeError("synthetic programming defect")
+
+    monkeypatch.setattr(anthropic_cli, "access_token", broken)
+    with pytest.raises(RuntimeError, match="programming defect"):
+        _key_for(ModelChoice("anthropic", "synthetic-model", "", "anthropic_console"))

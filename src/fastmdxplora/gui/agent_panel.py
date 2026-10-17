@@ -49,7 +49,7 @@ def _auth_methods(provider: str, *, local_auth_allowed: bool = True) -> list[dic
         methods.append(
             {
                 "id": "anthropic_console",
-                "label": "Claude Console OAuth (official ant CLI)",
+                "label": "Anthropic Console OAuth (official ant CLI)",
                 "available": local_auth_allowed and terminal_available,
                 "requires_api_key": False,
                 "reason": (
@@ -59,11 +59,11 @@ def _auth_methods(provider: str, *, local_auth_allowed: bool = True) -> list[dic
                     )
                     if not local_auth_allowed
                     else "Install Anthropic's official ant CLI to enable this method. "
-                    "This is Claude Console API OAuth."
+                    "This is Anthropic Console API OAuth."
                     if not installed
                     else "A local interactive terminal is required."
                     if not terminal_available
-                    else "This is Claude Console API OAuth."
+                    else "This is Anthropic Console API OAuth."
                 ),
             }
         )
@@ -248,6 +248,17 @@ def model_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) 
 
 
 def auth_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) -> dict[str, Any]:
+    """Return safe provider refusals without claiming a failed action completed."""
+    from fastmdxplora.refusals import CodedError
+
+    try:
+        return _auth_action(payload, local_auth_allowed=local_auth_allowed)
+    except CodedError as exc:
+        return {"ok": False, "error": str(exc), "code": exc.code,
+                "status": {"connected": None, "message": str(exc), "code": exc.code}}
+
+
+def _auth_action(payload: dict[str, Any], *, local_auth_allowed: bool) -> dict[str, Any]:
     """Check, test, connect, or disconnect the selected provider credential.
 
     Access tokens are consumed only in the server process. This endpoint
@@ -323,7 +334,7 @@ def auth_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) -
                 "available": bool(result.get("ok")),
                 "connected": None if result.get("ok") else False,
                 "pending": bool(result.get("ok")),
-                "message": result.get("message") or "Claude Console sign-in could not start.",
+                "message": result.get("message") or "Anthropic Console sign-in could not start.",
             },
         }
     if action == "activate":
@@ -371,7 +382,7 @@ def auth_endpoint(payload: dict[str, Any], *, local_auth_allowed: bool = True) -
                 "status": {
                     "available": True,
                     "connected": False if result.get("ok") else None,
-                    "message": result.get("message") or "Claude Console sign-out failed.",
+                    "message": result.get("message") or "Anthropic Console sign-out failed.",
                 },
             }
         base_url = str(payload.get("base_url") or

@@ -28,6 +28,7 @@ import webbrowser
 from contextlib import contextmanager
 from typing import Any
 
+from fastmdxplora.refusals import CodedError
 from fastmdxplora.user_dir import user_config_dir
 
 ISSUER = "https://auth.openai.com"
@@ -53,12 +54,22 @@ _UNUSABLE_GRANTS = {
 }
 
 
-class SignInError(RuntimeError):
+class SignInError(CodedError, RuntimeError):
     """A safe-to-show authentication failure without provider credentials."""
+
+    default_code = "environment.credentials.sign_in_failed"
+
+
+class CredentialStoreError(SignInError):
+    """A credential-vault failure, distinct from a rejected provider response."""
+
+    default_code = "environment.credentials.secure_store_unavailable"
 
 
 class InvalidGrant(SignInError):
     """An OAuth grant was revoked or consumed and must be removed locally."""
+
+    default_code = "environment.credentials.grant_invalid"
 
 
 def _b64url(value: bytes) -> str:
@@ -88,7 +99,7 @@ def _chunk_keys(raw: str | None) -> list[str]:
     if (not isinstance(generation, str) or len(generation) != 32
             or any(c not in "0123456789abcdef" for c in generation)
             or not isinstance(count, int) or not 1 <= count <= 4096):
-        raise ValueError("Invalid vault manifest")
+        raise CredentialStoreError("The ChatGPT credential-vault manifest is invalid.")
     return [f"{_SERVICE}:{_vault_user()}:{generation}:{index}" for index in range(count)]
 
 
@@ -103,11 +114,11 @@ def _read_store() -> dict[str, Any]:
             if keys:
                 parts = [vault.get_password(key, _vault_user()) for key in keys]
                 if any(part is None for part in parts):
-                    raise ValueError("Incomplete vault record")
+                    raise CredentialStoreError("The ChatGPT credential-vault record is incomplete.")
                 raw = "".join(parts)
             record = json.loads(raw) if raw else {}
     except Exception:  # noqa: BLE001 - do not expose vault data or backend errors
-        raise SignInError(
+        raise CredentialStoreError(
             "The OS credential vault could not read the ChatGPT sign-in. "
             "Unlock the vault and try again."
         ) from None
@@ -128,7 +139,7 @@ def _read_store() -> dict[str, Any]:
 def _write_store(record: dict[str, Any]) -> None:
     vault = _vault()
     if vault is None:
-        raise SignInError(
+        raise CredentialStoreError(
             "No supported OS credential vault is available. Use an OpenAI API key instead.")
     written = []
     committed = False
@@ -158,7 +169,7 @@ def _write_store(record: dict[str, Any]) -> None:
                     vault.delete_password(key, _vault_user())
                 except Exception:  # noqa: BLE001 - best effort after a failed write
                     pass
-        raise SignInError(
+        raise CredentialStoreError(
             "The OS credential vault could not save or finish updating the ChatGPT sign-in. "
             "Unlock the vault and try again."
         ) from None
@@ -301,7 +312,7 @@ def _verify_id_token(token: str, *, client_id: str, nonce: str,
         size = (modulus.bit_length() + 7) // 8
         signature_number = int.from_bytes(signature, "big")
         if len(signature) != size or signature_number >= modulus:
-            raise ValueError("Noncanonical RSA signature")
+            raise SignInError("OpenAI's identity-token signature did not validate.")
         encoded = pow(signature_number, exponent, modulus).to_bytes(size, "big")
     except (KeyError, ValueError, OverflowError):
         raise SignInError("OpenAI's identity signing key was malformed.") from None
@@ -436,17 +447,23 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
                     if PLAN_SCOPE in tokens["scopes"]
                     else "Signed in, but ChatGPT plan use was not authorized. "
                     "Choose Continue with ChatGPT and approve plan use, or use an API key.")
-            self._answer(200, "ChatGPT sign-in is complete. You can return to FastMDXplora.")
+            status = 200
+            message = "ChatGPT sign-in is complete. You can return to FastMDXplora."
         except SignInError as exc:
             _pending_note = str(exc)
-            _finish_attempt(state)
-            self._answer(400, str(exc))
+            status, message = 400, str(exc)
         except Exception:  # noqa: BLE001 - callback failures must not leak protocol data
             _pending_note = "ChatGPT sign-in failed while validating the response. Try again."
-            _finish_attempt(state)
-            self._answer(400, _pending_note)
+            status, message = 400, _pending_note
         finally:
-            _finish_attempt(state)
+            try:
+                _finish_attempt(state)
+            except SignInError as exc:
+                _pending_note = str(exc)
+                status, message = 400, str(exc)
+        # Finish the intent before the browser can observe the response. One
+        # cleanup path also covers a disconnected browser or a failed exchange.
+        self._answer(status, message)
 
     def _answer(self, status: int, message: str) -> None:
         scrub_callback = (

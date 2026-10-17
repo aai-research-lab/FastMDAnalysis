@@ -31,6 +31,8 @@ from typing import Any
 
 import numpy as np
 
+from fastmdxplora.refusals import MissingResultError, StudyError
+
 __all__ = ["BINARY_ATOM_FRAMES", "FRAMES_FILE", "FRAMES_TOPOLOGY", "PIECE_ATOM_FRAMES",
            "SUPERPOSED_ON", "as_xtc", "exact_frame_info", "exact_frame_xtc",
            "exact_frames_dcd", "frames_for_binary", "frames_info", "frames_pieces",
@@ -214,7 +216,7 @@ def _source_frame(out: Path, source: dict[str, Any] | None, frame: int) -> Any:
     import mdtraj as md
 
     if source is None or source.get("kind") != "trajectory":
-        raise ValueError("the source trajectory is unavailable")
+        raise MissingResultError("the source trajectory is unavailable")
     from fastmdxplora.analysis.loading import _made_whole
     from fastmdxplora.utils.native_output import suppress_native_output, topology_quietly
 
@@ -231,7 +233,7 @@ def _source_frame(out: Path, source: dict[str, Any] | None, frame: int) -> Any:
         handle.seek(frame)
         xyz, lengths, angles = handle.read(1, atom_indices=shown)
     if not len(xyz):
-        raise ValueError("the source frame could not be read")
+        raise MissingResultError("the source frame could not be read")
     boxed = lengths is not None and np.all(np.asarray(lengths) > 0)
     result = md.Trajectory(
         np.asarray(xyz, dtype=np.float32) / 10.0,
@@ -259,14 +261,15 @@ def _fit_exact_frame(out: Path, exact: Any, *, on: str, ligand: str | None,
              else pocket_backbone(reference_frames, str(ligand or "").upper(),
                                   cutoff_angstrom)[0])
     if atoms is None or len(atoms) < 3:
-        raise ValueError("the selected alignment has fewer than three matching backbone atoms")
+        raise StudyError("the selected alignment has fewer than three matching backbone atoms",
+                         code="analysis.data.not_this_system")
     reference, reference_atoms = reference_frames, atoms
     if to == "start":
         reference = pdb_quietly(simulation / FRAMES_TOPOLOGY)
     elif to == "deposited":
         matched, xyz, reason = _deposited_reference(out, simulation / FRAMES_TOPOLOGY, atoms)
         if matched is None:
-            raise ValueError(reason)
+            raise StudyError(reason, code="analysis.data.not_this_system")
         atoms = matched
         reference = md.Trajectory(xyz[None].astype(np.float32), exact.topology.subset(atoms))
         reference_atoms = np.arange(len(atoms))

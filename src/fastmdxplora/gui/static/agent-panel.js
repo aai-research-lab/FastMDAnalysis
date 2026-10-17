@@ -34,7 +34,7 @@
    * because this is where somebody needs it; a GUI that tells you to run
    * a command is a GUI that has given up. */
   var KEY_HELP = {
-    anthropic: "Create a Claude Console API key at platform.claude.com.",
+    anthropic: "Create a Anthropic Console API key at platform.claude.com.",
     openai: "Get one at platform.openai.com, under API keys.",
     compatible: "A local server usually needs none; leave this blank."
   };
@@ -625,7 +625,7 @@
     var method = spec && (spec.auth_methods || []).filter(function (m) {
       return m.id === id;
     })[0];
-    return method ? method.label : (id === "anthropic_console" ? "Claude Console OAuth"
+    return method ? method.label : (id === "anthropic_console" ? "Anthropic Console OAuth"
       : id === "chatgpt_plan" ? "ChatGPT plan sign-in" : "API key");
   }
 
@@ -829,14 +829,14 @@
     el("agent-auth-connect").hidden = !usesOAuth || !method.available;
     el("agent-auth-connect").disabled = !method.available;
     el("agent-auth-connect").textContent = isChatGPT
-      ? "Continue with ChatGPT" : "Continue with Claude Console";
+      ? "Continue with ChatGPT" : "Continue with Anthropic Console";
     el("agent-auth-account-field").hidden = !isChatGPT;
     el("agent-auth-add-account").hidden = true;
     el("agent-auth-activate").hidden = true;
     el("agent-auth-test").hidden = false;
     el("agent-auth-disconnect").hidden = false;
     var help = method.reason || (isConsole
-      ? "Signs into the Claude Console API through an app-isolated ant CLI profile."
+      ? "Signs into the Anthropic Console API through an app-isolated ant CLI profile."
       : isChatGPT
       ? "OpenAI's documented Sign in with ChatGPT supports this local open-source Agent " +
         "through the public Responses API. Approve ChatGPT plan usage in the system browser. " +
