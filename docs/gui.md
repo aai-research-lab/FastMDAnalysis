@@ -71,8 +71,14 @@ screen and its pages, where a run stands while it runs, and at its foot the
 person and the settings. The **side panel**:
 a *Log* tab, which is what the command line prints, sorted so a refusal is a
 red-edged block and the explain text a quiet one, with filters and a
-scroll-to-newest toggle; and a *Files* tab, which opens any of the run's
-files in place. And two **seams** between the columns that drag, with a
+scroll-to-newest toggle; a *Files* tab, which opens any of the run's
+files in place; and a *Problems* tab listing recorded refusals, run
+warnings and undetermined analysis quantities. Each problem keeps its
+recorded reason and the remedy where one is available. The file icon opens
+its evidence in Files. Missing records are said as unavailable, and an
+empty list describes only the available records. For a campaign, open each
+run to read that run's problems. Refresh reads the records again; the panel
+does not start a run. And two **seams** between the columns that drag, with a
 double-click to reset; the sidebar folds to a strip of its icons under
 FastMDXplora's mark, the side panel to a tab at its edge, and the centre stays
 centred at a reading width whatever is folded. Pointing at the strip's

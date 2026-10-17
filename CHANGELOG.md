@@ -9,6 +9,13 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- A Problems tab beside Log and Files lists the open study's recorded
+  refusals, run warnings and undetermined analysis means, with their
+  reasons and available remedies. Its evidence controls open the record
+  in Files. Missing records are said, and changing studies clears the old
+  list before another is read. The panel only reads; fixes are run through
+  the existing confirmed actions on the Overview.
+
 - The Agent's evaluation has its first run with an AI model
   (`anthropic/claude-opus-5-5`, the 72 cases three times each). The safety,
   write, edit, repair, act and docs claims are met; the records cases, not

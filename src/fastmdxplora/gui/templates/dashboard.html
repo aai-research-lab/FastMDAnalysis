@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/static/theme.css">
   <link rel="stylesheet" href="/static/dashboard.css">
   <link rel="stylesheet" href="/static/remote.css">
+  <link rel="stylesheet" href="/static/problems.css">
   <!--__FASTMDX_LAB_ICON__-->
   <meta name="fastmdx-expansion" content="Fully Automated SysTem for Molecular Dynamics eXploration">
 </head>
@@ -421,6 +422,8 @@
              sidebar's lists of them would fill the bar. -->
         <button type="button" class="line-btn phone-convs" id="phone-convs" title="Conversations"
                 aria-label="Conversations"><!--icon:chat:line-icon--></button>
+        <button type="button" class="line-btn problems-phone" id="problems-phone" title="Study problems"
+                aria-label="Study problems"><!--icon:panel:line-icon--></button>
       </div>
 
       <!-- The newest studies of the workspace, one click from each; folded
@@ -1927,10 +1930,11 @@
     <div class="col-handle" data-handle="panel" role="separator" aria-orientation="vertical" aria-label="Resize side panel"></div>
 
     <!-- Side panel: the run as it happens, and what it has written -->
-    <aside class="side-panel" id="side-panel" aria-label="Run log and files">
+    <aside class="side-panel" id="side-panel" aria-label="Run log, files and problems">
       <div class="side-panel-tabs" role="tablist">
         <button type="button" class="side-tab active" role="tab" data-side-tab="log" aria-selected="true">Log</button>
         <button type="button" class="side-tab" role="tab" data-side-tab="files" aria-selected="false">Files</button>
+        <button type="button" class="side-tab" id="problems-tab" role="tab" data-side-tab="problems" aria-selected="false" aria-controls="problems-pane">Problems</button>
         <span class="side-panel-spacer"></span>
         <button type="button" class="fold-btn side-collapse" id="side-collapse" title="Collapse panel" aria-label="Collapse side panel"><!--icon:panel:fold-icon--></button>
       </div>
@@ -1971,6 +1975,13 @@
           <div class="side-preview-body" id="side-preview-body"></div>
         </div>
       </div>
+      <div class="side-pane" id="problems-pane" data-side-pane="problems" role="tabpanel" aria-labelledby="problems-tab" hidden>
+        <div class="problems-toolbar">
+          <span id="problems-summary" role="status">Open a study to read its problems.</span>
+          <button type="button" class="line-btn" id="problems-refresh" aria-label="Refresh problems" title="Refresh problems"><!--icon:refresh:line-icon--></button>
+        </div>
+        <div class="problems-body" id="problems-body"></div>
+      </div>
     </aside>
     <button type="button" class="side-expand" id="side-expand" hidden title="Show panel" aria-label="Show side panel"><!--icon:panel:fold-icon--></button>
     <!-- The Agent beside whatever page is open, in the side panel's place:
@@ -1991,6 +2002,12 @@
   </div>
 
   <!-- Live region for screen readers -->
+  <dialog class="problems-mobile" id="problems-mobile" aria-label="Study log, files and problems">
+    <form method="dialog" class="problems-mobile-head">
+      <span>Study panel</span>
+      <button type="submit" class="line-btn" aria-label="Close study panel" title="Close"><!--icon:close:line-icon--></button>
+    </form>
+  </dialog>
   <div class="sr-only" aria-live="polite" id="sr-live"></div>
 
   <script src="/static/molstar/molstar.js?v=5.12.0"></script>
@@ -2007,6 +2024,7 @@
     <script src="/static/report-page.js"></script>
     <script src="/static/analyze-again.js"></script>
     <script src="/static/dashboard.js"></script>
+    <script src="/static/problems.js"></script>
     <script src="/static/files-page.js"></script>
     <script src="/static/files-actions.js"></script>
     <script src="/static/file-picker.js"></script>

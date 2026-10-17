@@ -156,7 +156,7 @@ GETS_ANSWERED_BEYOND_LOOPBACK = frozenset({
     "/api/states", "/api/state-difference", "/api/backbone-angles",
     "/api/contact-map", "/api/contact-pair", "/api/pocket-volume", "/structure/pocket.dx",
     "/api/views", "/api/viewer-atoms", "/api/viewer-selections", "/api/scenes",
-    "/api/stopping", "/api/stream",
+    "/api/stopping", "/api/stream", "/api/problems",
     "/analysis-figures-svg.zip",
     "/structure/topology.pdb", "/structure/live-frame.pdb", "/structure/live-frame.dcd",
     "/structure/frames.dcd", "/structure/frames-topology.pdb", "/structure/occupancy.dx",
@@ -842,6 +842,23 @@ def make_handler(
                 # guess which directory "analysis_output" is relative to.
                 payload["workspace"] = str(app_runtime.exploration_root)
                 self._send_json(payload)
+                return
+            if path == "/api/problems":
+                # A read-only list of the records already shown by status
+                # and analysis. Commands and proposed Configs stay on the
+                # private fixes route. The key prevents a late request
+                # from reading a different study after a switch.
+                from fastmdxplora.gui.problems_view import problems_payload
+                from fastmdxplora.gui.workspace import study_key
+
+                wanted = (parse_qs(parsed.query).get("study") or [""])[0]
+                if wanted and wanted != study_key(root):
+                    self._send_json({"ok": False, "study": study_key(root),
+                                     "reason": "The open study changed."})
+                    return
+                answer = problems_payload(root, artifacts=_artifact_records(root))
+                answer["active_run"] = str(root) if is_study(root) else None
+                self._send_json(answer)
                 return
             if path == "/api/status":
                 # A run that ended without saying so is said to have.
