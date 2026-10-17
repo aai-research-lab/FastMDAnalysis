@@ -32,6 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from fastmdxplora import record_access as _records
 from fastmdxplora.utils.logging import get_logger
 from fastmdxplora.simulation.ensembles import resolve_ensemble
 from fastmdxplora.simulation.lengths import (
@@ -1759,10 +1760,10 @@ def read_checkpoint_sidecar(path: str | Path) -> dict[str, Any] | None:
 
     checkpoint = Path(path)
     sidecar = checkpoint.with_suffix(checkpoint.suffix + CHECKPOINT_SIDECAR_SUFFIX)
-    if not sidecar.is_file():
+    if not _records.is_file(sidecar):
         return None
     try:
-        data = json.loads(sidecar.read_text(encoding="utf-8"))
+        data = json.loads(_records.read_text(sidecar, encoding="utf-8"))
     except (OSError, ValueError):
         return None
     return data if isinstance(data, dict) else None

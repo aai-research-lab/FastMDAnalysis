@@ -24,6 +24,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from fastmdxplora import record_access
+
 #: Below this the correction is reported with the caution stated in the same
 #: breath as the number, rather than only in the notes underneath.
 THIN_EFFECTIVE_FRAMES = 50.0
@@ -48,10 +50,10 @@ def load_reweighted(project_root: Path) -> dict[str, Any] | None:
     import json
 
     path = _record_path(project_root)
-    if not path.is_file():
+    if not record_access.is_file(path):
         return None
     try:
-        record = json.loads(path.read_text(encoding="utf-8"))
+        record = json.loads(record_access.read_text(path, encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
     if not isinstance(record, dict):

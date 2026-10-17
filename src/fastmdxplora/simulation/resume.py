@@ -49,6 +49,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from fastmdxplora import record_access as _records
 from fastmdxplora.refusals import CodedError, Refusal, StudyError
 from fastmdxplora.simulation.ensembles import NPT, resolve_ensemble
 
@@ -1064,14 +1065,16 @@ def trajectory_interval_of(segment: str | Path) -> int | None:
     if whole(side.get("trajectory_interval_steps")):
         return whole(side["trajectory_interval_steps"])
     try:
-        record = json.loads((simulation / "simulation_parameters.json").read_text(encoding="utf-8"))
+        record = json.loads(_records.read_text(
+            simulation / "simulation_parameters.json", encoding="utf-8"))
         found = whole((record.get("resolved") or {}).get("trajectory_interval_steps"))
         if found:
             return found
     except (OSError, ValueError, AttributeError):
         pass
     try:
-        config = yaml.safe_load((folder / "resolved_config.yml").read_text(encoding="utf-8")) or {}
+        config = yaml.safe_load(_records.read_text(
+            folder / "resolved_config.yml", encoding="utf-8")) or {}
         found = whole((config.get("simulation") or {}).get("trajectory_interval_steps"))
         if found:
             return found
@@ -1094,12 +1097,12 @@ def _interval_from_telemetry(simulation: Path) -> int | None:
     import json
 
     try:
-        with (simulation / "live_metrics.csv").open(encoding="utf-8") as handle:
+        with _records.open_text(simulation / "live_metrics.csv", encoding="utf-8") as handle:
             rows = [(int(float(r["step"])), int(float(r["current_frame_count"])))
                     for r in csv.DictReader(handle)
                     if str(r.get("stage", "")).lower().startswith("production")
                     and r.get("step") and r.get("current_frame_count")]
-        status = json.loads((simulation / "live_status.json").read_text(encoding="utf-8"))
+        status = json.loads(_records.read_text(simulation / "live_status.json", encoding="utf-8"))
     except (OSError, ValueError, KeyError):
         return None
     if len(rows) < 2 or rows[-1][1] <= rows[0][1]:

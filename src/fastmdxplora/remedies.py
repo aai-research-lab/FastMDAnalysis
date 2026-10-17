@@ -34,6 +34,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from fastmdxplora import record_access
 from fastmdxplora.refusals import Disclosure, Refusal, code_for, known
 
 __all__ = ["Price", "Remedy", "remedies_of", "remedy_for", "windows_again"]
@@ -214,21 +215,24 @@ def _whose_keys(found: Refusal) -> str:
 
 
 def remedy_for(refusal: Refusal | dict[str, Any] | None, *,
-               study: str | Path | None = None, where: str = "the study") -> Remedy:
+               study: str | Path | None = None, where: str = "the study",
+               price: bool = True) -> Remedy:
     """What would fix one refusal, within what the registry lets be said.
 
     ``study`` is the folder the refusal was recorded in. With it, the fix
     is priced: a run started again from the top costs its whole plan, a
-    stopped one what remains of it.
+    stopped one what remains of it. ``price=False`` leaves the returned
+    remedy unpriced. For a retryable refusal it also skips the cost-record
+    lookups, while still checking whether the run wrote a checkpoint.
     """
     found = _as_refusal(refusal)
     root = Path(study).expanduser().resolve() if study else None
     spec = code_for(found.code)
     why = _first_sentence(found.message) or spec.summary
     if spec.retryable:
-        return _resume(found.code, why, where, [root] if root else [], root)
+        return _resume(found.code, why, where, [root] if root else [], root, price=price)
     if found.code.startswith("analysis.sampling.") and root is not None:
-        asked = _longer(found.code, why, where, root)
+        asked = _longer(found.code, why, where, root, price=price)
         if asked is not None:
             return asked
 
@@ -284,10 +288,10 @@ def remedy_for(refusal: Refusal | dict[str, Any] | None, *,
                    "in the run's health below. The choice is yours.")
         if settings:
             fix += f" A choice of this kind is recorded in {_either(settings)}."
-    price = _from_the_top(root, spec) if root is not None else None
+    cost = _from_the_top(root, spec) if root is not None and price else None
     return Remedy(code=found.code, where=where, why=why, fix=fix,
                   settings=tuple(settings), permitted=permitted, suggestion=suggestion,
-                  command=command, decision=decision, price=price)
+                  command=command, decision=decision, price=cost)
 
 
 def _as_refusal(refusal: Refusal | dict[str, Any] | None) -> Refusal:
@@ -591,22 +595,27 @@ def _counted(n: int, noun: str) -> str:
 
 
 def _resume(code: str, why: str, where: str, folders: list[Path],
-            study: Path | None, *, unstarted: int = 0) -> Remedy:
+            study: Path | None, *, unstarted: int = 0, price: bool = True) -> Remedy:
     """`fastmdx resume`, priced at what remains of each run it carries on."""
     said = next((fix for prefix, fix in _RETRY_AFTER.items()
                  if code == prefix or code.startswith(prefix + ".")), _RETRY_OTHERWISE)
     carried = len(folders) - unstarted
     family = said[carried > 1] if carried else ""
-    written = any(_checkpoint_written(folder) for folder in folders)
+    checkpoints = [_checkpoint_written(folder) for folder in folders]
+    written = any(checkpoints)
     if carried and folders and not written and code in (
             STOPPED_REFUSAL, INTERRUPTED_CODE):
         # No checkpoint to carry it on from: it stopped before production.
         # Said of a stop only; what waits on something else (a service that
         # did not answer) keeps its own words.
-        family = ("Run it again: it stopped before production, so it wrote no "
-                  "checkpoint to carry on from." if carried == 1 else
-                  "Run them again: they stopped before production, so they wrote no "
-                  "checkpoint to carry on from.")
+        if any(checkpoint is None for checkpoint in checkpoints):
+            family = ("Open the owning study's Overview to check its checkpoints "
+                      "before choosing how to continue.")
+        else:
+            family = ("Run it again: it stopped before production, so it wrote no "
+                      "checkpoint to carry on from." if carried == 1 else
+                      "Run them again: they stopped before production, so they wrote no "
+                      "checkpoint to carry on from.")
     if unstarted:
         family += (" " if family else "") + (
             "The run that did not start is run." if unstarted == 1
@@ -614,7 +623,7 @@ def _resume(code: str, why: str, where: str, folders: list[Path],
     production = equilibration = 0.0
     seconds: float | None = 0.0
     platform = ""
-    for folder in folders:
+    for folder in folders if price else []:
         left, again = _what_remains(folder)
         production += left
         equilibration += again
@@ -624,35 +633,38 @@ def _resume(code: str, why: str, where: str, folders: list[Path],
             seconds = None
         else:
             seconds += rate * (left + again)
-    price = (Price(production_ns=_round(production), equilibration_ns=_round(equilibration),
-                   runs=len(folders), seconds=seconds, platform=platform)
-             if folders else None)
+    cost = (Price(production_ns=_round(production), equilibration_ns=_round(equilibration),
+                  runs=len(folders), seconds=seconds, platform=platform)
+            if folders and price else None)
     said = _command(["resume", str(study)]) if study else {"command": RESUME, "argv": ()}
     return Remedy(code=code, where=where, why=why,
                   fix=(f"{family} Production already written is kept, and the "
                        "analyses run over the whole." if written or not folders
                        else family),
-                  **said, price=price)
+                  **said, price=cost)
 
 
-def _checkpoint_written(folder: Path) -> bool:
+def _checkpoint_written(folder: Path) -> bool | None:
     """Whether a run in ``folder`` wrote a checkpoint to carry on from,
     there or in a piece carried on since; for a piece of a study, in the
     study or any piece of it. An extension stopped before its first
     checkpoint is carried on from the piece before it: it was said to have
-    stopped before production, and to be run again."""
+    stopped before production, and to be run again. None when the owning
+    study cannot be checked within the current reader's boundary."""
     folder = Path(folder)
-    if ((folder / "simulation" / "checkpoint.chk").is_file()
-            or any(folder.glob("segment-*/simulation/checkpoint.chk"))):
+    if (record_access.is_file(folder / "simulation" / "checkpoint.chk")
+            or any(record_access.glob(folder, "segment-*/simulation/checkpoint.chk"))):
         return True
     study = folder.parent
+    if folder.name.startswith("segment-") and not record_access.can_read(study / "resolved_config.yml"):
+        return None
     return (folder.name.startswith("segment-")
-            and (study / "resolved_config.yml").is_file()
-            and ((study / "simulation" / "checkpoint.chk").is_file()
-                 or any(study.glob("segment-*/simulation/checkpoint.chk"))))
+            and record_access.is_file(study / "resolved_config.yml")
+            and (record_access.is_file(study / "simulation" / "checkpoint.chk")
+                 or any(record_access.glob(study, "segment-*/simulation/checkpoint.chk"))))
 
 
-def _longer(code: str, why: str, where: str, root: Path) -> Remedy | None:
+def _longer(code: str, why: str, where: str, root: Path, *, price: bool = True) -> Remedy | None:
     """More production, by what the withheld means asked for."""
     from fastmdxplora.simulation.sampling_ask import sampling_asked_for
 
@@ -667,8 +679,8 @@ def _longer(code: str, why: str, where: str, root: Path) -> Remedy | None:
         fix=f"Extend the study in place by {_ns(ask.more_ns)}, which should give "
             f"{ask.said()} enough independent samples.",
         settings=("simulation.extra_ns",), config=ask.config(root),
-        price=Price(production_ns=ask.more_ns, seconds=ask.seconds,
-                    platform=ask.platform, lower_bound=ask.lower_bound))
+        price=(Price(production_ns=ask.more_ns, seconds=ask.seconds,
+                     platform=ask.platform, lower_bound=ask.lower_bound) if price else None))
 
 
 # ---------------------------------------------------------------------------

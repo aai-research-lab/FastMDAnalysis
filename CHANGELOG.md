@@ -7,6 +7,14 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+
+- Problems confines actual record reads and helper reads to the open run's
+  public files. It checks evidence candidates without recursively listing
+  artifacts, so unrelated trajectory links and scratch trees do not block
+  the list. Unused axis and remedy-price work is skipped; unexpected reader
+  failures retain a public note and a private debug traceback.
+
 ### Added
 
 - A Problems tab beside Log and Files lists the open study's recorded
