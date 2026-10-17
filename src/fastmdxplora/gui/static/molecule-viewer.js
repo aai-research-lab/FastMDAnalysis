@@ -1302,10 +1302,15 @@
     };
     if (STATE.mode === "playback" && STATE.framesRendered) {
       const index = STATE.playbackEngineIndices.indexOf(engine.frame());
-      if (index >= 0 && Number.isInteger(STATE.playbackFrameIndices[index])) {
+      // An unsmoothed production frame has a persistent source identity.
+      // Snapshot histories and smoothed samples retain the saved-view
+      // contract for their loaded coordinate sequence.
+      if (STATE.playbackPayload?.source_kind === "production-dcd"
+          && Number(STATE.appliedSmooth || 1) <= 1
+          && index >= 0 && Number.isInteger(STATE.playbackFrameIndices[index])) {
         view.frame = STATE.playbackFrameIndices[index];
         view.frame_source = true;
-      }
+      } else view.frame = engine.frame();
     }
     return view;
   }
@@ -1317,10 +1322,14 @@
     const view = viewNow() || {};
     const dashboard = window.FastMDXDashboard?.state || {};
     const appState = dashboard.appState || {};
+    const displayed = STATE.playbackEngineIndices.indexOf(STATE.engine?.frame());
+    const sourceFrame = STATE.mode === "playback" && displayed >= 0
+      && STATE.playbackPayload?.source_kind === "production-dcd"
+      ? STATE.playbackFrameIndices[displayed] : view.frame;
     const hints = {
       page: dashboard.activePage || null,
       study: appState.active_run || null,
-      frame: Number.isInteger(view.frame) ? view.frame : null,
+      frame: Number.isInteger(sourceFrame) ? sourceFrame : null,
       representation: view.representation || null,
       colour: view.colour || null,
       superposed: view.superposed || null,
@@ -1378,10 +1387,10 @@
     if (Number.isInteger(view.frame)) {
       stopFollowing();
       if (view.frame_source === true) {
-        await seekTrajectoryFrame(view.frame, STATE.playbackPayload?.source_signature);
+        if (!(await seekTrajectoryFrame(view.frame, STATE.playbackPayload?.source_signature))) return false;
       } else if (await loadPlayback(STATE.playbackPayload)) {
-        await setPlaybackFrame(view.frame);
-      }
+        if (!(await setPlaybackFrame(view.frame))) return false;
+      } else return false;
     }
     if (!isViewerGenerationCurrent(generation)) return false;
     const to = view.superposed_to || "first";

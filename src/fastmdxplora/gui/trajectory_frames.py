@@ -34,7 +34,7 @@ import numpy as np
 from fastmdxplora.refusals import MissingResultError, StudyError
 
 __all__ = ["BINARY_ATOM_FRAMES", "FRAMES_FILE", "FRAMES_TOPOLOGY", "PIECE_ATOM_FRAMES",
-           "SUPERPOSED_ON", "as_xtc", "exact_frame_info", "exact_frame_xtc",
+           "SUPERPOSED_ON", "as_xtc", "exact_frame", "exact_frame_info", "exact_frame_xtc",
            "exact_frames_dcd", "frames_for_binary", "frames_info", "frames_pieces",
            "pocket_backbone", "superposed_frames", "superposed_name"]
 
@@ -130,13 +130,11 @@ def exact_frame_info(output_dir: str | Path, frame: Any, *, most_frames: int = M
             "dcd_url": "/structure/frames.dcd?" + urlencode(dcd_query)}
 
 
-def exact_frame_xtc(output_dir: str | Path, frame: int, *, most_frames: int = MOST_FRAMES,
-                    source_signature: str | None = None, on: str = "none",
-                    ligand: str | None = None, cutoff_angstrom: Any = 5.0,
-                    to: str = "first") -> tuple[bytes | None, dict[str, Any]]:
-    """The one requested frame, made whole and optionally fitted, as one XTC."""
-    import tempfile
-
+def exact_frame(output_dir: str | Path, frame: int, *, most_frames: int = MOST_FRAMES,
+                source_signature: str | None = None, on: str = "none",
+                ligand: str | None = None, cutoff_angstrom: Any = 5.0,
+                to: str = "first") -> tuple[Any | None, dict[str, Any]]:
+    """One validated source frame, made whole and fitted for playback or export."""
     import mdtraj as md
 
     out = Path(output_dir)
@@ -160,6 +158,24 @@ def exact_frame_xtc(output_dir: str | Path, frame: int, *, most_frames: int = MO
             exact = _fit_exact_frame(out, exact, on=on, ligand=ligand,
                                      cutoff_angstrom=float(cutoff_angstrom), to=to,
                                      reference_frames=playback)
+        return exact, details
+    except Exception as exc:  # noqa: BLE001 - report an unavailable exact frame to the page
+        return None, {"ok": False, "reason": f"Frame {frame} could not be prepared: {exc}"}
+
+
+def exact_frame_xtc(output_dir: str | Path, frame: int, *, most_frames: int = MOST_FRAMES,
+                    source_signature: str | None = None, on: str = "none",
+                    ligand: str | None = None, cutoff_angstrom: Any = 5.0,
+                    to: str = "first") -> tuple[bytes | None, dict[str, Any]]:
+    """The one requested frame, made whole and optionally fitted, as one XTC."""
+    import tempfile
+
+    exact, details = exact_frame(output_dir, frame, most_frames=most_frames,
+                                 source_signature=source_signature, on=on, ligand=ligand,
+                                 cutoff_angstrom=cutoff_angstrom, to=to)
+    if exact is None:
+        return None, details
+    try:
         with tempfile.TemporaryDirectory(prefix="fastmdx-exact-") as directory:
             target = Path(directory) / "frame.xtc"
             exact.save_xtc(str(target))

@@ -258,6 +258,16 @@ def test_a_chart_click_shows_exact_frame_coordinates_and_playback_order(tmp_path
             assert got["x"] == pytest.approx(7.0, abs=0.02)
             assert page.evaluate("() => window.FastMDXMoleculeViewer.viewNow().frame") == 7
             assert page.evaluate("() => window.FastMDXMoleculeViewer.currentViewHints().frame") == 7
+            saved = page.evaluate("""async () => {
+              const response = await fetch('/api/views', {method:'POST',
+                headers:{'content-type':'application/json'}, body:JSON.stringify({
+                  action:'save', name:'Exact source frame',
+                  view:window.FastMDXMoleculeViewer.viewNow()})});
+              return response.json();
+            }""")
+            assert saved["ok"]
+            saved_view = next(view for view in saved["views"] if view["name"] == "Exact source frame")
+            assert saved_view.get("frame_source") is True
             # The next slider step is source frame 10 and the previous one is 5.
             page.locator("#traj-slider").evaluate(
                 "el => { el.value = '3'; el.dispatchEvent(new Event('input')); }"
@@ -272,6 +282,10 @@ def test_a_chart_click_shows_exact_frame_coordinates_and_playback_order(tmp_path
             page.wait_for_function(
                 "() => document.getElementById('traj-current').textContent === '2'"
             )
+            assert page.evaluate("view => window.FastMDXMoleculeViewer.showView(view)", saved_view)
+            page.wait_for_function("() => window.FastMDXMoleculeViewer.currentViewHints().frame === 7")
+            assert page.evaluate("() => window.FastMDXMoleculeViewer.STATE.engine"
+                                 ".find({atom:'CA'})[0].x") == pytest.approx(7.0, abs=0.02)
 
             def select_chart_frame(frame: int) -> None:
                 page.evaluate("() => window.FastMDXDashboard.navigate('analysis')")
@@ -478,6 +492,24 @@ def test_a_larger_exact_frame_remains_bounded(tmp_path):
     assert exact.n_frames == 1
     assert exact.xyz[0, 1, 0] * 10 == pytest.approx(73.0, abs=0.01)
     assert elapsed >= 0
+
+
+def test_a_source_frame_scene_exports_that_frames_coordinates(tmp_path):
+    from fastmdxplora.scenes import build_scene, write_scene
+
+    root = _study(tmp_path / "study", frame_count=4001)
+    (root / "setup").mkdir()
+    (root / "setup" / "topology.pdb").write_bytes(
+        (root / "simulation" / "trajectory_topology.pdb").read_bytes())
+    scene = build_scene(root, {"frame": 7, "frame_source": True})
+    assert scene["ok"] and scene["of"] == "frames"
+    ca = next(line for line in scene["files"]["structure.pdb"].splitlines()
+              if line.startswith("ATOM") and line[12:16].strip() == "CA")
+    assert float(ca[30:38]) == pytest.approx(7.0, abs=0.002)
+    assert scene["state"]["root"]["custom"]["fastmdxplora"]["view"]["frame_source"] is True
+    refused = write_scene(root, "outside", {"frame": 4001, "frame_source": True})
+    assert not refused["ok"]
+    assert not (root / "scenes" / "outside.mvsx").exists()
 
 
 @pytest.mark.parametrize("figure", ["matrix", "contacts", "interactions"])
