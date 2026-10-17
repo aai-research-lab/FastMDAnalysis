@@ -27,6 +27,7 @@ import math
 from pathlib import Path
 from typing import Any
 
+from fastmdxplora import record_access
 from fastmdxplora.gui.report_dashboard import (
     ANALYSIS_SECTION_BY_FOLDER,
     SECTION_ANCHORS,
@@ -41,7 +42,8 @@ _STATUS_SAID = {"ok": "done", "completed": "done", "complete": "done",
                 "failed": "failed", "error": "failed", "skipped": "skipped"}
 
 
-def overview_of(root: str | Path) -> dict[str, Any]:
+def overview_of(root: str | Path, *, include_time: bool = True,
+                include_data: bool = True) -> dict[str, Any]:
     """Every analysis of the study, in the page's order, with what it
     determined: ``{"ok", "rows", "biased", "complete"}``, ``complete`` once
     the analysis phase has recorded every analysis it ran.
@@ -61,6 +63,10 @@ def overview_of(root: str | Path) -> dict[str, Any]:
     version's rules); and ``data``, its data files with their addresses.
     ``judged_earlier`` beside the rows names the analyses holding such a
     mean.
+
+    ``include_time=False`` omits the trajectory clock lookup, and
+    ``include_data=False`` omits discovery of downloadable data files.
+    Both leave the recorded means and their scientific verdicts unchanged.
     """
     root = Path(root)
     folder = root / "analysis"
@@ -68,9 +74,10 @@ def overview_of(root: str | Path) -> dict[str, Any]:
     results = manifest.get("results") if isinstance(manifest.get("results"), dict) else {}
     names = [str(name) for name in results]
     try:
-        names += sorted(p.name for p in folder.iterdir()
-                        if p.is_dir() and NAME.match(p.name) and p.name not in results
-                        and (p / "options.json").is_file())
+        names += sorted(p.name for p in record_access.iterdir(folder)
+                        if NAME.match(p.name) and p.name not in results
+                        and record_access.is_dir(p)
+                        and record_access.is_file(p / "options.json"))
     except OSError:
         pass
 
@@ -85,7 +92,8 @@ def overview_of(root: str | Path) -> dict[str, Any]:
     # (analysis/orchestrator.py); until then a folder holds an analysis
     # still computing or one finished, told apart by what it recorded.
     complete = bool(results)
-    rows = [_row(root, name, results.get(name), corrected, biased is not None, complete)
+    rows = [_row(root, name, results.get(name), corrected, biased is not None, complete,
+                 include_time=include_time, include_data=include_data)
             for name in names]
     order = {title: index for index, title in enumerate(SECTION_ORDER)}
     rows.sort(key=lambda row: (order.get(row["title"], len(order)), row["analysis"]))
@@ -101,7 +109,8 @@ def overview_of(root: str | Path) -> dict[str, Any]:
 
 
 def _row(root: Path, name: str, result: Any, corrected: dict[Any, Any],
-         biased: bool, complete: bool = True) -> dict[str, Any]:
+         biased: bool, complete: bool = True, *, include_time: bool = True,
+         include_data: bool = True) -> dict[str, Any]:
     title = ANALYSIS_SECTION_BY_FOLDER.get(name) or name.replace("_", " ").capitalize()
     entry = result if isinstance(result, dict) else {}
     status = str(entry.get("status") or "done").lower()
@@ -119,7 +128,7 @@ def _row(root: Path, name: str, result: Any, corrected: dict[Any, Any],
         "kind": "result",
         "mean": None,
         "quantities": [],
-        "data": _data_files(root, name),
+        "data": _data_files(root, name) if include_data else [],
     }
     record = _json(root / "analysis" / name / "options.json")
     findings = record.get("findings") if isinstance(record.get("findings"), dict) else {}
@@ -128,14 +137,15 @@ def _row(root: Path, name: str, result: Any, corrected: dict[Any, Any],
     if biased and name in corrected:
         main = _reweighted(name, corrected[name], found)
     elif found is not None:
-        main = _recorded(root, name, found, biased)
+        main = _recorded(root, name, found, biased, include_time=include_time)
     if main is not None:
         row["mean"] = main
         row["quantities"].append({"key": "mean", "label": title, **main})
     for key, other in findings.items():
         if key != "mean" and _is_a_mean_record(other):
             row["quantities"].append({"key": key, "label": _label(key),
-                                      **_recorded(root, name, other, biased)})
+                                      **_recorded(root, name, other, biased,
+                                                  include_time=include_time)})
         elif key != "mean" and isinstance(other, dict):
             # A group of quantities read from another record than the
             # trajectory (thermodynamics: the run's energy file), each with
@@ -176,8 +186,8 @@ def _data_files(root: Path, name: str) -> list[dict[str, str]]:
     """The analysis's data files, its own first, each with its address."""
     folder = root / "analysis" / name
     try:
-        files = sorted((p for p in folder.iterdir()
-                        if p.is_file() and p.suffix.lower() in _DATA_SUFFIXES),
+        files = sorted((p for p in record_access.iterdir(folder)
+                        if record_access.is_file(p) and p.suffix.lower() in _DATA_SUFFIXES),
                        key=lambda p: (p.stem != name, p.name))
     except OSError:
         return []
@@ -187,7 +197,8 @@ def _data_files(root: Path, name: str) -> list[dict[str, str]]:
 
 def _has_its_figure(root: Path, name: str) -> bool:
     folder = root / "analysis" / name
-    return any((folder / f"{name}{suffix}").is_file() for suffix in (".png", ".svg"))
+    return any(record_access.is_file(folder / f"{name}{suffix}")
+               for suffix in (".png", ".svg"))
 
 
 def _said(name: str, message: Any) -> str:
@@ -206,7 +217,7 @@ def _is_a_mean_record(value: Any) -> bool:
 
 
 def _recorded(root: Path, name: str, found: dict[str, Any], biased: bool,
-              timed: bool = True) -> dict[str, Any]:
+              timed: bool = True, *, include_time: bool = True) -> dict[str, Any]:
     from fastmdxplora.statistics import (
         RESOLVED_SAMPLES,
         four_figures,
@@ -257,7 +268,7 @@ def _recorded(root: Path, name: str, found: dict[str, Any], biased: bool,
         # The same in every frame: no start to say ("0 in every frame \u00b7
         # from 67 ps").
         discard = None
-    if n and timed and discard is not None:
+    if include_time and n and timed and discard is not None:
         _, x, label = analysed_axis(root, n)
         if label == "Time (ns)" and discard < len(x):
             from_ns = x[discard]
@@ -390,7 +401,7 @@ def _columns(path: Path) -> int:
 
 def _json(path: Path) -> dict[str, Any]:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(record_access.read_text(path, encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}

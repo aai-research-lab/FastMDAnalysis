@@ -36,6 +36,7 @@ FastMDXplora/
 │       ├── cost.py                # How long a study will take, on this machine
 │       ├── naming.py              # One rule for the name of a study's output folder
 │       ├── refusals.py            # What a refusal is, in a word a program can read
+│       ├── record_access.py       # Request-local admission of actual record reads
 │       ├── remedies.py            # What would fix a refusal, and what the fix costs here
 │       ├── marking.py             # Marking what nothing checked, where the mark has to survive
 │       ├── uncertainty.py         # An error bar on a quantity that is not a mean

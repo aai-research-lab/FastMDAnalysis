@@ -856,7 +856,7 @@ def make_handler(
                     self._send_json({"ok": False, "study": study_key(root),
                                      "reason": "The open study changed."})
                     return
-                answer = problems_payload(root, artifacts=_artifact_records(root))
+                answer = problems_payload(root, admit_evidence=True)
                 answer["active_run"] = str(root) if is_study(root) else None
                 self._send_json(answer)
                 return

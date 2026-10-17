@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from fastmdxplora import record_access as _records
 
 STATUS_FILE = "live_status.json"
 METRICS_FILE = "live_metrics.csv"
@@ -348,7 +349,7 @@ _PHASES_AFTER = ("analysis", "report")
 
 def _read_status_path(path: Path) -> dict[str, Any]:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(_records.read_text(path, encoding="utf-8"))
         return data if isinstance(data, dict) else {}
     except (OSError, json.JSONDecodeError):
         return {}
@@ -369,7 +370,7 @@ def _parse_iso_datetime(value: Any) -> datetime | None:
 def read_status(project_root: str | Path) -> dict[str, Any]:
     path = _simulation_dir(project_root) / STATUS_FILE
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(_records.read_text(path, encoding="utf-8"))
         return data if isinstance(data, dict) else {}
     except (OSError, json.JSONDecodeError):
         return {}
@@ -392,12 +393,12 @@ def read_status(project_root: str | Path) -> dict[str, Any]:
 def _pieces_of(root: Path) -> list[Path]:
     """The study's segments that kept a live record, in the order run."""
     found: list[tuple[int, Path]] = []
-    for folder in root.glob("segment-*"):
+    for folder in _records.glob(root, "segment-*"):
         try:
             index = int(folder.name.split("-", 1)[1])
         except (IndexError, ValueError):
             continue
-        if index > 0 and (folder / "simulation" / STATUS_FILE).is_file():
+        if index > 0 and _records.is_file(folder / "simulation" / STATUS_FILE):
             found.append((index, folder))
     return [folder for _, folder in sorted(found)]
 
@@ -456,9 +457,9 @@ def _phases_since(root: Path, record: dict[str, Any]) -> dict[str, str]:
     written = _parse_iso_datetime(str(record.get("last_update_timestamp") or ""))
     manifest = root / "manifest.json"
     try:
-        if written is not None and manifest.stat().st_mtime < written.timestamp():
+        if written is not None and _records.stat(manifest).st_mtime < written.timestamp():
             return {}
-        phases = json.loads(manifest.read_text(encoding="utf-8")).get("phases") or []
+        phases = json.loads(_records.read_text(manifest, encoding="utf-8")).get("phases") or []
     except (OSError, ValueError, AttributeError):
         return {}
     said = {"ok": "completed", "error": "failed", "skipped": "skipped"}
@@ -726,7 +727,7 @@ def _checkpoint_here(root: Path, status: dict[str, Any]) -> str | None:
             found = candidate.resolve()
         except OSError:
             continue
-        if found.is_file() and (found == root_resolved or root_resolved in found.parents):
+        if (found == root_resolved or root_resolved in found.parents) and _records.is_file(found):
             return str(found)
     return None
 
@@ -851,11 +852,11 @@ def how_the_run_ended(project_root: str | Path,
     piece = status.get("piece")
     if (isinstance(piece, str) and piece.startswith("segment-")
             and str(status.get("stage") or "") == "production"
-            and (root / piece).is_dir()):
+            and _records.is_dir(root / piece)):
         # The piece being run keeps the record of its process.
         root = root / piece
     try:
-        record = json.loads((root / RUN_PROCESS_FILE).read_text(encoding="utf-8"))
+        record = json.loads(_records.read_text(root / RUN_PROCESS_FILE, encoding="utf-8"))
     except (OSError, ValueError):
         record = None
     said = _what_its_process_says(root, record) if isinstance(record, dict) else None
@@ -873,7 +874,8 @@ def run_ended_unsaid(project_root: str | Path, status: dict[str, Any] | None = N
     return how_the_run_ended(project_root, status) is not None
 
 
-def status_as_it_stands(project_root: str | Path) -> dict[str, Any]:
+def status_as_it_stands(project_root: str | Path, *,
+                       include_campaign: bool = True) -> dict[str, Any]:
     """The run's record as the GUI shows it: as written, except for a run
     that ended without saying so, and a run of a study of several waiting
     for its study's next round (`between_rounds`, said `waiting`). One that had taken every step it planned
@@ -881,11 +883,12 @@ def status_as_it_stands(project_root: str | Path) -> dict[str, Any]:
     writes no end of its own); any other is `interrupted`, with how that is
     known as `ended_by`. What the record said is kept as `recorded_status`.
     For the GUI's own process only; a run reads its record with
-    `read_status`."""
+    `read_status`. Set ``include_campaign=False`` to read only this run,
+    without consulting its parent campaign or sibling runs."""
     status = read_study_status(project_root)
     ended = how_the_run_ended(project_root, status) if status else None
     if ended is None:
-        waiting = between_rounds(project_root, status) if status else None
+        waiting = between_rounds(project_root, status) if status and include_campaign else None
         if waiting is None:
             return status
         return _waiting_for_the_round(status, waiting)
@@ -912,7 +915,7 @@ def _rounds_record(study: Path) -> dict[str, Any] | None:
     from fastmdxplora.simulation.stopping import RECORD
 
     try:
-        record = json.loads((study / RECORD).read_text(encoding="utf-8"))
+        record = json.loads(_records.read_text(study / RECORD, encoding="utf-8"))
     except (OSError, ValueError):
         return None
     return record if isinstance(record, dict) else None
@@ -937,7 +940,7 @@ def _pieces_as_they_stand(root: Path) -> tuple[Any, ...]:
     written: a piece that finishes in place keeps its name."""
     stood = []
     try:
-        pieces = sorted(root.glob("segment-*"))
+        pieces = sorted(_records.glob(root, "segment-*"))
     except OSError:
         return ()
     for piece in pieces:
@@ -945,7 +948,7 @@ def _pieces_as_they_stand(root: Path) -> tuple[Any, ...]:
         for name in ("simulation", "simulation/checkpoint.chk.json",
                      "simulation/live_status.json", "manifest.json"):
             try:
-                times.append((piece / name).stat().st_mtime_ns)
+                times.append(_records.stat(piece / name).st_mtime_ns)
             except OSError:
                 times.append(None)
         stood.append((piece.name, *times))
@@ -990,12 +993,12 @@ def rounds_of_a_study(study: Path) -> dict[str, Any] | None:
     named = [str(name) for name in record.get("runs") or []]
     if not named:
         try:
-            named = [folder.name for folder in sorted((study / "runs").iterdir())
-                     if folder.is_dir()]
+            named = [folder.name for folder in sorted(_records.iterdir(study / "runs"))
+                     if _records.is_dir(folder)]
         except OSError:
             named = []
     try:
-        process = json.loads((study / RUN_PROCESS_FILE).read_text(encoding="utf-8"))
+        process = json.loads(_records.read_text(study / RUN_PROCESS_FILE, encoding="utf-8"))
     except (OSError, ValueError):
         process = None
     said = _what_its_process_says(study, process) if isinstance(process, dict) else None
@@ -1039,7 +1042,7 @@ def between_rounds(project_root: str | Path, status: dict[str, Any] | None = Non
         return None
     if going is None:
         going = [name for name in rounds["runs"] if name != root.name
-                 and (study / "runs" / name / "simulation").is_dir()
+                 and _records.is_dir(study / "runs" / name / "simulation")
                  and _going(study / "runs" / name)]
     going = [name for name in going if name != root.name]
     # The study's own process says whether its rounds go on; where it cannot
@@ -1126,7 +1129,7 @@ def run_phases(project_root: str | Path) -> list[str]:
     # What ran, where that is recorded, beats any inference about what was
     # meant to run.
     try:
-        manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+        manifest = json.loads(_records.read_text(root / "manifest.json", encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         manifest = {}
     if isinstance(manifest, dict):
@@ -1148,10 +1151,10 @@ def phases_asked(project_root: str | Path) -> list[str]:
     root = Path(project_root)
     for name in _CONFIG_NAMES:
         path = root / name
-        if not path.is_file():
+        if not _records.is_file(path):
             continue
         try:
-            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            data = yaml.safe_load(_records.read_text(path, encoding="utf-8"))
         except (OSError, yaml.YAMLError):
             continue
         if not isinstance(data, dict):
@@ -1311,7 +1314,7 @@ def _metrics_of(simulation_dir: Path) -> list[dict[str, Any]]:
 
 def _read_csv_rows(path: Path) -> list[dict[str, Any]]:
     try:
-        with path.open(newline="", encoding="utf-8") as fh:
+        with _records.open_text(path, newline="", encoding="utf-8") as fh:
             return list(csv.DictReader(fh))
     except OSError:
         return []
@@ -1369,7 +1372,7 @@ def read_events(project_root: str | Path, *, limit: int = 100) -> list[dict[str,
     lines: list[str] = []
     for path in paths:
         try:
-            lines += path.read_text(encoding="utf-8").splitlines()
+            lines += _records.read_text(path, encoding="utf-8").splitlines()
         except OSError:
             continue
     if len(paths) > 1:
@@ -1611,11 +1614,11 @@ def _not_a_run(root: str | Path) -> dict[str, str] | None:
     both were told about a setting when the answer was where they were.
     """
     root = Path(root)
-    if (root / "manifest.json").is_file() or (root / "simulation").is_dir():
+    if _records.is_file(root / "manifest.json") or _records.is_dir(root / "simulation"):
         return None
     try:
-        runs = sorted(child.name for child in root.iterdir()
-                      if child.is_dir() and (child / "manifest.json").is_file())
+        runs = sorted(child.name for child in _records.iterdir(root)
+                      if _records.is_dir(child) and _records.is_file(child / "manifest.json"))
     except OSError:
         return None
     if runs:

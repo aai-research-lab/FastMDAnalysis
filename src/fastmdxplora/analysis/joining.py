@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from fastmdxplora import record_access as _records
 from fastmdxplora.refusals import MissingResultError, StudyError
 
 __all__ = ["SegmentPiece", "survey_segments", "join_segments",
@@ -171,7 +172,7 @@ def _finished(simulation_dir: Path) -> bool:
     side = read_checkpoint_sidecar(simulation_dir / "checkpoint.chk") or {}
     if isinstance(side.get("finished"), bool):
         return side["finished"]
-    return (simulation_dir / "state_final.xml").is_file()
+    return _records.is_file(simulation_dir / "state_final.xml")
 
 
 def survey_segments(root: Path | str, *,

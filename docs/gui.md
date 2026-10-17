@@ -78,8 +78,12 @@ recorded reason and the remedy where one is available. The file icon opens
 its evidence in Files. Missing records are said as unavailable, and an
 empty list describes only the available records. For a campaign, open each
 run to read that run's problems. Refresh reads the records again; the panel
-does not start a run. A link outside the study's allowed files leaves the
-list unavailable until that link is reviewed. And two **seams** between
+does not start a run. It reads the open run's records, without consulting
+parent campaigns or sibling runs. Admission is checked at each record read,
+including reads by helper functions; an unsafe source or link leaves the
+list unavailable. Unrelated trajectory and scratch files are not scanned.
+Only evidence candidates are checked for the file controls. Unexpected
+reader failures are available in debug logs; the panel keeps a short note. And two **seams** between
 the columns that drag, with a
 double-click to reset; the sidebar folds to a strip of its icons under
 FastMDXplora's mark, the side panel to a tab at its edge, and the centre stays

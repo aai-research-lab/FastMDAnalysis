@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -10,36 +11,47 @@ from fastmdxplora.gui.analysis_overview import overview_of
 from fastmdxplora.gui.series import NAME
 from fastmdxplora.gui.telemetry import analyze_health, read_metrics, status_as_it_stands
 from fastmdxplora.gui.workspace import study_key
+from fastmdxplora.record_access import confined_records, is_file, read_text
 from fastmdxplora.refusals import code_for
 from fastmdxplora.remedies import remedy_for
 
 
+_LOG = logging.getLogger(__name__)
+
+
 def problems_payload(root: str | Path, *,
-                     artifacts: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    """Read health, phase refusals and every analysis quantity.
+                     artifacts: list[dict[str, Any]] | None = None,
+                     admit_evidence: bool = False) -> dict[str, Any]:
+    """Read existing records within the open study's public file boundary.
 
-    Links are offered only for paths the caller's artifact policy admitted.
-    An empty list of problems is not evidence that missing records were healthy:
-    ``notes`` describes gaps, and ``available`` requires a usable record.
+    Explicit ``artifacts`` further restricts evidence controls. The route
+    may instead admit just the candidates used by this panel, without
+    recursively listing the study. Missing records remain unknown.
     """
-    root = Path(root)
-    # The existing readers reach several records through their own helpers.
-    # Refuse the aggregate before any reader runs if a link could make one
-    # read outside the study's public results, including links to private
-    # records inside it. File admission alone only protects the buttons.
-    from fastmdxplora.gui.server import _private, _served_beyond_loopback
+    from fastmdxplora.gui.server import _private
 
-    try:
-        unsafe = next((path for path in root.rglob("*") if path.is_symlink()
-                       and (_private(path.relative_to(root).parts)
-                            or not _served_beyond_loopback(root, path))), None)
-    except (OSError, RuntimeError, ValueError):
-        unsafe = root
-    if unsafe is not None:
-        link = unsafe.relative_to(root).as_posix() if unsafe != root else "unknown"
+    root = Path(root).resolve()
+
+    def public(path: Path) -> bool:
+        try:
+            return not _private(path.relative_to(root).parts)
+        except ValueError:
+            return False
+
+    with confined_records(root, public) as scope:
+        answer = _read_problems(root, artifacts=artifacts, admit_evidence=admit_evidence)
+    if scope.denied:
+        # Even if a legacy reader caught the I/O refusal and used a
+        # fallback, never present that fallback as a checked aggregate.
         return {"ok": True, "study": study_key(root), "items": [], "available": False,
-                "notes": [f"Problems were not read because the link {link} could not be "
-                          "confined to the study's allowed files. Review that link first."]}
+                "notes": ["Problems were not read because a source or link could not be "
+                          "confined to the study's allowed files. Review the recorded "
+                          "sources before checking again."]}
+    return answer
+
+
+def _read_problems(root: Path, *, artifacts: list[dict[str, Any]] | None,
+                   admit_evidence: bool) -> dict[str, Any]:
     notes: list[str] = []
     items: list[dict[str, str]] = []
     allowed = {entry.get("path") for entry in artifacts or []
@@ -52,7 +64,7 @@ def problems_payload(root: str | Path, *,
         if code:
             item["code"] = code
         for path in files:
-            if path in allowed:
+            if (path in allowed or (artifacts is None and admit_evidence)) and is_file(root / path):
                 item["file"] = path
                 break
         items.append(item)
@@ -60,7 +72,7 @@ def problems_payload(root: str | Path, *,
     def record(relative: str) -> dict[str, Any] | None:
         path = root / relative
         try:
-            value = json.loads(path.read_text(encoding="utf-8"))
+            value = json.loads(read_text(path, encoding="utf-8"))
         except FileNotFoundError:
             return None
         except (OSError, ValueError):
@@ -100,6 +112,7 @@ def problems_payload(root: str | Path, *,
                 if not code_for(remedy.code).retryable:
                     fix = remedy.fix
             except Exception:  # noqa: BLE001 - retain the refusal when its remedy cannot be read
+                _LOG.debug("Could not read a recorded phase remedy", exc_info=True)
                 notes.append(f"The remedy for {name} could not be read.")
         elif refusal is not None:
             notes.append(f"The refusal record for {name} could not be read.")
@@ -110,8 +123,10 @@ def problems_payload(root: str | Path, *,
 
     raw_status = record("simulation/live_status.json")
     try:
-        status = status_as_it_stands(root)
-        health = analyze_health(status, read_metrics(root), root=root)
+        status = status_as_it_stands(root, include_campaign=False)
+        # Folder discovery belongs to the workspace. This panel states
+        # missing telemetry directly rather than searching child folders.
+        health = analyze_health(status, read_metrics(root))
         state = health.get("state")
         if status.get("status"):
             available = True
@@ -125,8 +140,10 @@ def problems_payload(root: str | Path, *,
                 if status.get("stage") in {"analysis", "report"}:
                     fix = "Use Analyze again or Write it again on the Overview for the phase that stopped."
                 else:
+                    # Checkpoint-aware wording, without pricing an action
+                    # that the read-only panel never offers to run.
                     fix = remedy_for({"code": f"simulation.run.{state}", "message": reason},
-                                     study=root).fix
+                                     study=root, price=False).fix
             duplicate = next((item for item in items if
                 item["reason"].strip() == reason.strip()
                 or (state in {"stopped", "interrupted"}
@@ -148,6 +165,7 @@ def problems_payload(root: str | Path, *,
                     "Review the recorded warning and the run's results.",
                     files=("simulation/live_status.json",))
     except Exception:  # noqa: BLE001 - partial records must not hide the other problems
+        _LOG.debug("Could not read recorded run health", exc_info=True)
         notes.append("Run health could not be read; its problems are unknown.")
 
     analysis = record("analysis/analysis_manifest.json")
@@ -163,7 +181,7 @@ def problems_payload(root: str | Path, *,
     try:
         # Do not follow an analysis name outside its folder, even in an old
         # or hand-edited manifest. The existing reader assumes valid names.
-        overview = {"rows": []} if invalid_names else overview_of(root)
+        overview = {"rows": []} if invalid_names else overview_of(root, include_time=False, include_data=False)
         rows = overview.get("rows") or []
         if not rows:
             notes.append("No analysis results are available to check.")
@@ -200,9 +218,10 @@ def problems_payload(root: str | Path, *,
                     reason, "Analyze again to apply the current rules." if earlier else
                     "Review the recorded reason and this analysis's results.", files=(options,))
     except Exception:  # noqa: BLE001 - an unreadable analysis must not erase run problems
+        _LOG.debug("Could not read recorded analysis results", exc_info=True)
         notes.append("Some analysis results could not be read; their problems are unknown.")
 
-    if (root / "batch_manifest.json").is_file():
+    if is_file(root / "batch_manifest.json"):
         notes.append("This list covers the open folder's records. Open each campaign run "
                      "to check its health, refusals and analysis results.")
     if not available:
