@@ -216,11 +216,12 @@ def test_chatgpt_id_token_signature_issuer_audience_expiry_and_nonce_are_checked
         {"issuer": oauth.ISSUER, "jwks_uri": oauth.ISSUER + "/.well-known/jwks.json"}
         if url == oauth.DISCOVERY_URL else {"keys": [jwk]}))
 
-    def signed_token(*, token_nonce=nonce, audience="oaiapp_test", expiry=None):
+    def signed_token(*, token_nonce=nonce, audience="oaiapp_test", expiry=None,
+                     issuer=oauth.ISSUER):
         header = oauth._b64url(json.dumps({"alg": "RS256", "kid": key_id},
                                           separators=(",", ":")).encode())
         claims = oauth._b64url(json.dumps({
-            "iss": oauth.ISSUER, "sub": "verified-subject", "aud": audience,
+            "iss": issuer, "sub": "verified-subject", "aud": audience,
             "exp": expiry if expiry is not None else int(time.time()) + 3600,
             "nonce": token_nonce,
         }, separators=(",", ":")).encode())
@@ -236,9 +237,13 @@ def test_chatgpt_id_token_signature_issuer_audience_expiry_and_nonce_are_checked
     token = signed_token()
     claims = oauth._verify_id_token(token, client_id="oaiapp_test", nonce=nonce)
     assert claims["sub"] == "verified-subject"
+    encoded, signature = token.rsplit(".", 1)
+    noncanonical = encoded + "." + oauth._b64url(b"\0" + oauth._unb64url(signature))
     for bad_token, client_id, expected_nonce in (
+            (noncanonical, "oaiapp_test", nonce),
             (signed_token(token_nonce="wrong"), "oaiapp_test", nonce),
             (signed_token(audience="different-client"), "oaiapp_test", nonce),
+            (signed_token(issuer="https://foreign.invalid"), "oaiapp_test", nonce),
             (signed_token(expiry=int(time.time()) - 1), "oaiapp_test", nonce),
             (signed_token(expiry="invalid-date"), "oaiapp_test", nonce),
             (token.rsplit(".", 1)[0] + ".invalid-signature", "oaiapp_test", nonce)):
@@ -355,7 +360,7 @@ def test_terminal_token_endpoint_errors_are_safe_and_require_new_sign_in(monkeyp
             BytesIO(json.dumps({"error": error, "secret": "test-secret"}).encode()),
         )
 
-    monkeypatch.setattr(urllib.request, "urlopen", rejected)
+    monkeypatch.setattr("fastmdxplora.agent.openai_chatgpt._open_https", rejected)
     with pytest.raises(oauth.InvalidGrant) as caught:
         oauth._exchange({"grant_type": "refresh_token"})
     assert "test-secret" not in str(caught.value)
@@ -393,12 +398,10 @@ def test_chatgpt_disconnect_revokes_and_clears_tokens_but_keeps_client_registrat
             self.close()
 
     def urlopen(request, timeout=None, **_kwargs):
-        assert _kwargs["context"].verify_mode == ssl.CERT_REQUIRED
-        assert _kwargs["context"].check_hostname is True
         sent.append(request)
         return Reply(b"")
 
-    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr("fastmdxplora.agent.openai_chatgpt._open_https", urlopen)
     result = oauth.disconnect()
     assert result["remote_revoked"] is True
     body = urllib.parse.parse_qs(sent[0].data.decode("ascii"))
@@ -410,6 +413,34 @@ def test_chatgpt_disconnect_revokes_and_clears_tokens_but_keeps_client_registrat
     assert saved["accounts"][0]["client_id"] == "oaiapp_test"
     assert not any(name in saved["accounts"][0] for name in
                    ("access_token", "refresh_token", "id_token", "scopes"))
+
+
+def test_chatgpt_disconnect_reports_unconfirmed_remote_revocation_without_secrets(
+        monkeypatch, chatgpt_vault):
+    oauth, _vault = chatgpt_vault
+    _enable_account(oauth, _account(expires_at=9999999999))
+    monkeypatch.setattr(oauth, "_fetch_json", lambda _url: {
+        "revocation_endpoint": oauth.ISSUER + "/api/accounts/oauth/revoke"})
+    monkeypatch.setattr(oauth.time, "sleep", lambda _seconds: None)
+    requests = []
+
+    def unavailable(request, **_kw):
+        requests.append(request)
+        raise urllib.error.HTTPError(request.full_url, 503, "Unavailable", {},
+                                     BytesIO(b"refresh-token-test"))
+
+    monkeypatch.setattr(oauth, "_open_https", unavailable)
+    answer = oauth.disconnect()
+    assert answer["ok"] and not answer["remote_revoked"]
+    assert "remote revocation was not confirmed" in answer["message"]
+    assert len(requests) == 3
+    assert "refresh-token-test" not in json.dumps(answer)
+    saved = oauth._read_store()
+    assert saved["active_client_id"] == ""
+    assert not saved["accounts"][0].get("refresh_token")
+    # With no token left to revoke, a second click cannot prove remote success.
+    assert oauth.disconnect()["remote_revoked"] is None
+    assert len(requests) == 3
 
 
 def test_disconnecting_a_pending_chatgpt_callback_cannot_reconnect_it(
@@ -472,15 +503,13 @@ def test_chatgpt_model_catalog_uses_public_list_and_only_visible_models(
     requests = []
 
     def urlopen(request, timeout=None, **_kwargs):
-        assert _kwargs["context"].verify_mode == ssl.CERT_REQUIRED
-        assert _kwargs["context"].check_hostname is True
         requests.append(request)
         return Reply(json.dumps({"models": [
             {"slug": "gpt-visible", "display_name": "GPT Visible", "visibility": "list"},
             {"slug": "gpt-hidden", "display_name": "GPT Hidden", "visibility": "private"},
         ]}).encode())
 
-    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr("fastmdxplora.agent.openai_chatgpt._open_https", urlopen)
     assert oauth.list_models() == [{"id": "gpt-visible", "label": "GPT Visible"}]
     assert requests[0].full_url == "https://api.openai.com/v1/models"
     assert requests[0].get_header("Authorization") == "Bearer route-test-token"
@@ -522,12 +551,10 @@ def test_responses_route_sends_full_context_and_reads_function_calls(
     sent = []
 
     def urlopen(request, timeout=None, **_kwargs):
-        assert _kwargs["context"].verify_mode == ssl.CERT_REQUIRED
-        assert _kwargs["context"].check_hostname is True
         sent.append(request)
         return Reply()
 
-    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr("fastmdxplora.agent.openai_chatgpt._open_https", urlopen)
     text = []
     called = []
     turn = turns.take_turn(
@@ -589,7 +616,8 @@ def test_responses_stream_requires_completed_and_reports_incomplete_or_failed(mo
                    [{"type": "response.failed", "response": {
                        "error": {"code": "subscription_sharing_usage_limit_exceeded"}}}]):
         monkeypatch.setattr(
-            urllib.request, "urlopen", lambda *_a, events=events, **_kw: Reply(events)
+            "fastmdxplora.agent.openai_chatgpt._open_https",
+            lambda *_a, events=events, **_kw: Reply(events)
         )
         with pytest.raises(StudyError):
             turns.take_turn(url="https://api.openai.com/v1/responses",
@@ -1020,7 +1048,7 @@ def test_chatgpt_certificate_failure_is_actionable_without_exposing_request(monk
         error = ssl.SSLCertVerificationError(1, "test-secret certificate has expired")
         raise urllib.error.URLError(error) if wrapped else error
 
-    monkeypatch.setattr(urllib.request, "urlopen", rejected)
+    monkeypatch.setattr("fastmdxplora.agent.openai_chatgpt._open_https", rejected)
     with pytest.raises(oauth.SignInError, match="certificate could not be verified") as caught:
         oauth._exchange({"code": "test-secret"})
     assert "test-secret" not in str(caught.value)
@@ -1034,6 +1062,146 @@ def test_chatgpt_https_context_requires_certificate_and_hostname_verification():
     context = oauth._https_context()
     assert context.verify_mode == ssl.CERT_REQUIRED
     assert context.check_hostname is True
+
+
+def test_chatgpt_model_credentials_are_never_forwarded_by_a_redirect(monkeypatch):
+    from email.message import Message
+    from urllib.response import addinfourl
+
+    from fastmdxplora.agent import openai_chatgpt as oauth
+
+    foreign = []
+
+    class SyntheticNetwork(urllib.request.BaseHandler):
+        handler_order = 100
+
+        def https_open(self, request):
+            headers = Message()
+            headers["Location"] = "http://foreign.invalid/receive"
+            reply = addinfourl(BytesIO(b""), headers, request.full_url, 302)
+            reply.msg = "Found"
+            return reply
+
+        def http_open(self, request):
+            foreign.append(request.get_header("Authorization"))
+            raise OSError("Synthetic foreign endpoint must not receive the request")
+
+    build = urllib.request.build_opener
+    contexts = []
+
+    def isolated_opener(*handlers):
+        for handler in handlers:
+            if isinstance(handler, urllib.request.HTTPSHandler):
+                contexts.append(handler._context)
+                assert handler._context.verify_mode == ssl.CERT_REQUIRED
+                assert handler._context.check_hostname is True
+        return build(SyntheticNetwork(), *handlers)
+
+    monkeypatch.setattr(urllib.request, "_opener", None)
+    monkeypatch.setattr(urllib.request, "build_opener", isolated_opener)
+    monkeypatch.setattr(oauth, "access_token", lambda: "synthetic-redirect-secret")
+    with pytest.raises(oauth.SignInError):
+        oauth.list_models()
+    assert foreign == []
+    assert len(contexts) == 1
+
+
+def test_chatgpt_callback_rejects_a_different_host_before_exchanging(monkeypatch, chatgpt_vault):
+    oauth, _vault = chatgpt_vault
+    opened, exchanged = [], []
+    monkeypatch.setattr(oauth.webbrowser, "open", lambda url, **_kw: opened.append(url) or True)
+    monkeypatch.setattr(oauth, "_exchange", lambda form: exchanged.append(form) or {})
+    assert oauth.connect()["ok"]
+    query = urllib.parse.parse_qs(urllib.parse.urlsplit(opened[0]).query)
+    callback = query["redirect_uri"][0] + "?" + urllib.parse.urlencode({
+        "state": query["state"][0], "code": "synthetic-code", "client_id": "oaiapp_test"})
+    try:
+        request = urllib.request.Request(callback, headers={"Host": "foreign.invalid"})
+        with pytest.raises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(request, timeout=5)
+        assert caught.value.code == 400
+        assert exchanged == []
+        assert query["state"][0] in oauth._pending
+    finally:
+        oauth._finish_attempt(query["state"][0])
+
+
+def test_adding_a_chatgpt_account_does_not_reuse_an_unverified_registration(
+        monkeypatch, chatgpt_vault):
+    oauth, _vault = chatgpt_vault
+    oauth._write_store({"pending_client_id": "oaiapp_old_attempt", "accounts": []})
+    opened = []
+    monkeypatch.setattr(oauth.webbrowser, "open", lambda url, **_kw: opened.append(url) or True)
+    assert oauth.connect(add_account=True)["ok"]
+    query = urllib.parse.parse_qs(urllib.parse.urlsplit(opened[0]).query)
+    try:
+        assert query["client_id"] == ["dynamic_agent_client"]
+        assert query["agent_name_hint"] == [oauth.CLIENT_NAME]
+    finally:
+        oauth._finish_attempt(query["state"][0])
+
+
+def test_each_chatgpt_attempt_has_fresh_state_nonce_and_pkce(monkeypatch, chatgpt_vault):
+    oauth, _vault = chatgpt_vault
+    attempts = []
+
+    def opened(url, **_kw):
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
+        attempt = oauth._pending[query["state"][0]]
+        assert query["code_challenge"] == [oauth._b64url(
+            hashlib.sha256(attempt["verifier"].encode("ascii")).digest())]
+        assert query["nonce"] == [attempt["nonce"]]
+        attempts.append(attempt.copy())
+        return True
+
+    monkeypatch.setattr(oauth.webbrowser, "open", opened)
+    for _ in range(2):
+        assert oauth.connect()["ok"]
+        oauth._finish_attempt(attempts[-1]["state"])
+    for name in ("state", "nonce", "verifier"):
+        assert len(attempts[0][name]) >= 43
+        assert attempts[0][name] != attempts[1][name]
+
+
+@pytest.mark.parametrize("allow_control,headers,allowed", [
+    (True, {}, True),
+    (True, {"Host": "foreign.invalid"}, False),
+    (True, {"Origin": "https://foreign.invalid"}, False),
+    (True, {"Sec-Fetch-Site": "cross-site"}, False),
+    (False, {}, False),
+])
+def test_authentication_route_is_local_and_refuses_foreign_pages(
+        monkeypatch, tmp_path, allow_control, headers, allowed):
+    from http.server import ThreadingHTTPServer
+
+    from fastmdxplora.gui import agent_panel
+    from fastmdxplora.gui.server import make_handler
+
+    called = []
+    monkeypatch.setattr(agent_panel, "auth_endpoint", lambda *args, **kw:
+                        called.append((args, kw)) or {"ok": True})
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(
+        tmp_path, template_html="<html></html>", allow_control=allow_control))
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{server.server_address[1]}/api/agent/auth",
+        data=b'{"action":"connect","provider":"openai","auth_method":"chatgpt_plan"}',
+        headers={"Content-Type": "application/json", **headers})
+    try:
+        if allowed:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                assert response.status == 200 and json.load(response)["ok"]
+            assert len(called) == 1
+        else:
+            with pytest.raises(urllib.error.HTTPError) as caught:
+                urllib.request.urlopen(request, timeout=5)
+            assert caught.value.code == 403
+            assert called == []
+    finally:
+        server.shutdown()
+        server.server_close()
+        worker.join(5)
 
 
 @pytest.mark.parametrize("fail_at", [1, 3, "manifest"])

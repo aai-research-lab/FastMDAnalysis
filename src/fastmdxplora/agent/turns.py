@@ -614,15 +614,15 @@ def take_turn(*, url: str, headers: dict[str, str], shape: str, model: str,
     sent = dict(headers, **{"content-type": "application/json"})
     secrets = [value for name, value in headers.items()
                if name.lower() in ("authorization", "x-api-key", "api-key")]
-    tls = {}
+    open_request = urllib.request.urlopen
     if shape == "responses":
-        from fastmdxplora.agent.openai_chatgpt import _https_context
+        from fastmdxplora.agent.openai_chatgpt import _open_https
 
-        tls["context"] = _https_context()
+        open_request = _open_https
     for attempt in range(MOST_TRIES):
         request = urllib.request.Request(url, method="POST", data=data, headers=sent)
         try:
-            with urllib.request.urlopen(request, timeout=timeout, **tls) as response:
+            with open_request(request, timeout=timeout) as response:
                 if streamed:
                     if shape == "responses":
                         return _responses_streamed(response, on_text, on_call, url, secrets)

@@ -196,6 +196,23 @@ def _https_context() -> ssl.SSLContext:
     return ssl.create_default_context()
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # Credentials and metadata stay at the exact documented endpoint.
+        return None
+
+
+def _open_https(request: urllib.request.Request, *, timeout: float):
+    parsed = urllib.parse.urlsplit(request.full_url)
+    if (parsed.scheme != "https" or parsed.hostname not in {"auth.openai.com", "api.openai.com"}
+            or parsed.username is not None or parsed.password is not None
+            or parsed.port not in (None, 443)):
+        raise SignInError("OpenAI returned an unexpected HTTPS endpoint.")
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPSHandler(context=_https_context()), _NoRedirect())
+    return opener.open(request, timeout=timeout)
+
+
 def _transport_message(error: BaseException) -> str:
     reason = error.reason if isinstance(error, urllib.error.URLError) else error
     if isinstance(reason, ssl.SSLCertVerificationError):
@@ -215,7 +232,7 @@ def _exchange(form: dict[str, str], *, timeout: float = 20.0) -> dict[str, Any]:
         TOKEN_URL, data=data, headers={"content-type": "application/x-www-form-urlencoded"},
         method="POST")
     try:
-        with urllib.request.urlopen(request, timeout=timeout, context=_https_context()) as response:
+        with _open_https(request, timeout=timeout) as response:
             answer = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         # Do not let an OAuth response (which may echo parameters) reach UI or logs.
@@ -241,7 +258,7 @@ def _exchange(form: dict[str, str], *, timeout: float = 20.0) -> dict[str, Any]:
 def _fetch_json(url: str, *, timeout: float = 15.0) -> dict[str, Any]:
     request = urllib.request.Request(url, headers={"accept": "application/json"})
     try:
-        with urllib.request.urlopen(request, timeout=timeout, context=_https_context()) as response:
+        with _open_https(request, timeout=timeout) as response:
             value = json.loads(response.read().decode("utf-8"))
     except (urllib.error.URLError, OSError, TimeoutError) as exc:
         raise SignInError(_transport_message(exc)) from None
@@ -282,7 +299,10 @@ def _verify_id_token(token: str, *, client_id: str, nonce: str,
         modulus = int.from_bytes(_unb64url(str(jwk["n"])), "big")
         exponent = int.from_bytes(_unb64url(str(jwk["e"])), "big")
         size = (modulus.bit_length() + 7) // 8
-        encoded = pow(int.from_bytes(signature, "big"), exponent, modulus).to_bytes(size, "big")
+        signature_number = int.from_bytes(signature, "big")
+        if len(signature) != size or signature_number >= modulus:
+            raise ValueError("Noncanonical RSA signature")
+        encoded = pow(signature_number, exponent, modulus).to_bytes(size, "big")
     except (KeyError, ValueError, OverflowError):
         raise SignInError("OpenAI's identity signing key was malformed.") from None
     digest = hashlib.sha256(f"{parts[0]}.{parts[1]}".encode("ascii")).digest()
@@ -323,13 +343,29 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         global _pending_note
         parsed = urllib.parse.urlsplit(self.path)
+        expected_host = f"127.0.0.1:{self.server.server_address[1]}"
+        if (parsed.scheme or parsed.netloc or parsed.fragment
+                or self.headers.get_all("Host") != [expected_host]):
+            self._answer(400, "This is not the expected loopback callback address.")
+            return
         if parsed.path != "/auth/callback":
             self._answer(404, "This is not the sign-in callback.")
             return
         query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+        if any(len(query.get(key, [])) > 1 for key in ("state", "code", "client_id", "error")):
+            self._answer(400, "This sign-in callback contains repeated parameters.")
+            return
         state = (query.get("state") or [""])[0]
         with _lock:
             attempt = _pending.get(state)
+            if attempt is not None and attempt["server"] is not self.server:
+                attempt = None
+            processing = attempt is not None and attempt.get("processing")
+            if attempt is not None and not processing:
+                attempt["processing"] = True
+        if processing:
+            self._answer(409, "This sign-in callback is already being processed.")
+            return
         if attempt is None:
             self._answer(
                 400,
@@ -498,7 +534,7 @@ def connect(*, client_id: str = "", add_account: bool = False) -> dict[str, Any]
         return {"ok": False, "message": "Select a saved ChatGPT account, then try again."}
     if add_account:
         selected = None
-    pending_client_id = str(store.get("pending_client_id") or "")
+    pending_client_id = "" if add_account else str(store.get("pending_client_id") or "")
     state = _b64url(secrets.token_bytes(32))
     nonce = _b64url(secrets.token_bytes(32))
     verifier = _b64url(secrets.token_bytes(32))
@@ -786,7 +822,7 @@ def list_models(*, timeout: float = 12.0) -> list[dict[str, str]]:
         MODEL_LIST_URL, headers={"Authorization": f"Bearer {token}",
                                  "accept": "application/json"})
     try:
-        with urllib.request.urlopen(request, timeout=timeout, context=_https_context()) as response:
+        with _open_https(request, timeout=timeout) as response:
             answer = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         if exc.code == 401:
@@ -815,7 +851,7 @@ def list_models(*, timeout: float = 12.0) -> list[dict[str, str]]:
 
 
 def disconnect(*, client_id: str = "") -> dict[str, Any]:
-    """Revoke the selected renewable session, then clear its local tokens."""
+    """Clear local access atomically, then attempt to revoke the captured grant."""
     global _pending_note
     with _lock:
         canceled = bool(_pending)
@@ -837,10 +873,10 @@ def disconnect(*, client_id: str = "") -> dict[str, Any]:
             store["active_client_id"] = ""
         _write_store(store)
     if account is None:
-        return {"ok": True, "remote_revoked": True,
+        return {"ok": True, "remote_revoked": None,
                 "message": "ChatGPT sign-in canceled." if canceled
                 else "No saved ChatGPT sign-in was found."}
-    remote_revoked = not refresh
+    remote_revoked = None
     remote_error = ""
     if refresh:
         try:
@@ -856,8 +892,7 @@ def disconnect(*, client_id: str = "") -> dict[str, Any]:
                 request = urllib.request.Request(endpoint, data=data,
                     headers={"content-type": "application/x-www-form-urlencoded"}, method="POST")
                 try:
-                    with urllib.request.urlopen(
-                            request, timeout=15.0, context=_https_context()) as response:
+                    with _open_https(request, timeout=15.0) as response:
                         remote_revoked = response.status == 200
                     if remote_revoked:
                         break
@@ -873,9 +908,11 @@ def disconnect(*, client_id: str = "") -> dict[str, Any]:
         except SignInError as exc:
             remote_error = str(exc)
     message = "Disconnected from ChatGPT. The account registration is kept for later sign-in."
-    if not remote_revoked:
+    if refresh and not remote_revoked:
         message += " The local tokens were cleared, but remote revocation was not confirmed. "
         message += remote_error or "Disconnect the app in ChatGPT Settings if needed."
+    elif not refresh:
+        message += " No local renewable session was available to revoke remotely."
     return {"ok": True, "remote_revoked": remote_revoked,
             "message": message}
 

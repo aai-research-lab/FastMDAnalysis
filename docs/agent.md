@@ -138,6 +138,12 @@ from unsaved edits. **Test connection** checks the selected route's model access
 **Disconnect** removes this app's saved credential; an API key supplied through
 the environment remains active until the environment variable is unset.
 
+For ChatGPT, disconnect immediately stops local use and attempts to revoke the
+renewable session, retrying temporary failures. If remote revocation cannot be
+confirmed, the dashboard says so; disconnect the app in ChatGPT Settings too.
+The account registration remains available for a later sign-in, following
+[OpenAI's accounts and sessions guidance](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions).
+
 ### Where the key lives
 
 API keys and ChatGPT tokens are stored in the OS credential vault. An API key

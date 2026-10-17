@@ -28,7 +28,7 @@ def _mock_revocation(monkeypatch, oauth):
     class Reply(BytesIO):
         status = 200
 
-    monkeypatch.setattr(oauth.urllib.request, "urlopen", lambda *_a, **_kw: Reply(b""))
+    monkeypatch.setattr(oauth, "_open_https", lambda *_a, **_kw: Reply(b""))
 
 
 def _blocked_refresh(monkeypatch, oauth):
@@ -336,3 +336,46 @@ def test_a_callback_commit_cannot_be_overwritten_by_an_older_refresh(monkeypatch
     assert final["active_client_id"] == "oaiapp_test"
     assert final["accounts"][0]["refresh_token"] == "callback-synthetic-refresh"
     assert final["accounts"][0]["session_id"]
+
+
+def test_a_callback_in_flight_cannot_be_consumed_twice(monkeypatch, chatgpt_vault):
+    oauth, _vault = chatgpt_vault
+    opened, exchanges, outcomes = [], [], []
+    entered, release = threading.Event(), threading.Event()
+    monkeypatch.setattr(oauth.webbrowser, "open", lambda url, **_kw: opened.append(url) or True)
+    monkeypatch.setattr(oauth, "_verify_id_token", lambda *_a, **_kw: {"sub": "synthetic-sub"})
+
+    def exchange(form):
+        exchanges.append(form)
+        entered.set()
+        if not release.wait(15):
+            raise oauth.SignInError("Synthetic callback was not released")
+        return {"access_token": "synthetic-access", "refresh_token": "synthetic-refresh",
+                "id_token": "synthetic-identity", "expires_in": 3600, "scope": oauth.SCOPES}
+
+    monkeypatch.setattr(oauth, "_exchange", exchange)
+    assert oauth.connect()["ok"]
+    query = urllib.parse.parse_qs(urllib.parse.urlsplit(opened[0]).query)
+    state = query["state"][0]
+    callback = query["redirect_uri"][0] + "?" + urllib.parse.urlencode({
+        "state": state, "code": "synthetic-code", "client_id": "oaiapp_synthetic"})
+
+    def consume():
+        with urllib.request.urlopen(callback, timeout=20) as response:
+            outcomes.append(response.status)
+
+    worker = threading.Thread(target=consume)
+    worker.start()
+    try:
+        assert entered.wait(10)
+        with pytest.raises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(callback, timeout=5)
+        assert caught.value.code == 409
+        assert len(exchanges) == 1
+    finally:
+        release.set()
+        worker.join(20)
+        oauth._finish_attempt(state)
+    assert not worker.is_alive() and outcomes == [200]
+    assert state not in oauth._pending
+    assert oauth._read_store()["active_client_id"] == "oaiapp_synthetic"
