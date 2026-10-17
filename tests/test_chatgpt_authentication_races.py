@@ -215,16 +215,21 @@ def _callback_in_another_process(root, entered, release, results):
                 "id_token": "synthetic-identity", "expires_in": 3600, "scope": oauth.SCOPES}
 
     oauth._exchange = exchange
-    if not oauth.connect(add_account=True)["ok"]:
-        results.put("connect failed")
-        return
+    connected = oauth.connect(add_account=True)
+    assert connected["ok"], connected.get("message")
     query = urllib.parse.parse_qs(urllib.parse.urlsplit(urls[0]).query)
     callback = query["redirect_uri"][0] + "?" + urllib.parse.urlencode({
         "state": query["state"][0], "code": "synthetic-code", "client_id": "oaiapp_pending"})
+    # This is the browser's loopback request, not a request through the
+    # workstation's proxy. Keep the real HTTP listener and callback checks.
+    loopback = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
-        with urllib.request.urlopen(callback, timeout=40) as response:
+        with loopback.open(callback, timeout=40) as response:
             results.put(response.status)
     except urllib.error.HTTPError as exc:
+        assert entered.is_set(), (
+            f"Synthetic callback was rejected before token exchange: {exc.code} "
+            f"{exc.read().decode('utf-8', errors='replace')}")
         results.put(exc.code)
     finally:
         for state in list(oauth._pending):
@@ -238,6 +243,10 @@ def test_another_dashboard_can_cancel_or_supersede_an_in_flight_callback(
 
     monkeypatch.setattr(oauth, "user_config_dir", lambda: tmp_path)
     monkeypatch.setattr(oauth, "_vault", lambda: _SyntheticDiskVault(tmp_path))
+    # An inherited proxy must not keep the simulated browser away from the
+    # local callback. Spawned workers inherit these environment variables.
+    monkeypatch.setenv("http_proxy", "http://127.0.0.1:9")
+    monkeypatch.setenv("no_proxy", "")
     _enable_account(oauth, _account(expires_at=9999999999))
     store = oauth._read_store()
     store["accounts"].append(dict(_account(expires_at=9999999999), client_id="oaiapp_other"))
