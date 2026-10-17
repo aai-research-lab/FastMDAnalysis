@@ -2101,6 +2101,8 @@
       && previousPayload?.source_kind === "live-history"
       && payload?.source_kind === "live-history"
       && viewer?.playbackLoaded;
+    const viewerShowsPlayback = !!viewer?.playbackLoaded
+      && (viewer.playbackSignature === signature || viewerKeepsGrowingHistory);
     if (viewerKeepsGrowingHistory) {
       state.playbackFrames = Math.min(state.playbackFrames, Number(viewer.playbackFrames || 0));
     }
@@ -2133,8 +2135,9 @@
     // A different trajectory starts at its first loaded frame; a periodic
     // update to the same source preserves the position.
     slider.value = String(frame);
-    setPlaybackPosition(frame, state.playbackFrames,
-      state.playbackFrameTimes[frame], state.playbackSimulationSteps[frame]);
+    setPlaybackPosition(viewerShowsPlayback ? frame : null, state.playbackFrames,
+      viewerShowsPlayback ? state.playbackFrameTimes[frame] : null,
+      viewerShowsPlayback ? state.playbackSimulationSteps[frame] : null);
     row.hidden = false;
     emit("playback-ready", Object.assign({}, payload, {
       source_changed: sourceChanged,
@@ -2143,8 +2146,10 @@
 
   function setPlaybackPosition(index, total, time, step) {
     const frameCount = Math.max(0, Number(total) || 0);
-    const frameIndex = frameCount ? Math.min(frameCount - 1, Math.max(0, Number(index) || 0)) : 0;
-    setText("traj-current", String(frameCount ? frameIndex + 1 : 0));
+    const hasCurrentFrame = frameCount > 0 && index != null && Number.isFinite(Number(index));
+    const frameIndex = hasCurrentFrame
+      ? Math.min(frameCount - 1, Math.max(0, Number(index))) : null;
+    setText("traj-current", frameIndex == null ? (frameCount ? "—" : "0") : String(frameIndex + 1));
     setText("traj-total", String(frameCount));
     setText("traj-step", step == null || !Number.isFinite(Number(step))
       ? "—" : `step ${Number(step).toLocaleString()}`);

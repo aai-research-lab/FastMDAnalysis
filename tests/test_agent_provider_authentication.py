@@ -192,6 +192,43 @@ def test_chatgpt_registration_callback_uses_pkce_and_keeps_tokens_out_of_setting
     assert "refresh-token-test" not in settings.read_text()
 
 
+def test_chatgpt_callback_removes_the_one_time_code_from_the_browser_url(
+        monkeypatch, chatgpt_vault):
+    playwright = pytest.importorskip("playwright.sync_api")
+    from fastmdxplora.agent import openai_chatgpt as oauth
+
+    monkeypatch.setattr(oauth, "_exchange", lambda _form: {
+        "access_token": "synthetic-access", "refresh_token": "synthetic-refresh",
+        "id_token": "synthetic-identity", "expires_in": 3600,
+        "scope": oauth.SCOPES,
+    })
+    monkeypatch.setattr(oauth, "_verify_id_token", lambda *_a, **_kw: {
+        "sub": "synthetic-subject", "email": "synthetic@example.invalid",
+    })
+    opened = []
+    monkeypatch.setattr(oauth.webbrowser, "open",
+                        lambda url, **_kwargs: opened.append(url) or True)
+    assert oauth.connect()["ok"]
+    authorize = urllib.parse.urlsplit(opened[0])
+    query = urllib.parse.parse_qs(authorize.query)
+    redirect = query["redirect_uri"][0]
+    callback = redirect + "?" + urllib.parse.urlencode({
+        "code": "synthetic-one-time-code", "state": query["state"][0],
+        "client_id": "oaiapp_synthetic",
+    })
+
+    with playwright.sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        try:
+            page = browser.new_page()
+            page.goto(callback, wait_until="load")
+            assert page.url == redirect
+            assert page.evaluate("location.search") == ""
+            assert "synthetic-one-time-code" not in page.content()
+        finally:
+            browser.close()
+
+
 def test_chatgpt_id_token_signature_issuer_audience_expiry_and_nonce_are_checked(
         monkeypatch):
     from fastmdxplora.agent import openai_chatgpt as oauth
@@ -255,6 +292,15 @@ def test_chatgpt_cancelled_browser_consent_does_not_exchange_or_replace_account(
         monkeypatch, chatgpt_vault):
     oauth, _vault = chatgpt_vault
     called = []
+    connection_at_response = []
+    answer = oauth._CallbackHandler._answer
+
+    def answer_after_invalidation(handler, status_code, message):
+        if status_code == 400 and "cancelled" in message.lower():
+            connection_at_response.append(oauth.status()["connected"])
+        answer(handler, status_code, message)
+
+    monkeypatch.setattr(oauth._CallbackHandler, "_answer", answer_after_invalidation)
 
     def open_authorize(url, **_kwargs):
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
@@ -272,6 +318,7 @@ def test_chatgpt_cancelled_browser_consent_does_not_exchange_or_replace_account(
     result = oauth.connect()
     assert result["ok"] is True
     assert called == []
+    assert connection_at_response == [False]
     assert not oauth._read_store()["accounts"]
     status = oauth.status()
     assert status["connected"] is False

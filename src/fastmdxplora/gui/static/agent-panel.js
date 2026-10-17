@@ -796,7 +796,7 @@
       requires_api_key: true}]).forEach(function (method) {
       var option = document.createElement("option");
       option.value = method.id;
-      option.textContent = method.label + (method.available ? "" : " — unavailable");
+      option.textContent = method.label + (method.available ? "" : " (unavailable)");
       option.disabled = !method.available;
       option.dataset.requiresKey = method.requires_api_key ? "true" : "false";
       option.dataset.reason = method.reason || "";
@@ -2459,10 +2459,23 @@
     setTimeout(placeholder, 0);
     var button = el("agent-propose");
     button.classList.toggle("is-writing", on);
+    button.textContent = on ? "\u25a0" : "\u2191";
+    sendReady();
+  }
+
+  /* Send stays quiet until the composer contains a nonblank message. */
+  function sendReady() {
+    var button = el("agent-propose");
+    var area = el("agent-request");
+    if (!button || !area) return;
+    var on = button.classList.contains("is-writing");
+    var blank = !on && !area.value.trim();
+    button.classList.toggle("is-blank", blank);
+    button.setAttribute("aria-disabled", String(blank));
     button.setAttribute("aria-label", on ? "Stop" : "Send");
     button.title = on ? "Stop the reply being written"
+      : blank ? "Write a message to send it"
       : "Send (Enter). Shift+Enter for a new line.";
-    button.textContent = on ? "\u25a0" : "\u2191";
   }
 
   /* What the Agent is writing, as a person reads it: a look is said as
@@ -2983,33 +2996,49 @@
   /* The message box's words follow the situation (user, 10-07: "This
    * default should be adaptive"). */
   var studyState = "none";
+  /* On the Agent page the full prompt fits; beside a page it is shortened
+   * for the narrower drawer. Keep each pair in sync with the two layouts. */
+  var PROMPTS = {
+    writing: ["I am working on it; you can write your next message", "Write your next message"],
+    answer: ["Answer above, or type yes or no", "Answer above: yes or no"],
+    pick: ["Pick one above, or type your answer", "Pick one above, or type it"],
+    question: ["Type your answer", "Type your answer"],
+    study: ["Change something, or say run it", "Change it, or say run it"],
+    running: ["Ask how it is going, or tell me to stop it", "Ask how it is going"],
+    stopped: ["Ask why it stopped, or what would fix it", "Ask why it stopped"],
+    finished: ["Ask about this study, or describe the next one", "Ask, or describe a study"],
+    none: ["Describe a study, or ask about one in this folder", "Ask, or describe a study"],
+  };
+
   function placeholder() {
     var area = el("agent-request");
     if (!area) return;
     var thread = el("agent-thread");
     var nodes = thread ? thread.querySelectorAll(".agent-msg") : [];
     var last = nodes.length ? nodes[nodes.length - 1] : null;
-    var words;
+    var said;
     if (writing) {
-      words = "I am working on it; you can write your next message";
+      said = "writing";
     } else if (stopPending || runPending || fixPending) {
-      words = "Answer above, or type yes or no";
+      said = "answer";
     } else if (last && last.querySelector(".agent-choice:not(:disabled)")) {
-      words = "Pick one above, or type your answer";
+      said = "pick";
     } else if (last && last.querySelector(".agent-question")) {
-      words = "Type your answer";
+      said = "question";
     } else if (last && last.querySelector(".agent-study:not([hidden]):not(.is-replaced)")) {
-      words = "Change something, or say run it";
+      said = "study";
     } else if (studyState === "running") {
-      words = "Ask how it is going, or tell me to stop it";
+      said = "running";
     } else if (studyState === "stopped") {
-      words = "Ask why it stopped, or what would fix it";
+      said = "stopped";
     } else if (studyState === "finished") {
-      words = "Ask about this study, or describe the next one";
+      said = "finished";
     } else {
-      words = "Describe a study, or ask about one in this folder";
+      said = "none";
     }
-    area.placeholder = words;
+    var beside = document.body.classList.contains("agent-beside");
+    area.placeholder = PROMPTS[said][beside ? 1 : 0];
+    if (!area.value && area.offsetParent !== null) autosize(area);
   }
 
   /* A fix asked about with its price, as the two buttons. */
@@ -4140,6 +4169,26 @@
     }
     var area = el("agent-request");
     area.addEventListener("input", function () { autosize(area); renderMentions(); });
+    area.addEventListener("input", sendReady);
+    function sizedWhereItIs() {
+      placeholder();
+      if (area.value && area.offsetParent !== null) autosize(area);
+    }
+    document.addEventListener("fmx:agent-beside", sizedWhereItIs);
+    window.addEventListener("dashboard:navigate", function (event) {
+      if (!event.detail || event.detail.page !== "agent") return;
+      requestAnimationFrame(sizedWhereItIs);
+    });
+    // Values supplied by page controls also update Send's ready state.
+    var nativeValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value");
+    if (nativeValue && nativeValue.get && nativeValue.set) {
+      Object.defineProperty(area, "value", {
+        configurable: true,
+        get: function () { return nativeValue.get.call(this); },
+        set: function (value) { nativeValue.set.call(this, value); sendReady(); },
+      });
+    }
+    sendReady();
     area.addEventListener("keydown", function (e) {
       if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
         e.preventDefault();

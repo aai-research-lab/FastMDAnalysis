@@ -653,7 +653,7 @@ def _deposited_reference(output_dir: Path, topology_file: Path, atoms: Any
     except ValueError:
         return None, None, "The deposited structure's coordinates could not be read."
     try:
-        named = str(deposited.relative_to(output_dir))
+        named = deposited.relative_to(output_dir).as_posix()
     except ValueError:
         named = deposited.name
     said = f"the deposited structure ({named}, {len(matched):,} of {len(atoms):,} atoms matched)"

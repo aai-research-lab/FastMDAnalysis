@@ -72,9 +72,26 @@ def test_live_dashboard_counter_and_transport_use_the_same_loaded_frame(tmp_path
                 " && document.getElementById('traj-total').textContent === '200'",
                 timeout=30_000,
             )
-            assert page.locator("#traj-current").inner_text() == "1"
+            # Before the player renders a trajectory frame, the toolbar has
+            # no current playback position. Opening the first frame explicitly
+            # makes the overlay and toolbar describe the same loaded frame.
+            if not page.evaluate("() => window.FastMDXMoleculeViewer?.STATE.playbackLoaded"):
+                assert page.locator("#traj-current").inner_text() == "—"
+                assert page.locator("#traj-step").inner_text() == "—"
+                assert page.locator("#traj-simtime").inner_text() == "—"
+            page.locator('#trajectory-row [data-traj="first"]').click()
+            page.wait_for_function(
+                "() => window.FastMDXMoleculeViewer?.STATE.playbackLoaded"
+                " && document.getElementById('traj-current').textContent === '1'"
+                " && document.getElementById('overlay-frame').textContent === 'frame 1 / 200'"
+                " && document.getElementById('overlay-step').textContent === 'step 163,000'",
+                timeout=60_000,
+            )
             assert page.locator("#traj-step").inner_text() == "step 163,000"
             assert page.locator("#traj-simtime").inner_text() == "time 0.326 ns"
+            assert page.locator("#overlay-frame").inner_text() == "frame 1 / 200"
+            assert page.locator("#overlay-step").inner_text() == "step 163,000"
+            assert page.locator("#overlay-simtime").inner_text() == "sim time 0.326 ns"
 
             page.click('.ctl-btn[data-action="next-frame"]')
             page.wait_for_function(
@@ -191,7 +208,7 @@ def test_single_frame_playback_is_available_but_does_not_start_a_timer(tmp_path)
                 " && document.getElementById('traj-total').textContent === '1'",
                 timeout=30_000,
             )
-            assert page.locator("#traj-current").inner_text() == "1"
+            assert page.locator("#traj-current").inner_text() == "—"
             assert page.locator("#trajectory-row [data-action='prev-frame']").is_disabled()
             assert page.locator("#trajectory-row [data-action='next-frame']").is_disabled()
             assert not page.locator("#trajectory-row [data-action='play-trajectory']").is_disabled()
@@ -270,8 +287,10 @@ def test_switching_studies_reconciles_playback_counts_and_position(tmp_path):
                     "n => document.getElementById('traj-total').textContent === String(n)",
                     arg=count,
                 )
-                assert page.locator("#traj-current").inner_text() == ("1" if count else "0")
+                assert page.locator("#traj-current").inner_text() == ("—" if count else "0")
                 assert page.locator("#traj-slider").input_value() == "0"
+                assert page.locator("#traj-step").inner_text() == "—"
+                assert page.locator("#traj-simtime").inner_text() == "—"
                 if count:
                     page.locator("#viewer-under-fold").evaluate("e => {e.open = true;}")
                     page.locator('#trajectory-row [data-traj="last"]').click()

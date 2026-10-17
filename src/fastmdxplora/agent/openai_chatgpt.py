@@ -439,16 +439,22 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
             self._answer(200, "ChatGPT sign-in is complete. You can return to FastMDXplora.")
         except SignInError as exc:
             _pending_note = str(exc)
+            _finish_attempt(state)
             self._answer(400, str(exc))
         except Exception:  # noqa: BLE001 - callback failures must not leak protocol data
             _pending_note = "ChatGPT sign-in failed while validating the response. Try again."
+            _finish_attempt(state)
             self._answer(400, _pending_note)
         finally:
             _finish_attempt(state)
 
     def _answer(self, status: int, message: str) -> None:
+        scrub_callback = (
+            "<script>history.replaceState(null, '', '/auth/callback');</script>"
+            if urllib.parse.urlsplit(self.path).path == "/auth/callback" else ""
+        )
         body = ("<!doctype html><meta charset=utf-8><title>FastMDXplora sign-in</title>"
-                f"<p>{html.escape(message)}</p>").encode()
+                f"{scrub_callback}<p>{html.escape(message)}</p>").encode()
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
