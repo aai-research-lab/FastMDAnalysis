@@ -492,7 +492,8 @@ def test_clicking_atom_rmsf_selects_the_named_atom_in_the_viewer(tmp_path) -> No
                 raise AssertionError({
                     "series_http_status": series_responses, "page_errors": errors,
                     "cards": page.locator('[data-series="rmsf"]').evaluate_all(
-                        "nodes => nodes.map(n => ({ready: n.dataset.seriesReady, hidden: n.hidden}))"),
+                        "nodes => nodes.map(n => ({ready: n.dataset.seriesReady,"
+                        " hidden: n.hidden}))"),
                     "source": series_payload(root, "rmsf"),
                 }) from error
             chart.scroll_into_view_if_needed()
