@@ -179,6 +179,35 @@ def test_server_exact_frame_response_is_one_frame_and_signature_guarded(tmp_path
         session.server.shutdown()
 
 
+@pytest.mark.parametrize("route, key", [
+    ("/api/exact-frame", "frame"),
+    ("/structure/exact-frame.xtc", "frame"),
+    ("/structure/frames.dcd", "exact_frame"),
+])
+@pytest.mark.parametrize("invalid", ["oversized", "repeated", "empty"])
+def test_exact_frame_routes_refuse_unreadable_or_ambiguous_indices(tmp_path, route, key, invalid):
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    session = start_dashboard_session(output=str(_study(tmp_path / "study")),
+                                      host="127.0.0.1", port=0)
+    try:
+        base = session.url.rstrip("/")
+        info = json.loads(urllib.request.urlopen(base + "/api/frames-info").read())
+        raw = {"oversized": "9" * 5000, "repeated": f"1&{key}=2", "empty": ""}[invalid]
+        url = base + route + f"?{key}={raw}&signature={info['source_signature']}"
+        if route.startswith("/api/"):
+            with urllib.request.urlopen(url) as response:
+                assert json.loads(response.read())["ok"] is False
+        else:
+            with pytest.raises(urllib.error.HTTPError) as caught:
+                urllib.request.urlopen(url)
+            assert caught.value.code == 400
+        with urllib.request.urlopen(base + "/api/exact-frame?frame=1") as response:
+            assert json.loads(response.read())["ok"] is True
+    finally:
+        session.server.shutdown()
+
+
 def test_a_chart_click_shows_exact_frame_coordinates_and_playback_order(tmp_path, monkeypatch):
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
