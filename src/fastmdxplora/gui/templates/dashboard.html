@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/static/dashboard.css">
   <link rel="stylesheet" href="/static/remote.css">
   <link rel="stylesheet" href="/static/problems.css">
+  <link rel="stylesheet" href="/static/study-tabs.css">
   <!--__FASTMDX_LAB_ICON__-->
   <meta name="fastmdx-expansion" content="Fully Automated SysTem for Molecular Dynamics eXploration">
 </head>
@@ -601,6 +602,15 @@
 
     <!-- Main content -->
     <div class="main">
+
+      <nav class="study-tabs" id="study-tabs" aria-label="Open studies" hidden>
+        <div class="study-tabs-row">
+          <ul class="study-tabs-list" id="study-tabs-list" aria-label="Study documents"></ul>
+          <button type="button" class="line-btn study-tabs-open" id="study-tabs-open"
+                  aria-label="Open another study" title="Open another study"><!--icon:studies:line-icon--></button>
+        </div>
+        <p class="study-tabs-note" id="study-tabs-note" role="status" hidden></p>
+      </nav>
 
       <!-- Page views -->
       <main class="page-shell" id="page-shell" role="main" tabindex="-1">
@@ -2030,6 +2040,7 @@
     <script src="/static/files-actions.js"></script>
     <script src="/static/file-picker.js"></script>
     <script src="/static/run-builder.js"></script>
+    <script src="/static/study-tabs.js"></script>
   <script src="/static/charts.js"></script>
   <script src="/static/overview.js"></script>
   <script src="/static/series-chart.js"></script>

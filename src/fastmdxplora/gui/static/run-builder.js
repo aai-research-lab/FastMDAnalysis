@@ -3189,7 +3189,7 @@
       let stored = null;
       try { stored = window.localStorage.getItem(draftKey()); } catch (error) { stored = null; }
       // Another tab saved its draft since this one: the newer is kept.
-      if (stored !== draftSeen) return;
+      if (stored !== draftSeen) return false;
     }
     const draft = {
       start: state.start, phases: Array.from(state.phases), values: state.values,
@@ -3240,6 +3240,7 @@
           said.classList.remove("just-saved");
         }
       }
+      return true;
     } catch (error) {
       // No storage here: the form works without it, and says no save.
       const said = el("run-draft");
@@ -3247,6 +3248,7 @@
         said.hidden = true;
         said.classList.remove("just-saved");
       }
+      return false;
     }
   }
 
@@ -3526,17 +3528,22 @@
     text(note, `Started from "${starter.title}". Change first: ${String(starter.change || "").replace(/`/g, "")}`);
   }
 
+  let launchesPending = 0;
   async function runAsItStands() {
     const path = el("run-config-path").value.trim();
     if (!path) return;
     const button = el("run-as-is");
     button.disabled = true;
     text(el("run-note"), "Starting…");
-    const response = await fetch("/api/run-config", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path, output: el("run-output").value.trim() }),
-    });
-    const started = await response.json();
+    launchesPending += 1;
+    let started;
+    try {
+      const response = await fetch("/api/run-config", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, output: el("run-output").value.trim() }),
+      });
+      started = await response.json();
+    } finally { launchesPending -= 1; }
     if (!started.ok) {
       text(el("run-note"), started.error || "Could not start.");
       button.disabled = false;
@@ -3627,6 +3634,7 @@
     if (phone) phone.disabled = true;
     text(el("run-note"), "Starting…");
     let started;
+    launchesPending += 1;
     try {
       const response = await fetch("/api/run", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -3641,7 +3649,7 @@
       if (phone) phone.disabled = false;
       backToTyping();
       return;
-    }
+    } finally { launchesPending -= 1; }
     if (!started.ok) {
       text(el("run-note"), started.error || "Could not start.");
       el("run-note").dataset.ok = "false";
@@ -3676,6 +3684,7 @@
     button.disabled = true;
     text(el("run-note"), "Saving the config…");
     let saved;
+    launchesPending += 1;
     try {
       const response = await fetch("/api/save-config", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -3686,7 +3695,7 @@
       text(el("run-note"), "Could not reach the server.");
       button.disabled = false;
       return;
-    }
+    } finally { launchesPending -= 1; }
     if (!saved.ok) {
       text(el("run-note"), saved.error || "Could not save the config.");
       button.disabled = false;
@@ -4050,5 +4059,12 @@
     fetchConfig, download, copyCommand, downloadScript,
     renderPreview, describeCost, previewCost, boxVectors, periodicCell, pickResidue,
     sayRefusal, renderSettings, showSetting, forLoaded, bodyOf, snapshotOfLoaded,
+    beforeStudySwitch: () => {
+      if (launchesPending) return "Wait for the Config launch to finish before switching studies.";
+      if (!draftReady || !state.start) return "";
+      commitTyping();
+      clearTimeout(draftTimer);
+      return writeDraft(true) ? "" : "The Config draft could not be saved in this browser. Keep it or download it before switching studies.";
+    },
   };
 })();

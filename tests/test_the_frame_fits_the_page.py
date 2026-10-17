@@ -275,10 +275,13 @@ class TestAPhone:
             const title = document.querySelector('.page[data-page="{where}"] .page-title');
             const r = title.getBoundingClientRect();
             const bar = document.querySelector('.sidebar').getBoundingClientRect();
+            const tabs = document.getElementById('study-tabs').getBoundingClientRect();
             return {{
                 title: Math.round(r.top),
                 bar: getComputedStyle(document.querySelector('.sidebar')).visibility,
                 barBottom: Math.round(bar.bottom),
+                tabsTop: Math.round(tabs.top),
+                tabsBottom: Math.round(tabs.bottom),
                 wider: document.scrollingElement.scrollWidth - innerWidth,
                 nav: [...document.querySelectorAll('.sidebar-nav .nav-link')]
                     .filter(a => a.offsetWidth > 0 && getComputedStyle(a).visibility === 'visible').length,
@@ -286,8 +289,10 @@ class TestAPhone:
         }}""")
         page.context.close()
         assert facts["bar"] == "visible" and facts["nav"] == len(["studies"] + STUDY_NAV + NEW_NAV), facts
-        # The heading follows the bar, with nothing empty between.
-        assert facts["title"] - facts["barBottom"] < 40, facts
+        # The document strip follows navigation; the heading follows it,
+        # with no empty band between either pair.
+        assert abs(facts["tabsTop"] - facts["barBottom"]) <= 1, facts
+        assert facts["title"] - facts["tabsBottom"] < 40, facts
         assert facts["wider"] <= 0, facts
 
     def test_the_navigation_goes_where_it_says(self, browser, studies) -> None:

@@ -201,7 +201,9 @@ FastMDXplora/
 │       │   ├── static/            # theme.css (shared tokens), dashboard.css, dashboard.js,
 │       │   │                      #   frame.js (columns, side panel, theme), theme-first.js
 │       │   │                      #   (the scheme before the first paint), problems.js and
-│       │   │                      #   problems.css (the read-only Problems tab), fonts/ (Inter and
+│       │   │                      #   problems.css (the read-only Problems tab), study-tabs.js
+│       │   │                      #   and study-tabs.css (open studies and their last pages),
+│       │   │                      #   fonts/ (Inter and
 │       │   │                      #   JetBrains Mono, SIL OFL 1.1), studies.js,
 │       │   │                      #   preferences.js (the dialogs, preferences kept),
 │       │   │                      #   run-builder.js, file-picker.js, report-page.js, analyze-again.js,

@@ -426,6 +426,28 @@ output. **Run as-is** writes nothing and runs the file you named, unmodified.
 
 ## Watching it happen
 
+The strip across the main page keeps the studies opened in this browser
+window. Select a study to return to its last page or analysis section.
+**Open another study** opens All studies; the existing folder picker can
+open a study elsewhere. The open list survives reload for this workspace
+while browser session storage is available. Use Left/Right or Home/End to
+move along the strip, Enter to open a study and Delete or its Close button
+to close it. Long lists scroll within the strip.
+
+Closing an inactive study leaves the current one open. Closing the active
+study opens its nearest neighbour; closing the last shows All studies.
+Closing stops no simulation and removes no files. If a switch is refused,
+the current study stays open and the strip says why. Browser Back and
+Forward continue to work, including reopening a closed study.
+
+Before switching through the strip, the Builder saves its workspace draft.
+An unsent Agent message or attachment, a reply being written, a Config
+review or a run launch must be finished or cancelled first; the strip says
+what needs attention. A failed draft save also holds the switch. The
+Builder remains one draft for the workspace. The server's active study is
+still shared by browser windows; these tabs do not provide independent
+server sessions.
+
 Once a run starts, the page becomes a live view of it.
 
 **Progress** through the phases, showing the stages the run will actually reach

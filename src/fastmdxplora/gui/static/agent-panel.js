@@ -1245,6 +1245,7 @@
   }
   /* Files attached to the next message: what read_attachment returned. */
   var pendingFiles = [];
+  var attaching = 0;
   var fromStarter = null;
 
   function fmtSize(n) {
@@ -1272,6 +1273,7 @@
 
   function attachFile(path) {
     if (!path) return;
+    attaching += 1;
     post("/api/agent/attachment", { path: path }).then(function (d) {
       if (!d || !d.ok) { window.alert((d && d.error) || "Could not attach that file."); return; }
       if (pendingFiles.some(function (f) { return f.path === d.path; })) return;
@@ -1279,7 +1281,8 @@
       pendingFiles.push(d);
       renderChips();
       el("agent-request").focus();
-    }).catch(function () { window.alert("Could not reach the server."); });
+    }).catch(function () { window.alert("Could not reach the server."); })
+      .finally(function () { attaching -= 1; });
   }
 
   /* ---- What is named with @, the page, and the plan ------------------- */
@@ -2179,6 +2182,7 @@
    * end, the same as `/api/agent/propose` gives. The send button stops it
    * while it is written. A browser without streams asks for it whole. */
   var writing = null;
+  var pendingReplies = 0;
   /* The question whose answer is being written. */
   var answering = null;
 
@@ -2265,9 +2269,13 @@
 
   function propose(body, box) {
     var steps = stepsIn(box);
+    pendingReplies += 1;
     if (!window.ReadableStream || !window.AbortController || !window.TextDecoder) {
       writingState(true);
-      return post("/api/agent/propose", body).finally(function () { writingState(false); });
+      return post("/api/agent/propose", body).finally(function () {
+        pendingReplies -= 1;
+        writingState(false);
+      });
     }
     var mine = writing = new AbortController();
     writingState(true);
@@ -2324,6 +2332,7 @@
       }
       return pump();
     }).finally(function () {
+      pendingReplies -= 1;
       /* Not another reply's: one sent after this was stopped is writing. */
       if (writing === mine) {
         writing = null;
@@ -4403,5 +4412,17 @@
 
   /* For the settings popup: "Agent settings…" should open this dialog,
    * not merely land on the Agent page. */
-  window.FastMDXAgent = { openSettings: openSettings, closeSettings: closeSettings };
+  window.FastMDXAgent = {
+    openSettings: openSettings, closeSettings: closeSettings,
+    beforeStudySwitch: function () {
+      if (launching) return "Wait for the study launch to finish before switching studies.";
+      if (attaching) return "Wait for the Agent attachment to finish loading before switching studies.";
+      if (writing || pendingReplies) return "Finish or stop the Agent reply before switching studies.";
+      if (reviewPending()) return "Apply or cancel the Config review before switching studies.";
+      if (pendingFiles.length || (el("agent-request")?.value || "").trim()) {
+        return "Send or clear the unsent Agent message and attachments before switching studies.";
+      }
+      return "";
+    }
+  };
 })();
