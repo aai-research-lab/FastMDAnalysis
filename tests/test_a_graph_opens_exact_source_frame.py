@@ -237,8 +237,11 @@ def test_a_chart_click_shows_exact_frame_coordinates_and_playback_order(tmp_path
             chart = page.locator('.series-chart[data-analysis="rmsd"] svg')
             chart.scroll_into_view_if_needed()
             box = chart.bounding_box()
-            x = box["x"] + 64 + (box["width"] - 64 - 28) * 0.7
-            page.mouse.click(x, box["y"] + box["height"] / 2)
+            # Unlike a raw mouse coordinate, a locator click waits until
+            # the chart is stable and the loading screen cannot intercept it.
+            with page.expect_request("**/api/exact-frame?frame=7*"):
+                chart.click(position={"x": 64 + (box["width"] - 64 - 28) * 0.7,
+                                      "y": box["height"] / 2})
             page.wait_for_function(
                 "() => window.FastMDXMoleculeViewer?.STATE.exactFrame?.frame === 7",
                 timeout=60000)
