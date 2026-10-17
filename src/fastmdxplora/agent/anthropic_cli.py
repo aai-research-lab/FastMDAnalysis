@@ -141,7 +141,7 @@ def connect() -> dict[str, Any]:
                 "Install Anthropic's official ant CLI, then try Anthropic Console sign-in again."}
     if _login_pending:
         return {"ok": False, "message":
-                "A Anthropic Console sign-in is already waiting in the opened terminal/browser."}
+                "An Anthropic Console sign-in is already waiting in the opened terminal/browser."}
     env = _environment()
     try:
         if os.name == "nt":

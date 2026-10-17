@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import json
 import ssl
 import sys
@@ -1435,3 +1436,21 @@ def test_an_internal_provider_error_is_not_misreported_as_missing_credentials(mo
     monkeypatch.setattr(anthropic_cli, "access_token", broken)
     with pytest.raises(RuntimeError, match="programming defect"):
         _key_for(ModelChoice("anthropic", "synthetic-model", "", "anthropic_console"))
+
+
+@pytest.mark.parametrize("names", [("Profile", "profile"), ("Straße", "strasse")])
+def test_credential_scopes_follow_path_case_rules_without_merging_distinct_profiles(
+        monkeypatch, tmp_path, names):
+    from fastmdxplora.agent import models
+    from fastmdxplora.agent import openai_chatgpt as oauth
+
+    paths = [tmp_path / name for name in names]
+    choice = models.ModelChoice("openai", "synthetic-model")
+    api_ids = [models._credential_identity(choice, path / "model.json") for path in paths]
+    oauth_ids = []
+    for path in paths:
+        monkeypatch.setattr(oauth, "user_config_dir", lambda path=path: path)
+        oauth_ids.append(oauth._vault_user())
+    same_path = os.name == "nt" and names == ("Profile", "profile")
+    assert (api_ids[0] == api_ids[1]) is same_path
+    assert (oauth_ids[0] == oauth_ids[1]) is same_path

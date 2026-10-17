@@ -87,7 +87,7 @@ def _vault():
 
 
 def _vault_user() -> str:
-    return hashlib.sha256(str(user_config_dir().resolve()).casefold().encode()).hexdigest()
+    return hashlib.sha256(os.path.normcase(str(user_config_dir().resolve())).encode()).hexdigest()
 
 
 def _chunk_keys(raw: str | None) -> list[str]:

@@ -276,7 +276,7 @@ def _settings_record(path: Path | None = None) -> dict[str, Any]:
 
 
 def _credential_identity(choice: ModelChoice, path: Path | None = None) -> tuple[str, str]:
-    target = str((path or model_path()).resolve()).casefold()
+    target = os.path.normcase(str((path or model_path()).resolve()))
     identity = f"{target}\0{choice.provider}\0{choice.base_url}"
     return "FastMDXplora Agent", hashlib.sha256(identity.encode("utf-8")).hexdigest()
 
