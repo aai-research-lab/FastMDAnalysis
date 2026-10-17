@@ -457,6 +457,7 @@ class TestTheChart:
 def test_clicking_atom_rmsf_selects_the_named_atom_in_the_viewer(tmp_path) -> None:
     pytest.importorskip("playwright.sync_api")
     pytest.importorskip("mdtraj")
+    from playwright.sync_api import TimeoutError as BrowserTimeout
     from playwright.sync_api import sync_playwright
 
     from fastmdxplora.gui.server import start_dashboard_session
@@ -477,12 +478,23 @@ def test_clicking_atom_rmsf_selects_the_named_atom_in_the_viewer(tmp_path) -> No
             browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
             page = browser.new_page(viewport={"width": 1440, "height": 900})
             errors: list[str] = []
+            series_responses = []
             page.on("pageerror", lambda error: errors.append(str(error)))
+            page.on("response", lambda response: series_responses.append(response.status)
+                    if "/api/series?" in response.url else None)
             page.goto(session.url + "#analysis", wait_until="domcontentloaded")
             if not page.evaluate("() => !!document.createElement('canvas').getContext('webgl')"):
                 pytest.skip("this browser has no WebGL, so the viewer cannot render")
             chart = page.locator('.series-chart[data-analysis="rmsf"] svg')
-            chart.wait_for(state="visible", timeout=30000)
+            try:
+                chart.wait_for(state="visible", timeout=30000)
+            except BrowserTimeout as error:
+                raise AssertionError({
+                    "series_http_status": series_responses, "page_errors": errors,
+                    "cards": page.locator('[data-series="rmsf"]').evaluate_all(
+                        "nodes => nodes.map(n => ({ready: n.dataset.seriesReady, hidden: n.hidden}))"),
+                    "source": series_payload(root, "rmsf"),
+                }) from error
             chart.scroll_into_view_if_needed()
             box = chart.bounding_box()
             x = box["x"] + 64
