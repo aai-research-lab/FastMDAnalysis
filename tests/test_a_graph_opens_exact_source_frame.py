@@ -478,3 +478,74 @@ def test_a_larger_exact_frame_remains_bounded(tmp_path):
     assert exact.n_frames == 1
     assert exact.xyz[0, 1, 0] * 10 == pytest.approx(73.0, abs=0.01)
     assert elapsed >= 0
+
+
+@pytest.mark.parametrize("figure", ["matrix", "contacts", "interactions"])
+def test_matrix_and_identified_contact_charts_activate_from_the_keyboard(tmp_path, figure):
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.figure_data import figure_payload
+    from fastmdxplora.gui.server import DashboardConfig, start_dashboard_session
+
+    root = _study(tmp_path / "study", residues=2)
+    _series(root)
+    folder = root / "analysis"
+    if figure == "matrix":
+        (folder / "cluster").mkdir()
+        np.savez(folder / "cluster" / "cluster_rmsd_matrix.npz",
+                 rmsd_nm=np.zeros((11, 11)), frames=np.arange(11), time_ns=np.arange(11) * 0.001)
+        name = "cluster/cluster_rmsd_matrix"
+    elif figure == "contacts":
+        (folder / "pl_contacts").mkdir()
+        (folder / "pl_contacts" / "pl_contacts_per_residue.csv").write_text(
+            "residue,contact_frequency\nALA1,0.9\nALA2,0.8\n")
+        name = "pl_contacts/pl_contacts"
+    else:
+        (folder / "pl_interactions").mkdir()
+        (folder / "pl_interactions" / "pl_interactions.dat").write_text(
+            "kind,residue,occupancy,well_sampled\nhydrophobic,ALA1,0.9,True\n"
+            "hydrophobic,ALA2,0.8,True\n")
+        name = "pl_interactions/pl_interactions"
+    payload = figure_payload(root, "analysis/" + name + ".png")
+    assert payload["ok"]
+    session = start_dashboard_session(output=str(root), host="127.0.0.1", port=0,
+                                     config=DashboardConfig(max_browser_frames=3))
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.add_init_script("localStorage.setItem('fmx.viewerPlaybackOpen', '1')")
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#viewer", wait_until="domcontentloaded")
+            page.wait_for_function("() => !!window.FastMDXMoleculeViewer")
+            assert page.evaluate("async () => !!(await window.FastMDXMoleculeViewer.movie.frames())")
+            page.evaluate("""data => {
+              window.FastMDXDashboard.navigate('analysis');
+              const host = document.createElement('div');
+              host.id = 'identified-chart-check';
+              document.querySelector('.page[data-page="analysis"]').appendChild(host);
+              window.FastMDXFigures.plot(host, data);
+            }""", payload)
+            svg = page.locator("#identified-chart-check svg")
+            svg.scroll_into_view_if_needed()
+            assert svg.get_attribute("role") == "application"
+            svg.focus()
+            if figure == "matrix":
+                svg.press("ArrowDown")
+                svg.press("Enter")
+                page.wait_for_function("() => window.FastMDXMoleculeViewer.currentViewHints().frame === 1")
+                assert page.evaluate("() => window.FastMDXMoleculeViewer.STATE.engine"
+                                     ".find({atom:'CA'})[0].x") == pytest.approx(1.0, abs=0.02)
+            else:
+                svg.press("ArrowDown")
+                svg.press("Enter")
+                page.wait_for_function("() => window.FastMDXMoleculeViewer.currentViewHints()"
+                                       ".selection?.[0]?.resi === 2")
+                assert page.evaluate("() => window.FastMDXMoleculeViewer.STATE.selection.residues") == [
+                    {"chain": "A", "resi": 2, "icode": "", "resn": "ALA", "atom": None}]
+            assert errors == []
+            browser.close()
+    finally:
+        session.server.shutdown()

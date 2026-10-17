@@ -321,7 +321,7 @@
       + " Home End Enter");
     function allowed(i) { return !selectable || selectable(i); }
     function set(i, display) {
-      i = Math.max(0, Math.min(count - 1, i));
+      if (i < 0 || i >= count) return current;
       current = i;
       if (display !== false) show(i);
       return i;
@@ -329,7 +329,7 @@
     function seek(i, direction) {
       i = Math.max(0, Math.min(count - 1, i));
       while (i >= 0 && i < count && !allowed(i)) i += direction;
-      return Math.max(0, Math.min(count - 1, i));
+      return i >= 0 && i < count ? i : current;
     }
     svg.addEventListener("focus", function () {
       if (current < 0) set(seek(0, 1));
@@ -759,7 +759,7 @@
     }
     var keys = keyboard(f, data.title + ". Left and right select a point; Enter opens its frame.", n,
       show, function (i) { openFrame(data, data.frames[i]); },
-      function (i) { return !!at[i] && data.linked; });
+      function (i) { return !!at[i]; });
     f.svg.addEventListener("mousemove", function (event) {
       var i = pointAt(event);
       if (i < 0) { f.tip.hidden = true; return; }
@@ -838,12 +838,12 @@
     }
     function show(i, at) {
       var b = bars[i];
-      var action = data.linked && b.entity ? "Click to focus this residue; use up and down arrows, then Enter" : "";
+      var action = b.entity ? "Click to focus this residue; use up and down arrows, then Enter" : "";
       showTip(f, at ? Math.min(at.x, f.plot.right - 20) : f.plot.left,
         f.plot.top + i * row + 4, b.said, action);
     }
-    var selectable = function (i) { return !!(data.linked && bars[i].entity); };
-    var keys = bars.some(function (b) { return data.linked && b.entity; })
+    var selectable = function (i) { return !!bars[i].entity; };
+    var keys = bars.some(function (b) { return b.entity; })
       ? keyboard(f, data.title + ". Up and down select an identified residue; Enter focuses it.",
         bars.length, show, function (i) { focusResidue(bars[i].entity); }, selectable, true)
       : { set: function () {} };

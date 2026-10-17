@@ -103,6 +103,10 @@ def figure_payload(root: str | Path, figure: str) -> dict[str, Any]:
         return {"ok": False, "reason": f"its numbers could not be read: {exc}"}
     if payload is None:
         return {"ok": False, "reason": "the analysis wrote no numbers for it"}
+    if found["matrix"]:
+        # Cached matrix values retain source identities; whether those frames
+        # belong to the currently played trajectory is live study metadata.
+        payload = dict(payload, linked=_linked(root))
     return {"ok": True, "figure": figure, **payload}
 
 
