@@ -135,7 +135,7 @@ missing CLI or terminal requirements and stays disabled until they are available
 
 Settings shows the saved provider, model and authentication method separately
 from unsaved edits. **Test connection** checks the selected route's model access.
-**Disconnect** removes this app's saved credential; an API key supplied through
+**Disconnect** stops this app's use of its saved credential; an API key supplied through
 the environment remains active until the environment variable is unset.
 
 For ChatGPT, disconnect immediately stops local use and attempts to revoke the
