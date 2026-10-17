@@ -236,12 +236,12 @@ jobs:
         shell: bash
         run: pytest tests/test_chatgpt_authentication_races.py -rfEs
 
-      - name: Check exact-frame chart interactions
+      - name: Check chart navigation and selections
         # These browser regressions must also work with coverage tracing,
         # before committing the runner to the longer full-suite step.
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
         shell: bash
-        run: pytest tests/test_a_graph_opens_exact_source_frame.py -rfEs --cov=fastmdxplora --cov-report=
+        run: pytest tests/test_a_graph_opens_exact_source_frame.py tests/test_an_analysis_is_drawn_from_its_numbers.py -rfEs --cov=fastmdxplora --cov-report=
 
       - name: Run tests
         # Coverage is measured where it is uploaded and nowhere else. The

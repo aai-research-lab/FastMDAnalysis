@@ -498,7 +498,9 @@ def test_rmsf_chart_does_not_wait_for_unrelated_viewer_metadata(tmp_path, delaye
         session.server.shutdown()
 
 
-def test_clicking_atom_rmsf_selects_the_named_atom_in_the_viewer(tmp_path) -> None:
+@pytest.mark.parametrize("delay_loading_check", [False, True])
+def test_clicking_atom_rmsf_selects_the_named_atom_in_the_viewer(
+        tmp_path, delay_loading_check) -> None:
     pytest.importorskip("playwright.sync_api")
     pytest.importorskip("mdtraj")
     from playwright.sync_api import TimeoutError as BrowserTimeout
@@ -523,6 +525,9 @@ def test_clicking_atom_rmsf_selects_the_named_atom_in_the_viewer(tmp_path) -> No
             page = browser.new_page(viewport={"width": 1440, "height": 900})
             errors: list[str] = []
             series_responses = []
+            held_loading_checks = []
+            if delay_loading_check:
+                page.route("**/api/metrics", lambda route: held_loading_checks.append(route))
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.on("response", lambda response: series_responses.append(response.status)
                     if "/api/series?" in response.url else None)
@@ -540,10 +545,18 @@ def test_clicking_atom_rmsf_selects_the_named_atom_in_the_viewer(tmp_path) -> No
                         " hidden: n.hidden}))"),
                     "source": series_payload(root, "rmsf"),
                 }) from error
-            chart.scroll_into_view_if_needed()
-            box = chart.bounding_box()
-            x = box["x"] + 64
-            page.mouse.click(x, box["y"] + box["height"] / 2)
+            if delay_loading_check:
+                # A drawn chart can still be covered by the startup checklist.
+                assert held_loading_checks
+                assert "state-loading" in page.locator("body").get_attribute("class")
+                for route in held_loading_checks:
+                    route.continue_()
+                page.unroute("**/api/metrics")
+            # Wait for the current SVG to receive the click after startup/redraw.
+            chart.click(trial=True)
+            height = chart.evaluate("el => el.clientHeight")
+            # Inside the first point's interval, clear of the plot's boundary.
+            chart.click(position={"x": 65, "y": height / 2})
             page.wait_for_function(
                 "() => document.documentElement.dataset.page === 'viewer'"
                 " && window.FastMDXMoleculeViewer.STATE.selection?.atoms?.length === 1",
