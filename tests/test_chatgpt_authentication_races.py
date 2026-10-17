@@ -199,6 +199,10 @@ def test_another_dashboard_process_cannot_restore_old_authentication(
 
 
 def _callback_in_another_process(root, entered, release, results):
+    import faulthandler
+
+    stack = (Path(root) / "callback-worker-stack.txt").open("w", encoding="utf-8")
+    faulthandler.dump_traceback_later(10, file=stack)
     from fastmdxplora.agent import openai_chatgpt as oauth
 
     oauth.user_config_dir = lambda: Path(root)
@@ -208,6 +212,7 @@ def _callback_in_another_process(root, entered, release, results):
     oauth._verify_id_token = lambda *_a, **_kw: {"sub": "synthetic-subject"}
 
     def exchange(_form):
+        faulthandler.cancel_dump_traceback_later()
         entered.set()
         if not release.wait(30):
             raise oauth.SignInError("Synthetic callback release timed out")
@@ -258,7 +263,10 @@ def test_another_dashboard_can_cancel_or_supersede_an_in_flight_callback(
                              args=(str(tmp_path), entered, release, results))
     worker.start()
     try:
-        assert entered.wait(20)
+        assert entered.wait(20), (
+            f"Callback worker exit code: {worker.exitcode}; "
+            + ((tmp_path / "callback-worker-stack.txt").read_text(encoding="utf-8")
+               if (tmp_path / "callback-worker-stack.txt").exists() else "No worker stack"))
         if action == "cancel":
             assert oauth.disconnect()["ok"]
         else:

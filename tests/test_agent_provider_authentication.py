@@ -956,19 +956,23 @@ def test_dashboard_test_route_reports_missing_chatgpt_sign_in_without_network_ac
     assert "No active ChatGPT sign-in" in response["status"]["message"]
 
 
+@pytest.mark.parametrize("terminal_available", [False, True])
 @pytest.mark.parametrize("viewport", [{"width": 1164, "height": 668},
                                      {"width": 480, "height": 700}])
 def test_live_agent_settings_switch_provider_method_and_persist_the_real_selection(
-        monkeypatch, tmp_path, viewport):
+        monkeypatch, tmp_path, viewport, terminal_available):
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
 
     from fastmdxplora.agent import models
+    from fastmdxplora.agent import anthropic_cli
     from fastmdxplora.agent import openai_chatgpt as oauth
     from fastmdxplora.gui.server import start_dashboard_session
     from tests.test_the_drawing_scripts_run_in_a_browser import _write_study
 
     monkeypatch.setattr(models, "model_path", lambda: tmp_path / "model.json")
+    monkeypatch.setattr(anthropic_cli, "executable", lambda: str(tmp_path / "synthetic-ant"))
+    monkeypatch.setattr(anthropic_cli, "can_launch_login", lambda: terminal_available)
     waiting = {"pending": False}
     connection_requests = []
     original_status, original_disconnect = oauth.status, oauth.disconnect
@@ -1105,8 +1109,12 @@ def test_live_agent_settings_switch_provider_method_and_persist_the_real_selecti
                 page.locator("#agent-auth-method").select_option("anthropic_console")
                 assert page.locator("#agent-key").is_hidden()
                 assert page.locator("#agent-auth-connect").is_visible()
-            assert "Anthropic Console API OAuth" \
-                in page.locator("#agent-auth-help").inner_text()
+            help_text = page.locator("#agent-auth-help").inner_text()
+            if console_available:
+                assert "Anthropic Console API OAuth" in help_text
+            else:
+                assert "Anthropic Console OAuth (official ant CLI) unavailable:" in help_text
+                assert "API-key authentication uses the provider's documented API endpoint" in help_text
             check_auth_layout()
             summary = page.locator("#agent-model-current").inner_text()
             assert "Saved for Agent requests: OpenAI · gpt-5 · ChatGPT plan sign-in" in summary
