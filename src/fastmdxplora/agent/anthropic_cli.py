@@ -9,10 +9,12 @@ Anthropic CLI session is neither inspected nor reused.
 from __future__ import annotations
 
 import os
+import json
 import shutil
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +34,35 @@ _login_pending = False
 
 def config_dir() -> Path:
     """The app-owned CLI profile, isolated from a user's other ant sessions."""
-    return user_config_dir() / "anthropic-console"
+    root = user_config_dir()
+    try:
+        record = json.loads((root / "anthropic-console-profile.json").read_text(encoding="utf-8"))
+        generation = record["generation"]
+        if (not isinstance(generation, str) or len(generation) != 32
+                or any(character not in "0123456789abcdef" for character in generation)):
+            raise ConsoleSignInError("The Anthropic Console profile identifier is invalid.")
+    except FileNotFoundError:
+        return root / "anthropic-console"
+    except (OSError, ValueError, TypeError, KeyError):
+        raise ConsoleSignInError("The Anthropic Console profile could not be read.") from None
+    return root / ("anthropic-console-" + generation)
+
+
+def _retire_profile() -> None:
+    """A late terminal/refresh may write only to the retired profile.
+
+    Terminal launchers do not consistently own the login subprocess (notably
+    macOS Terminal). Logout alone cannot cancel a later OAuth completion, so
+    persist a new, empty app profile before attempting external cancellation.
+    This file contains only an opaque identifier, never credentials.
+    """
+    from fastmdxplora.agent.models import _write_settings
+
+    try:
+        _write_settings(user_config_dir() / "anthropic-console-profile.json",
+                        {"generation": uuid.uuid4().hex})
+    except OSError:
+        raise ConsoleSignInError("Anthropic Console disconnect could not be saved. Try again.") from None
 
 
 def executable() -> str | None:
@@ -49,7 +79,7 @@ def can_launch_login() -> bool:
     return bool(shutil.which("x-terminal-emulator") or shutil.which("gnome-terminal"))
 
 
-def _environment() -> dict[str, str]:
+def _environment(profile: Path | None = None) -> dict[str, str]:
     # Start from process variables required to locate a terminal and the home
     # directory. Credential and profile variables are never inherited.
     allowed = (
@@ -58,16 +88,17 @@ def _environment() -> dict[str, str]:
         "DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS",
     )
     env = {name: os.environ[name] for name in allowed if name in os.environ}
-    env["ANTHROPIC_CONFIG_DIR"] = str(config_dir())
+    env["ANTHROPIC_CONFIG_DIR"] = str(profile if profile is not None else config_dir())
     return env
 
 
-def _run(args: list[str], *, timeout: float = 15.0) -> subprocess.CompletedProcess[str]:
+def _run(args: list[str], *, timeout: float = 15.0,
+         profile: Path | None = None) -> subprocess.CompletedProcess[str]:
     ant = executable()
     if not ant:
         raise BackendUnavailable("The official Anthropic ant CLI is not installed.")
     return subprocess.run(
-        [ant, *args], env=_environment(), stdin=subprocess.DEVNULL,
+        [ant, *args], env=_environment(profile), stdin=subprocess.DEVNULL,
         capture_output=True, text=True, encoding="utf-8", errors="replace",
         timeout=timeout, check=False,
     )
@@ -80,7 +111,11 @@ def status() -> dict[str, Any]:
         return {"available": False, "connected": False,
                 "message": "Install Anthropic's official ant CLI to use Anthropic Console sign-in."}
     try:
+        profile = config_dir()
         result = _run(["models", "list", "--format", "json"])
+        if config_dir() != profile:
+            return {"available": True, "connected": False,
+                    "message": "Anthropic Console sign-in changed. Refresh its status."}
         if result.returncode == 0:
             _login_pending = False
             return {
@@ -121,11 +156,14 @@ def access_token() -> str:
     if not executable():
         raise BackendUnavailable("Install Anthropic's official ant CLI to use Anthropic Console sign-in.")
     try:
+        profile = config_dir()
         result = _run(["auth", "print-credentials", "--access-token"])
     except subprocess.TimeoutExpired:
         raise ConsoleSignInError("Anthropic Console token refresh timed out. Try reconnecting.") from None
     except OSError:
         raise ConsoleSignInError("The official ant CLI could not be started.") from None
+    if config_dir() != profile:
+        raise ConsoleSignInError("Anthropic Console sign-in changed during token refresh. Try again.")
     token = result.stdout.strip()
     if result.returncode != 0 or not token:
         raise ConsoleSignInError("Anthropic Console sign-in expired or is unavailable. Sign in again.")
@@ -187,6 +225,8 @@ def connect() -> dict[str, Any]:
 def disconnect() -> dict[str, Any]:
     """Log out of every profile in this app-owned CLI config directory."""
     global _login_pending, _login_process
+    profile = config_dir()
+    _retire_profile()
     if _login_pending and _login_process is not None and _login_process.poll() is None:
         _login_process.terminate()
         try:
@@ -199,7 +239,7 @@ def disconnect() -> dict[str, Any]:
         return {"ok": True, "connected": False,
                 "message": "This app has no Anthropic Console profile to disconnect."}
     try:
-        result = _run(["auth", "logout", "--all"])
+        result = _run(["auth", "logout", "--all"], profile=profile)
     except subprocess.TimeoutExpired:
         return {"ok": False, "message": "Anthropic Console sign-out timed out. Try again."}
     except OSError:

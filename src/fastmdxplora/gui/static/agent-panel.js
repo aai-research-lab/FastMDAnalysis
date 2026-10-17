@@ -34,7 +34,7 @@
    * because this is where somebody needs it; a GUI that tells you to run
    * a command is a GUI that has given up. */
   var KEY_HELP = {
-    anthropic: "Create a Anthropic Console API key at platform.claude.com.",
+    anthropic: "Create an Anthropic Console API key at platform.claude.com.",
     openai: "Get one at platform.openai.com, under API keys.",
     compatible: "A local server usually needs none; leave this blank."
   };

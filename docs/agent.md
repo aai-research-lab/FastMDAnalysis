@@ -163,6 +163,10 @@ with no API keys or OAuth tokens:
 
 Settings are replaced atomically. Anthropic Console credentials remain managed by
 the official CLI in this app's isolated `anthropic-console` profile directory.
+Disconnect retires that profile and saves a fresh profile identifier before
+asking the CLI to log out. An already-open terminal can finish only in the
+retired profile; its late result cannot reconnect the Agent. Close any sign-in
+terminal that is still open after canceling.
 
 **The key never enters a Config, a Manifest, a log line or an error message.**
 Those files get shared, pasted into issues and committed; a key in one is a key

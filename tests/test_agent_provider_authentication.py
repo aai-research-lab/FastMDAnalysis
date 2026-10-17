@@ -769,6 +769,64 @@ def test_macos_console_login_sanitizes_the_existing_terminal_environment(monkeyp
     assert "never-inherit" not in script and "ANTHROPIC_API_KEY" not in script
 
 
+def test_a_canceled_console_terminal_cannot_restore_the_app_session(monkeypatch, tmp_path):
+    from subprocess import CompletedProcess
+    from types import SimpleNamespace
+
+    from fastmdxplora.agent import anthropic_cli
+
+    monkeypatch.setattr(anthropic_cli, "user_config_dir", lambda: tmp_path)
+    monkeypatch.setattr(anthropic_cli, "sys", SimpleNamespace(platform="darwin"))
+    monkeypatch.setattr(anthropic_cli, "executable", lambda: "/usr/local/bin/ant")
+    monkeypatch.setattr(anthropic_cli, "_login_pending", False)
+    monkeypatch.setattr(anthropic_cli, "_login_process", None)
+    monkeypatch.setattr(anthropic_cli, "_login_started", None)
+    monkeypatch.setattr(anthropic_cli.subprocess, "Popen", lambda *_a, **_kw: None)
+    credentials = {}
+
+    def run(args, *, env, **_kwargs):
+        profile = env["ANTHROPIC_CONFIG_DIR"]
+        if args[1:] == ["auth", "logout", "--all"]:
+            credentials.pop(profile, None)
+            return CompletedProcess(args, 0, stdout="", stderr="")
+        value = credentials.get(profile, "")
+        return CompletedProcess(args, 0 if value else 1, stdout=value, stderr="")
+
+    monkeypatch.setattr(anthropic_cli.subprocess, "run", run)
+    assert anthropic_cli.connect()["ok"]
+    pending_profile = str(anthropic_cli.config_dir())
+    assert anthropic_cli.disconnect()["ok"]
+    # The already-open terminal receives its OAuth result after logout.
+    # The real CLI boundary writes into the profile it was launched with.
+    credentials[pending_profile] = "synthetic-late-console-token"
+    assert anthropic_cli.status()["connected"] is False
+    with pytest.raises(anthropic_cli.ConsoleSignInError):
+        anthropic_cli.access_token()
+    assert str(anthropic_cli.config_dir()) != pending_profile
+
+
+def test_console_token_refresh_cannot_return_a_session_disconnected_mid_request(
+        monkeypatch, tmp_path):
+    from subprocess import CompletedProcess
+
+    from fastmdxplora.agent import anthropic_cli
+
+    monkeypatch.setattr(anthropic_cli, "user_config_dir", lambda: tmp_path)
+    monkeypatch.setattr(anthropic_cli, "executable", lambda: "ant")
+    monkeypatch.setattr(anthropic_cli, "_login_pending", False)
+    monkeypatch.setattr(anthropic_cli, "_login_process", None)
+
+    def run(args, **_kwargs):
+        if args[1:3] == ["auth", "print-credentials"]:
+            assert anthropic_cli.disconnect()["ok"]
+            return CompletedProcess(args, 0, stdout="synthetic-stale-token", stderr="")
+        return CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(anthropic_cli.subprocess, "run", run)
+    with pytest.raises(anthropic_cli.ConsoleSignInError, match="changed"):
+        anthropic_cli.access_token()
+
+
 def test_disconnect_removes_the_saved_key_even_when_environment_auth_is_active(
     monkeypatch, tmp_path
 ):

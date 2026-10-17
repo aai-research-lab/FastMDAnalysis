@@ -781,7 +781,7 @@ class TestThePageIsATextareaAndButtons(unittest.TestCase):
         help_text = script[script.index("KEY_HELP"):script.index("IN_THE_GUI")]
         self.assertIn("platform.claude.com", help_text)
         self.assertIn("platform.openai.com", help_text)
-        self.assertIn("Create a Anthropic Console API key", help_text)
+        self.assertIn("Create an Anthropic Console API key", help_text)
 
     def test_the_actions_are_the_ones_asked_for(self):
         # The builder's own set, under the Agent: there is no need to go
