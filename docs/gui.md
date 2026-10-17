@@ -355,6 +355,26 @@ And in the other direction: choose **A config I already have** and the GUI will
 **check it** (syntax and every setting, without running anything), **run it
 as-is**, or **open it for editing**. It never rewrites the file you gave it.
 
+In the Agent workspace, an edited Config version offers **Review each
+change**. Choose **Accept** to take a proposed setting, or **Reject** to
+keep its value from the previous version. Additions, removals and changes
+to a setting's recorded reason can be reviewed too. Systems, sweeps and
+compound settings such as a stopping rule are kept whole. **Accept all**
+and **Reject all** fill the choices without applying them.
+Equivalent names such as `simulation.prepared_from` and
+`simulation.setup_from` share one choice and keep their reasons together.
+
+**Use reviewed version** puts the chosen combination through the existing
+Config validator and creates a new version only when it passes. A refused
+combination stays in the review so its choices can be corrected. **Cancel
+review** returns to the proposal. While reviewing, finish or cancel before
+sending another message or running the study. The earlier versions stay
+intact; the conversation records which settings were accepted and rejected.
+After applying, Run, Download, Open in the builder and the next Agent
+message use the reviewed version. The choices and result survive a reload.
+Agent exports retain chosen settings and reasons for inactive phases too;
+the full export adds the defaults for the phases currently running.
+
 **Open for editing** fills the page in from the file, but only with what the
 page can hold: the first system, `output`, `include`, the four phase blocks and
 the per-analysis options. A `sweep`, an `execution` block, any system after the

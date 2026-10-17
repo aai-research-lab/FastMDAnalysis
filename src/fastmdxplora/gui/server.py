@@ -1548,6 +1548,13 @@ def make_handler(
                     payload or {}, app_runtime,
                     path_for=hosting.inside if hosting is not None else None))
                 return
+            if path == "/api/agent/review-config":
+                # Choosing among actual Config values, never applying paths
+                # supplied by the browser. This checks; it does not launch.
+                from fastmdxplora.gui.config_review import review_config
+
+                self._send_json(review_config(payload or {}))
+                return
             if path == "/api/agent/propose":
                 # A sentence in, a config out -- through the same
                 # `propose_config` the CLI uses and the same validator a
@@ -1656,9 +1663,12 @@ def make_handler(
                 # through the command line's own validator first, so a
                 # configuration that would fail there fails here, while the
                 # form that produced it is still on the screen.
-                from fastmdxplora.gui.config_builder import config_yaml
+                from fastmdxplora.gui.config_builder import config_yaml, export_config
 
                 request = payload or {}
+                if isinstance(request.get("config"), dict):
+                    self._send_json(export_config(request["config"], full=bool(request.get("full"))))
+                    return
                 self._send_json(
                     config_yaml(request, full=bool(request.get("full")))
                 )
