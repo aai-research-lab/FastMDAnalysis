@@ -256,6 +256,8 @@ def test_a_chart_click_shows_exact_frame_coordinates_and_playback_order(tmp_path
             assert got["sources"] == [0, 5, 7, 10]
             assert got["engine"] == [0, 1, 3, 2]
             assert got["x"] == pytest.approx(7.0, abs=0.02)
+            assert page.evaluate("() => window.FastMDXMoleculeViewer.viewNow().frame") == 7
+            assert page.evaluate("() => window.FastMDXMoleculeViewer.currentViewHints().frame") == 7
             # The next slider step is source frame 10 and the previous one is 5.
             page.locator("#traj-slider").evaluate(
                 "el => { el.value = '3'; el.dispatchEvent(new Event('input')); }"
@@ -263,6 +265,7 @@ def test_a_chart_click_shows_exact_frame_coordinates_and_playback_order(tmp_path
             page.wait_for_function(
                 "() => document.getElementById('traj-current').textContent === '4'"
             )
+            assert page.evaluate("() => window.FastMDXMoleculeViewer.viewNow().frame") == 10
             page.locator("#traj-slider").evaluate(
                 "el => { el.value = '1'; el.dispatchEvent(new Event('input')); }"
             )

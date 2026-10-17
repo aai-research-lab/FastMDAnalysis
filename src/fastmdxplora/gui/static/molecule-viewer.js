@@ -1301,9 +1301,11 @@
       ground: groundIsWhite() ? "white" : "dark",
     };
     if (STATE.mode === "playback" && STATE.framesRendered) {
-      const index = engine.frame();
-      view.frame = STATE.playbackFrameIndices[index] ?? index;
-      view.frame_source = true;
+      const index = STATE.playbackEngineIndices.indexOf(engine.frame());
+      if (index >= 0 && Number.isInteger(STATE.playbackFrameIndices[index])) {
+        view.frame = STATE.playbackFrameIndices[index];
+        view.frame_source = true;
+      }
     }
     return view;
   }
