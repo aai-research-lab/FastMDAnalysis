@@ -3689,6 +3689,8 @@
     text(el("run-note"), "Starting…");
     let started;
     launchesPending += 1;
+    // The study the run opens is this window's own change, not another's.
+    window.FastMDXDashboard?.studyChangeComing?.();
     try {
       const response = await fetch("/api/run", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -4116,25 +4118,37 @@
     fetchConfig, download, copyCommand, downloadScript,
     renderPreview, describeCost, previewCost, boxVectors, periodicCell, pickResidue,
     sayRefusal, renderSettings, showSetting, forLoaded, bodyOf, snapshotOfLoaded,
-    beforeStudySwitch: () => {
-      if (launchesPending) return "Wait for the Config launch to finish before switching studies.";
-      if (!draftReady || !state.start) return "";
-      commitTyping();
-      clearTimeout(draftTimer);
-      const saved = writeDraft(true);
-      if (saved === "saved") return "";
-      // Downloaded or reset as it is now: nothing here is lost.
-      const kept = draftKept !== null && draftKept === draftNow();
-      // Another window saved a newer draft: nothing is lost here unless
-      // this window changed the form since its own last save.
-      if (saved === "newer") {
-        if (draftNow() === draftSeen || kept) return "";
-        sayDraftState("Not saved: another window saved a newer draft");
-        return "This window's Config changes are not saved: another window saved a newer Config draft for this workspace. Download it (Download config) before switching studies, or reload to take the newer one.";
-      }
-      if (kept) return "";
-      sayDraftState("Not saved in this browser");
-      return "The Config draft could not be saved in this browser. Download it (Download config) or Reset the form before switching studies.";
-    },
+    beforeStudySwitch: () => draftHeld(),
   };
+
+  /* A Config draft this browser could not keep, or changed here since
+   * another window saved a newer one: the browser asks before the page is
+   * left (a Back across studies, a reload, an address typed), which no
+   * hold of the page's own can stop. */
+  window.addEventListener("beforeunload", (event) => {
+    if (launchesPending || !draftHeld()) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
+
+  function draftHeld() {
+    if (launchesPending) return "Wait for the Config launch to finish before switching studies.";
+    if (!draftReady || !state.start) return "";
+    commitTyping();
+    clearTimeout(draftTimer);
+    const saved = writeDraft(true);
+    if (saved === "saved") return "";
+    // Downloaded or reset as it is now: nothing here is lost.
+    const kept = draftKept !== null && draftKept === draftNow();
+    // Another window saved a newer draft: nothing is lost here unless
+    // this window changed the form since its own last save.
+    if (saved === "newer") {
+      if (draftNow() === draftSeen || kept) return "";
+      sayDraftState("Not saved: another window saved a newer draft");
+      return "This window's Config changes are not saved: another window saved a newer Config draft for this workspace. Download it (Download config) before switching studies, or reload to take the newer one.";
+    }
+    if (kept) return "";
+    sayDraftState("Not saved in this browser");
+    return "The Config draft could not be saved in this browser. Download it (Download config) or Reset the form before switching studies.";
+  }
 })();
