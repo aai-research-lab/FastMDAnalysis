@@ -225,7 +225,8 @@ FastMDXplora/
 │       │   │                      #   palette.js (go to anything, Cmd+K; Cmd+P a file), keys.js
 │       │   │                      #   (every key, and its sheet), place.js and place.css (where you
 │       │   │                      #   are, at the head of every page), statusbar.js and statusbar.css
-│       │   │                      #   (the strip under every page), stop-run.js (Stop the
+│       │   │                      #   (the strip under every page), overview-runs.js (the Overview of
+│       │   │                      #   a study of several runs), stop-run.js (Stop the
 │       │   │                      #   run, asked first, wherever it is offered), run-notice.js
 │       │   │                      #   (progress in the tab's title, a notice at the end);
 │       │   │                      #   remote.js and remote.css (Run on one of your machines,

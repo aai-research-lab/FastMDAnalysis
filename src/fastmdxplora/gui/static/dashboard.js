@@ -1392,7 +1392,9 @@
     const absent = document.getElementById("live-absent");
     if (panels) panels.hidden = nothing;
     if (absent) {
-      absent.hidden = !nothing;
+      // A study of several runs has its runs on the Overview instead
+      // (overview-runs.js).
+      absent.hidden = !nothing || Array.isArray(state.appState?.runs);
       const said = liveAbsence(state.appState);
       const title = document.getElementById("live-absent-title");
       const body = document.getElementById("live-absent-body");

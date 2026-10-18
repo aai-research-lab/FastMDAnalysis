@@ -69,7 +69,8 @@ def runs_compared(root: Path | str) -> dict[str, Any]:
         "ok": True,
         "runs": [{"run_id": run["run_id"], "label": labels[run["run_id"]], "state": run["state"],
                   "fraction": run.get("fraction"), "so_far": bool(run.get("so_far")),
-                  "values": {axis: (run.get("values") or {}).get(axis) for axis in axes}}
+                  "values": {axis: (run.get("values") or {}).get(axis) for axis in axes},
+                  "path": run["path"], **_how_far(Path(run["path"]), run["state"])}
                  for run in runs],
         "axes": [{"axis": axis, "label": axis.split(".")[-1]} for axis in axes],
         "replicas": replicas,
@@ -160,9 +161,35 @@ def _said(cells: list[dict[str, Any]], reference: str | None, resolved: int,
     return " ".join(parts)
 
 
+def _how_far(folder: Path, state: str) -> dict[str, Any]:
+    """How far a run has got and how fast: its production's nanoseconds so
+    far and planned, and its speed in ns/day, as the Overview of one run
+    reads them (`simulated_time.simulated_times`,
+    `overview_view._production_speed`). None where a run has not got that
+    far."""
+    from fastmdxplora.gui.overview_view import _production_speed
+    from fastmdxplora.gui.simulated_time import simulated_times
+    from fastmdxplora.gui.telemetry import status_as_it_stands
+
+    none = {"production_ns": None, "production_planned_ns": None, "speed_ns_per_day": None}
+    if state == "waiting" or not (folder / "simulation").is_dir():
+        return none
+    try:
+        times = simulated_times(folder, status_as_it_stands(folder)) or {}
+        speed = _production_speed(folder)
+    except Exception:  # noqa: BLE001 - a row with what it has, never a wrong number
+        return none
+    return {"production_ns": _finite(times.get("production_ns")),
+            "production_planned_ns": _finite(times.get("production_planned_ns")),
+            "speed_ns_per_day": speed}
+
+
 def _with_the_replica_spread(base: Path, measures: list[dict[str, Any]]) -> None:
     """The spread of the replicas' means against the error each run
-    estimated for itself, as the written comparison says it."""
+    estimated for itself, as the written comparison says it; and the mean
+    of their means with the error the spread gives it (its standard
+    deviation over the square root of their number), as
+    `batch.aggregate` reads the replicas that finished."""
     from fastmdxplora.batch.aggregate import aggregate_members
 
     try:
@@ -176,6 +203,13 @@ def _with_the_replica_spread(base: Path, measures: list[dict[str, Any]]) -> None
         entry = analyses.get(measure["analysis"])
         if isinstance(entry, dict) and entry.get("calibration"):
             measure["said"] = str(entry["calibration"])
+        if not isinstance(entry, dict):
+            continue
+        members = len(entry.get("members") or [])
+        mean, spread = _finite(entry.get("mean_of_means")), _finite(entry.get("spread_of_means"))
+        if mean is not None and spread is not None and members >= 2:
+            measure["ensemble"] = {"mean": mean, "error": spread / math.sqrt(members),
+                                   "spread": spread, "runs": members}
 
 
 def _finite(value: Any) -> float | None:

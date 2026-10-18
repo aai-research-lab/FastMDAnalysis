@@ -5024,6 +5024,32 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
 .runs-overlay-pick { font-size: var(--text-xs); color: var(--text-muted); display: inline-flex; gap: 8px; align-items: center; }
 .runs-overlay-pick select { font: inherit; color: var(--text-primary); background: var(--background-elevated); border: 1px solid var(--border-primary); border-radius: 6px; padding: 3px 6px; }
 .runs-overlay-chart { margin-top: 8px; }
+
+/* The Overview of a study of several runs (overview-runs.js): the runs as
+   the Analysis page's table has them, each opening from its row. */
+.overview-runs { display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; }
+.overview-runs[hidden] { display: none; }
+.overview-runs-card, .overview-runs-undetermined, .overview-runs-overlay { padding: 14px 16px; }
+.overview-runs-table .is-number { text-align: right; }
+.overview-runs-open {
+    appearance: none; border: 0; background: transparent; padding: 0; font: inherit;
+    color: var(--text-primary); cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
+}
+.overview-runs-open:hover span:last-child { text-decoration: underline; }
+.overview-runs-open .status-dot { width: 7px; height: 7px; margin: 0; }
+.overview-runs-state { white-space: nowrap; color: var(--text-secondary); }
+.overview-runs-bar {
+    display: inline-block; width: 64px; height: 5px; margin-right: 8px; vertical-align: middle;
+    border-radius: 3px; background: var(--background-soft); overflow: hidden;
+}
+.overview-runs-fill { display: block; height: 100%; background: var(--status-live); }
+.overview-runs-together th, .overview-runs-together td {
+    border-top: 1px solid var(--border-strong, var(--border-primary)); font-weight: 600;
+    color: var(--text-primary);
+}
+.overview-runs-note:empty { display: none; }
+.overview-runs-undetermined-list { margin: 6px 0; padding-left: 18px; color: var(--text-secondary); }
+.overview-runs-undetermined-list li { margin: 4px 0; }
 .runs-overlay-svg { width: 100%; height: auto; max-height: 340px; display: block; }
 .runs-overlay-line { fill: none; stroke-width: 1.4; stroke-linejoin: round; }
 .runs-overlay-grid { stroke: var(--border-primary); stroke-width: 1; }
