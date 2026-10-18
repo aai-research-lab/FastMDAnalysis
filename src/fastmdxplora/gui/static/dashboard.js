@@ -1845,9 +1845,12 @@
       rows.push(`<dt>${escapeHTML(label)}</dt><dd>${value}</dd>`);
     };
     const code = (value) => `<code>${escapeHTML(value)}</code>`;
+    const notRead = Array.isArray(made.not_read) ? made.not_read : [];
+    // Who made it not read (the run's manifest) is not a release that did
+    // not record itself.
     row("Made by", made.version
       ? `FastMDXplora ${code(made.version)}` + (made.host ? ` on ${escapeHTML(made.host)}` : "")
-      : "a release that did not record itself");
+      : notRead.includes("manifest.json") ? "Not read" : "a release that did not record itself");
     const packages = Object.entries(made.packages || {});
     if (packages.length) {
       row("With", packages.map(([name, version]) => `${escapeHTML(name)} ${code(version)}`).join(", "));
@@ -1886,7 +1889,11 @@
         widths.map(([width]) => `<button type="button" class="file-action" data-width="${escapeAttr(width)}">` +
           `${escapeHTML(WIDTH_SAID[width] || width)}</button>`).join("") + "</div>"
       : "";
-    return `<dl class="figure-provenance-rows">${rows.join("")}</dl>` +
+    // A record not read, named with why; where it held the options, no
+    // command is written, and the panel says so.
+    const said = notRead.length && made.not_read_said
+      ? `<p class="figure-provenance-note">${escapeHTML(made.not_read_said)}</p>` : "";
+    return `<dl class="figure-provenance-rows">${rows.join("")}</dl>` + said +
       (again
         ? `<p class="figure-provenance-how">${escapeHTML(how)}</p>` + choose +
           `<pre class="figure-provenance-command">${escapeHTML(again)}</pre>` +

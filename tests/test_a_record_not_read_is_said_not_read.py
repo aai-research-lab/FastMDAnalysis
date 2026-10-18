@@ -255,3 +255,73 @@ def test_the_tiles_not_shown_are_counted_of_those_not_read(browser, tmp_path):
         browser, root, "() => document.querySelector('#overview-tiles .overview-tile')",
         "() => document.getElementById('overview-results-said').textContent")
     assert counted.startswith("12 analyses not read; 9 of the 12 shown here · ")
+
+
+#: A figure as the analyses save it (one pixel will do for a card).
+PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+    "0000000d4944415478da63f8cf000003000101a5f645400000000049454e44ae426082")
+
+
+@pytest.mark.parametrize("refused", [
+    ("analysis/rmsd/options.json",), ("manifest.json",),
+    ("manifest.json", "analysis/rmsd/options.json")], ids=["options", "manifest", "both"])
+def test_a_figure_s_panel_says_its_record_not_read(browser, tmp_path, refused):
+    """A figure's record linked out: its panel says the record was not read
+    and why, gives no command where the options were not read, and does not
+    call who made it a release that did not record itself."""
+    from fastmdxplora.gui.server import start_dashboard_session
+    from tests.test_a_record_refused_is_not_read_as_missing import _linked_out
+
+    root = _study(tmp_path)
+    _write(root, "analysis/analysis_manifest.json", {
+        "phase": "analysis", "n_frames": 40,
+        "resolved": {"trajectory": str(root / "simulation" / "production.dcd"),
+                     "topology": str(root / "simulation" / "topology.pdb")},
+        "results": {"rmsd": {"status": "ok"}, "rg": {"status": "ok"}}})
+    _write(root, "analysis/rmsd/options.json", {
+        "analysis": "rmsd", "selection": "protein and name CA",
+        "options": {"ref": 0, "align": True}})
+    _write(root, "manifest.json", {"phases": [{"name": "analysis", "status": "ok",
+                                               "produced_by": {"version": "9.9.9"}}]})
+    (root / "analysis" / "rmsd" / "rmsd.png").write_bytes(PNG)
+    _linked_out(root, tmp_path, *refused)
+
+    session = start_dashboard_session(output=str(root), host="127.0.0.1", port=0)
+    page = browser.new_page(viewport={"width": 1440, "height": 900})
+    page.set_default_timeout(60000)
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    chip = '.analysis-card[data-analysis="rmsd"] .figure-chip'
+    panel = '.analysis-card[data-analysis="rmsd"] .figure-provenance'
+    try:
+        page.goto(session.url + "#analysis", wait_until="domcontentloaded")
+        page.wait_for_selector(chip)
+        page.click(chip)
+        page.wait_for_selector(f"{panel}:not([hidden])")
+        said = page.evaluate(f"""() => ({{
+            text: document.querySelector('{panel}').textContent,
+            rows: Object.fromEntries([...document.querySelectorAll('{panel} dt')]
+                .map((dt) => [dt.textContent, dt.nextElementSibling.textContent])),
+            note: [...document.querySelectorAll('{panel} .figure-provenance-note')]
+                .map((p) => p.textContent).join(' '),
+            command: !!document.querySelector('{panel} .figure-provenance-command'),
+        }})""")
+    finally:
+        page.close()
+        session.stop()
+    assert not errors, errors
+
+    assert "did not record itself" not in said["text"]
+    for name in refused:
+        assert f"{name} was not read: it is a link to a file outside the study." in said["note"]
+    if "manifest.json" in refused:
+        assert said["rows"]["Made by"] == "Not read"
+    else:
+        assert said["rows"]["Made by"] == "FastMDXplora 9.9.9"
+    if "analysis/rmsd/options.json" in refused:
+        assert not said["command"]
+        assert "Selection" not in said["rows"] and "Options" not in said["rows"]
+        assert "command that makes the figure again is not written" in said["note"]
+    else:
+        assert said["command"]
