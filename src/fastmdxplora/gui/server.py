@@ -1268,6 +1268,14 @@ def make_handler(
                 # page saying which were not read.
                 self._send_json(_said_not_read(_confined(root, report_payload)))
                 return
+            if path == "/api/study-timeline":
+                # What happened to the study, newest first (side panel).
+                # Read from the study's own records only (`_confined`), the
+                # page saying which were not read.
+                from fastmdxplora.gui.study_timeline import timeline_of
+
+                self._send_json(_said_not_read(_confined(root, timeline_of)))
+                return
             if path == "/api/timeline":
                 # What the Viewer's timeline marks on the frames it plays.
                 # Read from the study's own records only (`_confined`).

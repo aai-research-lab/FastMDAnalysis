@@ -1,0 +1,182 @@
+/* The study's Timeline, in the side panel (study_timeline.py).
+ *
+ * What happened to the study, newest first, as an editor's Timeline of a
+ * file: each phase as it last ran, one a run again replaced or set aside,
+ * each piece an extended study was carried on in; when, how long, which
+ * version on which computer, and what it changed where the records say (the
+ * means an analysis run again moved, the settings a piece was carried on
+ * with). Read when its tab is shown, and again as the study changes while
+ * it is. Everything is built as elements: what a study recorded is data.
+ */
+(function () {
+  "use strict";
+
+  var shownFor = "";
+  var asking = false;
+
+  function byId(id) { return document.getElementById(id); }
+
+  function make(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined && text !== null) node.textContent = text;
+    return node;
+  }
+
+  function pane() { return document.querySelector('.side-pane[data-side-pane="timeline"]'); }
+  function open() { var p = pane(); return !!p && !p.hidden; }
+
+  /* When, as a day and a time on this computer's clock. */
+  function whenSaid(iso) {
+    var date = new Date(iso);
+    if (isNaN(date.getTime())) return "";
+    return date.toLocaleDateString(undefined, { day: "numeric", month: "short" }) + ", " +
+      date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function tookSaid(seconds) {
+    if (seconds == null || !isFinite(seconds)) return "";
+    if (seconds < 60) return (seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)) + " s";
+    var minutes = Math.round(seconds / 60);
+    if (minutes < 60) return minutes + " min";
+    return Math.floor(minutes / 60) + " h " + (minutes % 60) + " min";
+  }
+
+  function figure(value) {
+    if (value == null || !isFinite(value)) return "\u2014";
+    var m = Math.abs(value);
+    return m !== 0 && (m >= 1e5 || m < 1e-3) ? value.toExponential(3) : String(+value.toPrecision(4));
+  }
+
+  function meanSaid(side, unit) {
+    if (!side || side.mean == null) return "not recorded";
+    var said = figure(side.mean) + (side.error != null ? " \u00b1 " + figure(side.error) : "");
+    return said + (unit ? " " + unit : "") + (side.error == null ? ", not determined" : "");
+  }
+
+  function changes(event) {
+    var c = event.changes;
+    if (!c) return null;
+    var parts = [];
+    if (c.moved.length) parts.push(c.moved.length + " mean" + (c.moved.length === 1 ? "" : "s") + " moved");
+    if (c.kept) parts.push(c.kept + " the same");
+    if (c.added.length) parts.push(c.added.length + " added");
+    if (c.dropped.length) parts.push(c.dropped.length + " not run again");
+    var unread = c.not_read || [];
+    if (unread.length) parts.push(unread.length + " not read");
+    var box = make("details", "tl-changes");
+    box.appendChild(make("summary", "", parts.join(", ") || "Nothing changed"));
+    if (c.moved.length) {
+      var table = make("table", "kv-table tl-table");
+      var head = make("tr");
+      ["Analysis", "Before", "After"].forEach(function (w) { head.appendChild(make("th", "", w)); });
+      table.appendChild(head);
+      c.moved.forEach(function (m) {
+        var row = make("tr");
+        row.dataset.analysis = m.analysis;
+        row.appendChild(make("td", "", m.analysis));
+        row.appendChild(make("td", "mono", meanSaid(m.before, m.unit)));
+        row.appendChild(make("td", "mono", meanSaid(m.after, m.unit)));
+        table.appendChild(row);
+      });
+      box.appendChild(table);
+    }
+    if (c.added.length) box.appendChild(make("p", "muted small", "Added: " + c.added.join(", ") + "."));
+    if (c.dropped.length) {
+      box.appendChild(make("p", "muted small", "Not run again, kept in previous/analysis: " +
+                                              c.dropped.join(", ") + "."));
+    }
+    if (unread.length) {
+      // Its record not read, before or after: not said moved, kept, added
+      // or dropped (study_timeline.py).
+      box.appendChild(make("p", "muted small", "Not read, so not compared: " +
+                                              unread.join(", ") + "."));
+    }
+    return box;
+  }
+
+  function settings(event) {
+    if (event.settings_not_read) {
+      return make("p", "muted small tl-not-read",
+                  "Its settings, or the study's, were not read: the settings it was carried on with are not said.");
+    }
+    if (!event.settings || !event.settings.length) return null;
+    var box = make("details", "tl-changes");
+    box.appendChild(make("summary", "", event.settings.length + " setting" +
+                                         (event.settings.length === 1 ? "" : "s") + " differ from the study's"));
+    var table = make("table", "kv-table tl-table");
+    event.settings.forEach(function (d) {
+      var row = make("tr");
+      row.appendChild(make("td", "mono", d.setting));
+      row.appendChild(make("td", "mono", d.first == null ? "not set" : JSON.stringify(d.first)));
+      row.appendChild(make("td", "mono", d.second == null ? "not set" : JSON.stringify(d.second)));
+      table.appendChild(row);
+    });
+    box.appendChild(table);
+    return box;
+  }
+
+  function render(data) {
+    var list = byId("study-timeline-list");
+    var said = byId("study-timeline-said");
+    if (!list) return;
+    list.replaceChildren();
+    var events = data && data.ok ? data.events || [] : [];
+    // A record of the study not read is said so first (server._confined),
+    // never as a step it did not take.
+    var notRead = data && data.not_read ? data.not_read : "";
+    said.textContent = data && data.ok
+      ? (notRead || (events.length ? "" : "Nothing recorded yet: a study's steps are listed as it takes them."))
+      : (data && (data.reason || data.error)) || "The Timeline could not be read.";
+    events.forEach(function (event) {
+      var item = make("li", "tl-event");
+      item.dataset.kind = event.kind;
+      item.dataset.phase = event.phase;
+      if (event.replaced) item.dataset.replaced = "true";
+      var head = make("div", "tl-head");
+      head.appendChild(make("span", "tl-dot"));
+      head.appendChild(make("span", "tl-said", event.said + (event.again ? " again" : "")));
+      var when = make("time", "tl-when", whenSaid(event.at));
+      when.setAttribute("datetime", event.at || "");
+      head.appendChild(when);
+      item.appendChild(head);
+      var facts = [tookSaid(event.seconds),
+                   event.version ? event.version + (event.host ? " on " + event.host : "") : "",
+                   event.where || "", event.detail || ""].filter(Boolean);
+      if (facts.length) item.appendChild(make("div", "tl-facts", facts.join(" \u00b7 ")));
+      [changes(event), settings(event)].forEach(function (box) { if (box) item.appendChild(box); });
+      list.appendChild(item);
+    });
+  }
+
+  function load(force) {
+    var app = window.FastMDXDashboard ? window.FastMDXDashboard.state.appState : null;
+    var study = app && app.active_run ? app.active_run : "";
+    if (!open() || asking || (!force && study === shownFor)) return;
+    asking = true;
+    fetch("/api/study-timeline", { cache: "no-store" })
+      .then(function (r) { return r.json(); })
+      .catch(function () { return { ok: false, reason: "The server did not answer." }; })
+      .then(function (data) {
+        asking = false;
+        shownFor = study;
+        render(data);
+      });
+  }
+
+  function wire() {
+    var p = pane();
+    if (!p) return;
+    // Shown by its tab, or as the panel was left: read then.
+    new MutationObserver(function () { if (open()) load(true); })
+      .observe(p, { attributes: true, attributeFilter: ["hidden"] });
+    window.addEventListener("dashboard:run-changed", function () { shownFor = ""; load(true); });
+    window.addEventListener("dashboard:results-updated", function () { load(true); });
+    if (open()) load(true);
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", wire);
+  else wire();
+
+  window.FastMDXStudyTimeline = { load: load };
+}());
