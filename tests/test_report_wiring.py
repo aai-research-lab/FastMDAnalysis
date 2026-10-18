@@ -2909,7 +2909,10 @@ class TestTheReportSaysWhatItMeans:
     def test_the_report_page_rerenders_only_on_change(self):
         js = (Path(__file__).resolve().parents[1] / "src" / "fastmdxplora" / "gui"
               / "static" / "report-page.js").read_text(encoding="utf-8")
-        assert "if (doc.dataset.rendered === data.html) return;" in js
+        # The text with its numbers marked, and the records written again
+        # since: what they trace to changes with the records, not the text.
+        assert "var drawn = shown + JSON.stringify(data.records_changed || []);" in js
+        assert "if (doc.dataset.rendered === drawn) return;" in js
 
 
 

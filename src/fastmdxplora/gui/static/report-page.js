@@ -125,6 +125,7 @@
       var why = el("report-empty-reason");
       if (why) why.textContent = data && data.not_read ? data.not_read
         : data && data.reason && data.pending ? data.reason : "";
+      if (window.FastMDXReportOutline) window.FastMDXReportOutline.render(doc, null);
       return;
     }
 
@@ -133,9 +134,13 @@
      * flickered and threw the scroll back to wherever the browser landed
      * -- the citation, mostly. The report is finished text; it changes
      * when the run writes a new one, not every two seconds. */
-    if (doc.dataset.rendered === data.html) return;
-    doc.dataset.rendered = data.html;
-    doc.innerHTML = data.html;
+    // With its numbers marked (report_numbers.py); what they trace to
+    // changes with the records, not the text.
+    var shown = data.marked || data.html;
+    var drawn = shown + JSON.stringify(data.records_changed || []);
+    if (doc.dataset.rendered === drawn) return;
+    doc.dataset.rendered = drawn;
+    doc.innerHTML = shown;
     doc.hidden = false;
     empty.hidden = true;
 
@@ -181,6 +186,7 @@
       }
     });
     chipFigures(doc, data.figure_provenance || {});
+    if (window.FastMDXReportOutline) window.FastMDXReportOutline.render(doc, data);
   }
 
   /* For the Agent: the section of the report being read, by its heading,

@@ -84,12 +84,12 @@ def report_payload(root: Path | str) -> dict[str, Any]:
 
     return {
         "ok": True,
-        "html": html,
         "not_produced": not_produced,
         "downloads": downloads,
         "generated": _generated_line(text),
         "rendered": rendered,
         "figure_provenance": provenance,
+        **_traced(html, rendered, base, source),
     }
 
 
@@ -216,10 +216,11 @@ def _study_of_runs_payload(base: Path) -> dict[str, Any]:
                           ("summary", "comparison_summary.csv")):
             if _records.is_file(comparison.parent / name):
                 downloads[key] = f"/artifacts/comparison/{name}?download=1"
-        return {"ok": True, "html": html, "not_produced": [], "downloads": downloads,
+        return {"ok": True, "not_produced": [], "downloads": downloads,
                 "generated": _generated_line(text), "rendered": rendered,
                 "figures_under": "comparison", "runs": len(runs), "pending": pending,
-                "figure_provenance": _comparison_provenance(comparison.parent)}
+                "figure_provenance": _comparison_provenance(comparison.parent),
+                **_traced(html, rendered, base, comparison)}
     if not completed:
         return {"ok": False, "reason": f"none of {len(runs)} runs completed yet",
                 "html": "", "not_produced": [], "downloads": {},
@@ -228,6 +229,40 @@ def _study_of_runs_payload(base: Path) -> dict[str, Any]:
     return {"ok": True, "html": html, "not_produced": [], "downloads": {},
             "generated": "", "rendered": rendered, "figures_under": "comparison",
             "runs": len(runs), "pending": pending}
+
+
+#: The last report traced, by study: tracing reads every record, and the
+#: page asks again on every change of the run's state.
+_TRACED: dict[str, tuple[Any, dict[str, Any]]] = {}
+
+
+def _traced(html: str, rendered: str, base: Path, source: Path) -> dict[str, Any]:
+    """The report's HTML as rendered, and as the Report page shows it:
+    each number it states marked and traced to its record
+    (`report_numbers.py`); and the records changed since the report was
+    written, since a number a record no longer holds is most often one of
+    those. The standalone page and the Files tab's preview take the first."""
+    if rendered != "html":
+        return {"html": html, "marked": "", "numbers": [], "records_changed": []}
+    from fastmdxplora.gui.report_numbers import record_files, traced_html
+
+    def mtime(path: Path) -> int:
+        try:
+            return path.stat().st_mtime_ns
+        except OSError:
+            return 0
+
+    files = record_files(base)
+    written = mtime(source)
+    signature = (html, written, tuple((str(p), mtime(p)) for p in files))
+    kept = _TRACED.get(str(base))
+    if kept is not None and kept[0] == signature:
+        return kept[1]
+    marked, numbers = traced_html(html, base)
+    changed = sorted(p.relative_to(base).as_posix() for p in files if mtime(p) > written)
+    said = {"html": html, "marked": marked, "numbers": numbers, "records_changed": changed}
+    _TRACED[str(base)] = (signature, said)
+    return said
 
 
 def _comparison_provenance(folder: Path) -> dict[str, dict[str, Any]]:
