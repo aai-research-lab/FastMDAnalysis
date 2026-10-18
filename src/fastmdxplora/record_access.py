@@ -30,6 +30,7 @@ class ReadScope:
     def checked(self, path: Path, *, remember: bool = True) -> Path:
         """Check both the requested address and its current destination."""
         path = path.absolute()
+        relative: Path | None = None
         try:
             relative = path.relative_to(self.root)
             resolved = path.resolve()
@@ -37,9 +38,12 @@ class ReadScope:
             if self.admitted(path) and self.admitted(resolved):
                 return resolved
         except (OSError, RuntimeError, ValueError):
-            relative = Path("an unavailable record")
+            pass
         if remember:
-            self.denied.add(relative.as_posix())
+            # A link out of the study is named by its own place in it; only
+            # an address that is not in the study at all goes unnamed.
+            named = relative is not None and ".." not in relative.parts
+            self.denied.add(relative.as_posix() if named else "an unavailable record")
         raise OutsideWorkspace("The record could not be confined to the allowed study files.")
 
 

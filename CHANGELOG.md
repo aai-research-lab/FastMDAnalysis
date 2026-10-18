@@ -23,8 +23,11 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   running now.
 
 - A Problems tab beside Log and Files lists the open study's recorded
-  refusals, run warnings and undetermined analysis means, with their
-  reasons and available remedies. Its evidence controls open the record
+  refusals (its phases' and the report formats it could not produce), a
+  run interrupted or stopped as the Overview says it, the report's verdict
+  that an observable has not equilibrated, the warnings of the run and of
+  its log, and undetermined analysis means, with their reasons and
+  available remedies. Its evidence controls open the record
   in Files. Missing records are said, and changing studies clears the old
   list before another is read. The panel only reads; fixes are run through
   the existing confirmed actions on the Overview.
@@ -113,23 +116,33 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   public files. It checks evidence candidates without recursively listing
   artifacts, so unrelated trajectory links and scratch trees do not block
   the list. Unused axis and remedy-price work is skipped; unexpected reader
-  failures retain a public note and a private debug traceback.
+  failures retain a public note and a private debug traceback. A record
+  linked out of the study is named by its place in it.
 
 - `/api/analysis-overview` no longer shows the text of a record linked out
   of the study, or to a hidden file in it.
 
 - Problems reads the run's own process record, so a running study is read
   (and is not a problem), and a run the Overview calls Interrupted is listed.
-  Each warning the run wrote in `simulation/live_events.log` is listed once.
+  A stop or interruption is listed only while the Overview says so: a study
+  being carried on, or carried on to the end, lists neither the stop nor the
+  stop's own warnings. Each warning in `simulation/live_events.log`, a
+  piece's own narration or `fastmdxplora.log` is listed once, with the
+  record it came from, and without the runner's "warning:" before it. A
+  phase is titled as the Overview says it ("Setup failed").
 
 - Problems names the records it read, and names each record missing or
-  unreadable, `manifest.json` and the analysis manifest included; the
-  headline then never says there are no problems.
+  unreadable, `manifest.json`, the analysis manifest, the narration and the
+  log included; the headline then never says there are no problems. A
+  running study's `manifest.json`, written when the run ends, is said as
+  that, and a folder with no records yet says so rather than asking for a
+  study to be opened.
 
 - Under What would fix it, Problems gives a withheld mean's recorded
-  shortfall (the more production and the independent samples it should
-  give) and a retryable refusal's registry remedy; where none is recorded,
-  it says so. A quantity the same in every frame is named as the Overview
+  shortfall in its record's own words (where the count is a floor, at
+  least so much more and then a new estimate) and a retryable refusal's
+  registry remedy; where none is recorded, it says so, and what the
+  telemetry says of a warning is given as its reason, not as a fix. A quantity the same in every frame is named as the Overview
   names it.
 
 - `/api/problems` answers with no study open, or with the study's folder

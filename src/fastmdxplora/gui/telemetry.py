@@ -56,10 +56,13 @@ ENERGY_EXPLANATION = (
     "Energy increased sharply. This can indicate steric clashes, unstable timestep, "
     "bad contacts, or pressure/temperature coupling issues."
 )
-TEMPERATURE_EXPLANATION = (
-    "Temperature is outside the expected range. Consider a smaller timestep, stronger "
-    "friction, gentler heating, or checking the input structure."
+#: What would bring a temperature back into range, said apart so a list of
+#: problems can give it as a remedy and the rest as a description.
+TEMPERATURE_REMEDY = (
+    "Consider a smaller timestep, stronger friction, gentler heating, or checking "
+    "the input structure."
 )
+TEMPERATURE_EXPLANATION = "Temperature is outside the expected range. " + TEMPERATURE_REMEDY
 INTERRUPTED_EXPLANATION = (
     "Its last update said it was still going, and the process that ran it is "
     "gone: the machine restarted, or its job was ended by a scheduler or by "

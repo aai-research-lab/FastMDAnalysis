@@ -107,25 +107,34 @@ line: the product's name at the top of the sidebar, each page's title,
 centred, and the side panel's tabs.
 
 The **Problems** tab lists, from the open study's own records, each refusal
-(its code, its words and the registry's remedy), a run interrupted (as the
-Overview says it: one whose record says it is going, but whose process is
-gone or which has written nothing for a day), each warning the run recorded
-in `simulation/live_events.log`, and each mean not determined, with the
-quantity and why. Under **What would fix it** is the remedy the records hold:
-for a mean withheld for want of samples, the more production its record
-asks for and the independent samples that should give; where the records
-hold none, it says no remedy is recorded. A quantity the same in every
-frame is named as the Overview names it. The file icon opens a problem's
-record in Files. With no problems it says so and names the records it read;
-a record missing or unreadable is named as unavailable, and the headline
-then never says the study has no problems. A study whose folder has gone is
-said to be gone. The tab only reads: it writes no file, starts no run, and
-reads nothing outside the open run's folder. It reads the open run alone, not
-its campaign or the runs beside it; for a campaign, open each run. A record
-linked out of the study, or to a hidden file in it, is refused, and the list
-is then unavailable and names it; of the hidden files, only the run's own
-process record (`.fastmdxplora_run.json`) is read, to tell a run going from
-one that ended. With the Agent beside a page, the Agent takes the side
+(its code, its words and the registry's remedy), those of its phases in
+`manifest.json` and each report format not produced in
+`report/not_produced.json`; a run interrupted or stopped, as the Overview
+says it now (one whose record says it is going, but whose process is gone or
+which has written nothing for a day, is interrupted; a stop being carried on,
+or carried on to the end, is no longer a problem, and neither are the stop's
+own warnings); the report's verdict that an observable has not equilibrated,
+read from its convergence checks in `report/report.md` with the observables
+still moving; each warning recorded in `simulation/live_events.log`, in a
+piece's own narration, or in the study's log (`fastmdxplora.log`), each
+once; and each mean not determined, with the quantity and why. Under **What
+would fix it** is the remedy the records hold: for a mean withheld for want
+of samples, its record's own words for the more production it asks for;
+where the records hold none, it says no remedy is recorded. A quantity the
+same in every frame is named as the Overview names it. The file icon opens a
+problem's record in Files, at its first line. With no problems it says so
+and names the records it read; a record missing or unreadable is named as
+unavailable, and the headline then never says the study has no problems. A
+running study's `manifest.json`, written when the run ends, is said as that,
+not as unavailable; a folder with no records yet says so; a study whose
+folder has gone is said to be gone. The tab only reads: it writes no file,
+starts no run, and reads nothing outside the open run's folder. It reads the
+open run alone, not its campaign or the runs beside it; for a campaign, open
+each run. A record linked out of the study, or to a hidden file in it, is
+refused, and the list is then unavailable and names the record by its place
+in the study; of the hidden files, only the run's own process record
+(`.fastmdxplora_run.json`) is read, to tell a run going from one that ended.
+With the Agent beside a page, the Agent takes the side
 panel's place, so Log, Files and Problems come back when the Agent closes.
 
 **The sidebar** reads top-down:

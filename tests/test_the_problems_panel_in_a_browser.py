@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 from pathlib import Path
 
 import pytest
@@ -27,7 +29,34 @@ def _write_study(root: Path, why: str | None = "Only four independent samples.")
                          "n_frames": 200, "effective_samples": 100, "rules": MEAN_RULES})
     (folder / "options.json").write_text(json.dumps({"findings": {"mean": mean}}),
                                          encoding="utf-8")
+    _narrated(root)
     return root
+
+
+def _narrated(root: Path) -> None:
+    """The narration and the log every run writes beside its records."""
+    from fastmdxplora.gui.telemetry import TelemetryWriter
+    from fastmdxplora.utils.logging import attach_file_logger, detach_file_logger, get_logger
+
+    TelemetryWriter(root / "simulation").event("Production started")
+    attach_file_logger(root / "fastmdxplora.log", level=logging.DEBUG)
+    try:
+        get_logger("orchestrator").info("Plan: setup -> simulation -> analysis")
+    finally:
+        detach_file_logger(root / "fastmdxplora.log")
+
+
+def _running(root: Path) -> None:
+    """A run going now: its record just written, its process this one."""
+    from datetime import datetime, timezone
+
+    from fastmdxplora.orchestrator import RUN_PROCESS_FILE, this_machine
+
+    (root / "simulation" / "live_status.json").write_text(json.dumps({
+        "status": "running", "stage": "production",
+        "last_update_timestamp": datetime.now(timezone.utc).isoformat()}), encoding="utf-8")
+    (root / RUN_PROCESS_FILE).write_text(json.dumps({"pid": os.getpid(), **this_machine()}),
+                                         encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
@@ -40,9 +69,15 @@ def sessions(tmp_path_factory):
                "clean": _write_study(base / "clean", None),
                "no-manifest": _write_study(base / "no-manifest", None),
                "vanishing": _write_study(base / "vanishing", None),
-               "empty": base / "empty"}
+               "running": _write_study(base / "running", None),
+               "empty": base / "empty",
+               "not-a-study": base / "not-a-study"}
     (studies["no-manifest"] / "manifest.json").unlink()
+    (studies["running"] / "manifest.json").unlink()
     studies["empty"].mkdir()
+    # Files, none of them FastMDXplora's: no study is open.
+    studies["not-a-study"].mkdir()
+    (studies["not-a-study"] / "notes.txt").write_text("Papers to read.\n", encoding="utf-8")
     sessions = {name: start_dashboard_session(output=str(path), host="127.0.0.1", port=0)
                 for name, path in studies.items()}
     yield sessions, studies
@@ -207,11 +242,73 @@ def test_a_late_response_cannot_restore_the_previous_study(browser, sessions):
 def test_no_study_does_not_claim_a_clean_bill_of_health(browser, sessions):
     from playwright.sync_api import expect
 
-    page = _open(browser, sessions[0]["empty"])
+    page = _open(browser, sessions[0]["not-a-study"])
     try:
         expect(page.locator("#problems-summary")).to_have_text("Open a study to read its problems.")
         assert page.locator(".problem-item").count() == 0
     finally:
+        page.context.close()
+
+
+def test_a_folder_a_study_is_about_to_be_in_has_no_records_yet(browser, sessions):
+    from playwright.sync_api import expect
+
+    page = _open(browser, sessions[0]["empty"])
+    try:
+        expect(page.locator("#problems-summary")).to_have_text(
+            "No records yet. A study's problems are read from the records its run writes, "
+            "and this folder holds none so far.")
+        assert page.locator(".problem-item").count() == 0
+    finally:
+        page.context.close()
+
+
+def test_a_healthy_running_study_has_no_record_said_unavailable(browser, sessions):
+    from playwright.sync_api import expect
+
+    _running(sessions[1]["running"])
+    page = _open(browser, sessions[0]["running"])
+    try:
+        expect(page.locator("#problems-summary")).to_have_text(
+            "No problems listed in the records read.")
+        expect(page.locator("#problems-body")).to_contain_text(
+            "manifest.json is written when the run ends")
+    finally:
+        page.context.close()
+
+
+def test_another_study_opened_shows_its_own_list_never_beside_the_first(browser, sessions):
+    from playwright.sync_api import expect
+
+    from fastmdxplora.gui.workspace import study_key
+
+    first, second = sessions[1]["first"], sessions[1]["second"]
+    page = _open(browser, sessions[0]["first"])
+    try:
+        expect(page.locator("#problems-body")).to_contain_text("Only four independent samples.")
+        # Every text the pane shows from here on, as it changes.
+        page.evaluate("""() => {
+            window.__shown = [];
+            const body = document.getElementById('problems-pane');
+            new MutationObserver(() => window.__shown.push(body.textContent))
+                .observe(body, {subtree: true, childList: true, characterData: true});
+        }""")
+        page.evaluate("""(folder) => fetch('/api/explore/switch', {method: 'POST',
+            headers: {'content-type': 'application/json'}, body: JSON.stringify({folder})})""",
+                      str(second))
+        page.wait_for_function("(key) => window.FastMDXDashboard.state.studyShown === key",
+                               arg=study_key(second))
+        expect(page.locator("#problems-body")).to_contain_text("Second study's reason.")
+        shown = page.evaluate("window.__shown")
+        assert not any("Only four" in text and "Second study's" in text for text in shown)
+        new = next(i for i, text in enumerate(shown) if "Second study's" in text)
+        assert not any("Only four" in text for text in shown[new:])
+        assert any("Only four" not in text and "Second study's" not in text
+                   for text in shown[:new])
+    finally:
+        page.evaluate("""(folder) => fetch('/api/explore/switch', {method: 'POST',
+            headers: {'content-type': 'application/json'}, body: JSON.stringify({folder})})""",
+                      str(first))
         page.context.close()
 
 
@@ -234,6 +331,7 @@ def test_an_empty_list_says_so_and_names_the_records_it_read(browser, sessions):
             "No problems listed in the records read.")
         expect(page.locator("#problems-body .problems-read")).to_have_text(
             "Records read: manifest.json, simulation/live_status.json, "
+            "simulation/live_events.log, fastmdxplora.log, "
             "analysis/analysis_manifest.json, analysis/rmsd/options.json.")
         assert page.locator(".problem-item").count() == 0
     finally:
@@ -248,11 +346,11 @@ def test_a_missing_record_is_said_and_never_as_no_problems(browser, sessions, wi
     try:
         summary = page.locator("#problems-summary")
         expect(summary).to_have_text(
-            "Some records are unavailable. The 3 records read list no problems.")
+            "Some records are unavailable. The 5 records read list no problems.")
         expect(page.locator("#problems-body")).to_contain_text("manifest.json is not there")
         expect(page.locator("#problems-body .problems-read")).to_have_text(
-            "Records read: simulation/live_status.json, analysis/analysis_manifest.json, "
-            "analysis/rmsd/options.json.")
+            "Records read: simulation/live_status.json, simulation/live_events.log, "
+            "fastmdxplora.log, analysis/analysis_manifest.json, analysis/rmsd/options.json.")
     finally:
         page.context.close()
 

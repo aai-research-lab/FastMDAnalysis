@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -33,9 +34,34 @@ def _link(path: Path, target: Path, *, directory: bool = False) -> None:
         pytest.skip("this system cannot create symbolic links")
 
 
+def _events(root: Path, *lines: tuple[str, str], folder: str = "simulation") -> None:
+    from fastmdxplora.gui.telemetry import TelemetryWriter
+
+    writer = TelemetryWriter(root / folder)
+    for level, message in lines:
+        writer.event(message, level=level)
+
+
+def _logged(root: Path, *records: tuple[int, str]) -> None:
+    """Lines in the study's log, as the orchestrator's file log writes them."""
+    from fastmdxplora.utils.logging import attach_file_logger, detach_file_logger, get_logger
+
+    path = root / "fastmdxplora.log"
+    root.mkdir(parents=True, exist_ok=True)
+    attach_file_logger(path, level=logging.DEBUG)
+    try:
+        for level, message in records:
+            get_logger("orchestrator").log(level, message)
+    finally:
+        detach_file_logger(path)
+
+
 def _status(root: Path, state: str, **extra: object) -> None:
     _write(root, "simulation/live_status.json", {"status": state, "stage": "production",
                                                 **extra})
+    # Every run that keeps a live record narrates and logs beside it.
+    _events(root, ("info", "Simulation phase started"))
+    _logged(root, (logging.INFO, "Plan: setup -> simulation -> analysis -> report"))
 
 
 def _mean(**extra: object) -> dict:
@@ -179,6 +205,7 @@ def test_successful_current_records_have_no_problems_and_are_unchanged(tmp_path)
     assert payload["available"] is True and payload["items"] == []
     # An empty list names the records it read, and none was unavailable.
     assert payload["read"] == ["manifest.json", "simulation/live_status.json",
+                               "simulation/live_events.log", "fastmdxplora.log",
                                "analysis/analysis_manifest.json", "analysis/rmsd/options.json"]
     assert payload["unavailable"] == []
     assert before == {str(p): (p.read_bytes(), p.stat().st_mtime_ns) for p in tmp_path.rglob("*")
@@ -245,14 +272,6 @@ def test_a_malformed_mean_is_explicit_even_when_the_run_completed(tmp_path):
     assert any("analysis/rmsd/options.json" in note for note in payload["notes"])
 
 
-def _events(root: Path, *lines: tuple[str, str]) -> None:
-    from fastmdxplora.gui.telemetry import TelemetryWriter
-
-    writer = TelemetryWriter(root / "simulation")
-    for level, message in lines:
-        writer.event(message, level=level)
-
-
 def test_a_recorded_warning_survives_a_completed_health_state(tmp_path):
     _status(tmp_path, "completed")
     _events(tmp_path, ("warning", "warning: could not sample live metrics (NaN in state)"))
@@ -260,7 +279,9 @@ def test_a_recorded_warning_survives_a_completed_health_state(tmp_path):
     _write(tmp_path, "analysis/rmsd/options.json", {"findings": {"mean": _mean()}})
     payload = problems_payload(tmp_path, admit_evidence=True)
     assert len(payload["items"]) == 1
-    assert payload["items"][0]["reason"] == "warning: could not sample live metrics (NaN in state)"
+    # Said as a person reads it, without the runner's own "warning:".
+    assert payload["items"][0]["title"] == "Recorded run warning"
+    assert payload["items"][0]["reason"] == "Could not sample live metrics (NaN in state)"
     assert payload["items"][0]["file"] == "simulation/live_events.log"
 
 
@@ -272,8 +293,8 @@ def test_each_recorded_run_warning_is_listed_once(tmp_path):
             ("warning", "warning: could not sample live metrics (first)"),
             ("info", "FastMDXplora exploration completed"))
     reasons = [item["reason"] for item in problems_payload(tmp_path)["items"]]
-    assert reasons == ["warning: could not sample live metrics (first)",
-                       "warning: could not sample live metrics (second)"]
+    assert reasons == ["Could not sample live metrics (first)",
+                       "Could not sample live metrics (second)"]
 
 
 def test_a_stop_and_its_warnings_are_one_problem(tmp_path):
@@ -370,8 +391,7 @@ def test_a_missing_record_is_said_as_unavailable(tmp_path, missing):
 def test_an_undetermined_mean_shows_the_sampling_its_record_asks_for(tmp_path):
     import numpy as np
 
-    from fastmdxplora.simulation.sampling_ask import length_said
-    from fastmdxplora.statistics import mean_record
+    from fastmdxplora.statistics import Shortfall, mean_record
 
     # A slowly wandering series: its mean is withheld for want of
     # independent samples, and the record says how much more would do.
@@ -384,10 +404,35 @@ def test_an_undetermined_mean_shows_the_sampling_its_record_asks_for(tmp_path):
     assert len(items) == 1
     short = found["shortfall"]
     assert items[0]["reason"] == found["not_a_measurement"]
-    assert length_said(short["more_ns"]) in items[0]["fix"]
-    assert f"{short['more_frames']} further frames" in items[0]["fix"]
-    assert f"{short['target_independent']:g} independent samples" in items[0]["fix"]
-    assert ("floor" in items[0]["fix"]) is bool(short.get("lower_bound"))
+    # The record's own sentence (`Shortfall.__str__`), nothing more.
+    assert items[0]["fix"] == str(Shortfall(
+        target=short["target_independent"], have=short["independent"],
+        inefficiency=short["statistical_inefficiency"], more_frames=short["more_frames"],
+        more_ns=short["more_ns"], resolved=not short.get("lower_bound")))
+
+
+@pytest.mark.parametrize("lower_bound, said", [
+    (True, "The run is too short to resolve its own correlation time, so its 0.5 "
+           "independent samples are an upper bound. At least 1640 further frames, about "
+           "0.0656 ns more (as long again, or to 25 samples at one every 67 frames if "
+           "that is longer), then estimate again."),
+    (False, "0.5 independent samples of the 25 needed. At one every 67 frames, that is "
+            "1640 further frames, about 0.0656 ns more."),
+])
+def test_a_shortfall_is_said_in_its_records_own_words(tmp_path, lower_bound, said):
+    # Radius of gyration in a real 4 ps run of tri-alanine: a floor asks for
+    # at least that much and a new estimate, and never says it will do.
+    shortfall = {"target_independent": 25.0, "independent": 0.5077832436553107,
+                 "statistical_inefficiency": 66.95770375416248, "more_frames": 1640,
+                 "more_ns": 0.06559993743896483}
+    if lower_bound:
+        shortfall["lower_bound"] = True
+    _write(tmp_path, "analysis/rg/options.json", {"findings": {"mean": {
+        "mean": 0.3355, "effective_samples": 0.5, "unit": "nm", "rules": MEAN_RULES,
+        "not_a_measurement": "Too few independent samples.", "shortfall": shortfall}}})
+    items = problems_payload(tmp_path)["items"]
+    assert [item["fix"] for item in items] == [said]
+    assert "should give" not in items[0]["fix"]
 
 
 def test_a_retryable_refusal_keeps_its_registry_remedy(tmp_path):

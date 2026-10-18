@@ -98,17 +98,20 @@
       return response.json();
     }).then(function (data) {
       if (at !== generation || root !== active) return;
-      if (data.ok && data.active_run === null) {
+      /* No study open has no key. A folder open that is not yet a study
+       * (one a run has just begun in) has its key, and no run named. */
+      if (data.ok && data.active_run === null && !data.study) {
         message("Open a study to read its problems.");
         return;
       }
-      if (data.study !== wanted || data.active_run !== root) {
+      if (data.study !== wanted || (data.active_run !== null && data.active_run !== root)) {
         message("The open study changed. Waiting for its records...");
         return;
       }
       if (!data.ok) throw new Error(data.reason || "Could not read the study's problems.");
-      if (data.state === "gone" || data.state === "unreadable") {
-        /* Refresh cannot bring a folder back: said once, without it. */
+      if (data.state === "gone" || data.state === "unreadable" || data.state === "empty") {
+        /* Refresh cannot bring a folder back: said once, without it. A
+         * folder with no records yet is said as that, not as missing ones. */
         message((data.notes || [])[0] || "The study's records cannot be read.");
         return;
       }

@@ -190,17 +190,17 @@ def test_nested_readers_refuse_a_link_installed_after_the_first_record(
     original = record_access.open_text
     installed = False
 
-    def install_after_manifest(path, **kwargs):
+    def install_after_the_first_record(path, **kwargs):
         nonlocal installed
         stream = original(path, **kwargs)
-        if Path(path) == root / "manifest.json" and not installed:
+        if not installed:
             link = root / source
             link.parent.mkdir(parents=True, exist_ok=True)
             _link(link, secret)
             installed = True
         return stream
 
-    monkeypatch.setattr(record_access, "open_text", install_after_manifest)
+    monkeypatch.setattr(record_access, "open_text", install_after_the_first_record)
     payload = problems_payload(root)
     assert installed
     assert payload["available"] is False and payload["items"] == []
@@ -308,3 +308,27 @@ def test_nonregular_sources_are_refused_without_waiting_for_bytes(tmp_path):
         with pytest.raises(PermissionError):
             record_access.read_text(pipe)
         assert scope.denied
+
+
+def test_a_link_out_is_named_by_its_place_in_the_study(tmp_path):
+    from fastmdxplora.gui.problems_view import problems_payload
+    from fastmdxplora.record_access import confined_records, read_text
+
+    root = _study(tmp_path / "study")
+    outside = _write(tmp_path, "outside/options.json", {"findings": {}})
+    link = root / "analysis" / "rmsd" / "options.json"
+    link.parent.mkdir(parents=True)
+    _link(link, outside)
+    with confined_records(root, _public(root)) as scope:
+        for path in (link, outside, root / ".." / "outside" / "options.json"):
+            with pytest.raises(OSError):
+                read_text(path)
+    # The link by its own place in the study; an address outside it unnamed.
+    assert scope.denied == {"analysis/rmsd/options.json", "an unavailable record"}
+
+    _write(root, "analysis/analysis_manifest.json", {"results": {"rmsd": {"status": "ok"}}})
+    payload = problems_payload(root)
+    assert payload["unavailable"] == ["analysis/rmsd/options.json"]
+    assert payload["notes"] == ["Problems were not read because a source or link could not "
+                                "be confined to the study's allowed files: "
+                                "analysis/rmsd/options.json."]
