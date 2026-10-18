@@ -928,6 +928,9 @@ def make_handler(
                     # A folder that is not yet a study is not named in the
                     # address: it cannot be opened again as one.
                     "study_named": is_study(root),
+                    # Status can arrive before the study's results.
+                    "run_title": "" if _no_study(root) else _run_title(
+                        root, _load_json(root / "manifest.json")),
                 }
                 self._send_json(payload)
                 return

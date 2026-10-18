@@ -61,7 +61,8 @@ def test_the_title_and_the_notice(tmp_path) -> None:
     assert kept is True
 
 
-def _ended_at_the_first_status(tmp_path, started=None, ended_started=None, app_word=None):
+def _ended_at_the_first_status(
+        tmp_path, started=None, ended_started=None, app_word=None, results_after_status=False):
     """A run that ends as the page hears its first status: the end is
     written from that status's own listener, so the page's next status is,
     unless a poll was already on its way, the run's last. Gives the title
@@ -92,6 +93,19 @@ def _ended_at_the_first_status(tmp_path, started=None, ended_started=None, app_w
         for page in _open(session, "#overview"):
             page.set_default_timeout(60000)
             page.expose_function("endTheRun", end_the_run)
+            if results_after_status:
+                page.add_init_script("""
+                    const fetch = window.fetch;
+                    const firstStatus = new Promise((resolve) => {
+                        window.addEventListener('dashboard:status-updated', resolve, {once: true});
+                    });
+                    window.fetch = (url, ...options) => {
+                        if (new URL(url, location.href).pathname === '/api/results') {
+                            return firstStatus.then(() => fetch(url, ...options));
+                        }
+                        return fetch(url, ...options);
+                    };
+                """)
             if app_word:
                 def app_state(route):
                     answer = route.fetch()
@@ -131,14 +145,15 @@ def _ended_at_the_first_status(tmp_path, started=None, ended_started=None, app_w
     return running, notices
 
 
-def test_a_run_ending_as_the_page_opens_still_says_so(tmp_path) -> None:
+@pytest.mark.parametrize("results_after_status", [False, True])
+def test_a_run_ending_as_the_page_opens_still_says_so(tmp_path, results_after_status) -> None:
     """A poll's status comes before the study's records, so a run was first
     named by the dashboard's own name and then, once the records came, by
     the study's. A run that ended at the page's next status had changed
     name as it ended, and was taken for another run: no notice (CI run
     #705). The tab's title had the dashboard's name until then too."""
     pytest.importorskip("playwright.sync_api")
-    running, notices = _ended_at_the_first_status(tmp_path)
+    running, notices = _ended_at_the_first_status(tmp_path, results_after_status=results_after_status)
     assert running.startswith("40% · study · "), running
     assert notices == ["study completed"]
 
