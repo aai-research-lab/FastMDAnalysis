@@ -99,7 +99,8 @@
       } });
     }
     found = found.concat(settingsOf());
-    if (openStudy()) {
+    // Not offered beyond loopback, where /api/compared is refused.
+    if (openStudy() && document.body.dataset.beyondLoopback !== "true") {
       found.push({ group: "Action", label: "Compare with\u2026",
                    hint: "Another study, or another run of this one, on the Compare page",
                    run: function () { open("compare"); } });

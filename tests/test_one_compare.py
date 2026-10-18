@@ -539,3 +539,49 @@ def test_two_runs_of_a_tripeptide_are_played_beside_in_the_viewer(tmp_path):
     note = _browse(study, look)
     assert not note.startswith("Not shown"), note
     assert "its 3 residues paired" in note, note
+
+
+@PUBLIC
+def test_beyond_loopback_neither_compare_nor_the_timeline_is_offered(variants, public):
+    """On a public bind /api/compared and /api/study-timeline are refused,
+    yet Compare with... and the Timeline tab were offered, to say "This is
+    disabled when the dashboard is bound to a non-loopback address". The
+    page is told how it is bound and offers only what will be answered; a
+    panel left on the Timeline shows the Log."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.exploration import DashboardRuntime
+    from tests.test_a_public_dashboard_answers_only_what_it_lists import _serving
+
+    runtime = DashboardRuntime(workspace_root=variants, exploration_root=variants.parent,
+                               active_root=variants)
+    with _serving(runtime, allow_control=not public) as url, sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        page = browser.new_page(viewport={"width": 1440, "height": 900})
+        page.set_default_timeout(60000)
+        errors: list[str] = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.add_init_script("localStorage.setItem('fmx.sideTab', 'timeline')")
+        page.goto(url + "#overview", wait_until="domcontentloaded")
+        page.wait_for_function("() => window.FastMDXDashboard && "
+                               "window.FastMDXDashboard.state.appState.active_run")
+        bound = page.evaluate("() => document.body.dataset.beyondLoopback")
+        tabs = page.evaluate("""() => [...document.querySelectorAll('.side-tab')]
+            .filter((t) => t.offsetParent !== null).map((t) => t.textContent.trim())""")
+        pane = page.evaluate("""() => [...document.querySelectorAll('.side-pane')]
+            .filter((p) => !p.hidden).map((p) => p.dataset.sidePane)""")
+        page.keyboard.press("Control+k")
+        page.wait_for_selector("#palette:not([hidden])")
+        page.fill("#palette-input", "compare")
+        listed = page.evaluate("""() => [...document.querySelectorAll('.palette-item')]
+            .map((i) => i.querySelector('.palette-label').textContent)""")
+        browser.close()
+    assert errors == []
+    assert bound == ("true" if public else "false")
+    if public:
+        assert "Timeline" not in tabs and pane == ["log"]
+        assert "Compare with…" not in listed
+    else:
+        assert "Timeline" in tabs and pane == ["timeline"]
+        assert "Compare with…" in listed

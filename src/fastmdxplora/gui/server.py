@@ -772,6 +772,9 @@ def make_handler(
     html = with_icons(html)
     refresh_seconds = min(60.0, max(1.0, float(cfg.refresh_seconds or 3.0)))
     html = html.replace("__FASTMDX_REFRESH_SECONDS__", f"{refresh_seconds:g}")
+    # Whether only the routes listed as answered beyond loopback are
+    # answered, so the page offers no way that would then be refused.
+    html = html.replace("__FASTMDX_BEYOND_LOOPBACK__", "false" if allow_control else "true")
     # Injected rather than written into the template, so the citation cannot
     # drift from the one the report, the slides and `fastmdx info` print. The
     # GUI carried none at all: the interface the documentation sends a new

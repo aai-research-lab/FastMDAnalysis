@@ -203,6 +203,18 @@
   function wire() {
     var p = pane();
     if (!p) return;
+    if (document.body.dataset.beyondLoopback === "true") {
+      // Beyond loopback /api/study-timeline is refused: the tab is not
+      // offered, and a panel left on it shows the Log instead.
+      if (open()) {
+        var log = document.querySelector('.side-tab[data-side-tab="log"]');
+        if (log) log.click();
+      }
+      var tab = byId("timeline-tab");
+      if (tab) tab.remove();
+      p.remove();
+      return;
+    }
     // Shown by its tab, or as the panel was left: read then.
     new MutationObserver(function () { if (open()) load(true); })
       .observe(p, { attributes: true, attributeFilter: ["hidden"] });
