@@ -1289,10 +1289,17 @@
   var UNSENT_WORDS = "fmx.agentUnsent:";
   var unsentKey = "";
   var unsentTitle = "";
-  /* Until when a switch of study is the one a run this page started makes
-   * (the GUI goes to the run's folder as it starts; the page may see it
-   * after the launch answers). */
-  var launchSwitchUntil = 0;
+  /* The studies runs this page started went to, as their launches
+   * answered them (`study_key`), each for a short while after: the GUI
+   * goes to a run's folder as it starts, and the page may see that after
+   * the answer. Words typed are taken to a run's study only, by the first
+   * switch seen after the answer; any other study opened (another window,
+   * an AI app) gets none of them (CI-774 reviews K3, K4: for a minute after
+   * a launch, they went to whatever study was opened next). */
+  var runStudies = [];
+  /* A study seen while a launch is still going: whether it is the run's is
+   * known only once the launch answers, so it is judged then. */
+  var seenWhileLaunching = null;
   var unsentKept = false;
   /* Per study, what this page holds that no storage kept. */
   var heldInPage = {};
@@ -1440,17 +1447,28 @@
     var key = study && study.key;
     if (!validStudyKey(key)) return;
     var title = (study && study.title) || "";
-    if (key === unsentKey) { unsentTitle = title || unsentTitle; return; }
+    if (key === unsentKey) {
+      seenWhileLaunching = null;
+      unsentTitle = title || unsentTitle;
+      return;
+    }
+    if (launching) {
+      /* The words stay with the study they were begun in until the launch
+       * says where the run went. */
+      seenWhileLaunching = { key: key, title: title };
+      return;
+    }
     var area = el("agent-request");
     var typed = boxNow();
     var begunElsewhere = validStudyKey(unsentKey);
     /* The study a run this page started went to: the thread went there
      * with it, and so do the words being typed into it, whole (CI-774
      * review K2: the part typed before the page saw the switch was kept
-     * for the study left). */
-    var runsThere = launching || Date.now() < launchSwitchUntil;
+     * for the study left). Judged once, by the first switch seen. */
+    var now = Date.now();
+    var runsThere = runStudies.some(function (r) { return r.key === key && now < r.until; });
+    runStudies = [];
     if (begunElsewhere && runsThere) {
-      if (!launching) launchSwitchUntil = 0;
       delete heldInPage[unsentKey];
       try { sessionStorage.removeItem(UNSENT_WORDS + unsentKey); } catch (e) { /* none kept */ }
       unsentKey = key;
@@ -1477,6 +1495,18 @@
     unsentKey = key;
     unsentTitle = title;
     putBack(key, begunElsewhere ? "" : typed);
+  }
+  /* Every launch this page made has answered: the run's study, if one
+   * started (`key`), is known, and a switch seen meanwhile is judged. */
+  function launchAnswered(key) {
+    if (validStudyKey(key)) runStudies.push({ key: key, until: Date.now() + 30000 });
+    if (launching) return;
+    var seen = seenWhileLaunching;
+    seenWhileLaunching = null;
+    if (seen) { restoreUnsent(seen); return; }
+    /* Already on the run's study (it was the study open, or the page
+     * learnt which study it was on only then): nothing to take there. */
+    if (runStudies.some(function (r) { return r.key === unsentKey; })) runStudies = [];
   }
   function putBack(key, typed) {
     var area = el("agent-request");
@@ -3849,13 +3879,13 @@
       entry.version = made.number;
       entry.eid = entry.eid || newEid();
       launching += 1;
-      launchSwitchUntil = Date.now() + 60000;
       if (window.FastMDXDashboard && window.FastMDXDashboard.studyChangeComing) {
         window.FastMDXDashboard.studyChangeComing();
       }
       startingRuns.push(entry);
-      function answered() {
+      function answered(started) {
         launching -= 1;
+        launchAnswered(started && started.ok ? started.study_key : "");
         startingRuns = startingRuns.filter(function (e) { return e !== entry; });
         /* Said where the person can see it: the reply it was asked in may
          * have been cut by a retry while it started. */
@@ -3878,7 +3908,7 @@
           conversation: c.id ? { id: c.id, study: c.study || null, run: entry.eid } : null
         });
       }).then(function (started) {
-        answered();
+        answered(started);
         var moved = started && started.conversation;
         if (moved && moved.ok && moved.id) {
           c.id = moved.id;
@@ -3917,7 +3947,6 @@
           }
         } else {
           /* Not started: no run in the thread, and why. */
-          if (!launching) launchSwitchUntil = 0;
           var placed = sent.indexOf(entry);
           if (placed >= 0) sent.splice(placed, 1);
           runBtn.disabled = false;

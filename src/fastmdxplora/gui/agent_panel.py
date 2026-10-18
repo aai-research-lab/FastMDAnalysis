@@ -775,6 +775,12 @@ def run_endpoint(payload: dict[str, Any], runtime: Any,
             # where it went is written into that entry here, so a reload
             # before the page hears keeps the run (twelfth review, 10-08).
             _say_where_it_ran(runtime, cid, moving.get("run"), str(started["output"]))
+    if started.get("ok") and started.get("output"):
+        from fastmdxplora.gui.workspace import study_key
+
+        # The run's study, by the key the page names it by: words typed for
+        # the run go to it, and to no study opened elsewhere meanwhile.
+        started["study_key"] = study_key(started["output"])
     return started
 
 
