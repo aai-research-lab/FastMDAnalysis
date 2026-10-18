@@ -103,6 +103,10 @@ def figure_payload(root: str | Path, figure: str) -> dict[str, Any]:
         return {"ok": False, "reason": f"its numbers could not be read: {exc}"}
     if payload is None:
         return {"ok": False, "reason": "the analysis wrote no numbers for it"}
+    if found["matrix"]:
+        # Cached matrix values retain source identities; whether those frames
+        # belong to the currently played trajectory is live study metadata.
+        payload = dict(payload, linked=_linked(root))
     return {"ok": True, "figure": figure, **payload}
 
 
@@ -392,19 +396,28 @@ def _rmsd_matrix(root: Path) -> dict[str, Any] | None:
             rows = np.add.reduceat(values, starts, axis=0)
             values = np.add.reduceat(rows, starts, axis=1) / np.outer(sizes, sizes)
         timed = times is not None and len(times) == n and bool(np.all(np.isfinite(times)))
-        if timed:
-            axis = times
-        else:
-            indices = loaded.tolist() if loaded is not None and len(loaded) == n else list(range(n))
-            axis = np.asarray(_clock(root, indices)[0], dtype=float)
+        # `frames` in this file count the frames the analysis loaded (after
+        # its first frame and stride); the clock turns them into the
+        # trajectory's own frames, as for a series.
+        indices = loaded.tolist() if loaded is not None and len(loaded) == n else list(range(n))
+        source_frames = _clock(root, indices)[0]
+        axis = times if timed else np.asarray(source_frames, dtype=float)
         step = float(np.median(np.diff(axis))) if n > 1 else 1.0
         cells = math.ceil(n / block)
+        groups = []
+        for start in range(0, n, block):
+            stop = min(n, start + block)
+            group = source_frames[start:stop]
+            groups.append({"first": int(group[0]), "last": int(group[-1]),
+                           "count": len(group)})
         payload = {
             "kind": "matrix", "title": "RMSD between frames",
             "values": _grid(values),
             # Each cell is `block` frames wide, the last one too.
             "extent": [float(axis[0]) - step / 2, float(axis[0]) + (cells * block - 0.5) * step],
             "axis_label": "Time (ns)" if timed else "Frame", "label": "RMSD", "unit": "nm",
+            "frames": source_frames if block == 1 else None,
+            "frame_groups": groups if block > 1 else None,
             "block": block if block > 1 else None, "low": 0.0,
         }
     _keep(path, payload)

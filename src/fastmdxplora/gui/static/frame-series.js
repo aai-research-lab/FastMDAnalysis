@@ -96,16 +96,6 @@
     return index != null && index >= 0 && index < frames.length ? frames[index] : null;
   }
 
-  function playedIndex(frame) {
-    var frames = state.playback ? state.playback.frame_indices : [];
-    if (!frames.length) return null;
-    var best = 0;
-    for (var i = 1; i < frames.length; i += 1) {
-      if (Math.abs(frames[i] - frame) < Math.abs(frames[best] - frame)) best = i;
-    }
-    return best;
-  }
-
   /* The analysed point nearest a trajectory frame, over frames ascending. */
   function nearestPoint(frame) {
     var frames = state.data.frames;
@@ -213,25 +203,42 @@
     el("circle", { class: "frame-series-dot", r: 3.5, fill: c.line, stroke: c.here,
       "stroke-width": 1.2, visibility: "hidden" }, svg);
 
-    // A click, or a drag, along the series shows that frame.
+    // A click, or a drag, along the series shows that frame. While the drag
+    // goes on, the nearest frame loaded follows it with no request; where it
+    // ends, that frame is read from the trajectory if it is not loaded.
     var dragging = false;
-    function seek(event) {
+    var aimed = null;
+    function frameAt(event) {
       var box = svg.getBoundingClientRect();
       var x = (event.clientX - box.left) * (width / box.width);
       var value = xLow + (x - plot.left) / (plot.right - plot.left) * (xHigh - xLow);
-      var played = playedIndex(frameOfX(value));
-      if (played == null || played === state.index) return;
+      return Math.round(frameOfX(value));
+    }
+    function follow(event) {
+      var frame = frameAt(event);
+      if (frame === aimed) return;
+      aimed = frame;
       window.dispatchEvent(new CustomEvent("dashboard:trajectory-seek",
-        { detail: { frame: played, trajectoryFrame: trajectoryFrame(played) } }));
+        { detail: { trajectoryFrame: frame, nearest: true } }));
+    }
+    function settle(event) {
+      if (!dragging) return;
+      dragging = false;
+      var frame = event ? frameAt(event) : aimed;
+      aimed = null;
+      if (frame == null || frame === trajectoryFrame(state.index)) return;
+      window.dispatchEvent(new CustomEvent("dashboard:trajectory-seek",
+        { detail: { trajectoryFrame: frame } }));
     }
     svg.addEventListener("pointerdown", function (event) {
       dragging = true;
+      aimed = null;
       if (svg.setPointerCapture) svg.setPointerCapture(event.pointerId);
-      seek(event);
+      follow(event);
     });
-    svg.addEventListener("pointermove", function (event) { if (dragging) seek(event); });
-    svg.addEventListener("pointerup", function () { dragging = false; });
-    svg.addEventListener("pointercancel", function () { dragging = false; });
+    svg.addEventListener("pointermove", function (event) { if (dragging) follow(event); });
+    svg.addEventListener("pointerup", settle);
+    svg.addEventListener("pointercancel", function () { settle(null); });
     mark();
   }
 

@@ -492,17 +492,34 @@
     });
     colourBar(f, range[0], range[1], data.label + (data.unit ? " (" + data.unit + ")" : ""), viridis);
     var nx = values[0].length, ny = values.length;
-    f.svg.addEventListener("mousemove", function (event) {
+    function cellAt(event) {
       var at = pointer(f, event);
-      if (!inside(f, at)) { f.tip.hidden = true; return; }
-      var i = Math.min(nx - 1, Math.floor((at.x - f.plot.left) / (f.plot.right - f.plot.left) * nx));
-      var j = Math.min(ny - 1, Math.floor((f.plot.bottom - at.y) / (f.plot.bottom - f.plot.top) * ny));
+      if (!inside(f, at)) return null;
+      return {
+        at: at,
+        i: Math.min(nx - 1, Math.floor((at.x - f.plot.left) / (f.plot.right - f.plot.left) * nx)),
+        j: Math.min(ny - 1, Math.floor((f.plot.bottom - at.y) / (f.plot.bottom - f.plot.top) * ny)),
+      };
+    }
+    function showCell(i, j, at) {
       var v = values[j][i];
       var cx = (ex[i] + ex[i + 1]) / 2, cy = (ey[j] + ey[j + 1]) / 2;
-      showTip(f, at.x, at.y, [v == null ? opts.emptySaid : format(v) + (data.unit ? " " + data.unit : ""),
-                              opts.where(cx, cy)], "");
+      showTip(f, at ? at.x : map.px(cx), at ? at.y : map.py(cy),
+        [v == null ? opts.emptySaid : format(v) + (data.unit ? " " + data.unit : ""),
+         opts.where(cx, cy, i, j)], opts.hint || "");
+    }
+    f.svg.addEventListener("mousemove", function (event) {
+      var cell = cellAt(event);
+      if (!cell) { f.tip.hidden = true; return; }
+      showCell(cell.i, cell.j, cell.at);
     });
     f.svg.addEventListener("mouseleave", function () { f.tip.hidden = true; });
+    f.svg.addEventListener("click", function (event) {
+      var cell = cellAt(event);
+      if (cell && opts.activate) opts.activate(cell.i, cell.j, event);
+    });
+    f.showCell = showCell;
+    return f;
   }
 
   function edges(low, high, n) {
@@ -515,12 +532,28 @@
     var n = data.values.length;
     var e = edges(data.extent[0], data.extent[1], n);
     var timed = data.axis_label !== "Frame";
-    plotGrid(host, data, {
+    var exact = Array.isArray(data.frames) && data.frames.length === n && data.linked;
+    var grouped = Array.isArray(data.frame_groups) && data.frame_groups.length === n;
+    var hint = exact ? "Click opens the row frame; Shift-click opens the column frame."
+      : (grouped ? "Each cell averages frame groups; no single frame is selected." : "");
+    function rowSaid(index) {
+      if (exact) return "frame " + data.frames[index];
+      var group = grouped ? data.frame_groups[index] : null;
+      return group ? "source frames " + group.first + " to " + group.last
+        + " (" + group.count + " sampled frames)" : "frame group " + (index + 1);
+    }
+    var f = plotGrid(host, data, {
       edgesX: e, edgesY: e, xLabel: data.axis_label, yLabel: data.axis_label,
       emptySaid: "—",
-      where: function (a, b) {
-        return timed ? format(a) + " ns and " + format(b) + " ns" : "frames " + Math.round(a) + " and " + Math.round(b);
+      hint: hint,
+      where: function (a, b, column, row) {
+        var axis = timed ? format(a) + " ns and " + format(b) + " ns"
+          : "axis frames " + Math.round(a) + " and " + Math.round(b);
+        return axis + "; row " + rowSaid(row) + "; column " + rowSaid(column);
       },
+      activate: exact ? function (column, row, event) {
+        openFrame(data, data.frames[event.shiftKey ? column : row]);
+      } : null,
     });
   }
 
