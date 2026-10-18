@@ -4288,13 +4288,18 @@ def _category_order(category: str) -> int:
 
 def _svg_figure_paths(root: Path) -> list[Path]:
     """Return generated SVG figures, excluding branding/static assets."""
+    import fnmatch
+
     from fastmdxplora import record_access
+    from fastmdxplora.gui.report_dashboard import files_under
 
     paths: list[Path] = []
     for base in (root / "analysis", root / "report" / "dashboard_assets", root / "report"):
         if not record_access.is_dir(base):
             continue
-        for path in base.rglob("*.svg"):
+        for path in files_under(base):
+            if not fnmatch.fnmatchcase(path.name, "*.svg"):
+                continue
             if path not in paths and record_access.is_file(path):
                 paths.append(path)
     return sorted(paths)

@@ -1173,6 +1173,23 @@ def _group_sparse_sections(
     return {section: list(panels) for section, panels in grouped.items()}
 
 
+def files_under(folder: Path) -> list[Path]:
+    """What ``folder.rglob("*")`` lists, each folder listed through
+    `record_access`: a read held to the study lists only what it admits,
+    opened from the study it is held to. As `rglob`, a linked folder is
+    listed but not gone into."""
+    try:
+        children = list(_records.iterdir(folder))
+    except OSError:
+        return []
+    found: list[Path] = []
+    for child in children:
+        found.append(child)
+        if not os.path.islink(child) and _records.is_dir(child):
+            found.extend(files_under(child))
+    return found
+
+
 def _discover_analysis_images(project_root: Path) -> list[Path]:
     analysis_dir = project_root / "analysis"
     if not _records.is_dir(analysis_dir):
@@ -1180,7 +1197,7 @@ def _discover_analysis_images(project_root: Path) -> list[Path]:
     suffixes = {".png", ".jpg", ".jpeg", ".svg"}
     found = [
         path
-        for path in analysis_dir.rglob("*")
+        for path in files_under(analysis_dir)
         if path.suffix.lower() in suffixes and _records.is_file(path)
     ]
     # Analyses write the same figure as both PNG and SVG. They carry the same
