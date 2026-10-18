@@ -271,6 +271,20 @@ def test_the_menu_says_the_agent_s_provider_and_mode_and_its_model_only_in_its_s
         page.click("#settings-open")
         page.wait_for_function(
             "() => document.getElementById('settings-engine').textContent !== 'none'")
+        # Nowhere on the page but in the Agent's settings: its words, its
+        # tooltips and its labels, shown or not, on the Agent's page too.
+        page.goto(started.url + "#agent", wait_until="domcontentloaded")
+        page.wait_for_function(
+            "() => document.getElementById('settings-engine').textContent !== 'none'")
+        elsewhere = page.evaluate("""() => {
+            const settings = document.getElementById('agent-settings');
+            const all = [...document.body.querySelectorAll('*')]
+                .filter((e) => !settings.contains(e) && e.tagName !== 'SCRIPT');
+            return all.map((e) => [...e.childNodes].filter((n) => n.nodeType === 3)
+                    .map((n) => n.textContent).join(' ') + ' ' + (e.title || '') + ' '
+                    + (e.getAttribute('aria-label') || '') + ' ' + (e.value || '')).join(' ');
+        }""")
+        page.click("#settings-open")
         menu = page.eval_on_selector("#settings-popup", """p => p.innerText + ' '
             + [...p.querySelectorAll('[title],[aria-label]')]
                 .map((e) => (e.title || '') + ' ' + (e.getAttribute('aria-label') || '')).join(' ')""")
@@ -289,6 +303,7 @@ def test_the_menu_says_the_agent_s_provider_and_mode_and_its_model_only_in_its_s
     assert engine == "Anthropic"
     assert mode == "Seeker: built-in, assisted"
     assert "claude-test-model" not in menu
+    assert "claude-test-model" not in elsewhere
     assert settings == "claude-test-model"
 
 
