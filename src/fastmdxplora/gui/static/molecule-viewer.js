@@ -3449,11 +3449,12 @@
     return head.getBoundingClientRect().height - below + above + edges;
   }
 
-  /* The sequence and the playback fold as the settings' sections do, and
-   * stay as they were left; the molecule is sized again when either
-   * appears or its head wraps, and keeps its size as either opens. */
+  /* The sequence folds as the settings' sections do, and stays as it was
+   * left; the molecule is sized again when it or the timeline under the
+   * molecule appears or its head wraps, and keeps its size as either
+   * changes. */
   function wireFolds() {
-    [["sequence-strip", "viewerSequenceOpen"], ["viewer-under-fold", "viewerPlaybackOpen"]]
+    [["sequence-strip", "viewerSequenceOpen"]]
       .forEach(([id, key]) => {
         const fold = document.getElementById(id);
         if (!fold) return;
@@ -3474,7 +3475,7 @@
       requestAnimationFrame(() => { asked = false; resizeViewers(); });
     };
     const watched = new ResizeObserver(again);
-    ["sequence-strip", "viewer-under-fold"].forEach((id) => {
+    ["sequence-strip", "viewer-timeline"].forEach((id) => {
       const node = document.getElementById(id);
       if (node) watched.observe(node);
     });

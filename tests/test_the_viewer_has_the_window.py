@@ -67,7 +67,7 @@ def _closed(tab):
 
 
 def _settled(tab):
-    """The Viewer's frame once the sequence and the playback are shown and
+    """The Viewer's frame once the sequence and the timeline are shown and
     it has been sized for them."""
     tab.wait_for_selector("#sequence-strip:not([hidden])")
     tab.wait_for_selector("#trajectory-row:not([hidden])", state="attached")
@@ -75,7 +75,7 @@ def _settled(tab):
     return tab.evaluate("""() => {
         const r = (n) => n.getBoundingClientRect();
         const frame = r(document.getElementById('viewer-canvas-frame'));
-        const fold = r(document.getElementById('viewer-under-fold'));
+        const fold = r(document.getElementById('viewer-timeline'));
         const side = r(document.querySelector('.viewer-side'));
         const header = r(document.querySelector('.page[data-page="viewer"] .page-header'));
         const layout = r(document.querySelector('.viewer-layout'));
@@ -196,51 +196,44 @@ def test_the_molecule_keeps_its_shape_in_view(browser, session, width, height) -
     assert abs(found["headerLeft"] - found["layoutLeft"]) <= 1
 
 
-def test_the_sequence_and_the_playback_fold_and_stay_folded(browser, session) -> None:
+def test_the_sequence_folds_and_stays_folded_and_the_timeline_is_always_there(browser, session) -> None:
     tab = _open(browser, session, page="viewer")
     before = _settled(tab)
-    # Both start closed; the settings' sections are as they were.
+    # The sequence starts closed, the timeline shown (a fold no more); the
+    # settings' sections are as they were.
     started = tab.evaluate("""() => [document.getElementById('sequence-strip').open,
-        document.getElementById('viewer-under-fold').open,
+        document.getElementById('viewer-timeline').tagName,
+        document.getElementById('viewer-timeline').offsetHeight > 0,
         document.querySelector('.viewer-side > .side-section').open]""")
     size = """() => { const r = document.getElementById('viewer-canvas-frame')
         .getBoundingClientRect(); return [r.width, r.height]; }"""
     tab.click("#sequence-strip > summary")
     tab.wait_for_timeout(800)
     with_the_sequence = tab.evaluate(size)
-    tab.click("#viewer-under-fold > summary")
-    tab.wait_for_timeout(800)
-    opened = tab.evaluate("""() => [document.getElementById('sequence-strip').open,
-        document.getElementById('viewer-under-fold').open]""")
-    with_both = tab.evaluate(size)
     # What no longer fits is reached by scrolling the column.
     reached = tab.evaluate("""() => {
         const wrap = document.querySelector('.viewer-canvas-wrap');
         const scrolls = wrap.scrollHeight > wrap.clientHeight;
         wrap.scrollTop = wrap.scrollHeight;
-        const fold = document.getElementById('viewer-under-fold').getBoundingClientRect();
+        const fold = document.getElementById('viewer-timeline').getBoundingClientRect();
         return [scrolls, fold.bottom <= wrap.getBoundingClientRect().bottom + 1];
     }""")
-    tab.click("#viewer-under-fold > summary")
-    tab.wait_for_timeout(300)
     tab.reload()
     tab.wait_for_function("() => window.FastMDXDashboard && window.FastMDXDashboard.navigate")
     _go(tab, "viewer")
-    kept = tab.evaluate("""() => [document.getElementById('sequence-strip').open,
-        document.getElementById('viewer-under-fold').open]""")
+    kept = tab.evaluate("() => document.getElementById('sequence-strip').open")
     reopened = _settled(tab)
     tab.context.close()
-    assert started == [False, False, True]
-    assert opened == [True, True]
-    # The molecule keeps its size as each opens: the sequence took its
-    # lines from it, which shrank as it opened.
+    assert started == [False, "SECTION", True, True]
+    # The molecule keeps its size as the sequence opens: it took its lines
+    # from it, which shrank as it opened.
     reopened = [reopened["width"], reopened["height"]]
-    for found in (with_the_sequence, with_both, reopened):
+    for found in (with_the_sequence, reopened):
         assert abs(found[0] - before["width"]) <= 1 and abs(found[1] - before["height"]) <= 1, (
             before, found)
     assert reached == [True, True]
-    # As each was left: the sequence open, the playback closed again.
-    assert kept == [True, False]
+    # As it was left: the sequence open.
+    assert kept is True
 
 
 def test_the_sequence_folds_with_the_sections_own_marker(browser, session) -> None:
