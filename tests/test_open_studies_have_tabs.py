@@ -440,6 +440,171 @@ def test_a_failed_draft_save_keeps_the_current_study_and_typed_value(browser, si
         page.context.close()
 
 
+def _no_save_picker(page):
+    # Saved as a download, which the test can read.
+    page.context.add_init_script("delete window.showSaveFilePicker; window.showSaveFilePicker = undefined;")
+
+
+def _no_draft_storage(page):
+    page.evaluate("""() => {
+        const original = Storage.prototype.setItem;
+        Storage.prototype.setItem = function(k,v) {
+            if (k.startsWith('fmx.builderDraft')) throw new DOMException('full','QuotaExceededError');
+            return original.call(this,k,v);
+        };
+    }""")
+
+
+@pytest.mark.parametrize("release", ["download", "reset"])
+def test_a_draft_this_browser_cannot_store_is_released_by_download_or_reset(browser, site, release):
+    page = _open(browser, site)
+    _no_save_picker(page)
+    try:
+        _outside_open(page, site, 1)
+        _builder(page, site)
+        _no_draft_storage(page)
+        _ph(page).fill("6.6")
+        _link(page, site["keys"][0]).click()
+        note = page.locator("#study-tabs-note")
+        expect(note).to_have_text("The Config draft could not be saved in this browser. "
+                                  "Download it (Download config) or Reset the form before switching studies.")
+        expect(page.locator("#run-draft")).to_have_text("Not saved in this browser")
+        _active(page, site["keys"][1])
+        if release == "download":
+            with page.expect_download() as got:
+                page.click("#run-download")
+            assert "6.6" in open(got.value.path()).read()
+            expect(page.locator("#run-draft")).to_be_hidden()
+        else:
+            page.click("#run-reset")
+            expect(_ph(page)).not_to_have_value("6.6")
+        _link(page, site["keys"][0]).click()
+        _active(page, site["keys"][0])
+        assert page.errors == []
+    finally:
+        page.context.close()
+
+
+def test_a_newer_draft_hold_is_said_in_the_header_and_released_by_download(browser, site):
+    page = _open(browser, site)
+    _no_save_picker(page)
+    other = page.context.new_page()
+    other.set_default_timeout(20000)
+    try:
+        _outside_open(page, site, 1)
+        _builder(page, site)
+        page.evaluate("document.activeElement.blur()")
+        page.wait_for_function("() => Object.keys(localStorage).some(k => k.startsWith('fmx.builderDraft') && localStorage.getItem(k).includes('6.5'))")
+        other.goto(site["session"].url + "#overview", wait_until="domcontentloaded")
+        # Typed here, and before it is saved another window saves its own.
+        _ph(page).fill("5.9")
+        other.evaluate("""() => {
+            const key = Object.keys(localStorage).find(k => k.startsWith('fmx.builderDraft'));
+            localStorage.setItem(key, localStorage.getItem(key).replace('6.5', '8.1'));
+        }""")
+        _link(page, site["keys"][0]).click()
+        expect(page.locator("#study-tabs-note")).to_contain_text("another window saved a newer Config draft")
+        # The header says the same, not "Saved".
+        expect(page.locator("#run-draft")).to_have_text("Not saved: another window saved a newer draft")
+        _active(page, site["keys"][1])
+        with page.expect_download() as got:
+            page.click("#run-download")
+        assert "5.9" in open(got.value.path()).read()
+        _link(page, site["keys"][0]).click()
+        _active(page, site["keys"][0])
+        # The other window's newer draft is the one kept.
+        assert "8.1" in _stored_draft(page)
+        assert page.errors == []
+    finally:
+        page.context.close()
+
+
+def test_a_tab_is_named_as_recent_names_it(browser, site):
+    (site["studies"][1] / "simulation" / "live_status.json").write_text(json.dumps({
+        "status": "completed", "stage": "production", "system_id": "Alpha",
+        "current_step": 10, "total_steps": 10}))
+    (site["studies"][1] / "manifest.json").write_text(json.dumps({"system": "Alpha", "phases": [
+        {"name": "simulation", "status": "completed"}]}))
+    page = _open(browser, site)
+    try:
+        # Only one of the two studies of its system is open: named by its
+        # folder too, as Recent names it.
+        recent = page.locator(f'.sidebar-recent-item[data-path="{site["studies"][0]}"] .sidebar-recent-name')
+        expect(recent).to_have_attribute("data-name", "ALPH \u00b7 first")
+        expect(_link(page, site["keys"][0])).to_have_text("ALPH \u00b7 first")
+        assert page.errors == []
+    finally:
+        page.context.close()
+
+
+SCROLLED = """() => {
+    const shown = s => [...document.querySelectorAll(s)].find(e => e.getClientRects().length);
+    const box = e => e ? e.getBoundingClientRect() : null;
+    const strip = box(document.getElementById('study-tabs'));
+    const note = document.getElementById('study-tabs-note'), said = box(note);
+    const header = box(shown('.page:not([hidden]) .page-header'));
+    const steps = box(shown('.page:not([hidden]) .builder-steps'));
+    const bar = box(document.querySelector('.sidebar'));
+    const at = (r, dx) => document.elementFromPoint(r.left + dx, r.top + r.height / 2);
+    return {
+        scrolled: Math.max(document.querySelector('.main').scrollTop, document.scrollingElement.scrollTop, document.body.scrollTop),
+        strip: [strip.top, strip.bottom], header: header && [header.top, header.bottom],
+        steps: steps && [steps.top, steps.bottom], bar: [bar.top, bar.bottom, bar.width],
+        noteSeen: [4, 40, said.width / 2].every(dx => note.contains(at(said, dx))),
+        tabSeen: document.querySelector('.study-tab.is-current').contains(
+            at(box(document.querySelector('.study-tab.is-current')), 12)),
+    };
+}"""
+
+
+@pytest.mark.parametrize("width", [1440, 390])
+def test_scrolled_down_the_strip_and_its_note_stay_in_view_above_the_page_bars(browser, site, width):
+    page = _open(browser, site, width=width)
+    try:
+        _outside_open(page, site, 1)
+        _builder(page, site)
+        _no_draft_storage(page)
+        _ph(page).fill("6.6")
+        _link(page, site["keys"][0]).click()
+        expect(page.locator("#study-tabs-note")).to_contain_text("could not be saved")
+        page.evaluate("document.activeElement.blur()")
+        page.mouse.move(width // 2, 600)
+        page.mouse.wheel(0, 1500)
+        page.wait_for_function("Math.max(document.querySelector('.main').scrollTop, document.scrollingElement.scrollTop, document.body.scrollTop) > 400")
+        page.wait_for_timeout(200)
+        facts = page.evaluate(SCROLLED)
+        assert facts["noteSeen"] and facts["tabSeen"], facts
+        if facts["bar"][2] >= width - 1:
+            # A phone: the strip stays under the bar across the top.
+            assert abs(facts["strip"][0] - facts["bar"][1]) <= 1, facts
+        else:
+            # The page's header and the Builder's steps stay below the strip.
+            assert facts["header"][0] >= facts["strip"][1] - 1, facts
+            assert facts["steps"][0] >= facts["header"][1] - 1, facts
+        assert page.errors == []
+    finally:
+        page.context.close()
+
+
+def test_a_mouse_wheel_moves_a_long_strip(browser, site):
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    key = "fmx.studyTabs:" + str(site["root"])
+    entries = {"tabs": [{"key": f"{n:016x}", "title": f"Study {n}", "page": "overview"} for n in range(10, 34)]
+               + [{"key": site["keys"][0], "title": "Alpha", "page": "overview"}]}
+    context.add_init_script("sessionStorage.setItem(" + json.dumps(key) + ", " + json.dumps(json.dumps(entries)) + ");")
+    page = _open(browser, site, context=context)
+    try:
+        page.wait_for_function("document.getElementById('study-tabs').matches('.more-before')")
+        before = page.evaluate("document.getElementById('study-tabs-list').scrollLeft")
+        box = page.locator("#study-tabs-list").bounding_box()
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.mouse.wheel(0, -400)
+        page.wait_for_function("left => document.getElementById('study-tabs-list').scrollLeft < left - 100", arg=before)
+        assert page.errors == []
+    finally:
+        page.context.close()
+
+
 LAYOUT = """() => {
     const box = el => el && el.getClientRects().length ? el.getBoundingClientRect() : null;
     const visible = el => el && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
@@ -611,30 +776,69 @@ def _switches(page):
     return asked
 
 
-def test_a_gone_folder_of_another_tab_is_said_on_it_and_not_opened(browser, site):
+def test_a_gone_folder_of_another_tab_is_said_on_it_and_asked_again_when_chosen(browser, site):
     page = _open(browser, site)
     try:
         _outside_open(page, site, 1)
         before = page.url
-        shutil.rmtree(site["studies"][0])
+        away = site["root"].parent / "away"
+        shutil.move(str(site["studies"][0]), str(away))
         _link(page, site["keys"][0]).click()
         note = page.locator("#study-tabs-note")
-        expect(note).to_have_text("This study's folder is no longer there.")
+        # The note names the study whose folder is gone, not the open one.
+        expect(note).to_have_text("The folder of ALPH is no longer there.")
         # No path of the server's is said.
         assert str(site["root"]) not in note.text_content()
         expect(_link(page, site["keys"][0])).to_contain_text("folder gone")
         assert page.url == before
         _active(page, site["keys"][1])
-        # Said on its tab after a reload too; choosing it again asks nothing.
+        # Its tooltip says so once the pointer has left it, as an open gone
+        # tab's does.
+        page.mouse.move(700, 600)
+        expect(_link(page, site["keys"][0])).to_have_attribute(
+            "title", "ALPH\nThis study's folder is no longer there.")
+        # Said on its tab after a reload too; choosing it again asks once.
         page.reload(wait_until="domcontentloaded")
         _active(page, site["keys"][1])
         expect(_link(page, site["keys"][0])).to_contain_text("folder gone")
         asked = _switches(page)
         _link(page, site["keys"][0]).click()
-        expect(note).to_have_text("This study's folder is no longer there.")
-        assert asked == [] and page.url == before
-        page.locator(f'.study-tab-close[data-study-key="{site["keys"][0]}"]').click()
-        assert _seen(page) == [site["keys"][1]]
+        expect(note).to_have_text("The folder of ALPH is no longer there.")
+        assert len(asked) == 1 and page.url == before
+        # Its folder back: chosen, it opens.
+        shutil.move(str(away), str(site["studies"][0]))
+        _link(page, site["keys"][0]).click()
+        _active(page, site["keys"][0])
+        expect(_link(page, site["keys"][0])).not_to_contain_text("folder gone")
+        page.locator(f'.study-tab-close[data-study-key="{site["keys"][1]}"]').click()
+        assert _seen(page) == [site["keys"][0]]
+        assert page.errors == []
+    finally:
+        page.context.close()
+
+
+def test_closing_the_open_tab_goes_past_a_neighbour_whose_folder_has_gone(browser, site):
+    page = _open(browser, site)
+    try:
+        _outside_open(page, site, 1)
+        _outside_open(page, site, 2)
+        # Gone unnoticed: its tab is not marked yet.
+        shutil.rmtree(site["studies"][1])
+        expect(_link(page, site["keys"][1])).not_to_contain_text("folder gone")
+        page.locator(f'.study-tab-close[data-study-key="{site["keys"][2]}"]').click()
+        # The next neighbour opens; the gone one is marked on its tab.
+        _active(page, site["keys"][0])
+        assert _seen(page) == site["keys"][:2]
+        expect(_link(page, site["keys"][1])).to_contain_text("folder gone")
+        # Its neighbours gone, one known and one not: All studies, and the
+        # note names the study found gone, not the one closed.
+        _outside_open(page, site, 2)
+        shutil.rmtree(site["studies"][0])
+        page.locator(f'.study-tab-close[data-study-key="{site["keys"][2]}"]').click()
+        page.wait_for_function("location.hash === '#studies'")
+        expect(page.locator("#study-tabs-note")).to_have_text("The folder of ALPH is no longer there.")
+        assert _seen(page) == site["keys"][:2]
+        expect(_link(page, site["keys"][0])).to_contain_text("folder gone")
         assert page.errors == []
     finally:
         page.context.close()
@@ -718,11 +922,24 @@ def _typed(page, site):
     return _switches(page)
 
 
-@pytest.mark.parametrize("way", ["recent", "all studies", "load study", "history"])
+def _a_conversation_of_the_first_study(page):
+    page.evaluate("""async () => {
+        await fetch('/api/agent/conversation', {method: 'POST', headers: {'content-type': 'application/json'},
+            body: JSON.stringify({entries: [{role: 'user', text: 'Asked in the first study.'},
+                                            {role: 'agent', kind: 'answer', text: 'Answered there.'}]})});
+    }""")
+
+
+@pytest.mark.parametrize("way", ["recent", "all studies", "load study", "agent conversation"])
 def test_every_way_to_another_study_is_held_by_unsent_agent_words(browser, site, way):
     page = _open(browser, site)
     try:
+        if way == "agent conversation":
+            _a_conversation_of_the_first_study(page)
         asked = _typed(page, site)
+        posted = []
+        page.on("request", lambda request: posted.append(request.url)
+                if request.method == "POST" and "/conversation/open" in request.url else None)
         before = page.url
         if way == "recent":
             page.locator('.sidebar-recent-item:not([aria-current])').first.click()
@@ -735,37 +952,121 @@ def test_every_way_to_another_study_is_held_by_unsent_agent_words(browser, site,
                 input.value = path; input.dispatchEvent(new Event('change'));
             }""", str(site["studies"][0]))
         else:
-            # A step of this page naming another study, gone back to.
-            page.evaluate("""key => {
-                const here = location.href, there = new URL(here);
-                there.searchParams.set('study', key);
-                history.pushState(null, '', there.href);
-                history.pushState(null, '', here);
-                history.back();
-            }""", site["keys"][0])
-            page.wait_for_function("key => new URL(location.href).searchParams.get('study') === key",
-                                   arg=site["keys"][1])
+            # Another study's conversation, chosen in the Agent's list.
+            page.click("#agent-conversations")
+            row = page.locator('.agent-conv-row .title[title*="opens this study"]').first
+            row.evaluate("button => { const fold = button.closest('details'); if (fold) fold.open = true; }")
+            row.click()
+            expect(page.locator(".agent-conv-held")).to_contain_text("unsent Agent message")
         expect(page.locator("#study-tabs-note")).to_contain_text("unsent Agent message")
-        assert asked == []
+        assert asked == [] and posted == []
         assert page.input_value("#agent-request") == "Unsent words."
         _active(page, site["keys"][1])
-        if way != "history":
-            assert page.url == before
+        assert page.url == before
         assert page.errors == []
     finally:
         page.context.close()
 
 
-def test_back_and_forward_between_studies_keep_unsent_agent_words(browser, site):
+def test_back_then_return_by_the_strip_keeps_unsent_agent_words_and_attachments(browser, site):
     page = _open(browser, site)
     try:
         _typed(page, site)
+        path = str(site["studies"][1] / "manifest.json")
+        page.locator("#agent-attach-path").evaluate("""(input, path) => {
+            input.value = path; input.dispatchEvent(new Event('change'));
+        }""", path)
+        page.locator("#agent-attachments .agent-chip").wait_for()
+        # Back is not held: the words are kept for the study they were typed in.
         page.go_back(wait_until="domcontentloaded")
         _active(page, site["keys"][0])
         assert page.input_value("#agent-request") == ""
-        page.go_forward(wait_until="domcontentloaded")
+        # Returned to by its tab, not the browser's page cache.
+        _link(page, site["keys"][1]).click()
         _active(page, site["keys"][1])
+        page.evaluate("window.FastMDXDashboard.navigate('agent')")
         expect(page.locator("#agent-request")).to_have_value("Unsent words.")
+        expect(page.locator("#agent-attachments .agent-chip")).to_contain_text("manifest.json")
+        # Cleared, nothing is kept for it.
+        page.fill("#agent-request", "")
+        page.get_by_role("button", name="Remove manifest.json", exact=True).click()
+        _link(page, site["keys"][0]).click()
+        _active(page, site["keys"][0])
+        _link(page, site["keys"][1]).click()
+        _active(page, site["keys"][1])
+        page.evaluate("window.FastMDXDashboard.navigate('agent')")
+        page.wait_for_function("window.FastMDXDashboard.state.addressKnown")
+        assert page.input_value("#agent-request") == ""
+        assert page.locator("#agent-attachments .agent-chip").count() == 0
+        assert page.errors == []
+    finally:
+        page.context.close()
+
+
+def test_a_back_within_the_page_goes_and_keeps_unsent_agent_words(browser, site):
+    page = _open(browser, site)
+    try:
+        _typed(page, site)
+        # A step of this page naming another study, gone back to.
+        page.evaluate("""key => {
+            const here = location.href, there = new URL(here);
+            there.searchParams.set('study', key);
+            history.pushState(null, '', there.href);
+            history.pushState(null, '', here);
+            history.back();
+        }""", site["keys"][0])
+        _active(page, site["keys"][0])
+        _link(page, site["keys"][1]).click()
+        _active(page, site["keys"][1])
+        page.evaluate("window.FastMDXDashboard.navigate('agent')")
+        expect(page.locator("#agent-request")).to_have_value("Unsent words.")
+        assert page.errors == []
+    finally:
+        page.context.close()
+
+
+def test_a_held_back_keeps_the_step_it_was_asked_from(browser, site):
+    page = _open(browser, site)
+    try:
+        _outside_open(page, site, 1, "agent")
+        current = _agent_versions(page)
+        current.locator('[data-review-setting="simulation.temperature_K"] [data-choice="reject"]').click()
+        asked = _switches(page)
+        page.evaluate("""key => {
+            const here = location.href, there = new URL(here);
+            there.searchParams.set('study', key);
+            history.pushState(null, '', there.href);
+            history.pushState(null, '', here);
+            history.back();
+        }""", site["keys"][0])
+        expect(page.locator("#study-tabs-note")).to_contain_text("Use reviewed version")
+        assert asked == []
+        _active(page, site["keys"][1])
+        # Done with the review, Back reaches the step that was asked.
+        current.get_by_role("button", name="Use this version", exact=True).click()
+        page.locator('.agent-study:not(.is-replaced):not([hidden]) [data-role="version"]').filter(has_text="3").wait_for()
+        page.go_back()
+        _active(page, site["keys"][0])
+        assert page.errors == []
+    finally:
+        page.context.close()
+
+
+def test_a_switch_asked_another_way_marks_the_strip_busy(browser, site):
+    page = _open(browser, site)
+    try:
+        _outside_open(page, site, 1)
+        held = []
+        page.route("**/api/explore/switch", lambda route: held.append(route))
+        page.locator('.sidebar-recent-item:not([aria-current])').first.click()
+        expect(page.locator("#study-tabs")).to_have_attribute("aria-busy", "true")
+        _link(page, site["keys"][0]).dispatch_event("click", {"button": 0})
+        page.wait_for_timeout(300)
+        assert len(held) == 1
+        held[0].fulfill(status=500, content_type="application/json",
+                        body=json.dumps({"ok": False, "error": "Try later."}))
+        expect(page.locator("#study-tabs")).to_have_attribute("aria-busy", "false")
+        _active(page, site["keys"][1])
         assert page.errors == []
     finally:
         page.context.close()
