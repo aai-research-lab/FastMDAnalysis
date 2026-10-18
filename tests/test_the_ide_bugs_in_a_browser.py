@@ -97,7 +97,10 @@ def test_the_analysis_of_a_study_of_runs_says_its_runs(finished_sweep):
     def look(page, url):
         page.goto(url + "#analysis", wait_until="domcontentloaded")
         page.wait_for_selector("#runs-compared:not([hidden]) #runs-compared-table tr")
-        page.wait_for_timeout(500)
+        page.wait_for_function("""root => {
+            const state = window.FastMDXDashboard.state;
+            return state.appState.active_run === root && state.results.output_dir === root;
+        }""", arg=str(finished_sweep))
         return page.text_content("#analysis-meta")
 
     assert _serve(finished_sweep, look) == "the analyses of 2 runs, compared below"
