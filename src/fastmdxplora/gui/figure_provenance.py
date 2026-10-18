@@ -44,6 +44,11 @@ def figure_provenance(root: str | Path) -> dict[str, dict[str, Any]]:
     manifest = _read(base / "analysis" / "analysis_manifest.json")
     if not isinstance(manifest, dict):
         return {}
+    from fastmdxplora.simulation.pipeline import _refused
+
+    # A record a held read refused (`record_access`) is not read, which is
+    # not one with nothing in it: what it would say is not given.
+    run_not_read = ["manifest.json"] if _refused(base / "manifest.json") else []
     phase = _analysis_phase(_read(base / "manifest.json"))
     produced = phase.get("produced_by") if isinstance(phase.get("produced_by"), dict) else {}
     environment = (produced.get("environment")
@@ -56,7 +61,9 @@ def figure_provenance(root: str | Path) -> dict[str, dict[str, Any]]:
     for name, result in results.items():
         if not isinstance(result, dict) or result.get("status") != "ok":
             continue
-        record = _read(base / "analysis" / str(name) / "options.json")
+        options_path = base / "analysis" / str(name) / "options.json"
+        options_not_read = _refused(options_path)
+        record = _read(options_path)
         record = record if isinstance(record, dict) else {}
         options = record.get("options") if isinstance(record.get("options"), dict) else {}
         selection = record.get("selection")
@@ -93,7 +100,33 @@ def figure_provenance(root: str | Path) -> dict[str, dict[str, Any]]:
             "width": width,
             "at_widths": at_widths,
         }
+        not_read = run_not_read + ([f"analysis/{name}/options.json"] if options_not_read
+                                   else [])
+        if not_read:
+            # Who made it, or its selection and options, not read: said as
+            # that, not as a release that did not record itself, nor as no
+            # options.
+            found[str(name)]["not_read"] = not_read
+            found[str(name)]["not_read_said"] = _not_read_said(base, not_read)
+        if options_not_read:
+            # No command is written without its selection and options: one
+            # without them computes another result.
+            found[str(name)].update(selection=None, options=None, command=None, config=None,
+                                    at_widths={})
     return found
+
+
+def _not_read_said(base: Path, names: list[str]) -> str:
+    """Why the chip's record is short, each record named with why it was not
+    read; and where the analysis's options were not read, that no command
+    was written."""
+    from fastmdxplora.gui.series import refused_said
+
+    said = " ".join(refused_said(base, base / name) + "." for name in names)
+    if any(name.endswith("/options.json") for name in names):
+        said += (" The command that makes the figure again is not written: without "
+                 "its selection and options it would make another figure.")
+    return said
 
 
 def _the_config_that_makes_it_again(base: Path, name: str, resolved: dict[str, Any],

@@ -291,3 +291,44 @@ def test_a_piece_not_read_is_not_left_out_of_the_production(tmp_path, refused, p
     assert simulation["pieces"] is None
     assert simulation["duration_ns_actual"] is None
     assert simulation["production_not_read"].startswith(f"{refused} was not read")
+
+
+@PUBLIC
+@pytest.mark.parametrize("refused", [
+    ("analysis/rmsd/options.json",), ("manifest.json",),
+    ("manifest.json", "analysis/rmsd/options.json")], ids=["options", "manifest", "both"])
+def test_a_figure_s_record_not_read_gives_no_other_command(tmp_path, refused, public):
+    """The analysis's options.json not read: no command is given to make the
+    figure again (one without its selection and options makes another
+    figure), and the chip says why. The run's manifest not read: who made
+    the figure is said not read, not as a release that did not say."""
+    root = _study(tmp_path)
+    _write(root, "analysis/analysis_manifest.json", {
+        "phase": "analysis", "n_frames": 40,
+        "resolved": {"trajectory": str(root / "simulation" / "production.dcd"),
+                     "topology": str(root / "simulation" / "topology.pdb")},
+        "results": {"rmsd": {"status": "ok"}, "rg": {"status": "ok"}}})
+    _write(root, "analysis/rmsd/options.json", {
+        "analysis": "rmsd", "selection": "protein and name CA",
+        "options": {"ref": 0, "align": True}})
+    _write(root, "manifest.json", {"phases": [{"name": "analysis", "status": "ok",
+                                               "produced_by": {"version": "9.9.9"}}]})
+    read = json.loads(_ask(root, tmp_path, "/api/analyses", public=public)[1])
+    made = read["figure_provenance"]["rmsd"]
+    assert "--analyze-options" in made["command"] and made["version"] == "9.9.9"
+    assert "not_read" not in made
+
+    _linked_out(root, tmp_path, *refused)
+    made = json.loads(_ask(root, tmp_path, "/api/analyses", public=public)[1])[
+        "figure_provenance"]["rmsd"]
+    assert made["not_read"] == list(refused)
+    for name in refused:
+        assert f"{name} was not read: it is a link to a file outside the study." in (
+            made["not_read_said"])
+    if "analysis/rmsd/options.json" in refused:
+        assert made["command"] is None and made["config"] is None
+        assert made["at_widths"] == {} and made["selection"] is None
+        assert "command that makes the figure again is not written" in made["not_read_said"]
+    else:
+        assert "--analyze-options" in made["command"]
+        assert made["version"] is None
