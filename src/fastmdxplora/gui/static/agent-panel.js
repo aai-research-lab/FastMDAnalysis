@@ -4326,18 +4326,33 @@
       return said;
     }
 
+    /* Said where the person is: beside the list where it is open, else in
+     * the page's notice (CI-774 review K3: with the list closed, an open
+     * that waited said nothing). */
+    function saidWhereSeen(text) {
+      var said = saidBesideList(text);
+      if (said) return said;
+      var dashboard = window.FastMDXDashboard;
+      if (dashboard && dashboard.toast) dashboard.toast(text, "ok");
+      return null;
+    }
+
     /* Asked while a run this page started is being launched: the whole
      * open waits for the launch's answer, its hold judged and the server
      * asked only then. The launch switches the GUI to the run's folder as
      * it starts, so a study opened before its answer was left again at
      * once (CI-774 review K1). The list said for the GUI before the run
      * may name a study no longer open: the conversation's own study is
-     * opened. The latest asked is the one opened. */
+     * opened. The latest asked is the one opened, and it is said that it
+     * replaced the one asked before. */
     var openWaiting = null;
     var WAITS = "Opens once the run has started.";
+    var WAITS_UNSEEN = "The conversation opens once the run has started.";
+    var REPLACED = "The conversation asked for last opens once the run has started, not the one before.";
     function openOnceLaunched(id, study) {
+      var replaced = Boolean(openWaiting);
       if (openWaiting) openWaiting.resolve({ ok: false, error: "Another conversation was asked for." });
-      var said = saidBesideList(WAITS);
+      var said = saidWhereSeen(replaced ? REPLACED : (list && !list.hidden ? WAITS : WAITS_UNSEEN));
       return new Promise(function (resolve) {
         var mine = openWaiting = { resolve: resolve };
         var waited = 0;
@@ -4351,7 +4366,7 @@
             return;
           }
           openWaiting = null;
-          if (said && said.textContent === WAITS) said.remove();
+          if (said && (said.textContent === WAITS || said.textContent === REPLACED)) said.remove();
           resolve(openConversation(id, study, false, true));
         })();
       });
