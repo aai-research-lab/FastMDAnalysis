@@ -54,6 +54,18 @@ html[data-fixes="some"] .sb-run:is([data-run="failed"], [data-run="stopped"], [d
     display: inline-flex;
 }
 
+/* Stop the run, beside it while it runs; asked first in a card above the
+ * strip (stop-run.js), as the Overview's health card asks. */
+.sb-stop { color: var(--status-error, var(--accent-red)); font-weight: 600; }
+.sb-stop-ask {
+    position: fixed; left: 8px; bottom: calc(var(--status-bar-height) + 6px); z-index: 56;
+    box-sizing: border-box; max-width: min(420px, calc(100vw - 16px)); padding: 10px 12px;
+    background: var(--panel-glass); color: var(--text-primary);
+    border: 1px solid var(--border-primary); border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .28);
+    white-space: normal; overflow-wrap: anywhere;
+}
+
 .sb-problems[data-count]:not([data-count="0"]) { color: var(--accent-orange); }
 
 /* The page's own updates, while a study is open. */
@@ -66,6 +78,6 @@ body:not(.has-study) .sb-live { display: none; }
 /* A phone: no strip; the page keeps the whole height. */
 @media (max-width: 800px) {
     :root { --status-bar-height: 0px; }
-    .status-bar { display: none; }
+    .status-bar, .sb-stop-ask { display: none; }
     .app-shell, .sidebar, .main { height: auto; }
 }

@@ -3,8 +3,8 @@
  *
  * A run could be stopped only from New study (and by asking the Agent), at
  * one press with nothing asked: a run of hours ended by a stray click. It
- * is now offered beside where the run stands in the sidebar, in the
- * Overview's health card, on New study and from Cmd+K, each time asking
+ * is now offered beside the run in the status bar, in the Overview's
+ * health card and from Cmd+K, each time asking
  * first and saying what a stop at this stage leaves: a run in production
  * ends at its next frame with a checkpoint there, one before production
  * has none to carry on from. What it answers is said where it was asked,
@@ -71,6 +71,13 @@
     row.appendChild(yes);
     row.appendChild(no);
     host.appendChild(row);
+    // Escape answers "Not now", as a dialog's would.
+    host.onkeydown = function (event) {
+      if (event.key === "Escape" && !no.disabled && host.contains(no)) {
+        event.stopPropagation();
+        no.click();
+      }
+    };
     // The answer that does nothing has the keyboard: Enter after Ctrl+K,
     // "stop", Enter stopped the run with no further thought.
     no.focus();
@@ -114,7 +121,20 @@
       button.addEventListener("click", function () {
         var host = document.getElementById(button.getAttribute("data-stop-run"));
         button.disabled = true;
-        ask(host, function () { button.disabled = false; });
+        ask(host, function (said) {
+          button.disabled = false;
+          // A card over the page (the status bar's) says the answer for a
+          // moment and goes; one in its page's flow keeps it.
+          if (said && host && host.hasAttribute("data-stop-fades")) {
+            setTimeout(function () {
+              if (host.querySelector(".stop-run-answer")) {
+                host.innerHTML = "";
+                host.hidden = true;
+              }
+            }, 4000);
+          }
+          if (!said) button.focus();
+        });
       });
     });
   }

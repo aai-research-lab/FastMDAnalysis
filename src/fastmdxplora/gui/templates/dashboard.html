@@ -2004,8 +2004,9 @@
 
   <!-- The status bar: a strip under everything, not a panel (statusbar.js).
        This computer, the run going here with where it stands, the jobs on
-       other machines, the open study's problems and the Agent's AI model;
-       each opens its page. The run's words keep the ids the page has always
+       other machines, the open study's problems and the Agent's mode
+       (never its AI model); each opens its page. A running study's Stop
+       asks first above the strip, as the Overview's does (stop-run.js). The run's words keep the ids the page has always
        written them to (dashboard.js). -->
   <footer class="status-bar" id="status-bar" aria-label="Status">
     <button type="button" class="sb-item sb-machine" id="sb-machine" hidden></button>
@@ -2019,6 +2020,7 @@
       <span class="sr-only">Step <span id="topbar-step">&mdash;</span> of <span id="topbar-total">&mdash;</span></span>
     </a>
     <a href="#overview" class="sb-item sb-fix" id="status-fix" data-view-link="overview" data-fix-link>What would fix it</a>
+    <button type="button" class="sb-item sb-stop" id="sb-stop" data-stop-run="sb-stop-ask" aria-label="Stop the run" title="Stop the run (asked first)" hidden>Stop</button>
     <span class="sb-remote" id="sb-remote"></span>
     <span class="sb-spacer"></span>
     <button type="button" class="sb-item sb-problems" id="sb-problems" hidden></button>
@@ -2029,6 +2031,7 @@
       <button class="sidebar-tool sb-tool" type="button" id="refresh-now" title="Refresh now" aria-label="Refresh now"><!--icon:refresh:sidebar-icon--></button>
     </span>
   </footer>
+  <div class="stop-run-ask sb-stop-ask" id="sb-stop-ask" data-stop-ask data-stop-fades role="status" hidden></div>
 
   <!-- Live region for screen readers -->
   <dialog class="problems-mobile" id="problems-mobile" aria-label="Study log, files and problems">
