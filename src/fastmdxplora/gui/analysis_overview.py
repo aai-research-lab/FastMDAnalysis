@@ -35,7 +35,14 @@ from fastmdxplora.gui.report_dashboard import (
     SECTION_THEME,
     unit_of,
 )
-from fastmdxplora.gui.series import NAME, analysed_axis, refused_said, series_column
+from fastmdxplora.gui.series import (
+    NAME,
+    NOT_READ_BECAUSE,
+    analysed_axis,
+    refused_said,
+    series_column,
+    why_not_read,
+)
 
 #: The manifest's status words, as the page says them.
 _STATUS_SAID = {"ok": "done", "completed": "done", "complete": "done",
@@ -101,6 +108,15 @@ def overview_of(root: str | Path, *, include_time: bool = True,
     rows = [_row(root, name, results.get(name), corrected, biased is not None,
                  complete or refused, include_time=include_time, include_data=include_data)
             for name in names]
+    if refused:
+        # Its status is in the manifest, which was not read: an analysis
+        # with no result read is said not read, not done (nor failed).
+        why = NOT_READ_BECAUSE[why_not_read(root, folder / "analysis_manifest.json")]
+        for row in rows:
+            if not row["quantities"]:
+                row["status"] = "not read"
+                row["message"] = ("Its status is in analysis/analysis_manifest.json, which "
+                                  f"was not read: {why}.")
     order = {title: index for index, title in enumerate(SECTION_ORDER)}
     rows.sort(key=lambda row: (order.get(row["title"], len(order)), row["analysis"]))
     # The analyses a mean of which an earlier version called determined: a

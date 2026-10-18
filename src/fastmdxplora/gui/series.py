@@ -45,14 +45,37 @@ NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _NAME = NAME
 
 
+#: Why a refused record was not read, as `refused_said` and the pages say it.
+NOT_READ_BECAUSE = {
+    "outside": "it is a link to a file outside the study",
+    "not a result": "it is a file of the study that is not one of its results",
+    "leads to": "it leads to a file of the study that is not one of its results",
+    "not a file": "it is not a regular file",
+}
+
+
+def why_not_read(root: Path, path: Path) -> str:
+    """Why a confined read refused ``path`` (a key of `NOT_READ_BECAUSE`):
+    a link out of the study ``root``, a file of the study that is not one
+    of its results (hidden, say), or a link to such a file. Told from where
+    the path leads, without opening it."""
+    path = Path(path)
+    try:
+        resolved = path.resolve()
+        resolved.relative_to(Path(root).resolve())
+        itself = path.parent.resolve() / path.name
+    except (OSError, RuntimeError, ValueError):
+        return "outside"
+    return "not a result" if resolved == itself else "leads to"
+
+
 def refused_said(root: Path, path: Path) -> str:
     """A record a confined read refused (`record_access`), said as that."""
     try:
         named = Path(path).relative_to(root).as_posix()
     except ValueError:
         named = Path(path).name
-    return (f"{named} was not read: it leads outside the study, or to a file "
-            "of the study that is not one of its results")
+    return f"{named} was not read: {NOT_READ_BECAUSE[why_not_read(root, path)]}"
 
 
 def series_over_time(root: Path) -> dict[str, Any]:
