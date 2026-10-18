@@ -269,12 +269,15 @@ def _a_study_carried_on(tmp_path: Path) -> Path:
     return root
 
 
-def _every_record_linked_out(root: Path, tmp_path: Path) -> Path:
+def _every_record_linked_out(root: Path, tmp_path: Path, *, named: str = "") -> Path:
     """Each regular file of the study moved outside it, a link left in its
     place: what the link leads to is the study's own record, so a page that
-    followed one would answer as before, and only its reads can tell."""
+    followed one would answer as before, and only its reads can tell.
+    Given ``named``, only the files of that name."""
     outside = tmp_path / "outside"
     for path in sorted(root.rglob("*")):
+        if named and path.name != named:
+            continue
         if path.is_file() and not path.is_symlink():
             target = outside / path.relative_to(root)
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -330,19 +333,68 @@ def test_no_record_of_the_study_is_read_through_a_link_out(tmp_path, route, publ
         assert json.loads(body)["unavailable"]
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "analysis/analyze.study_trajectory and analysis/thermodynamics.state_record_pieces "
-    "still read joined/joined.json through a link"))
-def test_a_joined_study_s_record_is_not_read_through_a_link_out(tmp_path):
+#: A state record of a piece, as OpenMM writes it, beside which a page
+#: could say a mean temperature.
+ENERGY = ('#"Step","Time (ps)","Potential Energy (kJ/mole)","Temperature (K)"\n'
+          + "".join(f"{100 * i},{0.2 * i:.1f},-1000.0,300.0\n" for i in range(1, 11)))
+
+
+def _a_study_joined(tmp_path: Path) -> Path:
+    """A study carried on in `segment-001` and joined, with the join's
+    record as `simulation.resume` writes it and each piece's state record."""
     root = _a_study_carried_on(tmp_path)
+    _write(root, "simulation/trajectory_topology.pdb", "MODEL\nENDMDL\n")
     _write(root, "joined/production.dcd", "frames")
-    _write(root, "joined/joined.json", {"segments": [0, 1], "topology": None})
-    outside = _every_record_linked_out(root, tmp_path)
+    _write(root, "joined/joined.json", {
+        "trajectory": str(root / "joined" / "production.dcd"), "segments": [0, 1],
+        "frames": 2 * N, "trimmed": {}, "joins": [N],
+        "topology": str(root / "simulation" / "trajectory_topology.pdb"),
+        "joined_from_segments": True, "ran_through": False})
+    for piece in ("", "segment-001/"):
+        _write(root, f"{piece}simulation/energy.csv", ENERGY)
+    return root
+
+
+@pytest.mark.parametrize("public", [False, True], ids=["loopback", "public"])
+@pytest.mark.parametrize("named", ["", "energy.csv"], ids=["every-record", "state-records"])
+@pytest.mark.parametrize("route", EVERY_ROUTE)
+def test_a_joined_study_s_record_is_not_read_through_a_link_out(tmp_path, route, named,
+                                                                public):
+    """A study carried on and joined: its record of the join, the joined
+    trajectory's topology and each piece's state record, linked out of the
+    study, are not opened where they lead; nor, with every other record kept
+    in the study, are the pieces' state records the join leads to."""
+    root = _a_study_joined(tmp_path)
+    outside = _every_record_linked_out(root, tmp_path, named=named)
     _watch(outside)
     try:
-        status, _body = _ask(root, tmp_path, "/api/overview", public=True)
-        opened = list(_OPENED)
+        status, body = _ask(root, tmp_path, route, public=public)
+        opened = sorted({Path(name).relative_to(root).as_posix() if name.startswith(str(root))
+                         else name for name in _OPENED})
     finally:
         _WATCHED.clear()
     assert status == 200
     assert opened == []
+    if route in ("/api/overview", "/api/results"):
+        assert json.loads(body)["unavailable"]
+
+
+def test_a_joined_study_is_read_as_its_pieces_where_it_holds_them(tmp_path):
+    """Outside a held read (the analysis phase, the command line), and inside
+    one where the records are the study's own, a joined study is still its
+    joined trajectory and its pieces' state records."""
+    from fastmdxplora import record_access
+    from fastmdxplora.analysis.analyze import study_trajectory
+    from fastmdxplora.analysis.thermodynamics import state_record_pieces
+
+    root = _a_study_joined(tmp_path)
+    topology = root / "simulation" / "trajectory_topology.pdb"
+    expected = (root / "joined" / "production.dcd", topology)
+    assert study_trajectory(root) == expected
+    pieces = state_record_pieces(root)
+    assert [piece["path"] for piece in pieces] == [
+        root / "simulation" / "energy.csv", root / "segment-001" / "simulation" / "energy.csv"]
+    with record_access.confined_records(root, lambda path: True) as scope:
+        assert study_trajectory(root) == expected
+        assert len(state_record_pieces(root)) == 2
+    assert scope.denied == set()

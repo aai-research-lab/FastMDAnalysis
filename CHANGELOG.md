@@ -289,7 +289,8 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 - The Overview, the Analysis page, the Results data and the Files page read
   the study's own records, on this computer and on a public bind (`--host
   0.0.0.0`): the analyses' means, series, captions and frame times, and the
-  run's cost, resolved configs, manifests, run records and prepared system. A
+  run's cost, resolved configs, manifests, run records and prepared system,
+  and a carried-on study's record of its join and its pieces' state records. A
   record linked out of the study (a study downloaded from a deposit can hold
   such a link), or to a hidden file in it, is not read: its mean is Not read,
   counted neither determined nor not, with the record named; its series and
@@ -301,8 +302,7 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   reads its study's `stopping.json` and its runs' records, so a run waiting
   for the study's next round reads waiting. `/api/overview`, `/api/results`,
   `/api/series`, `/api/analysis-overview` and `/api/convergence` read through
-  such a link before. A carried-on study's `joined/joined.json` is still read
-  through one.
+  such a link before.
 
 ## [2.6.0] - 2026-10-11
 

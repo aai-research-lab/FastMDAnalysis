@@ -51,22 +51,30 @@ def study_trajectory(project_root: Path) -> tuple[Path | None, Path | None]:
     """
     import json
 
+    from fastmdxplora import record_access as _records
+    from fastmdxplora.simulation.pipeline import _may_look
+
     root = Path(project_root)
     joined = root / "joined" / "production.dcd"
     record = root / "joined" / "joined.json"
     own = root / "simulation" / "production.dcd"
     try:
-        if not (joined.is_file() and record.is_file() and joined.stat().st_size > 0):
+        if not (_records.is_file(joined) and _records.is_file(record)
+                and _records.stat(joined).st_size > 0):
             return None, None
         # A study simulated again in place after it was joined has a first
         # piece newer than the join, and the join is not its trajectory.
-        if own.is_file() and own.stat().st_mtime > joined.stat().st_mtime:
+        if (_records.is_file(own)
+                and _records.stat(own).st_mtime > _records.stat(joined).st_mtime):
             return None, None
-        named = json.loads(record.read_text(encoding="utf-8")).get("topology")
+        named = json.loads(_records.read_text(record, encoding="utf-8")).get("topology")
     except (OSError, ValueError, AttributeError):
         return None, None
+    # The topology the join names is looked at only where a held read may
+    # look (`pipeline._may_look`).
     topology = Path(str(named)) if named else None
-    return joined, (topology if topology is not None and topology.is_file() else None)
+    return joined, (topology if topology is not None and _may_look(topology)
+                    and _records.is_file(topology) else None)
 
 
 def run(
