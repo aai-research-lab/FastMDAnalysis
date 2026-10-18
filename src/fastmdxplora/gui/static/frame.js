@@ -1084,13 +1084,19 @@
     trigger.setAttribute("aria-expanded", String(open));
   }
 
+  /* Whose AI the Agent asks, by the provider's name, or none. Never the AI
+   * model: it is said only in the Agent's own settings (user, 10-18). */
   function loadAgentStatus() {
     fetch("/api/agent/model", {
       method: "POST", headers: {"content-type": "application/json"}, body: "{}"
     }).then(function (r) { return r.json(); }).then(function (d) {
       var cur = d && d.current;
       var engine = el("settings-engine");
-      if (engine) engine.textContent = cur ? cur.provider + " \u00b7 " + cur.model : "none";
+      if (!engine) return;
+      var spec = cur ? (d.providers || []).filter(function (p) {
+        return p.id === cur.provider;
+      })[0] : null;
+      engine.textContent = cur ? (spec ? spec.label : cur.provider) : "none";
     }).catch(function () { /* fine */ });
   }
 

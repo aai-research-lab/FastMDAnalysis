@@ -272,8 +272,8 @@ FastMDXplora running that study is never adopted.
 **The settings**, from the gear at the sidebar's foot: the scheme
 (System, which follows the computer, Light or Dark), the accent (Cyan, Blue,
 Violet, Magenta or Graphite, kept on this computer; Graphite has no hue and
-underlines its links), the Agent's AI model and its mode with **Agent
-settings**, **Preferences**, **Cite FastMDXplora**, the documentation and
+underlines its links), whose AI the Agent asks (its provider) and its mode
+with **Agent settings**, where alone its AI model is said, **Preferences**, **Cite FastMDXplora**, the documentation and
 the repository. Each of the three opens as a dialog over the page shown;
 Escape, Close, Back or a click outside closes it, and `#settings` or
 `#cite` in the address opens it. **Preferences** are how the Viewer opens
