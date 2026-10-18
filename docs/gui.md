@@ -137,6 +137,10 @@ each run. A record linked out of the study, or to a hidden file in it, is
 refused, and the list is then unavailable and names the record by its place
 in the study; of the hidden files, only the run's own process record
 (`.fastmdxplora_run.json`) is read, to tell a run going from one that ended.
+It is read when the study opens, when the tab is shown, with **Refresh**, and
+again only when the run writes something new (its live record's update time
+or its events log changes, as the page learns from its updates); nothing
+reads it on a timer, and the status bar's count is that read's.
 With the Agent beside a page, the Agent takes the side
 panel's place, so Log, Files and Problems come back when the Agent closes.
 
@@ -208,22 +212,31 @@ sidebar's word for it.
 scrolls or opens), says this computer and its GPUs (as `nvidia-smi` reads
 them, or the OpenMM platform a study here would run on); the run going
 here, with its stage, which of the stages it can reach it is in, how far
-it is and the time left at its speed so far, or where it stopped, failed
-or was interrupted, with **What would fix it**, which opens the Overview
+it is and the time left at its speed so far, and **Stop** beside it while
+it runs (asked once more first, as on its Overview), or where it stopped,
+failed or was interrupted, with **What would fix it**, which opens the Overview
 at that card (for an interrupted run, `fastmdx resume`, run from there only
 where its process was seen to be gone); a run going in another study of
 the workspace (from this GUI at most one study runs at a time), opening
-it; each job on one of your machines as its last recorded status says it
+it on the page shown (its Overview from a page of no study); each job on one of your machines as its last recorded status says it
 (nothing is asked of the machine); the open study's recorded problems,
-opening the Problems tab; the Agent's AI model, opening its settings; and
-the page's own updates, paused (the run goes on) or refreshed now. A
-finished study can be opened and read while another runs. A run is
-stopped from its Overview, beside how it is going, asked once more first
-(or from ⌘K). On a phone the strip is not shown.
+opening the Problems tab; the Agent's mode, opening its settings; and
+the page's own updates, paused (the run goes on) or refreshed now. The
+Agent's mode is said by its name and its two words: **Seeker: built-in,
+assisted** (it asks before anything is run) or **Ranger: built-in,
+autonomous** (it runs within the ceiling set). The AI model is never said
+in the strip; it is in the Agent's settings. A hosted service's Intel
+level would be said beside the mode, but no levels file is read yet, so
+the strip has no Intel item, and on your own install it never has. A
+finished study can be opened and read
+while another runs. A run is stopped from the strip, from its Overview,
+beside how it is going, or from ⌘K, each asked once more first. On a phone
+the strip is not shown.
 
 **Go to anything, and the keys.** ⌘K (Ctrl+K) finds a page (with its key),
 a study of the workspace, a file of the open study, an analysis, a tool of
-the Viewer, a setting of Preferences, the scheme and the actions; ⌘P
+the Viewer, a setting of Preferences, the scheme and the actions (a study
+opens on the page shown, its Overview from a page of no study); ⌘P
 (Ctrl+P) the open study's files alone. `@TRP23` (or `@A:23`) selects that
 residue in the Viewer, `@` and part of a name or number lists the
 residues it fits, and `:120` shows frame 120 of the trajectory there. ?
@@ -259,7 +272,7 @@ FastMDXplora running that study is never adopted.
 **The settings**, from the gear at the sidebar's foot: the scheme
 (System, which follows the computer, Light or Dark), the accent (Cyan, Blue,
 Violet, Magenta or Graphite, kept on this computer; Graphite has no hue and
-underlines its links), the Agent's AI model and mode with **Agent
+underlines its links), the Agent's AI model and its mode with **Agent
 settings**, **Preferences**, **Cite FastMDXplora**, the documentation and
 the repository. Each of the three opens as a dialog over the page shown;
 Escape, Close, Back or a click outside closes it, and `#settings` or

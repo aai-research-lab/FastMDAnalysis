@@ -51,13 +51,19 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   sidebar's word for it (New study, Overview, Viewer, All studies).
 - A status bar under every page: this computer and its GPUs, the run going
   here with its stage, how far it is and the time left (or where it
-  stopped and what would fix it), a run going in another study, the jobs
-  on your machines as last recorded, the open study's problems and the
-  Agent's AI model, each opening its page. The sidebar's progress card and
-  the sidebar's and the builder's Stop went into it: a run is stopped from
-  its Overview, beside how it is going.
-- ⌘K finds every study of the workspace, a file of the open study and a
-  setting, with each page's key; ⌘P a file alone. `@TRP23` selects a
+  stopped and what would fix it), a run going in another study (opening it
+  on the page shown), the jobs on your machines as last recorded, the open
+  study's problems and the Agent's mode, each opening its page. The AI
+  model is not said in it; it is in the Agent's settings. The sidebar's
+  progress card went into it, and the sidebar's and the builder's Stop: a
+  running study is stopped beside it in the strip or on its Overview, asked
+  first in both. The Problems tab is read again only when the run writes
+  something new, and when the tab is shown, not on a timer.
+- The Agent's modes are named Seeker (built-in, assisted) and Ranger
+  (built-in, autonomous) in its settings, under its composer and in the
+  status bar.
+- ⌘K finds every study of the workspace (opening it on the page shown), a
+  file of the open study and a setting, with each page's key; ⌘P a file alone. `@TRP23` selects a
   residue in the Viewer, `:120` shows a frame. The study's pages are on ⌘1
   to ⌘5 (⌥1 to ⌥5 in a browser's tab), the sidebar on ⌘B, the side panel on
   ⌘⌥B, and ? lists every key.
