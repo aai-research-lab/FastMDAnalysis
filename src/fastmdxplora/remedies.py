@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from fastmdxplora import record_access
-from fastmdxplora.refusals import Disclosure, Refusal, code_for, known
+from fastmdxplora.refusals import Disclosure, OutsideWorkspace, Refusal, code_for, known
 
 __all__ = ["Price", "Remedy", "remedies_of", "remedy_for", "windows_again"]
 
@@ -288,7 +288,9 @@ def remedy_for(refusal: Refusal | dict[str, Any] | None, *,
                    "in the run's health below. The choice is yours.")
         if settings:
             fix += f" A choice of this kind is recorded in {_either(settings)}."
-    cost = _from_the_top(root, spec) if root is not None and price else None
+    cost, unpriced = _priced(lambda: _from_the_top(root, spec), root) \
+        if root is not None and price else (None, "")
+    fix += unpriced
     return Remedy(code=found.code, where=where, why=why, fix=fix,
                   settings=tuple(settings), permitted=permitted, suggestion=suggestion,
                   command=command, decision=decision, price=cost)
@@ -568,24 +570,28 @@ def windows_again(study: str | Path, windows: Any, *,
             " each" if len(indices) > 1 else "")
     fix += ", keeping every other window, and recombine the free energy."
 
-    production = equilibration = 0.0
-    seconds: float | None = 0.0
-    platform = ""
-    for index in indices:
-        planned_ns, again = _planned(folders[index])
-        ns = length if length is not None else planned_ns
-        production += ns
-        equilibration += again
-        rate, measured = _speed(folders[index], root)
-        platform = platform or measured
-        seconds = None if rate is None or seconds is None else seconds + rate * (ns + again)
+    def price() -> Price:
+        production = equilibration = 0.0
+        seconds: float | None = 0.0
+        platform = ""
+        for index in indices:
+            planned_ns, again = _planned(folders[index])
+            ns = length if length is not None else planned_ns
+            production += ns
+            equilibration += again
+            rate, measured = _speed(folders[index], root)
+            platform = platform or measured
+            seconds = None if rate is None or seconds is None else seconds + rate * (ns + again)
+        return Price(production_ns=_round(production), equilibration_ns=_round(equilibration),
+                     runs=len(indices), seconds=seconds, platform=platform)
+
+    cost, unpriced = _priced(price, root)
     return Remedy(
-        code="", where=named, why="Asked for.", fix=fix,
+        code="", where=named, why="Asked for.", fix=fix + unpriced,
         settings=tuple(s for s, v in (("simulation.umbrella.force_constant", held),
                                       ("simulation.duration_ns", length)) if v is not None),
         **_command(argv),
-        price=Price(production_ns=_round(production), equilibration_ns=_round(equilibration),
-                    runs=len(indices), seconds=seconds, platform=platform),
+        price=cost,
         covers=tuple(sorted(run_id for run_id, spec in planned.items()
                             if _window_index(spec) in indices)))
 
@@ -623,8 +629,15 @@ def _resume(code: str, why: str, where: str, folders: list[Path],
     production = equilibration = 0.0
     seconds: float | None = 0.0
     platform = ""
+    unpriced = ""
     for folder in folders if price else []:
-        left, again = _what_remains(folder)
+        try:
+            left, again = _what_remains(folder)
+        except OutsideWorkspace as refusal:
+            # A record a held read refused: what remains is not known, which
+            # is not the whole plan.
+            unpriced = f" The price is not given, since {_not_read(refusal, study)}"
+            break
         production += left
         equilibration += again
         rate, where_measured = _speed(folder, study)
@@ -635,12 +648,12 @@ def _resume(code: str, why: str, where: str, folders: list[Path],
             seconds += rate * (left + again)
     cost = (Price(production_ns=_round(production), equilibration_ns=_round(equilibration),
                   runs=len(folders), seconds=seconds, platform=platform)
-            if folders and price else None)
+            if folders and price and not unpriced else None)
     said = _command(["resume", str(study)]) if study else {"command": RESUME, "argv": ()}
     return Remedy(code=code, where=where, why=why,
                   fix=(f"{family} Production already written is kept, and the "
                        "analyses run over the whole." if written or not folders
-                       else family),
+                       else family) + unpriced,
                   **said, price=cost)
 
 
@@ -700,11 +713,13 @@ def _failed_windows(root: Path, batch: dict[str, Any],
         fix += (f" {_counted(len(indices) - len(failed), 'window')} of those never "
                 "started because of the failure, and a window kept must have its "
                 "production.")
+    cost, unpriced = _priced(
+        lambda: _windows_again(root, [windows[i][1] for i in indices]), root)
     return Remedy(code=first.code, where=_windows_named(failed), why=first.why,
-                  fix=fix, settings=first.settings, permitted=first.permitted,
+                  fix=fix + unpriced, settings=first.settings, permitted=first.permitted,
                   decision=first.decision,
                   **_rerun(root, batch, indices),
-                  price=_windows_again(root, [windows[i][1] for i in indices]),
+                  price=cost,
                   covers=tuple(windows[i][0] for i in indices))
 
 
@@ -724,13 +739,15 @@ def _umbrella(root: Path, batch: dict[str, Any], planned: dict[str, Any], *,
     off = _windows_off_plan(planned, folders)
     if off:
         indices = sorted(off)
+        cost, unpriced = _priced(
+            lambda: _windows_again(root, [folders[i] for i in indices]), root)
         return [Remedy(
             code="config.option.conflicting", where=_windows_named(indices), why=why,
             fix="Run those windows again with the settings the config now gives them, "
                 "keeping the rest; or restore the settings they ran with, which costs "
-                "nothing.",
+                "nothing." + unpriced,
             **_rerun(root, batch, indices),
-            price=_windows_again(root, [folders[i] for i in indices]),
+            price=cost,
             covers=tuple(by_id[i] for i in indices))]
 
     thin = [t for t in payload.get("thin") or []
@@ -766,24 +783,35 @@ def _thin_windows(root: Path, batch: dict[str, Any], payload: dict[str, Any],
     indices = sorted(int(t["window"]) for t in thin)
     longest = 0.0
     unscalable = False
-    for entry in thin:
-        index, samples = int(entry["window"]), int(entry.get("samples") or 0)
-        folder = folders.get(index)
-        try:
-            done = production_done_ns(folder) if folder else 0.0
-        except Exception:  # noqa: BLE001
-            done = 0.0
-        if folder is not None and done <= 0:
-            done = _planned(folder)[0]
-        if samples <= 0 or done <= 0:
-            unscalable = True
-            continue
-        longest = max(longest, done * needed / samples)
-    length = _round_up(longest) if longest > 0 else None
+    not_read = ""
+    try:
+        for entry in thin:
+            index, samples = int(entry["window"]), int(entry.get("samples") or 0)
+            folder = folders.get(index)
+            try:
+                done = production_done_ns(folder) if folder else 0.0
+            except OutsideWorkspace:
+                raise
+            except Exception:  # noqa: BLE001
+                done = 0.0
+            if folder is not None and done <= 0:
+                done = _planned(folder)[0]
+            if samples <= 0 or done <= 0:
+                unscalable = True
+                continue
+            longest = max(longest, done * needed / samples)
+        rate, platform = _speed(folders.get(indices[0]), root)
+        equilibration = _planned(folders.get(indices[0]))[1]
+    except OutsideWorkspace as refusal:
+        # A record a held read refused: how far a window got, or what it
+        # planned, is not known, and the longest is not taken without it.
+        not_read = _not_read(refusal, root)
+    length = _round_up(longest) if longest > 0 and not not_read else None
     several = len(indices) > 1
     if length is None:
         fix = (f"Run {'them' if several else 'it'} again for longer; how much longer "
-               "cannot be read from a window that recorded nothing.")
+               + (f"is not given, since {not_read}" if not_read else
+                  "cannot be read from a window that recorded nothing."))
         return Remedy(code="simulation.windows.no_sampling", where=_windows_named(indices),
                       why=why, fix=fix, settings=("simulation.duration_ns",),
                       **_rerun(root, batch, indices),
@@ -793,8 +821,6 @@ def _thin_windows(root: Path, batch: dict[str, Any], payload: dict[str, Any],
            f"histogram needs, keeping every other window.")
     if unscalable:
         fix += " One recorded nothing, so for it that length is a guess."
-    rate, platform = _speed(folders.get(indices[0]), root)
-    equilibration = _planned(folders.get(indices[0]))[1]
     seconds = None if rate is None else rate * len(indices) * (length + equilibration)
     return Remedy(
         code="simulation.windows.no_sampling", where=_windows_named(indices), why=why,
@@ -954,10 +980,15 @@ def _planned(folder: Path | None) -> tuple[float, float]:
 
     sim: dict[str, Any] = {}
     if folder is not None:
+        resolved = Path(folder) / "resolved_config.yml"
         try:
-            config = yaml.safe_load((Path(folder) / "resolved_config.yml")
-                                    .read_text(encoding="utf-8")) or {}
+            config = yaml.safe_load(record_access.read_text(resolved, encoding="utf-8")) or {}
             sim = dict(config.get("simulation") or {})
+        except OutsideWorkspace as refusal:
+            # Refused by a held read (`record_access`): not read, which is
+            # not a run that names no length.
+            refusal.filename = refusal.filename or str(resolved)
+            raise
         except (OSError, yaml.YAMLError, AttributeError):
             sim = {}
 
@@ -980,6 +1011,32 @@ def _planned(folder: Path | None) -> tuple[float, float]:
             (steps["nvt_steps"] + steps["npt_steps"]) / per_ns)
 
 
+def _not_read(refusal: OSError, study: Path | None) -> str:
+    """The record a held read refused (`record_access`), named in ``study``
+    where it is in it, and why it was not read."""
+    import os
+
+    place = Path(str(getattr(refusal, "filename", None) or ""))
+    name = place.name or "a record"
+    if study is not None and place.is_absolute():
+        # The folder it is in resolved, never the record: that is the link.
+        relative = os.path.relpath(os.path.join(os.path.realpath(place.parent), place.name),
+                                   os.path.realpath(study))
+        if not relative.startswith(".."):
+            name = Path(relative).as_posix()
+    return (f"{name} was not read: it leads out of the study, or to a file of it that "
+            "is not one of its results.")
+
+
+def _priced(price: Any, study: Path | None) -> tuple[Price | None, str]:
+    """``price()``, and nothing to say; or, where a held read refused a
+    record it needs (`record_access`), no price and why, for the fix."""
+    try:
+        return price(), ""
+    except OutsideWorkspace as refusal:
+        return None, f" The price is not given, since {_not_read(refusal, study)}"
+
+
 def _what_remains(folder: Path) -> tuple[float, float]:
     """(production left, equilibration to run again) for a stopped run.
 
@@ -992,6 +1049,10 @@ def _what_remains(folder: Path) -> tuple[float, float]:
     planned, equilibration = _planned(folder)
     try:
         plan = extension_of(folder)
+    except OutsideWorkspace:
+        # A record a held read refused (`record_access`) is not read: what
+        # remains is not known, and is not the whole plan.
+        raise
     except Exception:  # noqa: BLE001 - a record, not a verdict
         plan = None
     if plan is not None and plan.possible:
