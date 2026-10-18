@@ -92,18 +92,19 @@ def chose_its_own_step(simulation_dir: str | Path) -> bool:
     it runs and for a run killed before its record."""
     folder = Path(simulation_dir)
     try:
-        record = json.loads((folder / "simulation_parameters.json").read_text(encoding="utf-8"))
+        record = json.loads(_records.read_text(folder / "simulation_parameters.json",
+                                               encoding="utf-8"))
         parameters = record.get("parameters") if isinstance(record, dict) else None
         if isinstance(parameters, dict) and parameters.get("integrator"):
             return parameters["integrator"] in VARIABLE_STEP_INTEGRATORS
     except (OSError, ValueError):
         pass
     for config in (folder.parent / "resolved_config.yml", folder / "resolved_config.yml"):
-        if config.is_file():
+        if _records.is_file(config):
             try:
                 import yaml
 
-                data = yaml.safe_load(config.read_text(encoding="utf-8")) or {}
+                data = yaml.safe_load(_records.read_text(config, encoding="utf-8")) or {}
                 simulation = data.get("simulation") if isinstance(data, dict) else None
                 return isinstance(simulation, dict) and \
                     simulation.get("integrator") in VARIABLE_STEP_INTEGRATORS
