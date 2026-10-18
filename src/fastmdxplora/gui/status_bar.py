@@ -1,16 +1,16 @@
-"""What the status bar says of this computer and the Agent (statusbar.js).
+"""What the status bar says of this computer (statusbar.js).
 
-The strip under every page names the computer the GUI runs on and its GPUs,
-and the AI model the Agent asks. The rest of it (the run going here, the
-jobs on other machines, the open study's problems) the page has already from
-the routes it reads for them.
+The strip under every page names the computer the GUI runs on and its GPUs.
+The rest of it (the run going here, the jobs on other machines, the open
+study's problems, the Agent's mode) the page has already from the routes it
+reads for them and the Agent's settings. The AI model is not said in the
+strip (user, 10-18): it is in the Agent's settings.
 
 Read from what is here: the GPUs as ``nvidia-smi`` gives them
 (:func:`fastmdxplora.gpu_here.room_here`), kept a minute so the strip's polls
 do not ask it each time, and the fastest OpenMM platform found, kept for the
-life of the server; the AI model as Settings stored it, never its key. On
-loopback only (the server's gate): a computer's name and its GPUs are not
-said to the network.
+life of the server. On loopback only (the server's gate): a computer's
+name and its GPUs are not said to the network.
 """
 
 from __future__ import annotations
@@ -99,21 +99,6 @@ def _machine() -> dict[str, Any]:
     }
 
 
-def _agent() -> dict[str, Any] | None:
-    from fastmdxplora.agent.models import PROVIDERS, load_choice
-
-    choice = load_choice()
-    if choice is None:
-        return None
-    return {"provider": choice.provider,
-            "provider_label": str(PROVIDERS.get(choice.provider, {}).get("label") or choice.provider),
-            "model": choice.model}
-
-
 def status_bar() -> dict[str, Any]:
-    """The computer here and the Agent's AI model, for the status bar."""
-    try:
-        agent = _agent()
-    except Exception:  # noqa: BLE001 - the strip says the rest
-        agent = None
-    return {"ok": True, "machine": _machine(), "agent": agent}
+    """The computer here, for the status bar."""
+    return {"ok": True, "machine": _machine()}

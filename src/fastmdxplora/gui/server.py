@@ -1143,9 +1143,9 @@ def make_handler(
                 self._send_json(_confined(root, timeline_payload))
                 return
             if path == "/api/status-bar":
-                # This computer and its GPUs, and the Agent's AI model, for
-                # the strip under every page. Not for a service's guests:
-                # the computer is the service's, not theirs.
+                # This computer and its GPUs, for the strip under every
+                # page. Not for a service's guests: the computer is the
+                # service's, not theirs.
                 if hosting is not None:
                     self._send_json({"ok": False, "reason": "Not said when the GUI is served."})
                     return

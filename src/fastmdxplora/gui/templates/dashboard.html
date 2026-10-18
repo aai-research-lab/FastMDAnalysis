@@ -100,8 +100,8 @@
           <label class="builder-field">
             <span class="builder-label">Mode</span>
             <select id="agent-mode">
-              <option value="assisted">Assisted: you approve it</option>
-              <option value="autonomous">Autonomous: runs unattended</option>
+              <option value="assisted">Seeker: built-in, assisted</option>
+              <option value="autonomous">Ranger: built-in, autonomous</option>
               <option value="unvalidated">Unvalidated: outside the schema</option>
             </select>
             <p class="builder-card-note" id="agent-mode-note"></p>
@@ -376,7 +376,7 @@
     <div class="settings-divider"></div>
     <div class="settings-section">Agent</div>
     <div class="settings-row"><span>Engine</span><span class="settings-value" id="settings-engine">none</span></div>
-    <div class="settings-row"><span>Mode</span><span class="settings-value" id="settings-mode">assisted</span></div>
+    <div class="settings-row"><span>Mode</span><span class="settings-value" id="settings-mode">Seeker: built-in, assisted</span></div>
     <a href="#agent" class="settings-item" id="settings-agent-link">Agent settings&hellip;</a>
     <div class="settings-divider"></div>
     <button type="button" class="settings-item" data-dialog-open="prefs-dialog" aria-haspopup="dialog">Preferences&hellip; <span class="settings-hint">viewer, time, charts</span></button>
@@ -1856,7 +1856,7 @@
                  opens the Agent's settings; the conversations; a fresh
                  one. Where every AI app a person has used keeps them. -->
             <div class="agent-footer">
-              <button id="agent-settings-open" class="agent-footer-link" type="button" title="Agent settings"><span id="agent-footer-mode">Assisted</span> mode</button>
+              <button id="agent-settings-open" class="agent-footer-link" type="button" title="The Agent's mode: open its settings"><span id="agent-footer-mode">Seeker: built-in, assisted</span></button>
               <button id="agent-conversations" class="line-btn" type="button" aria-label="Conversations"
                       title="Conversations: open an earlier one"><!--icon:chat:line-icon--></button>
               <button id="agent-new" class="line-btn" type="button" aria-label="New conversation"

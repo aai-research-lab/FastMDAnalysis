@@ -177,7 +177,7 @@ FastMDXplora/
 │       │   ├── series.py          # An analysis's numbers, tied to the trajectory's frames
 │       │   ├── figure_data.py     # The numbers behind an analysis's other figures, to plot in the page's colours
 │       │   ├── stopping_view.py   # A study run until it is determined, for the Overview
-│       │   ├── status_bar.py      # The status bar's computer, its GPUs and the Agent's AI model
+│       │   ├── status_bar.py      # The status bar's computer and its GPUs
 │       │   ├── timeline_view.py   # What the Viewer's timeline marks on the frames it plays
 │       │   ├── fixes_view.py      # What would fix the study on screen
 │       │   ├── problems_view.py   # The study's recorded problems, read and never acted on

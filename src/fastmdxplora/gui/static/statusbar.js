@@ -5,12 +5,15 @@
  * them to), or where it stopped and what would fix it; a run going in
  * another study of this workspace; each job on another machine as its last
  * recorded status says it (nothing is asked of the machine); then the open
- * study's problems, the Agent's AI model, and the page's own updates. Each
- * item opens its page. It is a strip, not a panel: nothing in it scrolls,
+ * study's problems, the Agent's mode, and the page's own updates. Each
+ * item opens its page. The AI model is never said here: it is in the
+ * Agent's settings (user, 10-18). A hosted service's Intel level would be
+ * said beside the mode; FastMDXplora has no levels file yet, so no Intel
+ * item is shown, and the model is never put in its place. It is a strip, not a panel: nothing in it scrolls,
  * resizes or takes tabs (the rule of 10-12 against panels under the page).
  *
- * Read from: /api/status-bar (this computer, the Agent; status_bar.py) once
- * a minute, /api/remote/machines (the jobs, as recorded) every half minute,
+ * Read from: /api/status-bar (this computer; status_bar.py) once a minute,
+ * the Agent's mode as chosen in its settings (#agent-mode), /api/remote/machines (the jobs, as recorded) every half minute,
  * the app's state and status as the page polls them, and the Problems
  * tab's count (problems.js). A route refused (a service's guests, a page
  * served beyond this computer) leaves its item out.
@@ -52,7 +55,7 @@
   function gb(mb) { return (mb / 1024).toFixed(mb >= 10240 ? 0 : 1) + " GB"; }
 
   /* ------------------------------------------------------------------ */
-  /* This computer, and the Agent                                        */
+  /* This computer                                                       */
   /* ------------------------------------------------------------------ */
 
   function machineSaid(m) {
@@ -79,34 +82,37 @@
     return lines.join("\n");
   }
 
-  function agentSaid(a) {
-    return a ? "Agent · " + a.model : "Agent · no AI model set";
-  }
-
   function loadMachine() {
     getJSON("/api/status-bar").then(function (data) {
       var machine = byId("sb-machine");
-      var agent = byId("sb-agent");
       if (!data || !data.ok) {
         if (machine) machine.hidden = true;
-        if (agent) agent.hidden = true;
         return;
       }
       if (machine && data.machine) {
         setItem(machine, "machine", machineSaid(data.machine), machineTitle(data.machine));
         machine.hidden = false;
       }
-      if (agent) {
-        setItem(agent, "agent", agentSaid(data.agent), data.agent
-          ? "The Agent asks " + data.agent.provider_label + ", " + data.agent.model
-            + "\nOpen the Agent's settings"
-          : "The Agent has no AI model to ask yet\nOpen the Agent's settings");
-        agent.hidden = false;
-      }
     }).catch(function () {
       var machine = byId("sb-machine");
       if (machine) machine.hidden = true;
     });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* The Agent's mode                                                    */
+  /* ------------------------------------------------------------------ */
+
+  /* The mode by its name and its two words, as its choice says it
+   * ("Seeker: built-in, assisted"); never the AI model. */
+  function showMode() {
+    var item = byId("sb-agent");
+    var select = byId("agent-mode");
+    if (!item || !select || select.selectedIndex < 0) return;
+    var said = select.options[select.selectedIndex].text;
+    setItem(item, "agent", "Agent · " + said,
+      "The Agent's mode: " + said + "\nOpen the Agent's settings");
+    item.hidden = false;
   }
 
   /* ------------------------------------------------------------------ */
@@ -240,6 +246,9 @@
         if (window.FastMDXAgent && window.FastMDXAgent.openSettings) window.FastMDXAgent.openSettings();
       });
     }
+    var mode = byId("agent-mode");
+    if (mode) mode.addEventListener("change", showMode);
+    showMode();
     var problems = byId("sb-problems");
     if (problems) problems.addEventListener("click", openProblems);
     window.FastMDXDashboard.on("app-state", function (s) {

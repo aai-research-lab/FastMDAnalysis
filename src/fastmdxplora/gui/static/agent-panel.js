@@ -4638,8 +4638,16 @@
     function modeChanged() {
       var mode = el("agent-mode").value;
       el("agent-mode-note").textContent = MODE_NOTES[mode] || "";
-      var footer = el("agent-footer-mode");
-      if (footer) footer.textContent = mode.charAt(0).toUpperCase() + mode.slice(1);
+      /* The mode by its name and its two words ("Seeker: built-in,
+       * assisted"), as the choice says it, wherever it is shown: under the
+       * composer, in the settings menu and in the status bar (statusbar.js
+       * reads the same choice). */
+      var select = el("agent-mode");
+      var said = select.selectedIndex >= 0 ? select.options[select.selectedIndex].text : mode;
+      ["agent-footer-mode", "settings-mode"].forEach(function (id) {
+        var node = el(id);
+        if (node) node.textContent = said;
+      });
       el("agent-budget-note").textContent = mode === "autonomous"
         ? "Required in this mode. Checked after setup, where the cost is "
           + "first known."
