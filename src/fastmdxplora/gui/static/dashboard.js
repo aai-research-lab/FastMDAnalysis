@@ -944,7 +944,7 @@
         return {...answer, gone: "folder", error: "This study's folder is no longer there."};
       }
       if (answer && !answer.ok && response.status === 404) {
-        return {...answer, gone: "missing", error: "This study could not be found among the studies here."};
+        return {...answer, gone: "missing", error: "This study is not among the studies here."};
       }
       return answer;
     } catch (error) {

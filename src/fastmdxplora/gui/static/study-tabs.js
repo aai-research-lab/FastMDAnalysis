@@ -17,7 +17,7 @@
   var MAX_TABS = 100;
   var GONE_SAID = {
     folder: "This study's folder is no longer there.",
-    missing: "This study could not be found among the studies here."
+    missing: "This study is not among the studies here."
   };
   function validKey(key) { return typeof key === "string" && /^[0-9a-f]{16}$/.test(key); }
   function safeRoute(route) {
@@ -48,7 +48,7 @@
   /* Its gone words, naming it: said when another tab is being closed. */
   function goneOf(tab) {
     return tab.gone === "folder" ? "The folder of " + label(tab) + " is no longer there."
-      : label(tab) + " could not be found among the studies here.";
+      : label(tab) + " is not among the studies here.";
   }
   function unkeptSaid(failed) {
     if (!unkept) return;

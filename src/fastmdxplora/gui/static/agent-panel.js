@@ -4505,8 +4505,7 @@
 
   /* For the settings popup: "Agent settings…" should open this dialog,
    * not merely land on the Agent page. */
-  window.FastMDXAgent = {
-    openSettings: openSettings, closeSettings: closeSettings,
+  window.FastMDXAgent = { openSettings: openSettings, closeSettings: closeSettings,
     beforeStudySwitch: function (how) {
       if (launching) return "Wait for the study launch to finish before switching studies.";
       if (attaching) return "Wait for the Agent attachment to finish loading before switching studies.";
