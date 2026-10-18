@@ -1609,6 +1609,19 @@ def analyze_health(
     }
 
 
+def not_read_health(said: str) -> dict[str, str]:
+    """The health of a run whose live record a held read refused
+    (`record_access`): not read, ``said`` naming it and why, and no reason
+    given for its absence, since it is not absent."""
+    return {
+        "state": "not read",
+        "headline": "Not read",
+        "message": said,
+        "explanation": ("The run's live record is how this page knows how the run went, "
+                        "so how it went is not shown."),
+    }
+
+
 def _not_a_run(root: str | Path) -> dict[str, str] | None:
     """What a folder with no telemetry is, when it is not a run at all.
 

@@ -344,15 +344,23 @@ def _status_records(root: Path) -> dict[str, Any]:
     read for it (`simulated_times` would say an outside record's production)."""
     from fastmdxplora.gui.simulated_time import simulated_times
 
+    from fastmdxplora.gui.series import refused_said
+    from fastmdxplora.gui.telemetry import not_read_health
+    from fastmdxplora.simulation.pipeline import _refused
+
     # A run that ended without saying so is said to have.
     status = status_as_it_stands(root)
     metrics = read_metrics(root)
+    live = root / "simulation" / "live_status.json"
+    # Its live record refused is not read: not a run that kept none.
+    health = (not_read_health(refused_said(root, live) + ".")
+              if not status and _refused(live) else analyze_health(status, metrics, root=root))
     return {
         "status": status,
         # Production first, equilibration beside it: the live record's own
         # time has every stage in it.
         "times": simulated_times(root, status),
-        "health": analyze_health(status, metrics, root=root),
+        "health": health,
         # Which stages this run can actually reach. An analysis-only run has
         # no minimization to wait for, and a stage greyed out forever reads
         # as a run that stalled.

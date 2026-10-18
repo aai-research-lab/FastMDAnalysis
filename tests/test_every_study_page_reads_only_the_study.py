@@ -229,3 +229,45 @@ def test_each_record_not_read_says_why(tmp_path, public):
                                     "to a file outside the study.")
     assert tiles["rg"]["why"] == ("analysis/rg/options.json was not read: it leads to a file "
                                   "of the study that is not one of its results.")
+
+
+@PUBLIC
+@pytest.mark.parametrize("leads", ["outside", "leads to"])
+def test_a_live_record_not_read_is_said_not_read_not_absent(tmp_path, public, leads):
+    """The run's live record linked out of the study, or to a hidden file of
+    it: `/api/status` says it was not read, and why, rather than that the
+    run kept none (telemetry off, or stopped before its simulation)."""
+    root = _a_run_finished(_study(tmp_path))
+    live = root / "simulation" / "live_status.json"
+    target = (tmp_path / "elsewhere" / "live_status.json" if leads == "outside"
+              else root / ".kept" / "live_status.json")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    live.rename(target)
+    _link(live, target)
+
+    text, answer = _status(root, tmp_path, public=public)
+
+    assert answer["status"] == {}
+    health = answer["health"]
+    assert (health["state"], health["headline"]) == ("not read", "Not read")
+    assert health["message"] == "simulation/live_status.json was not read: " + (
+        "it is a link to a file outside the study." if leads == "outside"
+        else "it leads to a file of the study that is not one of its results.")
+    assert "telemetry" not in text.lower()
+    assert answer["unavailable"] == ["simulation/live_status.json"]
+
+
+@PUBLIC
+def test_a_figure_s_record_not_read_is_said_in_a_whole_sentence(tmp_path, public):
+    """Every figure whose record was not read says so in a whole sentence."""
+    root = _study(tmp_path)
+    _write(root, "analysis/rmsd/rmsd.png", "png")
+    outside = _write(tmp_path, "elsewhere/options.json", {"findings": {}})
+    _link(root / "analysis" / "rmsd" / "options.json", outside)
+
+    status, body = _ask(root, tmp_path, "/api/analyses", public=public)
+    assert status == 200
+    cards = [panel["summary"] for section in json.loads(body)["analysis_sections"]
+             for panel in section["panels"]]
+    assert cards == ["analysis/rmsd/options.json was not read: it is a link to a file "
+                     "outside the study, so what it says is not shown."]

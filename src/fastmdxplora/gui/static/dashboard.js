@@ -1465,6 +1465,12 @@
    * and offer to start one. */
   function liveAbsence(app) {
     app = app || {};
+    // Its live record there but not read (a link out of the study, say):
+    // named, and no reason given for an absence it is not.
+    const health = state.health || {};
+    if (String(health.state || "") === "not read") {
+      return {title: "Live record not read", body: health.message || "", offerToStart: false};
+    }
     if (app.no_study_in) {
       const name = String(app.no_study_in).split(/[\\/]/).filter(Boolean).pop() || app.no_study_in;
       return {
