@@ -3862,6 +3862,15 @@
         var moved = started && started.conversation;
         if (moved && moved.ok && moved.id) {
           c.id = moved.id;
+          /* Moved by the run into its folder: where it is now is the
+           * server's word, as for a save's answer (persistOf). Named for
+           * the study left, the next save was refused, and the read of the
+           * run's study put the thread back without what was said as the
+           * run started. */
+          if ((moved.study || started.output || null) !== (c.study || null)) {
+            c.page = "";
+            if (c === conv) convFor = "";
+          }
           c.study = moved.study || started.output;
         }
         if (started.ok) {
