@@ -243,6 +243,10 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   gone, instead of failing; a folder above the study need only be
   searchable.
 
+- A water map and the water sites asked for at once no longer fail. Both
+  read the same frames, kept for one study at a time, and one request could
+  empty them while the other read them, which then failed with a KeyError
+  on `xyz`.
 - A movie made with ffmpeg 8 is tagged with its colour primaries and
   transfer (BT.709) again. ffmpeg 8 reads them from the frames, which did
   not carry them, so the movie was written with its colour space and range
