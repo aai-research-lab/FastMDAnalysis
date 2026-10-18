@@ -1608,8 +1608,9 @@
       return {theme, colourOf, valueAt, property};
     }
 
-    /** Spectrum: each chain from blue at its first residue to red at its
-     * last, by the residue's place in the chain rather than its number. */
+    /** Spectrum: each chain on the turbo scale, from dark violet at its
+     * first residue through blue, green and yellow to dark red at its last,
+     * by the residue's place in the chain rather than its number. */
     installSpectrum() {
       const SE = this.lib.structure.StructureElement;
       const Bond = this.lib.structure.Bond;
@@ -1639,7 +1640,8 @@
         category: "FastMDXplora",
         factory: (ctx, props) => ({
           factory: provider.factory, granularity: "group", props, preferSmoothing: true,
-          description: "Each chain from blue at its first residue to red at its last.",
+          description: "Each chain from dark violet at its first residue, through blue, "
+            + "green and yellow, to dark red at its last.",
           color: (location) => {
             if (SE.Location.is(location)) return colourAt(location.unit, location.element);
             if (Bond.isLocation(location)) {

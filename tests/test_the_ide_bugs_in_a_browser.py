@@ -181,7 +181,8 @@ def test_spectrum_runs_blue_to_red_whatever_the_numbering(numbered_from_seventy)
                 if (name) used.push(name);
             }
             return {first: ca[0], last: ca[ca.length - 1], mid: ca[Math.floor(ca.length / 2)],
-                    mode: window.FastMDXMoleculeViewer.STATE.colorMode, used};
+                    mode: window.FastMDXMoleculeViewer.STATE.colorMode, used,
+                    description: theme.description};
         }""")
 
     said = _serve(numbered_from_seventy, look)
@@ -192,3 +193,7 @@ def test_spectrum_runs_blue_to_red_whatever_the_numbering(numbered_from_seventy)
     # Blue at the chain's first residue, red at its last, not red throughout.
     assert first[2] > first[0] and last[0] > last[2]
     assert len({said["first"][1], said["mid"][1], said["last"][1]}) == 3
+    # Said as it is drawn: the turbo scale's dark ends, not "blue" and "red".
+    assert max(first) < 80 and last[0] < 160
+    assert said["description"].startswith("Each chain from dark violet")
+    assert "dark red at its last" in said["description"]
