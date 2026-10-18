@@ -20,6 +20,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from fastmdxplora import record_access as _records
+
 #: Stages before production.
 EQUILIBRATING = ("loading", "minimization", "nvt", "npt")
 
@@ -41,8 +43,8 @@ def say_length(ns: float | None) -> str:
 
 def _record(root: Path) -> dict[str, Any]:
     try:
-        data = json.loads((root / "simulation" / "simulation_parameters.json").read_text(
-            encoding="utf-8"))
+        data = json.loads(_records.read_text(
+            root / "simulation" / "simulation_parameters.json", encoding="utf-8"))
         return data if isinstance(data, dict) else {}
     except (OSError, json.JSONDecodeError):
         return {}
@@ -175,7 +177,7 @@ def _when(value: Any) -> datetime:
 
 def _phases_of(manifest: Path) -> list[Any]:
     try:
-        record = json.loads(manifest.read_text(encoding="utf-8"))
+        record = json.loads(_records.read_text(manifest, encoding="utf-8"))
     except (OSError, ValueError):
         return []
     phases = record.get("phases") if isinstance(record, dict) else None

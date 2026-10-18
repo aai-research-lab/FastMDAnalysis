@@ -21,6 +21,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from fastmdxplora import record_access as _records
 from fastmdxplora.gui.report_dashboard import _numbers_in, unit_of
 
 #: What each series is called and whether it runs over time or residues.
@@ -44,6 +45,16 @@ NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _NAME = NAME
 
 
+def refused_said(root: Path, path: Path) -> str:
+    """A record a confined read refused (`record_access`), said as that."""
+    try:
+        named = Path(path).relative_to(root).as_posix()
+    except ValueError:
+        named = Path(path).name
+    return (f"{named} was not read: it leads outside the study, or to a file "
+            "of the study that is not one of its results")
+
+
 def series_over_time(root: Path) -> dict[str, Any]:
     """The analyses of a study whose numbers run over its frames, each with
     its label and unit, for the Viewer to plot one under its transport: the
@@ -51,13 +62,14 @@ def series_over_time(root: Path) -> dict[str, Any]:
     folder = Path(root) / "analysis"
     found: list[dict[str, Any]] = []
     try:
-        names = sorted(p.name for p in folder.iterdir() if p.is_dir() and _NAME.match(p.name))
+        names = sorted(p.name for p in _records.iterdir(folder)
+                       if _NAME.match(p.name) and _records.is_dir(p))
     except OSError:
         names = []
     order = list(SERIES)
     names.sort(key=lambda name: (order.index(name) if name in order else len(order), name))
     for name in names:
-        if not (folder / name / f"{name}.dat").is_file():
+        if not _records.is_file(folder / name / f"{name}.dat"):
             continue
         findings = _json(folder / name / "options.json").get("findings")
         mean = findings.get("mean") if isinstance(findings, dict) else None
@@ -74,9 +86,16 @@ def series_payload(root: Path, analysis: str) -> dict[str, Any]:
         return {"ok": False, "reason": "not an analysis name"}
     folder = Path(root) / "analysis" / analysis
     data = folder / f"{analysis}.dat"
-    if not data.is_file():
+    record_path = folder / "options.json"
+    for path in (data, record_path):
+        if not _records.can_read(path):
+            # Linked out of the study, or to a hidden file in it: not read,
+            # and said so rather than as a series without its record.
+            return {"ok": False, "unavailable": [path.relative_to(root).as_posix()],
+                    "reason": f"{refused_said(Path(root), path)}, so {analysis} is not shown"}
+    if not _records.is_file(data):
         return {"ok": False, "reason": f"{analysis} wrote no data file"}
-    record = _json(folder / "options.json")
+    record = _json(record_path)
     found = (record.get("findings") or {}).get("mean")
     found = found if isinstance(found, dict) else None
     label, kind = SERIES.get(analysis, (analysis, "time" if found else ""))
@@ -203,15 +222,15 @@ def _of_the_played_trajectory(root: Path, manifest: dict[str, Any]) -> bool:
     if not isinstance(analysed, str) or not analysed:
         return False
     joined = root / "joined" / "production.dcd"
-    played = joined if (root / "joined" / "joined.json").is_file() and joined.is_file() \
-        else root / "simulation" / "production.dcd"
+    played = joined if _records.is_file(root / "joined" / "joined.json") \
+        and _records.is_file(joined) else root / "simulation" / "production.dcd"
     try:
         if Path(analysed).resolve() == played.resolve():
             return True
         # A study moved or shared names the trajectory where it was read:
         # the same place in the study, the folder before it gone.
         named = Path(analysed)
-        return (not named.exists() and played.is_file()
+        return (not named.exists() and _records.is_file(played)
                 and named.parts[-2:] == played.relative_to(root).parts[-2:])
     except (OSError, ValueError):
         return False
@@ -222,7 +241,7 @@ def _rows(path: Path) -> list[tuple[list[str], list[float]]]:
     header (a line with no number in it) left out."""
     rows: list[tuple[list[str], list[float]]] = []
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = _records.read_text(path, encoding="utf-8").splitlines()
     except OSError:
         return rows
     for line in lines:
@@ -247,7 +266,7 @@ def _is_word(part: str) -> bool:
 
 def _json(path: Path) -> dict[str, Any]:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(_records.read_text(path, encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}

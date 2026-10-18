@@ -35,7 +35,7 @@ from fastmdxplora.gui.report_dashboard import (
     SECTION_THEME,
     unit_of,
 )
-from fastmdxplora.gui.series import NAME, analysed_axis, series_column
+from fastmdxplora.gui.series import NAME, analysed_axis, refused_said, series_column
 
 #: The manifest's status words, as the page says them.
 _STATUS_SAID = {"ok": "done", "completed": "done", "complete": "done",
@@ -71,13 +71,19 @@ def overview_of(root: str | Path, *, include_time: bool = True,
     root = Path(root)
     folder = root / "analysis"
     manifest = _json(folder / "analysis_manifest.json")
+    # A manifest a confined read refused (`record_access`) says nothing of
+    # which analyses are still running.
+    refused = not record_access.can_read(folder / "analysis_manifest.json")
     results = manifest.get("results") if isinstance(manifest.get("results"), dict) else {}
     names = [str(name) for name in results]
     try:
+        # An analysis's folder, or its record, that a confined read refused
+        # is listed too, to say its record was not read.
         names += sorted(p.name for p in record_access.iterdir(folder)
                         if NAME.match(p.name) and p.name not in results
-                        and record_access.is_dir(p)
-                        and record_access.is_file(p / "options.json"))
+                        and (not record_access.can_read(p / "options.json")
+                             or (record_access.is_dir(p)
+                                 and record_access.is_file(p / "options.json"))))
     except OSError:
         pass
 
@@ -92,8 +98,8 @@ def overview_of(root: str | Path, *, include_time: bool = True,
     # (analysis/orchestrator.py); until then a folder holds an analysis
     # still computing or one finished, told apart by what it recorded.
     complete = bool(results)
-    rows = [_row(root, name, results.get(name), corrected, biased is not None, complete,
-                 include_time=include_time, include_data=include_data)
+    rows = [_row(root, name, results.get(name), corrected, biased is not None,
+                 complete or refused, include_time=include_time, include_data=include_data)
             for name in names]
     order = {title: index for index, title in enumerate(SECTION_ORDER)}
     rows.sort(key=lambda row: (order.get(row["title"], len(order)), row["analysis"]))
@@ -130,7 +136,15 @@ def _row(root: Path, name: str, result: Any, corrected: dict[Any, Any],
         "quantities": [],
         "data": _data_files(root, name) if include_data else [],
     }
-    record = _json(root / "analysis" / name / "options.json")
+    record_path = root / "analysis" / name / "options.json"
+    record = _json(record_path)
+    if not record_access.can_read(record_path):
+        # Its record leads out of the study, or to a hidden file in it: not
+        # read (the confined read refused it), and said so, rather than read
+        # as an analysis that recorded no mean (a profile, map or table).
+        row["quantities"].append({"key": "mean", "label": title, **_not_read(root, record_path)})
+        row["kind"] = "mean"
+        return row
     findings = record.get("findings") if isinstance(record.get("findings"), dict) else {}
     found = findings.get("mean") if isinstance(findings.get("mean"), dict) else None
     main = None
@@ -284,6 +298,17 @@ def _recorded(root: Path, name: str, found: dict[str, Any], biased: bool,
     }
 
 
+def _not_read(root: Path, path: Path) -> dict[str, Any]:
+    """A mean whose record a confined read refused: no value, said so."""
+    return {
+        "value": None, "error": None, "unit": "", "said": "record unavailable",
+        "determined": False, "why": refused_said(root, path) + ".",
+        "samples": None, "from_frame": None, "of_frames": None, "from_ns": None,
+        "reweighted": False, "constant": False, "judged_earlier": False,
+        "unavailable": True,
+    }
+
+
 def _reweighted(name: str, item: dict[str, Any], found: dict[str, Any] | None) -> dict[str, Any]:
     from fastmdxplora.statistics import four_figures, with_its_error
 
@@ -332,7 +357,11 @@ def convergence_payload(root: str | Path, analysis: str) -> dict[str, Any]:
     data = folder / f"{analysis}.dat"
     # Said by the name the page gives it, not its folder's.
     named = ANALYSIS_SECTION_BY_FOLDER.get(analysis, analysis)
-    if not data.is_file():
+    for path in (data, folder / "options.json"):
+        if not record_access.can_read(path):
+            return {"ok": False, "unavailable": [path.relative_to(root).as_posix()],
+                    "reason": f"{refused_said(root, path)}, so {named} is not shown"}
+    if not record_access.is_file(data):
         return {"ok": False, "reason": f"{named} wrote no data file"}
     record = _json(folder / "options.json")
     findings = record.get("findings") if isinstance(record.get("findings"), dict) else {}

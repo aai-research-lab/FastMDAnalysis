@@ -37,6 +37,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from fastmdxplora import record_access as _records
+
 __all__ = ["overview_payload", "THERMODYNAMICS", "MOST_TILES", "thinned_metrics"]
 
 #: The thermodynamic quantities the Overview plots, as the live record
@@ -56,17 +58,26 @@ MOST_TILES = 9
 #: series': an analysis named here, whose quantity is its ``mean``.
 _SERIES_OF = {"rmsd", "rg", "hbonds", "sasa", "qvalue", "ligand_rmsd"}
 
-_CACHE: dict[str, tuple[tuple, dict[str, Any]]] = {}
+_CACHE: dict[tuple[str, bool], tuple[tuple, dict[str, Any], frozenset[str]]] = {}
 _LOCK = threading.Lock()
 
 
-def overview_payload(root: str | Path) -> dict[str, Any]:
-    """The Overview's results, clock, thermodynamic means and phases."""
+def overview_payload(root: str | Path, *, refused: set[str] | None = None) -> dict[str, Any]:
+    """The Overview's results, clock, thermodynamic means and phases.
+
+    ``refused`` is the set a confined read names the records it refused in
+    (`record_access`); a payload kept from an earlier read names its own
+    there again, as no record is read for it."""
     root = Path(root)
     key = _stamp(root)
+    # A payload read confined is kept apart from one read without.
+    place = (str(root), refused is not None)
+    before = set(refused or ())
     with _LOCK:
-        kept = _CACHE.get(str(root))
+        kept = _CACHE.get(place)
         if kept and kept[0] == key:
+            if refused is not None:
+                refused.update(kept[2])
             return kept[1]
     payload = {"ok": True, **_tiles(root)}
     # A record a crash left damaged costs its part of the page, not the page.
@@ -86,7 +97,7 @@ def overview_payload(root: str | Path) -> dict[str, Any]:
     with _LOCK:
         if len(_CACHE) > 32:
             _CACHE.clear()
-        _CACHE[str(root)] = (key, payload)
+        _CACHE[place] = (key, payload, frozenset(set(refused or ()) - before))
     return payload
 
 
@@ -104,9 +115,9 @@ def _production_speed(root: Path) -> float | None:
     # in its place, and `segment-010` before `segment-9`. Read from the
     # folders' names, as this is asked at every poll of the Overview.
     pieces = []
-    for folder in root.glob("segment-*"):
+    for folder in _records.glob(root, "segment-*"):
         number = re.fullmatch(r"segment-(\d+)", folder.name)
-        if number and (folder / "simulation" / "live_status.json").is_file():
+        if number and _records.is_file(folder / "simulation" / "live_status.json"):
             pieces.append((int(number.group(1)), folder))
     folder = max(pieces)[1] if pieces else root
     # The one speed every price is read at: the run's cost record where it
@@ -122,16 +133,16 @@ def _stamp(root: Path) -> tuple:
              root / "simulation" / "live_status.json",
              root / "analysis" / "analysis_manifest.json"]
     # A study carried on in pieces: each piece's live record moves it on.
-    paths += sorted(root.glob("segment-*/simulation/live_status.json"))
-    paths += sorted(root.glob("segment-*/simulation/live_metrics.csv"))
     try:
-        paths += sorted((root / "analysis").glob("*/options.json"))
+        paths += sorted(_records.glob(root, "segment-*/simulation/live_status.json"))
+        paths += sorted(_records.glob(root, "segment-*/simulation/live_metrics.csv"))
+        paths += sorted(_records.glob(root / "analysis", "*/options.json"))
     except OSError:
         pass
     stamp = []
     for path in paths:
         try:
-            seen = path.stat()
+            seen = _records.stat(path)
             stamp.append((str(path), seen.st_size, seen.st_mtime_ns))
         except OSError:
             stamp.append((str(path), None, None))
@@ -156,11 +167,27 @@ def _tiles(root: Path) -> dict[str, Any]:
     for row in rows:
         name = row.get("analysis")
         if name == "rmsf":
+            refused = [q for q in row.get("quantities") or []
+                       if isinstance(q, dict) and q.get("unavailable")]
+            data = root / "analysis" / "rmsf" / "rmsf.dat"
+            if not refused and not _records.can_read(data):
+                from fastmdxplora.gui.series import refused_said
+
+                refused = [{"why": refused_said(root, data) + "."}]
+            if refused:
+                tiles.append(_not_read(row, refused[0]))
+                continue
             rmsf = _rmsf(root)
             if rmsf:
                 tiles.append({**rmsf, "anchor": row.get("anchor") or "rmsf"})
             continue
         for quantity in row.get("quantities") or []:
+            if isinstance(quantity, dict) and quantity.get("unavailable"):
+                # Its record was refused (linked out of the study): said
+                # so, not left out as though the analysis recorded none.
+                means += 1
+                tiles.append(_not_read(row, quantity))
+                continue
             if not isinstance(quantity, dict) or quantity.get("value") is None:
                 continue
             means += 1
@@ -190,13 +217,23 @@ def _tiles(root: Path) -> dict[str, Any]:
             "judged_earlier": list(overview.get("judged_earlier") or [])}
 
 
+def _not_read(row: dict[str, Any], quantity: dict[str, Any]) -> dict[str, Any]:
+    """The tile of a mean whose record a confined read refused."""
+    name = row.get("analysis")
+    return {"kind": "mean", "analysis": name, "anchor": row.get("anchor") or name,
+            "label": quantity.get("label") or row.get("title") or name,
+            "said": "record unavailable", "unit": "", "determined": False,
+            "why": quantity.get("why") or "", "samples": None, "from_ns": None,
+            "reweighted": False, "series": None, "unavailable": True}
+
+
 def _rmsf(root: Path) -> dict[str, Any] | None:
     """RMSF over its residues (or atoms): their mean, range and values; it
     is one value a residue, not a series over time, so it has no error."""
     folder = root / "analysis" / "rmsf"
     values: list[float] = []
     try:
-        for line in (folder / "rmsf.dat").read_text(encoding="utf-8").splitlines():
+        for line in _records.read_text(folder / "rmsf.dat", encoding="utf-8").splitlines():
             parts = line.replace(",", " ").split()
             if not parts or line.lstrip().startswith("#"):
                 continue
@@ -210,7 +247,7 @@ def _rmsf(root: Path) -> dict[str, Any] | None:
     if not values:
         return None
     try:
-        asked = (json.loads((folder / "options.json").read_text(encoding="utf-8"))
+        asked = (json.loads(_records.read_text(folder / "options.json", encoding="utf-8"))
                  .get("options") or {})
     except (OSError, ValueError, AttributeError):
         asked = {}
@@ -290,7 +327,8 @@ def _npt_from_ns(times: dict[str, Any], start: float | None) -> float | None:
 
 def _metric_rows(root: Path) -> list[dict[str, Any]]:
     try:
-        with (root / "simulation" / "live_metrics.csv").open(newline="", encoding="utf-8") as fh:
+        with _records.open_text(root / "simulation" / "live_metrics.csv", newline="",
+                                encoding="utf-8") as fh:
             return list(csv.DictReader(fh))
     except (OSError, UnicodeDecodeError, csv.Error):
         return []
@@ -342,7 +380,8 @@ HELD_DENSITY = ("The box volume did not change over this run, so the density is 
 def _recorded_thermodynamics(root: Path) -> dict[str, Any]:
     """What the thermodynamics analysis recorded of the run, if it has."""
     try:
-        found = json.loads((root / "analysis" / "thermodynamics" / "options.json").read_text(
+        found = json.loads(_records.read_text(
+            root / "analysis" / "thermodynamics" / "options.json",
             encoding="utf-8")).get("findings") or {}
     except (OSError, ValueError, AttributeError):
         return {}
@@ -455,7 +494,7 @@ def _phases(root: Path) -> list[dict[str, Any]]:
     """Each phase the study recorded, in order, with its status and the
     seconds it took."""
     try:
-        manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+        manifest = json.loads(_records.read_text(root / "manifest.json", encoding="utf-8"))
     except (OSError, ValueError):
         return []
     found = [p for p in (manifest.get("phases") or []) if isinstance(p, dict) and p.get("name")]
@@ -463,7 +502,7 @@ def _phases(root: Path) -> list[dict[str, Any]]:
     # first piece ended ("Simulation stopped" the whole carry-on through).
     carried_on = None
     waiting = False
-    if any(root.glob("segment-*")):
+    if any(_records.glob(root, "segment-*")):
         from fastmdxplora.gui.telemetry import status_as_it_stands
 
         going = status_as_it_stands(root)

@@ -23,6 +23,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from fastmdxplora import record_access as _records
+
 __all__ = ["figure_provenance"]
 
 #: The widths a figure can be drawn at (`analysis.figure_width`).
@@ -155,6 +157,6 @@ def _shown(base: Path, path: Any) -> Any:
 
 def _read(path: Path) -> Any:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(_records.read_text(path, encoding="utf-8"))
     except (OSError, ValueError):
         return None

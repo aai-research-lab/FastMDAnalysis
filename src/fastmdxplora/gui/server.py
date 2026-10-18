@@ -226,6 +226,39 @@ def _public_records(root: Path) -> Callable[[Path], bool]:
     return admitted
 
 
+#: What a confined read answers where the study's folder itself could not
+#: be opened to confine it.
+_RECORDS_UNREADABLE = {"ok": False, "reason": "The study's records could not be read."}
+
+
+def _confined(root: Path, read: Callable[..., Any], *, keeps: bool = False) -> Any:
+    """``read(study)`` with each of its record reads held to the study's own
+    results (`record_access`): a record linked out of the study, or to a
+    hidden file in it, is refused rather than followed. A refused record is
+    named in the answer's ``unavailable``, so a page can say it was not read
+    rather than show it as absent. A reader that ``keeps`` its answer for
+    its next call is also given the set the refusals are named in, to name
+    again those of the read it kept."""
+    from fastmdxplora.record_access import confined_records
+
+    if not root.is_dir():
+        # No study open, or its folder gone: there is nothing to read.
+        return read(root, set()) if keeps else read(root)
+    inside = root.resolve()
+    try:
+        with confined_records(inside, _public_records(inside)) as scope:
+            answer = read(inside, scope.denied) if keeps else read(inside)
+    except OSError:
+        return dict(_RECORDS_UNREADABLE)
+    if isinstance(answer, dict):
+        named = answer.get("unavailable")
+        refused = set(scope.denied) | set(named if isinstance(named, list) else ())
+        if refused:
+            # A copy: the answer may be one a reader keeps for its next call.
+            answer = {**answer, "unavailable": sorted(refused)}
+    return answer
+
+
 def _served_beyond_loopback(root: Path, target: Path) -> bool:
     """Whether a public bind may send this file: inside the watched run once
     links are followed, and one of its results."""
@@ -938,9 +971,12 @@ def make_handler(
                 return
             if path == "/api/overview":
                 # What the Overview leads with (overview_view.py).
+                # Read from the study's own results only (`_confined`).
                 from fastmdxplora.gui.overview_view import overview_payload
 
-                self._send_json(overview_payload(root))
+                self._send_json(_confined(
+                    root, lambda inside, refused: overview_payload(inside, refused=refused),
+                    keeps=True))
                 return
             if path == "/api/events":
                 self._send_json({"events": read_events(root)})
@@ -1001,8 +1037,13 @@ def make_handler(
                 self._send_json({"artifacts": self._where_each_is(root, _artifact_records(root))})
                 return
             if path == "/api/results" or path == "/api/analyses":
-                payload = _results_payload(root)
-                self._where_each_is(root, payload.get("artifacts") or [])
+                # Read from the study's own results only (`_confined`).
+                payload = _confined(root, _results_payload)
+                if payload.get("ok", True):
+                    if payload.get("output_dir"):
+                        # The folder as it was opened, not where its links lead.
+                        payload["output_dir"] = str(root)
+                    self._where_each_is(root, payload.get("artifacts") or [])
                 self._send_json(payload)
                 return
             if path == "/api/series":
@@ -1011,44 +1052,39 @@ def make_handler(
                 query = parse_qs(parsed.query)
                 name = (query.get("analysis") or [""])[0]
                 run = (query.get("run") or [""])[0]
+                # Read from the study's own results only (`_confined`).
                 if not name and not run:
                     # Which series there are, for the Viewer's.
-                    self._send_json(series_over_time(root))
+                    self._send_json(_confined(root, series_over_time))
                     return
                 if run:
                     # One run of a study of several, named by its id: only
                     # a run the study records, never a path.
                     from fastmdxplora.gui.runs_compared import run_folder
 
-                    folder = run_folder(root, run)
-                    self._send_json(series_payload(folder, name) if folder is not None
-                                    else {"ok": False, "reason": "no such run in this study"})
+                    def of_the_run(inside: Path) -> dict[str, Any]:
+                        folder = run_folder(inside, run)
+                        return (series_payload(folder, name) if folder is not None
+                                else {"ok": False, "reason": "no such run in this study"})
+
+                    self._send_json(_confined(root, of_the_run))
                     return
-                self._send_json(series_payload(root, name))
+                self._send_json(_confined(root, lambda inside: series_payload(inside, name)))
                 return
             if path == "/api/analysis-overview":
                 # What every analysis recorded, read together, from the
                 # study's own results only: a record linked out of the study,
                 # or to a hidden file in it, is not read (`record_access`).
                 from fastmdxplora.gui.analysis_overview import overview_of
-                from fastmdxplora.record_access import confined_records
 
-                if not root.is_dir():
-                    self._send_json(overview_of(root))
-                    return
-                inside = root.resolve()
-                try:
-                    with confined_records(inside, _public_records(inside)):
-                        answer = overview_of(inside)
-                except OSError:
-                    answer = {"ok": False, "reason": "The study's records could not be read."}
-                self._send_json(answer)
+                self._send_json(_confined(root, overview_of))
                 return
             if path == "/api/convergence":
                 from fastmdxplora.gui.analysis_overview import convergence_payload
 
                 name = (parse_qs(parsed.query).get("analysis") or [""])[0]
-                self._send_json(convergence_payload(root, name))
+                # Read from the study's own results only (`_confined`).
+                self._send_json(_confined(root, lambda inside: convergence_payload(inside, name)))
                 return
             if path == "/api/selection":
                 from fastmdxplora.gui.selection import selection_for
@@ -2906,7 +2942,8 @@ def _determined_values(root: Path, records: list[dict[str, str]]) -> dict[str, s
     try:
         from fastmdxplora.gui.analysis_overview import overview_of
 
-        rows = overview_of(root).get("rows") or []
+        # From the study's own records only, as the Analysis page reads them.
+        rows = _confined(root, overview_of).get("rows") or []
     except Exception:  # noqa: BLE001 - a value beside a file is not load-bearing
         logger.debug("the analyses' values could not be read for the Files page", exc_info=True)
         return {}
@@ -3409,8 +3446,10 @@ def _live_coordinates_payload(root: Path) -> dict[str, Any]:
 
 
 def _load_json(path: Path) -> dict[str, Any]:
+    from fastmdxplora import record_access
+
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(record_access.read_text(path, encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
@@ -4064,12 +4103,14 @@ def _category_order(category: str) -> int:
 
 def _svg_figure_paths(root: Path) -> list[Path]:
     """Return generated SVG figures, excluding branding/static assets."""
+    from fastmdxplora import record_access
+
     paths: list[Path] = []
     for base in (root / "analysis", root / "report" / "dashboard_assets", root / "report"):
-        if not base.is_dir():
+        if not record_access.is_dir(base):
             continue
         for path in base.rglob("*.svg"):
-            if path.is_file() and path not in paths:
+            if path not in paths and record_access.is_file(path):
                 paths.append(path)
     return sorted(paths)
 
