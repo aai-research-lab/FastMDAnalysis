@@ -366,25 +366,33 @@ And in the other direction: choose **A config I already have** and the GUI will
 **check it** (syntax and every setting, without running anything), **run it
 as-is**, or **open it for editing**. It never rewrites the file you gave it.
 
-In the Agent workspace, an edited Config version offers **Review each
-change**. Choose **Accept** to take a proposed setting, or **Reject** to
-keep its value from the previous version. Additions, removals and changes
-to a setting's recorded reason can be reviewed too. Systems, sweeps and
-compound settings such as a stopping rule are kept whole. **Accept all**
-and **Reject all** fill the choices without applying them.
-Equivalent names such as `simulation.prepared_from` and
-`simulation.setup_from` share one choice and keep their reasons together.
+In the Agent workspace, a Config version the Agent proposes lists each
+changed setting, old value to new value, with **Accept** and **Reject**
+beside **Use this version**. Additions, removals and changes to a
+setting's recorded reason are listed too. Systems, sweeps and compound
+settings such as a stopping rule are kept whole and said as the change
+list says them. **Accept all** and **Reject all** fill the choices
+without applying them. Equivalent names such as `prepared_from` and
+`setup_from` share one choice and keep their reasons together. A version
+with no changes, or one made from your own choices or from an earlier
+version, offers no choices.
 
-**Use reviewed version** puts the chosen combination through the existing
-Config validator and creates a new version only when it passes. A refused
-combination stays in the review so its choices can be corrected. **Cancel
-review** returns to the proposal. While reviewing, finish or cancel before
-sending another message or running the study. The earlier versions stay
-intact; the conversation records which settings were accepted and rejected.
-After applying, Run, Download, Open in the builder and the next Agent
-message use the reviewed version. The choices and result survive a reload.
-Agent exports retain chosen settings and reasons for inactive phases too;
-the full export adds the defaults for the phases currently running.
+**Use this version** keeps the proposal as it is and clears any choices.
+Once a change is rejected, **Use reviewed version** puts the chosen
+combination through the existing Config validator and creates a new
+version only when it passes; the changes not rejected stay as proposed.
+A refused combination is shown with the changes it involves marked, and
+the choices are kept so they can be corrected. While a rejected change
+is not yet applied, use one of the two before sending another message or
+running the study. The earlier versions stay intact, and the new version
+holds only the settings reviewed, each in the spelling its version used.
+The conversation records the choices with the labels and values shown.
+Choices not yet applied are kept in this browser, by conversation and
+version, and survive a reload; they are never saved as a Config. After
+applying, Run, Download, Open in the builder and the next Agent message
+use the reviewed version. Agent exports retain chosen settings and reasons
+for inactive phases too; the full export adds the defaults for the phases
+currently running.
 
 **Open for editing** fills the page in from the file, but only with what the
 page can hold: the first system, `output`, `include`, the four phase blocks and

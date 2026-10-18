@@ -7,47 +7,20 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
-### Fixed
-
-- The phone-to-desktop browser check waits for the side panel to return
-  after its dialog closes, avoiding a timing-sensitive assertion.
-
-- Problems confines actual record reads and helper reads to the open run's
-  public files. It checks evidence candidates without recursively listing
-  artifacts, so unrelated trajectory links and scratch trees do not block
-  the list. Unused axis and remedy-price work is skipped; unexpected reader
-  failures retain a public note and a private debug traceback.
-
-- `/api/analysis-overview` no longer shows the text of a record linked out
-  of the study, or to a hidden file in it.
-
-- Problems reads the run's own process record, so a running study is read
-  (and is not a problem), and a run the Overview calls Interrupted is listed.
-  Each warning the run wrote in `simulation/live_events.log` is listed once.
-
-- Problems names the records it read, and names each record missing or
-  unreadable, `manifest.json` and the analysis manifest included; the
-  headline then never says there are no problems.
-
-- Under What would fix it, Problems gives a withheld mean's recorded
-  shortfall (the more production and the independent samples it should
-  give) and a retryable refusal's registry remedy; where none is recorded,
-  it says so. A quantity the same in every frame is named as the Overview
-  names it.
-
-- `/api/problems` answers with no study open, or with the study's folder
-  gone, instead of failing; a folder above the study need only be
-  searchable.
-
 ### Added
 
-- Agent Config versions offer **Review each change**, with Accept and
-  Reject for each setting. **Use reviewed version** checks the selected
-  combination and creates a new version, preserving the earlier Configs
-  and each chosen value's decision record. Compound settings are reviewed
-  whole; equivalent setting names share one choice. The conversation keeps
-  the choices and the reviewed Config. Agent exports keep chosen values
-  and decisions for inactive phases as well as the phases running now.
+- An Agent Config version shows each changed setting, old value to new
+  value, with **Accept** and **Reject** beside **Use this version**. Use
+  this version keeps the proposal as it is; once a change is rejected,
+  **Use reviewed version** checks the chosen combination and creates a new
+  version, preserving the earlier Configs and each chosen value's decision
+  record. Compound settings are reviewed whole and said as the change list
+  says them; equivalent setting names share one choice. A refused
+  combination names the changes to choose again. Choices not yet applied
+  are kept in the browser through a reload, and the conversation records
+  the choices with the labels and values reviewed. Agent exports keep
+  chosen values and decisions for inactive phases as well as the phases
+  running now.
 
 - A Problems tab beside Log and Files lists the open study's recorded
   refusals, run warnings and undetermined analysis means, with their
@@ -129,6 +102,39 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   why. See `docs/agent.md`, Looking before it answers, and `docs/mcp.md`.
 
 ### Fixed
+
+- A long value in an Agent Config version's change list (a "Prepared
+  from" path) wraps inside the card instead of running past its edge.
+
+- The phone-to-desktop browser check waits for the side panel to return
+  after its dialog closes, avoiding a timing-sensitive assertion.
+
+- Problems confines actual record reads and helper reads to the open run's
+  public files. It checks evidence candidates without recursively listing
+  artifacts, so unrelated trajectory links and scratch trees do not block
+  the list. Unused axis and remedy-price work is skipped; unexpected reader
+  failures retain a public note and a private debug traceback.
+
+- `/api/analysis-overview` no longer shows the text of a record linked out
+  of the study, or to a hidden file in it.
+
+- Problems reads the run's own process record, so a running study is read
+  (and is not a problem), and a run the Overview calls Interrupted is listed.
+  Each warning the run wrote in `simulation/live_events.log` is listed once.
+
+- Problems names the records it read, and names each record missing or
+  unreadable, `manifest.json` and the analysis manifest included; the
+  headline then never says there are no problems.
+
+- Under What would fix it, Problems gives a withheld mean's recorded
+  shortfall (the more production and the independent samples it should
+  give) and a retryable refusal's registry remedy; where none is recorded,
+  it says so. A quantity the same in every frame is named as the Overview
+  names it.
+
+- `/api/problems` answers with no study open, or with the study's folder
+  gone, instead of failing; a folder above the study need only be
+  searchable.
 
 - A path longer than its column in the Config Builder (a structure, a
   setting for one system, a config file not found) breaks where it must in
