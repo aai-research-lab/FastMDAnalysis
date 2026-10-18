@@ -1082,6 +1082,10 @@
   }
 
   function openStudy(path, button) {
+    // Work a switch would lose holds it: said beside what was pressed.
+    var dashboard = window.FastMDXDashboard;
+    var held = dashboard && dashboard.holdStudySwitch ? dashboard.holdStudySwitch() : "";
+    if (held) { notOpened(button, held); return; }
     button.disabled = true;
     fetch("/api/explore/switch", {
       method: "POST",
@@ -1268,6 +1272,9 @@
       event.preventDefault();
       var source = input.value.trim();
       if (!source) { input.focus(); return; }
+      var held = window.FastMDXDashboard && window.FastMDXDashboard.holdStudySwitch
+        ? window.FastMDXDashboard.holdStudySwitch() : "";
+      if (held) { said.textContent = held; return; }
       go.disabled = true;
       input.disabled = true;
       said.textContent = "Fetching it and checking every file\u2026";

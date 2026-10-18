@@ -1292,6 +1292,13 @@
       });
     });
 
+    /* Every way to another study asks first whether a switch would lose
+     * work here; the dashboard says why it is held. */
+    function switchHeld() {
+      var dashboard = window.FastMDXDashboard;
+      return Boolean(dashboard && dashboard.holdStudySwitch && dashboard.holdStudySwitch());
+    }
+
     var loadStudy = el("load-study");
     var loadPath = el("load-study-path");
     if (loadStudy && loadPath && window.FastMDXPicker) {
@@ -1303,6 +1310,8 @@
       loadPath.addEventListener("change", function () {
         var folder = loadPath.value.trim();
         if (!folder) return;
+        // Work a switch would lose holds it, with the reason said.
+        if (switchHeld()) { loadPath.value = ""; return; }
         loadStudy.disabled = true;
         loadStudy.textContent = "Loading\u2026";
         fetch("/api/explore/switch", {
@@ -1355,7 +1364,7 @@
       });
       if (elsewhereView) {
         elsewhereView.addEventListener("click", function () {
-          if (!elsewherePath) return;
+          if (!elsewherePath || switchHeld()) return;
           fetch("/api/explore/switch", {
             method: "POST", headers: { "content-type": "application/json" },
             body: JSON.stringify({ folder: elsewherePath })
@@ -1370,6 +1379,7 @@
     var runsBlock = el("study-runs");
     var runOfBlock = el("study-run-of");
     function switchTo(folder) {
+      if (switchHeld()) return;
       fetch("/api/explore/switch", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ folder: folder })
