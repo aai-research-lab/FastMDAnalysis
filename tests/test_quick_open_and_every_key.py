@@ -97,6 +97,29 @@ def test_k_finds_pages_with_their_keys_studies_files_and_settings(workspace):
     assert said["placeholder"].startswith("A file of the open study")
 
 
+@pytest.mark.parametrize("shown, lands", [("analysis", "analysis"), ("studies", "overview")])
+def test_a_study_found_opens_on_the_page_shown_or_overview(tmp_path, shown, lands):
+    """As the sidebar's way to another study did (user, 10-18): on the page
+    shown, and on its Overview from a page of no study."""
+    from tests.test_a_status_bar_under_every_page import _landed
+
+    _study(tmp_path / "ubiquitin", means={"rmsd": (0.1, 0.01)})
+    _study(tmp_path / "lysozyme", system="1L63")
+
+    def look(page, url):
+        page.goto(url + "#" + shown, wait_until="domcontentloaded")
+        page.wait_for_function("() => window.FastMDXPalette && window.FastMDXKeys")
+        page.wait_for_timeout(800)
+        page.keyboard.press("Control+k")
+        page.wait_for_selector("#palette:not([hidden])")
+        page.fill("#palette-input", "lysozyme")
+        before = page.url
+        page.locator("#palette-list .palette-item", has_text="lysozyme").first.click()
+        return _landed(page, "lysozyme", before)
+
+    assert _serve(tmp_path / "ubiquitin", look) == lands
+
+
 def test_the_keys_open_pages_fold_the_columns_and_list_every_key(workspace):
     def look(page, url):
         page.goto(url + "#overview", wait_until="domcontentloaded")

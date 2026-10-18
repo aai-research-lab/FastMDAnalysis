@@ -28,6 +28,7 @@
   }
 
   function page() { return document.documentElement.dataset.page || "overview"; }
+  function shownOrOverview() { return STUDY_PAGES.indexOf(page()) >= 0 ? page() : "overview"; }
 
   /* The open study's name as the sidebar's card says it. */
   function studyName() {
@@ -66,9 +67,11 @@
   }
 
   /* Open a study's folder on the page shown, or the one given (a step of
-   * its own). Asked first whether a switch would lose work here, as every
-   * way to another study is (dashboard.js); a switch held, or one the
-   * server refuses, leaves the study open as it was. */
+   * its own); from a page of no study (All studies, New study, the Agent),
+   * on its Overview, as the sidebar's way to another study did. Asked
+   * first whether a switch would lose work here, as every way to another
+   * study is (dashboard.js); a switch held, or one the server refuses,
+   * leaves the study open as it was. */
   function open(folder, onPage) {
     var dashboard = window.FastMDXDashboard;
     if (!dashboard || (dashboard.beginStudySwitch && dashboard.beginStudySwitch())) return false;
@@ -80,7 +83,7 @@
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ folder: folder })
     }).then(function (r) { return r.json(); }).then(function (d) {
-      if (d && d.ok) dashboard.studyOpened(d, onPage || page());
+      if (d && d.ok) dashboard.studyOpened(d, onPage || shownOrOverview());
       else refused((d && d.error) || "That study could not be opened.");
     }).catch(function () { refused("Could not reach the server."); });
     return true;

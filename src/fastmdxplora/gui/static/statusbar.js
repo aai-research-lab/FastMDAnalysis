@@ -194,10 +194,11 @@
   }
 
   /* Through the place's way to another study, which asks first whether
-   * the switch would lose work here (place.js). */
+   * the switch would lose work here, on the page shown (Overview from a
+   * page of no study), as the sidebar's way to it did (place.js). */
   function openElsewhere() {
     var where = app && app.running_elsewhere;
-    if (where && window.FastMDXPlace) window.FastMDXPlace.open(where, "overview");
+    if (where && window.FastMDXPlace) window.FastMDXPlace.open(where);
   }
 
   /* ------------------------------------------------------------------ */
