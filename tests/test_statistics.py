@@ -488,3 +488,111 @@ class TestOneMissingValueDoesNotMakeFramesIndependent:
         assert correlation_is_resolved(short) == correlation_is_resolved(
             values[:600][np.isfinite(short)])
         assert detect_equilibration(holed)[1] > 30.0
+
+
+def _segments(steps, *, frames=2000, phi=0.9, seed=0):
+    """Joined AR(1) segments of unit spread, each offset by its step. At
+    ``phi`` 0.9 a 2000-frame segment holds about 105 independent samples, so
+    its mean's error is about a tenth of the spread."""
+    from scipy.signal import lfilter
+
+    rng = np.random.default_rng(seed)
+    pieces = []
+    for offset in steps:
+        noise = rng.normal(0.0, np.sqrt(1.0 - phi ** 2), frames)
+        start = rng.normal()
+        pieces.append(lfilter([1.0], [1.0, -phi], noise, zi=[phi * start])[0]
+                      + offset)
+    joins = [frames * i for i in range(1, len(steps))]
+    return np.concatenate(pieces), joins
+
+
+class TestOrderingsAreCountedExactly:
+    """Reversing an order negates the slope, and the mirror ordering's slope
+    compared smaller or not by luck of rounding: on four segments the verdict
+    turned on it."""
+
+    def test_five_segments_count_every_ordering(self) -> None:
+        # Exact: the observed ordering and its mirror, of 120.
+        from fastmdxplora.statistics import drift_across_segments
+
+        p = drift_across_segments(np.arange(5, dtype=float), np.ones(5))
+        assert p == pytest.approx(2.0 / 120.0)
+
+    def test_the_mirror_always_counts(self) -> None:
+        from fastmdxplora.statistics import drift_across_segments
+
+        rng = np.random.default_rng(0)
+        for _ in range(200):
+            means = np.sort(rng.normal(size=4))
+            weights = rng.uniform(1.0, 100.0, 4)
+            assert drift_across_segments(means, weights) >= 2.0 / 24.0 - 1e-12
+
+    def test_a_slope_that_cannot_be_computed_is_not_significant(self) -> None:
+        from fastmdxplora.statistics import drift_across_segments
+
+        assert drift_across_segments(np.array([0.0, np.nan, 1.0, 2.0, 3.0]),
+                                     np.ones(5)) == 1.0
+
+
+class TestJoinsStayOnTheirFramesPastMissingValues:
+    def test_each_segment_is_its_own(self) -> None:
+        from fastmdxplora.statistics import summarise_segments
+
+        series, joins = _segments([0.0, 2.0, 0.0], seed=5)
+        holed = series.copy()
+        holed[100:700] = np.nan
+        pooled, _why = summarise_segments(holed, joins)
+        means = [piece.mean for piece in pooled.segments]
+        assert means == pytest.approx([0.0, 2.0, 0.0], abs=0.4)
+
+
+class TestASegmentStillMovingIsSaidToBe:
+    """A segment withheld for drifting within itself was reported as one
+    whose correlation time was not resolved, with "longer segments" as the
+    remedy."""
+
+    def test_it_carries_its_own_code(self, monkeypatch) -> None:
+        # Built by hand: a segment long enough to resolve its correlation
+        # and moving by two spreads within itself is rare in practice, since
+        # a trend that large reads as an unresolved correlation first.
+        import dataclasses
+
+        from fastmdxplora import statistics
+        from fastmdxplora.refusals import refusal_of
+
+        series, joins = _segments([0.0, 0.0, 0.0], seed=3)
+        real = statistics.summarise
+        calls = []
+
+        def summarise(values, **kwargs):
+            calls.append(1)
+            piece, why = real(values, **kwargs)
+            if len(calls) == 2:
+                return dataclasses.replace(piece, standard_error=float("nan")), \
+                    statistics.Withholding(
+                        "still moving", code="analysis.sampling.still_drifting")
+            return piece, why
+
+        monkeypatch.setattr(statistics, "summarise", summarise)
+        pooled, why = statistics.summarise_segments(series, joins)
+        assert pooled is None
+        refusal = refusal_of(why)
+        assert refusal.code == "analysis.sampling.still_drifting"
+        assert "(numbered 1 from zero)" in str(why)
+        assert set(refusal.details) <= {"frames", "drift_in_spread", "needed"}
+
+
+class TestTheReportKeepsTheJoinsOnTheirFrames:
+    def test_a_stretch_of_missing_values_does_not_move_them(self) -> None:
+        # The report stripped the missing values before handing over the
+        # joins, so every segment after them began late.
+        from fastmdxplora.report.convergence import assess_series
+        from fastmdxplora.statistics import summarise_segments
+
+        series, joins = _segments([0.0, 2.0, 0.0], seed=5)
+        holed = series.copy()
+        holed[100:700] = np.nan
+        pooled, _why = summarise_segments(holed, joins)
+        assessment = assess_series("rmsd", holed, joins=joins)
+        assert assessment.mean == pytest.approx(pooled.mean)

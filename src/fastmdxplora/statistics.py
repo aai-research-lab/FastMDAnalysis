@@ -965,6 +965,11 @@ class Pooled:
         }
 
 
+def _code_of(reason: Any) -> str:
+    """The refusal code a withholding carries, or an empty string."""
+    return str(getattr(getattr(reason, "refusal", None), "code", "") or "")
+
+
 def summarise_segments(
     series: np.ndarray,
     joins: "list[int] | tuple[int, ...]",
@@ -988,7 +993,9 @@ def summarise_segments(
     -------
     (Pooled, None) or (None, Withholding)
         Withheld where no segment supported a mean, where the segment means
-        move in order (``analysis.sampling.drifting``), where any segment
+        move in order (``analysis.sampling.drifting``), where a segment is
+        still moving within itself (``analysis.sampling.still_drifting``),
+        where any segment
         that supported a mean did not resolve its own correlation time
         (``analysis.sampling.correlation_unresolved``: its independent-sample
         count is an upper bound, so the pooled error would be a lower one),
@@ -998,9 +1005,17 @@ def summarise_segments(
         twenty, and twenty is twenty however it was collected -- but ten
         segments that each support nothing support nothing together.
     """
-    values = np.asarray(series, dtype=float)
-    values = values[np.isfinite(values)]
-    boundaries = sorted({int(j) for j in joins if 0 < int(j) < values.size})
+    raw = np.asarray(series, dtype=float)
+    finite = np.isfinite(raw)
+    values = raw[finite]
+    # The joins are frame numbers of the series as given. Values that are not
+    # finite are left out first, so each join moves back by those before it:
+    # left where they were, the segments after a stretch of NaN began
+    # several frames late and took frames of the next one with them.
+    before = np.concatenate(([0], np.cumsum(finite)))
+    boundaries = sorted({int(before[min(int(j), raw.size)]) for j in joins
+                         if 0 < int(j) < raw.size}
+                        - {0, int(values.size)})
 
     if not boundaries:
         equilibrated, why = summarise(
@@ -1014,6 +1029,7 @@ def summarise_segments(
     edges = [0, *boundaries, values.size]
     pieces: list[Equilibrated] = []
     kept_at: list[int] = []
+    reasons: list[Any] = []
     withheld: list[tuple[int, str]] = []
     for index, (start, stop) in enumerate(zip(edges, edges[1:])):
         # Each segment is equilibrated on its own. A segment that begins
@@ -1028,6 +1044,7 @@ def summarise_segments(
             continue
         pieces.append(piece)
         kept_at.append(index)
+        reasons.append(why)
 
     if not pieces:
         return None, Withholding(
@@ -1060,6 +1077,28 @@ def summarise_segments(
         means[resolved], 1.0 / errors[resolved] ** 2)
     if refusal is not None:
         return None, refusal
+
+    # A segment still moving within itself is withheld for that, and its
+    # remedy is a longer run, not longer segments: reported under its own
+    # code rather than as a correlation time it may well have resolved.
+    moving = [(index, why) for index, ok, why in zip(kept_at, resolved, reasons)
+              if not ok and _code_of(why) == "analysis.sampling.still_drifting"]
+    if moving:
+        drift = max((abs(float(why.refusal.details.get("drift_in_spread", 0.0)))
+                     for _index, why in moving), default=0.0)
+        return None, Withholding(
+            f"{len(moving)} of {len(pieces)} segments of this joined run are "
+            f"still drifting within themselves (numbered "
+            f"{', '.join(str(i) for i, _why in moving)} from zero): the last third "
+            f"of each differs from its first third by at least "
+            f"{DRIFT_IN_SPREAD:g} times their spread. A mean of a quantity "
+            "still moving describes where the run happened to stop, not a "
+            "state, and pooling such segments would give that a confident "
+            "error. The remedy is a longer run.",
+            code="analysis.sampling.still_drifting",
+            frames=int(values.size), drift_in_spread=round(drift, 2),
+            needed=DRIFT_IN_SPREAD,
+        )
 
     if not resolved.all():
         unresolved = [index for index, ok in zip(kept_at, resolved) if not ok]
@@ -1143,16 +1182,22 @@ def _drift_test(means: np.ndarray, precisions: np.ndarray
     scatter = heterogeneity_ratio(means, precisions)
     drifting = drift_across_segments(means, precisions)
     agree = bool(np.isfinite(scatter) and scatter <= 1.0)
-    if drifting >= DRIFT_SIGNIFICANT_BELOW or agree:
+    # At the level, not only below it: an exact count of 120 orderings
+    # reaches 6/120 = 0.05 itself.
+    if not drifting <= DRIFT_SIGNIFICANT_BELOW or agree:
         return scatter, drifting, None
     span = float(means[-1] - means[0])
-    return scatter, drifting, Withholding(
+    chance = (f"about {drifting:.1%}" if drifting >= 0.001
+              else "less than 0.1%")
+    said = (
         f"The segment means move in order across the run, by {span:+.4g} "
         f"from first to last, and an ordering this clean arises by "
-        f"chance about {drifting:.1%} of the time. The system had not "
-        "equilibrated at the scale of the whole run, so a pooled mean would "
-        "be the mean of a moving target with a confident error bar on "
-        "it. The remedy is a longer run, not more pooling.",
+        f"chance {chance} of the time. The system had not "
+        "equilibrated at the scale of the whole run, so a pooled mean "
+        "would be the mean of a moving target with a confident error "
+        "bar on it. The remedy is a longer run, not more pooling.")
+    return scatter, drifting, Withholding(
+        said,
         code="analysis.sampling.drifting",
         drift_p=float(drifting), heterogeneity=float(scatter),
         span=span, segments=int(means.size),
@@ -1168,6 +1213,11 @@ HETEROGENEITY_QUALIFY_ABOVE = 2.0
 #: How unusual the ordering of the segment means has to look before it is
 #: called drift rather than scatter.
 DRIFT_SIGNIFICANT_BELOW = 0.05
+
+#: Orderings counted exactly rather than sampled, at most: every ordering
+#: of up to seven segments (5040).
+EXACT_ORDERINGS_AT_MOST = 5040
+
 
 
 def _weighted_slope(means: np.ndarray, weights: np.ndarray,
@@ -1199,19 +1249,42 @@ def drift_across_segments(means: np.ndarray, weights: np.ndarray, *,
     Tested by permuting the order of the segments rather than by assuming
     a distribution. The observed statistic is the weighted least-squares
     slope against segment index; the null is what that slope looks like
-    when the same segment means are put in a random order. Exact for any
-    number of segments, which matters because a run is often three or
-    four, and a t or normal approximation on three points is a number
-    rather than a test.
+    when the same segment means are put in another order. Every ordering is
+    counted where there are at most :data:`EXACT_ORDERINGS_AT_MOST` of them
+    (seven segments), and ``permutations`` are drawn at random beyond that.
+
+    Reversing an order negates the slope, so on ``k`` segments the test can
+    say no less than ``2 / k!``: a third for three segments and a twelfth
+    for four, both above :data:`DRIFT_SIGNIFICANT_BELOW`. It cannot call
+    three or four segments drifting, whatever their means; that is a known
+    limit, not a finding that they agree.
 
     Returns 1.0 for fewer than three segments: two points always lie on a
-    line, and calling that a trend would refuse every two-segment run.
+    line, and calling that a trend would refuse every two-segment run; and
+    1.0 where a mean is not a number. Weights that are not all positive
+    numbers are replaced by equal ones, and the order judged alone.
     """
     if means.size < 3:
         return 1.0
 
     positions = np.arange(means.size, dtype=float)
+    if not (np.all(np.isfinite(weights)) and np.all(weights > 0.0)):
+        # Weights that cannot be read leave the order alone to judge, so a
+        # NaN cannot switch the test off.
+        weights = np.ones(means.size)
     observed = abs(_weighted_slope(means, weights, positions))
+    if not np.isfinite(observed):
+        return 1.0
+    # The mirror ordering gives the same slope to the last bit only by luck
+    # of rounding; a slope equal within rounding is as extreme.
+    level = observed * (1.0 - 1e-9)
+
+    if math.factorial(means.size) <= EXACT_ORDERINGS_AT_MOST:
+        from itertools import permutations as orderings
+
+        slopes = [abs(_weighted_slope(means[list(o)], weights[list(o)], positions))
+                  for o in orderings(range(means.size))]
+        return float(sum(1 for c in slopes if c >= level)) / len(slopes)
 
     rng = np.random.default_rng(seed)
     order = np.arange(means.size)
@@ -1220,7 +1293,7 @@ def drift_across_segments(means: np.ndarray, weights: np.ndarray, *,
         shuffled = rng.permutation(order)
         candidate = abs(_weighted_slope(means[shuffled], weights[shuffled],
                                         positions))
-        if candidate >= observed:
+        if candidate >= level:
             at_least_as_extreme += 1
     # The +1s are the standard correction: the observed ordering is itself
     # one of the orderings, and leaving it out lets a p-value of exactly

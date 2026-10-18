@@ -9,6 +9,13 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- A joined run's drift between segments counts every ordering of up to
+  seven segments, and the mirror of the observed order always counts as
+  extreme: on four segments the verdict had turned on rounding. A segment
+  withheld for drifting within itself is said to be, not reported as an
+  unresolved correlation, and the joins of a series with missing values
+  stay on their frames, in the report as well. (Three or four segments
+  still cannot be called drifting by this test; that is being worked on.)
 - A study of several runs reads the same state in the sidebar, on its
   Overview and in All studies, from one derivation of its runs' states
   (it read "Unknown" in two places and "completed" in the third). Its runs'
