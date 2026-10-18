@@ -191,3 +191,103 @@ def test_a_piece_s_phases_not_read_add_no_wall_time(tmp_path, refused):
     assert refused in scope.denied
     # Outside a held read, nothing is refused.
     assert phases_wall_seconds(root) == 30 * 60
+
+
+#: A piece's config as the run resolves it, on a timestep of ``dt`` fs.
+_CONFIG = ("systems: [{{system: ala3.pdb}}]\nsimulation:\n  integrator: langevin_middle\n"
+           "  ensemble: npt\n  timestep_fs: {dt}\n  nvt_steps: 0\n  npt_steps: 0\n"
+           "  production_steps: 10000\n  duration_ns: 0.02\n  trajectory_interval_steps: 100\n")
+
+#: What the pages may say of the production, for each route.
+_PRODUCTION_ROUTES = ("/api/status", "/api/overview", "/api/results", "/api/analyses")
+
+
+def _carried_on_from_checkpoints(tmp_path: Path) -> Path:
+    """A study run once and carried on in `segment-001`, each piece 10,000
+    steps of 2 fs from its own checkpoint: 0.04 ns of production in all."""
+    from tests.test_the_study_pages_read_only_the_study import _a_study_carried_on
+
+    root = _a_study_carried_on(tmp_path)
+    for piece in ("", "segment-001/"):
+        _write(root, f"{piece}simulation/checkpoint.chk", "checkpoint")
+        _write(root, f"{piece}resolved_config.yml", _CONFIG.format(dt=2.0))
+    return root
+
+
+def _numbers(value: object):
+    if isinstance(value, dict):
+        for inner in value.values():
+            yield from _numbers(inner)
+    elif isinstance(value, list):
+        for inner in value:
+            yield from _numbers(inner)
+    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        yield value
+
+
+@PUBLIC
+def test_a_piece_s_config_not_read_gives_no_production(tmp_path, public):
+    """A piece's config linked out of the study, its timestep changed: it is
+    not opened, its timestep sets no production a page shows, and each page
+    says the production was not read, naming the config."""
+    from fastmdxplora.simulation.resume import production_done_ns
+    from tests.test_the_study_pages_read_only_the_study import _OPENED, _WATCHED, _watch
+
+    root = _carried_on_from_checkpoints(tmp_path)
+    assert production_done_ns(root) == pytest.approx(0.04)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "resolved_config.yml").write_text(_CONFIG.format(dt=3.7), encoding="utf-8")
+    (root / "segment-001" / "resolved_config.yml").unlink()
+    _link(root / "segment-001" / "resolved_config.yml", outside / "resolved_config.yml")
+    # Read through, the outside config's timestep gives 0.057 ns.
+    assert production_done_ns(root) == pytest.approx(0.057)
+
+    _watch(outside)
+    try:
+        answers = {}
+        for route in _PRODUCTION_ROUTES:
+            status, body = _ask(root, tmp_path, route, public=public)
+            assert status == 200, route
+            answers[route] = json.loads(body)
+        opened = sorted(set(_OPENED))
+    finally:
+        _WATCHED.clear()
+    assert opened == []
+    said = ("segment-001/resolved_config.yml was not read: it is a link to a file "
+            "outside the study")
+    for route, answer in answers.items():
+        assert all(abs(number - 0.057) > 1e-9 for number in _numbers(answer)), route
+        assert "segment-001/resolved_config.yml" in answer["unavailable"], route
+    times = answers["/api/status"]["times"]
+    assert times["production_ns"] is None
+    assert times["production_not_read"] == said
+    for route in ("/api/results", "/api/analyses"):
+        answer = answers[route]
+        assert answer["simulation"]["duration_ns_actual"] is None
+        assert answer["simulation"]["pieces"] is None
+        assert answer["simulation"]["production_not_read"] == said
+        summary = {row["label"]: row["value"] for row in answer["summary"]}
+        assert summary["Production"] == "not read"
+        cards = {card["label"]: card for card in answer["summary_cards"]}
+        assert cards["Production"]["value"] == "Not read"
+        assert cards["Production"]["detail"] == said + "."
+
+
+@PUBLIC
+@pytest.mark.parametrize("refused", ["segment-001/simulation/production.dcd", "segment-001"])
+def test_a_piece_not_read_is_not_left_out_of_the_production(tmp_path, refused, public):
+    """A piece's trajectory, or the piece, linked out of the study: the
+    production and the pieces it ran in are not read, rather than the one
+    piece left given as all of it."""
+    root = _carried_on_from_checkpoints(tmp_path)
+    target = tmp_path / "outside" / refused
+    target.parent.mkdir(parents=True, exist_ok=True)
+    (root / refused).rename(target)
+    _link(root / refused, target)
+
+    status, body = _ask(root, tmp_path, "/api/results", public=public)
+    simulation = json.loads(body)["simulation"]
+    assert simulation["pieces"] is None
+    assert simulation["duration_ns_actual"] is None
+    assert simulation["production_not_read"].startswith(f"{refused} was not read")

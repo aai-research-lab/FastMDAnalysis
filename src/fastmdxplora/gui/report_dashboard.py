@@ -461,7 +461,12 @@ def _summary_cards(
             live = {}
         times = simulated_times(project_root, live if isinstance(live, dict) else {})
         before = equilibration_said(times)
-        if times["production_ns"] is not None:
+        if times.get("production_not_read"):
+            # A record of its pieces not read: not the first piece's record,
+            # nor the length it was asked to run.
+            cards.append(DashboardCard("Production", "Not read",
+                                       times["production_not_read"] + "."))
+        elif times["production_ns"] is not None:
             cards.append(DashboardCard("Production", say_length(times["production_ns"]),
                                        before or "as the run recorded it"))
         else:

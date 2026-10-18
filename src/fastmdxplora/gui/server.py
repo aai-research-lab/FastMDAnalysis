@@ -3330,10 +3330,21 @@ def _results_payload(root: Path) -> dict[str, Any]:
     dashboard = by_path.get("report/dashboard.html")
     from fastmdxplora.simulation.resume import extended_production
 
+    from fastmdxplora.refusals import OutsideWorkspace
+
     # An extended study's length is its pieces', not its first piece's.
-    extended = extended_production(root)
+    production_not_read = None
+    try:
+        extended = extended_production(root)
+    except OutsideWorkspace as refusal:
+        # A record of its pieces a held read refused: its production was not
+        # read, which is neither the first piece's nor a part of it.
+        from fastmdxplora.gui.series import refused_said
+
+        extended = None
+        production_not_read = refused_said(root, Path(refusal.filename or root))
     summary = _summary_records(root, manifest, analysis_manifest, sim_manifest,
-                               extended=extended)
+                               extended=extended, production_not_read=production_not_read)
     setup_manifest = _load_json(_setup_of(root) / "setup_parameters.json")
     system = _system_info(root, manifest, analysis_manifest, sim_manifest)
     return {
@@ -3348,7 +3359,8 @@ def _results_payload(root: Path) -> dict[str, Any]:
         "system": system,
         "setup": _setup_details(setup_manifest),
         "simulation": _simulation_details(sim_manifest, read_study_status(root),
-                                          extended=extended),
+                                          extended=extended,
+                                          production_not_read=production_not_read),
         "phases": _phase_records(manifest),
         "analyses": _analysis_records(analysis_manifest, artifacts, plots),
         "dashboard": dashboard,
@@ -3617,6 +3629,7 @@ def _summary_records(
     sim_manifest: dict[str, Any],
     *,
     extended: tuple[float, int] | None = None,
+    production_not_read: str | None = None,
 ) -> list[dict[str, str]]:
     phase_statuses = [
         str(item.get("status") or "unknown").lower()
@@ -3676,6 +3689,8 @@ def _summary_records(
     ]
     if extended:
         records[4]["value"] += f" in {extended[1]} pieces"
+    elif production_not_read:
+        records[4]["value"] = "not read"
     return records
 
 
@@ -4022,11 +4037,12 @@ def _simulation_details(
     live_status: dict[str, Any],
     *,
     extended: tuple[float, int] | None = None,
+    production_not_read: str | None = None,
 ) -> dict[str, Any]:
     params = sim_manifest.get("parameters")
     if not isinstance(params, dict):
         params = sim_manifest
-    return {
+    details = {
         "platform": _first_present(
             live_status.get("platform"),
             sim_manifest.get("platform_used"),
@@ -4060,6 +4076,12 @@ def _simulation_details(
             live_status.get("current_frame_count"),
         ),
     }
+    if production_not_read:
+        # Its production and the pieces it ran in were not read: neither the
+        # first piece's record nor one piece.
+        details.update(duration_ns_actual=None, pieces=None,
+                       production_not_read=production_not_read)
+    return details
 
 
 def _analysis_records(

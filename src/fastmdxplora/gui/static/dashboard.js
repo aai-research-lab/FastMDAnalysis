@@ -2394,6 +2394,11 @@
     const running = ["running", "starting", "paused"].includes(String(status.status || "").toLowerCase());
     const planned = times.production_planned_ns;
     const done = times.production_ns;
+    if (times.production_not_read) {
+      // A record of its pieces not read: the production is not given, and
+      // the live record's total does not stand in for it.
+      return {label: "Production", value: "Not read", note: times.production_not_read};
+    }
     if (done == null && !times.equilibrating) {
       const total = times.simulated_ns ?? status.simulation_time_completed_ns;
       return {label: "Simulated", value: sayLength(total),

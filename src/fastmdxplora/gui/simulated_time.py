@@ -95,18 +95,29 @@ def simulated_times(root: str | Path, status: dict[str, Any]) -> dict[str, Any]:
     # A study carried on in pieces ran its production across them; its own
     # record is the first piece's.
     pieces = 1
+    not_read = None
     if not running:
+        from fastmdxplora.refusals import OutsideWorkspace
         from fastmdxplora.simulation.resume import extended_production
 
-        extended = extended_production(root)
+        try:
+            extended = extended_production(root)
+        except OutsideWorkspace as refusal:
+            # A record of its pieces a held read refused: the production was
+            # not read, which is neither the first piece's nor a part of it.
+            from fastmdxplora.gui.series import refused_said
+
+            extended, production_ns = None, None
+            not_read = refused_said(root, Path(refusal.filename or root))
         if extended:
             production_ns, pieces = extended
     equilibrating = running and stage in EQUILIBRATING and not production_ns
     # Ended before its production began: its equilibration was not all done,
     # and saying "0 ps production after 10 ps of equilibration" said it was.
     ended_in = (stage if not running and stage in EQUILIBRATING + ("setup",)
-                and not production_ns and pieces == 1 else None)
-    if not running and ended_in is None and not production_ns and pieces == 1:
+                and not production_ns and pieces == 1 and not not_read else None)
+    if (not running and ended_in is None and not production_ns and pieces == 1
+            and not not_read):
         # A failure in NVT was recorded at the stage "production", every
         # stage after it marked failed too: the first stage that did not
         # complete is where it ended, and "after 4 ps of equilibration (2 ps
@@ -119,7 +130,7 @@ def simulated_times(root: str | Path, status: dict[str, Any]) -> dict[str, Any]:
                 break
             if state not in ("completed", "skipped"):
                 break
-    return {
+    said = {
         "ended_in": ended_in,
         "production_ns": production_ns,
         "production_planned_ns": steps_to_ns(production_planned),
@@ -136,6 +147,10 @@ def simulated_times(root: str | Path, status: dict[str, Any]) -> dict[str, Any]:
         # that recorded nothing else.
         "simulated_ns": _number(status.get("simulation_time_completed_ns")),
     }
+    if not_read:
+        # Why the production is not given, for a page to say so.
+        said["production_not_read"] = not_read
+    return said
 
 
 def equilibration_said(times: dict[str, Any]) -> str:
