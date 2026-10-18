@@ -196,6 +196,7 @@
     });
     api.on("results-updated", function () { rememberShown(false); });
     api.on("study-opening", function (study) {
+      rememberShown(false);
       if (validKey(study.key)) closed = closed.filter(function (key) { return key !== study.key; });
       save();
     });

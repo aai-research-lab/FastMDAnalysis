@@ -20,6 +20,12 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- A study stage timeline distinguishes recorded progress from retained
+  coordinates. Input, prepared and solvated structures and supported
+  minimized/final OpenMM States open in a separate frozen molecule view.
+  Missing snapshots are named; live polling does not replace the stage
+  being inspected. Inspection starts no simulation.
+
 - A strip of open studies keeps each study's last page in this browser
   window. Studies can be selected or closed individually; closing never
   stops a run or removes files. The list survives reload. A refused switch

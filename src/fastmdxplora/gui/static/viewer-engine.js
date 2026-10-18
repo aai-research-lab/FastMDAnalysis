@@ -521,7 +521,11 @@
       this.components = {};
       // What is rendered, by the engine's names: "polymer", "short", "ligand"...
       const rendered = [];
-      if (s.isolateLigand && ligandText) {
+      if (s.allAtoms) {
+        // A retained snapshot is inspected as its atoms, independently of
+        // the current study's polymer and ligand classification.
+        this.components.retained = await add("retained", "all", [atomic(0.3, 0)]);
+      } else if (s.isolateLigand && ligandText) {
         this.components.ligand = await add("ligand", ligandText, [atomic(0.35, monochrome ? 0x63e6ff : 0)]);
       } else if (s.pocketOnly && ligandText) {
         this.components.pocket = await add("pocket", pocket, proteinReps());

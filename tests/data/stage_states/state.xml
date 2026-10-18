@@ -1,0 +1,14 @@
+<?xml version="1.0" ?>
+<State openmmVersion="8.6.1" stepCount="0" time="0" type="State" version="1">
+	<PeriodicBoxVectors>
+		<A x="3" y="0" z="0"/>
+		<B x=".4" y="2.8" z="0"/>
+		<C x=".2" y=".3" z="3.2"/>
+	</PeriodicBoxVectors>
+	<Positions>
+		<Position x=".3" y=".4" z=".5"/>
+		<Position x=".44" y=".4" z=".5"/>
+		<Position x=".57" y=".4" z=".5"/>
+		<Position x=".67" y=".45" z=".5"/>
+	</Positions>
+</State>

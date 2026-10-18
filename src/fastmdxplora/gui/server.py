@@ -156,7 +156,7 @@ GETS_ANSWERED_BEYOND_LOOPBACK = frozenset({
     "/api/states", "/api/state-difference", "/api/backbone-angles",
     "/api/contact-map", "/api/contact-pair", "/api/pocket-volume", "/structure/pocket.dx",
     "/api/views", "/api/viewer-atoms", "/api/viewer-selections", "/api/scenes",
-    "/api/stopping", "/api/stream", "/api/problems",
+    "/api/stopping", "/api/stream", "/api/problems", "/api/stage-timeline", "/structure/stage.pdb",
     "/analysis-figures-svg.zip",
     "/structure/topology.pdb", "/structure/live-frame.pdb", "/structure/live-frame.dcd",
     "/structure/frames.dcd", "/structure/frames-topology.pdb", "/structure/occupancy.dx",
@@ -167,6 +167,7 @@ GET_PREFIXES_ANSWERED_BEYOND_LOOPBACK = ("/static/", "/artifacts/", "/scenes/")
 #: the first with a trajectory, the others rendered beside it
 #: (runs_together.py); for a study of one run, the study.
 _READ_FROM_THE_RUN_SHOWN = frozenset({
+    "/api/stage-timeline", "/structure/stage.pdb",
     "/api/selection", "/api/residue-states", "/api/measure-over-frames",
     "/api/secondary-structure", "/api/structure-info", "/api/ligands",
     "/api/viewer-atoms", "/api/chain-contacts", "/api/interactions-over-frames",
@@ -654,7 +655,22 @@ def make_handler(
                     self._send_run_frames(root, parse_qs(parsed.query)["run"][0],
                                           path.endswith(".pdb"))
                     return
-                root = run_shown(root) or root
+                if path in {"/api/stage-timeline", "/structure/stage.pdb"}:
+                    from fastmdxplora.record_access import confined_records
+                    from fastmdxplora.refusals import OutsideWorkspace
+
+                    boundary = root.resolve()
+                    try:
+                        with confined_records(boundary, lambda candidate:
+                                not _private(candidate.relative_to(boundary).parts)) as scope:
+                            root = run_shown(root) or root
+                        if scope.denied:
+                            raise OutsideWorkspace("A stage run source was not admitted.")
+                    except (OSError, ValueError, OutsideWorkspace):
+                        self._send_json({"ok": False, "reason": "The viewed run is not among this study's public files."}, status=403)
+                        return
+                else:
+                    root = run_shown(root) or root
             if path in {"/", "/index", "/results", "/live"}:
                 self._send_html(page_for(self.headers.get(ACCOUNT_HEADER)))
                 return
@@ -1091,6 +1107,48 @@ def make_handler(
                 return
             if path == "/api/structure-info":
                 self._send_json(_structure_info_payload(root, cfg))
+                return
+            if path in {"/api/stage-timeline", "/structure/stage.pdb"}:
+                from fastmdxplora.gui.stage_structures import stage_snapshot, timeline_payload
+                from fastmdxplora.gui.workspace import study_key
+
+                query = parse_qs(parsed.query)
+                named = study_key(study_root)
+                if query.get("study", [named])[0] != named:
+                    self._send_json({"ok": False, "reason": "The open study changed. Read its timeline again."}, status=409)
+                    return
+                try:
+                    parts = root.resolve().relative_to(study_root.resolve()).parts
+                    requested_parts = root.absolute().relative_to(study_root.absolute()).parts
+                except (OSError, ValueError):
+                    self._send_json({"ok": False, "reason": "The viewed run is outside this study."}, status=403)
+                    return
+                if _private(parts) or _private(requested_parts):
+                    self._send_json({"ok": False, "reason": "The viewed run is not among this study's public files."}, status=403)
+                    return
+                if not is_study(study_root):
+                    self._send_json({"available": False, "study": "", "stages": [], "reason": "Open a study first."})
+                    return
+                run_key = study_key(root)
+                if path == "/api/stage-timeline":
+                    run_name = root.resolve().relative_to(study_root.resolve()).as_posix()
+                    self._send_json({**timeline_payload(root), "study": named, "run": run_key,
+                                     "run_name": "" if run_name == "." else run_name})
+                    return
+                if query.get("run", [run_key])[0] != run_key:
+                    self._send_json({"ok": False, "reason": "The viewed run changed. Read its timeline again."}, status=409)
+                    return
+                data, entry = stage_snapshot(root, query.get("stage", [""])[0],
+                    query.get("version", [""])[0], with_solvent=query.get("solvent", ["0"])[0] == "1")
+                if data is None:
+                    self._send_json({"ok": False, **entry}, status=422)
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "chemical/x-pdb; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
                 return
             if path == "/api/ligands":
                 self._send_json(_ligands_payload(root, cfg))

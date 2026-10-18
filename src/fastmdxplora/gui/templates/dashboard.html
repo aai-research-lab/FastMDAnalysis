@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="/static/remote.css">
   <link rel="stylesheet" href="/static/problems.css">
   <link rel="stylesheet" href="/static/study-tabs.css">
+  <link rel="stylesheet" href="/static/stage-timeline.css">
   <!--__FASTMDX_LAB_ICON__-->
   <meta name="fastmdx-expansion" content="Fully Automated SysTem for Molecular Dynamics eXploration">
 </head>
@@ -610,6 +611,14 @@
                   aria-label="Open another study" title="Open another study"><!--icon:studies:line-icon--></button>
         </div>
         <p class="study-tabs-note" id="study-tabs-note" role="status" hidden></p>
+      </nav>
+
+      <nav class="study-stages" id="stage-timeline" aria-label="Study stages" hidden>
+        <div class="stage-timeline-row">
+          <ol id="stage-timeline-list"></ol>
+          <button type="button" class="ghost-btn" id="stage-timeline-refresh">Refresh</button>
+        </div>
+        <p class="stage-timeline-note" id="stage-timeline-note" role="status"></p>
       </nav>
 
       <!-- Page views -->
@@ -2053,6 +2062,7 @@
   <script src="/static/studies.js"></script>
   <script src="/static/remote.js"></script>
   <script src="/static/molecule-viewer.js"></script>
+  <script src="/static/stage-timeline.js"></script>
   <script src="/static/viewer-rail.js"></script>
   <script src="/static/palette.js"></script>
   <script src="/static/run-notice.js"></script>
@@ -2070,5 +2080,20 @@
   <script src="/static/viewer-contact-map.js"></script>
   <script src="/static/viewer-pocket.js"></script>
   <script src="/static/viewer-beside.js"></script>
+  <div class="agent-dialog" id="stage-structure-dialog" role="dialog" aria-modal="true"
+       aria-labelledby="stage-structure-title" hidden>
+    <div class="agent-dialog-panel stage-structure-box">
+      <div class="agent-dialog-head">
+        <h2 id="stage-structure-title">Retained stage structure</h2>
+        <button type="button" class="ghost-btn" data-dialog-close>Return to study</button>
+      </div>
+      <div class="agent-dialog-body">
+        <p id="stage-structure-source"></p>
+        <label><input type="checkbox" id="stage-structure-solvent"> Include water and ions</label>
+        <p id="stage-structure-note" role="status"></p>
+        <div id="stage-structure-canvas" role="img" aria-label="Retained stage molecule"></div>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

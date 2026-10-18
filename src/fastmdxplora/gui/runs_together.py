@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from fastmdxplora import record_access as _records
 
 __all__ = ["RUN_COLOURS", "TOGETHER", "run_shown", "runs_of_the_same_atoms", "runs_together"]
 
@@ -59,7 +60,7 @@ def run_shown(root: Path | str) -> Path | None:
     running = None
     for run in runs_of_a_study(Path(root)) or []:
         folder = Path(run["path"])
-        source = _source(folder) if folder.is_dir() else None
+        source = _source(folder) if _records.is_dir(folder) else None
         if source is not None and source["kind"] == "trajectory":
             return folder
         if source is not None and running is None:

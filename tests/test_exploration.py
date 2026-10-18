@@ -499,7 +499,7 @@ def test_a_new_session_child_leaves_the_terminals_group():
         child.wait()
 
 
-def _fake_run(study):
+def _fake_run(study, *, require_identity=True):
     """A process whose command line names the study, as fastmdx's does."""
     import subprocess
     import sys
@@ -510,6 +510,21 @@ def _fake_run(study):
     child = subprocess.Popen([sys.executable, str(script), "explore", "--output", str(study)],
                              start_new_session=True)
     time.sleep(0.3)
+    if require_identity and sys.platform.startswith("linux"):
+        # Some hosted process namespaces expose neither their children's
+        # command lines nor a working ps. An adoption integration test
+        # needs the OS identity itself, independently of our reader.
+        try:
+            command = Path(f"/proc/{child.pid}/cmdline").read_bytes()
+        except OSError:
+            command = b""
+        if str(script).encode() not in command:
+            probe = subprocess.run(["ps", "-p", str(child.pid), "-o", "args="],
+                                   capture_output=True, text=True, check=False)
+            if probe.returncode != 0 or str(script) not in probe.stdout:
+                child.terminate()
+                child.wait(timeout=5)
+                pytest.skip("the process namespace does not expose the child's command line")
     return child
 
 
@@ -735,7 +750,7 @@ def _adoption_runtime(tmp_path, monkeypatch, answers):
     monkeypatch.setattr(exploration, "ADOPTION_RETRY_INTERVAL", 0.05)
     monkeypatch.setattr(exploration, "ADOPTION_RETRY_SECONDS", 5.0)
     study = _make_run(tmp_path, "fastmdxplora_1UAO_study_20260919120000")
-    child = _fake_run(study)
+    child = _fake_run(study, require_identity=False)
     (study / RUN_PROCESS_FILE).write_text(json.dumps(
         {"pid": child.pid, "argv": ["fastmdx", "explore"],
          "started_at": "2026-09-19T12:00:00+00:00"}), encoding="utf-8")

@@ -390,6 +390,25 @@ output. **Run as-is** writes nothing and runs the file you named, unmodified.
 
 ## Watching it happen
 
+The study's stage timeline shows which progress was recorded and which
+coordinates were retained. Select a stage to inspect its saved molecule
+in a separate frozen view. **Return to study** or Escape closes that view;
+the study's live Viewer continues independently. Water and ions can be
+included explicitly. The source files are named above the molecule.
+
+Input, prepared and solvated structures come from the corresponding saved
+PDB files. Minimized and final coordinates can come from supported OpenMM
+State XML with its matching retained topology; reading these creates no
+simulation engine. Completion alone does not imply a snapshot exists.
+For example, a separate end-of-equilibration coordinate file is generally
+not retained, so the timeline explains that absence rather than substitute
+the final structure. A changed or unreadable source is explained in place.
+The final retained State is a snapshot, not a promise that the planned
+production duration was completed. Refresh rereads the existing records.
+The stage status combines continuation records and reconciles silent runs
+from their public timestamps. Private process metadata is not inspected
+by this view. A study of runs names the run supplying the coordinates.
+
 The strip across the main page keeps the studies opened in this browser
 window. Select a study to return to its last page or analysis section.
 **Open another study** opens All studies; the existing folder picker can

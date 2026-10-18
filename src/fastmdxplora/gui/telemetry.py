@@ -855,10 +855,15 @@ def how_the_run_ended(project_root: str | Path,
             and _records.is_dir(root / piece)):
         # The piece being run keeps the record of its process.
         root = root / piece
-    try:
-        record = json.loads(_records.read_text(root / RUN_PROCESS_FILE, encoding="utf-8"))
-    except (OSError, ValueError):
-        record = None
+    record = None
+    # A confined public reader can still reconcile a silent run from its
+    # timestamp without reading the private process record. Other callers
+    # retain their process liveness check.
+    if _records.can_read(root / RUN_PROCESS_FILE):
+        try:
+            record = json.loads(_records.read_text(root / RUN_PROCESS_FILE, encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
     said = _what_its_process_says(root, record) if isinstance(record, dict) else None
     if said == "gone":
         return "process"
@@ -997,10 +1002,12 @@ def rounds_of_a_study(study: Path) -> dict[str, Any] | None:
                      if _records.is_dir(folder)]
         except OSError:
             named = []
-    try:
-        process = json.loads(_records.read_text(study / RUN_PROCESS_FILE, encoding="utf-8"))
-    except (OSError, ValueError):
-        process = None
+    process = None
+    if _records.can_read(study / RUN_PROCESS_FILE):
+        try:
+            process = json.loads(_records.read_text(study / RUN_PROCESS_FILE, encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
     said = _what_its_process_says(study, process) if isinstance(process, dict) else None
     try:
         at_once = max(1, int(record.get("at_once") or 1))

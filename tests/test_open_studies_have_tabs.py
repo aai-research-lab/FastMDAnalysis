@@ -134,6 +134,29 @@ def test_a_switch_saves_the_page_before_its_navigation_frame_runs(browser, site)
         page.context.close()
 
 
+def test_an_external_open_saves_the_page_before_its_navigation_frame_runs(browser, site):
+    page=_open(browser,site)
+    try:
+        page.evaluate("""async path => {
+            const answer=await (await fetch('/api/explore/switch', {method:'POST',
+                headers:{'content-type':'application/json'},body:JSON.stringify({folder:path})})).json();
+            // Keep the navigation announcement pending until the old
+            // document leaves: saving the page cannot depend on that frame.
+            const frame=window.requestAnimationFrame;
+            window.requestAnimationFrame=() => 0;
+            try {
+                window.FastMDXDashboard.navigate('analysis/rmsd');
+                window.FastMDXDashboard.studyOpened(answer,'files');
+            } finally {window.requestAnimationFrame=frame;}
+        }""",str(site["studies"][1]))
+        _active(page,site["keys"][1])
+        _link(page,site["keys"][0]).click()
+        _active(page,site["keys"][0])
+        assert page.url.endswith('#analysis/rmsd')
+        assert page.errors==[]
+    finally: page.context.close()
+
+
 def test_close_inactive_changes_no_study_and_close_active_selects_neighbour(browser, site):
     page = _open(browser, site)
     try:

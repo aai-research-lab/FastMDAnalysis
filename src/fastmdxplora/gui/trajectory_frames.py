@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from fastmdxplora import record_access as _records
 
 __all__ = ["BINARY_ATOM_FRAMES", "FRAMES_FILE", "FRAMES_TOPOLOGY", "PIECE_ATOM_FRAMES",
            "SUPERPOSED_ON", "as_xtc", "frames_for_binary", "frames_info", "frames_pieces",
@@ -94,15 +95,15 @@ def _source(out: Path) -> dict[str, Any] | None:
 
     simulation = out / "simulation"
     saved = simulation / "trajectory_topology.pdb"
-    topology = saved if saved.is_file() else simulation / "topology.pdb"
+    topology = saved if _records.is_file(saved) else simulation / "topology.pdb"
     trajectory = simulation / "production.dcd"
     finished = not _simulation_going(out)
     joined = _load_json(out / "joined" / "joined.json")
     joined_dcd = out / "joined" / "production.dcd"
-    if joined and joined_dcd.is_file() and joined_dcd.stat().st_size > 0:
+    if joined and _records.is_file(joined_dcd) and _records.stat(joined_dcd).st_size > 0:
         trajectory = joined_dcd
         named = Path(str(joined.get("topology") or ""))
-        if named.is_file():
+        if _records.is_file(named):
             topology = named
         finished = True
     history = [record for record in read_live_frame_history(simulation).get("frames", [])
@@ -111,7 +112,7 @@ def _source(out: Path) -> dict[str, Any] | None:
         return {"kind": "live-history", "records": history, "simulation": simulation,
                 "signature": f"history:{len(history)}:{history[-1].get('sequence')}:"
                              f"{history[-1].get('mtime_ns')}"}
-    if topology.is_file() and trajectory.is_file() and trajectory.stat().st_size > 0:
+    if _records.is_file(topology) and _records.is_file(trajectory) and _records.stat(trajectory).st_size > 0:
         return {"kind": "trajectory", "trajectory": trajectory, "topology": topology,
                 "records": history, "simulation": simulation,
                 "signature": f"{trajectory.parent.name}/{trajectory.name}:"
@@ -828,13 +829,13 @@ def _read(path: Path) -> str:
 
 
 def _stamp(path: Path) -> str:
-    stat = path.stat()
+    stat = _records.stat(path)
     return f"{stat.st_size}:{stat.st_mtime_ns}"
 
 
 def _load_json(path: Path) -> dict[str, Any]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(_records.read_text(path, encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     return value if isinstance(value, dict) else {}

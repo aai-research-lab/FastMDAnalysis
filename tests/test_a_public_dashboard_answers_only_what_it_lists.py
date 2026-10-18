@@ -265,6 +265,8 @@ class TestEveryGetRouteIsRefusedUnlessListed:
             "/api/overview",
             # Recorded problems, with no commands, Configs or actions.
             "/api/problems",
+            # Retained stage coordinates, confined to the admitted study.
+            "/api/stage-timeline", "/structure/stage.pdb",
             # The numbers an analysis's other figures were plotted from, to
             # plot them in the page's colours.
             "/api/figure-data",

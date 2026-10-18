@@ -1,0 +1,8 @@
+REMARK   1 CREATED WITH OPENMM 8.6.1, 2026-10-18
+CRYST1   30.000   28.284   32.202  84.20  86.44  81.87 P 1           1 
+ATOM      1  N   GLY A   1       1.000   2.000   3.000  1.00  0.00           N  
+ATOM      2  CA  GLY A   1       2.400   2.000   3.000  1.00  0.00           C  
+ATOM      3  C   GLY A   1       3.700   2.000   3.000  1.00  0.00           C  
+ATOM      4  O   GLY A   1       4.700   2.500   3.000  1.00  0.00           O  
+TER       5      GLY A   1
+END

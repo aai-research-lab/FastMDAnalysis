@@ -25,6 +25,7 @@ from typing import Any, Callable, Mapping
 from fastmdxplora.batch.explorer import ALREADY_HOLD_RESULTS
 from fastmdxplora.dependencies import dependency_error_message, missing_dependencies
 from fastmdxplora.refusals import StudyError
+from fastmdxplora import record_access as _records
 
 
 from fastmdxplora.utils.logging import get_logger
@@ -112,10 +113,15 @@ def _process_alive(pid: int) -> bool:
     except PermissionError:
         return True
     try:
-        state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)],
-                               capture_output=True, text=True, timeout=2).stdout.strip()
+        answer = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)],
+                                capture_output=True, text=True, timeout=2)
     except (OSError, subprocess.SubprocessError):
         return True
+    # kill(pid, 0) succeeded. A failed query says nothing about whether
+    # the process is a zombie; a restricted /proc can make ps fail here.
+    if answer.returncode:
+        return True
+    state = answer.stdout.strip()
     if not state:
         return False
     return not state.startswith("Z")
@@ -267,7 +273,7 @@ def runs_of_a_study(root: Path) -> list[dict[str, Any]] | None:
     for entry in entries:
         run_id = str(entry["run_id"])
         folder = Path(root) / "runs" / run_id
-        record = read_study_status(folder) if (folder / "simulation").is_dir() else {}
+        record = read_study_status(folder) if _records.is_dir(folder / "simulation") else {}
         records[run_id] = record
         if str(record.get("status") or "").lower() in _GOING_STATUSES:
             if how_the_run_ended(folder, record) is None:
@@ -336,7 +342,7 @@ def runs_of_a_study(root: Path) -> list[dict[str, Any]] | None:
                 state = "failed"
             else:
                 state = "running"
-        elif folder.exists():
+        elif _records.exists(folder):
             state = "running"
         out.append({"run_id": run_id, "path": str(folder), "system": entry.get("system"),
                     "values": entry.get("sweep_values") or {}, "state": state,
@@ -538,7 +544,7 @@ def _json_mapping_or_yaml(path: Path) -> dict[str, Any]:
 
 def _json_mapping(path: Path) -> dict[str, Any]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(_records.read_text(path, encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
     return value if isinstance(value, dict) else {}

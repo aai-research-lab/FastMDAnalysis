@@ -276,12 +276,15 @@ class TestAPhone:
             const r = title.getBoundingClientRect();
             const bar = document.querySelector('.sidebar').getBoundingClientRect();
             const tabs = document.getElementById('study-tabs').getBoundingClientRect();
+            const stage = document.getElementById('stage-timeline');
+            const navigationBottom = stage && !stage.hidden ? stage.getBoundingClientRect().bottom : tabs.bottom;
             return {{
                 title: Math.round(r.top),
                 bar: getComputedStyle(document.querySelector('.sidebar')).visibility,
                 barBottom: Math.round(bar.bottom),
                 tabsTop: Math.round(tabs.top),
                 tabsBottom: Math.round(tabs.bottom),
+                navigationBottom: Math.round(navigationBottom),
                 wider: document.scrollingElement.scrollWidth - innerWidth,
                 nav: [...document.querySelectorAll('.sidebar-nav .nav-link')]
                     .filter(a => a.offsetWidth > 0 && getComputedStyle(a).visibility === 'visible').length,
@@ -292,7 +295,7 @@ class TestAPhone:
         # The document strip follows navigation; the heading follows it,
         # with no empty band between either pair.
         assert abs(facts["tabsTop"] - facts["barBottom"]) <= 1, facts
-        assert facts["title"] - facts["tabsBottom"] < 40, facts
+        assert facts["title"] - facts["navigationBottom"] < 40, facts
         assert facts["wider"] <= 0, facts
 
     def test_the_navigation_goes_where_it_says(self, browser, studies) -> None:

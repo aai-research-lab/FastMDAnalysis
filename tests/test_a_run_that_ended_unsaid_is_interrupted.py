@@ -101,6 +101,11 @@ class TestWhetherItEnded:
 
     @linux
     def test_its_number_given_to_a_process_begun_since_it_ended(self, tmp_path, a_script):
+        try:
+            Path(f"/proc/{a_script}/stat").read_text()
+            Path("/proc/stat").read_text()
+        except OSError:
+            pytest.skip("the process namespace does not expose the child's start record")
         root = _a_run_said_it_was_going(tmp_path / "s", last=_ago(5))
         _its_process(root, a_script, started=_ago(3600))
         assert how_the_run_ended(root) == "process"

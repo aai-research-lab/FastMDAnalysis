@@ -1,2 +1,4 @@
 # Vendored as published, byte for byte: not checked for whitespace.
 src/fastmdxplora/gui/static/molstar/molstar.js -whitespace
+# The producer's fixed-width PDB fixture retains its trailing field padding.
+tests/data/stage_states/topology.pdb whitespace=-blank-at-eol
