@@ -2512,7 +2512,10 @@
 
   /* The page's notice. With an action ({label, run}), a button for it, Undo
    * above all, offered while the notice shows, and longer. */
-  function showToast(message, kind, action) {
+  function showToast(message, kind, action, about) {
+    // What a notice shown is about (showNotice), so a later one about the
+    // same thing replaces it.
+    showToast.about = about || null;
     let toast = byId("dashboard-toast");
     if (!toast) {
       toast = document.createElement("div");
@@ -2555,7 +2558,9 @@
         }
         // A notice that waited on it, once the action has said its word:
         // an Undo the server answers says it then (studies.js, its tags).
+        showToast.acting = (showToast.acting || 0) + 1;
         Promise.resolve(action.run()).catch(() => {}).then(() => {
+          showToast.acting -= 1;
           if (!toast.classList.contains("show")) showWaitingNotice();
         });
       }, {once: true});
@@ -2589,10 +2594,12 @@
     }
   }
 
-  /* A notice the person did not ask for. A notice holding an action (Undo)
-   * is not replaced by it: it waits until that one is gone, after any that
+  /* A notice the person did not ask for. It replaces no notice still
+   * within its time but an earlier one about the same thing, nor one an
+   * action (Undo) is still to answer with (CI-774 review K4: the Undo's
+   * refusal was cut short): it waits until that one is gone, after any that
    * waits already. Of the notices about the same thing (`about.kind`) only
-   * the latest waits, and one naming a study (`about.study`) is said only
+   * the latest is said, and one naming a study (`about.study`) is said only
    * while that study is the one shown. The message, or what makes it as it
    * is said. */
   function showNotice(message, kind, about) {
@@ -2600,21 +2607,24 @@
     const toast = byId("dashboard-toast");
     const showing = Boolean(toast && toast.classList.contains("show"));
     const waiting = showToast.waiting || [];
-    if ((showing && toast.querySelector(".dashboard-toast-action")) || waiting.length) {
+    const same = showing && about && showToast.about && showToast.about.kind === about.kind;
+    if ((showing && !same) || showToast.acting || waiting.length) {
       showToast.waiting = waiting.filter((one) => !(about && one.about && one.about.kind === about.kind))
         .concat([{message, kind, about}]);
       if (!showing) showWaitingNotice();
       return;
     }
-    showToast(typeof message === "function" ? message() : message, kind);
+    showToast(typeof message === "function" ? message() : message, kind, null, about);
   }
 
   function showWaitingNotice() {
+    if (showToast.acting) return;
     const waiting = showToast.waiting || [];
     while (waiting.length) {
       const next = waiting.shift();
       if (next.about && next.about.study && next.about.study !== state.studyShown) continue;
-      showToast(typeof next.message === "function" ? next.message() : next.message, next.kind);
+      showToast(typeof next.message === "function" ? next.message() : next.message, next.kind,
+                null, next.about);
       return;
     }
   }

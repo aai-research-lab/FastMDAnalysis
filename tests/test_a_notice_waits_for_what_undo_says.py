@@ -162,3 +162,55 @@ def test_a_study_opened_elsewhere_is_said_by_its_own_name(browser, session) -> N
         f"{title} was opened elsewhere, in another window or by an AI app: this window now shows it."]
     assert title != "wild_type"
     assert errors == []
+
+
+#: As _HEARD, with when each was shown (ms).
+_TIMED = """() => {
+    window.__heard = [];
+    const note = () => {
+        const toast = document.getElementById('dashboard-toast');
+        const said = toast && toast.querySelector('.dashboard-toast-said');
+        const text = toast && toast.classList.contains('show') && said ? said.textContent : '';
+        const last = window.__heard[window.__heard.length - 1];
+        if (text && (!last || last.text !== text)) window.__heard.push({text, at: performance.now()});
+    };
+    new MutationObserver(note).observe(document.body, {subtree: true, childList: true,
+        characterData: true, attributes: true});
+}"""
+
+
+def test_a_notice_waits_for_a_toast_still_within_its_time(browser, session) -> None:
+    """Found by review K4 (third round): the Undo's refusal, a toast with
+    no action, was replaced by the notice of a study opened elsewhere at
+    once, and was up for about 2 s of its 3.5."""
+    page = browser.new_context(viewport={"width": 1400, "height": 1000}).new_page()
+    page.set_default_timeout(60000)
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    refused = "The view was not put back: another study is open now."
+    held = []
+    try:
+        page.goto(session.url + "#overview", wait_until="domcontentloaded")
+        _seen(page, session.first)
+        page.evaluate(_TIMED)
+        # The page's next read of the study open is held, so it sees the
+        # other window's study just after the refusal is shown.
+        page.route("**/api/status*", lambda route: held.append(route))
+        _elsewhere(session, session.workspace / "mutant")
+        while not held:
+            page.wait_for_timeout(100)
+        page.evaluate("(text) => window.FastMDXDashboard.toast(text, 'warning')", refused)
+        for route in list(held):
+            route.continue_()
+        page.unroute("**/api/status*")
+        page.wait_for_function("() => window.__heard.some((s) => /opened elsewhere/.test(s.text))",
+                               timeout=15000)
+        heard = page.evaluate("() => window.__heard")
+    finally:
+        _elsewhere(session, session.first)
+        page.context.close()
+    assert [h["text"] for h in heard][0] == refused, heard
+    assert "opened elsewhere" in heard[1]["text"], heard
+    # The refusal had its whole time (3.5 s) before the notice.
+    assert heard[1]["at"] - heard[0]["at"] >= 3400, heard
+    assert errors == []
