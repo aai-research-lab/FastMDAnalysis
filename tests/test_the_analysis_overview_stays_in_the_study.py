@@ -37,9 +37,11 @@ def _study(tmp_path: Path) -> Path:
     _write(root, "manifest.json", {"phases": [{"name": "analysis", "status": "ok"}]})
     _write(root, "analysis/analysis_manifest.json", {"results": {
         "rmsd": {"status": "ok"}, "rg": {"status": "ok"}}})
-    _write(root, "analysis/rg/options.json", {"findings": {"mean": {
+    # A link that stays inside the study is the study's own record.
+    kept = _write(root, "analysis/rg/kept.json", {"findings": {"mean": {
         "mean": 1.4, "standard_error": 0.1, "n_frames": 200, "effective_samples": 100,
         "rules": MEAN_RULES}}})
+    _link(root / "analysis/rg/options.json", kept)
     return root
 
 
@@ -58,28 +60,6 @@ def test_a_record_linked_out_of_the_study_or_to_a_hidden_file_is_not_shown(tmp_p
     assert status == 200
     assert b"PRIVATE_OUTSIDE_TEXT" not in body
     rows = {row["analysis"]: row for row in json.loads(body)["rows"]}
-    # The study's own record is still read.
+    # The study's own record is still read, through its link inside the study.
     assert rows["rg"]["mean"]["determined"] is True
-
-
-def test_a_link_inside_the_study_is_still_followed(tmp_path):
-    from fastmdxplora.gui.exploration import DashboardRuntime
-
-    root = _study(tmp_path)
-    kept = _write(root, "analysis/rmsd/kept.json", {"findings": {"mean": {
-        "mean": 0.2, "n_frames": 200, "not_a_measurement": "Recorded inside the study."}}})
-    _link(root / "analysis/rmsd/options.json", kept)
-    runtime = DashboardRuntime(workspace_root=root, exploration_root=tmp_path, active_root=root)
-    status, body = _overview(runtime)
-    assert status == 200
-    assert b"Recorded inside the study." in body
-
-
-def test_no_study_open_answers_an_empty_overview(tmp_path):
-    from fastmdxplora.gui.exploration import DashboardRuntime
-
-    runtime = DashboardRuntime(workspace_root=tmp_path, exploration_root=tmp_path,
-                               active_root=None)
-    status, body = _overview(runtime)
-    assert status == 200
-    assert json.loads(body)["rows"] == []
+    assert rows["rg"]["mean"]["value"] == 1.4

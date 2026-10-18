@@ -129,7 +129,11 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   stop's own warnings. Each warning in `simulation/live_events.log`, a
   piece's own narration or `fastmdxplora.log` is listed once, with the
   record it came from, and without the runner's "warning:" before it. A
-  phase is titled as the Overview says it ("Setup failed").
+  warning the log keeps from a phase a later run did again, as a run with
+  `--force-overwrite` or Analyze again does, is not listed. A run that
+  stopped or was interrupted in the piece carrying it on opens that piece's
+  record as its evidence. A phase is titled as the Overview says it ("Setup
+  failed").
 
 - Problems names the records it read, and names each record missing or
   unreadable, `manifest.json`, the analysis manifest, the narration and the

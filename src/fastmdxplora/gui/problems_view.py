@@ -82,6 +82,13 @@ _LOG_RECORD = re.compile(
     r"^(?:\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:,\d{3})? - (?P<plain>[A-Z]+) - "
     r"|\d{2}:\d{2}:\d{2} \S (?P<pretty>[A-Z]+) +)(?P<message>.*)$")
 
+#: The mark the study's log gets where a run starts (`utils/logging.py`,
+#: `_mark_a_new_run`).
+_NEW_RUN = "=== new run "
+
+#: Where a run starts a phase (`orchestrator._run_phase`).
+_PHASE_STARTS = re.compile(r"--> Phase '(?P<phase>\w+)' starting")
+
 #: What the telemetry's own explanations say would fix a run, where one does.
 _HEALTH_REMEDIES = {TEMPERATURE_EXPLANATION: TEMPERATURE_REMEDY}
 
@@ -214,21 +221,55 @@ def _event_warnings(text: str) -> list[str]:
 
 
 def _log_warnings(text: str) -> list[str]:
-    """The WARNING records of the study's log, each with any lines that
-    continue it, up to the next record or a new run's mark."""
-    found: list[list[str]] = []
+    """The WARNING records of the study's log that its records still stand
+    for, each with any lines that continue it, up to the next record or a
+    new run's mark.
+
+    Every run appends to the log after its mark (`_NEW_RUN`), and a run
+    that does a phase again replaces it and every phase after it
+    (`replaced.make_way`). So a warning written in a phase that a later run
+    started again, or after one, is of records since replaced. What a run
+    logs before its first phase goes with that phase, as setup's padding
+    warning goes with setup. A run that started no phase replaced nothing,
+    and its warnings go only once a later run sets the study up again.
+    """
+    from fastmdxplora.replaced import ORDER
+
+    # Per run, its parts: the phase each was written in, as its place in
+    # ORDER (None before any phase), and its warnings.
+    runs: list[list[list[Any]]] = [[[None, []]]]
     current: list[str] | None = None
     for line in text.splitlines():
+        if line.startswith(_NEW_RUN):
+            runs.append([[None, []]])
+            current = None
+            continue
         matched = _LOG_RECORD.match(line)
         if matched:
+            started = _PHASE_STARTS.match(matched.group("message"))
+            if started and started.group("phase") in ORDER:
+                rank = ORDER.index(started.group("phase"))
+                if runs[-1][-1][0] is None:
+                    runs[-1][-1][0] = rank
+                else:
+                    runs[-1].append([rank, []])
+                current = None
+                continue
             level = matched.group("plain") or matched.group("pretty")
             current = [matched.group("message")] if level == "WARNING" else None
             if current is not None:
-                found.append(current)
+                runs[-1][-1][1].append(current)
         elif line.startswith("==="):
             current = None
         elif current is not None and line.strip():
             current.append(line)
+    found: list[list[str]] = []
+    for index, parts in enumerate(runs):
+        # The earliest phase any later run started again.
+        later = [rank for run in runs[index + 1:] for rank, _ in run if rank is not None]
+        for rank, warnings in parts:
+            if not later or min(later) > (rank or 0):
+                found.extend(warnings)
     return ["\n".join(lines) for lines in found]
 
 
@@ -384,11 +425,17 @@ def _read_problems(root: Path, *, artifacts: list[dict[str, Any]] | None,
     if raw_status is not None and str(raw_status.get("status") or "").lower() in {
             "stopped", "interrupted"}:
         stop_said(raw_status.get("latest_error"))
+    #: Where the run's health is read from: the newest piece, where the
+    #: study stands as that piece's record says (`telemetry._as_one_run`).
+    health_in = "simulation"
     for piece in pieces:
         # Each piece the study was carried on in keeps its own record.
         own = record(f"{piece.name}/simulation/{STATUS_FILE}")
         if own is not None and str(own.get("status") or "").lower() in {"stopped", "interrupted"}:
             stop_said(own.get("latest_error"))
+        if (own is not None and piece.name == status.get("piece")
+                and own.get("last_update_timestamp") == status.get("last_update_timestamp")):
+            health_in = f"{piece.name}/simulation"
     try:
         metrics = read_metrics(root)
         for folder in [root, *pieces]:
@@ -425,7 +472,7 @@ def _read_problems(root: Path, *, artifacts: list[dict[str, Any]] | None,
                 duplicate["fix"] = fix
             if duplicate is None:
                 add(f"health:{state}", str(health.get("headline") or f"Run {state}"),
-                    reason, fix, files=(f"simulation/{STATUS_FILE}", f"simulation/{METRICS_FILE}"))
+                    reason, fix, files=(f"{health_in}/{STATUS_FILE}", f"{health_in}/{METRICS_FILE}"))
         elif state == "unknown" and raw_status is not None:
             notes.append(str(health.get("message") or "Run health is unavailable."))
     except Exception:  # noqa: BLE001 - partial records must not hide the other problems

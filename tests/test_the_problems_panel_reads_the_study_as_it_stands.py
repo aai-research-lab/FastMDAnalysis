@@ -156,12 +156,14 @@ def test_a_piece_that_ended_again_is_one_problem_said_as_the_study_stands(tmp_pa
     shown = status_as_it_stands(root)
     assert shown["status"] == again
     health = analyze_health(shown, read_metrics(root))
-    items = problems_payload(root)["items"]
+    items = problems_payload(root, admit_evidence=True)["items"]
     # The first piece's stop was carried on; the study stands as its piece
-    # ended, said once, as the Overview says it.
-    assert [(item["id"], item["title"], item["reason"]) for item in items
+    # ended, said once, as the Overview says it, with the piece's own
+    # record as its evidence, not the first stop's.
+    assert [(item["id"], item["title"], item["reason"], item["file"]) for item in items
             if item["title"] != "Warning in the study's log"] == [
-        (f"health:{again}", health["headline"], health["message"])]
+        (f"health:{again}", health["headline"], health["message"],
+         "segment-001/simulation/live_status.json")]
 
 
 def test_a_stop_as_it_stands_folds_in_its_own_warnings(tmp_path):
@@ -283,6 +285,54 @@ def test_each_warning_in_the_study_log_is_listed_once_with_the_log(tmp_path):
          "simulation/live_events.log"),
         ("Warning in the study's log", PADDING, "fastmdxplora.log")]
     assert payload["unavailable"] == []
+
+
+def test_a_warning_of_a_run_the_study_replaced_is_not_listed(tmp_path):
+    """Set up for real with 1.2 nm of padding, which setup warns of, then
+    set up again with ``--force-overwrite`` and 1.5 nm, which it does not:
+    the log keeps both runs, the study's records only the second."""
+    pytest.importorskip("openmm")
+    pytest.importorskip("pdbfixer")
+    from fastmdxplora import FastMDXplora
+    from tests.test_a_real_study_runs_end_to_end import TRI_ALANINE
+
+    (tmp_path / "tri.pdb").write_text(TRI_ALANINE, encoding="utf-8")
+    root = tmp_path / "study"
+
+    def set_up(padding: float, **kwargs) -> list[str]:
+        config = {"systems": [{"id": "tri", "system": str(tmp_path / "tri.pdb")}],
+                  "setup": {"ph": 7.0, "solvent_padding_nm": padding,
+                            "nonbonded_cutoff_nm": 0.9}}
+        FastMDXplora(config_data=config, output_dir=str(root)).explore(
+            include=["setup"], **kwargs)
+        return [item["reason"] for item in problems_payload(root)["items"]
+                if item["title"] == "Warning in the study's log"]
+
+    first = set_up(1.2)
+    assert len(first) == 1 and first[0].startswith("1.2 nm of padding")
+    assert set_up(1.5, force=True) == []
+    log = (root / "fastmdxplora.log").read_text(encoding="utf-8")
+    assert "1.2 nm of padding" in log and "=== new run" in log
+
+
+def test_a_later_run_replaces_the_warnings_of_the_phases_it_did_again(tmp_path):
+    """Analyze again replaces the analysis and the report (`replaced.make_way`),
+    not the setup: setup's warning stays, the earlier analysis's goes."""
+    _completed(tmp_path)
+    _events(tmp_path / "simulation", ("info", "Production started"))
+    starts = "--> Phase '%s' starting (output=%s)"  # as `_run_phase` logs it
+    _logged(tmp_path, (logging.DEBUG, "Plan: setup -> simulation -> analysis"),
+            (logging.WARNING, PADDING), (logging.DEBUG, starts % ("setup", "setup")),
+            (logging.DEBUG, starts % ("simulation", "simulation")),
+            (logging.DEBUG, starts % ("analysis", "analysis")),
+            (logging.WARNING, "The earlier analysis's own warning."))
+    _logged(tmp_path, (logging.DEBUG, "Plan: analysis -> report"),
+            (logging.DEBUG, starts % ("analysis", "analysis")),
+            (logging.WARNING, "This analysis's own warning."),
+            (logging.DEBUG, starts % ("report", "report")))
+    assert "=== new run" in (tmp_path / "fastmdxplora.log").read_text(encoding="utf-8")
+    assert [item["reason"] for item in problems_payload(tmp_path)["items"]] == [
+        PADDING, "This analysis's own warning."]
 
 
 def test_a_warning_from_a_piece_names_its_own_log(tmp_path):

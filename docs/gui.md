@@ -117,12 +117,15 @@ own warnings); the report's verdict that an observable has not equilibrated,
 read from its convergence checks in `report/report.md` with the observables
 still moving; each warning recorded in `simulation/live_events.log`, in a
 piece's own narration, or in the study's log (`fastmdxplora.log`), each
-once; and each mean not determined, with the quantity and why. Under **What
+once, but not one the log keeps from a phase a later run did again (each run
+appends to the log; a phase run again replaces it and the phases after it);
+and each mean not determined, with the quantity and why. Under **What
 would fix it** is the remedy the records hold: for a mean withheld for want
 of samples, its record's own words for the more production it asks for;
 where the records hold none, it says no remedy is recorded. A quantity the
 same in every frame is named as the Overview names it. The file icon opens a
-problem's record in Files, at its first line. With no problems it says so
+problem's record in Files, at its first line; for a run that ended in the
+piece carrying it on, that piece's own record. With no problems it says so
 and names the records it read; a record missing or unreadable is named as
 unavailable, and the headline then never says the study has no problems. A
 running study's `manifest.json`, written when the run ends, is said as that,
