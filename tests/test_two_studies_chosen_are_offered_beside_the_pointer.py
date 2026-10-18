@@ -57,11 +57,22 @@ def _page(pw, session, many, width=1400, height=800):
     page.set_default_timeout(60000)
     errors: list[str] = []
     page.on("pageerror", lambda error: errors.append(str(error)))
+    asked: set = set()
+    page.on("request", lambda r: asked.add(r) if "/api/study" in r.url else None)
+    page.on("requestfinished", lambda r: asked.discard(r))
+    page.on("requestfailed", lambda r: asked.discard(r))
     page.goto(session.url + "#studies", wait_until="domcontentloaded")
     page.evaluate(f"() => window.FastMDXStudies.load({str(many)!r})")
     page.wait_for_selector(".study-card")
     # The cards are drawn again as their series arrive: wait for the last.
-    page.wait_for_load_state("networkidle")
+    # Not for the network to be idle: the page's stream of the study's
+    # changes stays open.
+    quiet = 0
+    for _ in range(600):
+        page.wait_for_timeout(100)
+        quiet = quiet + 1 if not asked else 0
+        if quiet >= 5:
+            break
     return browser, page, errors
 
 
