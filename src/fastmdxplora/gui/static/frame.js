@@ -1293,10 +1293,33 @@
     });
 
     /* Every way to another study asks first whether a switch would lose
-     * work here; the dashboard says why it is held. */
+     * work here; the dashboard says why it is held. One that goes on is
+     * marked as in flight (the strip is busy) until it is answered. */
     function switchHeld() {
       var dashboard = window.FastMDXDashboard;
-      return Boolean(dashboard && dashboard.holdStudySwitch && dashboard.holdStudySwitch());
+      return Boolean(dashboard && dashboard.beginStudySwitch && dashboard.beginStudySwitch());
+    }
+    function switchEnded() {
+      var dashboard = window.FastMDXDashboard;
+      if (dashboard && dashboard.endStudySwitch) dashboard.endStudySwitch();
+    }
+    /* Asked of the server by folder; opened as a step of its own. */
+    function switchToFolder(folder, page, refused) {
+      if (switchHeld()) return false;
+      fetch("/api/explore/switch", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ folder: folder })
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        if (d && d.ok) { window.FastMDXDashboard.studyOpened(d, page); return; }
+        switchEnded();
+        if (refused) refused((d && d.error) || "Could not open that study.");
+        else window.FastMDXDashboard.toast((d && d.error) || "Could not open that study.", "warning");
+      }).catch(function () {
+        switchEnded();
+        if (refused) refused("Could not reach the server.");
+        else window.FastMDXDashboard.toast("Could not reach the server.", "warning");
+      });
+      return true;
     }
 
     var loadStudy = el("load-study");
@@ -1310,30 +1333,17 @@
       loadPath.addEventListener("change", function () {
         var folder = loadPath.value.trim();
         if (!folder) return;
-        // Work a switch would lose holds it, with the reason said.
-        if (switchHeld()) { loadPath.value = ""; return; }
+        loadPath.value = "";
+        // Work a switch would lose holds it, with the reason said. The new
+        // study is read at once, on its overview, as a step of its own.
+        var asked = switchToFolder(folder, undefined, function (why) {
+          loadStudy.disabled = false;
+          loadStudy.textContent = "Load study";
+          window.alert(why === "Could not open that study." ? "Could not load that folder." : why);
+        });
+        if (!asked) return;
         loadStudy.disabled = true;
         loadStudy.textContent = "Loading\u2026";
-        fetch("/api/explore/switch", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ folder: folder })
-        }).then(function (r) { return r.json(); }).then(function (d) {
-          loadStudy.disabled = false;
-          loadStudy.textContent = "Load study";
-          loadPath.value = "";
-          if (d && d.ok) {
-            // Read the new study at once, on its overview, as a step of
-            // its own.
-            window.FastMDXDashboard.studyOpened(d);
-          } else {
-            window.alert((d && d.error) || "Could not load that folder.");
-          }
-        }).catch(function () {
-          loadStudy.disabled = false;
-          loadStudy.textContent = "Load study";
-          window.alert("Could not reach the server.");
-        });
       });
     }
 
@@ -1364,13 +1374,7 @@
       });
       if (elsewhereView) {
         elsewhereView.addEventListener("click", function () {
-          if (!elsewherePath || switchHeld()) return;
-          fetch("/api/explore/switch", {
-            method: "POST", headers: { "content-type": "application/json" },
-            body: JSON.stringify({ folder: elsewherePath })
-          }).then(function (r) { return r.json(); }).then(function (d) {
-            window.FastMDXDashboard.studyOpened(d, currentPage());
-          });
+          if (elsewherePath) switchToFolder(elsewherePath, currentPage());
         });
       }
     }
@@ -1378,15 +1382,7 @@
     /* A study of several runs lists them; a run inside one names it. */
     var runsBlock = el("study-runs");
     var runOfBlock = el("study-run-of");
-    function switchTo(folder) {
-      if (switchHeld()) return;
-      fetch("/api/explore/switch", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ folder: folder })
-      }).then(function (r) { return r.json(); }).then(function (d) {
-        window.FastMDXDashboard.studyOpened(d, currentPage());
-      });
-    }
+    function switchTo(folder) { switchToFolder(folder, currentPage()); }
     function shortAxis(axis) { return String(axis).split(".").pop(); }
     function valuesText(values) {
       return Object.keys(values || {}).map(function (axis) {

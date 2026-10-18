@@ -1083,8 +1083,9 @@
 
   function openStudy(path, button) {
     // Work a switch would lose holds it: said beside what was pressed.
+    // One that goes on is in flight until answered (the strip is busy).
     var dashboard = window.FastMDXDashboard;
-    var held = dashboard && dashboard.holdStudySwitch ? dashboard.holdStudySwitch() : "";
+    var held = switchBegun();
     if (held) { notOpened(button, held); return; }
     button.disabled = true;
     fetch("/api/explore/switch", {
@@ -1094,14 +1095,26 @@
     }).then(function (r) { return r.json(); }).then(function (d) {
       button.disabled = false;
       if (d && d.ok) {
-        window.FastMDXDashboard.studyOpened(d);
+        dashboard.studyOpened(d);
       } else {
+        switchEnded();
         notOpened(button, (d && d.error) || "Could not open it.");
       }
     }).catch(function () {
       button.disabled = false;
+      switchEnded();
       notOpened(button, "The server did not answer.");
     });
+  }
+
+  function switchBegun() {
+    var dashboard = window.FastMDXDashboard;
+    return dashboard && dashboard.beginStudySwitch ? dashboard.beginStudySwitch() : "";
+  }
+
+  function switchEnded() {
+    var dashboard = window.FastMDXDashboard;
+    if (dashboard && dashboard.endStudySwitch) dashboard.endStudySwitch();
   }
 
   /* Why a study did not open, said beside its button, which is an icon (the
@@ -1272,8 +1285,7 @@
       event.preventDefault();
       var source = input.value.trim();
       if (!source) { input.focus(); return; }
-      var held = window.FastMDXDashboard && window.FastMDXDashboard.holdStudySwitch
-        ? window.FastMDXDashboard.holdStudySwitch() : "";
+      var held = switchBegun();
       if (held) { said.textContent = held; return; }
       go.disabled = true;
       input.disabled = true;
@@ -1293,6 +1305,7 @@
       } catch (error) {
         said.textContent = "The server did not answer.";
       }
+      switchEnded();
       go.disabled = false;
       input.disabled = false;
     });
@@ -1325,6 +1338,18 @@
       .then(function (data) { counted(data); return workspace; })
       .catch(function () { asked = null; return null; });
     return asked;
+  }
+
+  /* How many of the workspace's studies share each shown ID: one shared
+   * is named by its folder too, in Recent and on the strip of open studies
+   * alike. */
+  function idsShared(data) {
+    var times = {};
+    (data && data.studies || []).forEach(function (study) {
+      var id = shownId(study) || study.name;
+      times[id] = (times[id] || 0) + 1;
+    });
+    return times;
   }
 
   function sameFolder(a, b) {
@@ -1373,11 +1398,7 @@
       }
       // Several studies of one structure share its ID: each is named by
       // its folder too, or Recent, and ⌘K from it, list "1L2Y" twice.
-      var times = {};
-      recent.forEach(function (study) {
-        var id = shownId(study) || study.name;
-        times[id] = (times[id] || 0) + 1;
-      });
+      var times = idsShared(data);
       list.replaceChildren.apply(list, recent.map(function (study) {
         var here = sameFolder(study.path, open);
         var word = stateWord(study.state);
@@ -1539,5 +1560,6 @@
   });
 
   window.FastMDXStudies = { load: load, narrowTo: narrowTo,
-                            showRecent: showRecent };
+                            showRecent: showRecent,
+                            idsShared: function () { return askTheWorkspace(false).then(idsShared); } };
 }());

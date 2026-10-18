@@ -91,7 +91,7 @@
     const demoButton = byId("open-demo");
     if (demoButton) {
       demoButton.addEventListener("click", async () => {
-        if (holdStudySwitch()) return;
+        if (beginStudySwitch()) return;
         demoButton.disabled = true;
         if (Number(state.appState?.demo_to_fetch || 0)) demoButton.textContent = "Fetching the demo study\u2026";
         try {
@@ -107,6 +107,7 @@
         } catch (error) {
           demoButton.textContent = "The server did not answer.";
         }
+        endStudySwitch();
         demoButton.disabled = false;
       });
     }
@@ -134,10 +135,11 @@
         return;
       }
       if (asked && state.addressKnown && asked !== studyNamed() && !state.addressAsking) {
-        // Work the switch would lose holds it: this step names the study
-        // still open, at the page shown, and the reason is said.
-        if (holdStudySwitch()) {
-          history.replaceState(history.state, "", addressFor(studyNamed(), `#${routeShown()}`));
+        // Work the switch would lose holds it, and the reason is said. A
+        // step naming the study still open is added after the one asked,
+        // which stays for a Back once the work is done.
+        if (holdStudySwitch("back")) {
+          history.pushState(history.state, "", addressFor(studyNamed(), `#${routeShown()}`));
           return;
         }
         openAsked(asked);
@@ -952,21 +954,46 @@
 
   /* What a switch of study would lose here (unsent Agent words, a Config
    * draft not saved, a rejected change not applied, a launch or reply
-   * under way): the reason, or "". */
-  function switchHeld() {
-    return window.FastMDXAgent?.beforeStudySwitch?.() || window.FastMDXRun?.beforeStudySwitch?.() || "";
+   * under way): the reason, or "". Back ("back") is not held by Agent
+   * words kept for the study in this window. */
+  function switchHeld(how) {
+    const back = how === "back";
+    return window.FastMDXAgent?.beforeStudySwitch?.({back}) || window.FastMDXRun?.beforeStudySwitch?.() || "";
   }
 
   /* Asked by every way to another study before the server is asked: a
    * held switch is said, by the strip and as a notice, and the current
    * study stays open. */
-  function holdStudySwitch() {
-    const held = state.addressAsking ? "A study is already opening." : switchHeld();
+  function holdStudySwitch(how) {
+    const held = state.addressAsking ? "A study is already opening." : switchHeld(how);
     if (held) {
       emit("study-switch-held", held);
       showToast(held, "warning");
     }
     return held;
+  }
+
+  /* One switch in flight at a time, whichever way asked it: the strip is
+   * busy and no poll paints the new study's records under the old one.
+   * The strip's own switch hides the pages until the new one loads; other
+   * ways keep their page, which says how the switch is going. */
+  function switching(on, hide) {
+    state.addressAsking = on;
+    document.body.classList.toggle("study-switching", Boolean(on && hide));
+    emit("study-switching", on);
+  }
+
+  /* The hold asked, then the switch marked as in flight: "" when it may
+   * go on, or the reason said. A switch not made is ended with
+   * endStudySwitch; one made loads the page again. */
+  function beginStudySwitch(how) {
+    const held = holdStudySwitch(how);
+    if (!held) switching(true);
+    return held;
+  }
+
+  function endStudySwitch() {
+    if (state.addressAsking) switching(false);
   }
 
   /* Internal workspace tabs switch through the same admitted key as Back.
@@ -976,16 +1003,14 @@
     if (state.addressAsking) return {ok: false, error: "A study is already opening."};
     const held = switchHeld();
     if (held) return {ok: false, error: held};
-    state.addressAsking = true;
-    document.body.classList.add("study-switching");
+    switching(true, true);
     const answer = await switchToKeyed(key);
     if (answer && answer.ok) {
       if (beforeOpen) beforeOpen(answer);
       studyOpened(answer, page);
       return answer;
     }
-    state.addressAsking = false;
-    document.body.classList.remove("study-switching");
+    switching(false);
     if (!answer) schedulePoll(0);
     return answer || {ok: false, error: "The server did not answer. Refresh to check which study is open."};
   }
@@ -1050,7 +1075,7 @@
   /* Opened once the page is shown (Back or Forward to a step naming
    * another study): read again from the start. */
   async function openAsked(asked) {
-    state.addressAsking = true;
+    switching(true);
     const answer = await switchToKeyed(asked);
     if (answer && answer.ok) {
       goTo(addressFor(answer.study_key || asked), true);
@@ -1058,7 +1083,7 @@
     }
     showToast((answer && answer.error) || "The study this address names could not be opened.",
               "warning");
-    state.addressAsking = false;
+    switching(false);
     history.replaceState(history.state, "", addressFor(studyNamed()));
     // The page the step names, with the study open: address and page agree.
     followAddress();
@@ -2628,6 +2653,9 @@
     openStudyTab,
     /* Asked before any other way opens another study: "" or the reason. */
     holdStudySwitch,
+    /* The same, and the switch marked as in flight where it may go on. */
+    beginStudySwitch,
+    endStudySwitch,
     /* The open study's tab closed with none left: not named until shown again. */
     studyClosed: (key) => {
       state.studyClosed = key || "";
