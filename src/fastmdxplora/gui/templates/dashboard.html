@@ -610,7 +610,18 @@
                   aria-label="Open another study" title="Open another study"><!--icon:studies:line-icon--></button>
         </div>
         <p class="study-tabs-note" id="study-tabs-note" role="status" hidden></p>
+        <p class="study-tabs-note" id="study-tabs-unkept" role="status" hidden></p>
       </nav>
+
+      <!-- The open study's folder is gone: said in place of its pages. -->
+      <section class="study-gone" id="study-gone" aria-labelledby="study-gone-title" hidden>
+        <h1 class="page-title" id="study-gone-title">This study's folder is no longer there</h1>
+        <p>Its records cannot be read, so its pages are not shown. Its tab stays until you close it; nothing else is changed.</p>
+        <div class="study-gone-actions">
+          <button type="button" class="ghost-btn" id="study-gone-close">Close its tab</button>
+          <button type="button" class="ghost-btn" id="study-gone-studies">All studies</button>
+        </div>
+      </section>
 
       <!-- Page views -->
       <main class="page-shell" id="page-shell" role="main" tabindex="-1">
