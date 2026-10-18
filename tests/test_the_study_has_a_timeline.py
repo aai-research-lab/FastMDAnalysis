@@ -240,3 +240,93 @@ def test_the_side_panel_says_a_record_not_read(study, tmp_path):
     assert said["line"].startswith("analysis/rmsd/options.json was not read")
     assert said["changes"] == "1 the same, 1 not run again, 1 not read"
     assert said["moved"] == 0
+
+
+# ---------------------------------------------------------------------------
+# A piece is said by what it was carried on with, in the units pages use.
+
+def test_a_piece_is_said_without_what_carrying_on_writes_into_every_piece(study):
+    from fastmdxplora.gui.study_timeline import timeline_of
+
+    piece = study / "segment-001"
+    config = (study / "resolved_config.yml").read_text(encoding="utf-8")
+    (piece / "resolved_config.yml").write_text(config.replace(
+        "duration_ns: 1.0",
+        "duration_ns: 0.0672\n  resume_from: /elsewhere/simulation/checkpoint.chk\n"
+        "  setup_from: /elsewhere\n  prepared_from: /elsewhere\n  resume_unsealed: true\n"
+        "  minimize: false\n  nvt_steps: 0\n  npt_steps: 0"), encoding="utf-8")
+    said = next(e for e in timeline_of(study)["events"] if e["kind"] == "piece")
+    assert [d["setting"] for d in said["settings"]] == ["simulation.duration_ns"]
+    assert (said["settings"][0]["first_said"], said["settings"][0]["second_said"]) == \
+        ("1 ns", "67.2 ps")
+
+
+def test_the_side_panel_reads_again_after_a_switch_and_says_times_as_the_overview(study):
+    """A switch while the Timeline's read was out drew the study before it,
+    and nothing read the new one; times were on a 12-hour clock beside the
+    Overview's 24, and lengths "30 min" beside its "30m 0s"."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    session = start_dashboard_session(output=str(study), host="127.0.0.1", port=0)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+            page = browser.new_page(viewport={"width": 1600, "height": 900}, locale="en-US")
+            page.set_default_timeout(60000)
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#overview", wait_until="domcontentloaded")
+            page.wait_for_selector("body.state-ready")
+            page.evaluate("""() => {
+                const real = window.fetch;
+                window.__asked = 0;
+                window.fetch = (url, options) => {
+                    if (!String(url).includes('/api/study-timeline')) return real(url, options);
+                    window.__asked += 1;
+                    if (window.__asked > 1) return real(url, options);
+                    // The study before the switch, as its answer would say it.
+                    return new Promise((resolve) => {
+                        window.__release = () => resolve(new Response(JSON.stringify({
+                            ok: true, events: [{kind: 'phase', phase: 'setup', said: 'STALE',
+                                                at: '2026-10-18T07:00:00+00:00'}]})));
+                    });
+                };
+                window.__drewStale = false;
+                new MutationObserver(() => {
+                    const list = document.getElementById('study-timeline-list');
+                    if (list && list.textContent.includes('STALE')) window.__drewStale = true;
+                }).observe(document.body, {childList: true, subtree: true});
+            }""")
+            page.evaluate("() => window.FastMDXFrame.setCollapsed(false)")
+            page.click("#timeline-tab")
+            page.wait_for_function("() => typeof window.__release === 'function'")
+            # The study switches while the read is out.
+            page.evaluate("""() => {
+                const app = window.FastMDXDashboard.state.appState;
+                window.FastMDXDashboard.applyAppState({...app, active_run: '/another/study'});
+                window.__release();
+            }""")
+            page.wait_for_function("() => window.__asked === 2")
+            page.wait_for_selector("#study-timeline-list .tl-event")
+            page.click('.tl-event[data-kind="piece"] .tl-changes > summary')
+            said = page.evaluate("""() => ({
+                asked: window.__asked, stale: window.__drewStale,
+                when: [...document.querySelectorAll('.tl-when')].map((n) => n.textContent),
+                facts: document.querySelector('.tl-event[data-phase="simulation"] .tl-facts')
+                    .textContent,
+                heads: [...document.querySelectorAll('.tl-event[data-kind="piece"] .tl-table th')]
+                    .map((n) => n.textContent),
+            })""")
+            browser.close()
+    finally:
+        session.server.shutdown()
+    assert errors == []
+    # The answer for the study before the switch is not drawn; the one open
+    # is read again.
+    assert said["stale"] is False and said["asked"] >= 2
+    assert not any("AM" in w or "PM" in w for w in said["when"]), said["when"]
+    assert said["facts"].startswith("20m 0s"), said["facts"]
+    assert said["heads"] == ["Setting", "The study", "This piece"]

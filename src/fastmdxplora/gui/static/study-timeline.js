@@ -13,6 +13,9 @@
 
   var shownFor = "";
   var asking = false;
+  /* Asked again while a read was out (the study switched, or its results
+   * changed): read once more when it answers. */
+  var again = false;
 
   function byId(id) { return document.getElementById(id); }
 
@@ -26,20 +29,28 @@
   function pane() { return document.querySelector('.side-pane[data-side-pane="timeline"]'); }
   function open() { var p = pane(); return !!p && !p.hidden; }
 
-  /* When, as a day and a time on this computer's clock. */
+  /* Settings' Time choice, as every time on the page follows it. */
+  function uses24Hours() {
+    var choice = byId("setting-time-format");
+    return !choice || choice.value !== "12h";
+  }
+
+  /* When, as a day and a time on this computer's clock, as the Overview
+   * says it ("17 Oct, 21:10"). */
   function whenSaid(iso) {
     var date = new Date(iso);
     if (isNaN(date.getTime())) return "";
-    return date.toLocaleDateString(undefined, { day: "numeric", month: "short" }) + ", " +
-      date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    return date.toLocaleString([], { day: "numeric", month: "short", hour: "2-digit",
+                                     minute: "2-digit", hour12: !uses24Hours() });
   }
 
+  /* How long, as the Overview's phases say it ("1m 15s"). */
   function tookSaid(seconds) {
     if (seconds == null || !isFinite(seconds)) return "";
-    if (seconds < 60) return (seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)) + " s";
-    var minutes = Math.round(seconds / 60);
-    if (minutes < 60) return minutes + " min";
-    return Math.floor(minutes / 60) + " h " + (minutes % 60) + " min";
+    if (seconds < 60) return Math.round(seconds) + " s";
+    var m = Math.floor(seconds / 60), h = Math.floor(m / 60);
+    if (h) return h + "h " + (m % 60) + "m";
+    return m + "m " + Math.round(seconds % 60) + "s";
   }
 
   function figure(value) {
@@ -103,13 +114,21 @@
     if (!event.settings || !event.settings.length) return null;
     var box = make("details", "tl-changes");
     box.appendChild(make("summary", "", event.settings.length + " setting" +
-                                         (event.settings.length === 1 ? "" : "s") + " differ from the study's"));
+                                         (event.settings.length === 1 ? " differs" : "s differ") +
+                                         " from the study's"));
     var table = make("table", "kv-table tl-table");
+    var head = make("tr");
+    ["Setting", "The study", "This piece"].forEach(function (w) { head.appendChild(make("th", "", w)); });
+    table.appendChild(head);
+    function value(d, side) {
+      if (d[side + "_said"]) return d[side + "_said"];
+      return d[side] == null ? "not set" : JSON.stringify(d[side]);
+    }
     event.settings.forEach(function (d) {
       var row = make("tr");
       row.appendChild(make("td", "mono", d.setting));
-      row.appendChild(make("td", "mono", d.first == null ? "not set" : JSON.stringify(d.first)));
-      row.appendChild(make("td", "mono", d.second == null ? "not set" : JSON.stringify(d.second)));
+      row.appendChild(make("td", "mono", value(d, "first")));
+      row.appendChild(make("td", "mono", value(d, "second")));
       table.appendChild(row);
     });
     box.appendChild(table);
@@ -149,18 +168,35 @@
     });
   }
 
-  function load(force) {
+  function studyOpen() {
     var app = window.FastMDXDashboard ? window.FastMDXDashboard.state.appState : null;
-    var study = app && app.active_run ? app.active_run : "";
-    if (!open() || asking || (!force && study === shownFor)) return;
+    return app && app.active_run ? app.active_run : "";
+  }
+
+  function load(force) {
+    var study = studyOpen();
+    if (!open()) return;
+    if (asking) {
+      // The answer coming may be the study before a switch, or its results
+      // before they changed: read again when it comes.
+      again = true;
+      return;
+    }
+    if (!force && study === shownFor) return;
     asking = true;
+    again = false;
     fetch("/api/study-timeline", { cache: "no-store" })
       .then(function (r) { return r.json(); })
       .catch(function () { return { ok: false, reason: "The server did not answer." }; })
       .then(function (data) {
         asking = false;
-        shownFor = study;
-        render(data);
+        var stale = studyOpen() !== study;
+        // An answer for a study no longer open is not drawn.
+        if (!stale) {
+          shownFor = study;
+          render(data);
+        }
+        if (stale || again) load(true);
       });
   }
 

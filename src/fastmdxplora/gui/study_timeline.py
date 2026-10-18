@@ -196,8 +196,9 @@ def _pieces(base: Path) -> list[dict[str, Any]]:
             from fastmdxplora.config.diff import differences
 
             try:
-                settings = [d.as_record() for d in differences(study, piece)
-                            if not d.where_only and not d.unrecorded][:12]
+                settings = [_said_in_its_unit(d.as_record()) for d in differences(study, piece)
+                            if not d.where_only and not d.unrecorded
+                            and d.setting not in _CARRYING][:12]
             except Exception:  # noqa: BLE001 - the step is said without them
                 settings = []
         events.append({
@@ -211,6 +212,31 @@ def _pieces(base: Path) -> list[dict[str, Any]]:
             "settings_not_read": settings_not_read, "where": folder.name,
         })
     return events
+
+
+#: What carrying a study on writes into its piece's settings, the same for
+#: every piece: where it was prepared and resumes from, no minimisation or
+#: equilibration again, and only the simulation run. Not what the piece was
+#: carried on with.
+_CARRYING = frozenset({
+    "include_phase", "simulation.setup_from", "simulation.prepared_from",
+    "simulation.resume_from", "simulation.resume_unsealed", "simulation.minimize",
+    "simulation.nvt_steps", "simulation.npt_steps", "simulation.nvt_duration_ns",
+    "simulation.npt_duration_ns",
+})
+
+
+def _said_in_its_unit(record: dict[str, Any]) -> dict[str, Any]:
+    """A setting in nanoseconds also said as the pages say a length, in
+    picoseconds under one nanosecond (``first_said``, ``second_said``)."""
+    from fastmdxplora.simulation.sampling_ask import length_said
+
+    if str(record.get("setting", "")).endswith("_ns"):
+        for side in ("first", "second"):
+            value = record.get(side)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                record[f"{side}_said"] = length_said(value)
+    return record
 
 
 def _config(folder: Path) -> dict[str, Any] | None:
