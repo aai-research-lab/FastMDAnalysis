@@ -12,8 +12,13 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 - A strip of open studies keeps each study's last page in this browser
   window. Studies can be selected or closed individually; closing never
   stops a run or removes files. The list survives reload. A refused switch
-  keeps the current study, and unsent Agent work or an unsaved Config draft
-  holds the switch with a reason.
+  keeps the current study, and unsent Agent work, an unsaved Config draft
+  or a rejected change not applied holds the switch with a reason, from
+  the strip, Recent, All studies, Load study or Back and Forward alike.
+  Tabs of one system are named by their folders too, as Recent names them.
+  A study whose folder is gone is said so on its tab and is not shown as
+  an empty study. The open tab is kept in view and a fade shows more tabs
+  past an edge.
 
 - An Agent Config version shows each changed setting, old value to new
   value, with **Accept** and **Reject** beside **Use this version**. Use
