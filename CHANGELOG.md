@@ -310,7 +310,14 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   is Not read rather than done. Each record not read is said with why: a link
   to a file outside the study, or to a file of the study that is not one of
   its results (`unavailable_why`); a long list names the first eight and
-  counts the rest, all of them listed under it. `/api/overview`,
+  counts the rest, all of them listed under it. A record not read is never
+  taken as missing: a carried-on study whose record of its join, a piece's
+  trajectory, state record or checkpoint record was not read gives no
+  production means (the Thermodynamics card and the Results temperature say
+  Not read, naming it), not its first piece's means called not determined; a
+  run's `energy.csv` not read is not stood in for by its live record; and a
+  live record not read is said so on `/api/status` and the run card, not as a
+  run that kept none. `/api/overview`,
   `/api/results`, `/api/series`, `/api/analysis-overview`, `/api/convergence`,
   `/api/status` and `/api/figure-data` read through such a link before.
 
