@@ -37,8 +37,13 @@ class ReadScope:
             resolved.relative_to(self.root)
             if self.admitted(path) and self.admitted(resolved):
                 return resolved
+            # Not there, where it would be is in the study: nothing is
+            # refused, so it is not named as not read.
+            missing = not os.path.lexists(path)
         except (OSError, RuntimeError, ValueError):
-            pass
+            missing = False
+        if missing:
+            raise FileNotFoundError(errno.ENOENT, "No such record", str(path))
         if remember:
             # A link out of the study is named by its own place in it; only
             # an address that is not in the study at all goes unnamed.
@@ -178,7 +183,7 @@ def can_read(path: Path) -> bool:
     try:
         scope.checked(Path(path), remember=False)
         return True
-    except OutsideWorkspace:
+    except (OutsideWorkspace, FileNotFoundError):
         return False
 
 

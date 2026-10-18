@@ -267,6 +267,32 @@ def _a_run_in_its_study(inside: Path) -> tuple[Path, Callable[[Path], bool]] | N
     return study, admitted
 
 
+def _with_its_runs_process_records(study: Path,
+                                   admitted: Callable[[Path], bool]) -> Callable[[Path], bool]:
+    """``admitted``, and for a study of several runs (``<study>/runs/<run>``)
+    each run's own process record, in the run or one of its pieces, as
+    Problems admits a study's (`admitted_for_problems`): its runs are read
+    as they stand (`exploration.runs_of_a_study`), and a run whose record
+    says it is going cannot be told from one whose process is gone without
+    it. Only by its own name, and only where it is."""
+    from fastmdxplora.gui.problems_view import admitted_for_problems
+    from fastmdxplora.orchestrator import RUN_PROCESS_FILE
+
+    def admitted_here(path: Path) -> bool:
+        if admitted(path):
+            return True
+        try:
+            parts = path.relative_to(study).parts
+        except ValueError:
+            return False
+        if not (3 <= len(parts) <= 4 and parts[0] == "runs" and parts[-1] == RUN_PROCESS_FILE
+                and not _private(parts[1:-1])):
+            return False
+        return admitted_for_problems(study / "runs" / parts[1])(path)
+
+    return admitted_here
+
+
 #: The names `record_access` gives a refused record that is not in the
 #: folder it was held to, which no path is relative to.
 _UNNAMED_REFUSALS = ("an unavailable record", "a non-regular record")
@@ -307,7 +333,7 @@ def _confined(root: Path, read: Callable[..., Any], *, keeps: bool = False) -> A
         # No study open, or its folder gone: there is nothing to read.
         return read(root, set()) if keeps else read(root)
     inside = root.resolve()
-    holds = [(inside, admitted_for_problems(inside))]
+    holds = [(inside, _with_its_runs_process_records(inside, admitted_for_problems(inside)))]
     in_its_study = _a_run_in_its_study(inside)
     if in_its_study is not None:
         holds.insert(0, in_its_study)
