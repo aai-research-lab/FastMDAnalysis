@@ -2067,7 +2067,7 @@ body.state-ready .loading-screen {
     line-height: 1.5;
     overflow-wrap: anywhere;
 }
-#agent-model-current { white-space: pre-line; }
+#agent-model-summary { white-space: pre-line; }
 #agent-settings .agent-auth-tools {
     padding: 12px;
     border: 1px solid var(--border-primary);

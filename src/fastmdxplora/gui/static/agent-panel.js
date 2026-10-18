@@ -629,30 +629,40 @@
       : id === "chatgpt_plan" ? "ChatGPT plan sign-in" : "API key");
   }
 
-  function engineLabel(choice) {
+  function engineLabelParts(choice) {
     var spec = providerSpec(choice.provider);
     var label = spec ? spec.label : choice.provider;
     var location = choice.base_url ? " at " + choice.base_url : "";
-    return label + " · " + (choice.model || "no model") + location +
-      " · " + authMethodLabel(choice.provider, choice.auth_method || "api_key");
+    return [label + " · ", choice.model || "no model", location +
+      " · " + authMethodLabel(choice.provider, choice.auth_method || "api_key")];
+  }
+
+  function engineLabel(choice) {
+    return engineLabelParts(choice).join("");
   }
 
   var savedEngineChoice = null;
 
-  function updateEngineSummary() {
+  function updateEngineSummary(error) {
     var saved = savedEngineChoice;
     var selected = { provider: el("agent-provider").value,
       model: chosenModel(), base_url: el("agent-base-url").value.trim(),
       auth_method: el("agent-auth-method").value || "api_key" };
-    var line = saved ? "Saved for Agent requests: " + engineLabel(saved)
+    var parts = saved && engineLabelParts(saved);
+    var before = saved ? "Saved for Agent requests: " + parts[0]
       : "No provider or model saved yet.";
+    var after = saved ? (saved.model ? "" : "no model") + parts[2] : "";
     var same = saved && saved.provider === selected.provider && saved.model === selected.model &&
       (saved.base_url || "") === selected.base_url &&
       (saved.auth_method || "api_key") === selected.auth_method;
     if (!same && (selected.model || selected.provider)) {
-      line += "\nCurrent selection (unsaved): " + engineLabel(selected);
+      after += "\nCurrent selection (unsaved): " + engineLabel(selected);
     }
-    el("agent-model-current").textContent = line;
+    if (typeof error === "string" && error) after += "\n" + error;
+    var current = el("agent-model-current");
+    current.textContent = saved && saved.model || "";
+    el("agent-model-summary").replaceChildren(document.createTextNode(before),
+      current, document.createTextNode(after));
   }
 
   var authRequest = 0;
@@ -1380,7 +1390,7 @@
     }).then(function (data) {
       button.disabled = false;
       if (!data.ok) {
-        el("agent-model-current").textContent = data.error;
+        updateEngineSummary(data.error || "The provider settings could not be saved.");
         return false;
       }
       /* Cleared rather than left in the field: a key sitting in an input
@@ -1406,7 +1416,7 @@
       return true;
     }).catch(function () {
       button.disabled = false;
-      el("agent-model-current").textContent = "The provider settings could not be saved.";
+      updateEngineSummary("The provider settings could not be saved.");
       return false;
     });
   }

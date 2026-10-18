@@ -1079,6 +1079,9 @@ def test_live_agent_settings_switch_provider_method_and_persist_the_real_selecti
             page.wait_for_function("() => document.getElementById('agent-auth-status')"
                                    ".textContent.includes('No saved ChatGPT sign-in')")
 
+            assert page.locator("#agent-model-current").text_content() == ""
+            assert "No provider or model saved yet." in page.locator(
+                "#agent-model-summary").inner_text()
             page.click("#agent-save-model")
             page.locator("#agent-settings").wait_for(state="hidden")
 
@@ -1090,7 +1093,8 @@ def test_live_agent_settings_switch_provider_method_and_persist_the_real_selecti
             )
             assert page.locator("#agent-auth-method").input_value() == "chatgpt_plan"
             assert "Saved for Agent requests: OpenAI · gpt-5 · ChatGPT plan sign-in" \
-                in page.locator("#agent-model-current").inner_text()
+                in page.locator("#agent-model-summary").inner_text()
+            assert page.locator("#agent-model-current").inner_text() == "gpt-5"
 
             page.locator("#agent-provider").select_option("anthropic")
             page.wait_for_function(
@@ -1116,12 +1120,38 @@ def test_live_agent_settings_switch_provider_method_and_persist_the_real_selecti
                 assert "Anthropic Console OAuth (official ant CLI) unavailable:" in help_text
                 assert "API-key authentication uses the provider's documented API endpoint" in help_text
             check_auth_layout()
-            summary = page.locator("#agent-model-current").inner_text()
+            summary = page.locator("#agent-model-summary").inner_text()
             assert "Saved for Agent requests: OpenAI · gpt-5 · ChatGPT plan sign-in" in summary
+            assert page.locator("#agent-model-current").inner_text() == "gpt-5"
             method = "Anthropic Console OAuth (official ant CLI)" if console_available else "API key"
             assert (
                 f"Current selection (unsaved): Anthropic · claude-sonnet-4-6 · {method}" in summary
             )
+
+            refused = '<img data-provider-error src=x> provider settings refused'
+            page.route("**/api/agent/model", lambda route: route.fulfill(
+                json={"ok": False, "error": refused}))
+            page.click("#agent-save-model")
+            page.wait_for_function(
+                "error => document.getElementById('agent-model-summary')"
+                ".textContent.includes(error)", arg=refused)
+            assert page.locator("#agent-model-summary").inner_text() == summary + "\n" + refused
+            assert page.locator("#agent-model-current").inner_text() == "gpt-5"
+            assert page.locator("[data-provider-error]").count() == 0
+            assert page.locator("#agent-settings").is_visible()
+            assert page.locator("#agent-save-model").is_enabled()
+
+            page.unroute("**/api/agent/model")
+            page.route("**/api/agent/model", lambda route: route.abort())
+            page.click("#agent-save-model")
+            page.wait_for_function(
+                "() => document.getElementById('agent-model-summary').textContent"
+                ".includes('The provider settings could not be saved.')")
+            assert page.locator("#agent-model-summary").inner_text() == (
+                summary + "\nThe provider settings could not be saved.")
+            assert page.locator("#agent-model-current").inner_text() == "gpt-5"
+            assert page.locator("#agent-settings").is_visible()
+            assert page.locator("#agent-save-model").is_enabled()
             browser.close()
     finally:
         session.server.shutdown()
