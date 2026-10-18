@@ -428,42 +428,63 @@ output. **Run as-is** writes nothing and runs the file you named, unmodified.
 
 The strip across the main page keeps the studies opened in this browser
 window, named as Recent names them: the system, and the folder too where
-two open studies share a system. The open study's tab is filled with a bar
-beneath it and kept in view; a fade at an edge says more tabs lie past it.
-Select a study to return to its last page or analysis section.
-**Open another study** opens All studies; the existing folder picker can
-open a study elsewhere. The open list survives reload for this workspace
-while browser session storage is available; where the browser does not
-allow it, the strip says the open studies are not kept. The strip is one
-stop for Tab: use Left/Right or Home/End to move along it, Enter to open a
-study and Delete or its Close button to close it. Long lists scroll within
-the strip.
+another study of the workspace, or another open one, has the same system.
+The open study's tab is filled with a bar beneath it and kept in view; a
+fade at an edge says more tabs lie past it. Select a study to return to its
+last page or analysis section. **Open another study** opens All studies;
+the existing folder picker can open a study elsewhere. The open list
+survives reload for this workspace while browser session storage is
+available; where the browser does not allow it, the strip says the open
+studies are not kept. The strip is one stop for Tab: use Left/Right or
+Home/End to move along it, Enter to open a study and Delete or its Close
+button to close it. Long lists scroll within the strip, by a mouse wheel
+too. Scrolled down, the strip and what it says stay at the top, with the
+page's own header below it.
 
 Closing an inactive study leaves the current one open. Closing the active
-study opens its nearest neighbour; closing the last shows All studies and
-the address no longer names the study. Closing stops no simulation and
-removes no files: a run in the study closed goes on. If a switch is
-refused, the current study stays open and the strip says why. Browser Back
-and Forward continue to work, including reopening a closed study.
+study opens its nearest neighbour; a neighbour found gone as it is tried is
+marked so and the next is tried. With none left, All studies is shown, the
+address no longer names the study, and a study found gone is named under
+the strip. Closing stops no simulation and removes no files: a run in the
+study closed goes on. If a switch is refused, the current study stays open
+and the strip says why. Browser Back and Forward continue to work,
+including reopening a closed study.
 
-A study whose folder has gone is said so on its tab ("folder gone"), and
-choosing it opens nothing; only Close is left to do. When the open study's
-folder goes, its pages are not shown as an empty study: the page says the
-folder is no longer there, and the address still names it.
+A study whose folder has gone is said so on its tab ("folder gone").
+Choosing it asks again: it opens if its folder is back, and otherwise the
+strip says its folder is no longer there. When the open study's folder
+goes, its pages are not shown as an empty study: the page says the folder
+is no longer there, and the address still names it.
 
-Every way to another study (the strip, Recent, All studies, Load study, a
-study's runs and Back or Forward within the page) first saves the Builder's
-workspace draft. An unsent Agent message or attachment, a reply being
-written, a rejected Config change not applied (**Use reviewed version**, or
-**Use this version** to keep the proposal) or a run launch holds the
-switch; the strip says what needs attention. A draft that could not be
-saved also holds it. Another window's newer draft is kept: this window
-takes it where it changed nothing since, and otherwise says so before
-switching. Back or Forward to a page loaded for another study leaves the
-unsent Agent words with the page left, and they are there again on coming
-back to it. The Builder remains one draft for the workspace. The server's
-active study is still shared by browser windows; these tabs do not
-provide independent server sessions.
+Every way to another study the page offers (the strip, Recent, All
+studies, Load study, a study's runs, the run going elsewhere, the demo, a
+shared study, another study's conversation in the Agent's list, and Back
+or Forward within the page) first saves the Builder's workspace draft. A
+reply being written, a rejected Config change not applied (**Use reviewed
+version**, or **Use this version** to keep the proposal) or a run launch
+holds the switch, and so do an unsent Agent message or attachment, except
+on Back or Forward; the strip says what needs attention. While one switch
+is under way, the strip is busy and no second one is asked.
+
+Unsent Agent words and attachments are kept for the study they were begun
+in, in this window's session storage (attachments too large to keep are
+left out). Opened again by any way, Back included, that study's Agent box
+has them again; sending or clearing them forgets them. Where the browser
+does not keep them, Back within the page holds for them as the other ways
+do.
+
+A Config draft this browser could not save holds the switch, and the
+Builder's header says "Not saved in this browser": **Download config** or
+**Reset** releases it while the form stays as downloaded or reset. Another
+window's newer draft is kept: this window takes it where it changed nothing
+since; otherwise the header says "Not saved: another window saved a newer
+draft" and the switch is held until **Download config**, or a reload to
+take the newer draft. Back or Forward to a page the browser loads for
+another study is not held: the Agent words are kept as above, but this
+window's Config changes held by another window's newer draft are not. The
+Builder remains one draft for the workspace. The server's active study is
+still shared by browser windows; these tabs do not provide independent
+server sessions.
 
 Once a run starts, the page becomes a live view of it.
 
