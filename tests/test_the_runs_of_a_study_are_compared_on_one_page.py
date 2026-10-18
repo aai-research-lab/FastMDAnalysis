@@ -75,7 +75,7 @@ class TestTheTable:
     def test_the_runs_and_what_differs_between_them(self, sweep):
         page = runs_compared(sweep)
         assert page["ok"] and page["completed"] == 3 and not page["replicas"]
-        assert page["axes"] == [{"axis": "simulation.temperature_K", "label": "temperature_K"}]
+        assert page["axes"] == [{"axis": "simulation.temperature_K", "label": "temperature (K)"}]
         assert [(r["run_id"], r["label"], r["state"]) for r in page["runs"]] == [
             ("t300", "temperature 300 K", "completed"), ("t310", "temperature 310 K", "completed"),
             ("t320", "temperature 320 K", "completed"), ("t330", "temperature 330 K", "waiting")]
@@ -203,3 +203,17 @@ def test_a_replica_has_one_mean_on_the_first_reading(tmp_path):
     rmsd = next(m for m in page["measures"] if m["analysis"] == "rmsd")
     assert [c["mean"] for c in rmsd["cells"]] == pytest.approx(after)
     assert rmsd["ensemble"]["mean"] == pytest.approx(sum(after) / len(after))
+
+
+def test_settings_and_measures_are_named_in_words(tmp_path):
+    """A column of seeds says "seed", not "random_seed"; an analysis with no
+    series label its Analysis page heading, not its folder."""
+    from fastmdxplora.gui.runs_compared import _named
+
+    page = runs_compared(_study(tmp_path / "seeds", {
+        "s1": {"value": 1, "end_to_end": (1.0, 0.1, None)},
+        "s2": {"value": 2, "end_to_end": (1.1, 0.1, None)}}, axis="simulation.random_seed"))
+    assert page["axes"] == [{"axis": "simulation.random_seed", "label": "seed"}]
+    assert [run["label"] for run in page["runs"]] == ["seed 1", "seed 2"]
+    assert [m["label"] for m in page["measures"]] == ["End-to-end distance"]
+    assert _named("hbonds") == "Hydrogen bonds" and _named("some_new_one") == "Some new one"

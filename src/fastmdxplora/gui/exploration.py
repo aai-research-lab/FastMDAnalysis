@@ -371,6 +371,23 @@ def axes_that_differ(runs: list[dict[str, Any]]) -> list[str]:
 _UNIT_ENDINGS = ("K", "ns", "ps", "fs", "nm", "M", "bar", "atm")
 
 
+def _setting_and_unit(axis: str) -> tuple[str, str]:
+    name = str(axis).split(".")[-1]
+    if name.startswith("random_"):
+        name = name[len("random_"):]
+    unit = next((u for u in _UNIT_ENDINGS if name.endswith("_" + u)), "")
+    if unit:
+        name = name[: -len(unit) - 1]
+    return name.replace("_", " "), unit
+
+
+def setting_said(axis: str) -> str:
+    """A swept setting as a column names it, in the words `run_label` says
+    a run by: "seed", "temperature (K)"."""
+    name, unit = _setting_and_unit(axis)
+    return f"{name} ({unit})" if unit else name
+
+
 def run_label(values: dict[str, Any], axes: list[str] | None = None) -> str:
     """A run in a few words, by the values that set it apart: "seed 1",
     "temperature 310 K", several joined by commas; "" with none. The setting
@@ -380,13 +397,8 @@ def run_label(values: dict[str, Any], axes: list[str] | None = None) -> str:
     for axis in (axes if axes is not None else list(values or {})):
         if axis not in (values or {}):
             continue
-        name = str(axis).split(".")[-1]
-        if name.startswith("random_"):
-            name = name[len("random_"):]
-        unit = next((u for u in _UNIT_ENDINGS if name.endswith("_" + u)), "")
-        if unit:
-            name = name[: -len(unit) - 1]
-        said.append(f"{name.replace('_', ' ')} {values[axis]}" + (f" {unit}" if unit else ""))
+        name, unit = _setting_and_unit(axis)
+        said.append(f"{name} {values[axis]}" + (f" {unit}" if unit else ""))
     return ", ".join(said)
 
 

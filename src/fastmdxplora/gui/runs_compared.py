@@ -38,7 +38,7 @@ def run_folder(root: Path | str, run_id: str) -> Path | None:
 def runs_compared(root: Path | str) -> dict[str, Any]:
     """The table the Analysis page draws for a study of several runs."""
     from fastmdxplora.batch.aggregate import read_member_findings
-    from fastmdxplora.gui.exploration import axes_that_differ, runs_of_a_study
+    from fastmdxplora.gui.exploration import axes_that_differ, runs_of_a_study, setting_said
 
     base = Path(root)
     runs = runs_of_a_study(base)
@@ -77,7 +77,8 @@ def runs_compared(root: Path | str) -> dict[str, Any]:
                   "values": {axis: (run.get("values") or {}).get(axis) for axis in axes},
                   "path": run["path"], **_how_far(Path(run["path"]), run["state"])}
                  for run in runs],
-        "axes": [{"axis": axis, "label": axis.split(".")[-1]} for axis in axes],
+        # Each setting by its name as a run's is said ("seed", "temperature (K)").
+        "axes": [{"axis": axis, "label": setting_said(axis)} for axis in axes],
         "replicas": replicas,
         "completed": sum(1 for run in completed if run["state"] == "completed"),
         # Read as far as their pieces go, their study extending them in rounds.
@@ -97,7 +98,6 @@ def _order(name: str) -> tuple[int, str]:
 def _measure(name: str, runs: list[dict[str, Any]], found: dict[str, dict[str, Any]],
              replicas: bool, labels: dict[str, str]) -> dict[str, Any]:
     from fastmdxplora.gui.report_dashboard import unit_of
-    from fastmdxplora.gui.series import SERIES
 
     cells: list[dict[str, Any]] = []
     unit = ""
@@ -133,13 +133,25 @@ def _measure(name: str, runs: list[dict[str, Any]], found: dict[str, dict[str, A
             cell["versus"] = {"difference": difference, "error": error, "resolved": marked}
     return {
         "analysis": name,
-        "label": SERIES.get(name, (name.replace("_", " "), ""))[0],
+        "label": _named(name),
         "unit": unit,
         "cells": cells,
         "reference": reference,
         "said": _said(cells, labels.get(reference or "", reference), resolved,
                       len(measured), replicas),
     }
+
+
+def _named(name: str) -> str:
+    """An analysis by its name on the pages: its series' label, else its
+    Analysis page heading ("End-to-end distance", not "end to end")."""
+    from fastmdxplora.gui.report_dashboard import ANALYSIS_THEMES
+    from fastmdxplora.gui.series import SERIES
+
+    if name in SERIES:
+        return SERIES[name][0]
+    headings = {key: words for _, keyed in ANALYSIS_THEMES for key, words in keyed}
+    return headings.get(name) or name.replace("_", " ").capitalize()
 
 
 def _said(cells: list[dict[str, Any]], reference: str | None, resolved: int,

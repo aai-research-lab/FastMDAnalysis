@@ -120,8 +120,11 @@
   function rememberShown(explicit) {
     var state = api.state;
     if (state.studyIsOne === false) return;
+    // A run of a study of several by its study and what sets it apart.
+    var of = state.appState && state.appState.run_of;
     remember(state.studyShown, document.getElementById("topbar-run-title")?.textContent, explicit,
-             document.getElementById("study-folder")?.dataset.name);
+             of ? of.study + " \u203a " + (of.label || of.run_id)
+               : document.getElementById("study-folder")?.dataset.name);
   }
   function hrefFor(tab) {
     var url = new URL(location.href);

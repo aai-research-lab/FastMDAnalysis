@@ -90,7 +90,9 @@
       var swatch = el("span", "runs-compared-swatch");
       swatch.style.background = colourOf(i);
       name.appendChild(swatch);
-      name.appendChild(el("span", "", run.run_id));
+      // By what sets it apart, as every place names it; its folder on hover.
+      name.appendChild(el("span", "", run.label || run.run_id));
+      name.title = run.run_id;
       if (run.state !== "completed") {
         name.appendChild(el("span", "runs-compared-state",
           run.state + (run.fraction ? " " + Math.round(100 * run.fraction) + "%" : "")));
@@ -312,5 +314,5 @@
   });
 
   window.FastMDXRunsCompared = { load: load, palette: PALETTE.slice(), overlay: overlay,
-                                 colourOf: colourOf };
+                                 colourOf: colourOf, markMore: markMore };
 }());
