@@ -3172,6 +3172,15 @@
     if (draftReady) commitTyping();
     madeNow();
   });
+  // Another window saved its draft: taken here too where this window has
+  // changed nothing since its own last save, so neither loses the other's.
+  window.addEventListener("storage", (event) => {
+    if (!draftReady || event.key !== draftKey() || !event.newValue) return;
+    if (event.newValue === draftSeen || draftNow() !== draftSeen) return;
+    const typing = document.activeElement;
+    if (typing && typing.closest && typing.closest(".page[data-page='run']")) return;
+    if (restoreDraft()) renderAll();
+  });
   // A phone may close a page switched away from without its pagehide.
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") madeNow();
@@ -3183,15 +3192,13 @@
     writeDraft(true);
   }
 
-  function writeDraft(leaving) {
-    draftTimer = null;
-    if (leaving) {
-      let stored = null;
-      try { stored = window.localStorage.getItem(draftKey()); } catch (error) { stored = null; }
-      // Another tab saved its draft since this one: the newer is kept.
-      if (stored !== draftSeen) return false;
-    }
-    const draft = {
+  /* The form as it would be saved, or null with nothing begun. */
+  function draftNow() {
+    return state.start ? JSON.stringify(draftOfTheForm()) : null;
+  }
+
+  function draftOfTheForm() {
+    return {
       start: state.start, phases: Array.from(state.phases), values: state.values,
       analyses: Array.from(state.analyses), analysisOptions: state.analysisOptions,
       sweep: state.sweep, decisions: state.decisions, full: Boolean(state.full),
@@ -3202,6 +3209,18 @@
       topology: (el("run-topology") && el("run-topology").value) || "",
       configPath: (el("run-config-path") && el("run-config-path").value) || "",
     };
+  }
+
+  /* "saved"; "newer" where another window saved its draft since this one
+   * (the newer is kept); "failed" where this browser could not store it. */
+  function writeDraft(leaving) {
+    draftTimer = null;
+    if (leaving) {
+      let stored = null;
+      try { stored = window.localStorage.getItem(draftKey()); } catch (error) { stored = null; }
+      if (stored !== draftSeen) return "newer";
+    }
+    const draft = draftOfTheForm();
     try {
       const written = JSON.stringify(draft);
       const before = window.localStorage.getItem(draftKey());
@@ -3240,7 +3259,7 @@
           said.classList.remove("just-saved");
         }
       }
-      return true;
+      return "saved";
     } catch (error) {
       // No storage here: the form works without it, and says no save.
       const said = el("run-draft");
@@ -3248,7 +3267,7 @@
         said.hidden = true;
         said.classList.remove("just-saved");
       }
-      return false;
+      return "failed";
     }
   }
 
@@ -4064,7 +4083,15 @@
       if (!draftReady || !state.start) return "";
       commitTyping();
       clearTimeout(draftTimer);
-      return writeDraft(true) ? "" : "The Config draft could not be saved in this browser. Keep it or download it before switching studies.";
+      const saved = writeDraft(true);
+      if (saved === "saved") return "";
+      // Another window saved a newer draft: nothing is lost here unless
+      // this window changed the form since its own last save.
+      if (saved === "newer") {
+        return draftNow() === draftSeen ? ""
+          : "This window's Config changes are not saved: another window saved a newer Config draft for this workspace. Download this one before switching studies, or reload to take the newer one.";
+      }
+      return "The Config draft could not be saved in this browser. Keep it or download it before switching studies.";
     },
   };
 })();
