@@ -394,16 +394,41 @@ def read_status(project_root: str | Path) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def _pieces_of(root: Path) -> list[Path]:
-    """The study's segments that kept a live record, in the order run."""
+    """The study's segments that kept a live record, in the order run. A
+    segment whose live record a held read refused is one of them: it was
+    not read, which is not a piece that kept none."""
+    from fastmdxplora.simulation.pipeline import _refused
+
     found: list[tuple[int, Path]] = []
     for folder in _records.glob(root, "segment-*"):
         try:
             index = int(folder.name.split("-", 1)[1])
         except (IndexError, ValueError):
             continue
-        if index > 0 and _records.is_file(folder / "simulation" / STATUS_FILE):
+        record = folder / "simulation" / STATUS_FILE
+        if index > 0 and (_records.is_file(record) or _refused(record)):
             found.append((index, folder))
     return [folder for _, folder in sorted(found)]
+
+
+def live_records_refused(root: Path) -> list[Path]:
+    """The study's live records a held read refused (`record_access`): its
+    own, and those of the pieces it was carried on in. Where one is, the
+    study's status is not read, since it is read as one run across them
+    all: no piece's word stands in for the study's. None outside a held
+    read."""
+    from fastmdxplora.simulation.pipeline import _refused
+
+    root = Path(root)
+    if root.name == "simulation":
+        root = root.parent
+    try:
+        pieces = _pieces_of(root)
+    except OSError:
+        pieces = []
+    return [record for record in (folder / "simulation" / STATUS_FILE
+                                  for folder in (root, *pieces))
+            if _refused(record)]
 
 
 def _frames_kept(folder: Path) -> int | None:
@@ -605,6 +630,11 @@ def read_study_status(project_root: str | Path) -> dict[str, Any]:
     first = read_status(root)
     if not first:
         return first
+    if live_records_refused(root):
+        # A piece's live record not read: the study's status is not read,
+        # not its first piece's (a study carried on to the end read as
+        # stopped with its first piece's frames).
+        return {}
     try:
         whole = _as_one_run(root, first)
     except Exception:  # noqa: BLE001 - a record, not a verdict

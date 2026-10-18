@@ -346,16 +346,16 @@ def _status_records(root: Path) -> dict[str, Any]:
     from fastmdxplora.gui.simulated_time import simulated_times
 
     from fastmdxplora.gui.series import refused_said
-    from fastmdxplora.gui.telemetry import not_read_health
-    from fastmdxplora.simulation.pipeline import _refused
+    from fastmdxplora.gui.telemetry import live_records_refused, not_read_health
 
     # A run that ended without saying so is said to have.
     status = status_as_it_stands(root)
     metrics = read_metrics(root)
-    live = root / "simulation" / "live_status.json"
-    # Its live record refused is not read: not a run that kept none.
-    health = (not_read_health(refused_said(root, live) + ".")
-              if not status and _refused(live) else analyze_health(status, metrics, root=root))
+    # Its live record refused, or a piece's it was carried on in, is not
+    # read: not a run that kept none, nor the run its first piece was.
+    refused = live_records_refused(root) if not status else []
+    health = (not_read_health("; ".join(refused_said(root, live) for live in refused) + ".")
+              if refused else analyze_health(status, metrics, root=root))
     return {
         "status": status,
         # Production first, equilibration beside it: the live record's own
@@ -3701,8 +3701,9 @@ def _summary_records(
         _last_metric_value(root, "temperature"),
     )
     latest = _first_present(live_status.get("status"), status)
-    if not live_status and _refused(root / "simulation" / "live_status.json"):
-        # Its live record not read: not the manifest's word in its place.
+    if not live_status and live_records_refused(root):
+        # Its live record not read, or a piece's: not the manifest's word,
+        # nor the first piece's, in its place.
         latest = "not read"
     records = [
         {"label": "Project status", "value": status},
@@ -3712,6 +3713,7 @@ def _summary_records(
         {
             # The production, which the analyses average; the live record's
             # simulated time has equilibration in it.
+    from fastmdxplora.gui.telemetry import live_records_refused
             "label": "Production",
             "value": say_length(float(sim_time)) if sim_time is not None else "—",
         },
