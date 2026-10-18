@@ -160,3 +160,34 @@ def test_outside_a_held_read_a_joined_study_is_its_pieces(tmp_path):
     root = _joined(tmp_path)
     _linked_out(root, tmp_path, "joined/joined.json", "segment-001/simulation/energy.csv")
     assert len(state_record_pieces(root)) == 2
+
+
+def _timed(name: str, minutes: int) -> dict:
+    return {"name": name, "status": "ok", "started_at": "2026-10-01T00:00:00+00:00",
+            "finished_at": f"2026-10-01T00:{minutes:02d}:00+00:00"}
+
+
+@pytest.mark.parametrize("refused", ["segment-001/manifest.json", "segment-001"])
+def test_a_piece_s_phases_not_read_add_no_wall_time(tmp_path, refused):
+    """A carried-on study's wall time is its phases' and its pieces': with a
+    piece's manifest (or the piece) refused, the others' times added are
+    not the study's, and no wall time is given."""
+    from fastmdxplora import record_access
+    from fastmdxplora.gui.problems_view import admitted_for_problems
+    from fastmdxplora.gui.simulated_time import phases_wall_seconds
+
+    root = _a_study_joined(tmp_path)
+    _write(root, "manifest.json", {"phases": [_timed("simulation", 10)]})
+    _write(root, "segment-001/manifest.json", {"phases": [_timed("simulation", 20)]})
+    with record_access.confined_records(root, admitted_for_problems(root)):
+        assert phases_wall_seconds(root) == 30 * 60
+    _linked_out(root, tmp_path, *(["segment-001/manifest.json"] if refused.endswith("json")
+                                  else []))
+    if refused == "segment-001":
+        (root / "segment-001").rename(tmp_path / "outside-piece")
+        _link(root / "segment-001", tmp_path / "outside-piece")
+    with record_access.confined_records(root, admitted_for_problems(root)) as scope:
+        assert phases_wall_seconds(root) is None
+    assert refused in scope.denied
+    # Outside a held read, nothing is refused.
+    assert phases_wall_seconds(root) == 30 * 60

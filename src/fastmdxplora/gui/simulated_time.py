@@ -207,7 +207,19 @@ def phases_wall_seconds(root: str | Path, phases: list[Any] | None = None) -> in
     of 18 minutes analysed again that evening. ``phases`` are the study's
     own, where the caller holds them; else its Manifest's.
     """
+    from fastmdxplora.simulation.pipeline import _refused
+
     root = Path(root)
+    # A manifest, or a piece, a held read refused (`pipeline._refused`) was
+    # not read: the others' times added are not the study's, so none is.
+    if phases is None and _refused(root / "manifest.json"):
+        return None
+    try:
+        if any(_refused(entry) or _refused(entry / "manifest.json")
+               for entry in _records.iterdir(root) if entry.name.startswith("segment-")):
+            return None
+    except OSError:
+        pass
     found = [_phase_seconds(_phases_of(root / "manifest.json") if phases is None else phases)]
     try:
         from fastmdxplora.analysis.joining import survey_segments
