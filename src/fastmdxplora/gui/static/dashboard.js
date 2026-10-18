@@ -55,9 +55,16 @@
     goneChecks: {},
     /* The open study whose tab was closed with no other open: not named. */
     studyClosed: "",
+    /* Until when a change of study is one a run started here makes. */
+    ownChangeUntil: 0,
   };
 
   let chartHistorySamples = 600;
+
+  /* Settled once the study the address names is open, or refused: what is
+   * read for the page's study (the Agent's conversation) is read after. */
+  let studySettledNow;
+  const studySettled = new Promise((done) => { studySettledNow = done; });
 
   document.addEventListener("DOMContentLoaded", boot);
 
@@ -73,6 +80,7 @@
     navigate(location.hash.replace(/^#/, "") || "overview", {updateHash: false});
     // The study the address names, opened before the page reads one.
     openAskedFirst().finally(() => {
+      studySettledNow();
       startLoadingChecklist();
       schedulePoll(0);
       openChangeStream();
@@ -1048,7 +1056,21 @@
 
   function addressTheStudy(key) {
     const asked = studyInAddress();
+    const was = state.studyShown;
     state.studyShown = key;
+    // The study changed under this window, not by a way of its own (each
+    // of those loads the page again) nor by a run it started: said, with
+    // the study now shown.
+    if (state.addressKnown && was && key && was !== key && !state.addressAsking) {
+      if (Date.now() < state.ownChangeUntil) {
+        state.ownChangeUntil = 0;
+      } else {
+        const title = byId("topbar-run-title")?.textContent || "Another study";
+        emit("study-changed-elsewhere", {from: was, to: key, title});
+        showToast(`${title} was opened elsewhere, in another window or by an AI app: this window now shows it.`,
+                  "warning");
+      }
+    }
     if (!state.addressKnown) {
       state.addressKnown = true;
       if (state.addressRefused) showToast(state.addressRefused, "warning");
@@ -1057,7 +1079,7 @@
       state.addressOffered = "";
       if (offered && offered !== key) {
         showToast("This address, from another site, names another study.", "warning",
-                  {label: "Open it", run: () => openAsked(offered)});
+                  {label: "Open it", run: () => { if (!holdStudySwitch()) openAsked(offered); }});
       }
       // Shown again by the browser on Back, with another study open since.
       if (state.addressRecheck && asked && asked !== key) {
@@ -2651,6 +2673,11 @@
     /* A study opened from the page, by the switch's answer. */
     studyOpened: (answer, page) => studyOpened(answer, page),
     openStudyTab,
+    /* Settled once the address's study is open, or refused. */
+    studySettled,
+    /* A run started here: the study it opens is this window's own change. */
+    studyChangeComing: () => { state.ownChangeUntil = Date.now() + 60000; },
+    studyChangeNotComing: () => { state.ownChangeUntil = 0; },
     /* Asked before any other way opens another study: "" or the reason. */
     holdStudySwitch,
     /* The same, and the switch marked as in flight where it may go on. */

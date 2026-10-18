@@ -106,6 +106,7 @@
       askIdsShared();
     }
     if (gone !== undefined) tab.gone = gone ? "folder" : "";
+    if (tab.gone) forgetUnsent(key);
     // A gone study's page names its folder, not its system: a name it had
     // stays, and one never named takes its folder's.
     if (!tab.gone || tab.title === "Study") {
@@ -129,7 +130,13 @@
     return url.pathname + url.search + url.hash;
   }
   function message(words) { note.textContent = words || ""; note.hidden = !words; }
+  /* Unsent Agent words kept for a study whose tab is closed, or whose
+   * folder has gone, are not kept on for it. */
+  function forgetUnsent(key) {
+    if (window.FastMDXAgent && window.FastMDXAgent.forgetUnsent) window.FastMDXAgent.forgetUnsent(key);
+  }
   function forget(key) {
+    forgetUnsent(key);
     tabs = tabs.filter(function (t) { return t.key !== key; });
     closed = closed.filter(function (k) { return k !== key; });
     closed.push(key);
@@ -176,7 +183,7 @@
     // Not there to open: said on its tab, which offers Close, and asked
     // for again only when chosen.
     var gone = Boolean(answer && GONE_SAID[answer.gone]);
-    if (gone) { tab.gone = answer.gone; save(); }
+    if (gone) { tab.gone = answer.gone; forgetUnsent(tab.key); save(); }
     if (closing && gone) {
       // Closing the open tab goes on to the next neighbour, and the note
       // names the study whose folder is gone, not the one being closed.
