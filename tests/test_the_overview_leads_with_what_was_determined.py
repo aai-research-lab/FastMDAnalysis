@@ -355,7 +355,9 @@ def test_an_ended_study_leads_with_what_it_determined(tmp_path) -> None:
 
     (tops, tiles, phases, header), errors = _open(root, check)
     assert not errors, errors
-    assert tops["overview-verdict"] < tops["overview-results"] < tops["overview-run"]
+    # At 1440 px the run is beside the means, at their height
+    # (test_a_run_s_overview_leads_with_what_it_needs.py).
+    assert tops["overview-verdict"] < tops["overview-results"] <= tops["overview-run"]
     assert tops["overview-run"] < tops["overview-charts"]
     # A study that ended well says so in its line; no health card.
     assert tops["overview-health-card"] is None

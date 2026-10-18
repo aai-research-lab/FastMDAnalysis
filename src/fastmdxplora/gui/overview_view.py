@@ -205,6 +205,7 @@ def _tiles(root: Path) -> dict[str, Any]:
                 "unit": quantity.get("unit") or "",
                 "determined": bool(quantity.get("determined")),
                 "why": quantity.get("why") or "",
+                "reason": _in_a_line(quantity.get("why") or ""),
                 "samples": quantity.get("samples"),
                 "from_ns": quantity.get("from_ns"),
                 "reweighted": bool(quantity.get("reweighted")),
@@ -217,7 +218,95 @@ def _tiles(root: Path) -> dict[str, Any]:
     return {"tiles": shown, "more": more, "means": means,
             "determined": determined, "not_read": not_read, "analyses": len(rows),
             "biased": bool(overview.get("biased")),
-            "judged_earlier": list(overview.get("judged_earlier") or [])}
+            "judged_earlier": list(overview.get("judged_earlier") or []),
+            "lead": _lead(root, means, determined, not_read)}
+
+
+def _in_a_line(why: str) -> str:
+    """Why a mean was not determined, in a line for its tile; the whole is
+    there on hover. The two reasons a run too short gives are said by what
+    they come to; any other by its first sentence."""
+    import re
+
+    text = " ".join(str(why or "").split())
+    if not text:
+        return ""
+    fewer = re.match(r"[\d.]+ independent samples? in \d+ frames.*?Below (\d+)", text)
+    if fewer:
+        return f"Fewer than {fewer.group(1)} independent samples: the run has to be longer."
+    if text.startswith("This run is not long against its own correlation time"):
+        return "Short against its own correlation time: a longer run, or replicas."
+    first = re.match(r"(.+?[.;:])(\s|$)", text)
+    line = first.group(1) if first else text
+    return line[:-1] + "." if line.endswith((";", ":")) else line
+
+
+def _lead(root: Path, means: int, determined: int, not_read: int = 0) -> dict[str, Any] | None:
+    """The sentence the Overview of one run leads with: how many of its
+    means are determined and, where they are not, how much longer the run
+    would have to be and what that costs here, as the analyses asked for it
+    (:func:`fastmdxplora.simulation.sampling_ask.sampling_asked_for`: the
+    largest ask, since a run long enough for the slowest mean is long enough
+    for the rest, at this run's own speed). Where the records do not say
+    how much longer, that is said, never guessed; a result whose record
+    was not read is counted apart, and a record the ask was not read from
+    named (`record_access`)."""
+    unread = ("" if not not_read else
+              f" {not_read} result{' was' if not_read == 1 else 's were'} not read: "
+              f"{'it says' if not_read == 1 else 'each says'} why below.")
+    if not means:
+        if not unread:
+            return None
+        return {"said": unread.strip(), "undetermined": 0, "means": 0, "more_ns": None,
+                "seconds": None, "platform": "", "lower_bound": False}
+    if determined >= means:
+        said = ("Its mean is determined." if means == 1
+                else f"All {means} means are determined.")
+        return {"said": said + unread, "undetermined": 0, "means": means, "more_ns": None,
+                "seconds": None, "platform": "", "lower_bound": False}
+    from fastmdxplora import record_access
+    from fastmdxplora.simulation.sampling_ask import _duration, length_said, sampling_asked_for
+
+    undetermined = means - determined
+    counted = ("Its mean is not determined" if means == 1
+               else "Neither mean is determined" if means == 2 and not determined
+               else f"None of its {means} means is determined" if not determined
+               else f"{undetermined} of {means} means are not determined")
+    before = record_access.refused()
+    try:
+        ask = sampling_asked_for(root)
+    except Exception:  # noqa: BLE001 - said as not known, never guessed
+        ask = None
+    # A record the ask would be read from, refused: said so, never as a
+    # record the run does not have.
+    refused = sorted(record_access.refused() - before)
+    them = "it" if undetermined == 1 else "them"
+    if ask is None:
+        why = (f"is not said: {', '.join(refused)} {'was' if len(refused) == 1 else 'were'} "
+               f"not read." if refused else "is not in the records: each says why below.")
+        return {"said": f"{counted}. How much longer would determine {them} {why}" + unread,
+                "undetermined": undetermined, "means": means, "more_ns": None,
+                "seconds": None, "platform": "", "lower_bound": False}
+    asking = len(ask.analyses)
+    who = them if asking >= undetermined \
+        else f"the {asking} withheld for want of sampling"
+    amount = ("at least " if ask.lower_bound else "about ") + length_said(ask.more_ns)
+    said = f"{counted}: {amount} more production should determine {who}"
+    if ask.seconds is not None:
+        on = f" on {ask.platform}" if ask.platform else ""
+        said += f", about {_duration(ask.seconds)} at this run's speed{on}"
+    said += "."
+    if ask.lower_bound:
+        said += (" A floor: the run is too short to resolve its own correlation time, "
+                 "so run that much and estimate again.")
+    if refused:
+        said += (f" {', '.join(refused)} {'was' if len(refused) == 1 else 'were'} not read, "
+                 f"so what {'it says' if len(refused) == 1 else 'they say'} is not counted "
+                 f"here.")
+    said += unread
+    return {"said": said, "undetermined": undetermined, "means": means,
+            "more_ns": ask.more_ns, "seconds": ask.seconds, "platform": ask.platform,
+            "lower_bound": ask.lower_bound}
 
 
 def _not_read(row: dict[str, Any], quantity: dict[str, Any]) -> dict[str, Any]:
