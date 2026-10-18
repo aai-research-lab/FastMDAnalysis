@@ -1072,8 +1072,8 @@
       } else {
         const title = byId("topbar-run-title")?.textContent || "Another study";
         emit("study-changed-elsewhere", {from: was, to: key, title});
-        showToast(`${title} was opened elsewhere, in another window or by an AI app: this window now shows it.`,
-                  "warning");
+        showNotice(`${title} was opened elsewhere, in another window or by an AI app: this window now shows it.`,
+                   "warning");
       }
     }
     if (!state.addressKnown) {
@@ -2549,6 +2549,8 @@
           from.focus({preventScroll: true});
         }
         action.run();
+        // A notice that waited on it, unless the action said something.
+        if (!toast.classList.contains("show")) showWaitingNotice();
       }, {once: true});
       // Spaced from the message by itself, so nothing is left when it goes.
       button.style.marginLeft = "0.5em";
@@ -2560,6 +2562,7 @@
       toast.style.pointerEvents = "";
       // Hidden, it is not offered: nothing to reach with Tab and press.
       toast.querySelectorAll(".dashboard-toast-action").forEach((old) => old.remove());
+      showWaitingNotice();
     };
     const wait = (ms) => {
       window.clearTimeout(showToast.timer);
@@ -2577,6 +2580,22 @@
       button.addEventListener("blur", go);
       button.addEventListener("mouseleave", go);
     }
+  }
+
+  /* A notice the person did not ask for. A notice holding an action (Undo)
+   * is not replaced by it: it waits until that one is gone. */
+  function showNotice(message, kind) {
+    const toast = byId("dashboard-toast");
+    if (toast && toast.classList.contains("show") && toast.querySelector(".dashboard-toast-action")) {
+      showToast.waiting = (showToast.waiting || []).concat([[message, kind]]);
+      return;
+    }
+    showToast(message, kind);
+  }
+
+  function showWaitingNotice() {
+    const next = (showToast.waiting || []).shift();
+    if (next) showToast(next[0], next[1]);
   }
 
   function escapeHTML(value) {
