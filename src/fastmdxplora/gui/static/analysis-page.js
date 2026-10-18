@@ -231,7 +231,8 @@
     return '<tr data-analysis="' + escapeHTML(row.analysis) + '" data-status="' + status.key + '"' +
       (indented ? ' class="is-quantity"' : "") + ">" +
       '<th scope="row" class="analysis-results-name">' + label + "</th>" +
-      '<td class="analysis-results-value mono">' + escapeHTML(quantity.said) +
+      // Not read: the chip says so; no value is set in the value's place.
+      '<td class="analysis-results-value mono">' + escapeHTML(quantity.unavailable ? "" : quantity.said) +
         (quantity.reweighted ? ' <span class="analysis-results-note">reweighted</span>' : "") + "</td>" +
       '<td class="analysis-results-frames mono" data-label="Frames averaged">' + escapeHTML(frames) +
         (from ? '<span class="analysis-results-from">' + escapeHTML(from) + "</span>" : "") + "</td>" +
@@ -243,14 +244,16 @@
   function rowsOf(row) {
     var quantities = Array.isArray(row.quantities) ? row.quantities : [];
     if (!quantities.length) {
+      // "not read": its status is in a manifest that was not read.
       var key = row.status === "failed" ? "failed" : row.status === "skipped" ? "skipped"
-        : row.status === "running" ? "running" : "result";
-      var said = { failed: "Failed", skipped: "Skipped", running: "Running", result: "In its section" }[key];
+        : row.status === "running" ? "running" : row.status === "not read" ? "unread" : "result";
+      var said = { failed: "Failed", skipped: "Skipped", running: "Running", unread: "Not read",
+                   result: "In its section" }[key];
       var what = key === "result" ? "A profile, map or table"
         : key === "running" ? "Being analysed" : (row.message || "");
       // A failure's first sentence in the row; the chip opens to the rest.
       var cut = what.search(/[.:]\s/);
-      var plain = key === "result" || key === "running";
+      var plain = key === "result" || key === "running" || key === "unread";
       var head = plain || cut < 0 ? what : what.slice(0, cut + 1);
       var rest = plain || cut < 0 ? "" : what.slice(cut + 1).trim();
       return '<tr data-analysis="' + escapeHTML(row.analysis) + '" data-status="' + key + '">' +
@@ -322,12 +325,28 @@
     var summary = byId("analysis-results-summary");
     if (summary) {
       var names = Array.isArray(data.unavailable) ? data.unavailable : [];
-      var notRead = names.length && window.FastMDXOverview && window.FastMDXOverview.unreadSaid
-        ? " " + window.FastMDXOverview.unreadSaid(names) : "";
+      var overview = window.FastMDXOverview;
+      var notRead = names.length && overview && overview.unreadNode
+        ? overview.unreadNode(names, data.unavailable_why || {}) : null;
       summary.textContent = said.join(", ") + (data.biased
         ? ". The run was biased: means are the reweighted equilibrium values where they were recovered."
         : ". A mean is determined where the frames hold enough independent samples for its error.") +
-        judgedEarlier(data.judged_earlier) + notRead;
+        judgedEarlier(data.judged_earlier);
+      // The records not read, and a long list of them, under the summary
+      // (a details element cannot sit in its paragraph).
+      var unreadLine = byId("analysis-not-read");
+      if (!notRead) {
+        if (unreadLine) unreadLine.remove();
+      } else {
+        if (!unreadLine) {
+          unreadLine = document.createElement("div");
+          unreadLine.id = "analysis-not-read";
+          unreadLine.className = "analysis-results-summary muted small";
+          summary.parentNode.insertBefore(unreadLine, summary.nextSibling);
+        }
+        unreadLine.textContent = "";
+        unreadLine.appendChild(notRead);
+      }
     }
     host.hidden = false;
     linkData(rows);

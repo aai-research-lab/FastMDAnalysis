@@ -95,14 +95,19 @@ def _pages(browser, root: Path) -> dict:
                 .map((t) => [t.dataset.tileAnalysis, t.querySelector('.tile-badge').textContent])),
             why: Object.fromEntries([...document.querySelectorAll('#overview-tiles .overview-tile')]
                 .map((t) => [t.dataset.tileAnalysis, (t.querySelector('.tile-why') || {}).textContent || ''])),
+            values: Object.fromEntries([...document.querySelectorAll('#overview-tiles .overview-tile')]
+                .map((t) => [t.dataset.tileAnalysis, t.querySelector('.tile-value').textContent])),
+            all: [...document.querySelectorAll('#overview-not-read details li')]
+                .map((item) => item.textContent),
             counted: document.getElementById('overview-results-said').textContent,
-            line: document.getElementById('overview-not-read').textContent,
+            line: document.getElementById('overview-not-read').firstChild.textContent,
         })""")
         page.goto(session.url + "#analysis", wait_until="domcontentloaded")
         page.wait_for_function(
             "() => (document.getElementById('analysis-results-summary') || {}).textContent")
         said.update(page.evaluate("""() => ({
             summary: document.getElementById('analysis-results-summary').textContent,
+            unread: (document.getElementById('analysis-not-read') || {}).textContent || '',
             chips: Object.fromEntries([...document.querySelectorAll(
                 '#analysis-results-table tr[data-analysis]')].map((row) => [
                 row.dataset.analysis,
@@ -121,11 +126,14 @@ def test_the_pages_say_a_mean_not_read(browser, tmp_path):
     assert said["badges"] == {"rmsd": "Not read", "rg": "Determined"}
     assert said["why"]["rmsd"].startswith("Not read. analysis/rmsd/options.json was not read")
     assert said["counted"].startswith("1 of 1 mean determined, 1 not read · ")
-    assert said["line"].startswith("Not read: analysis/rmsd/options.json. It leads outside "
-                                   "the study")
+    # The badge says it; no "record unavailable" in the value's place.
+    assert said["values"]["rmsd"] == ""
+    assert said["line"] == ("Not read: analysis/rmsd/options.json is a link to a file outside "
+                            "the study, so what it says is not shown.")
     assert said["chips"] == {"rmsd": "Not read", "rg": "Determined"}
     assert said["summary"].startswith("1 determined, 1 not read. ")
-    assert "Not read: analysis/rmsd/options.json." in said["summary"]
+    assert said["unread"] == said["line"]
+    assert said["all"] == []
 
 
 @pytest.mark.parametrize("record", ["analysis/analysis_manifest.json",
@@ -133,9 +141,36 @@ def test_the_pages_say_a_mean_not_read(browser, tmp_path):
 def test_the_pages_say_a_clock_not_read(browser, tmp_path, record):
     said = _pages(browser, _linked(tmp_path, record))
 
-    for text in (said["line"], said["summary"]):
-        assert f"Not read: {record}." in text
+    for text in (said["line"], said["unread"]):
+        assert f"Not read: {record} is a link to a file outside the study, so " in text
         clock = "their frames are numbered, not timed" in text
         assert clock is (record == "analysis/analysis_manifest.json")
     # The mean itself was read.
     assert said["badges"] == {"rg": "Determined"} and said["chips"]["rg"] == "Determined"
+
+
+def test_a_long_list_not_read_is_counted_and_listed_in_full(browser, tmp_path):
+    """Every record of a study linked out: the line names the first few and
+    counts the rest, each listed with why under it."""
+    from tests.test_the_study_pages_read_only_the_study import (
+        _a_study_carried_on,
+        _every_record_linked_out,
+    )
+
+    root = _a_study_carried_on(tmp_path)
+    _every_record_linked_out(root, tmp_path)
+    for name in ("rmsd", "rg"):
+        # Kept in the study, so the Overview has its tiles.
+        target = (root / "analysis" / name / "options.json").resolve()
+        (root / "analysis" / name / "options.json").unlink()
+        target.rename(root / "analysis" / name / "options.json")
+
+    said = _pages(browser, root)
+
+    assert len(said["all"]) > 8, said
+    assert said["line"].startswith("Not read: ")
+    assert f" and {len(said['all']) - 8} more are links to files outside the study, " \
+        "so what they say is not shown." in said["line"]
+    assert all(item.endswith(" (a link to a file outside the study)") for item in said["all"])
+    assert "simulation/simulation_parameters.json (a link to a file outside the study)" \
+        in said["all"]

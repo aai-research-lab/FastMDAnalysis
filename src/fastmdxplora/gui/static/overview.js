@@ -46,6 +46,7 @@
   /* The records the results' read refused (/api/results `unavailable`),
    * named with the Overview's own. */
   var resultsUnread = [];
+  var resultsWhy = {};
 
   function byId(id) { return document.getElementById(id); }
 
@@ -140,7 +141,8 @@
     badge.dataset.kind = perResidue ? "per" : unread ? "unread" : tile.determined ? "yes" : "no";
     head.appendChild(badge);
     link.appendChild(head);
-    link.appendChild(make("div", "tile-value mono", tile.said));
+    // Not read: the badge says so; no value is set in the value's place.
+    link.appendChild(make("div", "tile-value mono", unread ? "" : tile.said));
     var note = perResidue
       ? "over " + tile.count.toLocaleString() + " " + tile.each + "s, mean " + tile.mean_said
       : [tile.samples != null ? samplesSaid(tile.samples) : "",
@@ -275,27 +277,93 @@
       return;
     }
     if (!line) {
-      line = make("p", "overview-verdict-facts overview-not-read");
+      // A div, not a paragraph: a long list's details element is in it.
+      line = make("div", "overview-verdict-facts overview-not-read");
       line.id = "overview-not-read";
       var verdict = byId("overview-verdict");
       host.insertBefore(line, verdict ? verdict.nextSibling : host.firstChild);
     }
-    line.textContent = unreadSaid(names);
+    var why = {};
+    [resultsWhy, (data && data.unavailable_why) || {}].forEach(function (given) {
+      Object.keys(given).forEach(function (name) { why[name] = given[name]; });
+    });
+    line.textContent = "";
+    line.appendChild(unreadNode(names, why));
   }
 
-  /* Records not read, said as such, for this page and the Analysis page. */
-  function unreadSaid(names) {
+  /* Why a record was not read (`unavailable_why`, `series.NOT_READ_BECAUSE`),
+   * said of one record and of several. */
+  var BECAUSE = {
+    "outside": ["is a link to a file outside the study",
+                "are links to files outside the study",
+                "a link to a file outside the study"],
+    "leads to": ["leads to a file of the study that is not one of its results",
+                 "lead to files of the study that are not among its results",
+                 "a link to a file of the study that is not one of its results"],
+    "not a result": ["is a file of the study that is not one of its results",
+                     "are files of the study that are not among its results",
+                     "a file of the study that is not one of its results"],
+    "not a file": ["is not a regular file", "are not regular files", "not a regular file"],
+    "": ["leads outside the study, or to a file of the study that is not one of its results",
+         "each lead outside the study, or to a file of the study that is not one of its results",
+         "outside the study, or not one of its results"],
+  };
+  var BECAUSE_ORDER = ["outside", "leads to", "not a result", "not a file", ""];
+  /* More names than a line reads easily: the rest are counted, and listed
+   * in full under it. */
+  var MOST_NAMED = 8;
+
+  function reasonOf(why, name) {
+    var key = why && why[name];
+    return Object.prototype.hasOwnProperty.call(BECAUSE, key) ? key : "";
+  }
+
+  /* Records not read, said as such, each with why, for this page and the
+   * Analysis page: the first MOST_NAMED named, the rest counted. */
+  function unreadSaid(names, why) {
     names = names.slice().sort();
-    var listed = names.length === 1 ? names[0]
-      : names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
-    var said = "Not read: " + listed + ". " + (names.length === 1 ? "It leads" : "Each leads") +
-      " outside the study, or to a file of the study that is not one of its results, " +
-      "so what " + (names.length === 1 ? "it says is" : "they say is") + " not shown.";
+    var groups = {};
+    names.forEach(function (name) {
+      var key = reasonOf(why, name);
+      (groups[key] = groups[key] || []).push(name);
+    });
+    var room = MOST_NAMED;
+    var parts = BECAUSE_ORDER.filter(function (key) { return groups[key]; }).map(function (key) {
+      var group = groups[key];
+      var shown = group.slice(0, Math.max(room, 0));
+      room -= shown.length;
+      var more = group.length - shown.length;
+      var listed = !shown.length ? more + " more"
+        : more ? shown.join(", ") + " and " + more + " more"
+          : shown.length === 1 ? shown[0]
+            : shown.slice(0, -1).join(", ") + " and " + shown[shown.length - 1];
+      return listed + " " + BECAUSE[key][group.length === 1 ? 0 : 1];
+    });
+    var said = "Not read: " + parts.join("; ") + ", so what " +
+      (names.length === 1 ? "it says is" : "they say is") + " not shown.";
     if (names.indexOf("analysis/analysis_manifest.json") >= 0) {
       said += " The analyses' clock is in analysis/analysis_manifest.json: without it, " +
         "their frames are numbered, not timed.";
     }
     return said;
+  }
+
+  /* The same, with every record and why listed in a details element
+   * where more were not read than the sentence names. */
+  function unreadNode(names, why) {
+    var node = document.createDocumentFragment();
+    node.appendChild(document.createTextNode(unreadSaid(names, why)));
+    if (names.length > MOST_NAMED) {
+      var details = make("details", "overview-not-read-all");
+      details.appendChild(make("summary", "", "All " + names.length + " records not read"));
+      var list = make("ul", "");
+      names.slice().sort().forEach(function (name) {
+        list.appendChild(make("li", "", name + " (" + BECAUSE[reasonOf(why, name)][2] + ")"));
+      });
+      details.appendChild(list);
+      node.appendChild(details);
+    }
+    return node;
   }
 
   /* ------------------------------------------------------------------ */
@@ -334,8 +402,11 @@
   function renderFacts(results) {
     if (results) {
       var unread = Array.isArray(results.unavailable) ? results.unavailable : [];
-      if (JSON.stringify(unread) !== JSON.stringify(resultsUnread)) {
+      var unreadWhy = results.unavailable_why || {};
+      if (JSON.stringify(unread) !== JSON.stringify(resultsUnread) ||
+          JSON.stringify(unreadWhy) !== JSON.stringify(resultsWhy)) {
         resultsUnread = unread;
+        resultsWhy = unreadWhy;
         renderUnread();
       }
     }
@@ -495,6 +566,7 @@
     window.addEventListener("dashboard:metrics-updated", function () { renderFacts(null); });
     window.addEventListener("dashboard:run-changed", function () {
       resultsUnread = [];
+      resultsWhy = {};
       use(null);
       load(true);
     });
@@ -526,5 +598,6 @@
     ended: ended,
     sayTime: sayTime,
     unreadSaid: unreadSaid,
+    unreadNode: unreadNode,
   };
 })();
