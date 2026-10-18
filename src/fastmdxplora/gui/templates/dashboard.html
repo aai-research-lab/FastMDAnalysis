@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="/static/place.css">
   <link rel="stylesheet" href="/static/statusbar.css">
   <link rel="stylesheet" href="/static/compare.css">
+  <link rel="stylesheet" href="/static/study-timeline.css">
   <!--__FASTMDX_LAB_ICON__-->
   <meta name="fastmdx-expansion" content="Fully Automated SysTem for Molecular Dynamics eXploration">
 </head>
@@ -1950,11 +1951,12 @@
     <div class="col-handle" data-handle="panel" role="separator" aria-orientation="vertical" aria-label="Resize side panel"></div>
 
     <!-- Side panel: the run as it happens, and what it has written -->
-    <aside class="side-panel" id="side-panel" aria-label="Run log, files and problems">
+    <aside class="side-panel" id="side-panel" aria-label="Run log, files, problems and timeline">
       <div class="side-panel-tabs" role="tablist">
         <button type="button" class="side-tab active" role="tab" data-side-tab="log" aria-selected="true">Log</button>
         <button type="button" class="side-tab" role="tab" data-side-tab="files" aria-selected="false">Files</button>
         <button type="button" class="side-tab" id="problems-tab" role="tab" data-side-tab="problems" aria-selected="false" aria-controls="problems-pane">Problems</button>
+        <button type="button" class="side-tab" id="timeline-tab" role="tab" data-side-tab="timeline" aria-selected="false" aria-controls="timeline-pane">Timeline</button>
         <span class="side-panel-spacer"></span>
         <button type="button" class="fold-btn side-collapse" id="side-collapse" title="Collapse panel" aria-label="Collapse side panel"><!--icon:panel:fold-icon--></button>
       </div>
@@ -2001,6 +2003,12 @@
           <button type="button" class="line-btn" id="problems-refresh" aria-label="Refresh problems" title="Refresh problems"><!--icon:refresh:line-icon--></button>
         </div>
         <div class="problems-body" id="problems-body"></div>
+      </div>
+      <!-- What happened to the study, newest first (study-timeline.js,
+           study_timeline.py). -->
+      <div class="side-pane" id="timeline-pane" data-side-pane="timeline" role="tabpanel" aria-labelledby="timeline-tab" hidden>
+        <p class="muted small study-timeline-said" id="study-timeline-said" role="status"></p>
+        <ol class="study-timeline" id="study-timeline-list"></ol>
       </div>
     </aside>
     <button type="button" class="side-expand" id="side-expand" hidden title="Show panel" aria-label="Show side panel"><!--icon:panel:fold-icon--></button>
@@ -2077,6 +2085,7 @@
     <script src="/static/keys.js"></script>
     <script src="/static/overview-runs.js"></script>
     <script src="/static/compare.js"></script>
+    <script src="/static/study-timeline.js"></script>
     <script src="/static/problems.js"></script>
     <script src="/static/files-page.js"></script>
     <script src="/static/files-actions.js"></script>

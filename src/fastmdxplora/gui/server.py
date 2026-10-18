@@ -937,6 +937,12 @@ def make_handler(
 
                 self._send_json(report_payload(root))
                 return
+            if path == "/api/study-timeline":
+                # What happened to the study, newest first (side panel).
+                from fastmdxplora.gui.study_timeline import timeline_of
+
+                self._send_json(timeline_of(root))
+                return
             if path == "/api/timeline":
                 # What the Viewer's timeline marks on the frames it plays.
                 from fastmdxplora.gui.timeline_view import timeline_payload
