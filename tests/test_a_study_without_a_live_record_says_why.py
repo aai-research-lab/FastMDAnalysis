@@ -4,7 +4,7 @@ A finished study of several runs keeps no record of a simulation in its own
 folder; each run keeps its own. Its Overview said "Waiting for the
 simulation" and "Setup is under way", as it did for any study open without
 one: the page told only "a study is open" from "none is". Now a study of
-several runs says how many it has and where to view them, a study being run
+several runs lists their states and opens each from its row, a study being run
 from the GUI waits for its simulation, and any other study says it kept no
 live record and why it may not have.
 """
@@ -52,15 +52,39 @@ def _said(study: Path) -> tuple[str, str, bool]:
 
 
 def test_a_finished_study_of_several_runs_says_where_they_are():
+    from tests.test_the_overview_of_a_study_of_runs import _serve
+
     root = _a_sweep_study(Path(tempfile.mkdtemp()))
     for status in root.glob("runs/*/simulation/live_status.json"):
         status.write_text(json.dumps({"stage": "completed", "current_step": 500,
                                       "total_planned_steps": 500}), encoding="utf-8")
-    title, body, hidden = _said(root)
-    assert title == "A study of 2 runs"
-    assert body.startswith("2 of 2 completed.")
-    assert "view one from Runs in the sidebar" in body
-    assert hidden
+    run = sorted((root / "runs").iterdir())[0]
+
+    def look(page, url):
+        page.goto(url + "#overview", wait_until="domcontentloaded")
+        page.wait_for_selector("#overview-runs:not([hidden]) #overview-runs-table tbody tr")
+        page.wait_for_function("root => window.FastMDXDashboard?.state.appState.active_run === root",
+                               arg=str(root))
+        said = page.evaluate("""() => ({
+            summary: document.getElementById('overview-runs-said').textContent,
+            names: [...document.querySelectorAll('.overview-runs-open')].map(e => e.textContent),
+            states: [...document.querySelectorAll('.overview-runs-state')].map(e => e.textContent),
+            absentHidden: document.getElementById('live-absent').hidden,
+            actionsHidden: document.getElementById('live-absent-actions').hidden,
+        })""")
+        page.locator(".overview-runs-open").first.click()
+        page.wait_for_function("run => window.FastMDXDashboard?.state.appState.active_run === run",
+                               arg=str(run))
+        said["opened"] = page.evaluate("() => window.FastMDXDashboard.state.appState.active_run")
+        return said
+
+    said = _serve(root, look)
+    assert said["summary"].startswith("2 of 2 runs completed;")
+    assert said["summary"].endswith("compared, not averaged.")
+    assert said["names"] == ["temperature 300 K", "temperature 310 K"]
+    assert said["states"] == ["completed", "completed"]
+    assert said["absentHidden"] and said["actionsHidden"]
+    assert said["opened"] == str(run)
 
 
 def test_a_study_with_no_live_record_says_so():
