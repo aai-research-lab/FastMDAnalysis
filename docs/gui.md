@@ -268,10 +268,17 @@ Ctrl in place of ⌘ off a Mac.
 each named (a run by its study and by what sets it apart, "chignolin,
 seed 2") with its system and state and a way to open it, the settings in
 which they differ, defaults filled in as `fastmdx diff` says them, the
-means each recorded with the second's less the first's, marked resolved
-only past twice their combined standard error, and each series both
-recorded over time overlaid on one clock (not overlaid where one is on
-frame numbers and the other on time). **Play them beside in the Viewer**
+means each recorded (its analyses', then the thermodynamic means as the
+run's Overview gives them) with the second's less the first's, marked
+resolved only past twice their combined standard error, and each series
+both recorded over time overlaid on one clock (not overlaid where one is on
+frame numbers and the other on time), production's energies, temperature
+and density among them. Two runs of a study of replicas (runs that differ
+only by seed) are repeats of one measurement: each one's error is the
+spread of the replicas' means, or the run's own where that is larger, as
+`batch/aggregate.py` gives a replica's (`replica_error`), and the page says
+so; where the study's record of its runs was not read, whether they are
+replicas is said not known. **Play them beside in the Viewer**
 opens the first in the Viewer with the second played beside it (Compare
 study, below). It opens from All studies (two chosen), from a study of
 several runs (two of its runs ticked on its Overview) and from ⌘K
@@ -281,7 +288,9 @@ reload keep them; **Swap** puts the second first. **Open** opens one as
 every way to another study does, asked first whether the switch would lose
 work here. Each of the two is read from its own records only: a record of
 one linked out of it is not read and the page says so, naming it, and a
-mean whose record was not read is said not read, never as one not recorded.
+mean whose record was not read is said not read, never as one not recorded;
+a series both recorded that was not read is named as not drawn, and a
+run whose Manifest was not read is said in a state not known.
 
 **A study's folder** is named for what it holds:
 `fastmdxplora_<system>_study_<UTC timestamp>` — the first system in the
@@ -907,7 +916,7 @@ a movie's frames at 64 MB.
 | `GET /api/protein-preview` | The cached preview image |
 | `GET /api/series?analysis=NAME` | An analysis's series as numbers, for the chart plotted from them; `&run=ID` for one run of a study of several; with neither, the study's series over time, each with its label and unit |
 | `GET /api/selection?chain=A&resseq=189&resname=ASP&atom=CA` | The selection for a residue and one of its atoms, by `resSeq` and MDTraj's chain index, each checked against the topology the analyses read; `&frames_atom=N`, the atom's index in the frames played, names it exactly where they were written from that topology (a chain letter two chains share, or a residue number two residues share, by `resid`) |
-| `GET /api/studies?path=`, `/api/studies-compared?a=&b=`, `/api/compared?a=&b=`, `/api/study-thumbnail?path=` | The studies under a folder as cards (each with its tags and note), the tags they carry, the most used first, two compared (for the Compare page, with each named and their series), and a card's figure; loopback only, as browsing folders is, and inside the workspace when hosted |
+| `GET /api/studies?path=`, `/api/compared?a=&b=`, `/api/study-thumbnail?path=` | The studies under a folder as cards (each with its tags and note), the tags they carry, the most used first, two compared (for the Compare page, with each named and their series), and a card's figure; loopback only, as browsing folders is, and inside the workspace when hosted |
 | `POST /api/study-tags` | A study's tags and note, `{"path", "tags", "note"}`, replacing those it had (without `note`, the note kept), kept in its `study_tags.json`; loopback only, and inside the workspace when hosted |
 | `GET /api/residue-states?chain=A&resseq=57&resname=HIS` | A clicked residue's protonation states and this study's Config to start a new study from, the residue named as setup builds the structure |
 | `GET /api/measure-over-frames?a=<selection>&b=<selection>` | The command that measures the distance between two atoms at every frame (`pair_distance`, into a folder of its own), each selection checked to name one atom |

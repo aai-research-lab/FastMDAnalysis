@@ -85,6 +85,11 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   Opened from All studies, from two runs ticked on a study's Overview and
   from ⌘K (Compare with...); its address keeps the two. Each is read
   from its own records only, and a record of either not read is said so.
+  The thermodynamic means and production's energies are compared too, and
+  two replicas are set against the replicas' spread (`batch/aggregate.py`),
+  not the errors each run printed, which replicas can show too tight.
+  `/api/studies-compared`, which no page asked and which read the two
+  unheld, is retired for `/api/compared`.
 - A run's Overview leads with one sentence: how many of its means are
   determined and, for the rest, how much more production the analyses
   asked for and what it takes at the run's own speed. A tile says Not
