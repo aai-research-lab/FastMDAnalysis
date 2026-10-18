@@ -55,9 +55,9 @@ def test_the_replicas_mean_with_its_error(replicas):
     # The fourth run has other atoms (no ligand): it is not a replica of
     # the run played, and its values are not in the mean.
     assert rmsf["label"] == "RMSF, mean of 3 runs"
-    assert rmsf["runs"] == ["random_seed 1", "random_seed 2", "random_seed 3"]
+    assert rmsf["runs"] == ["seed 1", "seed 2", "seed 3"]
     assert rmsf["source"] == "runs/*/analysis/rmsf"
-    assert "The mean over 3 replicas (random_seed 1, random_seed 2, random_seed 3)" in (
+    assert "The mean over 3 replicas (seed 1, seed 2, seed 3)" in (
         rmsf["about"])
     own = [_own(replicas / "runs" / f"s1__random-seed-{i}") for i in (1, 2, 3)]
     assert len(rmsf["values"]) == len(own[0]) > 200
@@ -81,7 +81,7 @@ def test_runs_that_are_not_replicas_are_not_averaged(replicas, tmp_path):
     rmsf = values_by_residue(sweep)["properties"][0]
     assert rmsf["label"] == "RMSF"
     assert rmsf["source"] == "runs/s1__random-seed-1/analysis/rmsf"
-    assert rmsf["about"].endswith("Of temperature_K 1, the run played: the runs differ by "
+    assert rmsf["about"].endswith("Of temperature 1 K, the run played: the runs differ by "
                                   "more than their seed, so their values are not averaged.")
     assert {(r[0], r[1], r[2]): r[3] for r in rmsf["values"]} == _own(
         sweep / "runs" / "s1__random-seed-1")
@@ -92,7 +92,7 @@ def test_runs_that_are_not_replicas_are_not_averaged(replicas, tmp_path):
         shutil.rmtree(only / "runs" / run / "analysis")
     rmsf = values_by_residue(only)["properties"][0]
     assert rmsf["label"] == "RMSF"
-    assert rmsf["about"].endswith("Of random_seed 1, the run played: no other run has this "
+    assert rmsf["about"].endswith("Of seed 1, the run played: no other run has this "
                                   "result yet.")
     # No run analysed: nothing to colour by.
     shutil.rmtree(only / "runs" / "s1__random-seed-1" / "analysis")
@@ -165,7 +165,7 @@ def test_the_selection_tab_gives_the_spread(replicas):
     row = next(r for r in values_by_residue(replicas)["properties"][0]["values"] if r[1] == 60)
     shown = rows["RMSF, mean of 3 runs"]
     assert "±" in shown and shown.endswith(" nm")
-    assert rows["Each run"].startswith("random_seed 1: ")
+    assert rows["Each run"].startswith("seed 1: ")
     assert rows["Each run"].count(";") == 2
     assert len(row[5]) == 3
 
@@ -244,4 +244,4 @@ def test_a_result_only_another_run_has_is_that_run_s(replicas, tmp_path):
         shutil.rmtree(copy / "runs" / run / "analysis")
     rmsf = values_by_residue(copy)["properties"][0]
     assert rmsf["source"] == "runs/s1__random-seed-2/analysis/rmsf"
-    assert rmsf["about"].endswith("Of random_seed 2 alone: no other run has this result yet.")
+    assert rmsf["about"].endswith("Of seed 2 alone: no other run has this result yet.")

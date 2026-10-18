@@ -105,8 +105,7 @@ def _of_the_runs(base: Path) -> dict[str, Any] | None:
     """The per-residue results of a study of several runs, or None where it
     is a study of one."""
     from fastmdxplora.batch.aggregate import SEED_AXES
-    from fastmdxplora.gui.exploration import runs_of_a_study
-    from fastmdxplora.gui.runs_compared import _axes_that_differ, _label
+    from fastmdxplora.gui.exploration import axes_that_differ, runs_of_a_study
     from fastmdxplora.gui.runs_together import runs_of_the_same_atoms
 
     runs = runs_of_a_study(base)
@@ -115,8 +114,8 @@ def _of_the_runs(base: Path) -> dict[str, Any] | None:
     same = runs_of_the_same_atoms(base)
     if not same:
         return {"properties": []}
-    axes = _axes_that_differ(runs)
-    label = {run["run_id"]: _label(run, axes) for run in runs}
+    axes = axes_that_differ(runs)
+    label = {run["run_id"]: run.get("label") or run["run_id"] for run in runs}
     replicas = bool(axes) and set(axes) <= SEED_AXES
     each = [(run, _properties(Path(run["path"]), None))
             for run in (same if replicas else same[:1])]

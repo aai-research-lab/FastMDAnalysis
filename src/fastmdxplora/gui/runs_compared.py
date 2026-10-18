@@ -14,7 +14,6 @@ itself.
 
 from __future__ import annotations
 
-import json
 import math
 from pathlib import Path
 from typing import Any
@@ -39,14 +38,14 @@ def run_folder(root: Path | str, run_id: str) -> Path | None:
 def runs_compared(root: Path | str) -> dict[str, Any]:
     """The table the Analysis page draws for a study of several runs."""
     from fastmdxplora.batch.aggregate import read_member_findings
-    from fastmdxplora.gui.exploration import runs_of_a_study
+    from fastmdxplora.gui.exploration import axes_that_differ, runs_of_a_study
 
     base = Path(root)
     runs = runs_of_a_study(base)
     if runs is None:
         return {"ok": False, "reason": "not a study of several runs"}
 
-    axes = _axes_that_differ(runs)
+    axes = axes_that_differ(runs)
     from fastmdxplora.batch.aggregate import SEED_AXES
 
     replicas = bool(axes) and set(axes) <= SEED_AXES
@@ -62,7 +61,7 @@ def runs_compared(root: Path | str) -> dict[str, Any]:
                 names.append(name)
     names.sort(key=_order)
 
-    labels = {run["run_id"]: _label(run, axes) for run in runs}
+    labels = {run["run_id"]: run.get("label") or run["run_id"] for run in runs}
     measures = [_measure(name, runs, found, replicas, labels) for name in names]
     if replicas:
         _with_the_replica_spread(base, measures)
@@ -80,24 +79,6 @@ def runs_compared(root: Path | str) -> dict[str, Any]:
         "measures": measures,
         "resolved_at": RESOLVED_AT,
     }
-
-
-def _axes_that_differ(runs: list[dict[str, Any]]) -> list[str]:
-    every: list[str] = []
-    for run in runs:
-        for axis in run.get("values") or {}:
-            if axis not in every:
-                every.append(axis)
-    return [axis for axis in every
-            if len({json.dumps((run.get("values") or {}).get(axis), sort_keys=True, default=str)
-                    for run in runs}) > 1]
-
-
-def _label(run: dict[str, Any], axes: list[str]) -> str:
-    """A run by what sets it apart: "temperature_K 310", or its id."""
-    values = run.get("values") or {}
-    said = [f"{axis.split('.')[-1]} {values.get(axis)}" for axis in axes if axis in values]
-    return ", ".join(said) or str(run["run_id"])
 
 
 def _order(name: str) -> tuple[int, str]:

@@ -1591,6 +1591,9 @@ def analyze_health(
 
     if status:
         return {"state": "ok", "message": "Normal progress", "explanation": NORMAL_EXPLANATION}
+    of_runs = _a_study_of_runs(root) if root is not None else None
+    if of_runs is not None:
+        return of_runs
     not_a_run = _not_a_run(root) if root is not None else None
     if not_a_run is not None:
         return not_a_run
@@ -1603,6 +1606,45 @@ def analyze_health(
             "the setting. Either way there is nothing on disk to read, and "
             "the page cannot fill. A new run records it without being asked."
         ),
+    }
+
+
+#: A study of several runs, said in the words its state is said in
+#: everywhere else (`workspace.study_state`, read by All studies' cards).
+_STUDY_OF_RUNS_SAID = {
+    "completed": ("Completed", "Every run of this study completed."),
+    "running": ("Running", "Runs of this study are still going."),
+    "failed": ("Stopped with an error", "A run of this study ended with an error."),
+    "stopped": ("Stopped", "A run of this study was stopped."),
+    "interrupted": ("Interrupted", "A run of this study ended without recording why."),
+    "incomplete": ("Incomplete", "Not every run of this study has finished."),
+}
+
+
+def _a_study_of_runs(root: str | Path) -> dict[str, str] | None:
+    """A study of several runs, said from its runs' states as All studies
+    says it. It keeps no live record of its own, so it was said "unknown"
+    here (orange) while its card said "completed": two derivations of one
+    state. Now one: `workspace.study_state`."""
+    root = Path(root)
+    try:
+        if not _records.is_file(root / "batch_manifest.json"):
+            return None
+        from fastmdxplora.gui.workspace import study_state
+
+        state = study_state(root)
+    except Exception:  # noqa: BLE001 - a record that cannot be read is said as before
+        return None
+    headline, message = _STUDY_OF_RUNS_SAID.get(state, (None, None))
+    if headline is None:
+        return None
+    return {
+        "state": state,
+        "headline": headline,
+        "message": message,
+        "explanation": ("Each run keeps its own record of its simulation; "
+                        "open one from Runs in the sidebar to see it."),
+        "of_runs": True,
     }
 
 

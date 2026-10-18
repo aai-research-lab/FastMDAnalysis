@@ -343,7 +343,49 @@ def runs_of_a_study(root: Path) -> list[dict[str, Any]] | None:
                     "fraction": fraction, "so_far": so_far,
                     "stage": ("production" if waiting is not None
                               else live.get("stage") if live else None)})
+    # Each run by what sets it apart, said one way wherever a run is named
+    # (the sidebar, Runs compared and its overlay).
+    axes = axes_that_differ(out)
+    for run in out:
+        run["label"] = run_label(run["values"], axes) or run["run_id"]
     return out
+
+
+def axes_that_differ(runs: list[dict[str, Any]]) -> list[str]:
+    """The swept settings whose values differ between the runs, in the
+    order they first appear."""
+    every: list[str] = []
+    for run in runs:
+        for axis in run.get("values") or {}:
+            if axis not in every:
+                every.append(axis)
+    return [axis for axis in every
+            if len({json.dumps((run.get("values") or {}).get(axis), sort_keys=True, default=str)
+                    for run in runs}) > 1]
+
+
+#: A setting's unit, as its name ends: `simulation.temperature_K` reads
+#: "temperature 310 K".
+_UNIT_ENDINGS = ("K", "ns", "ps", "fs", "nm", "M", "bar", "atm")
+
+
+def run_label(values: dict[str, Any], axes: list[str] | None = None) -> str:
+    """A run in a few words, by the values that set it apart: "seed 1",
+    "temperature 310 K", several joined by commas; "" with none. The setting
+    by its last part, `random_` left off and its unit after the value
+    ("random_seed = 1" was cut to "random_see…" in the sidebar)."""
+    said = []
+    for axis in (axes if axes is not None else list(values or {})):
+        if axis not in (values or {}):
+            continue
+        name = str(axis).split(".")[-1]
+        if name.startswith("random_"):
+            name = name[len("random_"):]
+        unit = next((u for u in _UNIT_ENDINGS if name.endswith("_" + u)), "")
+        if unit:
+            name = name[: -len(unit) - 1]
+        said.append(f"{name.replace('_', ' ')} {values[axis]}" + (f" {unit}" if unit else ""))
+    return ", ".join(said)
 
 
 def study_a_run_belongs_to(root: Path) -> dict[str, Any] | None:
