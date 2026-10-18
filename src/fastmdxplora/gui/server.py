@@ -330,8 +330,73 @@ def _confined(root: Path, read: Callable[..., Any], *, keeps: bool = False) -> A
                    | set(named if isinstance(named, list) else ()))
         if refused:
             # A copy: the answer may be one a reader keeps for its next call.
-            answer = {**answer, "unavailable": sorted(refused)}
+            # Each named with why it was not read, for the page to say so.
+            answer = {**answer, "unavailable": sorted(refused),
+                      "unavailable_why": {name: _why_not_read(inside, name)
+                                          for name in sorted(refused)}}
     return answer
+
+
+def _status_records(root: Path) -> dict[str, Any]:
+    """What `/api/status` reads of the study ``root``: its run's record as
+    it stands, how it is going, how long it simulated, and its stages and
+    phases. Read in `_confined`, so a record linked out of the study is not
+    read for it (`simulated_times` would say an outside record's production)."""
+    from fastmdxplora.gui.simulated_time import simulated_times
+
+    # A run that ended without saying so is said to have.
+    status = status_as_it_stands(root)
+    metrics = read_metrics(root)
+    return {
+        "status": status,
+        # Production first, equilibration beside it: the live record's own
+        # time has every stage in it.
+        "times": simulated_times(root, status),
+        "health": analyze_health(status, metrics, root=root),
+        # Which stages this run can actually reach. An analysis-only run has
+        # no minimization to wait for, and a stage greyed out forever reads
+        # as a run that stalled.
+        "stages": run_stages(root),
+        "phases": run_phases(root),
+    }
+
+
+def _status_unread() -> dict[str, Any]:
+    """`/api/status` where the study's folder could not be opened to hold its
+    reads to it: as a folder with no record, saying its records were not read."""
+    from fastmdxplora.gui.telemetry import PHASE_STAGES
+
+    return {"status": {}, "times": {}, "health": analyze_health({}, []),
+            "stages": [stage for stages in PHASE_STAGES.values() for stage in stages],
+            "phases": [], "reason": _RECORDS_UNREADABLE["reason"]}
+
+
+def _refusals_said(answer: dict[str, Any]) -> str:
+    """The records a `_confined` answer names as not read, each with why,
+    in a sentence: "" where every record was read."""
+    from fastmdxplora.gui.series import NOT_READ_BECAUSE
+
+    names = answer.get("unavailable") if isinstance(answer, dict) else None
+    if not names:
+        return ""
+    why = answer.get("unavailable_why") or {}
+    said = "; ".join(f"{name} was not read: " + NOT_READ_BECAUSE.get(
+        why.get(name), "it leads outside the study, or to a file of the study that is not "
+        "one of its results") for name in names)
+    return said + (", so what it says is not shown." if len(names) == 1
+                   else ", so what they say is not shown.")
+
+
+def _why_not_read(inside: Path, name: str) -> str:
+    """Why the confined read of the open folder ``inside`` refused the
+    record it names ``name`` (a key of `series.NOT_READ_BECAUSE`)."""
+    from fastmdxplora.gui.series import why_not_read
+
+    if name == "a non-regular record":
+        return "not a file"
+    if name in _UNNAMED_REFUSALS:
+        return "outside"
+    return why_not_read(inside, inside / name)
 
 
 def _served_beyond_loopback(root: Path, target: Path) -> bool:
@@ -993,23 +1058,15 @@ def make_handler(
                 self._send_json(answer)
                 return
             if path == "/api/status":
-                # A run that ended without saying so is said to have.
-                status = status_as_it_stands(root)
-                metrics = read_metrics(root)
-                from fastmdxplora.gui.simulated_time import simulated_times
                 from fastmdxplora.gui.workspace import study_key
 
-                payload = {
-                    "status": status,
-                    # Production first, equilibration beside it: the live
-                    # record's own time has every stage in it.
-                    "times": simulated_times(root, status),
-                    "health": analyze_health(status, metrics, root=root),
-                    # Which stages this run can actually reach. An
-                    # analysis-only run has no minimization to wait for, and a
-                    # stage greyed out forever reads as a run that stalled.
-                    "stages": run_stages(root),
-                    "phases": run_phases(root),
+                # Read from the study's own records only (`_confined`).
+                payload = _confined(root, _status_records)
+                if "status" not in payload:
+                    # The study's folder could not be opened to hold the
+                    # reads to it: nothing of it is read or said.
+                    payload = _status_unread()
+                payload.update({
                     # Which study this is, as a key (no path said beyond
                     # this computer): a page told of a run ending tells it
                     # from another study's status, read as a study was
@@ -1018,7 +1075,7 @@ def make_handler(
                     # A folder that is not yet a study is not named in the
                     # address: it cannot be opened again as one.
                     "study_named": is_study(root),
-                }
+                })
                 self._send_json(payload)
                 return
             if path == "/api/metrics":
@@ -1042,7 +1099,15 @@ def make_handler(
                 from fastmdxplora.gui.figure_data import figure_payload
 
                 wanted = (parse_qs(parsed.query).get("figure") or [""])[0]
-                self._send_json(figure_payload(root, wanted))
+                # Read from the study's own results only (`_confined`), the
+                # figure saying which of its records were not read.
+                answer = _confined(root, lambda inside: figure_payload(inside, wanted))
+                said = _refusals_said(answer)
+                if said and answer.get("ok"):
+                    answer["note"] = " ".join(filter(None, [answer.get("note"), said]))
+                elif said:
+                    answer["reason"] = said
+                self._send_json(answer)
                 return
             if path == "/api/overview":
                 # What the Overview leads with (overview_view.py).
@@ -3008,10 +3073,12 @@ def start_test_server(
     return server, f"http://127.0.0.1:{server.server_address[1]}"
 
 
-def _determined_values(root: Path, records: list[dict[str, str]]) -> dict[str, str]:
+def _determined_values(root: Path, records: list[dict[str, str]]) -> dict[str, Any]:
     """Each analysis's recorded mean, where its error was determined, as the
     Analysis page's table says it: beside the analysis on the Files page.
-    None for a study with no analysis, and none where it cannot be read."""
+    None for a study with no analysis, and none where it cannot be read.
+    A mean whose record a confined read refused is ``{"said": "Not read",
+    "why": ...}``: said not read, as the Overview says it, not left out."""
     if not any(record["path"].startswith("analysis/") for record in records):
         return {}
     try:
@@ -3025,8 +3092,13 @@ def _determined_values(root: Path, records: list[dict[str, str]]) -> dict[str, s
     said = {}
     for row in rows:
         mean = row.get("mean") if isinstance(row, dict) else None
+        quantities = (row.get("quantities") if isinstance(row, dict) else None) or []
         if isinstance(mean, dict) and mean.get("determined") and mean.get("said"):
             said[str(row.get("analysis"))] = str(mean["said"])
+        elif (quantities and isinstance(quantities[0], dict)
+              and quantities[0].get("key") == "mean" and quantities[0].get("unavailable")):
+            said[str(row.get("analysis"))] = {"said": "Not read",
+                                              "why": str(quantities[0].get("why") or "")}
     return said
 
 

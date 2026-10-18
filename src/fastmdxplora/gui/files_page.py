@@ -166,7 +166,7 @@ def _manifest_figure(said: object, prefix: str, have: set[str]) -> str | None:
 
 
 def files_model(root: Path, records: list[dict[str, Any]], *,
-                values: dict[str, str] | None = None,
+                values: dict[str, Any] | None = None,
                 not_produced: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """What the page shows, from the file listing (`server._artifact_records`)
     and the study's own records: every file placed, the analyses gathered,
@@ -266,7 +266,12 @@ def files_model(root: Path, records: list[dict[str, Any]], *,
             named = [p for p in pngs if PurePosixPath(p).stem == folder]
             group["figure"] = (named or pngs or [None])[0]
         if not run and values and values.get(folder):
-            group["value"] = values[folder]
+            found = values[folder]
+            if isinstance(found, dict):
+                # A mean whose record was not read: said so, with why.
+                group["value"], group["value_why"] = found["said"], found.get("why") or ""
+            else:
+                group["value"] = found
     ordered = sorted(analyses.values(), key=lambda a: (
         run_order.get(a["run"], -1),
         theme_order.index(a["theme"]) if a["theme"] in theme_order else len(theme_order),
@@ -544,7 +549,11 @@ def _analysis_row(group: dict[str, Any], entries: list[dict[str, Any]], links: L
              f'{icon("data")}</span>')
     more = (f'<span class="files-thumb-more">+{group["figures"] - 1}</span>'
             if group["figures"] > 1 else "")
-    value = (f'<span class="files-val">{escape(group["value"])}</span>' if group["value"] else "")
+    why = group.get("value_why") or ""
+    # A mean not read says why on hover, as the Overview's tile does.
+    unread = f' data-unread title="{_attr(why)}"' if why else ""
+    value = (f'<span class="files-val"{unread}>{escape(group["value"])}</span>'
+             if group["value"] else "")
     state = ""
     if group["status"] and group["status"] != "ok":
         state = (f'<span class="files-state" data-state="{_attr(group["status"])}" '

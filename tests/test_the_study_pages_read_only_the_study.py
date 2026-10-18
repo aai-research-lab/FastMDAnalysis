@@ -356,8 +356,12 @@ def _a_study_joined(tmp_path: Path) -> Path:
 
 
 @pytest.mark.parametrize("public", [False, True], ids=["loopback", "public"])
-@pytest.mark.parametrize("named", ["", "energy.csv"], ids=["every-record", "state-records"])
-@pytest.mark.parametrize("route", EVERY_ROUTE)
+@pytest.mark.parametrize("route,named", [
+    pytest.param(route, named, id=f"{route}-{'state-records' if named else 'every-record'}")
+    for route in EVERY_ROUTE for named in ("", "energy.csv")
+    # The pieces' state records are read for the Overview and Results only
+    # (`state_record_pieces`); the other routes never read them.
+    if not named or route in ("/api/overview", "/api/results")])
 def test_a_joined_study_s_record_is_not_read_through_a_link_out(tmp_path, route, named,
                                                                 public):
     """A study carried on and joined: its record of the join, the joined

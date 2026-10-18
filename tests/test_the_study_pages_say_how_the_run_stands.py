@@ -58,17 +58,21 @@ def _pages(root: Path, workspace: Path, *, public: bool) -> dict:
                                active_root=root)
     said = {}
     with _serving(runtime, allow_control=not public) as url:
-        for route in ("/api/overview", "/api/results"):
+        for route in ("/api/overview", "/api/results", "/api/status"):
             status, body = _ask(url + route)
             assert status == 200
             assert TEXT not in body.decode("utf-8")
             said[route] = json.loads(body)
-    overview, results = said["/api/overview"], said["/api/results"]
+    overview, results, run = said["/api/overview"], said["/api/results"], said["/api/status"]
     summary = {row["label"]: row["value"] for row in results.get("summary") or []}
     return {"phases": {phase["name"]: phase["status"] for phase in overview["phases"]},
             "project": summary.get("Project status"), "latest": summary.get("Latest status"),
             "overview_unavailable": overview.get("unavailable"),
-            "results_unavailable": results.get("unavailable")}
+            "results_unavailable": results.get("unavailable"),
+            # The status card's, the phase strip's and the headline's.
+            "status": (run["status"].get("status"), run["health"].get("state"),
+                       run["phases"], run["times"].get("production_ns")),
+            "status_unavailable": run.get("unavailable")}
 
 
 @PUBLIC
@@ -83,8 +87,10 @@ def test_a_run_whose_process_is_gone_reads_interrupted(tmp_path, public):
     # As 1094e1c9 said it, its process record read; the link not followed.
     assert (said["project"], said["latest"]) == ("completed", "interrupted")
     assert said["phases"] == {"setup": "ok"}
+    assert said["status"] == ("interrupted", "interrupted", ["setup"], None)
     assert said["overview_unavailable"] == ["analysis/rmsd/options.json"]
     assert said["results_unavailable"] == ["analysis/rmsd/options.json"]
+    assert said["status_unavailable"] is None
 
 
 @PUBLIC
@@ -104,6 +110,8 @@ def test_a_carry_on_killed_in_its_piece_reads_stopped_not_running(tmp_path, publ
     # "Interrupted"; 1094e1c9 said it stopped.
     assert said["phases"] == {"setup": "ok", "simulation": "stopped"}
     assert (said["project"], said["latest"]) == ("stopped", "interrupted")
+    assert said["status"][:3] == ("interrupted", "interrupted", ["setup", "simulation"])
+    assert said["status"][3] == pytest.approx(0.0128)
     assert said["overview_unavailable"] == ["analysis/rmsd/options.json"]
     assert said["results_unavailable"] == ["analysis/rmsd/options.json"]
 
@@ -129,6 +137,8 @@ def test_a_run_waiting_for_its_study_s_next_round_reads_waiting(tmp_path, done_s
     assert said["phases"] == {"setup": "ok", "simulation": "waiting", "analysis": "waiting",
                               "report": "waiting"}
     assert (said["project"], said["latest"]) == ("completed", "waiting")
+    assert said["status"] == ("waiting", "waiting",
+                              ["setup", "simulation", "analysis", "report"], None)
     assert said["overview_unavailable"] == ["analysis/rmsd/options.json"]
     assert said["results_unavailable"] == ["analysis/rmsd/options.json"]
 
@@ -164,3 +174,37 @@ def test_a_study_s_record_of_its_rounds_linked_out_is_not_read(tmp_path, done_so
     assert said["phases"] == {"setup": "ok", "simulation": "ok", "analysis": "ok",
                               "report": "ok"}
     assert said["overview_unavailable"] == ["../../stopping.json"]
+    # The status card neither reads it nor says the run waits.
+    assert said["status"][0] != "waiting"
+    assert said["status_unavailable"] == ["../../stopping.json"]
+
+
+@PUBLIC
+def test_a_result_linked_to_the_run_s_process_record_is_not_read(tmp_path, public):
+    """The process record is read by its own name only: a result linked to
+    it is a record that is not one of the study's results, and not read,
+    while the run is still told from its process (interrupted)."""
+    root = _a_run_said_it_was_going(tmp_path / "study", last=_ago(5))
+    _write(root / "manifest.json", {"phases": [{"name": "setup", "status": "ok"}]})
+    pid = _a_gone_process()
+    _its_process(root, pid)
+    (root / "analysis" / "rmsd").mkdir(parents=True)
+    (root / "analysis" / "rmsd" / "rmsd.dat").symlink_to(root / ".fastmdxplora_run.json")
+
+    from tests.test_a_public_dashboard_answers_only_what_it_lists import _ask, _serving
+    from fastmdxplora.gui.exploration import DashboardRuntime
+
+    runtime = DashboardRuntime(workspace_root=root, exploration_root=tmp_path,
+                               active_root=root)
+    with _serving(runtime, allow_control=not public) as url:
+        status, body = _ask(url + "/api/series?analysis=rmsd")
+    assert status == 200
+    answer = json.loads(body)
+    assert answer["ok"] is False and pid not in (answer.get("y") or [])
+    assert answer["unavailable"] == ["analysis/rmsd/rmsd.dat"]
+    assert "my_study.py" not in body.decode("utf-8")
+
+    said = _pages(root, tmp_path, public=public)
+
+    assert said["status"] == ("interrupted", "interrupted", ["setup"], None)
+    assert said["latest"] == "interrupted"
