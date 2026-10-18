@@ -177,8 +177,8 @@ def test_the_page_draws_them(sweep) -> None:
             browser.close()
     finally:
         session.server.shutdown()
-    assert head == ["Run", "temperature_K", "RMSD (nm)", "Radius of gyration (nm)"]
-    assert varied == ["temperature_K"]
+    assert head == ["Run", "temperature (K)", "RMSD (nm)", "Radius of gyration (nm)"]
+    assert varied == ["temperature (K)"]
     assert marked == 1
     assert differs_text == "differs"
     assert differs_title.startswith("Differs from temperature 300 K by +0.0040 ± 0.0014 nm")
