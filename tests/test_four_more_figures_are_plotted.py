@@ -213,7 +213,8 @@ def test_each_is_plotted_on_the_analysis_page(tmp_path) -> None:
     assert kinds == ["hbars", "hbars", "hbars", "lines"]
     assert hollow == [False, False, True]
     assert "RES0" in names_shown and "RES19" in names_shown and "RES20" not in names_shown
-    assert "I₁" in tip and "I₃ 300.0 amu nm²" in tip and "ns" in tip
+    # A run under a nanosecond is read in picoseconds, as its axis is.
+    assert "I₁" in tip and "I₃ 300.0 amu nm²" in tip and " ps · frame " in tip
     assert said.startswith("hydrogen_bond  ASP189 OD1–N1") and "95% of frames" in said
     assert note == "1 hollow: fewer than five separate observations."
 

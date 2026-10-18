@@ -1,0 +1,44 @@
+/* Each analysis as a cell (analysis-cells.js): under its heading, what it
+ * determined, what it was run with and Analyze again for it alone; and the
+ * tools of every plot (plot-tools.js). */
+.analysis-cell-head {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px;
+    margin: -4px 0 10px; font-size: var(--text-xs); color: var(--text-secondary);
+}
+.analysis-cell-head[hidden] { display: none; }
+.cell-values { display: flex; flex-wrap: wrap; gap: 4px 14px; min-width: 0; }
+.cell-value { white-space: nowrap; }
+.cell-value b { font-weight: 500; color: var(--text-muted); margin-right: 4px; }
+.cell-value .mono { color: var(--text-primary); }
+.cell-value[data-determined="false"] .mono { color: var(--text-secondary); }
+.cell-value[data-determined="false"]::after { content: " not determined"; color: var(--text-muted); }
+.cell-params { color: var(--text-muted); min-width: 0; overflow-wrap: anywhere; }
+.cell-params code { font-size: var(--text-2xs); }
+.cell-again { margin-left: auto; }
+.analysis-cell-range {
+    font-size: var(--text-xs); color: var(--text-secondary); display: flex; gap: 8px; align-items: center;
+    margin: 0 0 12px; padding: 6px 10px; border-radius: 8px;
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.analysis-cell-range[hidden] { display: none; }
+
+.plot-tools { display: flex; justify-content: flex-end; gap: 4px; margin: 2px 0 2px; }
+.plot-tool {
+    appearance: none; border: 1px solid var(--border-subtle); background: transparent;
+    color: var(--text-muted); font: inherit; font-size: var(--text-2xs); line-height: 1;
+    padding: 3px 7px; border-radius: 5px; cursor: pointer;
+}
+.plot-tool:hover { color: var(--text-primary); border-color: var(--border-primary); }
+.plot-tool:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.plot-tool[hidden] { display: none; }
+.plot-brush { fill: var(--accent); fill-opacity: 0.14; stroke: var(--accent); stroke-width: 1; pointer-events: none; }
+.plot-zoomable { touch-action: pan-y; }
+
+/* The Analysis page's time range across the Viewer's tracks
+   (viewer-timeline.js sets where). */
+#frame-series { position: relative; }
+#frame-series[data-range="on"]::before {
+    content: ""; position: absolute; top: 0; bottom: 0; z-index: 0; pointer-events: none;
+    left: var(--range-left, 0); width: var(--range-width, 0);
+    background: color-mix(in srgb, var(--accent-violet, #a78bfa) 14%, transparent);
+}

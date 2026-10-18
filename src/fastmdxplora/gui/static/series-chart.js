@@ -120,6 +120,18 @@
     return parts.join("; ");
   }
 
+  /* What a chart shows of its x: the page's time range on its clock, or
+   * the part it was zoomed to; all of it where neither. In the data's own
+   * units. */
+  function viewOf(host, data) {
+    var tools = window.FastMDXPlotTools;
+    if (data.kind !== "residue" && tools) {
+      var shared = tools.range(data.x_label);
+      if (shared) return [shared.from, shared.to];
+    }
+    return host._view || null;
+  }
+
   function draw(host, data) {
     host.innerHTML = "";
     var width = Math.max(260, Math.round(host.clientWidth || 440));
@@ -128,15 +140,20 @@
       left: MARGIN.left, top: MARGIN.top,
       right: width - MARGIN.right, bottom: HEIGHT - MARGIN.bottom,
     };
+    var view = viewOf(host, data);
+    host.dataset.view = view ? (host._view === view ? "zoomed" : "range") : "";
     var clock = data.kind === "residue" ? { factor: 1, label: data.x_label, unit: "" }
-      : timeScale(data.x, data.x_label);
+      : timeScale(view || data.x, data.x_label);
     var xs = clock.factor === 1 ? data.x : data.x.map(function (x) { return x * clock.factor; });
     var ys = data.y;
-    var xLow = xs[0];
-    var xHigh = xs[xs.length - 1];
+    var xLow = view ? view[0] * clock.factor : xs[0];
+    var xHigh = view ? view[1] * clock.factor : xs[xs.length - 1];
     if (xHigh === xLow) xHigh = xLow + 1;
-    var yLow = Math.min.apply(null, ys);
-    var yHigh = Math.max.apply(null, ys);
+    // The values in view set the height, so a range zoomed into is read.
+    var seen = ys.filter(function (y, i) { return xs[i] >= xLow && xs[i] <= xHigh; });
+    if (!seen.length) seen = ys;
+    var yLow = Math.min.apply(null, seen);
+    var yHigh = Math.max.apply(null, seen);
     var mean = data.mean || null;
     if (mean && mean.value != null) {
       var reach = mean.error != null ? mean.error : 0;
@@ -158,6 +175,12 @@
       width: width, height: HEIGHT, viewBox: "0 0 " + width + " " + HEIGHT,
       role: "img", "aria-label": describe(data), tabindex: "0", class: "series-svg",
     }, host);
+    // What is plotted stays inside the axes when zoomed.
+    var clipId = "series-clip-" + Math.random().toString(36).slice(2, 9);
+    el("rect", { x: plot.left, y: plot.top, width: plot.right - plot.left,
+                 height: plot.bottom - plot.top },
+       el("clipPath", { id: clipId }, el("defs", {}, svg)));
+    var layer = el("g", { "clip-path": "url(#" + clipId + ")" }, svg);
 
     // What the analysis left out, first, so the line is drawn over it.
     if (mean && mean.from_x != null && mean.discard > 0) {
@@ -166,7 +189,7 @@
         x: plot.left, y: plot.top, width: Math.max(0, cut - plot.left),
         height: plot.bottom - plot.top, fill: c.axis, "fill-opacity": 0.12,
         class: "series-excluded",
-      }, svg);
+      }, layer);
       var note = el("text", {
         x: plot.left + 6, y: plot.top + 12, fill: c.axis, "font-size": 10,
         class: "series-excluded-label",
@@ -214,10 +237,10 @@
     el("path", {
       d: path, fill: "none", stroke: c.line, "stroke-width": 1.5,
       "stroke-linejoin": "round", class: "series-line",
-    }, svg);
+    }, layer);
     if (data.kind === "residue" && xs.length <= 400) {
       xs.forEach(function (x, i) {
-        el("circle", { cx: px(x), cy: py(ys[i]), r: 2.2, fill: c.line }, svg);
+        el("circle", { cx: px(x), cy: py(ys[i]), r: 2.2, fill: c.line }, layer);
       });
     }
 
@@ -229,13 +252,13 @@
           x: from, y: py(mean.value + mean.error), width: plot.right - from,
           height: Math.max(1, py(mean.value - mean.error) - py(mean.value + mean.error)),
           fill: c.mean, "fill-opacity": 0.16, class: "series-error",
-        }, svg);
+        }, layer);
       }
       el("line", {
         x1: from, x2: plot.right, y1: py(mean.value), y2: py(mean.value),
         stroke: mean.not_a_measurement ? c.axis : c.mean, "stroke-width": 1.4,
         "stroke-dasharray": "5 4", class: "series-mean",
-      }, svg);
+      }, layer);
     }
 
     var cursor = el("line", {
@@ -292,6 +315,37 @@
       var x = (event.clientX - box.left) * (width / box.width);
       var value = xLow + (x - plot.left) / (plot.right - plot.left) * (xHigh - xLow);
       return nearest(xs, value);
+    }
+    var tools = window.FastMDXPlotTools;
+    if (tools) {
+      var timed = data.kind !== "residue";
+      tools.attach(host, {
+        svg: svg, width: width, height: HEIGHT, plot: plot, zoom: "x",
+        shared: timed ? data.x_label : "",
+        zoomed: !!view,
+        name: data.analysis + (view ? "_range" : ""),
+        invert: function (x, y) {
+          return { x: (xLow + (x - plot.left) / (plot.right - plot.left) * (xHigh - xLow)) / clock.factor,
+                   y: yLow + (plot.bottom - y) / (plot.bottom - plot.top) * (yHigh - yLow) };
+        },
+        onView: function (v) { host._view = v.x; draw(host, data); },
+        onReset: function () { host._view = null; draw(host, data); },
+        csv: function () {
+          var value = data.analysis + (data.unit ? " (" + data.unit + ")" : "");
+          // On frame numbers where the run kept no clock: the frame alone.
+          var clocked = timed && data.x_label !== "Frame";
+          var head = clocked ? ["time_ns", "frame", value] : [timed ? "frame" : "residue", value];
+          var rows = [head];
+          data.x.forEach(function (x, i) {
+            var shown = xs[i] >= xLow - 1e-12 && xs[i] <= xHigh + 1e-12;
+            if (!shown) return;
+            rows.push(clocked ? [x, data.frames ? data.frames[i] : "", data.y[i]]
+                      : timed ? [data.frames ? data.frames[i] : x, data.y[i]]
+                      : [data.labels ? data.labels[i] : x, data.y[i]]);
+          });
+          return rows;
+        },
+      });
     }
     svg.addEventListener("mousemove", function (event) { show(indexAt(event)); });
     svg.addEventListener("mouseleave", hide);
@@ -394,6 +448,7 @@
           });
         }
         mode(true);
+        drawn.push({ chart: chart, data: data });
         frame.setAttribute("data-series-ready", "drawn");
         if (window.ResizeObserver) {
           var width = chart.clientWidth;
@@ -407,6 +462,15 @@
       });
     });
   }
+
+  /* The charts drawn, to draw again when the page's time range changes. */
+  var drawn = [];
+  document.addEventListener("fmx:time-range", function () {
+    drawn = drawn.filter(function (d) { return d.chart.isConnected; });
+    drawn.forEach(function (d) {
+      if (!d.chart.hidden && d.data.kind !== "residue") draw(d.chart, d.data);
+    });
+  });
 
   /* Drawn again in the new scheme's colours. */
   document.addEventListener("fmx:theme", function () {

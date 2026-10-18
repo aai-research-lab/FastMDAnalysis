@@ -120,6 +120,24 @@
         fill: c.shade, "fill-opacity": 0.14, class: "timeline-equilibration" }, svg);
       el("title", {}, shade).textContent = from.label;
     }
+    // The time range chosen on the Analysis page (plot-tools.js), on the
+    // ruler and across the tracks under it.
+    var tools = window.FastMDXPlotTools;
+    var chosen = tools ? tools.range(clocked() ? "Time (ns)" : "Frame") : null;
+    var tracks = byId("frame-series");
+    if (chosen && chosen.to > low && chosen.from < high) {
+      var a = px(Math.max(low, chosen.from)), b = px(Math.min(high, chosen.to));
+      var band = el("rect", { x: a, y: 2, width: Math.max(1, b - a), height: 12,
+        fill: c.medoid, "fill-opacity": 0.28, class: "timeline-range" }, svg);
+      el("title", {}, band).textContent = "The range chosen on the Analysis page";
+      if (tracks) {
+        tracks.style.setProperty("--range-left", a + "px");
+        tracks.style.setProperty("--range-width", Math.max(1, b - a) + "px");
+        tracks.dataset.range = "on";
+      }
+    } else if (tracks) {
+      delete tracks.dataset.range;
+    }
     el("line", { x1: left, x2: right, y1: 14, y2: 14, stroke: c.axis, "stroke-width": 1 }, svg);
     var ticks = window.FastMDXSeries && window.FastMDXSeries.ticks
       ? window.FastMDXSeries.ticks(low * clock.factor, high * clock.factor, 6) : [];
@@ -214,6 +232,7 @@
     });
     window.addEventListener("dashboard:results-updated", function () { state.asked = null; });
     document.addEventListener("fmx:theme", draw);
+    document.addEventListener("fmx:time-range", draw);
     var host = byId("timeline-ruler");
     if (host && window.ResizeObserver) {
       var width = 0;
