@@ -9,6 +9,30 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- A study of several runs reads the same state in the sidebar, on its
+  Overview and in All studies, from one derivation of its runs' states
+  (it read "Unknown" in two places and "completed" in the third). Its runs'
+  dots are coloured by their state, and each run is named by what sets it
+  apart ("seed 1", "temperature 310 K") in the sidebar, Runs compared and
+  the runs played together, its folder on hover.
+- The replicas' comparison no longer says the spread is "within the factor
+  of 2" of "a predicted nan" and "supported by repeating it" when no run
+  could estimate its own error: it says there is nothing to check the
+  spread against. A prediction from some of the runs says how many.
+- The report's Methods name the structure file, not the folder it was read
+  from on one computer.
+- Runs compared keeps each run's name in view as the table scrolls, and
+  shades the edge where more columns lie. A run shorter than a nanosecond
+  is plotted in picoseconds there and in each analysis's chart.
+- The Analysis page of a study of several runs says its runs' analyses are
+  compared below, not "no analyses yet".
+- The Overview's charts button is named for what it does, "Show every
+  chart"; it was "Reset zoom", and the charts have no zoom.
+- The Viewer's Spectrum colours each chain from blue to red by a residue's
+  place in it. A chain numbered from 70 was drawn all red.
+- New study opens the Config Builder alone; the Agent beside it opens when
+  asked.
+
 - The phone-to-desktop browser check waits for the side panel to return
   after its dialog closes, avoiding a timing-sensitive assertion.
 
