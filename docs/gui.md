@@ -386,7 +386,10 @@ without applying them. Equivalent names such as `prepared_from` and
 with no changes, or one made from your own choices or from an earlier
 version, offers no choices.
 
-**Use this version** keeps the proposal as it is and clears any choices.
+**Use this version** keeps the proposal as it is, as it does on an
+earlier version: the conversation says "Use version N", and a new version
+of the same Config says every change was accepted, with the labels and
+values shown.
 Once a change is rejected, **Use reviewed version** puts the chosen
 combination through the existing Config validator and creates a new
 version only when it passes; the changes not rejected stay as proposed.
@@ -396,8 +399,10 @@ is not yet applied, use one of the two before sending another message or
 running the study. The earlier versions stay intact, and the new version
 holds only the settings reviewed, each in the spelling its version used.
 The conversation records the choices with the labels and values shown.
-Choices not yet applied are kept in this browser, by conversation and
-version, and survive a reload; they are never saved as a Config. After
+Choices not yet applied are kept in this browser, by conversation,
+version and the changes themselves, and survive a reload; another
+proposal given the same version number starts with no choices. They are
+never saved as a Config. After
 applying, Run, Download, Open in the builder and the next Agent message
 use the reviewed version. Agent exports retain chosen settings and reasons
 for inactive phases too; the full export adds the defaults for the phases

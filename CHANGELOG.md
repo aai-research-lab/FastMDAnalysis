@@ -10,8 +10,8 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 ### Added
 
 - An Agent Config version shows each changed setting, old value to new
-  value, with **Accept** and **Reject** beside **Use this version**. Use
-  this version keeps the proposal as it is; once a change is rejected,
+  value, with **Accept** and **Reject** beside **Use this version**. Use this version keeps the proposal as it is and says so in the
+  conversation, as it does on an earlier version; once a change is rejected,
   **Use reviewed version** checks the chosen combination and creates a new
   version, preserving the earlier Configs and each chosen value's decision
   record. Compound settings are reviewed whole and said as the change list
