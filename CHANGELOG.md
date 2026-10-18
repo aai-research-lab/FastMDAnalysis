@@ -18,6 +18,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   the list. Unused axis and remedy-price work is skipped; unexpected reader
   failures retain a public note and a private debug traceback.
 
+- `/api/analysis-overview` no longer shows the text of a record linked out
+  of the study, or to a hidden file in it.
+
 ### Added
 
 - Agent Config versions offer **Review each change**, with Accept and

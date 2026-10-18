@@ -213,6 +213,19 @@ def _private(parts: tuple[str, ...]) -> bool:
     return any(parts[i:i + len(store)] == store for i in range(len(parts)))
 
 
+def _public_records(root: Path) -> Callable[[Path], bool]:
+    """Admission for a confined record read (`record_access`): inside the
+    resolved study ``root`` and one of its results, not `_private`."""
+
+    def admitted(path: Path) -> bool:
+        try:
+            return not _private(path.relative_to(root).parts)
+        except ValueError:
+            return False
+
+    return admitted
+
+
 def _served_beyond_loopback(root: Path, target: Path) -> bool:
     """Whether a public bind may send this file: inside the watched run once
     links are followed, and one of its results."""
@@ -1003,10 +1016,22 @@ def make_handler(
                 self._send_json(series_payload(root, name))
                 return
             if path == "/api/analysis-overview":
-                # What every analysis recorded, read together.
+                # What every analysis recorded, read together, from the
+                # study's own results only: a record linked out of the study,
+                # or to a hidden file in it, is not read (`record_access`).
                 from fastmdxplora.gui.analysis_overview import overview_of
+                from fastmdxplora.record_access import confined_records
 
-                self._send_json(overview_of(root))
+                if not root.is_dir():
+                    self._send_json(overview_of(root))
+                    return
+                inside = root.resolve()
+                try:
+                    with confined_records(inside, _public_records(inside)):
+                        answer = overview_of(inside)
+                except OSError:
+                    answer = {"ok": False, "reason": "The study's records could not be read."}
+                self._send_json(answer)
                 return
             if path == "/api/convergence":
                 from fastmdxplora.gui.analysis_overview import convergence_payload
