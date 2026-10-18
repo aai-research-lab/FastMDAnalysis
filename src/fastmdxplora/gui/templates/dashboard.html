@@ -1029,8 +1029,11 @@
                 <h2 id="overview-charts-title" class="card-title">Live charts</h2>
                 <div class="card-header-actions">
                   <select class="metric-select" id="chart-metric-select" aria-label="Chart metric"></select>
-                  <button class="line-btn" type="button" id="chart-reset" aria-label="Reset zoom"
-                          title="Reset zoom"><!--icon:fit:line-icon--></button>
+                  <!-- Shows every chart again after one was chosen above; the
+                       charts have no zoom of their own yet, so it is named for
+                       what it does. -->
+                  <button class="line-btn" type="button" id="chart-reset" aria-label="Show every chart"
+                          title="Show every chart"><!--icon:cards:line-icon--></button>
                 </div>
               </div>
               <div class="chart-stack" id="chart-stack">
