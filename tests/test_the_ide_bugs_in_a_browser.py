@@ -89,6 +89,16 @@ def test_a_finished_study_of_runs_is_completed_everywhere(finished_sweep, width,
     assert all(row[3][0] <= row[3][1] for row in said["runs"]), said["runs"]
 
 
+def test_the_analysis_of_a_study_of_runs_says_its_runs(finished_sweep):
+    def look(page, url):
+        page.goto(url + "#analysis", wait_until="domcontentloaded")
+        page.wait_for_selector("#runs-compared:not([hidden]) #runs-compared-table tr")
+        page.wait_for_timeout(500)
+        return page.text_content("#analysis-meta")
+
+    assert _serve(finished_sweep, look) == "the analyses of 2 runs, compared below"
+
+
 def test_the_runs_table_keeps_its_runs_in_view_and_short_runs_in_ps(finished_sweep):
     def look(page, url):
         page.goto(url + "#analysis", wait_until="domcontentloaded")
