@@ -54,6 +54,12 @@ h1 { font-size: 20pt; margin-bottom: 0.2em; }
 /* A section should not start at the foot of a page with one line under it. */
 h2 { font-size: 14pt; margin-top: 1.4em; break-after: avoid; }
 h3 { font-size: 11.5pt; margin-top: 1.1em; break-after: avoid; }
+/* Sections numbered, 2 and 2.1, as the GUI's outline numbers them. */
+body { counter-reset: section; }
+h2 { counter-increment: section; counter-reset: subsection; }
+h3 { counter-increment: subsection; }
+h2::before { content: counter(section) "  "; }
+h3::before { content: counter(section) "." counter(subsection) "  "; }
 p, li { orphans: 3; widows: 3; }
 code, pre {
     font-family: "DejaVu Sans Mono", monospace;

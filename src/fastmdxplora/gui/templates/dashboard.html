@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="/static/statusbar.css">
   <link rel="stylesheet" href="/static/compare.css">
   <link rel="stylesheet" href="/static/study-timeline.css">
+  <link rel="stylesheet" href="/static/report-outline.css">
   <link rel="stylesheet" href="/static/analysis-cells.css">
   <!--__FASTMDX_LAB_ICON__-->
   <meta name="fastmdx-expansion" content="Fully Automated SysTem for Molecular Dynamics eXploration">
@@ -1795,7 +1796,12 @@
             <p>No report yet. The report phase writes one at the end of a run.</p>
             <p class="muted" id="report-empty-reason"></p>
           </div>
-          <article class="card report-document" id="report-document" hidden></article>
+          <!-- The report's outline beside it, numbered as the PDF numbers its
+               sections, and what its numbers trace to (report-outline.js). -->
+          <div class="report-layout" id="report-layout">
+            <nav class="report-outline" id="report-outline" aria-label="The report's outline" hidden></nav>
+            <article class="card report-document" id="report-document" hidden></article>
+          </div>
         </section>
 
         <section class="page" data-page="files" hidden>
@@ -2078,6 +2084,7 @@
   <script src="/static/chats.js"></script>
     <script src="/static/preferences.js"></script>
     <script src="/static/frame.js"></script>
+    <script src="/static/report-outline.js"></script>
     <script src="/static/report-page.js"></script>
     <script src="/static/analyze-again.js"></script>
     <script src="/static/dashboard.js"></script>
