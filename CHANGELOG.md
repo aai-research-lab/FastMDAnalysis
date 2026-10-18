@@ -33,7 +33,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 - New study opens the Config Builder alone; the Agent beside it opens when
   asked.
 - Choosing a study far down All studies no longer throws the page back to
-  its top: the boxes are said again, not every card drawn again.
+  its top: the boxes are said again, not every card drawn again. Back from
+  Compare, or All studies again after opening a study, returns to where the
+  page was, with its search.
 
 - The phone-to-desktop browser check waits for the side panel to return
   after its dialog closes, avoiding a timing-sensitive assertion.

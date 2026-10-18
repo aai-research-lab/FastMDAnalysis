@@ -113,6 +113,10 @@ def test_compare_and_clear_come_beside_the_pointer_only_for_two(many) -> None:
             page.wait_for_selector("#studies-compare-bar:not([hidden])")
             page.wait_for_timeout(400)
             after = _bar(page)
+            # Where the page was left: the two chosen in view, not the top.
+            back = page.evaluate(
+                "() => Math.max(...[...document.querySelectorAll('*')].map(e => e.scrollTop))")
+            chosen_box = second.bounding_box()
             # One taken away: the offer goes with it.
             second.uncheck()
             gone = _bar(page)
@@ -127,6 +131,8 @@ def test_compare_and_clear_come_beside_the_pointer_only_for_two(many) -> None:
     assert _near(two, *pointer), (two, pointer)
     assert compared == ["compare", ["study01", "study00"]], compared
     assert after["inView"] and not after["hidden"]
+    assert abs(back - scrolled) <= 2, (back, scrolled)
+    assert 0 <= chosen_box["y"] <= 800 - chosen_box["height"], chosen_box
     assert gone["hidden"]
     assert errors == []
 

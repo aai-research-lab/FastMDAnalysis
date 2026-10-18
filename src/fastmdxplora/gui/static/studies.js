@@ -1111,14 +1111,75 @@
       if (path.value.trim()) load(path.value.trim());
     });
     wireOpenShared();
+    keepThePlace();
     var opened = function (detail) {
       var page = detail && detail.page ? detail.page : detail;
-      if (page === "studies") load(lookedIn);
+      if (page === "studies") {
+        var back = load(lookedIn);
+        if (back && back.then) back.then(returnToThePlace, returnToThePlace);
+        else returnToThePlace();
+      }
     };
     if (window.FastMDXDashboard && window.FastMDXDashboard.on) {
       window.FastMDXDashboard.on("navigate", opened);
     }
     if (location.hash === "#studies") load();
+  }
+
+  /* Where All studies was scrolled to, and its search, kept when the page
+   * is left (for Compare, or a study opened, which loads the page again)
+   * and given back when it is shown again: every page opens at its top
+   * (dashboard.js), and the two chosen were below the fold on Back. */
+  var PLACE_KEPT = "fmx.studiesPlace";
+  var keptScroll = 0;
+  var returning = null;
+
+  function column() { return document.querySelector(".main"); }
+
+  function keepThePlace() {
+    var page = document.querySelector('.page[data-page="studies"]');
+    var search = el("studies-search");
+    var main = column();
+    if (!page || !search || !main) return;
+    try {
+      var kept = JSON.parse(sessionStorage.getItem(PLACE_KEPT) || "null");
+      if (kept && typeof kept.search === "string" && !search.value) search.value = kept.search;
+      if (kept && kept.scroll > 0) { keptScroll = kept.scroll; returning = kept.scroll; }
+    } catch (error) { /* kept for this load only */ }
+    main.addEventListener("scroll", function () {
+      if (page.hidden || returning !== null) return;
+      keptScroll = main.scrollTop;
+    }, { passive: true });
+    // Shown again: the page's own reset to the top (a scroll that comes
+    // after) is not where it was left.
+    new MutationObserver(function () {
+      if (page.hidden) {
+        try {
+          sessionStorage.setItem(PLACE_KEPT, JSON.stringify(
+            { search: search.value || "", scroll: keptScroll }));
+        } catch (error) { /* kept in this page only */ }
+      } else {
+        returning = keptScroll;
+      }
+    }).observe(page, { attributes: true, attributeFilter: ["hidden"] });
+    window.addEventListener("pagehide", function () {
+      if (page.hidden) return;
+      try {
+        sessionStorage.setItem(PLACE_KEPT, JSON.stringify(
+          { search: search.value || "", scroll: main.scrollTop }));
+      } catch (error) { /* nothing to keep it in */ }
+    });
+  }
+
+  function returnToThePlace() {
+    var main = column();
+    if (returning === null || !main) return;
+    var to = returning;
+    requestAnimationFrame(function () {
+      main.scrollTop = to;
+      keptScroll = main.scrollTop;
+      returning = null;
+    });
   }
 
   /* A shared study, from its DOI, its Zenodo address or a zip on this
