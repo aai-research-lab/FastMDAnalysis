@@ -243,7 +243,8 @@
     var board = window.FastMDXDashboard;
     if (!board || !board.toast) return;
     board.toast("Kept the tags and note of " + (study.name || "the study") + ".", "ok", { label: "Undo", run: function () {
-      fetch("/api/study-tags", {
+      // Settled once its answer is said: a notice waiting on the Undo comes after it.
+      return fetch("/api/study-tags", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ path: study.path, tags: before.tags, note: before.note })

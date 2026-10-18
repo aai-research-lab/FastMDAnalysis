@@ -1072,8 +1072,11 @@
       } else {
         const title = byId("topbar-run-title")?.textContent || "Another study";
         emit("study-changed-elsewhere", {from: was, to: key, title});
-        showNotice(`${title} was opened elsewhere, in another window or by an AI app: this window now shows it.`,
-                   "warning");
+        // Named as the page names the study when it is said: one that waits
+        // is said once the page has read the study's name.
+        showNotice(() => `${byId("topbar-run-title")?.textContent || "Another study"} was opened elsewhere, ` +
+                   "in another window or by an AI app: this window now shows it.",
+                   "warning", {kind: "study-changed-elsewhere", study: key});
       }
     }
     if (!state.addressKnown) {
@@ -2548,9 +2551,11 @@
         if (hadFocus && from && from !== document.body && document.contains(from)) {
           from.focus({preventScroll: true});
         }
-        action.run();
-        // A notice that waited on it, unless the action said something.
-        if (!toast.classList.contains("show")) showWaitingNotice();
+        // A notice that waited on it, once the action has said its word:
+        // an Undo the server answers says it then (studies.js, its tags).
+        Promise.resolve(action.run()).catch(() => {}).then(() => {
+          if (!toast.classList.contains("show")) showWaitingNotice();
+        });
       }, {once: true});
       // Spaced from the message by itself, so nothing is left when it goes.
       button.style.marginLeft = "0.5em";
@@ -2583,19 +2588,32 @@
   }
 
   /* A notice the person did not ask for. A notice holding an action (Undo)
-   * is not replaced by it: it waits until that one is gone. */
-  function showNotice(message, kind) {
+   * is not replaced by it: it waits until that one is gone, after any that
+   * waits already. Of the notices about the same thing (`about.kind`) only
+   * the latest waits, and one naming a study (`about.study`) is said only
+   * while that study is the one shown. The message, or what makes it as it
+   * is said. */
+  function showNotice(message, kind, about) {
     const toast = byId("dashboard-toast");
-    if (toast && toast.classList.contains("show") && toast.querySelector(".dashboard-toast-action")) {
-      showToast.waiting = (showToast.waiting || []).concat([[message, kind]]);
+    const showing = Boolean(toast && toast.classList.contains("show"));
+    const waiting = showToast.waiting || [];
+    if ((showing && toast.querySelector(".dashboard-toast-action")) || waiting.length) {
+      showToast.waiting = waiting.filter((one) => !(about && one.about && one.about.kind === about.kind))
+        .concat([{message, kind, about}]);
+      if (!showing) showWaitingNotice();
       return;
     }
-    showToast(message, kind);
+    showToast(typeof message === "function" ? message() : message, kind);
   }
 
   function showWaitingNotice() {
-    const next = (showToast.waiting || []).shift();
-    if (next) showToast(next[0], next[1]);
+    const waiting = showToast.waiting || [];
+    while (waiting.length) {
+      const next = waiting.shift();
+      if (next.about && next.about.study && next.about.study !== state.studyShown) continue;
+      showToast(typeof next.message === "function" ? next.message() : next.message, next.kind);
+      return;
+    }
   }
 
   function escapeHTML(value) {
