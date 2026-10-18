@@ -102,12 +102,9 @@
       });
     }
     el("agent-drawer-close").addEventListener("click", close);
-    document.querySelectorAll('.sidebar-start a[data-view-link="run"]').forEach(function (link) {
-      link.addEventListener("click", function () {
-        // After the page has changed to the builder, not before it.
-        setTimeout(function () { if (!isOpen()) open(true); }, 0);
-      });
-    });
+    // New study opens the builder alone: the Agent beside it is the
+    // person's to open (the button, the keys), and it opened unasked, also
+    // to say it was not set up yet.
     el("agent-drawer-page").addEventListener("click", function () {
       close();
       if (window.FastMDXDashboard) window.FastMDXDashboard.navigate("agent");
