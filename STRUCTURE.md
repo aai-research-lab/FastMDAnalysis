@@ -234,7 +234,10 @@ FastMDXplora/
 │       │   │                      #   ruler; frame-series.js its tracks), compare.js and compare.css
 │       │   │                      #   (two studies or runs on the Compare page), study-timeline.js and
 │       │   │                      #   study-timeline.css (the study's Timeline), stop-run.js (Stop the
-│       │   │                      #   run, asked first, wherever it is offered), run-notice.js
+│       │   │                      #   run, asked first, wherever it is offered), plot-tools.js (zoom,
+│       │   │                      #   move and save on every plot, and the page's time range),
+│       │   │                      #   analysis-cells.js and analysis-cells.css (each analysis a cell),
+│       │   │                      #   run-notice.js
 │       │   │                      #   (progress in the tab's title, a notice at the end);
 │       │   │                      #   remote.js and remote.css (Run on one of your machines,
 │       │   │                      #   and Remote jobs on All studies);
