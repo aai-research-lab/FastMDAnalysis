@@ -65,7 +65,9 @@ class TestTheGuiDocsMatchTheFrame:
         page = (Path(gui.__file__).parent / "templates" / "dashboard.html").read_text(encoding="utf-8")
         assert ">Open another folder&hellip;<" in page and 'id="study-card"' in page
         assert "**Open\nanother folder**" in GUI and "study card" in GUI
-        assert "id=\"study-elsewhere\"" in page
+        # A run going in another study is said in the status bar now.
+        bar = (Path(gui.__file__).parent / "static" / "statusbar.js").read_text(encoding="utf-8")
+        assert 'id="status-bar"' in page and 'elsewhere.id = "sb-elsewhere"' in bar
         assert "RUNNING" in GUI
 
     def test_the_folder_naming_rule_is_the_documented_one(self):

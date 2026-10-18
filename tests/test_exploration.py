@@ -364,9 +364,12 @@ def test_the_status_bar_says_where_the_live_run_is():
 
     script = (pathlib.Path(gui.__file__).parent / "static"
               / "statusbar.js").read_text(encoding="utf-8")
-    # A run going in another study: its item, opening it (statusbar.js).
+    # A run going in another study: its item, opening it (statusbar.js)
+    # the way the place does, asked first whether the switch is held.
+    place = (pathlib.Path(gui.__file__).parent / "static" / "place.js").read_text(encoding="utf-8")
     assert 'elsewhere.id = "sb-elsewhere"' in script
-    assert "running_elsewhere_progress" in script and "/api/explore/switch" in script
+    assert "running_elsewhere_progress" in script and "FastMDXPlace.open(where" in script
+    assert "beginStudySwitch()" in place and "/api/explore/switch" in place
 
 
 def test_the_sidebar_has_the_load_control():

@@ -941,7 +941,8 @@ def _a_conversation_of_the_first_study(page):
     }""")
 
 
-@pytest.mark.parametrize("way", ["recent", "all studies", "load study", "agent conversation"])
+@pytest.mark.parametrize("way", ["recent", "all studies", "load study", "agent conversation",
+                                 "quick open", "place"])
 def test_every_way_to_another_study_is_held_by_unsent_agent_words(browser, site, way):
     page = _open(browser, site)
     try:
@@ -962,6 +963,15 @@ def test_every_way_to_another_study_is_held_by_unsent_agent_words(browser, site,
             page.locator("#load-study-path").evaluate("""(input, path) => {
                 input.value = path; input.dispatchEvent(new Event('change'));
             }""", str(site["studies"][0]))
+        elif way == "quick open":
+            # A study of the workspace, found by typing (palette.js).
+            page.evaluate("window.FastMDXPalette.open()")
+            page.fill("#palette-input", "first")
+            page.locator("#palette-list .palette-item", has_text="first").first.click()
+        elif way == "place":
+            # The way the place's run menu, the status bar's run elsewhere
+            # and the Overview's runs open another study (place.js).
+            page.evaluate("path => window.FastMDXPlace.open(path)", str(site["studies"][0]))
         else:
             # Another study's conversation, chosen in the Agent's list.
             page.click("#agent-conversations")

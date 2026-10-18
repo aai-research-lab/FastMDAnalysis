@@ -334,6 +334,8 @@ def test_an_empty_list_says_so_and_names_the_records_it_read(browser, sessions):
             "simulation/live_events.log, fastmdxplora.log, "
             "analysis/analysis_manifest.json, analysis/rmsd/options.json.")
         assert page.locator(".problem-item").count() == 0
+        # The status bar says it as the panel does.
+        expect(page.locator("#sb-problems .sb-text")).to_have_text("No problems")
     finally:
         page.context.close()
 
@@ -351,6 +353,9 @@ def test_a_missing_record_is_said_and_never_as_no_problems(browser, sessions, wi
         expect(page.locator("#problems-body .problems-read")).to_have_text(
             "Records read: simulation/live_status.json, simulation/live_events.log, "
             "fastmdxplora.log, analysis/analysis_manifest.json, analysis/rmsd/options.json.")
+        # Nor in the status bar: a count of none is said only of every record read.
+        expect(page.locator("#sb-problems")).to_be_hidden()
+        assert "No problems" not in page.locator("#sb-problems").text_content()
     finally:
         page.context.close()
 
