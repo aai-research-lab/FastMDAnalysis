@@ -259,6 +259,16 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   is free, each a note, a warning or an error. Each run is costed from its
   own system and settings, a system whose structure is not read yet said
   not worked out; an error there is said apart from the Config's checks.
+- All studies opens on its list, a row a study with its molecule (the Cα
+  trace of its latest frame or its structure, coloured N to C), where it
+  stands (a run's progress in ns and the time it has left), the ns it
+  simulated and every mean, a ring for one not yet determined with why.
+  Replicas give the mean of their means, its error their spread over the
+  root of their number, or the spread alone where some could not determine
+  their own. Views as tabs (your own kept in this browser), chips for
+  state, system and tags, replicas folded under their study, keys, and the
+  cards a gallery of the same molecules. A trajectory analysed with no run
+  of its own says "analysed".
 
 - A strip of open studies keeps each study's last page in this browser
   window. Studies can be selected or closed individually; closing never
