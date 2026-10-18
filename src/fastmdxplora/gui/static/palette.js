@@ -1,18 +1,25 @@
-/* Everything the GUI can go to or do, found by typing (⌘K, or Ctrl+K).
+/* Everything the GUI can go to or do, found by typing (⌘K, or Ctrl+K), as
+ * an editor's quick open.
  *
- * A page, a study under Recent, an analysis of the study open, a tool of
- * the Viewer, the scheme, Preferences, Cite, the Viewer's keys: each is a
- * line, found by the words typed (each word anywhere in its name or its
- * kind), chosen with the arrows and Enter or a click. It is built from the
- * page as it stands when opened, so it lists only what is there to go to.
+ * A page (with its key), every study of the workspace, a file of the open
+ * study (⌘P lists those alone), an analysis, a tool of the Viewer, a
+ * setting, the scheme, Cite, every key: each is a line, found by the words
+ * typed (each word anywhere in its name or its kind), chosen with the
+ * arrows and Enter or a click. `@TRP23` (or `@A:23`) selects that residue
+ * in the Viewer; `:2140` shows that frame of the trajectory there. It is
+ * built from the page as it stands when opened, and from the workspace's
+ * studies and the study's files as the server lists them.
  */
 (function () {
   "use strict";
 
   var MOST = 60;
+  var KEPT_MS = 30000;
   var items = [];
   var shown = [];
   var at = 0;
+  var mode = "";
+  var fetched = { studies: null, files: null };
 
   function el(id) { return document.getElementById(id); }
 
@@ -41,17 +48,13 @@
       ["report", "Report"], ["files", "Files"], ["studies", "All studies"],
       ["run", "New study"], ["agent", "Agent"],
     ];
+    if (mode === "files") return filesOf();
     pages.forEach(function (page) {
       if (document.querySelector('.page[data-page="' + page[0] + '"]')) {
-        found.push({ group: "Page", label: page[1], run: go(page[0]) });
+        found.push({ group: "Page", label: page[1], run: go(page[0]), keys: keysOf("page:" + page[0]) });
       }
     });
-    Array.prototype.forEach.call(document.querySelectorAll(".sidebar-recent-item"), function (item) {
-      var name = item.getAttribute("aria-label") || item.textContent.trim();
-      if (!name) return;
-      found.push({ group: "Recent study", label: name.split(",")[0], hint: name,
-                   run: function () { item.click(); } });
-    });
+    found = found.concat(studiesOf());
     // Each analysis once, by its section's heading on the Analysis page:
     // the Report page's figures are cards too, and a section's first card
     // is titled by its figure ("KMeans trajectory scatter" was listed for
@@ -93,28 +96,218 @@
         window.FastMDXStop.ask(el("health-stop-ask"));
       } });
     }
+    found = found.concat(settingsOf());
     found.push({ group: "Action", label: "Preferences", run: dialog("prefs-dialog") });
     found.push({ group: "Action", label: "Cite FastMDXplora", run: dialog("cite-dialog") });
-    found.push({ group: "Action", label: "The Viewer's keys", run: function () {
-      if (dashboard()) dashboard().navigate("viewer");
-      dialog("viewer-help")();
-    } });
+    found.push({ group: "Action", label: "Every key", run: dialog("viewer-help"), keys: keysOf("keys") });
+    found.push({ group: "Action", label: "Fold or show the sidebar", keys: keysOf("sidebar"),
+                 run: keyRun("sidebar") });
+    found.push({ group: "Action", label: "Fold or show the side panel", keys: keysOf("panel"),
+                 run: keyRun("panel") });
+    found.push({ group: "Action", label: "The Agent beside the page", keys: keysOf("agent-beside"),
+                 run: function () { if (window.FastMDXAgentBeside) window.FastMDXAgentBeside.open(); } });
     var folder = el("study-folder");
     if (folder && !folder.hidden && folder.textContent.trim()) {
       found.push({ group: "Action", label: "Copy the study's folder", run: function () { folder.click(); } });
     }
+    found = found.concat(filesOf());
     return found;
+  }
+
+  function keysOf(name) { return window.FastMDXKeys ? window.FastMDXKeys.of(name) : []; }
+  function keyRun(name) {
+    return function () {
+      var key = window.FastMDXKeys && window.FastMDXKeys.list().find(function (k) { return k.name === name; });
+      if (key && key.run) key.run();
+    };
+  }
+
+  /* -------------------------------------------------------------------- */
+  /* The workspace's studies and the open study's files, as listed         */
+  /* -------------------------------------------------------------------- */
+
+  /* Asked for when the palette opens, kept half a minute; what arrives
+   * while it is open is added to what it lists. */
+  function fetchList(which, path, read) {
+    var kept = fetched[which];
+    if (kept && Date.now() - kept.at < KEPT_MS) return;
+    fetched[which] = { at: Date.now(), list: kept ? kept.list : [] };
+    fetch(path, { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (data) {
+      fetched[which] = { at: Date.now(), list: read(data) || [] };
+      var palette = el("palette");
+      if (palette && !palette.hidden) {
+        items = gather();
+        render();
+      }
+    }).catch(function () { fetched[which] = null; });
+  }
+
+  function openFolder(path) {
+    return function () {
+      fetch("/api/explore/switch", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ folder: path })
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        if (d && d.ok && dashboard()) dashboard().studyOpened(d);
+        else if (dashboard()) dashboard().toast((d && d.error) || "That study could not be opened.", "error");
+      });
+    };
+  }
+
+  function studiesOf() {
+    var kept = fetched.studies;
+    return (kept ? kept.list : []).map(function (study) {
+      var id = study.system && study.system !== study.name ? study.system + " \u00b7 " : "";
+      return { group: "Study", label: id + study.name, hint: study.path,
+               said: String(study.state || ""), run: openFolder(study.path) };
+    });
+  }
+
+  function filesOf() {
+    var kept = fetched.files;
+    return (kept ? kept.list : []).map(function (file) {
+      return { group: "File", label: file.path, hint: file.label || "",
+               run: function () { if (window.FastMDXFrame) window.FastMDXFrame.previewPath(file.path); } };
+    });
+  }
+
+  /* Each setting of Preferences by its words, opening it there. */
+  function settingsOf() {
+    var rows = document.querySelectorAll("#prefs-dialog .pref-row");
+    var found = [];
+    Array.prototype.forEach.call(rows, function (row) {
+      var words = row.querySelector("span");
+      var label = words ? words.textContent.trim() : "";
+      var group = row.closest(".pref-group");
+      var title = group ? ((group.querySelector(".pref-group-title") || {}).textContent || "").trim() : "";
+      if (!label) return;
+      found.push({ group: "Setting", label: label, hint: title, run: function () {
+        dialog("prefs-dialog")();
+        setTimeout(function () {
+          var field = row.querySelector("input, select, textarea, button");
+          if (field) { field.focus(); row.scrollIntoView({ block: "nearest" }); }
+        }, 50);
+      } });
+    });
+    return found;
+  }
+
+  /* -------------------------------------------------------------------- */
+  /* @ a residue, : a frame                                                */
+  /* -------------------------------------------------------------------- */
+
+  /* `@TRP23`, `@A:TRP23`, `@23`, `@A:23B`: the residues of the structure
+   * shown with that number, and that name and chain where given. */
+  var RESIDUE = /^@(?:([A-Za-z0-9]{1,4}):)?([A-Za-z]{1,4})?\s*(-?\d+)([A-Za-z]?)$/;
+  var FRAME = /^:(\d+)$/;
+
+  function viewer() { return window.FastMDXMoleculeViewer; }
+  function engine() { var v = viewer(); return v && v.STATE && v.STATE.engine; }
+
+  function residuesNamed(found) {
+    var e = engine();
+    if (!e || !e.structure || !e.structure()) return null;
+    var chain = found[1] || "", resn = (found[2] || "").toUpperCase(), resi = Number(found[3]);
+    var icode = (found[4] || "").toUpperCase();
+    return e.residues().filter(function (r) {
+      return r.resi === resi && (!resn || String(r.resn).toUpperCase() === resn)
+        && (!chain || r.chain === chain) && String(r.icode || "").toUpperCase() === icode;
+    });
+  }
+
+  /* Once the Viewer has a structure: it is opened first. */
+  function whenTheViewerHasIt(then) {
+    if (dashboard()) dashboard().navigate("viewer");
+    var tries = 0;
+    (function wait() {
+      var e = engine();
+      if (e && e.structure && e.structure()) { then(); return; }
+      if ((tries += 1) < 150) setTimeout(wait, 100);
+    }());
+  }
+
+  function selectResidue(query) {
+    return function () {
+      whenTheViewerHasIt(function () {
+        var found = RESIDUE.exec(query);
+        var residues = residuesNamed(found) || [];
+        var v = viewer();
+        if (!residues.length) {
+          if (dashboard()) dashboard().toast("No residue " + query.slice(1) + " in the structure shown.", "error");
+          return;
+        }
+        var atoms = engine().atomsOfResidues(residues.map(function (r) {
+          return [r.chain, r.resi, r.icode || "", r.resn];
+        }));
+        v.selectResidues(residues, atoms, { announce: true });
+        window.dispatchEvent(new CustomEvent("dashboard:residue-focus",
+          { detail: { resi: residues[0].resi, chain: residues[0].chain || null } }));
+      });
+    };
+  }
+
+  function showFrame(frame) {
+    return function () {
+      if (window.FastMDXSeries && window.FastMDXSeries.openFrame) window.FastMDXSeries.openFrame(frame);
+      else if (dashboard()) dashboard().navigate("viewer");
+    };
+  }
+
+  /* `@` and part of a residue's name or number: the residues it fits, of
+   * the structure the Viewer has; a way to it where it has none yet. */
+  function residuesLike(text) {
+    var e = engine();
+    if (!e || !e.structure || !e.structure()) {
+      return [{ group: "Viewer", label: "Open the Viewer to find its residues",
+                hint: "@ then a residue's name or number, as @TRP23", run: go("viewer") }];
+    }
+    var want = text.replace(/\s+/g, "").toUpperCase();
+    var found = [];
+    e.residues().some(function (r) {
+      var name = (r.chain ? r.chain + ":" : "") + r.resn + r.resi + (r.icode || "");
+      var bare = r.resn + r.resi + (r.icode || "");
+      if (want && name.toUpperCase().indexOf(want) !== 0 && bare.toUpperCase().indexOf(want) !== 0
+          && String(r.resi).indexOf(want) !== 0) return false;
+      found.push({ group: "Residue", label: name, hint: "Select it in the Viewer",
+                   run: selectResidue("@" + name) });
+      return found.length >= MOST;
+    });
+    return found.length ? found : [{ group: "Viewer", label: "No residue " + text + " in the structure shown",
+                                     run: go("viewer") }];
+  }
+
+  /* The line a query of its own makes, before what its words find. */
+  function asked(query) {
+    var q = query.trim();
+    var found = RESIDUE.exec(q);
+    if (found) {
+      var named = residuesNamed(found);
+      var said = named && named.length
+        ? named.map(function (r) { return (r.chain ? r.chain + ":" : "") + r.resn + r.resi + (r.icode || ""); }).join(", ")
+        : "";
+      return [{ group: "Viewer", label: "Select " + q.slice(1) + " in the Viewer",
+                hint: said || "In the structure the Viewer shows", run: selectResidue(q) }];
+    }
+    if (q.charAt(0) === "@") return residuesLike(q.slice(1));
+    found = FRAME.exec(q);
+    if (found) {
+      return [{ group: "Viewer", label: "Frame " + found[1] + " in the Viewer",
+                hint: "Of the trajectory, as the analyses number it", run: showFrame(Number(found[1])) }];
+    }
+    return [];
   }
 
   /* Every word typed in its name or its kind; those whose name begins
    * with the first word first. */
   function match(query) {
+    var own = asked(query);
+    if (own.length) return own;
     var words = query.toLowerCase().split(/\s+/).filter(Boolean);
     if (!words.length) return items.slice(0, MOST);
     var scored = [];
     items.forEach(function (item, index) {
       var name = item.label.toLowerCase();
-      var all = name + " " + item.group.toLowerCase();
+      var all = name + " " + item.group.toLowerCase() + " " + String(item.hint || "").toLowerCase();
       if (!words.every(function (w) { return all.indexOf(w) >= 0; })) return;
       var score = name.indexOf(words[0]) === 0 ? 0 : (" " + name).indexOf(" " + words[0]) >= 0 ? 1 : 2;
       scored.push({ item: item, score: score, index: index });
@@ -143,7 +336,17 @@
       line.setAttribute("aria-selected", String(i === at));
       line.dataset.index = String(i);
       line.appendChild(make("span", "palette-label", item.label));
-      if (item.hint && item.hint !== item.label) line.title = item.hint;
+      if (item.hint && item.hint !== item.label) {
+        line.appendChild(make("span", "palette-hint", item.said || item.hint));
+        line.title = item.hint;
+      } else if (item.said) {
+        line.appendChild(make("span", "palette-hint", item.said));
+      }
+      if (item.keys && item.keys.length) {
+        var keys = make("span", "palette-keys");
+        item.keys.forEach(function (k) { keys.appendChild(make("kbd", "", k)); });
+        line.appendChild(keys);
+      }
       list.appendChild(line);
     });
     if (!shown.length) list.appendChild(make("li", "palette-none", "Nothing by that name."));
@@ -161,11 +364,18 @@
     setTimeout(item.run, 0);
   }
 
-  function open() {
+  /* Opened on everything, or on the open study's files alone ("files"). */
+  function open(only) {
+    mode = only === "files" ? "files" : "";
+    fetchList("files", "/api/files", function (data) { return data && data.artifacts; });
+    if (!mode) fetchList("studies", "/api/studies", function (data) { return data && data.studies; });
     items = gather();
     at = 0;
     var input = el("palette-input");
     input.value = "";
+    if (!input.dataset.everything) input.dataset.everything = input.placeholder;
+    input.placeholder = mode === "files" ? "A file of the open study, by its name or folder"
+      : input.dataset.everything;
     render();
     if (window.FastMDXDialog) window.FastMDXDialog.open("palette");
     setTimeout(function () { input.focus(); }, 0);

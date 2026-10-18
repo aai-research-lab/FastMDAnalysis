@@ -5890,7 +5890,11 @@ body.agent-beside .nav-beside { color: var(--accent-text); }
     .viewer-side.has-rail > .side-section { grid-column: 1; }
 }
 
-/* The Viewer's keys (viewer-help). */
+/* Every key (viewer-help, keys.js): the GUI's, then the Viewer's. */
+.keys-group-title {
+    margin: 4px 0 8px; color: var(--text-muted); font-size: var(--text-2xs);
+    text-transform: uppercase; letter-spacing: 0.08em;
+}
 .keys-list { display: grid; gap: 8px; margin: 0 0 12px; }
 .keys-list > div { display: grid; grid-template-columns: 120px 1fr; gap: 12px; align-items: baseline; }
 .keys-list dt { margin: 0; white-space: nowrap; }
@@ -5914,7 +5918,16 @@ body.agent-beside .nav-beside { color: var(--accent-text); }
     padding: 8px 10px 4px; color: var(--text-muted); font-size: var(--text-2xs);
     text-transform: uppercase; letter-spacing: 0.08em;
 }
-.palette-item { padding: 8px 10px; border-radius: 8px; cursor: pointer; color: var(--text-secondary); }
+.palette-item {
+    padding: 8px 10px; border-radius: 8px; cursor: pointer; color: var(--text-secondary);
+    display: flex; align-items: baseline; gap: 10px;
+}
+.palette-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-hint { flex: 0 1 auto; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis;
+                white-space: nowrap; color: var(--text-muted); font-size: var(--text-2xs); }
+.palette-keys { flex: none; display: inline-flex; gap: 3px; }
+.palette-keys kbd { font-family: var(--font-mono); font-size: var(--text-2xs); padding: 0 5px;
+                    border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-muted); }
 .palette-item[aria-selected="true"] {
     background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--text-primary);
 }

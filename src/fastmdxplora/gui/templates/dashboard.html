@@ -125,23 +125,28 @@
       <span class="search-field palette-field"><!--icon:search:search-icon-->
       <input id="palette-input" class="palette-input" type="text" autocomplete="off" spellcheck="false"
              role="combobox" aria-expanded="true" aria-controls="palette-list" aria-autocomplete="list"
-             placeholder="Go to a page, a study, an analysis, a tool..."></span>
+             placeholder="Go to anything; @TRP23 a residue, :120 a frame"></span>
       <ul id="palette-list" class="palette-list" role="listbox" aria-label="Found"></ul>
       <div class="palette-foot muted small"><kbd>&uarr;</kbd><kbd>&darr;</kbd> choose · <kbd>Enter</kbd> go · <kbd>Esc</kbd> close</div>
     </div>
   </div>
-  <!-- The Viewer's keys, opened by ? on the Viewer or the last button of its rail. -->
+  <!-- Every key: the GUI's (keys.js fills the first list), then the
+       Viewer's. Opened by ? anywhere but in a field, on the Viewer too, and
+       by the last button of the Viewer's rail. -->
   <div id="viewer-help" class="agent-dialog" hidden>
     <div class="agent-dialog-panel dialog-narrow" role="dialog" aria-modal="true"
          aria-labelledby="viewer-help-title">
       <div class="agent-dialog-head">
         <div>
-          <div class="builder-label" id="viewer-help-title">The Viewer's keys</div>
-          <div class="builder-card-note">On the Viewer, and never while typing in a field.</div>
+          <div class="builder-label" id="viewer-help-title">Keys</div>
+          <div class="builder-card-note">Never while typing in a field, but those with &#8984; or Ctrl.</div>
         </div>
         <button type="button" class="line-btn dialog-x" data-dialog-close aria-label="Close" title="Close"><!--icon:close:line-icon--></button>
       </div>
       <div class="agent-dialog-body">
+        <div class="keys-group-title">Anywhere</div>
+        <dl class="keys-list" id="every-key"></dl>
+        <div class="keys-group-title">On the Viewer</div>
         <dl class="keys-list" id="viewer-keys">
           <div><dt><kbd>Space</kbd></dt><dd>Play or pause</dd></div>
           <div><dt><kbd>&larr;</kbd> <kbd>&rarr;</kbd></dt><dd>A frame back or on; with <kbd>Shift</kbd>, ten</dd></div>
@@ -151,8 +156,6 @@
           <div><dt><kbd>M</kbd></dt><dd>Measure: click two to four atoms</dd></div>
           <div><dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>The tool above or below on the rail</dd></div>
           <div><dt><kbd>Esc</kbd></dt><dd>Clear a measurement; close this list</dd></div>
-          <div><dt><kbd>?</kbd></dt><dd>This list</dd></div>
-          <div><dt><kbd>&#8984;</kbd> <kbd>K</kbd></dt><dd>Go to anything, on any page (<kbd>Ctrl</kbd> <kbd>K</kbd> off a Mac)</dd></div>
         </dl>
         <p class="builder-card-note">On the molecule: drag to turn, scroll to zoom, right-drag to move,
           click an atom to select it.</p>
@@ -2013,6 +2016,7 @@
     <script src="/static/dashboard.js"></script>
     <script src="/static/place.js"></script>
     <script src="/static/statusbar.js"></script>
+    <script src="/static/keys.js"></script>
     <script src="/static/problems.js"></script>
     <script src="/static/files-page.js"></script>
     <script src="/static/files-actions.js"></script>
