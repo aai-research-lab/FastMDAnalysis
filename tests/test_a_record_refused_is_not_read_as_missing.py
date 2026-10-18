@@ -332,3 +332,19 @@ def test_a_figure_s_record_not_read_gives_no_other_command(tmp_path, refused, pu
     else:
         assert "--analyze-options" in made["command"]
         assert made["version"] is None
+
+
+@PUBLIC
+@pytest.mark.parametrize("refused,project,latest", [
+    (("manifest.json",), "not read", "completed"),
+    (("manifest.json", "simulation/live_status.json"), "not read", "not read"),
+    (("simulation/live_status.json",), "completed", "not read"),
+], ids=["manifest", "manifest-and-live-record", "live-record"])
+def test_a_run_s_status_not_read_is_said_not_read(tmp_path, refused, project, latest, public):
+    """The run's manifest (or its live record) not read: its status is said
+    not read, not "in progress" or "not run" as for a run that wrote none."""
+    root = _a_run_of_one_piece(tmp_path)
+    _linked_out(root, tmp_path, *refused)
+    status, body = _ask(root, tmp_path, "/api/results", public=public)
+    summary = {row["label"]: row["value"] for row in json.loads(body)["summary"]}
+    assert (summary["Project status"], summary["Latest status"]) == (project, latest)

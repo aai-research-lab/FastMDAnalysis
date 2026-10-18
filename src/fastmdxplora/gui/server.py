@@ -3631,12 +3631,17 @@ def _summary_records(
     extended: tuple[float, int] | None = None,
     production_not_read: str | None = None,
 ) -> list[dict[str, str]]:
+    from fastmdxplora.simulation.pipeline import _refused
+
     phase_statuses = [
         str(item.get("status") or "unknown").lower()
         for item in manifest.get("phases", [])
         if isinstance(item, dict)
     ]
-    if phase_statuses and all(value in {"ok", "completed", "skipped"} for value in phase_statuses):
+    if not manifest and _refused(root / "manifest.json"):
+        # The run's manifest not read is not a run that wrote none.
+        status = "not read"
+    elif phase_statuses and all(value in {"ok", "completed", "skipped"} for value in phase_statuses):
         status = "completed"
     elif any(value in {"error", "failed"} for value in phase_statuses):
         # A phase asked to stop is said as stopped, as the study's card says.
@@ -3671,6 +3676,9 @@ def _summary_records(
         _last_metric_value(root, "temperature"),
     )
     latest = _first_present(live_status.get("status"), status)
+    if not live_status and _refused(root / "simulation" / "live_status.json"):
+        # Its live record not read: not the manifest's word in its place.
+        latest = "not read"
     records = [
         {"label": "Project status", "value": status},
         {"label": "Latest status", "value": str(latest or "—")},
