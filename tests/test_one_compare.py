@@ -499,3 +499,43 @@ def test_ticking_the_second_run_does_not_move_the_table(variants):
 
     before, after = _browse(variants, look)
     assert abs(after - before) < 1, (before, after)
+
+
+def test_two_runs_of_a_tripeptide_are_played_beside_in_the_viewer(tmp_path):
+    """Two seeds of one study of a tripeptide: Play them beside said the
+    second "is not a form of this study's protein", since no run of four
+    residues alike fits in three."""
+    pytest.importorskip("mdtraj")
+    import numpy as np
+
+    from tests.test_another_study_is_shown_beside import _peptide
+    from tests.test_the_overview_of_a_study_of_runs import _a_study_of_runs
+
+    study = _a_study_of_runs(tmp_path, "simulation.random_seed", [1, 2])
+    first, second = _runs(study)
+    for seed, run in enumerate((first, second)):
+        peptide = _peptide("IVG")
+        xyz = np.repeat(peptide.xyz, 10, axis=0)
+        xyz += np.random.default_rng(seed).normal(0, 0.01, xyz.shape)
+        frames = type(peptide)(xyz.astype(np.float32), peptide.topology)
+        frames[0].save_pdb(str(run / "simulation" / "trajectory_topology.pdb"))
+        frames.save_dcd(str(run / "simulation" / "production.dcd"))
+        (run / "simulation" / "simulation_parameters.json").write_text(json.dumps(
+            {"duration_ns_actual": 1.0}), encoding="utf-8")
+    place = urllib.parse.quote(str(first), safe="") + "|" + urllib.parse.quote(str(second), safe="")
+
+    def look(page, url):
+        page.goto(url + "#compare/" + place, wait_until="domcontentloaded")
+        if not page.evaluate("() => !!document.createElement('canvas').getContext('webgl')"):
+            pytest.skip("this browser has no WebGL, so the viewer cannot render")
+        page.wait_for_selector('.page[data-page="compare"][data-compared="yes"]')
+        page.click("#compare-beside")
+        page.wait_for_function("() => document.documentElement.dataset.page === 'viewer'")
+        page.wait_for_function("() => !document.getElementById('beside-remove').hidden"
+                               " || document.getElementById('beside-note').textContent"
+                               ".startsWith('Not shown')", timeout=120000)
+        return page.evaluate("() => document.getElementById('beside-note').textContent")
+
+    note = _browse(study, look)
+    assert not note.startswith("Not shown"), note
+    assert "its 3 residues paired" in note, note
