@@ -24,7 +24,8 @@ nobody chose is worse than one with a gap in it: the gap is visible.
 
 from __future__ import annotations
 
-from pathlib import Path
+import re
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 __all__ = ["methods_paragraphs", "missing_from_methods", "CHECKLIST"]
@@ -99,6 +100,16 @@ def _made_with_sentence(made_with: list[tuple[str, list[str]]]) -> str:
     else:
         sentence = ", ".join(clauses[:-1]) + ", and " + clauses[-1]
     return sentence[0].upper() + sentence[1:] + "."
+
+
+def _file_named(source: Any) -> Any:
+    """A structure file by its name, never the path it was read from: the
+    path is a folder on one computer (`/tmp/...`, a home folder), which a
+    reader cannot open and a Methods section should not publish. The file
+    is identified by its digest and the entry its header names."""
+    if not isinstance(source, str) or not re.search(r"[\\/]", source):
+        return source
+    return PureWindowsPath(source).name if "\\" in source else PurePosixPath(source).name
 
 
 def _get(params: dict[str, Any], *names: str, default: Any = None) -> Any:
@@ -319,7 +330,7 @@ def methods_paragraphs(
         origin = (
             f"the Protein Data Bank entry {source}"
             if form == "pdb_id"
-            else f"`{source}`"
+            else f"`{_file_named(source)}`"
         )
 
         # Setup now records what the structure was, and this sentence is the
