@@ -13,6 +13,7 @@
   "use strict";
 
   var running = false;
+  var statusReady = false;
   var wasRunning = false;
   var stage = "";
 
@@ -36,7 +37,7 @@
 
   /* Ask in ``host``, then stop. ``done`` is told the answer's words. */
   function ask(host, done) {
-    if (!host) return;
+    if (!host || !running || !statusReady) return;
     host.hidden = false;
     host.innerHTML = "";
     host.appendChild(el("span", "fix-said", "Stop the run? " + whatItLeaves()));
@@ -96,17 +97,18 @@
 
   /* The controls this offers, shown only while a run goes here. */
   function show() {
+    var available = running && statusReady;
     Array.prototype.forEach.call(document.querySelectorAll("[data-stop-run]"), function (button) {
-      button.hidden = !running;
+      button.hidden = !available;
       button.disabled = false;
     });
-    var started = running && !wasRunning;
-    wasRunning = running;
+    var started = available && !wasRunning;
+    wasRunning = available;
     Array.prototype.forEach.call(document.querySelectorAll("[data-stop-ask]"), function (host) {
       // A question left open when the run ends goes with it; an earlier
       // stop's answer goes once another run starts ("Stopped." stayed under
       // a live Stop the whole carry-on through).
-      if ((!running && host.querySelector(".stop-run-yes"))
+      if ((!available && host.querySelector(".stop-run-yes"))
           || (started && host.querySelector(".stop-run-answer"))) {
         host.innerHTML = "";
         host.hidden = true;
@@ -144,6 +146,12 @@
     show();
     var board = window.FastMDXDashboard;
     if (!board || !board.on) return;
+    board.on("run-changed", function () {
+      running = false;
+      statusReady = false;
+      stage = "";
+      show();
+    });
     board.on("app-state", function (detail) {
       running = Boolean(detail && detail.process_running);
       show();
@@ -151,12 +159,18 @@
     board.on("status-updated", function (detail) {
       var status = (detail && detail.status) || {};
       stage = String(status.stage || "").toLowerCase();
+      // App state can arrive before the record and its Overview panels.
+      // Ask only after they are drawn, so the safe answer can take focus
+      // and the question says what stopping this stage actually leaves.
+      // An empty record still answers: runs without telemetry can stop too.
+      statusReady = true;
+      show();
     });
   });
 
   window.FastMDXStop = {
     ask: ask,
     stop: stop,
-    running: function () { return running; }
+    running: function () { return running && statusReady; }
   };
 }());
