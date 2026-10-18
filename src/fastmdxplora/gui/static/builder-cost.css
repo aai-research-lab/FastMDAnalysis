@@ -1,0 +1,41 @@
+/* New study: every step shown from the start, Run quiet until there is a
+ * study to run, and what the study costs here beside its summary
+ * (run-builder.js: markWaiting, renderCost). */
+
+/* Run on this machine, quiet as Send is with nothing written: the accent
+ * kept for when there is something to run. */
+.page[data-page="run"] #run-start-button:disabled,
+.page[data-page="run"] #run-phone-start:disabled {
+    border-color: var(--border-primary); background: transparent; color: var(--text-muted);
+    opacity: 1; box-shadow: none; cursor: default;
+}
+
+/* Steps 2 to 5 before a starting point is chosen: there to read, not yet
+ * to change. */
+.builder-step.is-waiting .builder-step-body { opacity: .55; }
+.builder-step-waiting { margin: -4px 0 12px; font-size: var(--text-xs); }
+
+/* What it costs here: one line a diagnostic, its level, what it is about
+ * and what it says. */
+.builder-cost .builder-summary-k { display: flex; align-items: baseline; gap: 8px; }
+.builder-cost-count { margin-left: auto; font-size: var(--text-2xs); color: var(--text-muted); }
+.builder-cost[data-worst="warning"] .builder-cost-count { color: var(--accent-orange); }
+.builder-cost[data-worst="error"] .builder-cost-count { color: var(--accent-red); }
+.builder-cost-lines { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.builder-cost-line {
+    display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 2px 8px; align-items: baseline;
+    font-size: var(--text-xs); line-height: 1.45; color: var(--text-secondary);
+}
+.builder-cost-line.is-empty { display: block; }
+.builder-cost-level {
+    font-family: var(--font-mono); font-size: var(--text-2xs); text-transform: lowercase;
+    color: var(--text-muted);
+}
+.builder-cost-line[data-level="warning"] .builder-cost-level { color: var(--accent-orange); }
+.builder-cost-line[data-level="error"] .builder-cost-level { color: var(--accent-red); font-weight: 600; }
+.builder-cost-kind { color: var(--text-primary); font-weight: 500; white-space: nowrap; }
+.builder-cost-said { min-width: 0; overflow-wrap: anywhere; }
+@container builder (width < 784px) {
+    .builder-cost-line { grid-template-columns: auto minmax(0, 1fr); }
+    .builder-cost-said { grid-column: 1 / -1; }
+}

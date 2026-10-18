@@ -78,6 +78,7 @@ def preview_of_config(config: dict[str, Any], *,
     settings = dict(setup)
     settings.update(config.get("simulation") or {})
     counted = count_structure(structure)
+    time = _time(config, estimate.particles)
     advisories = [
         {"setting": a.setting, "summary": a.summary, "detail": a.detail, "remedy": a.remedy}
         for a in advise(_as_given(counted, given), settings)
@@ -95,7 +96,10 @@ def preview_of_config(config: dict[str, Any], *,
         # The residues whose protonation state the study may set, for the
         # form's rows and for a click on one in the picture.
         "titratable": titratable_residues(estimate.atoms),
-        "time": _time(config, estimate.particles),
+        "time": time,
+        # What it costs, as a compiler's diagnostics: its speed, time, disk
+        # and GPU memory here, each a note, a warning or an error.
+        "cost": study_cost(config, estimate, time, path_for=path_for),
         "advisories": advisories,
         # What the file holds before anything is chosen or discarded: the
         # chains to choose among, its models, its heterogens.
@@ -344,3 +348,225 @@ def _platform(requested: str, precision: str) -> tuple[str, str]:
 
     return _what_it_will_run_on({"simulation": {"platform": requested, "precision": precision}},
                                 "", "")
+
+
+# ---------------------------------------------------------------------------
+# What the study costs, line by line
+# ---------------------------------------------------------------------------
+
+#: Atoms in one water molecule of each model, as setup builds it: what the
+#: default `save_selection` ("not water") leaves out of the trajectory.
+WATER_SITES = {"tip3p": 3, "tip3pfb": 3, "spce": 3, "tip4pew": 4, "tip4pfb": 4, "opc": 4,
+               "tip5p": 5, "opc3": 3}
+
+#: A DCD frame: three 4-byte coordinates an atom, each axis a Fortran record
+#: (8 bytes of markers), and the unit cell (six doubles, 8 more).
+DCD_BYTES_PER_ATOM = 12
+DCD_BYTES_PER_FRAME = 3 * 8 + 6 * 8 + 8
+
+#: Free disk below this share of what is free is a warning: the study would
+#: leave the disk all but full.
+DISK_WARNING_SHARE = 0.8
+
+#: The GPUs as last read, and when: `nvidia-smi` is asked at most this often
+#: while a form is written.
+_ROOM_SECONDS = 30.0
+_room: dict[str, Any] = {"at": -1.0, "room": None}
+_ROOM_LOCK = threading.Lock()
+
+
+def _gpus_now() -> Any:
+    import time as clock
+
+    from fastmdxplora.gpu_here import room_here
+
+    with _ROOM_LOCK:
+        now = clock.monotonic()
+        if _room["at"] < 0 or now - _room["at"] > _ROOM_SECONDS:
+            try:
+                _room["room"] = room_here()
+            except Exception:  # noqa: BLE001 - GPUs not read are said as such
+                _room["room"] = None
+            _room["at"] = now
+        return _room["room"]
+
+
+def _size(n_bytes: float) -> str:
+    """Bytes as a person reads them: 820 MB, 3.4 GB."""
+    for unit, size in (("TB", 1e12), ("GB", 1e9), ("MB", 1e6), ("kB", 1e3)):
+        if n_bytes >= size:
+            value = n_bytes / size
+            return f"{value:.1f} {unit}" if value < 10 else f"{value:,.0f} {unit}"
+    return f"{n_bytes:.0f} bytes"
+
+
+def _production_steps(simulation: dict[str, Any]) -> tuple[int, bool]:
+    """The production steps of one run, and whether that is a ceiling (a
+    study run until it is determined may stop sooner), as `cost.total_steps`
+    reads them."""
+    from fastmdxplora.simulation.lengths import (
+        DEFAULT_PRODUCTION_NS, DEFAULT_TIMESTEP_FS, steps_in,
+    )
+
+    timestep = float(simulation.get("timestep_fs") or DEFAULT_TIMESTEP_FS)
+    stop_when = simulation.get("stop_when")
+    ceiling = stop_when.get("max_duration_ns") if isinstance(stop_when, dict) else None
+    if isinstance(ceiling, (int, float)) and not isinstance(ceiling, bool) and ceiling > 0:
+        return steps_in(ceiling, timestep), True
+    if simulation.get("production_steps") is not None:
+        return int(simulation["production_steps"]), False
+    return steps_in(simulation.get("duration_ns") or DEFAULT_PRODUCTION_NS, timestep), False
+
+
+def _simulates(config: dict[str, Any]) -> bool:
+    included = config.get("include_phase")
+    excluded = config.get("exclude_phase") or []
+    if included:
+        return "simulation" in included
+    return "simulation" not in excluded
+
+
+def _where_written(config: dict[str, Any],
+                   path_for: Callable[[Any], str | None] | None) -> Path | None:
+    """The nearest folder that exists on the way to where the study is
+    written, for its free disk; ``None`` where a hosted page may not name it."""
+    given = str(config.get("output") or "").strip() or "."
+    if path_for is not None:
+        allowed = path_for(given)
+        if allowed is None:
+            return None
+        given = allowed
+    folder = Path(given).expanduser()
+    folder = folder if folder.is_absolute() else Path.cwd() / folder
+    for here in (folder, *folder.parents):
+        if here.is_dir():
+            return here
+    return None
+
+
+def study_cost(config: dict[str, Any], estimate: Any, time: dict[str, Any], *,
+               path_for: Callable[[Any], str | None] | None = None) -> list[dict[str, str]]:
+    """What the study costs here, as the builder shows it beside its summary:
+    the speed one run makes, the time every run takes, the disk its
+    trajectories take against what is free where it is written, and the GPU
+    memory one run needs against what the GPUs have free. Each line is a
+    ``note``, a ``warning`` (it fits, barely) or an ``error`` (it does not
+    fit), with ``kind`` one of speed, time, disk and gpu."""
+    from fastmdxplora.cost import load_calibration
+    from fastmdxplora.simulation.lengths import DEFAULT_TIMESTEP_FS
+
+    if not _simulates(config):
+        return [{"kind": "time", "level": "note",
+                 "said": "Nothing is simulated, so no time, trajectory or GPU memory is counted."}]
+    simulation = config.get("simulation") or {}
+    particles = int(estimate.particles)
+    runs = int(time.get("runs") or 0) if time.get("ok") else 0
+    lines: list[dict[str, str]] = []
+
+    # The speed of one run, from the timing the time is worked out from.
+    calibration = load_calibration() if time.get("ok") else None
+    if calibration is not None and particles > 0:
+        timestep = float(simulation.get("timestep_fs") or DEFAULT_TIMESTEP_FS)
+        per_day = timestep * 1e-6 * 86400.0 / (calibration.seconds_per_particle_step * particles)
+        platform = str(time.get("platform") or "this machine")
+        # A precision is the GPU's to choose; the CPU platform has its own.
+        precision = (f" {time.get('precision')}" if time.get("precision")
+                     and platform not in ("CPU", "Reference", "this machine") else "")
+        lines.append({"kind": "speed", "level": "note", "said": (
+            f"about {per_day:,.3g} ns/day on {platform}{precision}, for about {particles:,} "
+            f"particles, from this machine's timing of {str(calibration.measured_at)[:10]}")})
+    else:
+        why = str(time.get("reason") or "this machine has not been timed").rstrip(".")
+        lines.append({"kind": "speed", "level": "note",
+                      "said": "ns/day not known: " + why[:1].lower() + why[1:] + "."})
+
+    if time.get("ok"):
+        lines.append({"kind": "time", "level": "note", "said": (
+            f"about {_duration(float(time['seconds']))}"
+            + (f" for {runs} runs" if runs > 1 else "")
+            + f", {int(time['steps']):,} steps in all, equilibration included")})
+
+    # The trajectories: production frames of the atoms the run keeps.
+    from fastmdxplora.simulation.runner import trajectory_interval_for
+
+    steps, ceiling = _production_steps(simulation)
+    interval = simulation.get("trajectory_interval_steps")
+    interval = int(interval) if interval else trajectory_interval_for(steps)
+    frames = steps // max(1, interval)
+    kept = simulation.get("save_selection", "not water")
+    waters = int(getattr(estimate, "waters", 0) or 0)
+    sites = WATER_SITES.get(str(getattr(estimate, "water_model", "")).lower(), 3)
+    if kept in (None, "", "all"):
+        atoms, which = particles, "every atom"
+    elif str(kept).strip() == "not water":
+        atoms, which = max(0, particles - waters * sites), "the atoms but water"
+    else:
+        atoms, which = particles, f"at most every atom (`{kept}` is not worked out here)"
+    each = frames * (DCD_BYTES_PER_ATOM * atoms + DCD_BYTES_PER_FRAME)
+    many = max(1, runs)
+    needed = each * many
+    said = (f"about {_size(needed)} of trajectory{' at most' if ceiling else ''}: "
+            f"{frames:,} frames of {atoms:,} atoms ({which})"
+            + (f" in each of {many} runs" if many > 1 else ""))
+    level = "note"
+    where = _where_written(config, path_for)
+    if where is not None:
+        import shutil
+
+        try:
+            free = shutil.disk_usage(where).free
+        except OSError:
+            free = None
+        if free is not None:
+            said += f", with {_size(free)} free where it is written"
+            if needed > free:
+                level, said = "error", said + ": it does not fit"
+            elif needed > DISK_WARNING_SHARE * free:
+                level, said = "warning", said + ": it would leave the disk all but full"
+    lines.append({"kind": "disk", "level": level, "said": said})
+
+    lines.append(_gpu_line(config, path_for))
+    return lines
+
+
+def _gpu_line(config: dict[str, Any],
+              path_for: Callable[[Any], str | None] | None) -> dict[str, str]:
+    """The GPU memory one run needs against what this computer's GPUs have
+    free, as a Run here would choose its GPU (`gpu_here.choice_here`)."""
+    from fastmdxplora.gpu_here import choice_here
+    from fastmdxplora.remote.send import simulates_on_gpu
+
+    if not simulates_on_gpu(config, os.cpu_count()):
+        return {"kind": "gpu", "level": "note",
+                "said": "runs on the CPU, so no GPU memory is needed"}
+    room = _gpus_now()
+    if room is None or not room.gpus:
+        return {"kind": "gpu", "level": "note",
+                "said": "not checked: no GPU here that nvidia-smi reads"}
+    folder = _where_written(config, path_for) or Path.cwd()
+    choice, notes = choice_here(config, folder, [], room=room)
+    if choice is None:
+        return {"kind": "gpu", "level": "note",
+                "said": " ".join(notes) or "not checked"}
+    if choice.refused:
+        return {"kind": "gpu", "level": "error", "said": choice.refused}
+    gpu = choice.gpu
+    on = (f"GPU {gpu.index} ({gpu.name}), {gpu.free_mb / 1024:.1f} GB free of "
+          f"{gpu.total_mb / 1024:.1f} GB" if gpu is not None else "the GPUs the config names")
+    if choice.need.mb is None:
+        return {"kind": "gpu", "level": "note",
+                "said": f"runs on {on}; the memory one run needs is {choice.need.how}"}
+    return {"kind": "gpu", "level": "note",
+            "said": f"about {choice.need.mb / 1024:.1f} GB of GPU memory a run "
+                    f"({choice.need.how}), on {on}"}
+
+
+def _duration(seconds: float) -> str:
+    """As the builder says a time: 40 seconds, 12 minutes, 3.4 hours, 2.1 days."""
+    if seconds < 90:
+        return f"{seconds:.0f} seconds"
+    if seconds < 5400:
+        return f"{seconds / 60:.0f} minutes"
+    if seconds < 129600:
+        return f"{seconds / 3600:.1f} hours"
+    return f"{seconds / 86400:.1f} days"
