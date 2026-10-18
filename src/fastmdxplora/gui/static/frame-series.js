@@ -153,6 +153,10 @@
   /* One track                                                             */
   /* -------------------------------------------------------------------- */
 
+  function named(track) {
+    return (state.list || []).find(function (s) { return s.analysis === track.name; }) || {};
+  }
+
   function trackNode(track) {
     var node = host().querySelector('.frame-track[data-analysis="' + track.name + '"]');
     if (node) return node;
@@ -297,7 +301,8 @@
     }
     if (said) {
       said.textContent = close
-        ? format(d.y[point]) + (d.unit ? " " + d.unit : "")
+        // Its unit is in the track's name beside it.
+        ? format(d.y[point]) + (d.unit && !named(track).unit ? " " + d.unit : "")
           + (d.frames[point] === frame ? "" : " (frame " + d.frames[point] + ", the nearest analysed)")
         : "not analysed at this frame";
     }

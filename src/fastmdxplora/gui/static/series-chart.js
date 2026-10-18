@@ -85,6 +85,20 @@
       : { factor: 1, label: label, unit: "ns" };
   }
 
+  /* A frame's time in the unit the Viewer's ruler reads its frames in
+   * (`timeScale`), with places enough to tell one frame from the next: a
+   * 40 ps run read "0.000 ns" for its first two frames, under a ruler in ps. */
+  function frameTimeSaid(t, times) {
+    if (t == null || !isFinite(t)) return "\u2014";
+    var scale = timeScale(times, "Time (ns)");
+    var finite = (times || []).filter(function (x) { return isFinite(x); });
+    var step = finite.length > 1
+      ? Math.abs(finite[finite.length - 1] - finite[0]) / (finite.length - 1) * scale.factor : 0;
+    var places = step > 0 ? Math.max(0, Math.min(6, Math.ceil(-Math.log10(step) + 1e-9))) : 3;
+    if (scale.unit === "ns") places = Math.max(places, 3);
+    return (t * scale.factor).toFixed(places) + " " + scale.unit;
+  }
+
   function format(value) {
     if (value == null || !isFinite(value)) return "—";
     var magnitude = Math.abs(value);
@@ -420,7 +434,7 @@
   window.addEventListener("dashboard:run-changed", function () { cache = {}; playback = null; });
 
   window.FastMDXSeries = {
-    hydrate: hydrate, ticks: ticks, timeScale: timeScale,
+    hydrate: hydrate, ticks: ticks, timeScale: timeScale, frameTimeSaid: frameTimeSaid,
     forget: function () { cache = {}; playback = null; },
     /* A frame of the trajectory opened in the viewer (figure-chart.js). */
     openFrame: function (frame) { open({ linked: true, frames: [frame] }, 0); },

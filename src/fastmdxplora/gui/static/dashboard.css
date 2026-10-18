@@ -4265,6 +4265,8 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
 .frame-track-drop:hover { color: var(--text-primary); }
 .frame-track-note:empty { display: none; }
 .frame-track-note { margin: 0 0 0 48px; }
+/* A track with no chart: its note under its name, not over it. */
+.frame-track-chart:empty + .frame-track-note { padding-top: 18px; }
 .frame-series-svg { display: block; width: 100%; cursor: pointer; touch-action: none; }
 .frame-series-pick { align-self: flex-start; margin-left: 48px; font-size: var(--text-2xs); }
 /* The sequence's head keeps the marker every section's summary has, the

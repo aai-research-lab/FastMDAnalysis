@@ -181,6 +181,20 @@ def test_the_timeline_is_under_the_molecule_and_shows_a_frame_when_asked(study):
             page.select_option("#frame-series-pick", "rg")
             page.wait_for_function(
                 "() => document.querySelectorAll('#frame-series .frame-series-line').length === 2")
+            # The frame's time in the ruler's unit, the badge too.
+            times = page.evaluate("""() => [document.getElementById('traj-simtime').textContent,
+                document.getElementById('overlay-simtime').textContent,
+                [...document.querySelectorAll('#timeline-ruler text')].pop().textContent]""")
+            # A track that cannot be drawn says why under its name, not over it.
+            boxes = page.evaluate("""() => {
+                const track = document.querySelector('.frame-track');
+                track.querySelector('.frame-track-chart').replaceChildren();
+                const note = track.querySelector('.frame-track-note');
+                note.textContent = 'RMSD was computed from another trajectory than the one played.';
+                const a = track.querySelector('.frame-track-label').getBoundingClientRect();
+                const b = note.getBoundingClientRect();
+                return [a.bottom, b.top];
+            }""")
             # The tool beside the molecule is as tall as the rail.
             panel = page.evaluate("""() => {
                 const chosen = document.querySelector('.viewer-side .side-section.is-chosen');
@@ -197,5 +211,9 @@ def test_the_timeline_is_under_the_molecule_and_shows_a_frame_when_asked(study):
     assert first["tracks"] == ["rmsd", "rg"]
     assert first["marks"] == ["The medoid of kmeans cluster 0, 60% of the frames",
                               "The medoid of kmeans cluster 1, 40% of the frames"]
-    assert on_mark[0] == "5" and all(v.endswith(" nm") for v in on_mark[1])
+    # The unit once, in the track's name, not again after its value.
+    assert on_mark[0] == "5" and on_mark[1] and not any(v.endswith(" nm") for v in on_mark[1])
     assert panel[0] >= panel[1] - 2 and panel[2] == -1
+    unit = times[2].split()[-1]
+    assert times[0].endswith(" " + unit) and times[1].endswith(" " + unit), times
+    assert boxes[0] <= boxes[1], boxes

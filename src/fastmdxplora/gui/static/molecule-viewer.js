@@ -2728,8 +2728,12 @@
     setText("traj-current", String(index));
     setText("traj-total", String(STATE.playbackFrames));
     const time = STATE.playbackFrameTimes[index];
-    setText("traj-simtime", time != null ? Number(time).toFixed(3) : "\u2014");
-    setOverlay(false, {stage: "playback", frame: index, simtime: time});
+    // In the ruler's unit: ps for a run under a nanosecond.
+    const said = window.FastMDXSeries?.frameTimeSaid
+      ? window.FastMDXSeries.frameTimeSaid(time, STATE.playbackFrameTimes)
+      : (time != null ? `${Number(time).toFixed(3)} ns` : "\u2014");
+    setText("traj-simtime", said);
+    setOverlay(false, {stage: "playback", frame: index, simtime: time, simtimeSaid: said});
     try {
       await STATE.engine.setFrame(index);
       if (STATE.miniEngine && STATE.miniModel?.of === "frames") await STATE.miniEngine.setFrame(index);
@@ -3358,7 +3362,8 @@
     if (info?.step != null) setText("overlay-frame", `step ${Number(info.step).toLocaleString()}`);
     if (info?.frame != null) setText("overlay-frame", `frame ${info.frame}`);
     if (info?.age != null && !ended) setText("overlay-age", `age ${info.age}`);
-    if (info?.simtime != null) {
+    if (info?.simtimeSaid) setText("overlay-simtime", info.simtimeSaid);
+    else if (info?.simtime != null) {
       setText("overlay-simtime",
         `${info.simtimeOf ? info.simtimeOf + " " : ""}${Number(info.simtime).toFixed(3)} ns`);
     }

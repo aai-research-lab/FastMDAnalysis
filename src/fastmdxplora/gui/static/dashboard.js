@@ -1229,7 +1229,9 @@
     byId("open-output")?.setAttribute(
       "title", state.outputDir ? `Open ${state.outputDir}` : "Open output folder"
     );
-    setTextWithTooltip("sidebar-run-name", state.runTitle);
+    // A run of a study of several by what sets it apart, as its place says.
+    const runOf = state.appState?.run_of;
+    setTextWithTooltip("sidebar-run-name", runOf ? (runOf.label || runOf.run_id) : state.runTitle);
 
     state.runId = status.system_id || state.results?.system?.system || state.runId;
     setTextWithTooltip("topbar-run-id", state.runId || "system");
@@ -1326,9 +1328,14 @@
     // Said of a run that is writing, and of one that has ended as it is.
     const writing = ["running", "starting"].includes(String(status.status || "").toLowerCase())
       || !!state.appState?.process_running;
-    setText("overview-subtitle", writing
-      ? "What the run is doing, and whether it is doing it well."
-      : "What the run did, and how it went.");
+    // A study of several runs is its runs, not a run.
+    const ofRuns = Array.isArray(state.appState?.runs);
+    setText("overview-subtitle", ofRuns
+      ? (writing ? "What the study's runs are doing, and how far each has got."
+        : "What the study's runs did, and how they went.")
+      : writing
+        ? "What the run is doing, and whether it is doing it well."
+        : "What the run did, and how it went.");
     setText("overview-charts-title", writing ? "Live charts" : "Thermodynamics");
   }
 
@@ -2228,8 +2235,10 @@
     setText("traj-total", String(state.playbackFrames));
     setText(
       "traj-simtime",
-      state.playbackFrameTimes[frame] != null
-        ? formatNumber(state.playbackFrameTimes[frame], 3) : "—"
+      window.FastMDXSeries?.frameTimeSaid
+        ? window.FastMDXSeries.frameTimeSaid(state.playbackFrameTimes[frame], state.playbackFrameTimes)
+        : state.playbackFrameTimes[frame] != null
+          ? formatNumber(state.playbackFrameTimes[frame], 3) + " ns" : "—"
     );
     row.hidden = false;
     emit("playback-ready", Object.assign({}, payload, {
