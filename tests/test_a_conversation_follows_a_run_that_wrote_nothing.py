@@ -2038,9 +2038,9 @@ def test_new_pressed_as_the_page_opens_keeps_the_new_thread(tmp_path, monkeypatc
                        {"eid": "a", "role": "agent", "kind": "answer", "text": "old a"}])
     real = agent_panel.read_conversation
 
-    def slow(runtime):
+    def slow(runtime, *args, **kwargs):
         time.sleep(2.0)
-        return real(runtime)
+        return real(runtime, *args, **kwargs)
 
     monkeypatch.setattr(agent_panel, "read_conversation", slow)
     _model(monkeypatch)
@@ -2070,9 +2070,9 @@ def test_a_message_typed_before_the_thread_is_read_is_said_in_it(tmp_path, monke
                        {"eid": "a", "role": "agent", "kind": "answer", "text": "old a"}])
     real = agent_panel.read_conversation
 
-    def slow(runtime):
+    def slow(runtime, *args, **kwargs):
         time.sleep(2.0)
-        return real(runtime)
+        return real(runtime, *args, **kwargs)
 
     monkeypatch.setattr(agent_panel, "read_conversation", slow)
     try:
