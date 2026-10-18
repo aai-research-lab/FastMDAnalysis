@@ -1269,6 +1269,75 @@
       chip.appendChild(name); chip.appendChild(size); chip.appendChild(rm);
       host.appendChild(chip);
     });
+    keepUnsent();
+  }
+
+  /* ---- Words not sent yet, kept per study in this browser window ------ */
+  /* What is typed in the box and the files attached to it belong to the
+   * study open as they were begun. They are kept in session storage under
+   * that study's key, so a Back, a page put away by the browser, or any
+   * other way out of the study and back again finds them there; sending or
+   * clearing them forgets them. Without storage the box works as before,
+   * and a switch of study is held for them (beforeStudySwitch). */
+  var UNSENT_WORDS = "fmx.agentUnsent:";
+  var unsentKey = "";
+  var unsentKept = false;
+  function validStudyKey(key) { return typeof key === "string" && /^[0-9a-f]{16}$/.test(key); }
+  function boxNow() {
+    var area = el("agent-request");
+    return area ? area.value : "";
+  }
+  function keepUnsent() {
+    var words = boxNow();
+    var empty = !words.trim() && !pendingFiles.length;
+    if (empty && validStudyKey(unsentKey)) {
+      try { sessionStorage.removeItem(UNSENT_WORDS + unsentKey); } catch (e) { /* none kept */ }
+    }
+    if (empty) { unsentKept = true; return; }
+    if (!validStudyKey(unsentKey)) unsentKey = shownStudy();
+    unsentKept = false;
+    if (!validStudyKey(unsentKey)) return;
+    try {
+      sessionStorage.setItem(UNSENT_WORDS + unsentKey, JSON.stringify({ words: words, files: pendingFiles }));
+      unsentKept = true;
+    } catch (e) {
+      /* Too large with the files' text: the words and the files' names. */
+      try {
+        sessionStorage.setItem(UNSENT_WORDS + unsentKey, JSON.stringify({ words: words, files: [] }));
+      } catch (e2) { /* not kept: a switch is held for them */ }
+    }
+  }
+  function shownStudy() {
+    var dashboard = window.FastMDXDashboard;
+    var key = dashboard && dashboard.state ? dashboard.state.studyShown : "";
+    return validStudyKey(key) ? key : "";
+  }
+  /* The study shown is known: what was left unsent in it is put back, where
+   * nothing has been typed or attached here since. */
+  function restoreUnsent(key) {
+    if (!validStudyKey(key) || key === unsentKey) return;
+    /* Typed before the study was known: kept for it. Typed in another
+     * study shown before: kept for that one, where it was begun. */
+    if (boxNow().trim() || pendingFiles.length || attaching) {
+      if (!validStudyKey(unsentKey)) { unsentKey = key; keepUnsent(); }
+      return;
+    }
+    unsentKey = key;
+    var kept = null;
+    try { kept = JSON.parse(sessionStorage.getItem(UNSENT_WORDS + key) || "null"); } catch (e) { kept = null; }
+    if (!kept || typeof kept !== "object") return;
+    var area = el("agent-request");
+    if (area && typeof kept.words === "string") {
+      area.value = kept.words.slice(0, 100000);
+      area.dispatchEvent(new Event("input"));
+    }
+    if (Array.isArray(kept.files)) {
+      pendingFiles = kept.files.filter(function (f) {
+        return f && typeof f === "object" && typeof f.path === "string" && typeof f.name === "string"
+          && typeof f.size === "number" && (f.text === undefined || typeof f.text === "string");
+      }).slice(0, 6);
+      renderChips();
+    }
   }
 
   function attachFile(path) {
@@ -1958,6 +2027,7 @@
       : { role: "user", text: typed };
     transcript.push(said);
     area.value = "";
+    keepUnsent();
     autosize(area);
     renderMentions();
     /* The thread this was said in. Another shown before the answer came
@@ -3990,26 +4060,44 @@
     }
 
     function openConversation(id, study, loaded) {
+      /* Another study's opens that study: held as every other way to
+       * another study is, with the reason said beside the list too. */
+      var dashboard = window.FastMDXDashboard;
+      var another = Boolean(study) && !loaded && dashboard && dashboard.beginStudySwitch;
+      if (another) {
+        var held = dashboard.beginStudySwitch();
+        if (held) {
+          if (list && !list.hidden) {
+            var said = list.querySelector(".agent-conv-held") || node("p", "agent-conv-held muted small");
+            said.setAttribute("role", "status");
+            said.textContent = held;
+            list.insertBefore(said, list.firstChild);
+          }
+          return Promise.resolve({ ok: false, error: held });
+        }
+      }
+      function ended() { if (another) dashboard.endStudySwitch(); }
       /* After the saves still waiting, so a reload keeps them and the
        * thread opened says all they said (thirteenth and fourteenth
        * reviews, 10-08). */
       return inTurn(function () {
         return post("/api/agent/conversation/open", { id: id, study: study });
       }).then(function (o) {
-        if (!o || !o.ok) { window.alert((o && o.error) || "Could not open it."); return o; }
+        if (!o || !o.ok) { ended(); window.alert((o && o.error) || "Could not open it."); return o; }
         /* Loaded elsewhere than the list said (a run took it with it):
          * the page reads that study too. */
         if (o.loaded_study && (!loaded || (o.study || null) !== (study || null))) {
           reloadOnceLaunched();
           return o;
         }
+        ended();
         resetThread();
         conv = threadOf(o.id, o.study, o.entries || []);
         hideList();
         replay(o.entries || []);
         told();
         return o;
-      });
+      }, function (error) { ended(); throw error; });
     }
 
     /* The list of conversations: this study's, the chats of no study, and
@@ -4292,6 +4380,11 @@
     var area = el("agent-request");
     area.addEventListener("input", function () { autosize(area); renderMentions(); });
     area.addEventListener("input", sendReady);
+    area.addEventListener("input", keepUnsent);
+    window.addEventListener("pagehide", keepUnsent);
+    if (window.FastMDXDashboard) {
+      window.FastMDXDashboard.on("study-addressed", function (study) { restoreUnsent(study && study.key); });
+    }
     // Beside a page or on the Agent page, the box asks in that column's words.
     // Moved beside a page or back to the Agent page, the box is sized for
     // the prompt it asks, or for what was written in it, in its new column.
@@ -4414,7 +4507,7 @@
    * not merely land on the Agent page. */
   window.FastMDXAgent = {
     openSettings: openSettings, closeSettings: closeSettings,
-    beforeStudySwitch: function () {
+    beforeStudySwitch: function (how) {
       if (launching) return "Wait for the study launch to finish before switching studies.";
       if (attaching) return "Wait for the Agent attachment to finish loading before switching studies.";
       if (writing || pendingReplies) return "Finish or stop the Agent reply before switching studies.";
@@ -4424,6 +4517,10 @@
           + " as proposed, before switching studies.";
       }
       if (pendingFiles.length || (el("agent-request")?.value || "").trim()) {
+        /* Back is not held for words kept for this study: they are there
+         * again when it is. */
+        keepUnsent();
+        if (how && how.back && unsentKept) return "";
         return "Send or clear the unsent Agent message and attachments before switching studies.";
       }
       return "";
