@@ -300,9 +300,19 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   in `unavailable`. The run's own process record is still read, so a run whose
   process is gone reads interrupted, and a run of a study of several still
   reads its study's `stopping.json` and its runs' records, so a run waiting
-  for the study's next round reads waiting. `/api/overview`, `/api/results`,
-  `/api/series`, `/api/analysis-overview` and `/api/convergence` read through
-  such a link before.
+  for the study's next round reads waiting. The run's status, its production
+  and equilibration times and its phases, and the numbers behind the
+  Analysis page's figures, are read the same way: a figure whose record was
+  not read is drawn from the analysis's own table and says the record was not
+  read. The process record is read only by its own name, never as a result
+  linked to it. The Files page says Not read where a value's record was not
+  read. With its analysis manifest not read, an analysis with no result read
+  is Not read rather than done. Each record not read is said with why: a link
+  to a file outside the study, or to a file of the study that is not one of
+  its results (`unavailable_why`); a long list names the first eight and
+  counts the rest, all of them listed under it. `/api/overview`,
+  `/api/results`, `/api/series`, `/api/analysis-overview`, `/api/convergence`,
+  `/api/status` and `/api/figure-data` read through such a link before.
 
 ## [2.6.0] - 2026-10-11
 
