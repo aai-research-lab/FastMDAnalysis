@@ -131,3 +131,60 @@ def test_the_charts_button_is_named_for_what_it_does(finished_sweep):
             "#chart-reset", "b => [b.title, b.getAttribute('aria-label')]")
 
     assert _serve(finished_sweep, look) == ["Show every chart", "Show every chart"]
+
+
+@pytest.fixture(scope="module")
+def numbered_from_seventy(tmp_path_factory) -> Path:
+    import mdtraj as md
+
+    from tests.test_the_cartoon_is_dssp_of_each_frame import _helical_study
+
+    root = _helical_study(tmp_path_factory.mktemp("spectrum") / "study", analyse=False)
+    sim = root / "simulation"
+    frames = md.load_dcd(str(sim / "production.dcd"), top=str(sim / "trajectory_topology.pdb"))
+    chain = [a.index for a in frames.topology.atoms if a.residue.chain.index == 0]
+    frames = frames.atom_slice(chain)
+    for residue in frames.topology.residues:
+        residue.resSeq += 69
+    frames[0].save_pdb(str(sim / "trajectory_topology.pdb"))
+    frames[0].save_pdb(str(root / "setup" / "topology.pdb"))
+    frames.save_dcd(str(sim / "production.dcd"))
+    return root
+
+
+def test_spectrum_runs_blue_to_red_whatever_the_numbering(numbered_from_seventy):
+    def look(page, url):
+        page.goto(url + "#viewer", wait_until="domcontentloaded")
+        page.wait_for_function(
+            "() => window.FastMDXMoleculeViewer && window.FastMDXMoleculeViewer.STATE.engine"
+            " && window.FastMDXMoleculeViewer.STATE.engine.structure()")
+        page.wait_for_timeout(1000)
+        return page.evaluate("""() => {
+            const e = window.FastMDXMoleculeViewer.STATE.engine;
+            const SP = e.lib.structure.StructureProperties;
+            const reg = e.plugin.representation.structure.themes.colorThemeRegistry;
+            const theme = reg.get('fastmdx-spectrum').factory({}, {});
+            const ca = [];
+            e.forEachAtom((loc) => {
+                if (SP.atom.label_atom_id(loc) === 'CA') {
+                    ca.push([SP.residue.auth_seq_id(loc), theme.color(loc)]);
+                }
+            });
+            const used = [];
+            for (const cell of e.plugin.state.data.cells.values()) {
+                const name = cell.params && cell.params.values && cell.params.values.colorTheme
+                    && cell.params.values.colorTheme.name;
+                if (name) used.push(name);
+            }
+            return {first: ca[0], last: ca[ca.length - 1], mid: ca[Math.floor(ca.length / 2)],
+                    mode: window.FastMDXMoleculeViewer.STATE.colorMode, used};
+        }""")
+
+    said = _serve(numbered_from_seventy, look)
+    rgb = lambda c: ((c >> 16) & 255, (c >> 8) & 255, c & 255)  # noqa: E731
+    first, last = rgb(said["first"][1]), rgb(said["last"][1])
+    assert said["first"][0] == 70 and said["mode"] == "spectrum"
+    assert "fastmdx-spectrum" in said["used"]
+    # Blue at the chain's first residue, red at its last, not red throughout.
+    assert first[2] > first[0] and last[0] > last[2]
+    assert len({said["first"][1], said["mid"][1], said["last"][1]}) == 3

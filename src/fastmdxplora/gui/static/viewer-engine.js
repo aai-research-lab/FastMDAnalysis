@@ -24,6 +24,17 @@
   const SS_FLAGS = {H: 0x2 | 0x1000, E: 0x4 | 0x400000, C: 0};
   const RESULT_STOPS = [[44, 123, 182], [247, 247, 247], [215, 25, 28]];
   const NO_VALUE = 0x5c5c66;
+  /* The spectrum's stops, N terminus to C terminus (a turbo map). */
+  const SPECTRUM_STOPS = [[48, 18, 59], [70, 107, 227], [40, 187, 236], [50, 241, 152],
+    [164, 252, 60], [237, 208, 58], [251, 128, 34], [210, 49, 5], [122, 4, 3]];
+  function spectrumColour(t) {
+    const scaled = Math.max(0, Math.min(1, t)) * (SPECTRUM_STOPS.length - 1);
+    const lower = Math.min(SPECTRUM_STOPS.length - 2, Math.floor(scaled));
+    const within = scaled - lower;
+    const c = SPECTRUM_STOPS[lower].map((channel, i) =>
+      Math.round(channel + within * (SPECTRUM_STOPS[lower + 1][i] - channel)));
+    return (c[0] << 16) | (c[1] << 8) | c[2];
+  }
   /* An atom picked to measure. */
   const PICKED = [{type: "ball-and-stick", typeParams: {sizeFactor: 0.45},
     color: "uniform", colorParams: {value: 0xe69f00}}];
@@ -55,7 +66,10 @@
   /* The page's names for colours, as Mol*'s colour themes. */
   const COLOUR_THEMES = {
     chain: "chain-id",
-    spectrum: "sequence-id",
+    // The page's own: Mol*'s sequence-id reads a residue's number against
+    // its chain's length, so a chain numbered 70 to 89 (or villin's 42 to
+    // 76) was past the end of its rainbow and drawn all red.
+    spectrum: "fastmdx-spectrum",
     residue: "residue-name",
     element: "element-symbol",
     secondary_structure: "secondary-structure",
@@ -137,6 +151,7 @@
     engine.setQuality(opts.quality && opts.quality !== "auto" ? opts.quality
       : (engine.softwareRendering() ? "low" : "high"));
     engine.installSecondaryStructure();
+    engine.installSpectrum();
     return oneAtATime(engine);
   }
 
@@ -1591,6 +1606,55 @@
       if (registry.has(provider)) registry.remove(provider);
       registry.add(provider);
       return {theme, colourOf, valueAt, property};
+    }
+
+    /** Spectrum: each chain from blue at its first residue to red at its
+     * last, by the residue's place in the chain rather than its number. */
+    installSpectrum() {
+      const SE = this.lib.structure.StructureElement;
+      const Bond = this.lib.structure.Bond;
+      const ranges = new WeakMap();
+      const rangeOf = (model, chain) => {
+        let kept = ranges.get(model);
+        if (!kept) { kept = new Map(); ranges.set(model, kept); }
+        if (!kept.has(chain)) {
+          const h = model.atomicHierarchy;
+          const offsets = h.chainAtomSegments.offsets;
+          const first = h.residueAtomSegments.index[offsets[chain]];
+          const last = h.residueAtomSegments.index[offsets[chain + 1] - 1];
+          kept.set(chain, [first, last]);
+        }
+        return kept.get(chain);
+      };
+      const colourAt = (unit, element) => {
+        if (!unit || !unit.model || !unit.model.atomicHierarchy) return NO_VALUE;
+        const h = unit.model.atomicHierarchy;
+        const [first, last] = rangeOf(unit.model, h.chainAtomSegments.index[element]);
+        const residue = h.residueAtomSegments.index[element];
+        return spectrumColour(last > first ? (residue - first) / (last - first) : 0);
+      };
+      const provider = {
+        name: "fastmdx-spectrum",
+        label: "Spectrum",
+        category: "FastMDXplora",
+        factory: (ctx, props) => ({
+          factory: provider.factory, granularity: "group", props, preferSmoothing: true,
+          description: "Each chain from blue at its first residue to red at its last.",
+          color: (location) => {
+            if (SE.Location.is(location)) return colourAt(location.unit, location.element);
+            if (Bond.isLocation(location)) {
+              return colourAt(location.aUnit, location.aUnit.elements[location.aIndex]);
+            }
+            return NO_VALUE;
+          },
+        }),
+        getParams: () => ({}),
+        defaultValues: {},
+        isApplicable: () => true,
+      };
+      const registry = this.plugin.representation.structure.themes.colorThemeRegistry;
+      if (registry.has(provider)) registry.remove(provider);
+      registry.add(provider);
     }
 
     /* -------------------------------------------------------------- */
