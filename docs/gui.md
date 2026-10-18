@@ -467,11 +467,26 @@ on Back or Forward; the strip says what needs attention. While one switch
 is under way, the strip is busy and no second one is asked.
 
 Unsent Agent words and attachments are kept for the study they were begun
-in, in this window's session storage (attachments too large to keep are
-left out). Opened again by any way, Back included, that study's Agent box
-has them again; sending or clearing them forgets them. Where the browser
-does not keep them, Back within the page holds for them as the other ways
-do.
+in, in this window's session storage: the words, and of each attachment
+its path, name, size and digest, read again when they are put back (a
+file that cannot be read again, or changed since, is named beside the
+box). Opened again by any way, Back included, that study's Agent box has
+them again, after anything typed before the study was known; sending or
+clearing them forgets them, and so does closing the study's tab or its
+folder going. Where the browser does not keep them, the box says so, Back
+within the page holds for them as the other ways do, and the browser asks
+before the page is left (a Back to another page, a reload, an address
+typed); so it does for a Config draft it could not keep.
+
+The Agent shows and writes the conversation of the study the page is for:
+read once the study the address names is open, and read again if the page
+finds it showed another's. The server gives no conversation to a page for
+another study than the one open (`GET /api/agent/conversation?study=`),
+and refuses a write whose study is not the page's (`page_study`, 409).
+When the study open is changed elsewhere (another window, an AI app), a
+window says so, and unsent words typed there are kept for the study they
+were typed for, not left in the new study's box. **Open it** on an address
+from another site goes through the same hold as the other ways.
 
 A Config draft this browser could not save holds the switch, and the
 Builder's header says "Not saved in this browser": **Download config** or

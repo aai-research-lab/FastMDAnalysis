@@ -18,7 +18,13 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   hold the switch with a reason on every way the page offers, the Agent's
   list of conversations included; one switch goes at a time. Unsent Agent
   words and attachments are kept per study in this window, so Back loses
-  none of them. A draft this browser cannot save is released by Download
+  none of them; of each attachment only its path, name, size and digest
+  are kept, and it is read again on return, a file that cannot be is named.
+  Where the browser keeps neither unsent words nor a Config draft, it asks
+  before the page is left. The Agent reads and writes only the
+  conversation of the study the page is for, and the server refuses one
+  for another study; a window whose study was changed elsewhere says so
+  and keeps its unsent words with the study they were typed for. A draft this browser cannot save is released by Download
   config or Reset. Tabs are named by their folders too where the workspace
   has studies of one system, as Recent names them. A study whose folder is
   gone is said so on its tab, is asked for again when chosen, and is not
