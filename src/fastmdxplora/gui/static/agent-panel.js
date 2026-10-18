@@ -4418,7 +4418,11 @@
       if (launching) return "Wait for the study launch to finish before switching studies.";
       if (attaching) return "Wait for the Agent attachment to finish loading before switching studies.";
       if (writing || pendingReplies) return "Finish or stop the Agent reply before switching studies.";
-      if (reviewPending()) return "Apply or cancel the Config review before switching studies.";
+      /* Said with the review's own buttons, beside the review too. */
+      if (heldByReview("switching studies")) {
+        return "Use reviewed version, or Use this version to keep version " + newest().number
+          + " as proposed, before switching studies.";
+      }
       if (pendingFiles.length || (el("agent-request")?.value || "").trim()) {
         return "Send or clear the unsent Agent message and attachments before switching studies.";
       }
