@@ -325,7 +325,15 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   record was not read, a setup record not read, and a figure whose
   `options.json` was not read are said not read, with no other record's
   value in their place; such a figure is given no command to make it again,
-  since one without its options makes another figure. `/api/overview`,
+  since one without its options makes another figure, and its panel says
+  which record was not read and why (who made it, with the run's manifest
+  not read, is Not read, not a release that did not record itself). A remedy
+  priced in a read held to the study is not priced from a record it did not
+  read: a stopped run whose config, checkpoint record or piece was not read,
+  or a run again from the top whose config was not read, says its price is
+  not given and names the record, rather than its whole plan read through
+  the link, and a thin umbrella window says how much longer is not given;
+  outside such a read, remedies are as before. `/api/overview`,
   `/api/results`, `/api/series`, `/api/analysis-overview`, `/api/convergence`,
   `/api/status` and `/api/figure-data` read through such a link before.
 
