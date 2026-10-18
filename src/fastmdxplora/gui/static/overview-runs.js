@@ -6,7 +6,8 @@
  * spread between them gives it, beside each run's own; what is not
  * determined, and in which run; and one measure's series of every run
  * overlaid. A run opens from its row. It is read again every few seconds
- * while a run goes or waits for its round, and once otherwise.
+ * while a run goes, less often while runs wait for their round, and once
+ * otherwise; only while the Overview is shown.
  */
 (function () {
   "use strict";
@@ -72,6 +73,10 @@
 
   function renderTable() {
     var table = byId("overview-runs-table");
+    // The keyboard stays on the run it was on when the table is drawn again.
+    var focused = table.contains(document.activeElement)
+      ? (document.activeElement.closest(".overview-runs-row") || {}).dataset : null;
+    var focusRun = focused ? focused.run : "";
     table.innerHTML = "";
     var measures = shownMeasures();
     var head = el("tr");
@@ -162,6 +167,17 @@
       foot.appendChild(together);
       table.appendChild(foot);
     }
+    if (focusRun) {
+      Array.prototype.some.call(table.querySelectorAll(".overview-runs-row"), function (row) {
+        if (row.dataset.run !== focusRun) return false;
+        row.querySelector(".overview-runs-open").focus();
+        return true;
+      });
+    }
+    // Columns past its right edge are shaded there (runs-compared.js).
+    if (window.FastMDXRunsCompared && window.FastMDXRunsCompared.markMore) {
+      window.FastMDXRunsCompared.markMore(table.parentElement);
+    }
   }
 
   function renderSaid() {
@@ -217,7 +233,9 @@
         .map(function (c) { return samplesSaid(c.effective_samples); });
       var reason = withheld[0].withheld;
       li.appendChild(document.createTextNode("Not determined in " + listed(names)
-        + (samples.length === withheld.length ? " (" + listed(samples) + " independent samples)" : "")
+        + (samples.length === withheld.length ? " (" + listed(samples) + " independent "
+          + (samples.every(function (n) { return n === "fewer than one"; }) ? "sample" : "samples")
+          + ")" : "")
         + ". " + firstWords(reason) + ". " + remedy(reason)));
       li.title = reason;
       list.appendChild(li);
@@ -281,6 +299,13 @@
       return r.state === "running" || r.state === "waiting";
     });
   }
+  /* Read again only while the Overview is shown; a run waiting for its
+   * round can wait hours, so a study with none running is read less often. */
+  function shown() { return document.documentElement.dataset.page === "overview"; }
+  function every() {
+    return data.runs.some(function (r) { return r.state === "running"; }) ? EVERY_MS : EVERY_MS * 6;
+  }
+  var stale = false;
 
   function load() {
     clearTimeout(timer);
@@ -291,9 +316,13 @@
         if (asked !== study) return;
         data = answer;
         render();
-        if (going()) timer = setTimeout(load, EVERY_MS);
+        if (going()) timer = setTimeout(again, every());
       })
-      .catch(function () { if (asked === study) timer = setTimeout(load, EVERY_MS * 2); });
+      .catch(function () { if (asked === study) timer = setTimeout(again, EVERY_MS * 2); });
+  }
+  function again() {
+    if (shown()) load();
+    else stale = true;
   }
 
   function start() {
@@ -305,12 +334,17 @@
                                            byId("overview-runs-legend"));
       }
     });
+    // Back on the Overview: read now what was not read while away.
+    window.FastMDXDashboard.on("navigate", function () {
+      if (stale && shown() && study) { stale = false; load(); }
+    });
     window.FastMDXDashboard.on("app-state", function (s) {
       var next = s && Array.isArray(s.runs) ? String(s.active_run || "") : "";
       if (next === study) return;
       study = next;
       data = null;
       drawn = "";
+      stale = false;
       overlaidStates = "";
       clearTimeout(timer);
       if (study) load();
@@ -321,5 +355,6 @@
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();
 
-  window.FastMDXOverviewRuns = { load: load };
+  // `show` draws an answer as if just read.
+  window.FastMDXOverviewRuns = { load: load, show: function (answer) { data = answer; render(); } };
 }());
