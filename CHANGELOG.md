@@ -44,6 +44,34 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- Every page of a study says where it is at its head: the study, the run
+  of a study of several (a menu of its runs and the study as a whole, each
+  with its state, opening on the page shown), then the page. The sidebar's
+  list of runs and its "Run of" card are gone; each page is named by the
+  sidebar's word for it (New study, Overview, Viewer, All studies).
+- A status bar under every page: this computer and its GPUs, the run going
+  here with its stage, how far it is and the time left (or where it
+  stopped and what would fix it), a run going in another study, the jobs
+  on your machines as last recorded, the open study's problems and the
+  Agent's AI model, each opening its page. The sidebar's progress card and
+  the sidebar's and the builder's Stop went into it: a run is stopped from
+  its Overview, beside how it is going.
+- ⌘K finds every study of the workspace, a file of the open study and a
+  setting, with each page's key; ⌘P a file alone. `@TRP23` selects a
+  residue in the Viewer, `:120` shows a frame. The study's pages are on ⌘1
+  to ⌘5 (⌥1 to ⌥5 in a browser's tab), the sidebar on ⌘B, the side panel on
+  ⌘⌥B, and ? lists every key.
+- The Overview of a study of several runs has its runs as a table (state,
+  production so far, ns/day and each one's means), for replicas the mean of
+  their means with the error their spread gives it, what is not determined
+  and in which run, and one measure of every run overlaid; a run opens
+  from its row.
+- The Viewer's playback is a timeline always under the molecule: a ruler
+  of the frames with each cluster's medoid, each judgement of a study run
+  until it is determined and the averaging's start marked, and the study's
+  series as tracks moving with the frame, each a way to its frames. The
+  tool beside the molecule is a panel as tall as its rail.
+
 - A strip of open studies keeps each study's last page in this browser
   window. Studies can be selected or closed individually; closing never
   stops a run or removes files, and closing the open one goes past a
