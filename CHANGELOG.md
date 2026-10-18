@@ -243,6 +243,11 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   gone, instead of failing; a folder above the study need only be
   searchable.
 
+- `fastmdx explore` given no `--output`, and `FastMDXplora(config=...)` or
+  `FastMDXplora(config_data=...)` given a config with no `output`, run
+  again, in a folder named by the first system. From 2.5.7 each stopped
+  before it started with an AttributeError on `config`, whether the study
+  had one run or several.
 - A water map and the water sites asked for at once no longer fail. Both
   read the same frames, kept for one study at a time, and one request could
   empty them while the other read them, which then failed with a KeyError
