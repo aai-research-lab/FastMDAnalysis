@@ -373,3 +373,14 @@ def test_a_piece_s_cost_not_read_gives_no_other_speed(tmp_path, public):
     answer = _overview(root, tmp_path / "refused", public=public)
     assert answer["speed_ns_per_day"] is None
     assert "segment-001/simulation/cost.json" in answer["unavailable"]
+
+
+@PUBLIC
+def test_a_join_record_and_trajectory_not_read_name_the_record(tmp_path, public):
+    """The record of the join and the joined trajectory both not read: the
+    means are said not read for the record of the join, which says what the
+    join is, not for its trajectory."""
+    root = _joined(tmp_path)
+    _linked_out(root, tmp_path, "joined/production.dcd", "joined/joined.json")
+    thermo = _overview(root, tmp_path, public=public)["thermodynamics"]
+    assert thermo["not_read"] == ["joined/joined.json"]

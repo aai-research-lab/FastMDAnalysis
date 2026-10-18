@@ -65,8 +65,9 @@ def study_trajectory(project_root: Path) -> tuple[Path | None, Path | None]:
     own = root / "simulation" / "production.dcd"
     try:
         # A record of the join a held read refused (`pipeline._refused`) was
-        # not read: the study is not thereby a study of one run.
-        _refuse(joined, record)
+        # not read: the study is not thereby a study of one run. The record
+        # first, which says what the join is, so it is the one named.
+        _refuse(record, joined)
         if not (_records.is_file(joined) and _records.is_file(record)
                 and _records.stat(joined).st_size > 0):
             return None, None
