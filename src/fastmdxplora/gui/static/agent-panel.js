@@ -3053,13 +3053,34 @@
    * proposal as it is; once a change is rejected, Use reviewed version
    * makes a new version from the choices, and only through the validator.
    * The two Configs compared are never edited in place. Choices not yet
-   * applied are kept in this browser by conversation and version, so a
-   * reload keeps them; a draft is never written as a Config. */
+   * applied are kept in this browser by conversation, version and the
+   * changes themselves, so a reload keeps them and another proposal given
+   * the same version number never takes them; a draft is never written as
+   * a Config. */
   var REVIEW_KEY = "fmx.reviewChoices.";
 
+  /* A short digest of a text (53-bit, cyrb53), to name a draft by what it
+   * is about. */
+  function digest(text) {
+    var h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+    for (var i = 0; i < text.length; i++) {
+      var c = text.charCodeAt(i);
+      h1 = Math.imul(h1 ^ c, 2654435761);
+      h2 = Math.imul(h2 ^ c, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+  }
+
+  /* Each change shown, old and new values and reasons, is part of the key:
+   * a version number used again in the same conversation is another
+   * proposal (round 2 review). */
   function reviewKey(review, v) {
     var c = review.conv;
-    return c.id ? REVIEW_KEY + JSON.stringify([c.study || null, c.id, v.number]) : null;
+    if (!c.id || !review.rows) return null;
+    return REVIEW_KEY + JSON.stringify([c.study || null, c.id, v.number,
+                                        digest(JSON.stringify(review.rows))]);
   }
 
   function keptChoices(review, v) {
@@ -3149,8 +3170,8 @@
       Object.keys(kept.choices).forEach(function (setting) {
         var k = kept.choices[setting];
         var row = review.rows.filter(function (c) { return c.setting === setting; })[0];
-        /* Only a choice about the very change shown: a version number used
-         * again after an edit is another proposal. */
+        /* Only a choice about the very change shown, should two drafts
+         * ever share a key. */
         if (row && k && k.before === row.before && k.after === row.after
             && (k.choice === "accept" || k.choice === "reject")) {
           review.choices[setting] = k.choice;
@@ -3259,7 +3280,7 @@
     keep.type = "button";
     keep.className = "ctl-btn";
     keep.textContent = "Use this version";
-    keep.title = "Keep version " + v.number + " as proposed, every change accepted";
+    keep.title = "Use version " + v.number + " as proposed, every change accepted";
     var apply = document.createElement("button");
     apply.type = "button";
     apply.className = "primary-btn";
@@ -3321,13 +3342,12 @@
       save();
       update();
     }
+    /* As Use this version on an older version: said in the conversation
+     * and made the newest version, here with every change accepted. */
     keep.onclick = function () {
-      if (!review.stands() || review.busy) return;
-      review.choices = Object.create(null);
-      review.refusal = null;
-      save();
-      update();
-      note.textContent = "Version " + v.number + " as proposed is the one in use, every change accepted.";
+      if (!review.stands() || review.busy || writing) return;
+      keepChoices(review, v, null);
+      useVersion(v, review);
     };
     apply.onclick = function () {
       if (!review.stands() || writing || apply.disabled) return;
@@ -3387,8 +3407,15 @@
   /* An older version made the newest again: written into the conversation
    * as the person's choice and as a new version of the same config, so the
    * next "make it 5 ns" changes it, and Run runs it. Nothing is asked of
-   * the Agent's AI model. */
-  function useVersion(v) {
+   * the Agent's AI model. From a review, the proposal as it is: its note
+   * and record say every change was accepted. */
+  function acceptedAll(rows) {
+    return "Accepted: " + rows.map(function (c) {
+      return c.same_value ? c.label + " (its reason)" : c.label + " " + c.before + " \u2192 " + c.after;
+    }).join("; ") + ".";
+  }
+
+  function useVersion(v, review) {
     if (writing) return;
     /* A new choice, so nothing still waiting for a yes takes it. */
     stopPending = null; runPending = null; fixPending = null;
@@ -3399,15 +3426,23 @@
     transcript.push({ role: "user", text: asked });
     var r = reply();
     whoIs(r, "done");
+    var asProposed = review && review.rows
+      ? { base: v.previous.number, proposal: v.number,
+          accepted: review.rows.map(function (c) { return c.setting; }), rejected: [] }
+      : null;
     var again = { yaml: v.data.yaml, config: v.data.config, plan: v.data.plan,
-                  note: "Version " + v.number + ", again.", changes: null, again: v.number };
+                  note: asProposed ? "Version " + v.number + " as proposed, again. " + acceptedAll(review.rows)
+                                   : "Version " + v.number + ", again.",
+                  changes: null, again: v.number, review: asProposed };
     saidBeside(r.part("attempts"), again.note);
     history.push({ role: "agent", text: again.note + "\n\nWrote a config:\n" + again.yaml });
     currentConfig = again.yaml;
     var made = wireActions(r, again, r.part("attempts"));
-    transcript.push({ role: "agent", kind: "config", yaml: again.yaml, config: again.config,
-                      note: again.note, plan: again.plan || [], cycles: 1, attempts: [],
-                      version: made.number, again: v.number });
+    var entry = { role: "agent", kind: "config", yaml: again.yaml, config: again.config,
+                  note: again.note, plan: again.plan || [], cycles: 1, attempts: [],
+                  version: made.number, again: v.number };
+    if (asProposed) entry.review = asProposed;
+    transcript.push(entry);
     persist();
     scrollToEnd();
   }

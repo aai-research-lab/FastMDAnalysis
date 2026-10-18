@@ -1,6 +1,7 @@
 """Choose Config changes through the real workspace and keep the result."""
 from copy import deepcopy
 import json
+import time
 import urllib.request
 
 import pytest
@@ -133,10 +134,6 @@ def test_each_change_has_accept_and_reject_beside_use_this_version(browser, site
         assert card.locator(".agent-review-note").text_content().startswith("1 change rejected.")
         _choose(page, "simulation.duration_ns", "reject")
         assert card.locator(".agent-review-note").text_content().startswith("2 changes rejected.")
-        use.click()
-        assert _pressed(page) == {"simulation.temperature_K": None, "simulation.duration_ns": None}
-        assert reviewed.is_disabled()
-        assert page.locator('#agent-thread .agent-study:not([hidden])').count() == 2
         assert page.errors == []
     finally:
         page.context.close()
@@ -256,12 +253,80 @@ def test_a_rejection_not_applied_holds_run_and_the_message_until_one_is_used(bro
         page.locator(LIVE + ' .agent-review-note').filter(has_text="before running").wait_for()
         assert runs == []
         page.locator(LIVE).get_by_role("button", name="Use this version", exact=True).click()
-        assert page.locator(LIVE + ' [data-role="run"]').is_visible()
-        assert page.locator('#agent-thread .agent-study:not([hidden])').count() == 2
-        assert "every change accepted" in page.locator(LIVE + ' .agent-review-note').text_content()
+        page.locator(LIVE + ' [data-role="version"]').filter(has_text="3").wait_for()
+        assert page.locator(LIVE + " [data-choice]").count() == 0
+        # Version 2 as proposed is now the newest: nothing holds Run.
+        with page.expect_request("**/api/agent/run") as ran:
+            page.locator(LIVE + ' [data-role="run"]').click()
+        assert ran.value.post_data_json["config"]["simulation"] == {"temperature_K": 330, "duration_ns": 10}
+        assert page.errors == []
+    finally:
+        page.context.close()
+
+
+def _versions(site, count):
+    """The conversation's config versions once it holds ``count`` of them."""
+    for _ in range(100):
+        entries = _request(site, "/api/agent/conversation")["entries"]
+        if len([e for e in entries if e.get("kind") == "config"]) == count:
+            return entries
+        time.sleep(0.05)
+    raise AssertionError(f"the conversation never held {count} versions")
+
+
+def test_use_this_version_says_in_the_conversation_that_every_change_was_accepted(browser, site):
+    """Round 2 review (D L6): Use this version in the review left no trace."""
+    page = _open(browser, site)
+    try:
+        _choose(page, "simulation.temperature_K", "reject")
+        page.locator(LIVE).get_by_role("button", name="Use this version", exact=True).click()
+        entries = _versions(site, 3)
+        configs = [e for e in entries if e.get("kind") == "config"]
+        assert [e["text"] for e in entries if e.get("role") == "user"][-1] == "Use version 2"
+        assert configs[-1]["config"] == configs[1]["config"]
+        assert (configs[-1]["version"], configs[-1]["again"]) == (3, 2)
+        assert configs[-1]["review"] == {"base": 1, "proposal": 2, "rejected": [],
+            "accepted": ["simulation.temperature_K", "simulation.duration_ns"]}
+        said = ("Version 2 as proposed, again. Accepted: Temperature 300 K \u2192 330 K; "
+                "Production 2 ns \u2192 10 ns.")
+        assert configs[-1]["note"] == said
         page.reload(wait_until="domcontentloaded")
-        page.locator(LIVE + ' [data-review-setting="simulation.temperature_K"]').wait_for()
-        assert set(_pressed(page).values()) == {None}
+        page.locator(LIVE + ' [data-role="version"]').filter(has_text="3").wait_for()
+        page.get_by_text(said, exact=True).wait_for()
+        assert page.locator("#agent-thread .agent-msg-user").last.text_content().startswith("Use version 2")
+        assert page.locator(LIVE + " [data-choice]").count() == 0
+        assert page.evaluate("Object.keys(localStorage).filter(k => k.startsWith('fmx.reviewChoices.'))") == []
+        # The same words as Use this version on an older version.
+        page.locator('#agent-thread .agent-study.is-replaced [data-role="use"]').first.click()
+        entries = _versions(site, 4)
+        assert [e["text"] for e in entries if e.get("role") == "user"][-1] == "Use version 1"
+        assert page.errors == []
+    finally:
+        page.context.close()
+
+
+def test_a_kept_choice_is_not_restored_onto_another_proposal_with_its_number(browser, site):
+    """Round 2 review (C L3): a draft was keyed by the version number only."""
+    page = _open(browser, site)
+    try:
+        _choose(page, "simulation.temperature_K", "reject")
+        conversation = _request(site, "/api/agent/conversation")["id"]
+        # Asked again in the same conversation: another version 2, the same
+        # Temperature change and a different Production.
+        other = deepcopy(BASE)
+        other["simulation"].update(temperature_K=330, duration_ns=50)
+        _seed(site, BASE, other)
+        assert _request(site, "/api/agent/conversation")["id"] == conversation
+        page.reload(wait_until="domcontentloaded")
+        page.locator(LIVE + ' [data-review-setting="simulation.duration_ns"]').filter(has_text="50 ns").wait_for()
+        assert _pressed(page) == {"simulation.temperature_K": None, "simulation.duration_ns": None}
+        assert page.locator(LIVE).get_by_role("button", name="Use reviewed version").is_disabled()
+        assert "rejected" not in page.locator(LIVE + " .agent-review-note").text_content()
+        # The proposal that was reviewed, shown again, still has its choice.
+        _seed(site)
+        page.reload(wait_until="domcontentloaded")
+        page.locator(LIVE + ' [data-review-setting="simulation.duration_ns"]').filter(has_text="10 ns").wait_for()
+        assert _pressed(page) == {"simulation.temperature_K": "reject", "simulation.duration_ns": None}
         assert page.errors == []
     finally:
         page.context.close()
