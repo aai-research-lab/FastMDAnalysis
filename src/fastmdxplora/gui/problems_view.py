@@ -100,7 +100,9 @@ def admitted_for_problems(root: Path) -> Callable[[Path], bool]:
     refuses it, and without it a run whose record says it is going cannot
     be told from one whose process is gone. Only that file is admitted, in
     the study or in one of its pieces (`segment-*`), where
-    `how_the_run_ended` reads it.
+    `how_the_run_ended` reads it, and only when asked for by its own name:
+    a result linked to it is refused, or its pid, command and host would be
+    read as that result.
     """
     from fastmdxplora.gui.server import _private, _public_records
     from fastmdxplora.orchestrator import RUN_PROCESS_FILE
@@ -117,7 +119,12 @@ def admitted_for_problems(root: Path) -> Callable[[Path], bool]:
                 or (len(parts) == 2 and parts[0].startswith("segment-")
                     and not _private(parts[:1]))):
             return True
-        return public(path)
+        if not public(path):
+            return False
+        try:
+            return path.resolve().name != RUN_PROCESS_FILE
+        except (OSError, RuntimeError):
+            return False
 
     return admitted
 
