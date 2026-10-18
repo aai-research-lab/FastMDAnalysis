@@ -1,5 +1,7 @@
 /* Study document navigation stays within the main column at every width. */
-.study-tabs { position: sticky; top: 0; z-index: 4; flex: 0 0 auto; min-width: 0;
+/* Above the page's sticky header, which stays below it (dashboard.css,
+   --study-tabs-height), so neither covers the other when scrolled. */
+.study-tabs { position: sticky; top: var(--study-tabs-top, 0px); z-index: 6; flex: 0 0 auto; min-width: 0;
     background: var(--background-primary); border-bottom: 1px solid var(--border-primary);
     padding: 6px 10px; }
 .study-tabs[hidden] { display: none; }

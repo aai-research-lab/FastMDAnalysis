@@ -402,9 +402,10 @@ button {
     min-height: var(--top-bar-height);
     /* Fixed while the page scrolls under it. The centre column is the
        scroll container, so sticky at its top is fixed to the eye; the
-       background stops the content showing through. */
+       background stops the content showing through. Below the strip of
+       open studies and its note (study-tabs.js sets their height). */
     position: sticky;
-    top: 0;
+    top: var(--study-tabs-height, 0px);
     z-index: 5;
     background: var(--background-primary);
     /* One band across the whole column, its rule under it: the page is a
@@ -6262,7 +6263,7 @@ html[data-page="run"] .page-shell { max-width: 1340px; }
 
 /* The steps, in a bar that stays under the page's header. */
 .page[data-page="run"] .builder-steps {
-    position: sticky; top: var(--top-bar-height); z-index: 4;
+    position: sticky; top: calc(var(--top-bar-height) + var(--study-tabs-height, 0px)); z-index: 4;
     display: flex; gap: 4px; padding: 8px 0; margin-bottom: 4px;
     background: var(--background-primary);
     border-bottom: 1px solid var(--border-subtle);
@@ -6285,7 +6286,7 @@ html[data-page="run"] .page-shell { max-width: 1340px; }
 }
 .page[data-page="run"] .builder-find-said { margin: 8px 0 0; }
 
-.page[data-page="run"] .builder-step { padding: 22px 0 6px; scroll-margin-top: calc(var(--top-bar-height) + 52px); }
+.page[data-page="run"] .builder-step { padding: 22px 0 6px; scroll-margin-top: calc(var(--top-bar-height) + var(--study-tabs-height, 0px) + 52px); }
 .page[data-page="run"] .builder-step[hidden],
 .page[data-page="run"] .is-empty-here { display: none; }
 .page[data-page="run"] .builder-step-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -6581,8 +6582,8 @@ html[data-page="run"] .page-shell { max-width: 1340px; }
 
 /* The summary beside the steps. */
 .page[data-page="run"] .builder-summary {
-    position: sticky; top: calc(var(--top-bar-height) + 8px);
-    max-height: calc(100vh - var(--top-bar-height) - 16px); overflow-y: auto; overscroll-behavior: contain;
+    position: sticky; top: calc(var(--top-bar-height) + var(--study-tabs-height, 0px) + 8px);
+    max-height: calc(100vh - var(--top-bar-height) - var(--study-tabs-height, 0px) - 16px); overflow-y: auto; overscroll-behavior: contain;
     display: flex; flex-direction: column; gap: 12px; padding: 4px 2px 16px;
     scrollbar-width: thin;
 }

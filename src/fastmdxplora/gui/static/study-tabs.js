@@ -7,6 +7,13 @@
   var active = "", pending = false, hydrated = false;
   var lastRender = "", explicitKey = "", roving = "", shownActive = null;
   var focusOnOpen = "";
+  /* A switch asked another way (Recent, All studies, Load study, Back):
+   * the strip is busy until it is answered. */
+  var elsewhere = false;
+  /* Said once the page now being shown has been announced. */
+  var saidOnArrival = "";
+  /* How many of the workspace's studies share each ID (studies.js). */
+  var idsShared = {};
   var MAX_TABS = 100;
   var GONE_SAID = {
     folder: "This study's folder is no longer there.",
@@ -25,10 +32,23 @@
   }
   function studyPage() { return ["studies", "run"].indexOf(api.state.activePage) < 0; }
   /* Named as Recent names it: the system, and the folder too where
-   * another open study has the same system. */
+   * another study of the workspace, or another open one, has the same. */
   function label(tab) {
-    var twin = tab.folder && tabs.some(function (t) { return t !== tab && t.title === tab.title; });
+    var twin = tab.folder && tab.folder !== tab.title && ((idsShared[tab.title] || 0) > 1
+      || tabs.some(function (t) { return t !== tab && t.title === tab.title; }));
     return twin ? tab.title + " · " + tab.folder : tab.title;
+  }
+  function askIdsShared() {
+    var studies = window.FastMDXStudies;
+    if (!studies || !studies.idsShared) return;
+    studies.idsShared().then(function (times) {
+      if (times && typeof times === "object") { idsShared = times; render(); }
+    }).catch(function () { /* named by the open tabs alone */ });
+  }
+  /* Its gone words, naming it: said when another tab is being closed. */
+  function goneOf(tab) {
+    return tab.gone === "folder" ? "The folder of " + label(tab) + " is no longer there."
+      : label(tab) + " could not be found among the studies here.";
   }
   function unkeptSaid(failed) {
     if (!unkept) return;
@@ -63,6 +83,7 @@
       if (!(error instanceof SyntaxError)) unkeptSaid(true);
     }
     render();
+    askIdsShared();
   }
   function remember(key, title, explicit, folder, gone) {
     if (!hydrated || pending || !validKey(key)) return;
@@ -82,6 +103,7 @@
       tab = {key: key, title: "Study", folder: "", page: "overview", gone: ""};
       tabs.push(tab);
       if (tabs.length > MAX_TABS) tabs.shift();
+      askIdsShared();
     }
     if (gone !== undefined) tab.gone = gone ? "folder" : "";
     // A gone study's page names its folder, not its system: a name it had
@@ -128,33 +150,42 @@
       link.focus(); link.scrollIntoView({block: "nearest", inline: "nearest"});
     } else document.getElementById("study-tabs-open").focus();
   }
+  /* A tab chosen: its study opened at its last page. One marked gone is
+   * asked for again, as its folder may be back. `closing` is the open
+   * tab being closed and the neighbours still to try after this one. */
   async function activate(tab, closing) {
     if (pending) return;
-    if (tab.gone && !closing) { message(GONE_SAID[tab.gone]); return; }
     // Navigation announces its place on the next frame. Flush the current
     // place before pending suppresses that announcement.
     rememberShown(false);
     if (tab.key === active && !closing) { api.navigate(safeRoute(tab.page)); return; }
     pending = true; message("Opening " + label(tab) + "..."); render();
+    var answer = null;
     try {
-      var answer = await api.openStudyTab(tab.key, safeRoute(tab.page), function () {
-        if (closing) forget(closing);
+      answer = await api.openStudyTab(tab.key, safeRoute(tab.page), function () {
+        if (closing) forget(closing.tab.key);
         closed = closed.filter(function (key) { return key !== tab.key; });
         focusOnOpen = tab.key;
         save();
       });
-      if (!answer || !answer.ok) {
-        pending = false;
-        // Not there to open: said on its tab, which now offers only Close.
-        if (answer && GONE_SAID[answer.gone]) { tab.gone = answer.gone; save(); }
-        message((answer && answer.error) || "Could not open this study. The current study stays open.");
-        render(); focusTab(closing || tab.key);
-      }
     } catch (error) {
-      pending = false;
-      message("Could not open this study. The current study stays open.");
-      render(); focusTab(closing || tab.key);
+      answer = null;
     }
+    if (answer && answer.ok) return;
+    pending = false;
+    // Not there to open: said on its tab, which offers Close, and asked
+    // for again only when chosen.
+    var gone = Boolean(answer && GONE_SAID[answer.gone]);
+    if (gone) { tab.gone = answer.gone; save(); }
+    if (closing && gone) {
+      // Closing the open tab goes on to the next neighbour, and the note
+      // names the study whose folder is gone, not the one being closed.
+      closeOpen(closing.tab, closing.rest, (closing.said ? closing.said + " " : "") + goneOf(tab));
+      return;
+    }
+    message(gone ? goneOf(tab)
+      : (answer && answer.error) || "Could not open this study. The current study stays open.");
+    render(); focusTab(closing ? closing.tab.key : tab.key);
   }
   function close(tab) {
     if (pending) return;
@@ -164,14 +195,24 @@
     if (tab.key !== active) {
       forget(tab.key); render(); focusTab(next && next.key); return;
     }
-    // A neighbour whose folder is gone is not opened in its place.
-    var others = tabs.slice(index + 1).concat(tabs.slice(0, index).reverse());
-    var open = others.find(function (t) { return !t.gone; });
-    if (open) { activate(open, tab.key); return; }
+    closeOpen(tab, tabs.slice(index + 1).concat(tabs.slice(0, index).reverse()), "");
+  }
+  /* The open tab closed: the nearest neighbour not known to be gone is
+   * opened in its place, else All studies. */
+  function closeOpen(tab, others, said) {
+    var at = others.findIndex(function (t) { return !t.gone; });
+    if (at >= 0) {
+      activate(others[at], {tab: tab, rest: others.slice(at + 1), said: said});
+      if (said && pending) message(said + " Opening " + label(others[at]) + "...");
+      return;
+    }
+    var next = others[0];
     // No study switch is needed to show All studies. The active study's
     // records remain open on the server, so a running simulation goes on;
     // it is no longer named as open here.
     forget(tab.key); api.studyClosed(tab.key); active = "";
+    // Said once All studies is shown, which clears what was said before.
+    saidOnArrival = said;
     render(); api.navigate("studies"); focusTab(next && next.key);
   }
   /* Whether more tabs lie past either edge of the strip: shown by a fade
@@ -191,7 +232,7 @@
   function render() {
     if (!host || !hydrated) return;
     showGone();
-    var signature = JSON.stringify([tabs, active, pending]);
+    var signature = JSON.stringify([tabs, tabs.map(label), active, pending]);
     if (signature === lastRender) return;
     lastRender = signature;
     var scroll = list.scrollLeft;
@@ -229,7 +270,6 @@
       if (pending) link.setAttribute("aria-disabled", "true");
       link.onclick = function (event) {
         if (pending) { event.preventDefault(); return; }
-        if (tab.gone) { event.preventDefault(); message(GONE_SAID[tab.gone]); return; }
         if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
         event.preventDefault(); activate(tab);
       };
@@ -284,6 +324,37 @@
     var goneOthers = document.getElementById("study-gone-studies");
     if (goneOthers) goneOthers.onclick = function () { api.navigate("studies"); };
     list.addEventListener("scroll", edges, {passive: true});
+    // A plain mouse wheel moves a strip longer than its room along it.
+    list.addEventListener("wheel", function (event) {
+      if (event.ctrlKey || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+      if (list.scrollWidth <= list.clientWidth) return;
+      var step = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaMode === 2 ? event.deltaY * list.clientWidth : event.deltaY;
+      var before = list.scrollLeft;
+      list.scrollLeft += step;
+      if (list.scrollLeft !== before) event.preventDefault();
+    }, {passive: false});
+    // The page's own sticky header and bars stay below the strip, its note
+    // included, whatever its height (study-tabs.css, dashboard.css). Under
+    // a bar across the top (the sidebar on a phone) the strip stays below
+    // that bar, and the page's bars stay under the bar as they did.
+    var bar = document.querySelector(".sidebar");
+    var tall = function () {
+      var under = 0;
+      if (bar && getComputedStyle(bar).position === "sticky") {
+        var box = bar.getBoundingClientRect();
+        if (box.width >= window.innerWidth - 1) under = Math.round(box.height);
+      }
+      var height = host.hidden || under ? 0 : host.offsetHeight;
+      document.documentElement.style.setProperty("--study-tabs-top", under + "px");
+      document.documentElement.style.setProperty("--study-tabs-height", height + "px");
+    };
+    if (window.ResizeObserver) {
+      var sized = new ResizeObserver(tall);
+      sized.observe(host);
+      if (bar) sized.observe(bar);
+    }
+    window.addEventListener("resize", tall);
+    tall();
     // A narrower strip (the Agent opened beside) keeps the open tab in view,
     // unless the keyboard is moving along it.
     if (window.ResizeObserver) new ResizeObserver(function () {
@@ -315,18 +386,25 @@
       if (validKey(study.key)) closed = closed.filter(function (key) { return key !== study.key; });
       save();
     });
+    // A switch asked another way is in flight: the strip is busy and
+    // asks nothing more of the server until it is answered.
+    api.on("study-switching", function (on) {
+      if (on && !pending) { pending = elsewhere = true; render(); }
+      else if (!on && elsewhere) { pending = elsewhere = false; render(); }
+    });
     // A switch held on another way to a study: said here as well.
     api.on("study-switch-held", function (reason) { if (!pending) message(reason); });
     api.on("navigate", function () {
       // A reason given before is no longer about what is shown.
-      if (!pending) message("");
+      if (!pending) message(saidOnArrival);
+      saidOnArrival = "";
       if (studyPage()) rememberShown(true);
       showGone();
     });
     window.addEventListener("pagehide", save);
     window.addEventListener("pageshow", function (event) {
       if (event.persisted) {
-        pending = false; message(""); storageKey = ""; lastRender = "";
+        pending = elsewhere = false; message(""); storageKey = ""; lastRender = "";
         explicitKey = new URL(location.href).searchParams.get("study") || "";
         hydrate(api.state.appState);
       }
