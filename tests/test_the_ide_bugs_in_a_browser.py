@@ -121,3 +121,13 @@ def test_the_runs_table_keeps_its_runs_in_view_and_short_runs_in_ps(finished_swe
     assert said["more"] == [True, "right"]
     assert said["ps"] == {"factor": 1000, "label": "Time (ps)", "unit": "ps"}
     assert said["ns"]["factor"] == 1 and said["ns"]["label"] == "Time (ns)"
+
+
+def test_the_charts_button_is_named_for_what_it_does(finished_sweep):
+    def look(page, url):
+        page.goto(url + "#overview", wait_until="domcontentloaded")
+        page.wait_for_selector("#chart-reset", state="attached")
+        return page.eval_on_selector(
+            "#chart-reset", "b => [b.title, b.getAttribute('aria-label')]")
+
+    assert _serve(finished_sweep, look) == ["Show every chart", "Show every chart"]
