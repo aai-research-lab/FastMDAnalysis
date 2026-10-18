@@ -436,8 +436,11 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   not given and names the record, rather than its whole plan read through
   the link, and a thin umbrella window says how much longer is not given;
   outside such a read, remedies are as before. The Overview's card of what
-  would fix it (`/api/fixes`) is read so too, and a fix is run only where it
-  is the one the page showed. A carried-on study whose newest piece's live
+  would fix it (`/api/fixes`) is read so too, its Manifest, batch manifest
+  and free energy record with the rest: one not read is named, and the
+  remedy says it was not read, with nothing from it. A fix (`/api/fix`) is
+  run only where it is the one the page showed; one that differs, or that
+  the page did not show, is refused. A carried-on study whose newest piece's live
   record (or the piece's folder) was not read is not read as its first
   piece, stopped with that piece's frames: its status is Not read, naming
   the record. A piece's final state is not refused where its checkpoint
@@ -445,7 +448,12 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   and its figure panel), the methods, the values the Viewer colours residues
   by, the charts and the run's narration read only the study too, each
   naming what it did not read; the methods are not given without a record
-  they read, and the charts and the narration are not given in part.
+  they read, and the charts and the narration are not given in part. The
+  charts, the Viewer's "Coloured by" note and the Report page say such a
+  record was not read, not that none was recorded or no report written. A
+  run's own process record is read in a study of several runs as in a study
+  of one, and a record that is not there is not said not read: only a link,
+  or a hidden file that is there.
   `/api/overview`, `/api/results`, `/api/series`, `/api/analysis-overview`,
   `/api/convergence`, `/api/status`, `/api/figure-data`, `/api/fixes`,
   `/api/report`, `/api/methods`, `/api/residue-values`, `/api/metrics` and
