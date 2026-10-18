@@ -605,8 +605,8 @@
     box.type = "checkbox";
     box.checked = chosen.indexOf(study.path) >= 0;
     box.dataset.path = study.path;
-    box.addEventListener("change", function () { choose(study.path, box.checked, box); });
-    pick.append(box, document.createTextNode(" Compare"));
+    box.addEventListener("click", function (event) { picked(study.path, box.checked, event); });
+    pick.append(box, document.createTextNode(" Choose"));
     actions.append(openButton(study), tagButton(study), openButton(study, "files"), pick);
     body.appendChild(actions);
     item.appendChild(body);
@@ -641,6 +641,9 @@
     { id: "sampling", name: "Needs more sampling",
       test: function (s) { return (s.means || []).some(function (m) { return !!m.withheld; }); } },
     { id: "not-started", name: "Not started", test: function (s) { return s.state === "not started"; } },
+    // Studies the person archived, left out of every other view; shown
+    // only while there are some.
+    { id: "archived", name: "Archived", test: function (s) { return !!s.archived; } },
   ];
 
   function readKept(key, fallback) {
@@ -778,7 +781,7 @@
     box.checked = chosen.indexOf(study.path) >= 0;
     box.setAttribute("aria-label", "Compare " + study.name);
     box.dataset.path = study.path;
-    box.addEventListener("change", function () { choose(study.path, box.checked, box); });
+    box.addEventListener("click", function (event) { picked(study.path, box.checked, event); });
     pick.appendChild(box);
     tr.appendChild(pick);
     if (shownColumn("molecule")) tr.appendChild(cell("studies-mol", moleculeFrame(study, "studies-mol-frame", 64, 34, 3)));
@@ -928,8 +931,16 @@
         th.title = "A filled dot is a mean determined with its error; a ring, one not yet";
       } else if (h[0]) {
         th.textContent = h[0];
+      } else if (h[2] === "pick") {
+        // Every study shown chosen, or let go.
+        var all = make("input", "studies-pick-all");
+        all.type = "checkbox";
+        all.title = "Choose every study shown";
+        all.setAttribute("aria-label", "Choose every study shown");
+        all.addEventListener("click", function () { chooseEveryShown(all.checked); });
+        th.appendChild(all);
       } else {
-        th.appendChild(make("span", "sr-only", h[2] === "pick" ? "Compare" : h[2] === "mol" ? "Molecule" : "Open"));
+        th.appendChild(make("span", "sr-only", h[2] === "mol" ? "Molecule" : "Open"));
       }
       tr.appendChild(th);
     });
@@ -995,7 +1006,8 @@
     var v = viewNamed(activeView);
     return studies.filter(function (study) {
       var text = searchText(study);
-      return inView(study, v)
+      return (activeView === "archived" ? !!study.archived : !study.archived)
+        && inView(study, v)
         && (!tagged || hasTag(study, tagged))
         && (!filters.states.length || filters.states.indexOf(study.state) >= 0)
         && (!filters.systems.length || filters.systems.indexOf(shownId(study) || "") >= 0)
@@ -1016,8 +1028,10 @@
       b.dataset.view = v.id;
       b.setAttribute("aria-selected", String(activeView === v.id));
       b.appendChild(make("span", "", v.name));
-      var n = v.saved ? studies.filter(function (s) { return matchesSaved(s, v.saved); }).length
-        : studies.filter(function (s) { return v.test(s); }).length;
+      var kept = studies.filter(function (s) { return v.id === "archived" ? s.archived : !s.archived; });
+      var n = v.saved ? kept.filter(function (s) { return matchesSaved(s, v.saved); }).length
+        : kept.filter(function (s) { return v.test(s); }).length;
+      if (v.id === "archived" && !n && activeView !== "archived") return;
       b.appendChild(make("span", "studies-view-n", String(n)));
       b.addEventListener("click", function () { chooseView(v.id); });
       if (v.saved) {
@@ -1288,6 +1302,12 @@
     } else if (event.key === "c" && chosen.length === 2) {
       event.preventDefault();
       compare();
+    } else if (event.key === "t" && chosen.length) {
+      event.preventDefault();
+      openTagger();
+    } else if (event.key === "Escape" && chosen.length && !document.querySelector(".studies-tagger")) {
+      event.preventDefault();
+      clearChosen(true);
     } else if (event.key === "m" && here) {
       var path = here.dataset.path;
       var study = studies.find(function (s) { return s.path === path; }) ||
@@ -1350,233 +1370,393 @@
     sayChosen();
   }
 
-  /* Compare and Clear come beside the pointer the moment a second study is
-   * chosen, wherever on the page it was (user, 10-09: "should pop up beside
-   * the cursor only when 2 studies are selected ... not that the user has
-   * to scroll all the way back to the top of the page"). Chosen from the
-   * keyboard, beside the box chosen. Hidden while fewer than two are. */
-  var pointer = null;
-  var offeredAt = null;
-  var fresh = false;
-  var saidAside = false;
-  // Whether the bar was reached from the study chosen, where Tab goes on
-  // from: reached down the page, the page's own order holds.
-  var fromTheBox = false;
+  /* The studies chosen, and one bar at the foot of the list while any is:
+   * Compare (two), Tag, Files (one), Archive and Clear (user, 10-18: the
+   * mock's bar "seems better" than Compare and Clear beside the pointer of
+   * 10-09; "good ..... built it"). It is never over a row: the list keeps
+   * room for it. Shift and a click choose every study between it and the
+   * one chosen last; the box in the list's head, every study shown. */
+  var lastPicked = null;
 
-  function choose(path, on, box) {
+  function choose(path, on) {
     chosen = chosen.filter(function (p) { return p !== path; });
     if (on) chosen.push(path);
-    // Two at a time: a third chosen replaces the first.
-    if (chosen.length > 2) chosen.shift();
-    var by = byPointer(box);
-    offeredAt = chosen.length === 2 ? (by || cornerOf(box)) : null;
-    saidAside = false;
-    // Only the boxes are said again, not the cards drawn again: drawn
-    // again, their figures were fetched again, the column was as short as
-    // the cards without them for a moment, and a study chosen far down the
-    // page threw it back to the top. Only this saying keeps the point it
-    // was chosen at: any later drawing (search, a tag edited, the view
-    // switched) has moved the cards.
-    Array.prototype.forEach.call(document.querySelectorAll(
-      ".study-card .study-pick input, #studies-table tbody input[type=checkbox]"), function (b) {
-      if (b.dataset.path) b.checked = chosen.indexOf(b.dataset.path) >= 0;
-    });
-    fresh = true;
+    lastPicked = path;
     sayChosen();
-    fresh = false;
   }
 
-  /* The pointer that chose it: pressed on this box or its label, just now.
-   * A press elsewhere (another card, a moment before a key) is not. */
-  function byPointer(box) {
-    if (!pointer || Date.now() - pointer.at > 1500 || !box) return null;
-    var holder = box.closest("label, td") || box;
-    return holder.contains(pointer.target) ? { x: pointer.x, y: pointer.y } : null;
+  /* The boxes in the order the page shows them. */
+  function boxesShown() {
+    var selector = view === "table" ? "#studies-table tbody input[type=checkbox]"
+      : ".study-card .study-pick input";
+    return Array.prototype.filter.call(document.querySelectorAll(selector), function (b) {
+      return !!b.dataset.path;
+    });
   }
 
-  function cornerOf(box) {
-    if (!box || !box.getBoundingClientRect) return null;
-    var r = box.getBoundingClientRect();
-    return r.width || r.height ? { x: r.right, y: r.bottom, top: r.top } : null;
+  /* A box clicked: with Shift, every study from the one chosen last to
+   * this one is chosen (or let go) with it. */
+  function picked(path, on, event) {
+    var paths = boxesShown().map(function (b) { return b.dataset.path; });
+    var from = lastPicked ? paths.indexOf(lastPicked) : -1;
+    var to = paths.indexOf(path);
+    if (event && event.shiftKey && from >= 0 && to >= 0) {
+      paths.slice(Math.min(from, to), Math.max(from, to) + 1).forEach(function (p) {
+        chosen = chosen.filter(function (q) { return q !== p; });
+        if (on) chosen.push(p);
+      });
+      chosen = chosen.filter(function (q) { return q !== path; });
+      if (on) chosen.push(path);
+      lastPicked = path;
+      sayChosen();
+      return;
+    }
+    choose(path, on);
   }
 
-  function nameOf(path) {
-    var study = studies.find(function (s) { return s.path === path; });
-    return study ? study.name : "";
+  function chooseEveryShown(on) {
+    var paths = boxesShown().map(function (b) { return b.dataset.path; });
+    chosen = chosen.filter(function (p) { return paths.indexOf(p) < 0; });
+    if (on) chosen = chosen.concat(paths);
+    lastPicked = null;
+    sayChosen();
   }
 
-  function sayChosen() {
-    var bar = el("studies-compare-bar");
-    if (!bar) return;
-    var two = chosen.length === 2;
-    bar.hidden = !two;
-    el("studies-compare").disabled = !two;
-    el("studies-chosen-said").textContent = two ? "Two chosen." : "";
-    if (!fresh) offeredAt = null;
-    if (two) place(bar);
-    else sayHeard();
-  }
-
-  /* What a screen reader hears of the studies chosen: the pair by name, so
-   * a third choice that drops the first is heard, and where Compare and
-   * Clear are. */
-  function sayHeard() {
+  function clearChosen(fromKeys) {
+    var last = chosen[chosen.length - 1];
+    var inBar = el("studies-bar").contains(document.activeElement);
+    chosen = [];
+    lastPicked = null;
+    sayChosen();
     var heard = el("studies-chosen-heard");
-    var bar = el("studies-compare-bar");
-    if (!heard || !bar) return;
-    var names = chosen.map(nameOf);
-    var pair = names.every(Boolean) ? names.join(" and ") + " chosen." : "Two chosen.";
-    var said = chosen.length === 2 ? pair + (bar.classList.contains("is-aside")
-        ? " Compare and Clear come back as the page is scrolled."
-        : " Compare and Clear are next in the Tab order.")
-      : chosen.length === 1 && names[0] ? names[0] + " chosen. Choose one more to compare." : "";
-    if (heard.textContent !== said) heard.textContent = said;
-  }
-
-  /* The page column the cards are in, as much of it as the window shows:
-   * the bar stays inside it, off the sidebar and the Agent beside it. */
-  function bounds() {
-    var main = document.querySelector(".main");
-    var r = main ? main.getBoundingClientRect() : { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
-    var top = Math.max(0, r.top);
-    // Below what stays at the top as the page scrolls: on a phone the bar
-    // of links, and the page's own header under it.
-    [document.querySelector(".sidebar"),
-     document.querySelector('.page[data-page="studies"] .page-header')].forEach(function (bar) {
-      if (!bar) return;
-      var at = getComputedStyle(bar).position;
-      var b = bar.getBoundingClientRect();
-      if ((at === "sticky" || at === "fixed") && b.top <= top + 1 && b.bottom > top &&
-          b.width > (r.right - r.left) * 0.6) top = b.bottom;
-    });
-    var right = Math.min(window.innerWidth, r.right);
-    // The Agent drawn over the page, where the window is too narrow to
-    // set it beside: the column ends where it begins.
-    var drawer = document.querySelector(".agent-drawer");
-    if (drawer && !drawer.hidden && drawer.getClientRects().length) {
-      var d = drawer.getBoundingClientRect();
-      if (d.left < right && d.right > r.left) right = Math.max(r.left, d.left);
+    if (heard) heard.textContent = "Cleared.";
+    // The keyboard was in the bar, now hidden: back to the study last
+    // chosen, else the search.
+    if (inBar || fromKeys) {
+      var box = boxOf(last) || el("studies-search");
+      if (box) box.focus({ preventScroll: !fromKeys });
     }
-    return { left: Math.max(0, r.left), top: top,
-             right: right, bottom: Math.min(window.innerHeight, r.bottom) };
-  }
-
-  /* Whether a box is cut by the column or by a list scrolled under it (the
-   * table on a phone scrolls sideways): one cut is no place to point at. */
-  function clipped(box, b) {
-    var r = box.getBoundingClientRect();
-    if (!r.width && !r.height) return true;
-    if (r.left < b.left || r.right > b.right || r.top < b.top || r.bottom > b.bottom) return true;
-    for (var n = box.parentElement; n && n !== document.body; n = n.parentElement) {
-      var flow = getComputedStyle(n);
-      if (flow.overflowX === "visible" && flow.overflowY === "visible") continue;
-      var c = n.getBoundingClientRect();
-      if (r.left < c.left - 1 || r.right > c.right + 1 || r.top < c.top - 1 ||
-          r.bottom > c.bottom + 1) return true;
-    }
-    return false;
-  }
-
-  /* What the bar must not cover: a study's tags being changed, as much of
-   * it as the window shows. */
-  function inTheWay() {
-    var nodes = Array.prototype.slice.call(
-      document.querySelectorAll(".studies-editing, .study-tag-editor"));
-    return nodes.filter(function (n) {
-      return n && !n.hidden && n.getClientRects().length;
-    }).map(function (n) { return n.getBoundingClientRect(); }).filter(function (r) {
-      return r.bottom > 0 && r.top < window.innerHeight && r.width > 0;
-    });
-  }
-
-  function covers(left, top, w, h, r) {
-    return left < r.right && left + w > r.left && top < r.bottom && top + h > r.top;
-  }
-
-
-  /* Beside the point the second was chosen at; once the page has moved,
-   * beside the second study's box where it shows, else at the column's
-   * foot, so it is never back at the top of the page. To the right and
-   * below, or to the left or above where there is no room or it would
-   * cover the comparison or tags being changed. Where every place would,
-   * it is put aside until the page moves. */
-  function place(bar) {
-    // Not drawn (the page is another): placed when it shows again.
-    if (!bar.getClientRects().length) return;
-    var gap = 12;
-    var margin = 8;
-    bar.classList.remove("is-aside");
-    bar.style.left = "0px";
-    bar.style.top = "0px";
-    var w = bar.offsetWidth;
-    var h = bar.offsetHeight;
-    var b = bounds();
-    var at = offeredAt;
-    if (!at) {
-      var box = boxOf(chosen[chosen.length - 1]);
-      if (box && !clipped(box, b)) at = cornerOf(box);
-    }
-    var tries = [];
-    if (at) {
-      var left = at.x + gap + w <= b.right - margin ? at.x + gap : at.x - gap - w;
-      if (at.y + gap + h <= b.bottom - margin) tries.push([left, at.y + gap]);
-      // Above, clear of the box itself.
-      tries.push([left, (at.top != null ? at.top : at.y) - gap - h]);
-    }
-    // The column's corners, foot first, before it is put aside.
-    tries.push([b.right - w - 24, b.bottom - h - 24], [b.left + 24, b.bottom - h - 24],
-               [b.right - w - 24, b.top + 24], [b.left + 24, b.top + 24]);
-    var away = inTheWay();
-    var spots = tries.map(function (t) {
-      return [Math.max(b.left + margin, Math.min(t[0], b.right - w - margin)),
-              Math.max(b.top + margin, Math.min(t[1], b.bottom - h - margin))];
-    });
-    var spot = spots.find(function (s) {
-      return !away.some(function (r) { return covers(s[0], s[1], w, h, r); });
-    });
-    if (!spot) {
-      spot = spots[0];
-      bar.classList.add("is-aside");
-      // Its buttons are hidden: the focus goes back to the study chosen.
-      if (bar.contains(document.activeElement)) {
-        var back = boxOf(chosen[chosen.length - 1]);
-        if (back) back.focus({ preventScroll: true });
-      }
-    }
-    bar.style.left = spot[0] + "px";
-    bar.style.top = spot[1] + "px";
-    // Put aside is said once for the pair, not each time a scroll puts it
-    // aside again.
-    var aside = bar.classList.contains("is-aside");
-    if (!aside || !saidAside) sayHeard();
-    if (aside) saidAside = true;
   }
 
   function boxOf(path) {
-    var selector = view === "table" ? "#studies-table tbody input[type=checkbox]"
-      : ".study-card .study-pick input";
-    return Array.prototype.find.call(document.querySelectorAll(selector), function (n) {
-      return n.dataset.path === path;
-    }) || null;
+    return boxesShown().find(function (b) { return b.dataset.path === path; }) || null;
   }
 
-  /* The page moved under the bar: it follows the second study chosen. */
-  var placing = 0;
-  function moved() {
-    var bar = el("studies-compare-bar");
-    // Hidden, or on a page not shown: nothing to place.
-    if (!bar || bar.hidden || placing || !bar.getClientRects().length) return;
-    placing = requestAnimationFrame(function () {
-      placing = 0;
-      offeredAt = null;
-      if (!bar.hidden) place(bar);
+  function nameOf(path) {
+    var study = studyAt(path);
+    return study ? study.name : "";
+  }
+
+  /* A study listed, or a run of one unfolded. */
+  function studyAt(path) {
+    var found = studies.find(function (s) { return s.path === path; });
+    if (found) return found;
+    var keys = Object.keys(runsOf);
+    for (var k = 0; k < keys.length; k += 1) {
+      var runs = runsOf[keys[k]];
+      if (Array.isArray(runs)) {
+        found = runs.find(function (s) { return s.path === path; });
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  /* The boxes, the head's box, the bar and what a screen reader hears, as
+   * the studies chosen now are. */
+  function sayChosen() {
+    Array.prototype.forEach.call(document.querySelectorAll(
+      ".study-card .study-pick input, #studies-table tbody input[type=checkbox]"), function (b) {
+      if (b.dataset.path) b.checked = chosen.indexOf(b.dataset.path) >= 0;
+      var holder = b.closest(".studies-row, .study-card");
+      if (holder) holder.classList.toggle("is-chosen", b.checked);
     });
+    var head = document.querySelector("#studies-table thead .studies-pick-all");
+    if (head) {
+      var paths = boxesShown().map(function (b) { return b.dataset.path; });
+      var on = paths.filter(function (p) { return chosen.indexOf(p) >= 0; }).length;
+      head.checked = paths.length > 0 && on === paths.length;
+      head.indeterminate = on > 0 && on < paths.length;
+    }
+    var table = el("studies-table");
+    if (table) table.classList.toggle("is-choosing", chosen.length > 0);
+    drawBar();
+    var heard = el("studies-chosen-heard");
+    var n = chosen.length;
+    var said = !n ? "" : n === 1 ? (nameOf(chosen[0]) || "One") + " chosen."
+      : n === 2 ? chosen.map(nameOf).join(" and ") + " chosen. Compare is in the bar under the list."
+      : n + " chosen.";
+    if (heard && said && heard.textContent !== said) heard.textContent = said;
+  }
+
+  var barSaidFor = 0;
+  function drawBar() {
+    var bar = el("studies-bar");
+    if (!bar) return;
+    closeTagger();
+    var n = chosen.length;
+    bar.hidden = n === 0 && el("studies-bar-said").hidden;
+    if (!n) {
+      if (bar.contains(document.activeElement) && el("studies-bar-said").hidden) el("studies-search").focus();
+      return;
+    }
+    el("studies-bar-said").hidden = true;
+    el("studies-bar-in").hidden = false;
+    bar.hidden = false;
+    clearTimeout(barSaidFor);
+    var count = el("studies-chosen-said");
+    count.textContent = n + " chosen";
+    count.title = chosen.map(nameOf).filter(Boolean).join(", ");
+    var compare = el("studies-compare");
+    compare.disabled = n !== 2;
+    compare.title = n === 2 ? "Open " + chosen.map(nameOf).join(" and ") + " on the Compare page (C)"
+      : "Choose two to compare: " + n + " chosen";
+    var files = el("studies-files-chosen");
+    files.disabled = n !== 1;
+    files.title = n === 1 ? "Open its files" : "Choose one study to open its files";
+    var archive = el("studies-archive");
+    var undoing = activeView === "archived";
+    archive.querySelector("span").textContent = undoing ? "Unarchive" : "Archive";
+    archive.title = undoing ? "Show them in All studies again"
+      : "Leave them out of All studies; nothing is moved or deleted, and Archived shows them";
+    el("studies-tag-chosen").title = "Add or take off a tag on every study chosen (T)";
+  }
+
+  /* What was done, said in the bar for a while, with Undo where it can be. */
+  function barSays(text, undo) {
+    var bar = el("studies-bar");
+    var said = el("studies-bar-said");
+    closeTagger();
+    said.replaceChildren(make("span", "studies-bar-text", text));
+    if (undo) {
+      var back = make("button", "studies-bar-btn studies-bar-undo");
+      back.type = "button";
+      back.innerHTML = ICONS.svg("undo");
+      back.appendChild(make("span", "", "Undo"));
+      back.addEventListener("click", function () { said.hidden = true; undo(); });
+      said.appendChild(back);
+    }
+    var close = make("button", "studies-bar-btn is-icon");
+    close.type = "button";
+    close.innerHTML = ICONS.svg("close");
+    close.title = "Close";
+    close.setAttribute("aria-label", "Close");
+    close.addEventListener("click", function () { said.hidden = true; drawBar(); });
+    said.appendChild(close);
+    el("studies-bar-in").hidden = true;
+    said.hidden = false;
+    bar.hidden = false;
+    clearTimeout(barSaidFor);
+    // Gone after a while, but not from under the pointer or the keyboard.
+    var wait = undo ? 8000 : 4000;
+    var later = function () {
+      if (bar.matches(":hover") || bar.contains(document.activeElement)) {
+        barSaidFor = setTimeout(later, 1500);
+        return;
+      }
+      said.hidden = true;
+      drawBar();
+    };
+    barSaidFor = setTimeout(later, wait);
   }
 
   /* The two chosen, on the Compare page (compare.js). */
   function compare() {
     if (chosen.length !== 2 || !window.FastMDXCompare) return;
     window.FastMDXCompare.open(chosen[0], chosen[1]);
+  }
+
+  /* Tags of the studies chosen, kept one study at a time as a card's are
+   * (POST /api/study-tags; its note and whether it is archived kept). */
+  function keepTags(list) {
+    return Promise.all(list.map(function (one) {
+      return fetch("/api/study-tags", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: one.path, tags: one.tags })
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        if (!d || !d.ok) return { path: one.path, reason: (d && (d.reason || d.error)) || "not kept" };
+        var study = studyAt(one.path);
+        if (study) { study.tags = d.tags; study.note = d.note; }
+        return { path: one.path };
+      }).catch(function () { return { path: one.path, reason: "The server did not answer." }; });
+    }));
+  }
+
+  function afterTags(results, done, undo) {
+    var refused = results.filter(function (r) { return r.reason; });
+    tagsUsed = countTags();
+    offerTags();
+    draw();
+    if (refused.length) {
+      barSays((nameOf(refused[0].path) || "A study") + ": " + refused[0].reason +
+        (refused.length > 1 ? " (and " + (refused.length - 1) + " more)" : ""));
+    } else {
+      barSays(done, undo);
+    }
+  }
+
+  /* Tag for many: each tag with how many of the chosen carry it. Ticked,
+   * it goes on all; cleared, it comes off all; left alone, it stays as it
+   * is on each, and a study's other tags are not touched. */
+  function closeTagger() {
+    var open = document.querySelector(".studies-tagger");
+    if (open) open.remove();
+  }
+
+  function openTagger() {
+    if (document.querySelector(".studies-tagger")) { closeTagger(); return; }
+    var picked = chosen.map(studyAt).filter(Boolean);
+    var n = picked.length;
+    if (!n) return;
+    var count = {};
+    studies.forEach(function (s) { (s.tags || []).forEach(function (t) { if (!(t in count)) count[t] = 0; }); });
+    picked.forEach(function (s) { (s.tags || []).forEach(function (t) { count[t] = (count[t] || 0) + 1; }); });
+    var want = {};
+    var shows = {};
+    var box = make("div", "studies-tagger");
+    box.setAttribute("role", "dialog");
+    box.setAttribute("aria-label", "Tags of the " + n + " chosen");
+    box.appendChild(make("div", "studies-tagger-head", "Tags of the " + n + " chosen"));
+    var list = make("div", "studies-tagger-list");
+    function item(tag) {
+      var row = make("label", "studies-tagger-item");
+      var tick = make("input");
+      tick.type = "checkbox";
+      var said = make("span", "studies-tagger-n");
+      function show() {
+        var k = want[tag] === "on" ? n : want[tag] === "off" ? 0 : count[tag];
+        tick.checked = k === n;
+        tick.indeterminate = k > 0 && k < n;
+        said.textContent = k === 0 ? "none" : k === n ? (n === 1 ? "on it" : "all " + n) : k + " of " + n;
+        row.classList.toggle("is-changed", want[tag] !== undefined);
+      }
+      tick.addEventListener("click", function (event) {
+        event.preventDefault();
+        // On some: on all, then off all, then as it was. On all: off all,
+        // then as it was. On none: on all, then as it was.
+        var now = want[tag];
+        var next = count[tag] === n ? (now ? undefined : "off")
+          : count[tag] === 0 ? (now ? undefined : "on")
+          : now === undefined ? "on" : now === "on" ? "off" : undefined;
+        if (next) want[tag] = next; else delete want[tag];
+        show();
+      });
+      row.append(tick, make("span", "studies-tagger-tag", tag), said);
+      shows[tag] = show;
+      show();
+      return row;
+    }
+    Object.keys(count).sort(function (a, b) { return a.localeCompare(b); })
+      .forEach(function (t) { list.appendChild(item(t)); });
+    box.appendChild(list);
+    var adding = make("input", "studies-tagger-new");
+    adding.type = "text";
+    adding.maxLength = 40;
+    adding.placeholder = "A new tag, then Enter";
+    adding.setAttribute("aria-label", "A new tag for every study chosen");
+    adding.setAttribute("list", "studies-tags-used");
+    adding.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        var tag = adding.value.replace(/\s+/g, " ").trim();
+        if (!tag) { apply.click(); return; }
+        var known = Object.keys(count).find(function (t) { return t.toLowerCase() === tag.toLowerCase(); });
+        if (!known) { count[tag] = 0; list.appendChild(item(tag)); known = tag; }
+        if (count[known] < n) want[known] = "on";
+        shows[known]();
+        adding.value = "";
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        closeTagger();
+        el("studies-tag-chosen").focus();
+      }
+    });
+    box.appendChild(adding);
+    box.appendChild(make("p", "studies-tagger-hint", "A tag ticked goes on all " + n +
+      "; one cleared comes off all " + n + "; one left alone stays as it is on each."));
+    var foot = make("div", "studies-tagger-foot");
+    var cancel = make("button", "studies-bar-btn", "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", function () { closeTagger(); el("studies-tag-chosen").focus(); });
+    var apply = make("button", "studies-bar-btn is-primary", "Apply");
+    apply.type = "button";
+    apply.addEventListener("click", function () {
+      var before = picked.map(function (s) { return { path: s.path, tags: (s.tags || []).slice() }; });
+      var after = picked.map(function (s) {
+        var tags = (s.tags || []).slice();
+        Object.keys(want).forEach(function (t) {
+          var at = tags.findIndex(function (x) { return x.toLowerCase() === t.toLowerCase(); });
+          if (want[t] === "on" && at < 0) tags.push(t);
+          if (want[t] === "off" && at >= 0) tags.splice(at, 1);
+        });
+        return { path: s.path, tags: tags };
+      }).filter(function (one, k) { return one.tags.join("\n") !== before[k].tags.join("\n"); });
+      closeTagger();
+      if (!after.length) { barSays("Nothing changed."); return; }
+      apply.disabled = true;
+      var was = before.filter(function (b) { return after.some(function (a) { return a.path === b.path; }); });
+      keepTags(after).then(function (results) {
+        afterTags(results, "Tags changed on " + after.length + (after.length === 1 ? " study." : " studies."),
+          function () {
+            keepTags(was).then(function (back) { afterTags(back, "The tags are back as they were."); });
+          });
+      });
+    });
+    foot.append(cancel, apply);
+    box.appendChild(foot);
+    box.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") { event.preventDefault(); closeTagger(); el("studies-tag-chosen").focus(); }
+    });
+    el("studies-bar").appendChild(box);
+    var at = el("studies-tag-chosen");
+    var left = at.getBoundingClientRect().left - el("studies-bar").getBoundingClientRect().left - 40;
+    box.style.left = Math.max(0, left) + "px";
+    adding.focus();
+  }
+
+  /* Archived: left out of All studies, kept in the study's own
+   * study_tags.json; nothing moved or deleted. Archived shows them. */
+  function setArchived(on) {
+    var list = chosen.map(studyAt).filter(Boolean);
+    if (!list.length) return;
+    Promise.all(list.map(function (one) {
+      return fetch("/api/study-tags", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: one.path, tags: one.tags || [], archived: on })
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        if (!d || !d.ok) return { path: one.path, reason: (d && (d.reason || d.error)) || "not kept" };
+        // A server that does not pass "archived" on keeps the tags alone.
+        if (!!d.archived !== on) return { path: one.path, reason: "this GUI's server does not keep Archive yet" };
+        one.archived = on;
+        return { path: one.path };
+      }).catch(function () { return { path: one.path, reason: "The server did not answer." }; });
+    })).then(function (results) {
+      var done = results.filter(function (r) { return !r.reason; }).map(function (r) { return r.path; });
+      var refused = results.filter(function (r) { return r.reason; });
+      if (refused.length && !done.length) {
+        // Nothing kept: still chosen, as they were.
+        barSays((nameOf(refused[0].path) || "A study") + ": " + refused[0].reason + ".");
+        return;
+      }
+      // Those kept leave the view; any refused stay chosen.
+      chosen = refused.map(function (r) { return r.path; });
+      lastPicked = null;
+      if (activeView === "archived" && !studies.some(function (s) { return s.archived; })) activeView = "all";
+      draw();
+      if (refused.length) {
+        barSays(done.length + " of " + results.length + " " + (on ? "archived" : "back") + "; " +
+          (nameOf(refused[0].path) || "a study") + ": " + refused[0].reason + ".");
+        return;
+      }
+      var said = done.length === 1 ? nameOf(done[0]) : done.length + " studies";
+      barSays(on ? said + " archived: left out of All studies, nothing moved."
+        : said + " back in All studies.", function () {
+        chosen = done.slice();
+        setArchived(!on);
+      });
+    });
   }
 
   function openStudy(path, button, page) {
@@ -1682,73 +1862,16 @@
     });
     el("studies-tag-filter-clear").addEventListener("click", function () { narrowTo(null); });
     el("studies-compare").addEventListener("click", compare);
-    el("studies-clear").addEventListener("click", function (event) {
-      var last = chosen[chosen.length - 1];
-      var other = chosen[0];
-      var fromKeys = event.detail === 0;
-      chosen = [];
-      offeredAt = null;
-      draw();
-      // Back to the study last chosen, else the other, else the search
-      // (both narrowed away): brought into view from the keyboard.
-      var box = boxOf(last) || boxOf(other) || el("studies-search");
-      if (box) {
-        box.focus({ preventScroll: true });
-        if (fromKeys) box.scrollIntoView({ block: "nearest" });
-      }
-      var heard = el("studies-chosen-heard");
-      if (heard) heard.textContent = "Cleared.";
+    el("studies-clear").addEventListener("click", function (event) { clearChosen(event.detail === 0); });
+    el("studies-tag-chosen").addEventListener("click", openTagger);
+    el("studies-files-chosen").addEventListener("click", function () {
+      if (chosen.length === 1) openStudy(chosen[0], el("studies-files-chosen"), "files");
     });
-    // Where a click was, and on what, for Compare and Clear to come beside.
-    // A click from the keyboard (detail 0) is none.
+    el("studies-archive").addEventListener("click", function () { setArchived(activeView !== "archived"); });
+    // A click outside the tagger closes it, as a menu does.
     document.addEventListener("click", function (event) {
-      if (event.detail > 0) {
-        pointer = { x: event.clientX, y: event.clientY, at: Date.now(), target: event.target };
-      }
-    }, true);
-    document.addEventListener("scroll", moved, true);
-    window.addEventListener("resize", moved);
-    // The column narrowed or widened without the window (the Agent opened
-    // beside the page, the sidebar folded), or the cards or the table grew
-    // or shrank above the study chosen, or the Agent was drawn over the
-    // page.
-    if (window.ResizeObserver) {
-      var watch = new ResizeObserver(moved);
-      [document.querySelector(".main"), el("studies-grid"), el("studies-table"),
-       el("agent-drawer")].forEach(function (n) { if (n) watch.observe(n); });
-    }
-    // Tab from the study chosen reaches Compare and Clear; Escape from them
-    // goes back to it, and Tab on from Clear goes on from it, not from where
-    // the bar sits in the page.
-    var bar = el("studies-compare-bar");
-    document.addEventListener("keydown", function (event) {
-      if (event.key !== "Tab" || event.shiftKey || chosen.length !== 2) return;
-      if (event.target !== boxOf(chosen[1]) || bar.hidden ||
-          bar.classList.contains("is-aside") || !bar.getClientRects().length) return;
-      event.preventDefault();
-      fromTheBox = true;
-      el("studies-compare").focus();
-    });
-    bar.addEventListener("focusin", function (event) {
-      if (event.relatedTarget && !bar.contains(event.relatedTarget)) {
-        fromTheBox = event.relatedTarget === boxOf(chosen[chosen.length - 1]);
-      }
-    });
-    bar.addEventListener("focusout", function (event) {
-      if (!event.relatedTarget || !bar.contains(event.relatedTarget)) fromTheBox = false;
-    });
-    bar.addEventListener("keydown", function (event) {
-      var box = boxOf(chosen[chosen.length - 1]);
-      if (!box) return;
-      if (event.key === "Escape" || (event.key === "Tab" && fromTheBox && event.shiftKey &&
-                                     event.target === el("studies-compare"))) {
-        event.preventDefault();
-        box.focus();
-      } else if (event.key === "Tab" && fromTheBox && !event.shiftKey &&
-                 event.target === el("studies-clear")) {
-        // The browser's own Tab goes on, from the box.
-        box.focus();
-      }
+      var open = document.querySelector(".studies-tagger");
+      if (open && !open.contains(event.target) && !event.target.closest("#studies-tag-chosen")) closeTagger();
     });
     var path = el("studies-path");
     el("studies-look-in").addEventListener("click", function () {
