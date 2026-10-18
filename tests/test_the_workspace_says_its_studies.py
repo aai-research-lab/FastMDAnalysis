@@ -315,8 +315,8 @@ def test_the_page(workspace) -> None:
             searched = page.locator(".study-card").count()
             page.fill("#studies-search", "")
             page.check('.study-card[data-path$="/ubiquitin"] .study-pick input')
-            # One chosen offers nothing yet: Compare and Clear come with the second.
-            waiting = page.is_hidden("#studies-compare-bar")
+            # One chosen: the bar under the list, Compare waiting for a second.
+            waiting = page.is_visible("#studies-bar-in") and page.is_disabled("#studies-compare")
             page.check('.study-card[data-path$="ubiquitin_longer"] .study-pick input')
             # Compared on the Compare page (compare.js), then back to the cards.
             page.click("#studies-compare")
