@@ -143,9 +143,6 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   failures retain a public note and a private debug traceback. A record
   linked out of the study is named by its place in it.
 
-- `/api/analysis-overview` no longer shows the text of a record linked out
-  of the study, or to a hidden file in it.
-
 - Problems reads the run's own process record, so a running study is read
   (and is not a problem), and a run the Overview calls Interrupted is listed.
   A stop or interruption is listed only while the Overview says so: a study
@@ -289,16 +286,23 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   through, refuses every send until it is smaller. See `docs/remote.md`,
   What travels.
 
-- The means, series, captions and frame times the Overview, the Analysis
-  page, the Results data and the Files page give are read from the study's
-  own records only, on this computer and on a public bind (`--host
-  0.0.0.0`). A record linked out of the study (a study downloaded from a
-  deposit can hold such a link), or to a hidden file in it, is not read: its
-  mean reads "record unavailable" with the record named, its series and
-  convergence say it was not read, and the answer lists it in
-  `unavailable`. `/api/overview`, `/api/results`, `/api/series` and
-  `/api/convergence`, and the analysis manifest and run record the time of
-  each frame is read from, read through such a link before.
+- The Overview, the Analysis page, the Results data and the Files page read
+  the study's own records, on this computer and on a public bind (`--host
+  0.0.0.0`): the analyses' means, series, captions and frame times, and the
+  run's cost, resolved configs, manifests, run records and prepared system. A
+  record linked out of the study (a study downloaded from a deposit can hold
+  such a link), or to a hidden file in it, is not read: its mean is Not read,
+  counted neither determined nor not, with the record named; its series and
+  convergence say it was not read; the Overview and the Analysis page name
+  each record they did not read, and say so when it held the analyses' clock,
+  whose frames are then numbered rather than timed; and the answer lists them
+  in `unavailable`. The run's own process record is still read, so a run whose
+  process is gone reads interrupted, and a run of a study of several still
+  reads its study's `stopping.json` and its runs' records, so a run waiting
+  for the study's next round reads waiting. `/api/overview`, `/api/results`,
+  `/api/series`, `/api/analysis-overview` and `/api/convergence` read through
+  such a link before. A carried-on study's `joined/joined.json` is still read
+  through one.
 
 ## [2.6.0] - 2026-10-11
 
