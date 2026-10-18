@@ -185,6 +185,12 @@ def test_the_timeline_is_under_the_molecule_and_shows_a_frame_when_asked(study):
             times = page.evaluate("""() => [document.getElementById('traj-simtime').textContent,
                 document.getElementById('overlay-simtime').textContent,
                 [...document.querySelectorAll('#timeline-ruler text')].pop().textContent]""")
+            # A 40 ps run of 0.2 ps frames, as both readouts say a frame's time.
+            short = page.evaluate("""() => {
+                const t = Array.from({length: 200}, (_, i) => (i + 1) * 0.0002);
+                const said = window.FastMDXSeries.frameTimeSaid;
+                return [said(t[0], t), said(t[1], t), said(1.5, [0.5, 1.0, 1.5])];
+            }""")
             # A track that cannot be drawn says why under its name, not over it.
             boxes = page.evaluate("""() => {
                 const track = document.querySelector('.frame-track');
@@ -192,7 +198,9 @@ def test_the_timeline_is_under_the_molecule_and_shows_a_frame_when_asked(study):
                 const note = track.querySelector('.frame-track-note');
                 note.textContent = 'RMSD was computed from another trajectory than the one played.';
                 const a = track.querySelector('.frame-track-label').getBoundingClientRect();
-                const b = note.getBoundingClientRect();
+                const words = document.createRange();
+                words.selectNodeContents(note);
+                const b = words.getBoundingClientRect();
                 return [a.bottom, b.top];
             }""")
             # The tool beside the molecule is as tall as the rail.
@@ -215,5 +223,10 @@ def test_the_timeline_is_under_the_molecule_and_shows_a_frame_when_asked(study):
     assert on_mark[0] == "5" and on_mark[1] and not any(v.endswith(" nm") for v in on_mark[1])
     assert panel[0] >= panel[1] - 2 and panel[2] == -1
     unit = times[2].split()[-1]
-    assert times[0].endswith(" " + unit) and times[1].endswith(" " + unit), times
+    if unit == "frame":
+        # A run with no clock: its frames by number, and no time said.
+        assert times[0] == "\u2014", times
+    else:
+        assert times[0].endswith(" " + unit) and times[1].endswith(" " + unit), times
+    assert short == ["0.2 ps", "0.4 ps", "1.500 ns"]
     assert boxes[0] <= boxes[1], boxes
