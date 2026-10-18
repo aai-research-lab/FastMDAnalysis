@@ -523,7 +523,8 @@ def test_a_thread_switched_while_its_save_waits_keeps_both(tmp_path, monkeypatch
     assert errors == []
 
 
-def test_the_thread_is_left_alone_while_its_run_starts(tmp_path, monkeypatch):
+@pytest.mark.parametrize("named_study", [False, True], ids=["workspace", "study"])
+def test_the_thread_is_left_alone_while_its_run_starts(tmp_path, monkeypatch, named_study):
     """The GUI is on the run's folder before the launch answers (the move
     and the run's entry are written after the run starts); the page did not
     empty the thread then (twelfth review, 10-08: untested)."""
@@ -539,6 +540,10 @@ def test_the_thread_is_left_alone_while_its_run_starts(tmp_path, monkeypatch):
     monkeypatch.setenv("FASTMDXPLORA_CONFIG_DIR", tempfile.mkdtemp())
     workspace = tmp_path / "workspace"
     workspace.mkdir()
+    if named_study:
+        original = workspace / "here"
+        original.mkdir()
+        (original / "exploration.yml").write_text("systems: []\n", encoding="utf-8")
     _launches(monkeypatch, workspace)
     said_where = agent_panel._say_where_it_ran
 

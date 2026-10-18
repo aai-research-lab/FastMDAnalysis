@@ -4117,10 +4117,11 @@
         if (moved && moved.ok && moved.id) {
           c.id = moved.id;
           c.study = moved.study || started.output;
+          if (validStudyKey(moved.study_key)) c.page = moved.study_key;
           if (c === conv) {
             // The launch already moved this conversation. Its old page's
             // key must not schedule a replacement read over newer messages.
-            convFor = "";
+            convFor = validStudyKey(moved.study_key) ? moved.study_key : "";
             readAgain = false;
           }
         }

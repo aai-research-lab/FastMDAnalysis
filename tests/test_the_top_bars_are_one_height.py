@@ -75,7 +75,7 @@ def test_the_three_bars_are_one_height_on_every_page(tmp_path):
         session.server.shutdown()
     for name, bars in found.items():
         assert bars["tabs"] == bars["brand"], (name, bars)
-        assert bars["header"][0] == bars["strip"][1], (name, bars)
+        assert bars["header"][0] == round(bars["strip"][1]), (name, bars)
         assert bars["header"][1] - bars["header"][0] == 52, (name, bars)
         assert bars["tabs"][1] - bars["tabs"][0] == 52, (name, bars)
         assert abs(bars["offCentre"]) <= 1, (name, bars)

@@ -3333,6 +3333,7 @@
     draftTimer = null;
     try { window.localStorage.removeItem(draftKey()); } catch (error) { /* nothing to discard */ }
     draftSeen = null;
+    draftKept = draftNow();
     const said = el("run-draft");
     if (said) said.hidden = true;
   }
@@ -4137,11 +4138,14 @@
     if (launchesPending) return "Wait for the Config launch to finish before switching studies.";
     if (!draftReady || !state.start) return "";
     commitTyping();
+    // A launched form is already kept in its Config. A reload must not
+    // recreate the unchanged draft that the successful launch discarded.
+    const kept = draftKept !== null && draftKept === draftNow();
+    if (kept && !draftTimer) return "";
     clearTimeout(draftTimer);
     const saved = writeDraft(true);
     if (saved === "saved") return "";
     // Downloaded or reset as it is now: nothing here is lost.
-    const kept = draftKept !== null && draftKept === draftNow();
     // Another window saved a newer draft: nothing is lost here unless
     // this window changed the form since its own last save.
     if (saved === "newer") {

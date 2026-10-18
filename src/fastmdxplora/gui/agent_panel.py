@@ -1095,6 +1095,10 @@ def run_endpoint(payload: dict[str, Any], runtime: Any,
             source = (str(place[0]) if place[0] else None) if place else moving.get("study")
             started["conversation"] = attach_conversation(
                 runtime, started["output"], cid, source)
+            if started["conversation"].get("ok"):
+                from fastmdxplora.gui.workspace import study_key
+
+                started["conversation"]["study_key"] = study_key(started["output"])
             # The page saved the run's entry before it asked for the run;
             # where it went is written into that entry here, so a reload
             # before the page hears keeps the run (twelfth review, 10-08).
