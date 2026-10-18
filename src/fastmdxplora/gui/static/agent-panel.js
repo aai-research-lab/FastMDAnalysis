@@ -4272,7 +4272,10 @@
       var dashboard = window.FastMDXDashboard;
       var another = Boolean(study) && !loaded && dashboard && dashboard.beginStudySwitch;
       if (another) {
-        var held = dashboard.beginStudySwitch();
+        /* A launch under way does not hold it: the study is opened once
+         * the launch has answered (openStudyOfConversation), so its answer
+         * is heard. */
+        var held = dashboard.beginStudySwitch("after-launch");
         if (held) {
           if (list && !list.hidden) {
             var said = list.querySelector(".agent-conv-held") || node("p", "agent-conv-held muted small");
@@ -4745,7 +4748,9 @@
     /* A study's kept unsent words forgotten: its tab closed, its folder gone. */
     forgetUnsent: forgetUnsent,
     beforeStudySwitch: function (how) {
-      if (launching) return "Wait for the study launch to finish before switching studies.";
+      if (launching && !(how && how.afterLaunch)) {
+        return "Wait for the study launch to finish before switching studies.";
+      }
       if (attaching) return "Wait for the Agent attachment to finish loading before switching studies.";
       if (writing || pendingReplies) return "Finish or stop the Agent reply before switching studies.";
       /* Said with the review's own buttons, beside the review too. */
