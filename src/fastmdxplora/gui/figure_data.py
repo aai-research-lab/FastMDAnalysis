@@ -31,8 +31,11 @@ import json
 import math
 import re
 import threading
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
+
+from fastmdxplora import record_access as _records
 
 __all__ = ["figure_payload", "FIGURES"]
 
@@ -143,8 +146,19 @@ def _linked(root: Path) -> bool:
     return _of_the_played_trajectory(root, _json(root / "analysis" / "analysis_manifest.json"))
 
 
+@contextmanager
+def _npz(path: Path) -> Iterator[Any]:
+    """An ``.npz`` the analysis wrote, opened as every record here is
+    (`record_access`), so a confined read holds it to the study."""
+    import numpy as np
+
+    with _records.open_text(path, encoding="latin-1") as stream:
+        with np.load(stream.buffer, allow_pickle=False) as found:
+            yield found
+
+
 def _table(path: Path) -> list[dict[str, str]]:
-    with path.open(newline="", encoding="utf-8") as fh:
+    with _records.open_text(path, newline="", encoding="utf-8") as fh:
         return [row for row in csv.DictReader(line for line in fh if not line.startswith("#"))]
 
 
@@ -169,8 +183,8 @@ def _grid(values: Any) -> list[list[float | None]]:
 
 def _options(root: Path, analysis: str) -> dict[str, Any]:
     try:
-        record = json.loads((root / "analysis" / analysis / "options.json").read_text(
-            encoding="utf-8"))
+        record = json.loads(_records.read_text(root / "analysis" / analysis / "options.json",
+                                               encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     options = record.get("options") if isinstance(record, dict) else None
@@ -187,7 +201,7 @@ def _kept(path: Path) -> Any:
     """What was read from ``path`` before, unless it has changed since; None
     where it does not exist."""
     try:
-        seen = path.stat()
+        seen = _records.stat(path)
     except OSError:
         return None
     with _KEPT_LOCK:
@@ -199,7 +213,7 @@ def _kept(path: Path) -> Any:
 
 def _keep(path: Path, payload: Any) -> None:
     try:
-        seen = path.stat()
+        seen = _records.stat(path)
     except OSError:
         return
     with _KEPT_LOCK:
@@ -214,9 +228,9 @@ def _keep(path: Path, payload: Any) -> None:
 
 def _secondary_structure(root: Path) -> dict[str, Any] | None:
     path = root / "analysis" / "ss" / "ss.dat"
-    if not path.is_file():
+    if not _records.is_file(path):
         return None
-    with path.open(newline="", encoding="utf-8") as fh:
+    with _records.open_text(path, newline="", encoding="utf-8") as fh:
         reader = csv.reader(line for line in fh if not line.startswith("#"))
         header = next(reader, None)
         rows = [row for row in reader if row]
@@ -247,7 +261,7 @@ def _secondary_structure(root: Path) -> dict[str, Any] | None:
 
 def _cluster_labels(root: Path, method: str) -> dict[str, Any] | None:
     path = root / "analysis" / "cluster" / f"cluster_{method}.dat"
-    if not path.is_file():
+    if not _records.is_file(path):
         return None
     rows = _table(path)
     if not rows:
@@ -269,13 +283,13 @@ def _populations(root: Path, method: str) -> dict[str, Any] | None:
     folder = root / "analysis" / "cluster"
     table = folder / f"cluster_{method}_populations.csv"
     counts: dict[int, int] = {}
-    if (folder / f"cluster_{method}.dat").is_file():
+    if _records.is_file(folder / f"cluster_{method}.dat"):
         for row in _table(folder / f"cluster_{method}.dat"):
             label = int(float(row["cluster"]))
             counts[label] = counts.get(label, 0) + 1
     total = sum(counts.values())
     clusters: list[dict[str, Any]] = []
-    if table.is_file():
+    if _records.is_file(table):
         for row in _table(table):
             medoid = _number(row.get("medoid_frame"))
             # The medoid is numbered among the frames analysed; the Viewer
@@ -310,11 +324,12 @@ def _hierarchy(root: Path, method: str) -> dict[str, Any] | None:
 
     folder = root / "analysis" / "cluster"
     path = folder / f"{method}_linkage.npy"
-    if not path.is_file():
+    if not _records.is_file(path):
         return None
     from scipy.cluster.hierarchy import dendrogram
 
-    z = np.load(path, allow_pickle=False)
+    with _records.open_text(path, encoding="latin-1") as stream:
+        z = np.load(stream.buffer, allow_pickle=False)
     if z.ndim != 2 or z.shape[1] != 4 or z.shape[0] < 1:
         return None
     n = z.shape[0] + 1
@@ -331,7 +346,7 @@ def _hierarchy(root: Path, method: str) -> dict[str, Any] | None:
         truncate_mode="lastp" if truncated else None, p=MOST_LEAVES if truncated else 30,
     )
     labels: list[int] | None = None
-    if (folder / f"cluster_{method}.dat").is_file():
+    if _records.is_file(folder / f"cluster_{method}.dat"):
         rows = _table(folder / f"cluster_{method}.dat")
         if len(rows) == n:
             labels = [int(float(row["cluster"])) for row in rows]
@@ -377,7 +392,7 @@ def _rmsd_matrix(root: Path) -> dict[str, Any] | None:
     if kept is not _NOT_KEPT:
         return kept
     payload = None
-    with np.load(path, allow_pickle=False) as found:
+    with _npz(path) as found:
         values = np.asarray(found["rmsd_nm"], dtype=np.float32)
         times = np.asarray(found["time_ns"], dtype=float) if "time_ns" in found.files else None
         loaded = np.asarray(found["frames"], dtype=int) if "frames" in found.files else None
@@ -422,14 +437,12 @@ _METHOD_WORDS = {"pca": ("PCA", "PC"), "tica": ("tICA", "IC"), "tsne": ("t-SNE",
 def _axes_of(root: Path, method: str) -> list[str]:
     """Each component's name, with the share of the variance it carries
     where the method records one (PCA)."""
-    import numpy as np
-
     word = _METHOD_WORDS.get(method, (method.upper(), method.upper()))[1]
     ratio = None
     path = root / "analysis" / "dimred" / f"dimred_{method}_modes.npz"
-    if path.is_file():
+    if _records.is_file(path):
         try:
-            with np.load(path, allow_pickle=False) as found:
+            with _npz(path) as found:
                 if "ratio" in found.files:
                     ratio = [float(v) for v in found["ratio"]]
         except (OSError, ValueError):
@@ -443,7 +456,7 @@ def _axes_of(root: Path, method: str) -> list[str]:
 
 def _projection(root: Path, method: str) -> dict[str, Any] | None:
     path = root / "analysis" / "dimred" / f"dimred_{method}.dat"
-    if not path.is_file():
+    if not _records.is_file(path):
         return None
     rows = _table(path)
     if not rows or "component_1" not in rows[0] or "component_2" not in rows[0]:
@@ -468,9 +481,9 @@ def _landscape(root: Path, method: str) -> dict[str, Any] | None:
     import numpy as np
 
     path = root / "analysis" / "dimred" / f"dimred_{method}_landscape.npz"
-    if not path.is_file():
+    if not _records.is_file(path):
         return None
-    with np.load(path, allow_pickle=False) as found:
+    with _npz(path) as found:
         energy = np.asarray(found["free_energy"], dtype=float)
         edges = [k for k in found.files if k.startswith("edges_")]
         if len(edges) < 2:
@@ -510,15 +523,16 @@ def _ramachandran(root: Path) -> dict[str, Any] | None:
     pairs = 0
     # Read in pieces, two columns of float32: a long run of a large protein
     # writes millions of rows.
-    for piece in pd.read_csv(path, usecols=["phi_deg", "psi_deg"], dtype="float32",
-                             comment="#", chunksize=500_000):
-        both = piece.dropna().to_numpy()
-        if not len(both):
-            continue
-        found, _, _ = np.histogram2d(both[:, 0], both[:, 1], bins=bins,
-                                     range=[[-180, 180], [-180, 180]])
-        counts += found
-        pairs += len(both)
+    with _records.open_text(path, encoding="utf-8", newline="") as stream:
+        for piece in pd.read_csv(stream, usecols=["phi_deg", "psi_deg"], dtype="float32",
+                                 comment="#", chunksize=500_000):
+            both = piece.dropna().to_numpy()
+            if not len(both):
+                continue
+            found, _, _ = np.histogram2d(both[:, 0], both[:, 1], bins=bins,
+                                         range=[[-180, 180], [-180, 180]])
+            counts += found
+            pairs += len(both)
     payload = None
     if pairs:
         payload = {
@@ -564,7 +578,7 @@ def _thermodynamics(root: Path) -> dict[str, Any] | None:
     analysis plots it: one scale for an energy and a density, so the bars
     say how tightly each is known rather than how large it is."""
     path = root / "analysis" / "thermodynamics" / "thermodynamics.dat"
-    if not path.is_file():
+    if not _records.is_file(path):
         return None
     record = _findings(root, "thermodynamics").get("thermodynamics")
     record = record if isinstance(record, dict) else {}
@@ -609,7 +623,7 @@ def _thermodynamics(root: Path) -> dict[str, Any] | None:
 def _contacts(root: Path) -> dict[str, Any] | None:
     """The residues most often in contact with the ligand, the most first."""
     path = root / "analysis" / "pl_contacts" / "pl_contacts_per_residue.csv"
-    if not path.is_file():
+    if not _records.is_file(path):
         return None
     rows = [(str(r.get("residue") or ""), _number(r.get("contact_frequency"))) for r in _table(path)]
     rows = sorted([(name, f) for name, f in rows if name and f is not None],
@@ -632,7 +646,7 @@ def _interactions(root: Path) -> dict[str, Any] | None:
     share of frames it was present in, with its error; one seen in fewer
     than five separate episodes hollow, as the analysis plots it."""
     path = root / "analysis" / "pl_interactions" / "pl_interactions.dat"
-    if not path.is_file():
+    if not _records.is_file(path):
         return None
     from fastmdxplora.analysis.pl_interactions import _row_label
 
@@ -681,10 +695,10 @@ def _interactions(root: Path) -> dict[str, Any] | None:
 def _moments(root: Path) -> dict[str, Any] | None:
     """I1 <= I2 <= I3 of each frame analysed, in amu nm², over time."""
     path = root / "analysis" / "moments_of_inertia" / "moments_of_inertia.dat"
-    if not path.is_file():
+    if not _records.is_file(path):
         return None
     rows = []
-    with path.open(encoding="utf-8") as fh:
+    with _records.open_text(path, encoding="utf-8") as fh:
         for line in fh:
             if line.startswith("#") or not line.strip():
                 continue
