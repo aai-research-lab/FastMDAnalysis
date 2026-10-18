@@ -7,7 +7,8 @@ on the studies page should pop up beside the cursor only when 2 studies are
 selected .... not that the user has to scroll all the way back to the top
 of the page to find the buttons". They come beside the pointer that chose
 the second (beside the box, chosen from the keyboard), only while two are
-chosen, and Compare brings the comparison into view.
+chosen, and Compare opens the two on the Compare page (test_one_compare.py),
+Back returning to them chosen.
 """
 
 from __future__ import annotations
@@ -103,15 +104,14 @@ def test_compare_and_clear_come_beside_the_pointer_only_for_two(many) -> None:
             scrolled = page.evaluate(
                 "() => Math.max(...[...document.querySelectorAll('*')].map(e => e.scrollTop))")
             page.click("#studies-compare")
-            page.wait_for_selector(".studies-means")
-            page.wait_for_timeout(1200)
-            # Brought into view below the page's sticky bars, not under them.
-            compared = page.evaluate("""() => {
-              const host = document.getElementById('studies-compared');
-              const r = host.getBoundingClientRect();
-              const hit = document.elementFromPoint(r.left + 20, r.top + 10);
-              return r.top >= 0 && r.top < innerHeight && host.contains(hit); }""")
-            # The page moved: the bar is still in view, inside the column.
+            page.wait_for_selector('.page[data-page="compare"][data-compared="yes"]')
+            compared = page.evaluate("""() => [document.documentElement.dataset.page,
+              [...document.querySelectorAll('.compare-head-name')].map((n) => n.textContent)]""")
+            # Back on All studies: the two still chosen, the bar in view.
+            page.go_back()
+            page.wait_for_function("() => document.documentElement.dataset.page === 'studies'")
+            page.wait_for_selector("#studies-compare-bar:not([hidden])")
+            page.wait_for_timeout(400)
             after = _bar(page)
             # One taken away: the offer goes with it.
             second.uncheck()
@@ -125,7 +125,7 @@ def test_compare_and_clear_come_beside_the_pointer_only_for_two(many) -> None:
     assert heard_two == "study01 and study00 chosen. Compare and Clear are next in the Tab order."
     assert scrolled > 0
     assert _near(two, *pointer), (two, pointer)
-    assert compared
+    assert compared == ["compare", ["study01", "study00"]], compared
     assert after["inView"] and not after["hidden"]
     assert gone["hidden"]
     assert errors == []
@@ -155,18 +155,16 @@ def test_chosen_from_the_keyboard_it_comes_beside_the_box_and_tab_reaches_it(man
             focused = page.evaluate("() => document.activeElement.id")
             page.keyboard.press("Escape")
             back = page.evaluate("() => document.activeElement.dataset.path || ''")
-            # Compared from the keyboard, read, and closed: back at the box.
+            # Compared from the keyboard: the Compare page, read from its
+            # heading; Back to All studies with the two still chosen.
             page.keyboard.press("Tab")
             page.keyboard.press("Enter")
-            page.wait_for_selector(".studies-means")
-            page.wait_for_timeout(1200)
-            reading = page.evaluate("() => document.activeElement.id")
-            page.keyboard.press("Tab")
-            page.keyboard.press("Enter")
-            page.wait_for_timeout(600)
-            closed = page.evaluate("""() => {
-              const a = document.activeElement, r = a.getBoundingClientRect();
-              return (a.dataset.path || '') + (r.top >= 0 && r.bottom <= innerHeight + 1 ? '' : ' unseen'); }""")
+            page.wait_for_selector('.page[data-page="compare"][data-compared="yes"]')
+            reading = page.evaluate("() => document.activeElement.closest('.page')?.dataset.page || ''")
+            page.go_back()
+            page.wait_for_function("() => document.documentElement.dataset.page === 'studies'")
+            page.wait_for_selector("#studies-compare-bar:not([hidden])")
+            closed = page.evaluate("() => document.querySelectorAll('.study-pick input:checked').length")
             # Cleared from the keyboard with the study scrolled away: it is
             # brought back into view with the focus.
             page.evaluate("""() => { window.scrollTo(0, 0);
@@ -189,7 +187,7 @@ def test_chosen_from_the_keyboard_it_comes_beside_the_box_and_tab_reaches_it(man
     assert stays.endswith("/study00")
     assert focused == "studies-compare"
     assert back.endswith("study00")
-    assert reading == "studies-compared" and closed.endswith("/study00"), (reading, closed)
+    assert reading == "compare" and closed == 2, (reading, closed)
     assert cleared["hidden"] and ticked == 0 and heard == "Cleared."
     assert refocused.endswith("/study00"), refocused
     assert errors == []
@@ -212,8 +210,8 @@ def _beside(page, name):
 
 def test_it_stays_beside_the_second_as_the_page_changes_around_it(many) -> None:
     """The point it was chosen at is kept for that drawing only: the Agent
-    opened beside the page, a tag edited, a search or the comparison drawn
-    move the cards, and the bar goes with the second study chosen."""
+    opened beside the page, a tag edited or a search move the cards, and the
+    bar goes with the second study chosen."""
     from playwright.sync_api import sync_playwright
 
     session = _open(many)
@@ -240,13 +238,6 @@ def test_it_stays_beside_the_second_as_the_page_changes_around_it(many) -> None:
             searched = _beside(page, "study06")
             page.fill("#studies-search", "")
             page.wait_for_timeout(400)
-            page.click("#studies-compare")
-            page.wait_for_selector(".studies-means")
-            page.wait_for_timeout(1200)
-            over = page.evaluate("""() => {
-              const a = document.getElementById('studies-compare-bar').getBoundingClientRect();
-              const b = document.getElementById('studies-compared').getBoundingClientRect();
-              return a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom; }""")
             browser.close()
     finally:
         session.server.shutdown()
@@ -255,7 +246,6 @@ def test_it_stays_beside_the_second_as_the_page_changes_around_it(many) -> None:
     assert tagged["gap"] < 30, tagged
     assert editor["shown"] and not editor["over"], editor
     assert searched["gap"] < 30, searched
-    assert not over
     assert errors == []
 
 
@@ -319,44 +309,6 @@ _OVER = """(id) => {
   });
   return {shown, over, right: a.right};
 }"""
-
-
-def test_it_does_not_cover_a_comparison_taller_than_the_window(many) -> None:
-    """On a phone the comparison fills the window: the bar docked at the
-    column's foot covered its rows. It is put aside while it would, and is
-    back once the comparison is scrolled away."""
-    from playwright.sync_api import sync_playwright
-
-    session = _open(many)
-    try:
-        with sync_playwright() as pw:
-            browser, page, errors = _page(pw, session, many, width=390, height=480)
-            _box(page, "study05").click()
-            target = _box(page, "study04")
-            target.scroll_into_view_if_needed()
-            target.click()
-            page.wait_for_selector("#studies-compare-bar:not([hidden])")
-            page.click("#studies-compare")
-            page.wait_for_selector(".studies-means")
-            page.wait_for_timeout(1200)
-            reading = page.evaluate(_OVER, "#studies-compared")
-            # Compare was pressed, then hidden: the focus is on the comparison.
-            focus = page.evaluate("() => document.activeElement.id")
-            heard = page.text_content("#studies-chosen-heard")
-            tall = page.evaluate(
-                "() => document.getElementById('studies-compared').getBoundingClientRect().height")
-            target.scroll_into_view_if_needed()
-            page.wait_for_timeout(400)
-            back = page.evaluate(_OVER, "#studies-compared")
-            browser.close()
-    finally:
-        session.server.shutdown()
-    assert tall > 480
-    assert not (reading["shown"] and reading["over"]), reading
-    assert reading["shown"] or focus == "studies-compared", focus
-    assert reading["shown"] or heard.endswith("come back as the page is scrolled."), heard
-    assert back["shown"] and not back["over"], back
-    assert errors == []
 
 
 def test_the_agent_over_the_page_is_not_under_it(many) -> None:
@@ -680,130 +632,6 @@ def test_on_a_phone_it_is_never_under_the_bars_kept_at_the_top(many) -> None:
         session.server.shutdown()
     assert seen["boxUnder"], seen
     assert seen["below"] and seen["hit"], seen
-    assert errors == []
-
-
-def test_closed_with_no_study_chosen_left_the_focus_stays_on_the_page(many) -> None:
-    """Both unticked with the comparison open: Close from the keyboard has
-    no study chosen to go back to, and Compare is hidden; the focus goes to
-    the search, not to nothing."""
-    from playwright.sync_api import sync_playwright
-
-    session = _open(many)
-    try:
-        with sync_playwright() as pw:
-            browser, page, errors = _page(pw, session, many)
-            _box(page, "study11").click()
-            _box(page, "study10").click()
-            page.wait_for_selector("#studies-compare-bar:not([hidden])")
-            page.click("#studies-compare")
-            page.wait_for_selector(".studies-means")
-            _box(page, "study11").uncheck()
-            _box(page, "study10").uncheck()
-            page.focus('#studies-compared button[aria-label="Close"]')
-            page.keyboard.press("Enter")
-            focus = page.evaluate("() => document.activeElement.id || document.activeElement.tagName")
-            browser.close()
-    finally:
-        session.server.shutdown()
-    assert focus == "studies-search", focus
-    assert errors == []
-
-
-def test_closed_with_the_second_narrowed_away_the_focus_goes_to_the_first(many) -> None:
-    from playwright.sync_api import sync_playwright
-
-    session = _open(many)
-    try:
-        with sync_playwright() as pw:
-            browser, page, errors = _page(pw, session, many)
-            _box(page, "study11").click()
-            _box(page, "study10").click()
-            page.wait_for_selector("#studies-compare-bar:not([hidden])")
-            page.click("#studies-compare")
-            page.wait_for_selector(".studies-means")
-            # The second narrowed away: the first is the one left to go to.
-            page.fill("#studies-search", "study11")
-            page.wait_for_timeout(300)
-            page.focus('#studies-compared button[aria-label="Close"]')
-            page.keyboard.press("Enter")
-            focus = page.evaluate("() => document.activeElement.dataset.path || ''")
-            browser.close()
-    finally:
-        session.server.shutdown()
-    assert focus.endswith("/study11"), focus
-    assert errors == []
-
-
-def test_closed_with_both_narrowed_away_and_the_bar_aside_the_focus_is_not_hidden(many) -> None:
-    """On a phone the comparison fills the window and the bar is put aside:
-    with both studies narrowed away, Close does not send the focus to the
-    hidden Compare."""
-    from playwright.sync_api import sync_playwright
-
-    session = _open(many)
-    try:
-        with sync_playwright() as pw:
-            browser, page, errors = _page(pw, session, many, width=390, height=480)
-            _box(page, "study05").click()
-            target = _box(page, "study04")
-            target.scroll_into_view_if_needed()
-            target.click()
-            page.wait_for_selector("#studies-compare-bar:not([hidden])")
-            page.click("#studies-compare")
-            page.wait_for_selector(".studies-means")
-            page.wait_for_timeout(1200)
-            page.fill("#studies-search", "study07")
-            page.wait_for_timeout(300)
-            aside = page.evaluate("""() => document.getElementById('studies-compare-bar')
-              .classList.contains('is-aside')""")
-            page.focus('#studies-compared button[aria-label="Close"]')
-            page.keyboard.press("Enter")
-            focus = page.evaluate("() => document.activeElement.id || document.activeElement.tagName")
-            browser.close()
-    finally:
-        session.server.shutdown()
-    assert aside
-    assert focus == "studies-search", focus
-    assert errors == []
-
-
-def test_put_aside_is_said_once_for_the_pair(many) -> None:
-    """Scrolled up and down past a comparison taller than the window, the
-    bar is put aside and back again each time; a screen reader hears that
-    once, not at every turn."""
-    from playwright.sync_api import sync_playwright
-
-    session = _open(many)
-    try:
-        with sync_playwright() as pw:
-            browser, page, errors = _page(pw, session, many, width=390, height=480)
-            _box(page, "study05").click()
-            target = _box(page, "study04")
-            target.scroll_into_view_if_needed()
-            target.click()
-            page.wait_for_selector("#studies-compare-bar:not([hidden])")
-            page.evaluate("""() => { window.heardSaid = [];
-              new MutationObserver(() => window.heardSaid.push(
-                document.getElementById('studies-chosen-heard').textContent))
-                .observe(document.getElementById('studies-chosen-heard'),
-                         {childList: true, characterData: true, subtree: true}); }""")
-            page.click("#studies-compare")
-            page.wait_for_selector(".studies-means")
-            page.wait_for_timeout(1200)
-            for _ in range(3):
-                target.scroll_into_view_if_needed()
-                page.wait_for_timeout(300)
-                page.evaluate("() => document.getElementById('studies-compared').scrollIntoView()")
-                page.wait_for_timeout(300)
-            aside = page.evaluate("""() => document.getElementById('studies-compare-bar')
-              .classList.contains('is-aside')""")
-            said = page.evaluate("() => window.heardSaid")
-            browser.close()
-    finally:
-        session.server.shutdown()
-    assert aside
-    assert sum(t.endswith("come back as the page is scrolled.") for t in said) == 1, said
     assert errors == []
 
 

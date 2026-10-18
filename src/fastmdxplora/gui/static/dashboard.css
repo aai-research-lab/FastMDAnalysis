@@ -5067,6 +5067,8 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
 }
 .overview-runs-open:hover span:last-child { text-decoration: underline; }
 .overview-runs-open .status-dot { width: 7px; height: 7px; margin: 0; }
+.overview-runs-pick { margin: 0 8px 0 0; vertical-align: middle; accent-color: var(--accent); }
+.overview-runs-compare[hidden] { display: none; }
 .overview-runs-state { white-space: nowrap; color: var(--text-secondary); }
 .overview-runs-bar {
     display: inline-block; width: 64px; height: 5px; margin-right: 8px; vertical-align: middle;
@@ -5313,15 +5315,7 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
     border-radius: 10px; box-shadow: var(--shadow-modal); color: var(--text-primary); }
 /* Put aside while every place for it would cover what is being read. */
 .studies-compare-bar.is-aside { visibility: hidden; }
-.studies-compare-bar[hidden], .studies-compared[hidden], .studies-empty[hidden] { display: none; }
-.studies-compared { padding: 16px 18px; margin: 0 0 16px; display: flex; flex-direction: column; gap: 8px; }
-.studies-compared .card-header { padding: 0; display: flex; justify-content: space-between; align-items: center; }
-.studies-compared-title { margin: 8px 0 0; font-size: var(--text-sm); }
-.studies-compared table { width: 100%; table-layout: fixed; }
-.studies-compared td, .studies-compared th { overflow-wrap: anywhere; vertical-align: top; }
-.studies-settings td:first-child, .studies-settings th:first-child { width: 34%; }
-.studies-more { align-self: flex-start; }
-.studies-means tr.is-resolved td { color: var(--accent-orange); }
+.studies-compare-bar[hidden], .studies-empty[hidden] { display: none; }
 /* A study's tags and note (studies.js, study_tags.py). */
 .study-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .study-tag { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px;

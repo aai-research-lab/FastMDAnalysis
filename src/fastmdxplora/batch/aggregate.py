@@ -78,11 +78,15 @@ def member_directory(batch_dir: str | Path, run: dict[str, Any]) -> Path:
 
 def read_member_findings(run_dir: str | Path) -> dict[str, dict[str, Any]]:
     """Every analysis's findings in one member, keyed by analysis name."""
+    from fastmdxplora import record_access
+
     root = Path(run_dir)
     out: dict[str, dict[str, Any]] = {}
-    for options in sorted(root.glob("analysis/*/options.json")):
+    # Through `record_access`: held to the study where the read is (the
+    # Compare page), as pathlib elsewhere.
+    for options in sorted(record_access.glob(root, "analysis/*/options.json")):
         try:
-            record = json.loads(options.read_text(encoding="utf-8"))
+            record = json.loads(record_access.read_text(options, encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
         name = record.get("analysis") or options.parent.name

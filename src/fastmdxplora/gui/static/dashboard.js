@@ -226,8 +226,9 @@
       page = "overview";
       place = "";
     }
-    // Only the Analysis page has places the address names, so far.
-    if (page !== "analysis") place = "";
+    // The Analysis page's places are its sections; Compare's, the two it
+    // compares (compare.js). No other page has places the address names.
+    if (page !== "analysis" && page !== "compare") place = "";
     state.activePage = page;
     state.activePlace = place;
     $$('.page').forEach((element) => {
@@ -257,7 +258,7 @@
       if (window.FastMDXDialog?.afterHistory) window.FastMDXDialog.afterHistory(step);
       else step();
     }
-    if (place) revealAnalysis(place);
+    if (place && page === "analysis") revealAnalysis(place);
     requestAnimationFrame(() => {
       // The live panels moved onto the overview, so opening that is
       // what starts the polling they need. Keyed to a page that no

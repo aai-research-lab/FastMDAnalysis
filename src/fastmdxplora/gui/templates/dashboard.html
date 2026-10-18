@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="/static/study-tabs.css">
   <link rel="stylesheet" href="/static/place.css">
   <link rel="stylesheet" href="/static/statusbar.css">
+  <link rel="stylesheet" href="/static/compare.css">
   <!--__FASTMDX_LAB_ICON__-->
   <meta name="fastmdx-expansion" content="Fully Automated SysTem for Molecular Dynamics eXploration">
 </head>
@@ -594,6 +595,8 @@
                 <button type="button" class="seg-btn seg-icon active" data-studies-view="cards" aria-pressed="true" aria-label="Cards" title="As cards"><!--icon:cards:line-icon--></button>
                 <button type="button" class="seg-btn seg-icon" data-studies-view="table" aria-pressed="false" aria-label="Table" title="As a table"><!--icon:table:line-icon--></button>
               </div>
+              <a href="#compare" class="line-btn" data-view-link="compare" id="studies-compare-page"
+                 aria-label="Compare two studies" title="Compare two studies: choose two here, or open the page"><!--icon:compare:line-icon--></a>
               <button type="button" class="line-btn" id="studies-look-in" aria-label="Look in another folder"
                       title="Look in another folder"><!--icon:lookin:line-icon--></button>
               <button type="button" class="line-btn" id="studies-open-shared" aria-expanded="false"
@@ -633,7 +636,6 @@
             <button type="button" class="line-btn" id="studies-clear" aria-label="Clear"
                     title="Clear"><!--icon:erase:line-icon--></button>
           </div>
-          <div class="card studies-compared" id="studies-compared" hidden></div>
           <section class="card remote-jobs" id="remote-jobs" aria-labelledby="remote-jobs-title" hidden></section>
           <div class="studies-grid" id="studies-grid" role="list"></div>
           <!-- The same studies as rows, sorted by a column's head
@@ -642,6 +644,29 @@
             <table class="studies-table" id="studies-table"></table>
           </div>
           <p class="muted studies-empty" id="studies-empty" hidden></p>
+        </section>
+
+        <!-- Compare (compare.js, compare_view.py): two studies, or two runs,
+             side by side; the address names the two. -->
+        <section class="page" data-page="compare" hidden>
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">Compare</h1>
+              <div class="page-subtitle" id="compare-said">Two studies, or two runs, side by side.</div>
+            </div>
+            <div class="page-header-actions">
+              <button type="button" class="chip-btn" id="compare-swap" hidden
+                      title="Put the second first">Swap</button>
+              <button type="button" class="chip-btn" id="compare-beside" hidden
+                      title="Open the first in the Viewer, the second played beside it">Play them beside in the Viewer</button>
+            </div>
+          </div>
+          <p class="muted compare-empty" id="compare-empty" role="status"></p>
+          <p class="muted small compare-not-read" id="compare-not-read" hidden></p>
+          <div class="compare-heads" id="compare-heads" hidden></div>
+          <section class="card compare-section" id="compare-settings" hidden></section>
+          <section class="card compare-section" id="compare-means" hidden></section>
+          <section class="card compare-section" id="compare-series" hidden></section>
         </section>
 
         <!-- The Config Builder (run-builder.js): five steps in the order a
@@ -923,6 +948,8 @@
             <div class="overview-sec">
               <h2 id="overview-runs-title">The runs</h2>
               <span class="overview-sec-said" id="overview-runs-said"></span>
+              <button type="button" class="chip-btn overview-runs-compare" id="overview-runs-compare" hidden
+                      title="The two runs chosen, on the Compare page">Compare the two</button>
             </div>
             <div class="card overview-runs-card">
               <div class="runs-compared-scroll">
@@ -2060,6 +2087,7 @@
     <script src="/static/statusbar.js"></script>
     <script src="/static/keys.js"></script>
     <script src="/static/overview-runs.js"></script>
+    <script src="/static/compare.js"></script>
     <script src="/static/problems.js"></script>
     <script src="/static/files-page.js"></script>
     <script src="/static/files-actions.js"></script>

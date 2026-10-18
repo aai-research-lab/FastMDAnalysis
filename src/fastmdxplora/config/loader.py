@@ -58,12 +58,16 @@ def load_config_file(path: str | Path) -> dict[str, Any]:
     """
     import yaml
 
+    from fastmdxplora import record_access
+
     p = Path(path)
-    if not p.exists():
+    # Through `record_access`: held to a study where the read is, as pathlib
+    # elsewhere.
+    if not record_access.exists(p):
         raise ConfigError(f"Config file not found: {p}",
                           code="config.file.missing", path=str(p))
     try:
-        with p.open(encoding="utf-8") as fh:
+        with record_access.open_text(p, encoding="utf-8") as fh:
             data = yaml.safe_load(fh)
     except yaml.YAMLError as exc:
         raise ConfigError(f"Failed to parse YAML in {p}: {exc}",

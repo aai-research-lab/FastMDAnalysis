@@ -2,13 +2,14 @@
  * an editor's quick open.
  *
  * A page (with its key), every study of the workspace, a file of the open
- * study (⌘P lists those alone), an analysis, a tool of the Viewer, a
- * setting, the scheme, Cite, every key: each is a line, found by the words
- * typed (each word anywhere in its name or its kind), chosen with the
- * arrows and Enter or a click. `@TRP23` (or `@A:23`) selects that residue
- * in the Viewer; `:2140` shows that frame of the trajectory there. It is
- * built from the page as it stands when opened, and from the workspace's
- * studies and the study's files as the server lists them.
+ * study (⌘P lists those alone), what to compare it with, an analysis, a
+ * tool of the Viewer, a setting, the scheme, Cite, every key: each is a
+ * line, found by the words typed (each word anywhere in its name or its
+ * kind), chosen with the arrows and Enter or a click. `@TRP23` (or
+ * `@A:23`) selects that residue in the Viewer; `:2140` shows that frame
+ * of the trajectory there. It is built from the page as it stands when
+ * opened, and from the workspace's studies and the study's files as the
+ * server lists them.
  */
 (function () {
   "use strict";
@@ -49,6 +50,7 @@
       ["run", "New study"], ["agent", "Agent"],
     ];
     if (mode === "files") return filesOf();
+    if (mode === "compare") return compareWith();
     pages.forEach(function (page) {
       if (document.querySelector('.page[data-page="' + page[0] + '"]')) {
         found.push({ group: "Page", label: page[1], run: go(page[0]), keys: keysOf("page:" + page[0]) });
@@ -97,6 +99,11 @@
       } });
     }
     found = found.concat(settingsOf());
+    if (openStudy()) {
+      found.push({ group: "Action", label: "Compare with\u2026",
+                   hint: "Another study, or another run of this one, on the Compare page",
+                   run: function () { open("compare"); } });
+    }
     found.push({ group: "Action", label: "Preferences", run: dialog("prefs-dialog") });
     found.push({ group: "Action", label: "Cite FastMDXplora", run: dialog("cite-dialog") });
     found.push({ group: "Action", label: "Every key", run: dialog("viewer-help"), keys: keysOf("keys") });
@@ -158,6 +165,36 @@
       return { group: "Study", label: id + study.name, hint: study.path,
                said: String(study.state || ""), run: openFolder(study.path) };
     });
+  }
+
+  /* The study open, and the runs it has or is one of. */
+  function openStudy() {
+    var app = dashboard() && dashboard().state.appState;
+    return app && app.active_run ? app : null;
+  }
+
+  /* What the open study can be compared with: the other runs of its study
+   * of several, then the workspace's other studies. */
+  function compareWith() {
+    var app = openStudy();
+    if (!app) return [];
+    var here = app.active_run;
+    var runs = app.run_of ? app.run_of.runs || [] : Array.isArray(app.runs) ? app.runs : [];
+    var with_ = function (path) {
+      return function () { if (window.FastMDXCompare) window.FastMDXCompare.open(here, path); };
+    };
+    var found = runs.filter(function (run) { return run.path && run.path !== here; }).map(function (run) {
+      return { group: "Run", label: run.label || run.run_id, hint: run.path,
+               said: String(run.state || ""), run: with_(run.path) };
+    });
+    var kept = fetched.studies;
+    (kept ? kept.list : []).forEach(function (study) {
+      if (study.path === here) return;
+      var id = study.system && study.system !== study.name ? study.system + " \u00b7 " : "";
+      found.push({ group: "Study", label: id + study.name, hint: study.path,
+                   said: String(study.state || ""), run: with_(study.path) });
+    });
+    return found;
   }
 
   function filesOf() {
@@ -361,17 +398,19 @@
     setTimeout(item.run, 0);
   }
 
-  /* Opened on everything, or on the open study's files alone ("files"). */
+  /* Opened on everything, on the open study's files alone ("files"), or on
+   * what the open study can be compared with ("compare"). */
   function open(only) {
-    mode = only === "files" ? "files" : "";
+    mode = only === "files" || only === "compare" ? only : "";
     fetchList("files", "/api/files", function (data) { return data && data.artifacts; });
-    if (!mode) fetchList("studies", "/api/studies", function (data) { return data && data.studies; });
+    if (mode !== "files") fetchList("studies", "/api/studies", function (data) { return data && data.studies; });
     items = gather();
     at = 0;
     var input = el("palette-input");
     input.value = "";
     if (!input.dataset.everything) input.dataset.everything = input.placeholder;
     input.placeholder = mode === "files" ? "A file of the open study, by its name or folder"
+      : mode === "compare" ? "A study, or a run, to compare the open one with"
       : input.dataset.everything;
     render();
     if (window.FastMDXDialog) window.FastMDXDialog.open("palette");

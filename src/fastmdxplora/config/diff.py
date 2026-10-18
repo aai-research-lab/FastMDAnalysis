@@ -11,6 +11,7 @@ compare as the same study.
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -79,17 +80,27 @@ class Difference:
 def config_of(path: str | Path) -> tuple[dict[str, Any], Path]:
     """The Config a path names: a file, or the `resolved_config.yml` a study
     wrote in its folder."""
+    from fastmdxplora import record_access
     from fastmdxplora.config import ConfigError
     from fastmdxplora.config.loader import load_config_file
+    from fastmdxplora.refusals import OutsideWorkspace
 
+    # Through `record_access`: held to the study where the read is (the
+    # Compare page), as pathlib elsewhere.
     where = Path(path)
-    if where.is_dir():
+    if record_access.is_dir(where):
         where = where / "resolved_config.yml"
-        if not where.is_file():
+        if not record_access.is_file(where):
+            if os.path.lexists(where) and not record_access.can_read(where):
+                # Refused by a read held to the study: not read, never said
+                # as a study that wrote none.
+                raise OutsideWorkspace(f"{where.name} was not read: it leads out of the "
+                                       "study, or to a file of it that is not one of its "
+                                       "results")
             raise ConfigError(f"{path} holds no resolved_config.yml: it is not a "
                               "study this software wrote, or the study never started",
                               code="environment.path.not_found")
-    elif not where.is_file():
+    elif not record_access.is_file(where):
         raise ConfigError(f"no such Config or study: {path}", code="environment.path.not_found")
     return load_config_file(where), where
 
