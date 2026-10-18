@@ -158,9 +158,12 @@
     overlay(data, select.value);
   }
 
-  function overlay(data, analysis) {
-    var chart = document.getElementById("runs-overlay-chart");
-    var legend = document.getElementById("runs-overlay-legend");
+  /* The runs' series of one measure, overlaid, into `chart` and `legend`
+   * (the Analysis page's own unless others are given: the Overview of a
+   * study of several runs draws the same). */
+  function overlay(data, analysis, chartHost, legendHost) {
+    var chart = chartHost || document.getElementById("runs-overlay-chart");
+    var legend = legendHost || document.getElementById("runs-overlay-legend");
     if (!chart || !analysis) return;
     var measure = data.measures.filter(function (m) { return m.analysis === analysis; })[0];
     var finished = data.runs.map(function (run, i) { return { run: run, index: i }; })
@@ -308,5 +311,6 @@
     }
   });
 
-  window.FastMDXRunsCompared = { load: load, palette: PALETTE.slice() };
+  window.FastMDXRunsCompared = { load: load, palette: PALETTE.slice(), overlay: overlay,
+                                 colourOf: colourOf };
 }());

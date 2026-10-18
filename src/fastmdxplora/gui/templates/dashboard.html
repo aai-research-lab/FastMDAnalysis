@@ -916,6 +916,34 @@
             <div class="overview-tiles" id="overview-tiles"></div>
           </section>
 
+          <!-- A study of several runs: its runs, what they recorded and the
+               mean of replicas' means, what is not determined and where,
+               and their series overlaid (overview-runs.js). -->
+          <section class="overview-runs" id="overview-runs" hidden aria-labelledby="overview-runs-title">
+            <div class="overview-sec">
+              <h2 id="overview-runs-title">The runs</h2>
+              <span class="overview-sec-said" id="overview-runs-said"></span>
+            </div>
+            <div class="card overview-runs-card">
+              <div class="runs-compared-scroll">
+                <table class="runs-compared-table overview-runs-table" id="overview-runs-table"></table>
+              </div>
+              <p class="muted small overview-runs-note" id="overview-runs-note"></p>
+            </div>
+            <div class="card overview-runs-undetermined" id="overview-runs-undetermined" hidden>
+              <h3 class="card-title">Not determined</h3>
+              <ul class="overview-runs-undetermined-list" id="overview-runs-undetermined-list"></ul>
+              <p class="muted small">Each run's Overview says what would fix it: open the run from its row.</p>
+            </div>
+            <div class="card overview-runs-overlay" id="overview-runs-overlay" hidden>
+              <label class="runs-overlay-pick">Overlaid
+                <select id="overview-runs-measure" aria-label="The measure overlaid"></select>
+              </label>
+              <div class="runs-overlay-chart" id="overview-runs-chart"></div>
+              <div class="runs-overlay-legend" id="overview-runs-legend"></div>
+            </div>
+          </section>
+
           <div id="live-panels">
             <!-- How the run is going, or how it went where it did not end
                  well. A run that finished well says so above, once. -->
@@ -2028,6 +2056,7 @@
     <script src="/static/place.js"></script>
     <script src="/static/statusbar.js"></script>
     <script src="/static/keys.js"></script>
+    <script src="/static/overview-runs.js"></script>
     <script src="/static/problems.js"></script>
     <script src="/static/files-page.js"></script>
     <script src="/static/files-actions.js"></script>

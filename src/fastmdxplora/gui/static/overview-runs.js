@@ -1,0 +1,325 @@
+/* The Overview of a study of several runs (runs_compared.py's numbers).
+ *
+ * It said "A study of 2 runs" and nothing else. Now: the runs as a table,
+ * each with its state, how far its production has got, its speed and its
+ * own means; for replicas, the mean of their means with the error the
+ * spread between them gives it, beside each run's own; what is not
+ * determined, and in which run; and one measure's series of every run
+ * overlaid. A run opens from its row. It is read again every few seconds
+ * while a run goes or waits for its round, and once otherwise.
+ */
+(function () {
+  "use strict";
+
+  var EVERY_MS = 5000;
+  var SHOWN_MEASURES = 4;
+  var DOT = { running: "status-dot-live", completed: "status-dot-completed",
+              failed: "status-dot-error", stopped: "status-dot-waiting",
+              interrupted: "status-dot-waiting", waiting: "status-dot-waiting" };
+  var data = null;
+  var study = "";
+  var timer = null;
+  var chosen = "";
+
+  function byId(id) { return document.getElementById(id); }
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined && text !== null) node.textContent = text;
+    return node;
+  }
+
+  /* As the Analysis page's table says a number (runs-compared.js). */
+  function figure(value) {
+    if (value == null || !isFinite(value)) return "\u2014";
+    var m = Math.abs(value);
+    if (m === 0) return "0";
+    if (m >= 1e5 || m < 1e-3) return value.toExponential(2);
+    if (m >= 100) return value.toFixed(1);
+    if (m >= 1) return value.toFixed(3);
+    return value.toPrecision(3);
+  }
+  function withError(mean, error) {
+    return figure(mean) + (error != null && isFinite(error) ? " ± " + figure(error) : "");
+  }
+  function ns(value) {
+    if (value == null) return "\u2014";
+    return value < 1 ? (value * 1000).toFixed(value * 1000 < 10 ? 1 : 0) + " ps"
+      : value.toFixed(value < 10 ? 2 : 1) + " ns";
+  }
+
+  function stateSaid(run) {
+    if (run.state === "running" && typeof run.fraction === "number") {
+      return (100 * run.fraction).toFixed(0) + "%";
+    }
+    if (run.state === "waiting" && run.so_far) return "next round";
+    return run.state;
+  }
+
+  /* The measures the table shows: those most runs recorded, in the order
+   * the Analysis page lists them, at most four; all of them are there. */
+  function shownMeasures() {
+    return (data.measures || []).filter(function (m) {
+      return m.cells.some(function (c) { return c.mean != null; });
+    }).slice(0, SHOWN_MEASURES);
+  }
+
+  /* Through the place's way to another study, which asks first whether
+   * the switch would lose work here (place.js). */
+  function open(run) {
+    if (window.FastMDXPlace) window.FastMDXPlace.open(run.path, "overview");
+  }
+
+  function renderTable() {
+    var table = byId("overview-runs-table");
+    table.innerHTML = "";
+    var measures = shownMeasures();
+    var head = el("tr");
+    ["Run", "State", "Production", "ns/day"].forEach(function (word, i) {
+      head.appendChild(el("th", i > 1 ? "is-number" : "", word));
+    });
+    measures.forEach(function (m) {
+      var th = el("th", "is-number", m.label + (m.unit ? " (" + m.unit + ")" : ""));
+      th.title = m.label + ": each run's mean with its standard error";
+      head.appendChild(th);
+    });
+    var thead = el("thead");
+    thead.appendChild(head);
+    table.appendChild(thead);
+    var body = el("tbody");
+    data.runs.forEach(function (run) {
+      var row = el("tr", "overview-runs-row");
+      row.dataset.run = run.run_id;
+      row.dataset.state = run.state;
+      var name = el("th", "overview-runs-name");
+      name.scope = "row";
+      var link = el("button", "overview-runs-open");
+      link.type = "button";
+      var dot = el("span", "status-dot " + (DOT[run.state] || "status-dot-stale"));
+      dot.setAttribute("aria-hidden", "true");
+      link.appendChild(dot);
+      link.appendChild(el("span", "", run.label || run.run_id));
+      link.title = "Open " + (run.label || run.run_id) + "\n" + run.run_id;
+      link.addEventListener("click", function () { open(run); });
+      name.appendChild(link);
+      row.appendChild(name);
+      var state = el("td", "overview-runs-state");
+      if (run.state === "running" && typeof run.fraction === "number") {
+        var bar = el("span", "overview-runs-bar");
+        var fill = el("span", "overview-runs-fill");
+        fill.style.width = (100 * run.fraction).toFixed(1) + "%";
+        bar.appendChild(fill);
+        state.appendChild(bar);
+      }
+      state.appendChild(el("span", "", stateSaid(run)));
+      row.appendChild(state);
+      row.appendChild(el("td", "is-number mono", run.production_ns == null ? "\u2014"
+        : ns(run.production_ns) + (run.production_planned_ns && run.production_planned_ns !== run.production_ns
+          ? " of " + ns(run.production_planned_ns) : "")));
+      row.appendChild(el("td", "is-number mono", run.speed_ns_per_day == null ? "\u2014"
+        : figure(run.speed_ns_per_day)));
+      measures.forEach(function (m) {
+        var cell = m.cells.find(function (c) { return c.run_id === run.run_id; }) || {};
+        var td = el("td", "is-number mono");
+        if (cell.mean == null) {
+          td.textContent = "\u2014";
+          td.classList.add("is-missing");
+          td.title = "Not recorded yet";
+        } else if (cell.withheld) {
+          td.textContent = figure(cell.mean);
+          td.classList.add("is-withheld");
+          td.title = "Not determined: " + cell.withheld;
+        } else {
+          td.textContent = withError(cell.mean, cell.error);
+        }
+        row.appendChild(td);
+      });
+      body.appendChild(row);
+    });
+    table.appendChild(body);
+    if (data.replicas && measures.some(function (m) { return m.ensemble; })) {
+      var foot = el("tfoot");
+      var together = el("tr", "overview-runs-together");
+      var label = el("th", "", "The runs together");
+      label.scope = "row";
+      label.title = "The mean of the replicas' means, with the error their spread gives it: "
+        + "the spread over the square root of the number of runs";
+      together.appendChild(label);
+      together.appendChild(el("td", "", ""));
+      together.appendChild(el("td", "", ""));
+      together.appendChild(el("td", "", ""));
+      measures.forEach(function (m) {
+        var td = el("td", "is-number mono");
+        if (m.ensemble) {
+          td.textContent = withError(m.ensemble.mean, m.ensemble.error);
+          td.title = "Mean of " + m.ensemble.runs + " runs' means ± the error between them (their "
+            + "spread, " + figure(m.ensemble.spread) + ", over √" + m.ensemble.runs + ")";
+        } else {
+          td.textContent = "\u2014";
+        }
+        together.appendChild(td);
+      });
+      foot.appendChild(together);
+      table.appendChild(foot);
+    }
+  }
+
+  function renderSaid() {
+    var runs = data.runs || [];
+    var count = function (s) { return runs.filter(function (r) { return r.state === s; }).length; };
+    var parts = [count("completed") + " of " + runs.length + " runs completed"];
+    if (count("running")) parts.push(count("running") + " running");
+    var waiting = runs.filter(function (r) { return r.state === "waiting"; }).length;
+    if (waiting) parts.push(waiting + " waiting");
+    var axes = (data.axes || []).map(function (a) { return a.label.replace(/^random_/, ""); });
+    parts.push(data.replicas ? "replicas, differing by " + axes.join(" and ")
+      : axes.length ? "differing by " + axes.join(" and ") + ": compared, not averaged" : "");
+    byId("overview-runs-said").textContent = parts.filter(Boolean).join("; ") + ".";
+    var more = (data.measures || []).length - shownMeasures().length;
+    var note = byId("overview-runs-note");
+    note.textContent = more > 0 ? more + " more measure" + (more === 1 ? "" : "s")
+      + " on the Analysis page, compared run against run." : "";
+  }
+
+  /* What is not determined, and in which runs: the reason's first words
+   * (the whole on hover), each run's independent samples, and the remedy
+   * the reason names; a run opens on its Overview, where what would fix it
+   * is priced. */
+  function firstWords(reason) {
+    var said = String(reason || "").split(/:\s|\.\s/)[0];
+    return said.length > 140 ? said.slice(0, 139) + "\u2026" : said;
+  }
+  function listed(words) {
+    return words.length < 2 ? words.join("") : words.slice(0, -1).join(", ") + " and " + words[words.length - 1];
+  }
+  /* Under one is said so, as `statistics.independent_samples_said` says it. */
+  function samplesSaid(n) { return n < 1 ? "fewer than one" : n.toFixed(1); }
+  function remedy(reason) {
+    var found = /The remedy is ([^.]+)\./.exec(String(reason || ""));
+    return found ? "The remedy is " + found[1] + "." : "";
+  }
+  function renderUndetermined() {
+    var host = byId("overview-runs-undetermined");
+    var list = byId("overview-runs-undetermined-list");
+    list.innerHTML = "";
+    var lines = 0;
+    (data.measures || []).forEach(function (m) {
+      var withheld = m.cells.filter(function (c) { return c.withheld; });
+      if (!withheld.length) return;
+      lines += 1;
+      var li = el("li");
+      li.appendChild(el("strong", "", m.label + ". "));
+      var names = withheld.map(function (c) {
+        var run = data.runs.find(function (r) { return r.run_id === c.run_id; }) || {};
+        return run.label || c.run_id;
+      });
+      var samples = withheld.filter(function (c) { return c.effective_samples != null; })
+        .map(function (c) { return samplesSaid(c.effective_samples); });
+      var reason = withheld[0].withheld;
+      li.appendChild(document.createTextNode("Not determined in " + listed(names)
+        + (samples.length === withheld.length ? " (" + listed(samples) + " independent samples)" : "")
+        + ". " + firstWords(reason) + ". " + remedy(reason)));
+      li.title = reason;
+      list.appendChild(li);
+    });
+    host.hidden = lines === 0;
+  }
+
+  function renderOverlay() {
+    var select = byId("overview-runs-measure");
+    var measures = (data.measures || []).filter(function (m) {
+      return m.cells.some(function (c) { return c.mean != null; });
+    });
+    byId("overview-runs-overlay").hidden = measures.length === 0;
+    if (!measures.length) return;
+    var key = measures.map(function (m) { return m.analysis; }).join(",");
+    if (select.dataset.key !== key) {
+      select.dataset.key = key;
+      select.innerHTML = "";
+      measures.forEach(function (m) {
+        var option = el("option", "", m.label);
+        option.value = m.analysis;
+        select.appendChild(option);
+      });
+    }
+    if (!chosen || !measures.some(function (m) { return m.analysis === chosen; })) chosen = measures[0].analysis;
+    select.value = chosen;
+    if (window.FastMDXRunsCompared) {
+      window.FastMDXRunsCompared.overlay(data, chosen, byId("overview-runs-chart"),
+                                         byId("overview-runs-legend"));
+    }
+  }
+
+  var drawn = "";
+
+  function render() {
+    var host = byId("overview-runs");
+    if (!host) return;
+    host.hidden = !data || !data.ok;
+    document.documentElement.toggleAttribute("data-overview-runs", !host.hidden);
+    if (host.hidden) return;
+    var key = JSON.stringify(data);
+    if (key === drawn) return;
+    drawn = key;
+    renderSaid();
+    renderTable();
+    renderUndetermined();
+    // The series again where a run's state changed, or half a minute on
+    // while runs go: each is a fetch of every run's series.
+    var states = JSON.stringify(data.runs.map(function (r) { return [r.run_id, r.state]; }));
+    if (states !== overlaidStates || Date.now() - overlaidAt > 30000) {
+      overlaidStates = states;
+      overlaidAt = Date.now();
+      renderOverlay();
+    }
+  }
+  var overlaidStates = "";
+  var overlaidAt = 0;
+
+  function going() {
+    return data && data.ok && data.runs.some(function (r) {
+      return r.state === "running" || r.state === "waiting";
+    });
+  }
+
+  function load() {
+    clearTimeout(timer);
+    var asked = study;
+    return fetch("/api/runs-compared", { cache: "no-store" })
+      .then(function (r) { return r.json(); })
+      .then(function (answer) {
+        if (asked !== study) return;
+        data = answer;
+        render();
+        if (going()) timer = setTimeout(load, EVERY_MS);
+      })
+      .catch(function () { if (asked === study) timer = setTimeout(load, EVERY_MS * 2); });
+  }
+
+  function start() {
+    if (!byId("overview-runs") || !window.FastMDXDashboard) return;
+    byId("overview-runs-measure").addEventListener("change", function (e) {
+      chosen = e.target.value;
+      if (data && window.FastMDXRunsCompared) {
+        window.FastMDXRunsCompared.overlay(data, chosen, byId("overview-runs-chart"),
+                                           byId("overview-runs-legend"));
+      }
+    });
+    window.FastMDXDashboard.on("app-state", function (s) {
+      var next = s && Array.isArray(s.runs) ? String(s.active_run || "") : "";
+      if (next === study) return;
+      study = next;
+      data = null;
+      drawn = "";
+      overlaidStates = "";
+      clearTimeout(timer);
+      if (study) load();
+      else render();
+    });
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+  else start();
+
+  window.FastMDXOverviewRuns = { load: load };
+}());
