@@ -272,7 +272,22 @@ def card_of(folder: Path | str) -> dict[str, Any]:
     if forcefield and str(forcefield) != "auto":
         card["forcefield"] = str(forcefield)
     if not isinstance(batch, dict):
-        card["means"] = [{"analysis": name, **mean} for name, mean in _means(base)[:3]]
+        # Every mean the study recorded, the measures named first leading:
+        # a row shows the first and the rest on asking.
+        card["means"] = [{"analysis": name, **mean} for name, mean in _means(base)]
+    else:
+        card["means"] = _ensemble_means(base)
+        card["runs"] = _runs_count(batch)
+    card.update(_how_far(base, batch, simulation, card))
+    if card["state"] == "analysed" and card["kind"] == "one run":
+        card["kind"] = "a trajectory analysed"
+    # The molecule, as All studies draws it (backbone_picture.py).
+    try:
+        from fastmdxplora.gui.backbone_picture import backbone_points
+
+        card["molecule"] = backbone_points(base)
+    except Exception:  # noqa: BLE001 - a row stands without its picture
+        card["molecule"] = None
     pmf = _read_json(base / "pmf.json")
     if isinstance(pmf, dict):
         # Whether the windows gave a free energy, and if not the first
@@ -688,12 +703,117 @@ def _state_of(base: Path, batch: Any, manifest: Any) -> str:
         return "incomplete"
     phases = manifest.get("phases") if isinstance(manifest, dict) else None
     if not isinstance(phases, list) or not phases:
+        # A trajectory analysed here, with no run of its own recorded: its
+        # analyses say it was, and "not started" said the opposite beside
+        # its means.
+        if (base / "analysis" / "analysis_manifest.json").is_file() and not _simulated(base):
+            return "analysed"
         return "not started"
     for phase in phases:
         if isinstance(phase, dict) and phase.get("status") == "error":
             code = str((phase.get("refusal") or {}).get("code") or "")
             return "stopped" if code == "simulation.run.stopped" else "failed"
     return "completed"
+
+
+def _runs_count(batch: dict[str, Any]) -> int:
+    planned = batch.get("planned") or []
+    return int(batch.get("n_runs") or len(planned) or 0)
+
+
+def _ensemble_means(base: Path) -> list[dict[str, Any]]:
+    """The means of a study of replicas, as its comparison recorded them
+    (`members.json`): the mean of the replicas' means, the spread of those
+    means (their standard deviation, which `batch/aggregate.py` records as
+    the error of one run's estimate) and the error of the mean of means,
+    the spread over the square root of the replicas, as the Compare page
+    gives it (`runs_compared.py`). Said as determined only where every
+    replica determined its own: runs each too short to resolve their
+    correlation time, begun from one structure, are not yet independent
+    samples, however close their means fall."""
+    record = _read_json(base / "members.json")
+    if not isinstance(record, dict) or not record.get("replicas"):
+        return []
+    analyses = record.get("analyses") if isinstance(record.get("analyses"), dict) else {}
+    from fastmdxplora.gui.report_dashboard import unit_of
+
+    out = []
+    for name in _in_order(analyses):
+        found = analyses.get(name)
+        if not isinstance(found, dict):
+            continue
+        mean = _finite(found.get("mean_of_means"))
+        if mean is None:
+            continue
+        spread = _finite(found.get("spread_of_means"))
+        if spread is None:
+            spread = _finite(found.get("observed_standard_error"))
+        members = found.get("members") if isinstance(found.get("members"), list) else []
+        own = [m for m in members if isinstance(m, dict)]
+        qualified = [str(q) for q in found.get("qualified_by_their_own_runs") or []]
+        withheld = None
+        if spread is None:
+            withheld = "Its replicas' spread is not recorded."
+        elif qualified:
+            withheld = (f"The spread of {len(own) or 'its'} replicas' means; "
+                        f"{len(qualified)} of them could not determine their own mean, "
+                        "so the spread is not yet an error.")
+        unit = unit_of(name, own[0]) if own else ""
+        error = None
+        if not withheld and len(own) >= 2:
+            error = spread / math.sqrt(len(own))
+        elif not withheld:
+            withheld = "Fewer than two replicas' means are recorded."
+        out.append({"analysis": name, "label": _label_of(name), "mean": mean,
+                    "error": error, "spread": spread,
+                    "replicas": len(own), "unit": unit, "withheld": withheld})
+    return out
+
+
+def _how_far(base: Path, batch: Any, simulation: Any, card: dict[str, Any]) -> dict[str, Any]:
+    """How much the study has simulated and was to: ``simulated_ns`` (of
+    production, every run), ``planned_ns``, and for a study running its
+    ``progress`` (production simulated over production planned, 0 to 1, so
+    that it reads as the ns beside it) and ``seconds_left``, every step its
+    runs going have still to take (equilibration included) at the pace each
+    has kept so far."""
+    out: dict[str, Any] = {}
+    folders = ([p for p in sorted((base / "runs").iterdir()) if p.is_dir()]
+               if isinstance(batch, dict) and (base / "runs").is_dir() else [base])
+    done = planned = 0.0
+    known = False
+    going = False
+    left: float | None = None
+    for folder in folders:
+        record = _read_json(folder / "simulation" / "live_status.json")
+        if not isinstance(record, dict):
+            continue
+        step = record.get("timestep_fs")
+        production = record.get("production_steps_planned")
+        if not isinstance(step, (int, float)) or not isinstance(production, (int, float)):
+            continue
+        known = True
+        before = sum(int(record.get(k) or 0) for k in ("nvt_steps_planned", "npt_steps_planned"))
+        current = int(record.get("current_step") or 0)
+        status = str(record.get("status") or "").lower()
+        finished = status == "completed" or current >= before + production
+        into = production if finished else max(0, current - before)
+        done += into * step * 1e-6
+        planned += production * step * 1e-6
+        if status in ("running", "starting") and not finished:
+            going = True
+            elapsed = record.get("elapsed_wall_time_s")
+            total = record.get("total_planned_steps") or before + production
+            if isinstance(elapsed, (int, float)) and current > 0:
+                left = (left or 0.0) + elapsed / current * max(0, total - current)
+    if known:
+        out["simulated_ns"] = round(done, 6)
+        out["planned_ns"] = round(planned, 6)
+    if going and card.get("state") == "running" and planned > 0:
+        out["progress"] = round(min(1.0, done / planned), 4)
+        if left is not None:
+            out["seconds_left"] = round(left)
+    return out
 
 
 def _stopped_in(batch: dict[str, Any]) -> bool:

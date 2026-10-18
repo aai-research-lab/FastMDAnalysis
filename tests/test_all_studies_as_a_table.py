@@ -5,6 +5,11 @@ studies is read faster as rows. **Table** lists each study as a row (its
 name, system, state as its light, when it began, when it was last
 active, its first means and its tags), sorted by a column's head, and is
 kept as chosen. A row is tagged as a card is, its tags changed under it.
+
+Since 10-18 the list is what All studies opens on (cards where a person
+chose them), its columns the molecule, Study, State, System, Simulated,
+Means (every mean in one cell, sorted by the one chosen beside its head)
+and Active, and Open, Tag and Files come on hover in a column of their own.
 """
 
 from __future__ import annotations
@@ -16,6 +21,9 @@ import time
 import pytest
 
 from tests.test_the_workspace_says_its_studies import _study
+
+NAMES = ("() => [...document.querySelectorAll('#studies-table tbody .studies-name-text')]"
+         ".map((n) => n.textContent)")
 
 
 def test_rows_sorted_by_a_column_and_kept(tmp_path) -> None:
@@ -40,48 +48,53 @@ def test_rows_sorted_by_a_column_and_kept(tmp_path) -> None:
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(session.url + "#studies", wait_until="domcontentloaded")
             page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path)!r})")
-            page.wait_for_selector(".study-card")
-            page.click('[data-studies-view="table"]')
-            page.wait_for_selector("#studies-table tbody tr")
+            # The list first, the cards not drawn.
+            page.wait_for_selector("#studies-table tbody tr.studies-row")
             cards_gone = page.locator("#studies-grid").is_hidden()
-
-            def names():
-                return page.eval_on_selector_all(
-                    "#studies-table tbody .studies-name-text", "(all) => all.map((n) => n.textContent)")
-
-            newest_first = names()
-            heads = page.eval_on_selector_all("#studies-table thead th",
-                                              "(all) => all.map((h) => h.textContent.trim())")
-            page.click('#studies-table thead button:text-is("RMSD")')
-            by_rmsd = names()
+            heads = page.eval_on_selector_all(
+                "#studies-table thead th", "(all) => all.map((h) => "
+                "(h.querySelector('.studies-sort') || h).textContent.trim())")
+            page.click('#studies-table thead .studies-sort:text-is("Study")')
+            by_name = page.evaluate(NAMES)
+            page.click('#studies-table thead .studies-sort:text-is("Means")')
+            by_rmsd = page.evaluate(NAMES)
             # Built again, the table keeps the keyboard where it was.
             focused = page.evaluate("() => document.activeElement.dataset.key")
-            page.click('#studies-table thead button:text-is("RMSD")')
-            by_rmsd_down = names()
+            page.click('#studies-table thead .studies-sort:text-is("Means")')
+            by_rmsd_down = page.evaluate(NAMES)
+            chooser = page.eval_on_selector_all("#studies-table thead .studies-means-sort option",
+                                                "(all) => all.map((o) => o.value)")
             lights = page.eval_on_selector_all(
                 "#studies-table tbody .recent-light", "(all) => all.map((l) => l.dataset.state)")
             # Narrowed by the search as the cards are.
             page.fill("#studies-search", "1AKE")
-            narrowed = names()
+            narrowed = page.evaluate(NAMES)
             page.fill("#studies-search", "")
+            page.click('[data-studies-view="cards"]')
             page.reload(wait_until="domcontentloaded")
             page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path)!r})")
-            page.wait_for_selector("#studies-table tbody tr")
+            page.wait_for_selector(".study-card")
+            kept_cards = page.get_attribute('[data-studies-view="cards"]', "aria-pressed")
+            page.click('[data-studies-view="table"]')
+            page.reload(wait_until="domcontentloaded")
+            page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path)!r})")
+            page.wait_for_selector("#studies-table tbody tr.studies-row")
             kept = page.get_attribute('[data-studies-view="table"]', "aria-pressed")
             browser.close()
     finally:
         session.server.shutdown()
     assert errors == []
     assert cards_gone
-    assert newest_first == ["small", "failed", "large"]
-    assert heads[1:6] == ["Study", "System", "State", "Started", "Last activity"] and "RMSD" in heads
+    assert heads[2:8] == ["Study", "State", "System", "Simulated", "Means", "Active"]
+    assert by_name == ["failed", "large", "small"]
     # Smallest first, then largest first; the study with none last either way.
     assert by_rmsd == ["small", "large", "failed"]
-    assert focused and focused.startswith("rmsd")
+    assert focused == "mean:RMSD"
     assert by_rmsd_down == ["large", "small", "failed"]
+    assert chooser == ["RMSD"]
     assert "failed" in lights
     assert narrowed == ["large"]
-    assert kept == "true"
+    assert kept_cards == "true" and kept == "true"
 
 
 def test_a_row_is_tagged_and_says_when_it_was_last_active(tmp_path) -> None:
@@ -106,37 +119,36 @@ def test_a_row_is_tagged_and_says_when_it_was_last_active(tmp_path) -> None:
             browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
             page = browser.new_page(viewport={"width": 1400, "height": 900})
             page.set_default_timeout(60000)
-            page.add_init_script("try { localStorage.setItem('fmx.studiesView', 'table'); } catch (e) {}")
             page.goto(session.url + "#studies", wait_until="domcontentloaded")
             page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path)!r})")
-            page.wait_for_selector("#studies-table tbody tr")
-
-            def names():
-                return page.eval_on_selector_all(
-                    "#studies-table tbody .studies-name-text", "(all) => all.map((n) => n.textContent)")
-
-            page.click('#studies-table thead button:text-is("Last activity")')
-            by_activity = names()
+            page.wait_for_selector("#studies-table tbody tr.studies-row")
+            # Most recently active first, as the list opens.
+            by_activity = page.evaluate(NAMES)
             said = page.eval_on_selector_all(
-                "#studies-table tbody tr.studies-row td:nth-child(6)",
+                "#studies-table tbody tr.studies-row td.studies-active",
                 "(all) => all.map((c) => c.textContent)")
-            page.click('#studies-table tr[data-path$="touched"] .study-tag-edit')
+            row = '#studies-table tr.studies-row[data-path$="touched"]'
+            page.hover(row)
+            page.click(row + " .study-tag-edit")
             page.fill("#studies-table .studies-editing .study-tag-input", "wild type")
             page.click("#studies-table .studies-editing button[type=submit]")
-            page.wait_for_selector('#studies-table tr[data-path$="touched"] .studies-tags .study-tag')
-            tags = page.text_content('#studies-table tr[data-path$="touched"] .studies-tags')
+            page.wait_for_selector(row + " .studies-row-tag")
+            tags = page.eval_on_selector_all(row + " .studies-row-tag",
+                                             "(all) => all.map((t) => t.textContent)")
             editing = page.locator("#studies-table .studies-editing").count()
             browser.close()
     finally:
         session.server.shutdown()
     assert by_activity == ["touched", "old"]
     assert said[0] in ("Just now", "1 min ago") and said[1] != said[0]
-    assert tags == "wild type" and editing == 0
+    assert tags == ["wild type"] and editing == 0
 
 
 def test_a_mean_not_determined_is_not_cut_under_open_and_tag(tmp_path) -> None:
     """"0.06237 nm, not determined" on one line ran under the pinned Open
-    and Tag, its words cut, and nothing showed the table went on beneath."""
+    and Tag, its words cut, and nothing showed the table went on beneath.
+    Now Open and Tag have their own column, and a mean not determined is a
+    ring before its value, why in its title and in every mean's list."""
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
 
@@ -160,20 +172,30 @@ def test_a_mean_not_determined_is_not_cut_under_open_and_tag(tmp_path) -> None:
             page.set_default_timeout(60000)
             page.goto(session.url + "#studies", wait_until="domcontentloaded")
             page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path)!r})")
-            page.wait_for_selector(".study-card")
-            page.click('[data-studies-view="table"]')
-            page.wait_for_selector("#studies-table tbody tr")
-            cell = page.eval_on_selector(
-                "#studies-table tbody .studies-mean", "(c) => ({value: c.querySelector("
-                "'.studies-mean-value')?.textContent, nd: c.querySelector("
-                "'.studies-mean-nd')?.textContent, fits: c.scrollWidth <= c.clientWidth + 1})")
+            row = "#studies-table tbody tr.studies-row"
+            page.wait_for_selector(row)
+            page.hover(row)
+            page.wait_for_function("() => getComputedStyle(document.querySelector("
+                                   "'.studies-row .studies-actions')).opacity === '1'")
+            cell = page.eval_on_selector(row, """(r) => {
+                const item = r.querySelector('.studies-mean-item');
+                const means = r.querySelector('.studies-means-cell').getBoundingClientRect();
+                const acts = r.querySelector('.studies-actions').getBoundingClientRect();
+                const c = r.querySelector('.studies-means-cell');
+                return {value: item.querySelector('.studies-mean-v').textContent,
+                        determined: item.dataset.determined, title: item.title,
+                        more: (r.querySelector('.studies-means-more') || {}).textContent,
+                        fits: c.scrollWidth <= c.clientWidth + 1,
+                        apart: acts.left >= means.right - 1,
+                        shown: getComputedStyle(r.querySelector('.studies-actions')).opacity};
+            }""")
             more = page.get_attribute("#studies-table-wrap", "data-more")
-            page.eval_on_selector("#studies-table-wrap",
-                                  "(w) => { w.scrollLeft = w.scrollWidth; "
-                                  "w.dispatchEvent(new Event('scroll')); }")
-            at_the_end = page.get_attribute("#studies-table-wrap", "data-more")
             browser.close()
     finally:
         session.server.shutdown()
-    assert cell == {"value": "0.06237 nm", "nd": "not determined", "fits": True}
-    assert more == "right" and at_the_end == ""
+    assert cell["value"] == "0.06237 nm" and cell["determined"] == "false"
+    assert cell["title"].startswith("Not determined: Too short against its correlation.")
+    assert cell["more"] == "+3"
+    assert cell["fits"] and cell["apart"] and cell["shown"] == "1"
+    # The whole row fits: nothing hidden to the right.
+    assert more == ""

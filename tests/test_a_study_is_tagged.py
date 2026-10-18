@@ -176,6 +176,8 @@ def test_the_page_tags_a_card_and_filters_by_a_tag(workspace):
             browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
             page = browser.new_page(viewport={"width": 1400, "height": 1000})
             page.set_default_timeout(60000)
+            # All studies opens on its list; the cards chosen, as a person would.
+            page.add_init_script("try { localStorage.setItem('fmx.studiesView', 'cards'); } catch (e) {}")
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(session.url + "#studies", wait_until="domcontentloaded")
