@@ -3698,6 +3698,7 @@
       });
       started = await response.json();
     } catch (error) {
+      window.FastMDXDashboard?.studyChangeNotComing?.();
       text(el("run-note"), "Could not reach the server.");
       // Kept when the summary's check comes back.
       el("run-note").dataset.ok = "false";
@@ -3707,6 +3708,7 @@
       return;
     } finally { launchesPending -= 1; }
     if (!started.ok) {
+      window.FastMDXDashboard?.studyChangeNotComing?.();
       text(el("run-note"), started.error || "Could not start.");
       el("run-note").dataset.ok = "false";
       sayRefusal(started);

@@ -1685,6 +1685,11 @@
           if (d.study !== undefined) c.study = d.study;
           takeIn(c, entries, d.entries || [], sent, as, d.cut || []);
           window.dispatchEvent(new CustomEvent("fmx:conversation-saved"));
+        } else if (d && d.study_changed) {
+          /* Refused as written from a page for another study than the one
+           * the GUI has open: said, and kept unsaved here. */
+          var dashboard = window.FastMDXDashboard;
+          if (dashboard && dashboard.toast) dashboard.toast(d.error || "Not saved.", "warning");
         } else if (d && d.gone) {
           /* Deleted elsewhere: not written again, unless the person has
            * said something since. What the deleted conversation held went
