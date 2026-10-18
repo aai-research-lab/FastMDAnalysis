@@ -163,3 +163,26 @@ def test_a_run_again_from_the_top_is_not_priced_from_a_plan_not_read(tmp_path):
     assert said["fix"].endswith(f" The price is not given, since resolved_config.yml {NOT_READ}")
     # Outside a held read, as before.
     assert remedy_for(PROTONATION, study=root).price.production_ns == 10.0
+
+
+@pytest.mark.parametrize("record", ["resolved_config.yml", "simulation/checkpoint.chk.json"])
+def test_the_fixes_route_prices_no_remedy_from_a_record_not_read(tmp_path, record):
+    """The Overview's card asks `/api/fixes`: a stopped run's config, or
+    its checkpoint's record, linked out of the study prices nothing there,
+    where the page says the record was not read."""
+    from tests.test_the_study_pages_read_only_the_study import _ask
+
+    root = _stopped(tmp_path)
+    before = json.loads(_ask(root, tmp_path, "/api/fixes", public=False)[1])
+    assert before["fixes"][0]["price"]["production_ns"] == pytest.approx(0.3)
+    assert "unavailable" not in before
+
+    _linked_out(root, tmp_path, record)
+    status, body = _ask(root, tmp_path, "/api/fixes", public=False)
+    assert status == 200
+    answer = json.loads(body)
+    (fix,) = answer["fixes"]
+    assert fix["price"] is None and fix["price_said"] == ""
+    assert fix["fix"].endswith(f" The price is not given, since {record} {NOT_READ}")
+    assert answer["unavailable"] == [record]
+    assert answer["study"] == str(root)

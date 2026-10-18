@@ -338,6 +338,54 @@ def _confined(root: Path, read: Callable[..., Any], *, keeps: bool = False) -> A
     return answer
 
 
+def _as_opened(value: Any, inside: str, opened: str) -> Any:
+    """``value`` with the study's resolved folder ``inside`` said as it was
+    opened, ``opened``, in every string."""
+    if isinstance(value, str):
+        return value.replace(inside, opened)
+    if isinstance(value, list):
+        return [_as_opened(item, inside, opened) for item in value]
+    if isinstance(value, dict):
+        return {key: _as_opened(item, inside, opened) for key, item in value.items()}
+    return value
+
+
+def _fixes_held(root: Path) -> dict[str, Any]:
+    """What would fix the study ``root`` (`fixes_payload`), read in
+    `_confined` held to the study it fixes: a remedy is not priced from a
+    record linked out of it (a stopped run's linked-out config priced its
+    resume beside a line saying the config was not read). Its paths said as
+    the study was opened."""
+    from fastmdxplora.gui.fixes_view import fixes_payload, study_of
+
+    study = study_of(root)
+    if study is None or not study.is_dir():
+        return fixes_payload(root)
+    answer = _confined(study, fixes_payload)
+    inside, opened = str(study.resolve()), str(study)
+    return answer if inside == opened else _as_opened(answer, inside, opened)
+
+
+def _the_fix_shown(root: Path, index: Any) -> bool:
+    """Whether the fix at ``index`` that `run_a_fix` would run (read
+    without a held read) is the one the page showed (`_fixes_held`): the
+    same refusal, place and command. A fix read through a link may not be."""
+    from fastmdxplora.gui.fixes_view import fixes_payload
+
+    try:
+        index = int(index)
+    except (TypeError, ValueError):
+        return True
+    shown, run = _fixes_held(root), fixes_payload(root)
+    keys = ("code", "where", "command", "argv")
+    try:
+        return ([shown["fixes"][index].get(key) for key in keys]
+                == [run["fixes"][index].get(key) for key in keys])
+    except (KeyError, IndexError, TypeError):
+        # No such fix in one of them: `run_a_fix` says so, or the page did.
+        return len((shown.get("fixes") or [])) == len((run.get("fixes") or []))
+
+
 def _status_records(root: Path) -> dict[str, Any]:
     """What `/api/status` reads of the study ``root``: its run's record as
     it stands, how it is going, how long it simulated, and its stages and
@@ -1313,9 +1361,9 @@ def make_handler(
                 # What would fix the study on screen, its command and its
                 # price. Not answered beyond loopback: it names the
                 # commands the POST below runs.
-                from fastmdxplora.gui.fixes_view import fixes_payload
-
-                self._send_json(fixes_payload(root))
+                # Read from the study's own records only (`_fixes_held`): a
+                # remedy is not priced from a record linked out of it.
+                self._send_json(_fixes_held(root))
                 return
             if path == "/api/runs-compared":
                 from fastmdxplora.gui.runs_compared import runs_compared
@@ -1926,6 +1974,14 @@ def make_handler(
                         asked.get("windows"), force_constant=asked.get("force_constant"),
                         duration_ns=asked.get("duration_ns"),
                         dashboard_url=self.headers.get("Origin")))
+                    return
+                if not _the_fix_shown(root, asked.get("index")):
+                    # The page's fixes were read from the study's own records
+                    # (`_fixes_held`); one read through a link is not run in
+                    # its place.
+                    self._send_json({"ok": False, "error": (
+                        "That fix is not the one the page showed: the study's fixes "
+                        "were read from its own records. Look at them again.")})
                     return
                 self._send_json(app_runtime.run_a_fix(
                     asked.get("index"), dashboard_url=self.headers.get("Origin")))
@@ -3656,6 +3712,7 @@ def _summary_records(
     extended: tuple[float, int] | None = None,
     production_not_read: str | None = None,
 ) -> list[dict[str, str]]:
+    from fastmdxplora.gui.telemetry import live_records_refused
     from fastmdxplora.simulation.pipeline import _refused
 
     phase_statuses = [
@@ -3713,7 +3770,6 @@ def _summary_records(
         {
             # The production, which the analyses average; the live record's
             # simulated time has equilibration in it.
-    from fastmdxplora.gui.telemetry import live_records_refused
             "label": "Production",
             "value": say_length(float(sim_time)) if sim_time is not None else "—",
         },
