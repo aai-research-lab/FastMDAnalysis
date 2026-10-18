@@ -37,7 +37,8 @@ def page(dashboard):
 
 
 def _found(page) -> list[str]:
-    return page.eval_on_selector_all("#palette-list .palette-item", "(all) => all.map((i) => i.textContent)")
+    return page.eval_on_selector_all("#palette-list .palette-item .palette-label",
+                                     "(all) => all.map((i) => i.textContent)")
 
 
 def test_a_page_is_gone_to_by_its_name(page) -> None:
