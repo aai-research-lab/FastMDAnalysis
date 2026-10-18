@@ -64,9 +64,28 @@ def _lead(root: Path) -> dict:
 
 def test_it_says_how_much_longer_and_what_that_takes_here(tmp_path):
     lead = _lead(_a_run(tmp_path, _withheld(2.43), _recorded(1.2)))
-    assert lead["said"] == ("1 of 2 means are not determined: about 2.5 ns more production "
+    assert lead["said"] == ("1 of 2 means is not determined: about 2.5 ns more production "
                             "should determine it, about 3 h 28 min at this run's speed on CUDA.")
     assert (lead["undetermined"], lead["means"], lead["more_ns"]) == (1, 2, 2.5)
+
+
+def test_an_ask_written_in_single_precision_is_not_rounded_up_past_itself(tmp_path):
+    """0.1 ns written as a float32 (0.10000002384185791) was said as 110 ps."""
+    import numpy as np
+
+    from fastmdxplora.simulation.sampling_ask import sampling_asked_for
+
+    root = _a_run(tmp_path, _withheld(float(np.float32(0.1))), _recorded(1.2))
+    assert sampling_asked_for(root).more_ns == 0.1
+    assert _lead(root)["said"].startswith(
+        "1 of 2 means is not determined: about 100 ps more production")
+
+
+def test_a_few_seconds_are_said_as_under_a_minute(tmp_path):
+    # 2 ps is 1,000 steps of 2 fs: 10 s at 100 s for 10,000 steps.
+    lead = _lead(_a_run(tmp_path, _withheld(0.002), _recorded(1.2)))
+    assert lead["said"] == ("1 of 2 means is not determined: about 2 ps more production "
+                            "should determine it, under a minute at this run's speed on CUDA.")
 
 
 def test_a_floor_is_said_as_one(tmp_path):
@@ -78,7 +97,7 @@ def test_a_floor_is_said_as_one(tmp_path):
 
 def test_what_the_records_do_not_give_is_not_guessed(tmp_path):
     lead = _lead(_a_run(tmp_path, _withheld(None), _recorded(1.2), cost=False))
-    assert lead["said"] == ("1 of 2 means are not determined. How much longer would determine "
+    assert lead["said"] == ("1 of 2 means is not determined. How much longer would determine "
                             "it is not in the records: each says why below.")
     assert lead["more_ns"] is None
 
@@ -154,7 +173,7 @@ def test_the_page_leads_with_it_and_sets_the_run_beside_the_means(tmp_path):
     finally:
         session.server.shutdown()
     assert errors == []
-    assert wide["lead"].startswith("1 of 2 means are not determined: about 2.5 ns more")
+    assert wide["lead"].startswith("1 of 2 means is not determined: about 2.5 ns more")
     assert wide["reason"] == "Short against its own correlation time: a longer run, or replicas."
     assert wide["badge"] == ["Not determined", True]
     # Side by side on a wide window: the run to the right of the means, at
@@ -201,7 +220,7 @@ def test_a_cost_linked_out_is_not_read_for_the_time_and_said_so(tmp_path, public
     _linked_out(root / "simulation" / "cost.json", outside / "cost.json")
     lead = _overview(root, tmp_path, outside, public=public)["lead"]
     assert "at this run's speed" not in lead["said"] and lead["seconds"] is None
-    assert lead["said"].startswith("1 of 2 means are not determined: about 2.5 ns more")
+    assert lead["said"].startswith("1 of 2 means is not determined: about 2.5 ns more")
     assert "simulation/cost.json was not read" in lead["said"]
 
 
@@ -213,4 +232,8 @@ def test_a_mean_s_record_linked_out_is_counted_apart(tmp_path, public):
     lead = _overview(root, tmp_path, outside, public=public)["lead"]
     # The outside record's ask (2.43 ns) is not read: Rg's own is what is said.
     assert lead["said"].startswith("Its mean is not determined: about 400 ps more production")
+    # Refused first by the tiles' read: still said, so the figure is not
+    # taken for the run's whole need.
+    assert ("analysis/rmsd/options.json was not read, so what it says is not counted here."
+            in lead["said"])
     assert lead["said"].endswith("1 result was not read: it says why below.")

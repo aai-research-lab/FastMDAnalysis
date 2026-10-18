@@ -265,21 +265,26 @@ def _lead(root: Path, means: int, determined: int, not_read: int = 0) -> dict[st
         return {"said": said + unread, "undetermined": 0, "means": means, "more_ns": None,
                 "seconds": None, "platform": "", "lower_bound": False}
     from fastmdxplora import record_access
-    from fastmdxplora.simulation.sampling_ask import _duration, length_said, sampling_asked_for
+    from fastmdxplora.simulation.sampling_ask import (duration_said, length_said,
+                                                      sampling_asked_for)
 
     undetermined = means - determined
     counted = ("Its mean is not determined" if means == 1
                else "Neither mean is determined" if means == 2 and not determined
                else f"None of its {means} means is determined" if not determined
-               else f"{undetermined} of {means} means are not determined")
+               else f"{undetermined} of {means} means "
+                    f"{'is' if undetermined == 1 else 'are'} not determined")
     before = record_access.refused()
     try:
         ask = sampling_asked_for(root)
     except Exception:  # noqa: BLE001 - said as not known, never guessed
         ask = None
     # A record the ask would be read from, refused: said so, never as a
-    # record the run does not have.
-    refused = sorted(record_access.refused() - before)
+    # record the run does not have. The analyses' own records are looked
+    # at whether or not an earlier read (the tiles') refused them first.
+    refused_now = record_access.refused() - before
+    refused = sorted(refused_now | {name for name in _analyses_not_read(root)
+                                    if not any(seen.endswith(name) for seen in refused_now)})
     them = "it" if undetermined == 1 else "them"
     if ask is None:
         why = (f"is not said: {', '.join(refused)} {'was' if len(refused) == 1 else 'were'} "
@@ -294,7 +299,7 @@ def _lead(root: Path, means: int, determined: int, not_read: int = 0) -> dict[st
     said = f"{counted}: {amount} more production should determine {who}"
     if ask.seconds is not None:
         on = f" on {ask.platform}" if ask.platform else ""
-        said += f", about {_duration(ask.seconds)} at this run's speed{on}"
+        said += f", {duration_said(ask.seconds)} at this run's speed{on}"
     said += "."
     if ask.lower_bound:
         said += (" A floor: the run is too short to resolve its own correlation time, "
@@ -307,6 +312,26 @@ def _lead(root: Path, means: int, determined: int, not_read: int = 0) -> dict[st
     return {"said": said, "undetermined": undetermined, "means": means,
             "more_ns": ask.more_ns, "seconds": ask.seconds, "platform": ask.platform,
             "lower_bound": ask.lower_bound}
+
+
+def _analyses_not_read(root: Path) -> set[str]:
+    """The analyses' records of the run that a held read refuses, named in
+    the run (``analysis/rmsd/options.json``); none outside a held read."""
+    import os
+
+    from fastmdxplora import record_access
+
+    folder = root / "analysis"
+    try:
+        names = [entry.name for entry in record_access.iterdir(folder)]
+    except OSError:
+        return set()
+    refused = set()
+    for name in names:
+        record = folder / name / "options.json"
+        if os.path.lexists(record) and not record_access.can_read(record):
+            refused.add(f"analysis/{name}/options.json")
+    return refused
 
 
 def _not_read(row: dict[str, Any], quantity: dict[str, Any]) -> dict[str, Any]:
