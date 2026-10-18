@@ -16,6 +16,26 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   unresolved correlation, and the joins of a series with missing values
   stay on their frames, in the report as well. (Three or four segments
   still cannot be called drifting by this test; that is being worked on.)
+
+- An umbrella study's binding free energy is no longer refused on sound
+  data. The curve ran past the outermost windows into bins only one
+  window's tail reached, and WHAM treated the density as flat across a
+  bin; the bulk check read exactly those bins, and on windows drawn from a
+  known answer it refused two studies in three, the rest 0.2 kJ/mol off.
+  Along a distance the curve now stops at the last window's centre, WHAM
+  solves on a grid eight times finer with each window's bias averaged over
+  a bin, and on the same test the binding free energy is not refused and
+  its mean over studies lands within a few hundredths of a kJ/mol of the
+  closed form.
+- A bin no sample reached is said where it is (inside the bound range, or
+  where the bulk reference is read) rather than refused as "no population
+  above the bulk reference"; one at the wall the ligand cannot enter is
+  taken as holding nobody.
+- Along a distance the PMF figure and its summary show W(r), the
+  potential of mean force, flat where nothing interacts; the
+  distribution's free energy, which the binding integral uses, stays in
+  `pmf.json` and beside it in the data file, and its summary is read off
+  W(r), not off the distribution's wall at the first window.
 - A study of several runs reads the same state in the sidebar, on its
   Overview and in All studies, from one derivation of its runs' states
   (it read "Unknown" in two places and "completed" in the third). Its runs'

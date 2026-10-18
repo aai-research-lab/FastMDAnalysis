@@ -53,6 +53,11 @@ STANDARD_VOLUME_NM3 = 1.660539e0
 #: Boltzmann's constant in kJ/(mol K).
 KB_KJMOL = 0.008314462618
 
+#: An empty bin whose sampled neighbours both stand this many kT above the
+#: curve's minimum is taken as unpopulated: e^-6, a quarter of a percent of
+#: the minimum's density, in a bin.
+UNPOPULATED_ABOVE_KT = 6.0
+
 #: How much bias the cone's wall may carry where the bound state is before
 #: the correction for running inside a cone stops being valid. A tenth of RT
 #: at 300 K: the correction assumes the bound pose fits inside the cone, and
@@ -206,6 +211,31 @@ def binding_free_energy(
 
     # Has the run reached bulk? Judged on the outer part of the range.
     n_bulk = max(4, int(radius.size * bulk_fraction))
+
+    # A bin no sample reached is unknown, not a number. Read as NaN it made
+    # the bulk check pass (NaN is not above any limit), put the minimum on
+    # the hole, and ended in "no population above the bulk reference" for a
+    # run whose only fault was an empty bin -- or one that stopped short of
+    # bulk. Where it matters it is said; elsewhere it is left out.
+    known = np.isfinite(energy)
+    if not known.any():
+        return {"delta_g_kjmol": None, "refused": (
+            "No bin of the curve holds a free energy, so there is nothing to "
+            "integrate.")}
+    if not known[-n_bulk:].all():
+        empty = radius[-n_bulk:][~known[-n_bulk:]]
+        return {
+            "delta_g_kjmol": None,
+            "refused": (
+                f"{empty.size} of the outer {n_bulk} bins, the range the bulk "
+                f"reference is read from (beyond {radius[-n_bulk]:.3g} nm), "
+                "hold no samples (at "
+                + ", ".join(f"{r:.3g}" for r in empty) + " nm). Whether the "
+                "ligand is free there cannot be checked across a gap, and the "
+                "reference cannot be read through one. More sampling in the "
+                "windows that cover it, or a window placed in it, closes it."
+            ),
+        }
     residual = _bulk_residual(radius[-n_bulk:], energy[-n_bulk:], kt)
     if residual > BULK_RESIDUAL_KJMOL:
         return {
@@ -233,7 +263,7 @@ def binding_free_energy(
     reference_at = float(np.mean(tail))
 
     def integrate(cutoff: float) -> float:
-        inside = radius <= cutoff
+        inside = (radius <= cutoff) & known
         if inside.sum() < 3:
             return float("nan")
         # Referenced to the bulk constant, not to the bulk curve. The shell's
@@ -244,14 +274,42 @@ def binding_free_energy(
         shifted = energy[inside] - reference_at
         return float(np.trapezoid(np.exp(-shifted / kt), radius[inside]))
 
-    minimum_at = float(radius[int(np.argmin(energy))])
+    minimum_at = float(radius[int(np.nanargmin(energy))])
     bulk_level = reference_at - 2.0 * kt * np.log(radius)
     if bound_cutoff_nm is None:
-        beyond = (radius > minimum_at) & (energy >= bulk_level - kt)
+        beyond = known & (radius > minimum_at) & (energy >= bulk_level - kt)
         chosen = float(radius[np.argmax(beyond)]) if beyond.any() else float(
             radius[-n_bulk])
     else:
         chosen = float(bound_cutoff_nm)
+
+    # An empty bin where the curve on both sides of it stands well above its
+    # minimum -- at the wall the ligand cannot enter -- holds no population
+    # the integral would notice, and is taken as holding none. One in the
+    # well is population nobody measured.
+    lowest = float(np.nanmin(energy))
+    holes = []
+    for index in np.flatnonzero((radius <= chosen) & ~known):
+        below = energy[:index][known[:index]]
+        above = energy[index + 1:][known[index + 1:]]
+        sides = [part[-1] for part in (below,) if part.size] + \
+            [part[0] for part in (above,) if part.size]
+        if not sides or min(sides) - lowest < UNPOPULATED_ABOVE_KT * kt:
+            holes.append(float(radius[index]))
+    holes = np.asarray(holes)
+    if holes.size:
+        return {
+            "delta_g_kjmol": None,
+            "bound_cutoff_nm": chosen,
+            "refused": (
+                f"{holes.size} bin(s) inside the bound range (up to "
+                f"{chosen:.3g} nm) hold no samples (at "
+                + ", ".join(f"{r:.3g}" for r in holes) + " nm). The binding "
+                "constant is an integral over that range, and a gap in it is "
+                "population nobody measured. More sampling in the windows "
+                "that cover it, or a window placed in it, closes it."
+            ),
+        }
 
     reference_shell = 4.0 * np.pi
     integral = integrate(chosen)
