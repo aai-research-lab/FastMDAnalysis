@@ -117,6 +117,10 @@
       empty.hidden = false;
       notices.hidden = true;
       downloads.innerHTML = "";
+      /* A report not read (a link out of the study) is not one not yet
+       * written: only the not-read line is said. */
+      var headline = empty.querySelector("p:not(#report-empty-reason)");
+      if (headline) headline.hidden = !!(data && data.not_read);
       /* A study of runs says which of them are still to come. */
       var why = el("report-empty-reason");
       if (why) why.textContent = data && data.not_read ? data.not_read

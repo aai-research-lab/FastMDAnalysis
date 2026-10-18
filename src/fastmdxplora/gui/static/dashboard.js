@@ -591,9 +591,11 @@
       const payload = result.value;
       if (name === "app") safeApply(name, () => applyAppState(payload));
       if (name === "status") safeApply(name, () => applyStatus(payload));
-      if (name === "metrics") safeApply(name, () => applyMetrics(payload.metrics || []));
+      // A record of the study not read (a link out of it) is said so,
+      // never shown as a run that recorded none.
+      if (name === "metrics") safeApply(name, () => applyMetrics(payload.metrics || [], payload.not_read || ""));
       if (name === "events") {
-        safeApply(name, () => renderEvents(payload.events || []));
+        safeApply(name, () => renderEvents(payload.events || [], payload.not_read || ""));
         // The run's narration as read, for what is read again only when
         // the run writes something new (problems.js).
         emit("events-read", {events: Array.isArray(payload.events) ? payload.events : []});
@@ -1592,10 +1594,10 @@
   /* ------------------------------------------------------------------ */
   /* Metrics and events                                                  */
   /* ------------------------------------------------------------------ */
-  function applyMetrics(metrics) {
+  function applyMetrics(metrics, notRead) {
     state.metrics = thinned((Array.isArray(metrics) ? metrics : [])
       .map(normaliseMetricRow), chartHistorySamples);
-    if (window.FastMDXCharts) window.FastMDXCharts.update(state.metrics);
+    if (window.FastMDXCharts) window.FastMDXCharts.update(state.metrics, notRead || "");
     emit("metrics-updated", {metrics: state.metrics});
   }
 
@@ -1633,10 +1635,20 @@
     return output;
   }
 
-  function renderEvents(events) {
+  function renderEvents(events, notRead) {
     const list = byId("events-list");
     if (!list) return;
     const items = (Array.isArray(events) ? events : []).slice(-50).reverse();
+    if (!items.length && notRead) {
+      // Not read, which is not none recorded.
+      list.innerHTML = `
+      <li data-level="warning">
+        <span class="level-badge">not read</span>
+        <span class="event-message">${escapeHTML(notRead)}</span>
+        <span class="event-time"></span>
+      </li>`;
+      return;
+    }
     list.innerHTML = items.length ? items.map((event) => `
       <li data-level="${escapeAttr(event.level || "info")}">
         <span class="level-badge">${escapeHTML(event.level || "info")}</span>
