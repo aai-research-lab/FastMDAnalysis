@@ -4,6 +4,8 @@
 
 .app-shell { height: calc(100vh - var(--status-bar-height)); }
 .sidebar, .main, .side-panel { height: calc(100vh - var(--status-bar-height)); min-height: 0; }
+/* The Agent beside the page ends above it too: its mode line was cut under it. */
+.agent-drawer { bottom: var(--status-bar-height); }
 .page[data-page="agent"] {
     height: calc(100vh - var(--status-bar-height) - var(--shell-pad-top, 24px) - var(--agent-foot));
 }
