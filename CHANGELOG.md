@@ -94,6 +94,11 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   one plot on the simulation's clock is every such plot's and is marked on
   the Viewer's timeline. Maps are drawn as their cells, and a run shorter
   than a nanosecond is read in picoseconds.
+- The Report page has an outline beside the report, its sections
+  numbered as the PDF now numbers them. Each number the report states
+  opens the record it was traced to (file, place, value, converted to the
+  report's units), or says no record holds it, with the nearest and the
+  records written again since the report.
 
 - A strip of open studies keeps each study's last page in this browser
   window. Studies can be selected or closed individually; closing never

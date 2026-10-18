@@ -185,6 +185,7 @@ FastMDXplora/
 │       │   ├── problems_view.py   # Recorded refusals, health and undetermined means
 │       │   ├── figure_provenance.py  # What made each figure, and the command that makes it again
 │       │   ├── report_page.py     # The report as a document, in the page
+│       │   ├── report_numbers.py  # Each number the report states, traced to the record it came from
 │       │   ├── browse.py          # Walking the filesystem from the page; what is a study
 │       │   ├── again_view.py      # What the GUI offers to run again on the study on screen
 │       │   ├── directory_inspect.py  # What is in a folder, and what can be done with it
@@ -236,6 +237,8 @@ FastMDXplora/
 │       │   │                      #   run, asked first, wherever it is offered), plot-tools.js (zoom,
 │       │   │                      #   move and save on every plot, and the page's time range),
 │       │   │                      #   analysis-cells.js and analysis-cells.css (each analysis a cell),
+│       │   │                      #   report-outline.js and report-outline.css (the report's outline,
+│       │   │                      #   and its numbers traced),
 │       │   │                      #   run-notice.js
 │       │   │                      #   (progress in the tab's title, a notice at the end);
 │       │   │                      #   remote.js and remote.css (Run on one of your machines,
