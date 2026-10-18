@@ -2152,9 +2152,14 @@ def make_handler(
                 study = self._optional_path_for((payload or {}).get("study"))
                 if study is False:
                     return
-                self._send_json(open_conversation(app_runtime,
-                                                  (payload or {}).get("id"),
-                                                  study))
+                opened = open_conversation(app_runtime, (payload or {}).get("id"), study)
+                if opened.get("ok") and opened.get("study"):
+                    from fastmdxplora.gui.workspace import study_key
+
+                    # The study the page then opens, by the key its address
+                    # names it by: this one, not whichever is open by then.
+                    opened["study_key"] = study_key(opened["study"])
+                self._send_json(opened)
                 return
             if path == "/api/agent/attachment":
                 from fastmdxplora.gui.agent_panel import read_attachment

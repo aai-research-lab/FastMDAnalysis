@@ -968,13 +968,10 @@
   /* What a switch of study would lose here (unsent Agent words, a Config
    * draft not saved, a rejected change not applied, a launch or reply
    * under way): the reason, or "". Back ("back") is not held by Agent
-   * words kept for the study in this window, nor a switch that waits for
-   * the Agent's launch itself ("after-launch") by that launch. */
+   * words kept for the study in this window. */
   function switchHeld(how) {
     const back = how === "back";
-    const afterLaunch = how === "after-launch";
-    return window.FastMDXAgent?.beforeStudySwitch?.({back, afterLaunch}) ||
-      window.FastMDXRun?.beforeStudySwitch?.() || "";
+    return window.FastMDXAgent?.beforeStudySwitch?.({back}) || window.FastMDXRun?.beforeStudySwitch?.() || "";
   }
 
   /* Asked by every way to another study before the server is asked: a
