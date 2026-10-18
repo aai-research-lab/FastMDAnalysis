@@ -1009,6 +1009,7 @@ def _speed(folder: Path | None, study: Path | None) -> tuple[float | None, str]:
     and windows share the machine, and a run that stopped before production
     measured nothing of its own.
     """
+    from fastmdxplora.simulation.pipeline import _refused
     from fastmdxplora.simulation.sampling_ask import _time_here
 
     candidates: list[Path] = []
@@ -1017,8 +1018,9 @@ def _speed(folder: Path | None, study: Path | None) -> tuple[float | None, str]:
     if study is not None:
         candidates.append(Path(study))
         runs = Path(study) / "runs"
-        if runs.is_dir():
-            candidates.extend(sorted(p for p in runs.iterdir() if p.is_dir()))
+        if record_access.is_dir(runs):
+            candidates.extend(sorted(p for p in record_access.iterdir(runs)
+                                     if record_access.is_dir(p)))
     for candidate in dict.fromkeys(candidates):
         try:
             seconds, platform = _time_here(candidate, 1.0)
@@ -1026,6 +1028,10 @@ def _speed(folder: Path | None, study: Path | None) -> tuple[float | None, str]:
             continue
         if seconds is not None and seconds > 0:
             return seconds, platform
+        # Its cost record not read (a read held to the study refused it) is
+        # not a run that wrote none: no other record's speed is given for it.
+        if _refused(candidate / "simulation" / "cost.json"):
+            return None, ""
     # A run that stopped wrote no cost record: the speed its live record
     # measured in production, which the Overview gives beside its platform
     # ("CPU, 4.314 ns/day") while this said no speed had been measured.

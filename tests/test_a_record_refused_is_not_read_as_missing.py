@@ -348,3 +348,28 @@ def test_a_run_s_status_not_read_is_said_not_read(tmp_path, refused, project, la
     status, body = _ask(root, tmp_path, "/api/results", public=public)
     summary = {row["label"]: row["value"] for row in json.loads(body)["summary"]}
     assert (summary["Project status"], summary["Latest status"]) == (project, latest)
+
+
+@PUBLIC
+def test_a_piece_s_cost_not_read_gives_no_other_speed(tmp_path, public):
+    """The last piece's cost record not read: the Overview gives no speed,
+    not the study's first run's (or its live record's) in its place."""
+    from tests.test_the_study_pages_read_only_the_study import _a_study_carried_on
+
+    def carried_on(where: Path) -> Path:
+        root = _a_study_carried_on(where)
+        # The piece ran at half the first run's speed: 0.02 ns in 200 s.
+        _write(root, "segment-001/simulation/cost.json", {
+            "particles": 1403, "steps": 10000, "seconds": 200.0, "platform": "CPU",
+            "timestep_fs": 2.0})
+        return root
+
+    read = carried_on(tmp_path / "read")
+    assert _overview(read, tmp_path / "read", public=public)["speed_ns_per_day"] == (
+        pytest.approx(8.64))
+
+    root = carried_on(tmp_path / "refused")
+    _linked_out(root, tmp_path, "segment-001/simulation/cost.json")
+    answer = _overview(root, tmp_path / "refused", public=public)
+    assert answer["speed_ns_per_day"] is None
+    assert "segment-001/simulation/cost.json" in answer["unavailable"]
