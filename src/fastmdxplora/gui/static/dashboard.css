@@ -3835,7 +3835,6 @@ body.sidebar-collapsed .sidebar-expand { display: inline-flex; }
     white-space: nowrap; text-align: right;
 }
 
-
 .agent-conv-list {
     margin: 0 0 12px; padding: 6px; border-radius: 10px;
     background: var(--background-elevated); border: 1px solid var(--border-subtle);
@@ -4994,7 +4993,26 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
 }
 .runs-compared[hidden], .runs-overlay[hidden] { display: none; }
 .runs-compared-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
-.runs-compared-scroll { overflow-x: auto; }
+/* Wider than the page with many measures: its scroll bar always shown (an
+ * overlay scroll bar is hidden until scrolled, so the cut columns had no
+ * way to them), the run's name kept in view, and an edge shaded where more
+ * columns lie (runs-compared.js sets data-more). */
+.runs-compared-scroll {
+    overflow-x: auto; position: relative; padding-bottom: 4px;
+    scrollbar-width: thin; scrollbar-color: var(--border-strong, var(--text-muted)) transparent;
+}
+.runs-compared-scroll::-webkit-scrollbar { height: 8px; }
+.runs-compared-scroll::-webkit-scrollbar-thumb {
+    background: var(--border-strong, var(--text-muted)); border-radius: 4px;
+}
+.runs-compared-scroll::-webkit-scrollbar-track { background: transparent; }
+.runs-compared-scroll[data-more="right"], .runs-compared-scroll[data-more="both"] {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+}
+.runs-compared-table tr > :first-child {
+    position: sticky; left: 0; z-index: 1; background: var(--panel-glass);
+}
 .runs-compared-table { border-collapse: collapse; font-size: var(--text-sm); min-width: 100%; }
 .runs-compared-table th, .runs-compared-table td {
     padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border-primary);
