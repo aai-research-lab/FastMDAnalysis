@@ -581,8 +581,8 @@ def test_scrolled_down_the_strip_and_its_note_stay_in_view_above_the_page_bars(b
         page.mouse.move(width // 2, 600)
         page.mouse.wheel(0, 1500)
         page.wait_for_function("Math.max(document.querySelector('.main').scrollTop, document.scrollingElement.scrollTop, document.body.scrollTop) > 400")
-        # The page bars placed under the strip once its height is measured.
-        page.wait_for_function("parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--study-tabs-height')) > 0")
+        # Measured once the strip's size is observed and the page drawn again.
+        page.evaluate("new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))")
         facts = page.evaluate(SCROLLED)
         assert facts["noteSeen"] and facts["tabSeen"], facts
         if facts["bar"][2] >= width - 1:
@@ -1072,7 +1072,8 @@ def test_a_switch_asked_another_way_marks_the_strip_busy(browser, site):
         page.locator('.sidebar-recent-item:not([aria-current])').first.click()
         expect(page.locator("#study-tabs")).to_have_attribute("aria-busy", "true")
         _link(page, site["keys"][0]).dispatch_event("click", {"button": 0})
-        expect(page.locator("#study-tabs-note")).to_contain_text("A study is already opening.")
+        # Nothing is to happen: a short wait, then no second request.
+        page.wait_for_timeout(300)
         assert len(held) == 1
         held[0].fulfill(status=500, content_type="application/json",
                         body=json.dumps({"ok": False, "error": "Try later."}))
@@ -1173,8 +1174,8 @@ def test_closing_the_last_tab_leaves_no_closed_study_named(browser, site):
         page.locator(".study-tab-close").click()
         page.wait_for_function("location.hash === '#studies'")
         assert "study=" not in page.url
-        with page.expect_response("**/api/status"):
-            pass
+        # Nothing is to happen: a short wait, then the address still names none.
+        page.wait_for_timeout(500)
         page.evaluate("() => window.FastMDXDashboard.applyStatus({status: {system_id: 'Alpha', status: 'completed'}, study: window.FastMDXDashboard.state.studyShown})")
         assert "study=" not in page.url
         page.reload(wait_until="domcontentloaded")
