@@ -1,0 +1,28 @@
+/* Compare (compare.js): the two side by side at the top, then what they
+ * set, what they recorded and their series, each a card across the page. */
+.compare-empty:empty { display: none; }
+.compare-heads {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;
+    margin-bottom: 12px;
+}
+.compare-heads[hidden] { display: none; }
+.compare-head { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; min-width: 0; }
+.compare-head-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.compare-head-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compare-swatch { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.compare-open { align-self: flex-start; margin-top: 4px; }
+.compare-section { margin-bottom: 12px; overflow-x: auto; }
+.compare-section .card-title { margin: 0 0 8px; }
+.compare-section { padding: 16px 18px; }
+.compare-section[hidden] { display: none; }
+.compare-section table { width: 100%; table-layout: fixed; }
+.compare-section td, .compare-section th { overflow-wrap: anywhere; vertical-align: top; }
+.compare-settings-table td:first-child, .compare-settings-table th:first-child { width: 34%; }
+.compare-means-table tr.is-resolved td { color: var(--accent-orange); }
+.compare-series-block { margin: 8px 0 16px; }
+.compare-series-chart svg { display: block; width: 100%; height: auto; max-height: 300px; }
+
+/* A phone: one above the other. */
+@media (max-width: 640px) {
+    .compare-heads { grid-template-columns: minmax(0, 1fr); }
+}

@@ -316,11 +316,14 @@ def test_the_page(workspace) -> None:
             # One chosen offers nothing yet: Compare and Clear come with the second.
             waiting = page.is_hidden("#studies-compare-bar")
             page.check('.study-card[data-path$="ubiquitin_longer"] .study-pick input')
+            # Compared on the Compare page (compare.js), then back to the cards.
             page.click("#studies-compare")
-            page.wait_for_selector(".studies-means")
-            setting = page.text_content(".studies-settings tr:nth-child(2)")
-            rmsd = page.text_content('.studies-means tr[data-analysis="rmsd"]')
-            resolved = page.get_attribute('.studies-means tr[data-analysis="rmsd"]', "class")
+            page.wait_for_selector('.page[data-page="compare"][data-compared="yes"]')
+            setting = page.text_content(".compare-settings-table tr:nth-child(2)")
+            rmsd = page.text_content('.compare-means-table tr[data-analysis="rmsd"]')
+            resolved = page.get_attribute('.compare-means-table tr[data-analysis="rmsd"]', "class")
+            page.go_back()
+            page.wait_for_selector('.study-card[data-path$="stopped"] .study-open')
             page.click('.study-card[data-path$="stopped"] .study-open')
             # Said beside its button, which is an icon (and named so for a moment).
             page.wait_for_selector('.study-card[data-path$="stopped"] .study-open-said:has-text("Not in this test.")')

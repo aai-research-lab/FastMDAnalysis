@@ -20,6 +20,9 @@
   var study = "";
   var timer = null;
   var chosen = "";
+  // Two runs chosen to compare (their folders), kept as the table is
+  // drawn again while runs go.
+  var picked = [];
 
   function byId(id) { return document.getElementById(id); }
   function el(tag, cls, text) {
@@ -104,6 +107,14 @@
       link.appendChild(el("span", "", run.label || run.run_id));
       link.title = "Open " + (run.label || run.run_id) + "\n" + run.run_id;
       link.addEventListener("click", function () { open(run); });
+      var pick = el("input", "overview-runs-pick");
+      pick.type = "checkbox";
+      pick.checked = picked.indexOf(run.path) >= 0;
+      pick.dataset.path = run.path;
+      pick.setAttribute("aria-label", "Choose " + (run.label || run.run_id) + " to compare");
+      pick.title = "Choose two runs to compare";
+      pick.addEventListener("change", function () { choose(run.path, pick.checked); });
+      name.appendChild(pick);
       name.appendChild(link);
       row.appendChild(name);
       var state = el("td", "overview-runs-state");
@@ -165,6 +176,30 @@
       foot.appendChild(together);
       table.appendChild(foot);
     }
+  }
+
+  /* Two runs chosen: a third drops the first, as in All studies. */
+  function choose(path, on) {
+    picked = picked.filter(function (p) { return p !== path; });
+    if (on) picked.push(path);
+    if (picked.length > 2) picked = picked.slice(-2);
+    var table = byId("overview-runs-table");
+    Array.prototype.forEach.call(table.querySelectorAll(".overview-runs-pick"), function (box) {
+      box.checked = picked.indexOf(box.dataset.path) >= 0;
+    });
+    sayPicked();
+  }
+
+  function sayPicked() {
+    var button = byId("overview-runs-compare");
+    if (!button) return;
+    var runs = (data && data.runs) || [];
+    picked = picked.filter(function (p) { return runs.some(function (r) { return r.path === p; }); });
+    button.hidden = picked.length !== 2;
+  }
+
+  function compare() {
+    if (picked.length === 2 && window.FastMDXCompare) window.FastMDXCompare.open(picked[0], picked[1]);
   }
 
   function renderSaid() {
@@ -266,6 +301,7 @@
     drawn = key;
     renderSaid();
     renderTable();
+    sayPicked();
     renderUndetermined();
     // The series again where a run's state changed, or half a minute on
     // while runs go: each is a fetch of every run's series.
@@ -301,6 +337,7 @@
 
   function start() {
     if (!byId("overview-runs") || !window.FastMDXDashboard) return;
+    byId("overview-runs-compare").addEventListener("click", compare);
     byId("overview-runs-measure").addEventListener("change", function (e) {
       chosen = e.target.value;
       if (data && window.FastMDXRunsCompared) {
@@ -313,6 +350,7 @@
       if (next === study) return;
       study = next;
       data = null;
+      picked = [];
       drawn = "";
       overlaidStates = "";
       clearTimeout(timer);

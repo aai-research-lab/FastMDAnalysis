@@ -3,11 +3,9 @@
  *
  * Each card says the study's structure, what kind of study it is, where it
  * stands, when it began, the means it recorded with their errors and a
- * figure it plotted. Search narrows the cards as typed. Two chosen are
- * compared: the settings in which they differ, defaults filled in, as
- * `fastmdx diff` says them, and the means both recorded, a difference
- * marked only past twice their combined error. Open makes a study the one
- * on screen. Everything is built as elements: a study's name and its
+ * figure it plotted. Search narrows the cards as typed. Two chosen open
+ * on the Compare page (compare.js). Open makes a study the one on
+ * screen. Everything is built as elements: a study's name and its
  * records are data. */
 (function () {
   "use strict";
@@ -15,11 +13,9 @@
   var studies = [];
   /* The page's own line icons (icons.js, from sidebar_icons.py). */
   var ICONS = window.FastMDXIcons;
-  var CLOSE_ICON = ICONS.svg("close");
   var chosen = [];
   var lookedIn = "";
   var loading = null;
-  var SHOWN_FIRST = 20;
   // Tags: the one the cards are narrowed to, the card being tagged, and
   // the tags the studies here carry (offered as one is typed).
   var tagged = null;
@@ -838,11 +834,11 @@
     return false;
   }
 
-  /* What the bar must not cover: the comparison and a study's tags being
-   * changed, as much of each as the window shows. */
+  /* What the bar must not cover: a study's tags being changed, as much of
+   * it as the window shows. */
   function inTheWay() {
-    var nodes = [el("studies-compared")].concat(Array.prototype.slice.call(
-      document.querySelectorAll(".studies-editing, .study-tag-editor")));
+    var nodes = Array.prototype.slice.call(
+      document.querySelectorAll(".studies-editing, .study-tag-editor"));
     return nodes.filter(function (n) {
       return n && !n.hidden && n.getClientRects().length;
     }).map(function (n) { return n.getBoundingClientRect(); }).filter(function (r) {
@@ -898,12 +894,9 @@
     if (!spot) {
       spot = spots[0];
       bar.classList.add("is-aside");
-      // Its buttons are hidden: the focus goes on to the comparison it
-      // would cover, else back to the study chosen.
-      var host = el("studies-compared");
+      // Its buttons are hidden: the focus goes back to the study chosen.
       if (bar.contains(document.activeElement)) {
-        var back = host && !host.hidden ? host : boxOf(chosen[chosen.length - 1]);
-        if (back === host) host.tabIndex = -1;
+        var back = boxOf(chosen[chosen.length - 1]);
         if (back) back.focus({ preventScroll: true });
       }
     }
@@ -937,152 +930,10 @@
     });
   }
 
-  /* Every element that scrolls the comparison, to its top, where the
-   * comparison is: below the page's own sticky bars, not under them. */
-  function toTheTop(node) {
-    for (var n = node.parentElement; n; n = n.parentElement) {
-      var flow = getComputedStyle(n).overflowY;
-      if (n.scrollTop > 0 && (flow === "auto" || flow === "scroll")) {
-        n.scrollTo({ top: 0, behavior: "smooth" });
-      }
-    }
-    if ((document.scrollingElement || document.documentElement).scrollTop > 0) {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
-  }
-
-  function compare(event) {
-    var host = el("studies-compared");
-    if (chosen.length !== 2 || !host) return;
-    host.hidden = false;
-    host.replaceChildren(make("p", "muted", "Comparing…"));
-    // From the keyboard, the comparison is where reading goes on.
-    host.tabIndex = -1;
-    if (event && event.detail === 0) host.focus({ preventScroll: true });
-    // The comparison is at the page's top: brought to the reader.
-    toTheTop(host);
-    fetch("/api/studies-compared?" + new URLSearchParams({ a: chosen[0], b: chosen[1] }))
-      .then(function (r) { return r.json(); })
-      .then(drawComparison)
-      .catch(function () { host.replaceChildren(make("p", "muted", "The server did not answer.")); });
-  }
-
-  function drawComparison(data) {
-    var host = el("studies-compared");
-    host.replaceChildren();
-    // The cards move down under it: the bar follows them.
-    requestAnimationFrame(moved);
-    if (!data || !data.ok) {
-      host.appendChild(make("p", "muted", (data && data.reason) || "They could not be compared."));
-      return;
-    }
-    var head = make("div", "card-header");
-    head.appendChild(make("h2", "card-title", data.first.name + " and " + data.second.name));
-    var close = make("button", "line-btn");
-    close.type = "button";
-    close.title = "Close";
-    close.setAttribute("aria-label", "Close");
-    close.innerHTML = CLOSE_ICON;
-    close.addEventListener("click", function (event) {
-      var within = host.contains(document.activeElement);
-      host.hidden = true;
-      moved();
-      // Closed from within: back to the study last chosen, else the other,
-      // else Compare where it shows, else the search, as Clear does.
-      if (!within) return;
-      var bar = el("studies-compare-bar");
-      var shows = bar && !bar.hidden && !bar.classList.contains("is-aside") &&
-        bar.getClientRects().length > 0;
-      var back = boxOf(chosen[chosen.length - 1]) || boxOf(chosen[0]) ||
-        (shows ? el("studies-compare") : null) || el("studies-search");
-      if (back) back.focus({ preventScroll: event.detail !== 0 });
-    });
-    head.appendChild(close);
-    host.appendChild(head);
-
-    host.appendChild(make("h3", "studies-compared-title", "Settings that differ"));
-    var settings = data.settings || [];
-    if (!settings.length) {
-      host.appendChild(make("p", "muted small", "None: they asked for the same study."));
-    } else {
-      var table = make("table", "kv-table studies-settings");
-      var top = make("tr");
-      ["Setting", data.first.name, data.second.name].forEach(function (label) {
-        top.appendChild(make("th", "", label));
-      });
-      table.appendChild(top);
-      settings.forEach(function (d, i) {
-        var row = make("tr");
-        // Two different kinds of study differ everywhere; the first
-        // twenty are shown and the rest on asking.
-        if (i >= SHOWN_FIRST) row.hidden = true;
-        row.appendChild(make("td", "mono", d.setting));
-        row.appendChild(make("td", "mono", settingSaid(d.first)));
-        row.appendChild(make("td", "mono", settingSaid(d.second)));
-        table.appendChild(row);
-      });
-      host.appendChild(table);
-      if (settings.length > SHOWN_FIRST) {
-        var more = make("button", "file-action studies-more",
-          "Show the other " + (settings.length - SHOWN_FIRST));
-        more.type = "button";
-        more.addEventListener("click", function () {
-          table.querySelectorAll("tr[hidden]").forEach(function (row) { row.hidden = false; });
-          more.remove();
-        });
-        host.appendChild(more);
-      }
-    }
-
-    var unrecorded = data.unrecorded || [];
-    if (unrecorded.length) {
-      host.appendChild(make("p", "muted small",
-        "Not compared: " + unrecorded.join(", ") + ". The run works " +
-        (unrecorded.length === 1 ? "it" : "these") + " out from the other settings, " +
-        "and one of the studies never recorded " +
-        (unrecorded.length === 1 ? "it" : "them") +
-        " (it stopped or failed before them, or analysed a trajectory and ran no simulation)."));
-    }
-
-    host.appendChild(make("h3", "studies-compared-title", "What they recorded"));
-    var measures = data.measures || [];
-    if (!measures.length) {
-      host.appendChild(make("p", "muted small", "Neither recorded a mean."));
-      return;
-    }
-    var means = make("table", "kv-table studies-means");
-    var header = make("tr");
-    ["Quantity", data.first.name, data.second.name, "Difference"].forEach(function (label) {
-      header.appendChild(make("th", "", label));
-    });
-    means.appendChild(header);
-    measures.forEach(function (m) {
-      var row = make("tr");
-      row.dataset.analysis = m.analysis;
-      row.appendChild(make("td", "", m.label || m.analysis));
-      row.appendChild(make("td", "mono", meanSaid(m.first)));
-      row.appendChild(make("td", "mono", meanSaid(m.second)));
-      var versus = m.versus;
-      var cell = make("td", "mono");
-      if (versus) {
-        cell.textContent = withError(versus.difference, versus.error, m.unit) +
-          (versus.resolved ? ", resolved" : ", within the errors");
-        if (versus.resolved) row.classList.add("is-resolved");
-      } else {
-        cell.textContent = "not compared";
-      }
-      row.appendChild(cell);
-      means.appendChild(row);
-    });
-    host.appendChild(means);
-    host.appendChild(make("p", "muted small",
-      "A difference is resolved past " + data.resolved_at + " times the two studies' " +
-      "combined standard error. A mean an analysis did not stand behind is not compared."));
-  }
-
-  /* A setting's value as written, "not set" for one left out or null. */
-  function settingSaid(value) {
-    return value == null ? "not set" : JSON.stringify(value);
+  /* The two chosen, on the Compare page (compare.js). */
+  function compare() {
+    if (chosen.length !== 2 || !window.FastMDXCompare) return;
+    window.FastMDXCompare.open(chosen[0], chosen[1]);
   }
 
   function openStudy(path, button) {
@@ -1172,7 +1023,6 @@
       var fromKeys = event.detail === 0;
       chosen = [];
       offeredAt = null;
-      el("studies-compared").hidden = true;
       draw();
       // Back to the study last chosen, else the other, else the search
       // (both narrowed away): brought into view from the keyboard.
@@ -1194,13 +1044,13 @@
     document.addEventListener("scroll", moved, true);
     window.addEventListener("resize", moved);
     // The column narrowed or widened without the window (the Agent opened
-    // beside the page, the sidebar folded), or the cards, the table or the
-    // comparison grew or shrank above the study chosen, or the Agent was
-    // drawn over the page.
+    // beside the page, the sidebar folded), or the cards or the table grew
+    // or shrank above the study chosen, or the Agent was drawn over the
+    // page.
     if (window.ResizeObserver) {
       var watch = new ResizeObserver(moved);
       [document.querySelector(".main"), el("studies-grid"), el("studies-table"),
-       el("studies-compared"), el("agent-drawer")].forEach(function (n) { if (n) watch.observe(n); });
+       el("agent-drawer")].forEach(function (n) { if (n) watch.observe(n); });
     }
     // Tab from the study chosen reaches Compare and Clear; Escape from them
     // goes back to it, and Tab on from Clear goes on from it, not from where

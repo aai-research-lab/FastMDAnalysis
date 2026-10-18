@@ -312,5 +312,5 @@
   });
 
   window.FastMDXRunsCompared = { load: load, palette: PALETTE.slice(), overlay: overlay,
-                                 colourOf: colourOf };
+                                 colourOf: colourOf, drawOverlay: draw };
 }());

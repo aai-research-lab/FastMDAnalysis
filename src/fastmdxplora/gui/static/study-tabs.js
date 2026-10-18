@@ -18,7 +18,7 @@
     var state = api.state;
     return safeRoute(state.activePage + (state.activePlace ? "/" + state.activePlace : ""));
   }
-  function studyPage() { return ["studies", "run"].indexOf(api.state.activePage) < 0; }
+  function studyPage() { return ["studies", "run", "compare"].indexOf(api.state.activePage) < 0; }
   function save() {
     if (!storageKey) return;
     try { sessionStorage.setItem(storageKey, JSON.stringify({tabs: tabs, closed: closed, focus: focusOnOpen})); }

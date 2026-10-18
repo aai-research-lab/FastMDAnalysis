@@ -744,7 +744,8 @@ def make_handler(
                     listing["home"] = str(hosting.workspace)
                 self._send_json(listing)
                 return
-            if path in ("/api/studies", "/api/studies-compared", "/api/study-thumbnail"):
+            if path in ("/api/studies", "/api/studies-compared", "/api/compared",
+                        "/api/study-thumbnail"):
                 # The studies in the workspace, two of them compared, and a
                 # figure for a card: read from the studies' records, inside
                 # the workspace when hosted, loopback otherwise, as browsing
@@ -767,6 +768,15 @@ def make_handler(
                     if first is None or second is None:
                         return
                     self._send_json(workspace.studies_compared(first, second))
+                    return
+                if path == "/api/compared":
+                    # The Compare page: two studies or runs, their series too.
+                    first, second = self._path_for(one("a")), self._path_for(one("b"))
+                    if first is None or second is None:
+                        return
+                    from fastmdxplora.gui.compare_view import compared
+
+                    self._send_json(compared(first, second))
                     return
                 named = self._path_for(one("path"))
                 if named is None:

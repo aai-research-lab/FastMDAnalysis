@@ -159,6 +159,7 @@ FastMDXplora/
 │       │   ├── interactions_over_frames.py  # What holds the ligand, frame by frame
 │       │   ├── chain_contacts.py  # What holds the chains together, frame by frame
 │       │   ├── runs_compared.py   # The runs of a study side by side, resolved differences marked
+│       │   ├── compare_view.py    # Two studies or two runs on the Compare page, their series too
 │       │   ├── analysis_overview.py  # What every analysis determined, read together, and how each series converged
 │       │   ├── applicable.py      # Which analyses a study's config and structure leave nothing for, and why
 │       │   ├── runs_together.py   # The runs of a study played together in one Viewer
@@ -228,7 +229,8 @@ FastMDXplora/
 │       │   │                      #   are, at the head of every page), statusbar.js and statusbar.css
 │       │   │                      #   (the strip under every page), overview-runs.js (the Overview of
 │       │   │                      #   a study of several runs), viewer-timeline.js (the timeline's
-│       │   │                      #   ruler; frame-series.js its tracks), stop-run.js (Stop the
+│       │   │                      #   ruler; frame-series.js its tracks), compare.js and compare.css
+│       │   │                      #   (two studies or runs on the Compare page), stop-run.js (Stop the
 │       │   │                      #   run, asked first, wherever it is offered), run-notice.js
 │       │   │                      #   (progress in the tab's title, a notice at the end);
 │       │   │                      #   remote.js and remote.css (Run on one of your machines,
