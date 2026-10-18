@@ -1597,6 +1597,9 @@ def analyze_health(
 
     if status:
         return {"state": "ok", "message": "Normal progress", "explanation": NORMAL_EXPLANATION}
+    of_runs = _a_study_of_runs(root) if root is not None else None
+    if of_runs is not None:
+        return of_runs
     not_a_run = _not_a_run(root) if root is not None else None
     if not_a_run is not None:
         return not_a_run
@@ -1622,6 +1625,74 @@ def not_read_health(said: str) -> dict[str, str]:
         "message": said,
         "explanation": ("The run's live record is how this page knows how the run went, "
                         "so how it went is not shown."),
+    }
+
+
+#: A study of several runs, said in the words its state is said in
+#: everywhere else (`workspace.study_state`, read by All studies' cards).
+_STUDY_OF_RUNS_SAID = {
+    "completed": ("Completed", "Every run of this study completed."),
+    "running": ("Running", "Runs of this study are still going."),
+    "failed": ("Stopped with an error", "A run of this study ended with an error."),
+    "stopped": ("Stopped", "A run of this study was stopped."),
+    "interrupted": ("Interrupted", "A run of this study ended without recording why."),
+    "incomplete": ("Incomplete", "Not every run of this study has finished."),
+}
+
+
+def _a_study_of_runs(root: str | Path) -> dict[str, str] | None:
+    """A study of several runs, said from its runs' states as All studies
+    says it. It keeps no live record of its own, so it was said "unknown"
+    here (orange) while its card said "completed": two derivations of one
+    state. Now one: `workspace.study_state`."""
+    root = Path(root)
+    batch = root / "batch_manifest.json"
+    from fastmdxplora.simulation.pipeline import _refused
+
+    if _refused(batch):
+        # Its record of runs refused by a held read is not read: not a
+        # folder that keeps none (`_not_a_run`).
+        from fastmdxplora.gui.series import refused_said
+
+        return _study_of_runs_not_read(refused_said(root, batch) + ".")
+    before = _records.refused()
+    try:
+        if not _records.is_file(batch):
+            return None
+        from fastmdxplora.gui.workspace import study_state
+
+        state = study_state(root)
+    except Exception:  # noqa: BLE001 - a record that cannot be read is said as before
+        return None
+    # A record of a run the held read refused leaves the study's state
+    # unknown: said not read, not derived from the records that were.
+    refused = sorted(_records.refused() - before)
+    if refused:
+        return _study_of_runs_not_read(
+            ", ".join(refused) + (" was" if len(refused) == 1 else " were") + " not read.")
+    headline, message = _STUDY_OF_RUNS_SAID.get(state, (None, None))
+    if headline is None:
+        return None
+    return {
+        "state": state,
+        "headline": headline,
+        "message": message,
+        "explanation": ("Each run keeps its own record of its simulation; "
+                        "open one from Runs in the sidebar to see it."),
+        "of_runs": True,
+    }
+
+
+def _study_of_runs_not_read(said: str) -> dict[str, Any]:
+    """A study of several runs whose state a held read could not derive,
+    since a record it is derived from was refused (`record_access`)."""
+    return {
+        "state": "not read",
+        "headline": "Not read",
+        "message": said,
+        "explanation": ("The study's state is derived from its record of runs and each "
+                        "run's own record, so how it went is not shown."),
+        "of_runs": True,
     }
 
 

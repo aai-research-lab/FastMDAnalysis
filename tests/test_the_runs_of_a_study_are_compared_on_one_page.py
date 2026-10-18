@@ -77,8 +77,8 @@ class TestTheTable:
         assert page["ok"] and page["completed"] == 3 and not page["replicas"]
         assert page["axes"] == [{"axis": "simulation.temperature_K", "label": "temperature_K"}]
         assert [(r["run_id"], r["label"], r["state"]) for r in page["runs"]] == [
-            ("t300", "temperature_K 300", "completed"), ("t310", "temperature_K 310", "completed"),
-            ("t320", "temperature_K 320", "completed"), ("t330", "temperature_K 330", "waiting")]
+            ("t300", "temperature 300 K", "completed"), ("t310", "temperature 310 K", "completed"),
+            ("t320", "temperature 320 K", "completed"), ("t330", "temperature 330 K", "waiting")]
         assert [m["analysis"] for m in page["measures"]] == ["rmsd", "rg"]
         assert page["measures"][0]["unit"] == "nm"
 
@@ -91,7 +91,7 @@ class TestTheTable:
         assert cells["t310"]["versus"]["difference"] == pytest.approx(0.004)
         assert cells["t310"]["versus"]["error"] == pytest.approx(0.001 * 2 ** 0.5)
         assert cells["t320"]["versus"]["resolved"] is False
-        assert rmsd["said"] == (f"1 of 2 differ from temperature_K 300 by more than "
+        assert rmsd["said"] == (f"1 of 2 differ from temperature 300 K by more than "
                                 f"{RESOLVED_AT:g} times their combined error. 1 not yet recorded.")
 
     def test_a_mean_that_is_not_a_measurement_is_not_compared(self, sweep):
@@ -181,9 +181,9 @@ def test_the_page_draws_them(sweep) -> None:
     assert varied == ["temperature_K"]
     assert marked == 1
     assert differs_text == "differs"
-    assert differs_title.startswith("Differs from temperature_K 300 by +0.0040 ± 0.0014 nm")
+    assert differs_title.startswith("Differs from temperature 300 K by +0.0040 ± 0.0014 nm")
     assert withheld_text == "1.500 *"
     assert lines == 3
-    assert legend == ["temperature_K 300", "temperature_K 310", "temperature_K 320"]
+    assert legend == ["temperature 300 K", "temperature 310 K", "temperature 320 K"]
     assert not empty
     assert errors == []

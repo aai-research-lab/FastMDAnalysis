@@ -1384,6 +1384,10 @@
     var runOfBlock = el("study-run-of");
     function switchTo(folder) { switchToFolder(folder, currentPage()); }
     function shortAxis(axis) { return String(axis).split(".").pop(); }
+    /* A run's dot, coloured by its state as the study's light is. */
+    var RUN_DOT = { running: "status-dot-live", completed: "status-dot-completed",
+                    failed: "status-dot-error", stopped: "status-dot-waiting",
+                    interrupted: "status-dot-waiting", waiting: "status-dot-waiting" };
     function valuesText(values) {
       return Object.keys(values || {}).map(function (axis) {
         return shortAxis(axis) + " = " + values[axis];
@@ -1416,12 +1420,16 @@
             row.className = "study-running-row study-run-row";
             row.dataset.state = r.state;
             var dot = document.createElement("span");
-            dot.className = "status-dot" + (r.state === "running" ? " status-dot-live" : "");
+            // Coloured as the study's own light is (dashboard.js): every
+            // run's dot was orange, completed ones too.
+            dot.className = "status-dot " + (RUN_DOT[r.state] || "status-dot-stale");
             dot.setAttribute("aria-hidden", "true");
             var name = document.createElement("span");
             name.className = "study-running-name mono";
-            name.textContent = valuesText(r.values) || r.run_id;
-            name.title = r.path;
+            // What differs between the runs ("seed 1", exploration.run_label),
+            // the folder on hover: "random_seed = 1" was cut to "random_see…".
+            name.textContent = r.label || r.run_id;
+            name.title = r.run_id + (r.path ? "\n" + r.path : "");
             var pct = document.createElement("span");
             pct.className = "study-running-pct mono";
             // A run between its study's rounds: how far towards the round's
@@ -1434,6 +1442,7 @@
                 : r.state;
             var view = window.FastMDXIcons.button("eye", "View this run");
             view.addEventListener("click", function () { switchTo(r.path); });
+            row.title = (r.label || r.run_id) + ", " + pct.textContent;
             row.appendChild(dot); row.appendChild(name); row.appendChild(pct); row.appendChild(view);
             list.appendChild(row);
           });

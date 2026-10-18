@@ -1465,10 +1465,11 @@ def _still_running(root: Path) -> bool:
     running by the very command sent to carry it on."""
     import json
 
+    from fastmdxplora import record_access
     from fastmdxplora.orchestrator import RUN_PROCESS_FILE, record_is_from_elsewhere
 
     try:
-        record = json.loads((root / RUN_PROCESS_FILE).read_text(encoding="utf-8"))
+        record = json.loads(record_access.read_text(root / RUN_PROCESS_FILE, encoding="utf-8"))
     except (OSError, ValueError):
         return False
     pid = record.get("pid") if isinstance(record, dict) else None

@@ -154,6 +154,13 @@ def open_text(path: Path, *, encoding: str = "utf-8", errors: str | None = None,
     return os.fdopen(descriptor, encoding=encoding, errors=errors, newline=newline)
 
 
+def refused() -> frozenset[str]:
+    """The records this call's held read has refused so far, each named in
+    the folder it is held to; none outside a held read."""
+    scope = _scope.get()
+    return frozenset(scope.denied) if scope is not None else frozenset()
+
+
 def read_text(path: Path, *, encoding: str = "utf-8", errors: str | None = None) -> str:
     with open_text(path, encoding=encoding, errors=errors) as stream:
         return stream.read()

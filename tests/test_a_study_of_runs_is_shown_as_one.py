@@ -141,8 +141,8 @@ class TestTheDashboardShowsTheRuns(unittest.TestCase):
                     "rs => rs.map(r => [r.querySelector('.study-running-name').textContent,"
                     " r.dataset.state, r.querySelector('.study-running-pct').textContent])")
                 # The running run first, so what is happening is in view.
-                self.assertEqual(rows, [["temperature_K = 310", "running", "40%"],
-                                        ["temperature_K = 300", "completed", "completed"]])
+                self.assertEqual(rows, [["temperature 310 K", "running", "40%"],
+                                        ["temperature 300 K", "completed", "completed"]])
                 self.assertIn("1 of 2 completed", page.text_content("#study-runs-label"))
                 self.assertTrue(page.eval_on_selector("#study-run-of", "e => e.hidden"))
                 # Into the running run, by its icon, and back.

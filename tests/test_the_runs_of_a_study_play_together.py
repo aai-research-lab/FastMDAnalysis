@@ -88,14 +88,14 @@ def test_the_runs_are_fitted_to_one_shared_frame(replicas):
     together = said["runs_together"]
     assert said["available"] and said["n_frames_browser"] == 6
     assert [(r["label"], r["colour"], r["frames"], r["main"]) for r in together["runs"]] == [
-        ("random_seed 1", RUN_COLOURS[0], 6, True),
-        ("random_seed 2", RUN_COLOURS[1], 4, False),
+        ("seed 1", RUN_COLOURS[0], 6, True),
+        ("seed 2", RUN_COLOURS[1], 4, False),
         # Read at the first run's source frames: its seventh is not shown.
-        ("random_seed 3", RUN_COLOURS[2], 6, False)]
-    assert together["excluded"] == [{"run_id": "s1__random-seed-4", "label": "random_seed 4",
+        ("seed 3", RUN_COLOURS[2], 6, False)]
+    assert together["excluded"] == [{"run_id": "s1__random-seed-4", "label": "seed 4",
                                      "reason": "Its atoms are not those of the run shown."}]
     assert together["fitted"].startswith("on the protein's backbone (")
-    assert together["fitted"].endswith("to the first frame of random_seed 1")
+    assert together["fitted"].endswith("to the first frame of seed 1")
 
     shown = replicas / "runs" / "s1__random-seed-1" / "simulation"
     first = md.load_dcd(str(shown / "frames.dcd"), top=str(shown / "frames_topology.pdb"))
@@ -136,7 +136,7 @@ def test_a_study_of_one_run_and_runs_without_frames(replicas, tmp_path):
     shutil.copytree(replicas, copy)
     shutil.rmtree(copy / "runs" / "s1__random-seed-3" / "simulation")
     excluded = runs_together(copy, most_frames=2000)["runs_together"]["excluded"]
-    assert {"run_id": "s1__random-seed-3", "label": "random_seed 3",
+    assert {"run_id": "s1__random-seed-3", "label": "seed 3",
             "reason": "It has no trajectory yet."} in excluded
     # A run of the same number of atoms named otherwise is not the run
     # shown's; nor is one whose trajectory cannot be read.
@@ -178,7 +178,7 @@ def test_a_study_of_one_run_and_runs_without_frames(replicas, tmp_path):
                                                           "stage": "production"}))
     assert len(read_live_frame_history(running)["frames"]) == 2
     said = runs_together(copy, most_frames=2000)
-    assert {"run_id": "s1__random-seed-2", "label": "random_seed 2",
+    assert {"run_id": "s1__random-seed-2", "label": "seed 2",
             "reason": "The run played has no clock, so a run still running cannot be set "
                       "beside it in time."} in said["runs_together"]["excluded"]
     played = copy / "runs" / "s1__random-seed-1" / "simulation"
@@ -325,10 +325,10 @@ def test_the_viewer_renders_each_run_in_its_colour(replicas):
     assert colour == "run"
     assert superposed == "backbone"
     assert [(run["label"], run["colour"], run["frames"], run["rendered"]) for run in at_two] == [
-        ("random_seed 2", "#E69F00", 4, True), ("random_seed 3", "#009E73", 6, True)]
+        ("seed 2", "#E69F00", 4, True), ("seed 3", "#009E73", 6, True)]
     assert [(run["ended"], run["rendered"]) for run in at_five] == [(True, False), (False, True)]
-    assert items[0].startswith("random_seed 1") and "played, 6 frames" in items[0]
-    assert items[-1] == ("random_seed 4: not shown. Its atoms are not those of the run shown.")
+    assert items[0].startswith("seed 1") and "played, 6 frames" in items[0]
+    assert items[-1] == ("seed 4: not shown. Its atoms are not those of the run shown.")
     assert "The other runs are hidden" in aside
     assert clicked
 
