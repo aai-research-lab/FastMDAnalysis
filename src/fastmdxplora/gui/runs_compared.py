@@ -52,6 +52,11 @@ def runs_compared(root: Path | str) -> dict[str, Any]:
     # With the runs a study still extends in rounds, as their pieces so far
     # say them: what the study judges, between its rounds.
     completed = [run for run in runs if run["state"] == "completed" or run.get("so_far")]
+    # Replicas' records are rewritten from the start they share
+    # (`aggregate_members`), as the Analysis page always has: done before
+    # each run's mean is read, so a run shows one mean, not the one before
+    # and, beside it in the runs together, the one after.
+    summary = _the_replicas_together(base) if replicas else None
     found = {run["run_id"]: read_member_findings(Path(run["path"])) for run in completed}
 
     names: list[str] = []
@@ -63,8 +68,8 @@ def runs_compared(root: Path | str) -> dict[str, Any]:
 
     labels = {run["run_id"]: run.get("label") or run["run_id"] for run in runs}
     measures = [_measure(name, runs, found, replicas, labels) for name in names]
-    if replicas:
-        _with_the_replica_spread(base, measures)
+    if summary is not None:
+        _with_the_replica_spread(summary, measures)
     return {
         "ok": True,
         "runs": [{"run_id": run["run_id"], "label": labels[run["run_id"]], "state": run["state"],
@@ -184,19 +189,23 @@ def _how_far(folder: Path, state: str) -> dict[str, Any]:
             "speed_ns_per_day": speed}
 
 
-def _with_the_replica_spread(base: Path, measures: list[dict[str, Any]]) -> None:
-    """The spread of the replicas' means against the error each run
-    estimated for itself, as the written comparison says it; and the mean
-    of their means with the error the spread gives it (its standard
-    deviation over the square root of their number), as
-    `batch.aggregate` reads the replicas that finished."""
+def _the_replicas_together(base: Path) -> dict[str, Any] | None:
     from fastmdxplora.batch.aggregate import aggregate_members
 
     try:
         summary = aggregate_members(base)
     except Exception:  # noqa: BLE001 - the table stands without it
-        return
-    analyses = summary.get("analyses") if isinstance(summary, dict) else None
+        return None
+    return summary if isinstance(summary, dict) else None
+
+
+def _with_the_replica_spread(summary: dict[str, Any], measures: list[dict[str, Any]]) -> None:
+    """The spread of the replicas' means against the error each run
+    estimated for itself, as the written comparison says it; and the mean
+    of their means with the error the spread gives it (its standard
+    deviation over the square root of their number), as
+    `batch.aggregate` reads the replicas that finished."""
+    analyses = summary.get("analyses")
     if not isinstance(analyses, dict):
         return
     for measure in measures:

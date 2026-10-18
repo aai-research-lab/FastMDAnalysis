@@ -187,3 +187,19 @@ def test_the_page_draws_them(sweep) -> None:
     assert legend == ["temperature 300 K", "temperature 310 K", "temperature 320 K"]
     assert not empty
     assert errors == []
+
+
+def test_a_replica_has_one_mean_on_the_first_reading(tmp_path):
+    """The replicas' shared start rewrites a run's record; each run's mean is
+    read after it, so the row and the runs together say one mean for it on
+    the page's first reading, not one before and one after."""
+    from tests.test_replicas_share_their_start import _campaign, _read
+
+    members = _campaign(tmp_path)
+    before = [_read(m)["mean"] for m in members]
+    page = runs_compared(tmp_path)
+    after = [_read(m)["mean"] for m in members]
+    assert before != after, "the shared start moved a run's mean"
+    rmsd = next(m for m in page["measures"] if m["analysis"] == "rmsd")
+    assert [c["mean"] for c in rmsd["cells"]] == pytest.approx(after)
+    assert rmsd["ensemble"]["mean"] == pytest.approx(sum(after) / len(after))
