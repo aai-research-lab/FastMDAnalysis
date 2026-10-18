@@ -215,3 +215,134 @@ def test_a_clock_linked_out_of_the_study_times_no_frame(tmp_path, route, record,
         assert start == pytest.approx(0.05)
         if said is not None:
             assert said == "Time (ns)" and times[0] == pytest.approx(0.01)
+
+
+#: Every route the Overview and the Analysis page read the study through.
+EVERY_ROUTE = ("/api/overview", "/api/results", "/api/series", "/api/analysis-overview",
+               "/api/series?analysis=rmsd", "/api/series?analysis=rg",
+               "/api/convergence?analysis=rmsd", "/api/convergence?analysis=rg")
+
+
+def _a_study_carried_on(tmp_path: Path) -> Path:
+    """A study run once and carried on in `segment-001`, analysed, with the
+    records each reader behind the pages reads, as the run writes them: its
+    manifests and resolved configs, its simulation's records and cost, the
+    system it prepared, and the piece's record of the system it simulated."""
+    import hashlib
+
+    root = _study(tmp_path)
+    _write(root, "analysis/rmsd/options.json", {"analysis": "rmsd", "findings": {"mean": {
+        "mean": 0.13, "standard_error": 0.002, "standard_deviation": 0.02,
+        "effective_samples": 30.0, "discard": 4, "n_frames": N, "rules": MEAN_RULES,
+        "unit": "nm"}}})
+    _write(root, "manifest.json", {"phases": [
+        {"name": "setup", "status": "ok"}, {"name": "simulation", "status": "ok"},
+        {"name": "analysis", "status": "ok"}]})
+    _write(root, "resolved_config.yml",
+           "systems: [{system: ala3.pdb}]\nsimulation:\n  integrator: langevin\n")
+    for name in ("system.xml", "state.xml", "topology.pdb"):
+        _write(root, f"setup/{name}", f"<{name}/>\n")
+    _write(root, "setup/setup_parameters.json", {"phase": "setup", "n_atoms_solvated": 1403})
+    done = {"status": "completed", "stage": "production", "current_step": 10000,
+            "total_planned_steps": 10000, "last_update_timestamp": "2026-10-01T00:00:00+00:00"}
+    for piece in ("", "segment-001/"):
+        _write(root, f"{piece}simulation/live_status.json", done)
+        _write(root, f"{piece}simulation/cost.json", {
+            "particles": 1403, "steps": 10000, "seconds": 100.0, "platform": "CPU",
+            "timestep_fs": 2.0})
+        _write(root, f"{piece}simulation/checkpoint.chk.json", {
+            "stage": "production", "step": 10000, "finished": True,
+            "trajectory_interval_steps": 100})
+        _write(root, f"{piece}simulation/production.dcd", "frames")
+    _write(root, "simulation/simulation_parameters.json", {
+        "phase": "simulation", "parameters": {"integrator": "langevin"}})
+    _write(root, "segment-001/resolved_config.yml",
+           f"systems: [{{system: ala3.pdb}}]\nsimulation:\n  setup_from: {root}\n")
+    _write(root, "segment-001/manifest.json", {"phases": [
+        {"name": "setup", "status": "skipped", "taken_from": str(root / "setup")},
+        {"name": "simulation", "status": "ok"}]})
+    digest = hashlib.sha256((root / "setup" / "system.xml").read_bytes()).hexdigest()
+    _write(root, "segment-001/simulation/simulation_parameters.json", {
+        "phase": "simulation", "parameters": {"integrator": "langevin", "setup_from": str(root)},
+        "prepared_system": {"given": str(root), "resolved": str(root / "setup"),
+                            "relative_to_run": "../setup", "system_xml_sha256": digest}})
+    return root
+
+
+def _every_record_linked_out(root: Path, tmp_path: Path) -> Path:
+    """Each regular file of the study moved outside it, a link left in its
+    place: what the link leads to is the study's own record, so a page that
+    followed one would answer as before, and only its reads can tell."""
+    outside = tmp_path / "outside"
+    for path in sorted(root.rglob("*")):
+        if path.is_file() and not path.is_symlink():
+            target = outside / path.relative_to(root)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            path.rename(target)
+            _link(path, target)
+    return outside
+
+
+#: Files and folders opened outside the study while a route is asked, as an
+#: audit hook sees them (`sys.addaudithook`, installed once).
+_OPENED: list[str] = []
+_WATCHED: list[str] = []
+
+
+def _watch(outside: Path) -> None:
+    import os
+    import sys
+
+    if not _WATCHED:
+        def hook(event: str, args: tuple) -> None:
+            if not _WATCHED or event not in ("open", "os.listdir", "os.scandir") or not args:
+                return
+            name = args[0]
+            if isinstance(name, (str, bytes, os.PathLike)):
+                name = os.fsdecode(os.fspath(name))
+                if os.path.isabs(name) and os.path.realpath(name).startswith(_WATCHED[0]):
+                    _OPENED.append(name)
+
+        sys.addaudithook(hook)
+    _WATCHED[:] = [str(outside.resolve()) + "/"]
+    _OPENED.clear()
+
+
+@pytest.mark.parametrize("public", [False, True], ids=["loopback", "public"])
+@pytest.mark.parametrize("route", EVERY_ROUTE)
+def test_no_record_of_the_study_is_read_through_a_link_out(tmp_path, route, public):
+    """Every record any reader behind these routes reads (an audit of the
+    opens finds them: the run's cost, configs, manifests, the system it
+    prepared and each piece's records), linked out of the study, is not
+    opened where it leads."""
+    root = _a_study_carried_on(tmp_path)
+    outside = _every_record_linked_out(root, tmp_path)
+    _watch(outside)
+    try:
+        status, body = _ask(root, tmp_path, route, public=public)
+        opened = sorted({Path(name).relative_to(root).as_posix() if name.startswith(str(root))
+                         else name for name in _OPENED})
+    finally:
+        _WATCHED.clear()
+    assert status == 200
+    assert opened == []
+    if route in ("/api/overview", "/api/results"):
+        assert json.loads(body)["unavailable"]
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "analysis/analyze.study_trajectory and analysis/thermodynamics.state_record_pieces "
+    "still read joined/joined.json through a link"))
+def test_a_joined_study_s_record_is_not_read_through_a_link_out(tmp_path):
+    root = _a_study_carried_on(tmp_path)
+    _write(root, "joined/production.dcd", "frames")
+    _write(root, "joined/joined.json", {"segments": [0, 1], "topology": None})
+    outside = _every_record_linked_out(root, tmp_path)
+    _watch(outside)
+    try:
+        status, _body = _ask(root, tmp_path, "/api/overview", public=True)
+        opened = list(_OPENED)
+    finally:
+        _WATCHED.clear()
+    assert status == 200
+    assert opened == []
