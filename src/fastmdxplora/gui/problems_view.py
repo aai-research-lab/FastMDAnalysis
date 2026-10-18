@@ -434,7 +434,8 @@ def _read_problems(root: Path, *, artifacts: list[dict[str, Any]] | None,
         if own is not None and str(own.get("status") or "").lower() in {"stopped", "interrupted"}:
             stop_said(own.get("latest_error"))
         if (own is not None and piece.name == status.get("piece")
-                and own.get("last_update_timestamp") == status.get("last_update_timestamp")):
+                and own.get("last_update_timestamp") == status.get("last_update_timestamp")
+                and str(status.get("stage") or "").lower() == "production"):
             health_in = f"{piece.name}/simulation"
     try:
         metrics = read_metrics(root)

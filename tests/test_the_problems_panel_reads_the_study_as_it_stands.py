@@ -416,3 +416,25 @@ def test_phase_titles_say_the_status_as_the_overview_does(tmp_path):
         "rmsd": {"status": "error", "message": "rmsd: Atoms do not match."}}})
     titles = [item["title"] for item in problems_payload(tmp_path)["items"]]
     assert titles == ["Setup failed", "RMSD failed"]
+
+
+def test_a_stop_of_the_study_s_own_analysis_after_its_piece_opens_the_study_s_record(tmp_path):
+    from datetime import datetime, timedelta, timezone
+
+    from fastmdxplora.gui.telemetry import status_as_it_stands
+
+    root = _stopped(tmp_path / "study")
+    _carrying_it_on(root, status="completed", step=7200, finished=True)
+    # The piece ended; the study's own analysis of the joined trajectory
+    # then stopped, as the study's record says.
+    first = json.loads((root / "simulation/live_status.json").read_text(encoding="utf-8"))
+    states = dict(first.get("stage_states") or {}, analysis="stopped", report="waiting")
+    first.update(status="stopped", stage="analysis", latest_error="Analysis was stopped by Ctrl+C.",
+                 stage_states=states, phases_updated_at=(
+                     datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat())
+    _write(root, "simulation/live_status.json", first)
+    shown = status_as_it_stands(root)
+    assert shown["status"] == "stopped" and shown.get("piece") == "segment-001"
+    items = problems_payload(root, admit_evidence=True)["items"]
+    health = [item for item in items if item["id"].startswith("health:")]
+    assert [item["file"] for item in health] == ["simulation/live_status.json"]
