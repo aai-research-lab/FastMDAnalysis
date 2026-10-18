@@ -106,7 +106,9 @@ def test_a_run_of_a_study_is_named_by_what_sets_it_apart_and_the_study_by_its_ru
         page.goto(url + "#overview", wait_until="domcontentloaded")
         page.wait_for_selector("#overview-runs:not([hidden]) .overview-runs-open")
         page.locator(".overview-runs-open").first.click()
-        page.wait_for_function("() => (window.FastMDXDashboard.state.appState || {}).run_of")
+        # The page loads again as the run opens: asked of the new one.
+        page.wait_for_function("() => window.FastMDXDashboard"
+                               " && (window.FastMDXDashboard.state.appState || {}).run_of")
         page.wait_for_function("() => document.getElementById('sidebar-run-name')"
                                ".textContent === 'temperature 300 K'")
         # Its tab, named beside another of its system by its study and run.
