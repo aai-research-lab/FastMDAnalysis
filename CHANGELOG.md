@@ -243,6 +243,9 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   gone, instead of failing; a folder above the study need only be
   searchable.
 
+- `FastMDXplora(system=...)` with no `output_dir` runs again, in a folder
+  named by its system. From 2.5.7 it stopped with an AttributeError on
+  `config`.
 - `fastmdx explore` given no `--output`, and `FastMDXplora(config=...)` or
   `FastMDXplora(config_data=...)` given a config with no `output`, run
   again, in a folder named by the first system. From 2.5.7 each stopped
