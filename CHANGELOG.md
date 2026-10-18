@@ -243,6 +243,10 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   gone, instead of failing; a folder above the study need only be
   searchable.
 
+- A movie made with ffmpeg 8 is tagged with its colour primaries and
+  transfer (BT.709) again. ffmpeg 8 reads them from the frames, which did
+  not carry them, so the movie was written with its colour space and range
+  only, and a player could show its colours wrong.
 - A structure fetched from RCSB over a connection that goes quiet once made
   is given up on after 60 s of silence and asked for again, as a dropped
   connection is. The fetch took no timeout, so a connection that stalled
