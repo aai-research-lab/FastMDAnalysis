@@ -446,7 +446,7 @@ is not yet applied, use one of the two before sending another message or
 running the study. The earlier versions stay intact, and the new version
 holds only the settings reviewed, each in the spelling its version used.
 The conversation records the choices with the labels and values shown.
-Choices not yet applied are kept in this browser, by conversation,
+Choices not yet applied are kept in the page's local storage, by conversation,
 version and the changes themselves, and survive a reload; another
 proposal given the same version number starts with no choices. They are
 never saved as a Config. After
