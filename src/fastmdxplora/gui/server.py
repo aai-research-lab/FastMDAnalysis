@@ -1134,6 +1134,17 @@ def make_handler(
 
                 self._send_json(report_payload(root))
                 return
+            if path == "/api/status-bar":
+                # This computer and its GPUs, and the Agent's AI model, for
+                # the strip under every page. Not for a service's guests:
+                # the computer is the service's, not theirs.
+                if hosting is not None:
+                    self._send_json({"ok": False, "reason": "Not said when the GUI is served."})
+                    return
+                from fastmdxplora.gui.status_bar import status_bar
+
+                self._send_json(status_bar())
+                return
             if path == "/api/methods":
                 from fastmdxplora.gui.report_page import methods_payload
 

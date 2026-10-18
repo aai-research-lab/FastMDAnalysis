@@ -398,8 +398,17 @@ def study_a_run_belongs_to(root: Path) -> dict[str, Any] | None:
     member = run_of(Path(root))
     if not member:
         return None
-    return {"path": str(Path(root).parent.parent), "study": member["study"],
-            "values": member.get("values") or {}}
+    study = Path(root).parent.parent
+    # Its study's runs, so the place can offer the others (place.js), and
+    # this run by what sets it apart among them.
+    runs = runs_of_a_study(study) or []
+    this = next((run for run in runs if run["run_id"] == Path(root).name), None)
+    return {"path": str(study), "study": member["study"],
+            "values": member.get("values") or {},
+            "run_id": Path(root).name,
+            "label": (this or {}).get("label") or run_label(member.get("values") or {})
+            or Path(root).name,
+            "runs": runs}
 
 
 def _identify_run(pid: int, root: Path, argv: Any = None) -> bool | None:

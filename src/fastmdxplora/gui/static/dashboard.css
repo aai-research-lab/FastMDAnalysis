@@ -3816,7 +3816,6 @@ body.sidebar-collapsed .sidebar-expand { display: inline-flex; }
     font-size: var(--text-2xs); letter-spacing: .1em; text-transform: uppercase;
     color: var(--text-muted); margin-bottom: 4px;
 }
-.study-runs-more { display: flex; gap: 8px; padding: 4px 0; }
 .study-running-row {
     display: flex; align-items: center; gap: 6px;
     padding: 5px 8px; border-radius: 6px;
@@ -3826,14 +3825,6 @@ body.sidebar-collapsed .sidebar-expand { display: inline-flex; }
 .study-running-row .status-dot { width: 6px; height: 6px; margin: 0; }
 .study-running-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
 .study-running-pct { color: var(--text-muted); font-size: var(--text-2xs); }
-/* A run of a study: its name (what sets it apart) whole, the state word
- * beside it giving way first; the dot's colour and the row's title say the
- * state too. */
-.study-run-row .study-running-name { flex: 0 1 auto; }
-.study-run-row .study-running-pct {
-    flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-    white-space: nowrap; text-align: right;
-}
 
 .agent-conv-list {
     margin: 0 0 12px; padding: 6px; border-radius: 10px;

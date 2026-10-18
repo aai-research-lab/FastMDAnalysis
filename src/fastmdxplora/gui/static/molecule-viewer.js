@@ -3384,7 +3384,10 @@
     const page = layout.closest(".page");
     const header = page ? page.querySelector(".page-header") : null;
     const top = header ? header.getBoundingClientRect().bottom : layout.getBoundingClientRect().top;
-    const room = Math.max(520, Math.floor(window.innerHeight - Math.max(0, top) - 20));
+    // To the foot of the page's column, which ends above the status bar.
+    const column = layout.closest(".main");
+    const foot = column ? column.getBoundingClientRect().bottom : window.innerHeight;
+    const room = Math.max(520, Math.floor(foot - Math.max(0, top) - 20));
     layout.style.setProperty("--viewer-height", `${room}px`);
     // Twice: the playback's rows wrap by the width the first pass gives.
     for (let pass = 0; pass < 2; pass += 1) {

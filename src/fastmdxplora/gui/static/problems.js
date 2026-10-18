@@ -10,6 +10,8 @@
   var lastRead = 0;
   var rendered = "";
   var RECHECK_MS = 15000;
+  // Read for the status bar's count while the tab is not shown, less often.
+  var COUNTED_MS = 60000;
 
   function byId(id) { return document.getElementById(id); }
   function element(tag, cls, text) {
@@ -19,7 +21,13 @@
     return node;
   }
   function visible() { return byId("problems-pane") && !byId("problems-pane").hidden; }
+  /* The count, for the status bar (statusbar.js); null where not known. */
+  function counted(count, partial) {
+    window.dispatchEvent(new CustomEvent("dashboard:problems-counted",
+      { detail: { count: count, partial: Boolean(partial) } }));
+  }
   function message(words) {
+    counted(null);
     byId("problems-summary").textContent = words;
     byId("problems-body").replaceChildren();
     rendered = "";
@@ -42,13 +50,17 @@
     var items = data.items || [];
     var read = data.read || [];
     var missing = (data.unavailable || []).length > 0;
-    var counted = items.length + (items.length === 1 ? " recorded problem" : " recorded problems");
+    /* For the status bar: none is said only of every record read, as the
+     * headline says it; where a record could not be read, those found. */
+    var partial = !data.available || missing;
+    counted(partial && !items.length ? null : items.length, partial);
+    var found = items.length + (items.length === 1 ? " recorded problem" : " recorded problems");
     /* "No problems" is said only of every record read. Where one could
      * not be, the headline says so, and the notes name it. */
     byId("problems-summary").textContent = !data.available
-      ? (items.length ? counted + "; other records are unavailable." : "Records unavailable.")
+      ? (items.length ? found + "; other records are unavailable." : "Records unavailable.")
       : items.length
-        ? counted + (missing ? "; some records are unavailable." : "")
+        ? found + (missing ? "; some records are unavailable." : "")
         : missing
           ? "Some records are unavailable. The " + read.length +
             (read.length === 1 ? " record read lists" : " records read list") + " no problems."
@@ -82,8 +94,8 @@
     }
   }
   function load(force) {
-    if (!active || !study || (!visible() && !force) || pending) return;
-    if (!force && Date.now() - lastRead < RECHECK_MS) return;
+    if (!active || !study || pending) return;
+    if (!force && Date.now() - lastRead < (visible() ? RECHECK_MS : COUNTED_MS)) return;
     var at = generation;
     var wanted = study;
     var root = active;

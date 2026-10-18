@@ -11,6 +11,8 @@
   <link rel="stylesheet" href="/static/remote.css">
   <link rel="stylesheet" href="/static/problems.css">
   <link rel="stylesheet" href="/static/study-tabs.css">
+  <link rel="stylesheet" href="/static/place.css">
+  <link rel="stylesheet" href="/static/statusbar.css">
   <!--__FASTMDX_LAB_ICON__-->
   <meta name="fastmdx-expansion" content="Fully Automated SysTem for Molecular Dynamics eXploration">
 </head>
@@ -484,32 +486,9 @@
           <button class="study-menu-item" type="button" role="menuitem" data-study-field="name" aria-haspopup="dialog">System ID for display&hellip;</button>
           <button class="study-menu-item" type="button" role="menuitem" data-study-field="ligand" aria-haspopup="dialog">Ligand residue&hellip;</button>
         </div>
-        <!-- What is running elsewhere, when something is; a study of several
-             runs, each with where it stands; a run inside one, and the way
-             back. Each hidden until it applies. -->
-        <div class="study-running" id="study-elsewhere" hidden>
-          <div class="study-section-label">Running</div>
-          <div class="study-running-row">
-            <span class="status-dot status-dot-live" aria-hidden="true"></span>
-            <span class="study-running-name mono" id="study-elsewhere-name"></span>
-            <span class="study-running-pct mono" id="study-elsewhere-pct"></span>
-            <button class="line-btn" type="button" id="study-elsewhere-view" aria-label="View the running study"
-                    title="View the running study"><!--icon:eye:line-icon--></button>
-          </div>
-        </div>
-        <div class="study-running" id="study-runs" hidden>
-          <div class="study-section-label" id="study-runs-label">Runs</div>
-          <div id="study-runs-list"></div>
-        </div>
-        <div class="study-running" id="study-run-of" hidden>
-          <div class="study-section-label">Run of</div>
-          <div class="study-running-row">
-            <span class="study-running-name mono" id="study-run-of-name"></span>
-            <span class="study-running-pct mono" id="study-run-of-values"></span>
-            <button class="line-btn" type="button" id="study-run-of-back" aria-label="Back to the study"
-                    title="Back to the study"><!--icon:back:line-icon--></button>
-          </div>
-        </div>
+        <!-- A run going in another study is in the status bar; a study's
+             runs, and the study a run belongs to, are at the head of each
+             page (statusbar.js, place.js). -->
       </div>
 
       <nav class="sidebar-nav sidebar-pages" role="navigation" aria-label="This study's pages">
@@ -556,38 +535,6 @@
         <div class="sidebar-convs-list" id="sidebar-chats-list"></div>
       </details>
 
-      <!-- Where a run stands, while it runs, or where it stopped and what
-           would fix it. Gone once it has finished: the card above says so. -->
-      <div class="sidebar-progress" id="sidebar-progress" data-run="">
-        <div class="progress-head">
-          <span class="progress-stage" id="topbar-stage">starting</span>
-          <span class="progress-pct mono" id="topbar-progress">&mdash;</span>
-        </div>
-        <ol class="sidebar-stages" aria-label="Stages">
-          <li class="stage-step" data-stage="setup" title="Setup"><span class="stage-marker"></span><span class="stage-label">Setup</span></li>
-          <li class="stage-step" data-stage="minimization" title="Minimisation"><span class="stage-marker"></span><span class="stage-label">Minimisation</span></li>
-          <li class="stage-step" data-stage="nvt" title="NVT"><span class="stage-marker"></span><span class="stage-label">NVT</span></li>
-          <li class="stage-step" data-stage="npt" title="NPT"><span class="stage-marker"></span><span class="stage-label">NPT</span></li>
-          <li class="stage-step" data-stage="production" title="Production"><span class="stage-marker"></span><span class="stage-label">Production</span></li>
-          <li class="stage-step" data-stage="analysis" title="Analysis"><span class="stage-marker"></span><span class="stage-label">Analysis</span></li>
-          <li class="stage-step" data-stage="report" title="Report"><span class="stage-marker"></span><span class="stage-label">Report</span></li>
-        </ol>
-        <div class="sidebar-metrics">
-          <span class="metric-label" id="sidebar-stage-count">Stage</span>
-          <span class="metric-value" title="Time left, at the speed so far"><span id="topbar-eta">&mdash;</span></span>
-          <span class="metric-label">Step</span><span class="metric-value mono"><span id="topbar-step">&mdash;</span> / <span id="topbar-total">&mdash;</span></span>
-        </div>
-        <a href="#overview" class="sidebar-fix" id="sidebar-fix" data-view-link="overview" data-fix-link>What would fix it</a>
-        <!-- Stop the run, asked once more first (stop-run.js). -->
-        <button type="button" class="sidebar-stop" id="sidebar-stop" data-stop-run="sidebar-stop-ask" hidden>Stop the run</button>
-        <div class="stop-run-ask" id="sidebar-stop-ask" data-stop-ask role="status" hidden></div>
-        <div class="sidebar-controls">
-          <button class="sidebar-tool" type="button" id="pause-toggle" aria-pressed="false" title="Pause the page's updates (the simulation goes on)"><span id="pause-label" class="sr-only">Pause</span><!--icon:pause:sidebar-icon pause-icon--><!--icon:play:sidebar-icon play-icon--></button>
-          <button class="sidebar-tool" type="button" id="refresh-now" title="Refresh now" aria-label="Refresh now"><!--icon:refresh:sidebar-icon--></button>
-          <span class="sidebar-refreshed" id="refreshed-indicator">updated <span id="refreshed-at">just now</span></span>
-        </div>
-      </div>
-
       <div class="sidebar-foot">
         <button type="button" class="sidebar-account" id="settings-open" aria-haspopup="dialog" aria-expanded="false" title="__FASTMDX_ACCOUNT_NAME__">
           <span class="sidebar-account-avatar" aria-hidden="true">__FASTMDX_ACCOUNT_INITIALS__<!--__FASTMDX_LAB_MARK__--></span>
@@ -633,7 +580,7 @@
         <section class="page" data-page="studies" hidden>
           <div class="page-header">
             <div>
-              <h1 class="page-title">Studies</h1>
+              <h1 class="page-title">All studies</h1>
               <div class="page-subtitle" id="studies-where">The studies in your workspace.</div>
             </div>
             <div class="page-header-actions">
@@ -701,7 +648,7 @@
         <section class="page" data-page="run">
           <div class="page-header">
             <div>
-              <h1 class="page-title">Config Builder</h1>
+              <h1 class="page-title">New study</h1>
               <div class="page-subtitle">Configure a new MD simulation and analysis</div>
             </div>
             <div class="page-header-actions">
@@ -862,8 +809,6 @@
 
               <div class="builder-actions" id="run-actions-card">
                 <button type="button" class="primary-btn builder-run" id="run-start-button" disabled>Run on this machine</button>
-                <button type="button" class="danger-btn builder-run" id="run-stop" data-stop-run="run-stop-ask" hidden>Stop the run</button>
-                <div class="stop-run-ask" id="run-stop-ask" data-stop-ask role="status" hidden></div>
                 <div class="remote-run" id="run-remote" hidden></div>
                 <div class="builder-actions-row">
                   <button type="button" class="line-btn" id="run-download" disabled aria-label="Download config"
@@ -893,7 +838,7 @@
         <section class="page" data-page="overview" data-status="loading" hidden>
           <div class="page-header">
             <div>
-              <h1 class="page-title">Study Overview</h1>
+              <h1 class="page-title">Overview</h1>
               <div class="page-subtitle" id="overview-subtitle">What the run is doing, and whether it is doing it well.</div>
             </div>
             <div class="page-header-actions">
@@ -1111,7 +1056,7 @@
 <section class="page" data-page="viewer" hidden>
           <div class="page-header">
             <div>
-              <h1 class="page-title">Molecular Viewer</h1>
+              <h1 class="page-title">Viewer</h1>
               <div class="page-subtitle">Live molecular canvas, ligand tools, trajectory playback</div>
             </div>
           </div>
@@ -2026,6 +1971,34 @@
 
   </div>
 
+  <!-- The status bar: a strip under everything, not a panel (statusbar.js).
+       This computer, the run going here with where it stands, the jobs on
+       other machines, the open study's problems and the Agent's AI model;
+       each opens its page. The run's words keep the ids the page has always
+       written them to (dashboard.js). -->
+  <footer class="status-bar" id="status-bar" aria-label="Status">
+    <button type="button" class="sb-item sb-machine" id="sb-machine" hidden></button>
+    <a href="#overview" class="sb-item sb-run" id="status-run" data-run="" data-view-link-free>
+      <span class="status-dot" id="sb-run-dot" aria-hidden="true"></span>
+      <span class="sb-run-name" id="sb-run-name"></span>
+      <span class="progress-stage" id="topbar-stage">starting</span>
+      <span class="sb-run-count" id="status-stage-count"></span>
+      <span class="sb-run-pct mono" id="topbar-progress">&mdash;</span>
+      <span class="sb-run-eta" title="Time left, at the speed so far"><span id="topbar-eta">&mdash;</span> left</span>
+      <span class="sr-only">Step <span id="topbar-step">&mdash;</span> of <span id="topbar-total">&mdash;</span></span>
+    </a>
+    <a href="#overview" class="sb-item sb-fix" id="status-fix" data-view-link="overview" data-fix-link>What would fix it</a>
+    <span class="sb-remote" id="sb-remote"></span>
+    <span class="sb-spacer"></span>
+    <button type="button" class="sb-item sb-problems" id="sb-problems" hidden></button>
+    <button type="button" class="sb-item sb-agent" id="sb-agent" hidden></button>
+    <span class="sb-live" id="sb-live">
+      <span class="sidebar-refreshed" id="refreshed-indicator">updated <span id="refreshed-at">just now</span></span>
+      <button class="sidebar-tool sb-tool" type="button" id="pause-toggle" aria-pressed="false" title="Pause the page's updates (the simulation goes on)"><span id="pause-label" class="sr-only">Pause</span><!--icon:pause:sidebar-icon pause-icon--><!--icon:play:sidebar-icon play-icon--></button>
+      <button class="sidebar-tool sb-tool" type="button" id="refresh-now" title="Refresh now" aria-label="Refresh now"><!--icon:refresh:sidebar-icon--></button>
+    </span>
+  </footer>
+
   <!-- Live region for screen readers -->
   <dialog class="problems-mobile" id="problems-mobile" aria-label="Study log, files and problems">
     <form method="dialog" class="problems-mobile-head">
@@ -2049,6 +2022,8 @@
     <script src="/static/report-page.js"></script>
     <script src="/static/analyze-again.js"></script>
     <script src="/static/dashboard.js"></script>
+    <script src="/static/place.js"></script>
+    <script src="/static/statusbar.js"></script>
     <script src="/static/problems.js"></script>
     <script src="/static/files-page.js"></script>
     <script src="/static/files-actions.js"></script>

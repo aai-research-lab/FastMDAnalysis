@@ -116,7 +116,7 @@
     if (!host || !field || !card) return;
     var wanted = fromAFile() ? field : card;
     var after = fromAFile() ? field.querySelector(".builder-actions-row")
-      : byId("run-stop-ask");
+      : byId("run-start-button");
     if (host.parentNode !== wanted && after) {
       after.parentNode.insertBefore(host, after.nextSibling);
     }

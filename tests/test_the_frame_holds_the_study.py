@@ -299,24 +299,16 @@ class TestTheStudyIsInTheSidebar(unittest.TestCase):
             with self.subTest(id=run_id):
                 self.assertEqual(page.count(f'id="{run_id}"'), 1)
 
-    def test_they_are_inside_the_sidebar(self):
+    def test_they_are_inside_the_sidebar_and_the_status_bar(self):
+        # The study's name in the sidebar's card; where its run stands, and
+        # the page's own updates, in the status bar under every page.
         page = _page()
         sidebar = page[page.index('<aside class="sidebar"'):page.index("</aside>")]
-        for run_id in ("topbar-run-title", "topbar-eta", "pause-toggle"):
+        bar = page[page.index('<footer class="status-bar"'):page.index("</footer>")]
+        self.assertIn('id="topbar-run-title"', sidebar)
+        for run_id in ("topbar-eta", "pause-toggle", "status-stage-count"):
             with self.subTest(id=run_id):
-                self.assertIn(f'id="{run_id}"', sidebar)
-
-    def test_the_stages_reuse_the_class_the_dashboard_drives(self):
-        # dashboard.js updates `.stage-step` by class selector, so the
-        # sidebar list and the overview timeline are painted by the same
-        # code and cannot disagree.
-        page = _page()
-        sidebar = page[page.index('<aside class="sidebar"'):page.index("</aside>")]
-        for stage in ("setup", "nvt", "npt", "production", "analysis", "report"):
-            with self.subTest(stage=stage):
-                self.assertIn(f'class="stage-step" data-stage="{stage}"', sidebar)
-        script = (STATIC / "dashboard.js").read_text(encoding="utf-8")
-        self.assertIn("$$('.stage-step')", script)
+                self.assertIn(f'id="{run_id}"', bar)
 
 
 class TestTheBuilderAsksFourQuestions(unittest.TestCase):
@@ -657,11 +649,13 @@ class TestElevenThingsFromUsingIt(unittest.TestCase):
     def test_one_status_row_and_complete(self):
         page = _page()
         sidebar = page[page.index('<aside class="sidebar"'):page.index("</aside>")]
+        bar = page[page.index('<footer class="status-bar"'):page.index("</footer>")]
         self.assertNotIn('class="study-facts', sidebar)
-        # The progress card is headed by the stage, with how far it is.
-        self.assertIn('<span class="progress-stage" id="topbar-stage">', sidebar)
-        self.assertIn('<span class="progress-pct mono" id="topbar-progress">', sidebar)
-        self.assertNotIn('<span class="metric-label">Progress</span>', sidebar)
+        # Where the run stands is in the status bar: its stage, with how far
+        # it is.
+        self.assertIn('<span class="progress-stage" id="topbar-stage">', bar)
+        self.assertIn('<span class="sb-run-pct mono" id="topbar-progress">', bar)
+        self.assertNotIn('<span class="metric-label">Progress</span>', bar)
 
 
 class TestTheCentreSurvivesCollapse(unittest.TestCase):

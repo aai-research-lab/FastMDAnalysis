@@ -3679,7 +3679,7 @@ class TestTheWordsOnTheRunPage:
         # The sidebar says New study; the page says Config Builder, the
         # thing and what it does to it.
         assert "<span>New study</span>" in page
-        assert "<h1 class=\"page-title\">Config Builder</h1>" in page
+        assert "<h1 class=\"page-title\">New study</h1>" in page
         assert "<span>Builder</span>" not in page
         assert "New run" not in page
 
@@ -3783,7 +3783,7 @@ class TestTheOldPagesAreGone:
         page = self._page()
         script = (pathlib.Path(server.__file__).parent / "static"
                   / "stop-run.js").read_text(encoding="utf-8")
-        assert 'id="run-stop"' in page
+        assert 'id="health-stop"' in page
         assert "/api/explore/stop" in script
 
     def test_the_stop_button_appears_only_while_something_runs(self) -> None:
@@ -4591,14 +4591,14 @@ class TestOnePageForOneRun:
         """One is a bar for the running stage, the other a table of phases.
         Both were called progress."""
         markup = self._markup()
-        # One progress display now -- the sidebar's, labelled Progress --
-        # and one table of phases, labelled Phases. The Overview's own
-        # "Simulation progress" card repeated the sidebar and is gone.
+        # One progress display now -- the status bar's, where the run
+        # stands -- and one table of phases, labelled Phases. The Overview's
+        # own "Simulation progress" card repeated it and is gone.
         assert 'card-title">Simulation progress<' not in markup
         assert 'id="overview-phases" aria-label="Phases"' in markup
         assert 'card-title">Exploration progress<' not in markup
-        sidebar = markup[markup.index('<aside class="sidebar"'):markup.index("</aside>")]
-        assert 'class="sidebar-progress"' in sidebar and 'id="topbar-stage"' in sidebar
+        bar = markup[markup.index('<footer class="status-bar"'):markup.index("</footer>")]
+        assert 'id="status-run"' in bar and 'id="topbar-stage"' in bar
 
     def test_opening_the_overview_starts_the_polling(self) -> None:
         """It was keyed to opening a page that no longer exists, so nothing

@@ -357,15 +357,16 @@ def test_switch_while_running_views_another_and_keeps_the_process(tmp_path):
     assert snap["running_elsewhere"] is None
 
 
-def test_the_sidebar_says_where_the_live_run_is():
+def test_the_status_bar_says_where_the_live_run_is():
     import pathlib
 
     import fastmdxplora.gui as gui
 
-    page = (pathlib.Path(gui.__file__).parent / "templates"
-            / "dashboard.html").read_text(encoding="utf-8")
-    assert 'id="study-elsewhere"' in page
-    assert 'id="study-elsewhere-view"' in page
+    script = (pathlib.Path(gui.__file__).parent / "static"
+              / "statusbar.js").read_text(encoding="utf-8")
+    # A run going in another study: its item, opening it (statusbar.js).
+    assert 'elsewhere.id = "sb-elsewhere"' in script
+    assert "running_elsewhere_progress" in script and "/api/explore/switch" in script
 
 
 def test_the_sidebar_has_the_load_control():
@@ -378,11 +379,12 @@ def test_the_sidebar_has_the_load_control():
     assert 'id="load-study"' in page
     # In the study card's menu, not the progress card's row: which study
     # this is, is the card's whole question, and the row holds two.
-    study = page[page.index('class="sidebar-study"'):page.index('class="sidebar-progress"')]
+    study = page[page.index('class="sidebar-study"'):page.index('class="sidebar-nav sidebar-pages"')]
     menu = study[study.index('id="study-menu"'):]
     assert 'id="load-study"' in menu and 'id="open-output"' in menu
-    row = page[page.index('class="sidebar-controls"'):]
-    row = row[:row.index("</div>")]
+    # The page's own updates (pause, refresh) are the status bar's two tools.
+    row = page[page.index('class="sb-live"'):]
+    row = row[:row.index("</span>\n  </footer>")]
     assert row.count("<button") == 2
     # No data-picks on the hidden input: the picker would attach a second
     # "Browse" button for the same action.
@@ -426,11 +428,11 @@ def test_the_sidebar_reads_top_down():
 
     page = (pathlib.Path(gui.__file__).parent / "templates"
             / "dashboard.html").read_text(encoding="utf-8")
-    study = page[page.index('class="sidebar-study"'):page.index('class="sidebar-progress"')]
-    # The card with its status line, then its menu of studies to switch to,
-    # then what is running elsewhere.
-    assert study.index('id="topbar-status-text"') < study.index('id="load-study"') < study.index('id="study-elsewhere"')
-    assert 'id="study-elsewhere-pct"' in study
+    study = page[page.index('class="sidebar-study"'):page.index('class="sidebar-nav sidebar-pages"')]
+    # The card with its status line, then its menu of studies to switch to;
+    # what is running elsewhere is in the status bar.
+    assert study.index('id="topbar-status-text"') < study.index('id="load-study"')
+    assert 'study-elsewhere' not in study
     assert ">Open another folder&hellip;<" in study
 
 

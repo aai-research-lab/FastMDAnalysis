@@ -21,9 +21,9 @@
     return node ? node.textContent.trim() : "";
   }
 
-  /* Where the run stands, as the sidebar says it. */
+  /* Where the run stands, as the status bar says it. */
   function now() {
-    var progress = el("sidebar-progress");
+    var progress = el("status-run");
     return {
       run: progress ? progress.getAttribute("data-run") || "" : "",
       name: text("topbar-run-title"),
