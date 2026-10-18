@@ -44,9 +44,13 @@ def _linked(tmp_path: Path) -> Path:
     return root
 
 
-def _said(browser, root: Path, page_name: str, ready: str, read: str) -> tuple[dict, dict]:
+def _said(browser, root: Path, page_name: str, ready: str, read: str,
+          overview_last: bool = False) -> tuple[dict, dict]:
     """What the page ``page_name`` says once ``ready`` holds, and the
-    answers its routes gave."""
+    answers its routes gave. With ``overview_last``, `/api/overview` is
+    answered only once `/api/metrics` has been answered and shown (its
+    usual order, the overview being the slower read), and the page is read
+    once the overview has been shown too."""
     from fastmdxplora.gui.server import start_dashboard_session
 
     session = start_dashboard_session(output=str(root), host="127.0.0.1", port=0)
@@ -54,8 +58,30 @@ def _said(browser, root: Path, page_name: str, ready: str, read: str) -> tuple[d
     page.set_default_timeout(60000)
     errors: list[str] = []
     page.on("pageerror", lambda error: errors.append(str(error)))
+    held: list = []
+    released: list[bool] = []
+
+    def hold(route):
+        if released:
+            route.continue_()
+        else:
+            held.append(route)
+
+    if overview_last:
+        page.add_init_script("""
+            window.__shown = {metrics: 0, overview: 0};
+            addEventListener("dashboard:metrics-updated", () => { window.__shown.metrics += 1; });
+            addEventListener("fmx:overview", () => { window.__shown.overview += 1; });
+        """)
+        page.route("**/api/overview*", hold)
     try:
         page.goto(session.url + "#" + page_name, wait_until="domcontentloaded")
+        if overview_last:
+            page.wait_for_function("() => window.__shown.metrics > 0")
+            released.append(True)
+            for route in held:
+                route.continue_()
+            page.wait_for_function("() => window.__shown.overview > 0")
         page.wait_for_function(ready)
         said = page.evaluate(read)
         answers = {route: json.loads(urllib.request.urlopen(
@@ -73,7 +99,8 @@ def test_the_charts_say_their_record_was_not_read(browser, tmp_path):
         browser, _linked(tmp_path), "overview",
         "() => window.FastMDXCharts && (window.FastMDXCharts.drawn('temperature') || {}).said",
         """() => ({empty: document.getElementById('chart-empty').textContent,
-                   drawn: window.FastMDXCharts.drawn('temperature').said})""")
+                   drawn: window.FastMDXCharts.drawn('temperature').said})""",
+        overview_last=True)
     not_read = answers["/api/metrics"]["not_read"]
     assert not_read.startswith("segment-001/simulation/live_metrics.csv was not read")
     assert said == {"empty": not_read, "drawn": "not read"}

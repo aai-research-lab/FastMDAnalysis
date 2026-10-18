@@ -152,7 +152,8 @@
       clock.nptFrom = thermo && Number.isFinite(thermo.npt_from_ns) ? thermo.npt_from_ns : null;
       const speed = event.detail && Number(event.detail.speed_ns_per_day);
       clock.speed = Number.isFinite(speed) && speed > 0 ? speed : null;
-      update(lastMetrics);
+      // Redrawn on the overview's clock: a record not read stays said so.
+      update(lastMetrics, refused);
     });
     window.addEventListener("fmx:crosshair", (event) => {
       crosshair = event.detail ? event.detail.t_ns : null;
