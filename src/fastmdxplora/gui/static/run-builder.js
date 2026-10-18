@@ -3211,6 +3211,33 @@
     };
   }
 
+  /* The form as last downloaded or reset: kept outside this browser's
+   * storage, or nothing to keep. */
+  let draftKept = null;
+  /* Why the form is not saved in this browser, said in the header where
+   * "Saved" would be: "" when it is. */
+  let draftUnsaved = "";
+  function sayDraftState(unsaved) {
+    if (unsaved !== undefined) draftUnsaved = unsaved;
+    const said = el("run-draft");
+    if (!said) return;
+    const kept = draftKept !== null && draftKept === draftNow();
+    if (draftUnsaved && !kept) {
+      said.hidden = false;
+      said.classList.remove("just-saved");
+      said.classList.add("is-unsaved");
+      said.textContent = draftUnsaved;
+      said.title = draftUnsaved;
+    } else if (said.classList.contains("is-unsaved")) {
+      // Saved again, or kept in a download: not said as unsaved.
+      said.classList.remove("is-unsaved");
+      said.title = "Saved in this browser";
+      said.replaceChildren("Saved", Object.assign(document.createElement("span"),
+        { className: "sr-only", textContent: " in this browser" }));
+      said.hidden = Boolean(draftUnsaved);
+    }
+  }
+
   /* "saved"; "newer" where another window saved its draft since this one
    * (the newer is kept); "failed" where this browser could not store it. */
   function writeDraft(leaving) {
@@ -3227,6 +3254,7 @@
       if (!draft.start) window.localStorage.removeItem(draftKey());
       else window.localStorage.setItem(draftKey(), written);
       draftSeen = draft.start ? written : null;
+      sayDraftState("");
       const said = el("run-draft");
       if (said) {
         said.hidden = !draft.start;
@@ -3352,6 +3380,7 @@
   }
 
   async function download(body, say = sayOnTheForm) {
+    const form = body ? null : draftNow();
     const built = await fetchConfig(body);
     if (!built.ok) {
       say(built.error);
@@ -3359,6 +3388,12 @@
     }
     const saved = await saveAs(built.yaml, "fastmdxplora_config.yml", "text/yaml");
     say(saved ? `${built.settings_changed} setting(s) written.` : "Not saved.");
+    // The form as downloaded is kept in that file: a draft this browser
+    // could not store no longer holds a switch while the form is unchanged.
+    if (saved && form !== null && form === draftNow()) {
+      draftKept = form;
+      sayDraftState();
+    }
   }
 
   /* The same study in its other two languages, derived on the server from
@@ -3755,6 +3790,9 @@
     if (output) output.value = "";
     renderAll();
     text(el("run-note"), "Every setting is back to its default.");
+    // Nothing typed is left to keep: a draft this browser could not store
+    // no longer holds a switch.
+    draftKept = draftNow();
     // The draft written over, not discarded first: the note stays, and
     // plays only where Reset changed what was saved.
     saveDraft();
@@ -4085,13 +4123,18 @@
       clearTimeout(draftTimer);
       const saved = writeDraft(true);
       if (saved === "saved") return "";
+      // Downloaded or reset as it is now: nothing here is lost.
+      const kept = draftKept !== null && draftKept === draftNow();
       // Another window saved a newer draft: nothing is lost here unless
       // this window changed the form since its own last save.
       if (saved === "newer") {
-        return draftNow() === draftSeen ? ""
-          : "This window's Config changes are not saved: another window saved a newer Config draft for this workspace. Download this one before switching studies, or reload to take the newer one.";
+        if (draftNow() === draftSeen || kept) return "";
+        sayDraftState("Not saved: another window saved a newer draft");
+        return "This window's Config changes are not saved: another window saved a newer Config draft for this workspace. Download it (Download config) before switching studies, or reload to take the newer one.";
       }
-      return "The Config draft could not be saved in this browser. Keep it or download it before switching studies.";
+      if (kept) return "";
+      sayDraftState("Not saved in this browser");
+      return "The Config draft could not be saved in this browser. Download it (Download config) or Reset the form before switching studies.";
     },
   };
 })();
