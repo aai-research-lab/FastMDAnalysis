@@ -242,7 +242,8 @@ FastMDXplora/
 │       │   │                      #   and its numbers traced), builder-cost.css (New study's
 │       │   │                      #   steps before a start, its quiet Run and what it costs),
 │       │   │                      #   studies-table.css (All studies: views, chips, the list's
-│       │   │                      #   rows with their molecules, the gallery, a phone's rows),
+│       │   │                      #   rows with their molecules, the gallery, a phone's rows,
+│       │   │                      #   the bar for the studies chosen),
 │       │   │                      #   run-notice.js
 │       │   │                      #   (progress in the tab's title, a notice at the end);
 │       │   │                      #   remote.js and remote.css (Run on one of your machines,

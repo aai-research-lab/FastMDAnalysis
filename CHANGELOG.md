@@ -269,6 +269,13 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   state, system and tags, replicas folded under their study, keys, and the
   cards a gallery of the same molecules. A trajectory analysed with no run
   of its own says "analysed".
+- The studies chosen on All studies have one bar at the foot of the list,
+  in place of Compare and Clear beside the pointer: how many, Compare (two),
+  Tag (a tag on or off all of them, other tags kept), Files (one), Archive
+  (left out of All studies, shown by Archived; kept in the study's
+  `study_tags.json`, nothing moved) and Clear, with Undo after Tag and
+  Archive. Any number can be chosen: the list's head box chooses every study
+  shown, Shift and a click a range.
 
 - A strip of open studies keeps each study's last page in this browser
   window. Studies can be selected or closed individually; closing never
