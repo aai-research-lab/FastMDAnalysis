@@ -3129,21 +3129,22 @@ def _artifact_records(root: Path) -> list[dict[str, str]]:
     records: list[dict[str, str]] = []
     if not root.exists():
         return records
-    found: list[Path] = []
-    try:
-        for path in root.rglob("*"):
-            found.append(path)
-    except OSError:
-        # A folder removed while it was walked: list what was reached.
-        pass
+    from fastmdxplora.gui.report_dashboard import files_under
+
+    # Each folder listed through `record_access`, as `rglob` lists it: in a
+    # read held to the study, opened from the study. A folder removed while
+    # it was walked: what was reached is listed.
+    found = files_under(root)
     real_root = Path(os.path.realpath(root))
     for path in sorted(found):
         if path.suffix == ".tmp" or "__pycache__" in path.parts:
             continue
         try:
             relative = path.relative_to(root)
-            info = path.stat()
+            # Where it leads before anything of it is asked: a link out of
+            # the run is not looked at.
             inside = Path(os.path.realpath(path)).relative_to(real_root)
+            info = path.stat()
         except (OSError, ValueError):
             continue
         # Nothing offered that `/artifacts/` would refuse: a link that
