@@ -4,6 +4,8 @@ it was asked for (CI-774, second round).
 Found by review K1: another study's conversation opened during a launch was
 opened by the server at once, then the launch switched the GUI to the run's
 folder, and the page opened whatever study the GUI had by then: the run's.
+Found by review K2: words typed into the Agent while the run started were
+split, their first part kept for the study left.
 """
 
 from __future__ import annotations
@@ -68,4 +70,74 @@ def test_another_study_opened_while_a_run_starts_is_the_one_opened(tmp_path, mon
     # The whole open waited for the launch: asked of the server only then.
     assert asked[:2] == ["agent/run", "agent/conversation/open"], asked
     assert said == "Opens once the run has started."
+    assert errors == []
+
+
+def _unsent(page):
+    return page.evaluate("""() => {
+        const kept = {};
+        for (let i = 0; i < sessionStorage.length; i++) {
+            const key = sessionStorage.key(i);
+            if (key.startsWith('fmx.agentUnsent:')) {
+                kept[key.slice('fmx.agentUnsent:'.length)] = JSON.parse(sessionStorage.getItem(key)).words;
+            }
+        }
+        return kept;
+    }""")
+
+
+#: When the words are typed after Run: all before the page sees the switch
+#: to the run's study; half before it and half after; all after it.
+MOMENTS = ("before the switch", "across the switch", "after it")
+
+
+@pytest.mark.parametrize("moment", MOMENTS)
+def test_words_typed_while_a_run_starts_go_with_it_whole(tmp_path, monkeypatch, moment):
+    from fastmdxplora.gui.workspace import study_key
+
+    workspace, made, session = _gui(tmp_path, monkeypatch, taking=2.0)
+    words = "is it going well so far"
+    shown = "() => window.FastMDXDashboard.state.studyShown"
+    try:
+        page, errors, close = _page_on(session, [dict(_CONFIG), dict(_CONFIG)])
+        # A first run, so the page is on a study the second one leaves.
+        _say(page, "chignolin")
+        page.wait_for_selector("#agent-thread .agent-study:not([hidden]) [data-role=run]")
+        page.click("#agent-thread .agent-study:not([hidden]) [data-role=run]")
+        page.wait_for_function("(key) => window.FastMDXDashboard.state.studyShown === key",
+                               arg=study_key(workspace / "run1"), timeout=30000)
+        page.wait_for_selector("#agent-thread .agent-running")
+        _say(page, "again")
+        page.wait_for_function(
+            "() => document.querySelectorAll('#agent-thread .agent-study:not([hidden])').length === 2")
+        page.wait_for_timeout(500)
+        left, run = study_key(workspace / "run1"), study_key(workspace / "run2")
+        switched = f"() => window.FastMDXDashboard.state.studyShown === '{run}'"
+        page.click("#agent-thread .agent-study:not([hidden]) [data-role=run] >> nth=-1")
+        page.focus("#agent-request")
+        seen = []
+        if moment == "before the switch":
+            page.keyboard.type(words)
+            seen.append(page.evaluate(shown))
+        elif moment == "across the switch":
+            page.keyboard.type(words[:10])
+            seen.append(page.evaluate(shown))
+            page.wait_for_function(switched, timeout=30000, polling=10)
+            page.keyboard.type(words[10:])
+        else:
+            page.wait_for_function(switched, timeout=30000, polling=10)
+            page.keyboard.type(words)
+        page.wait_for_function(switched, timeout=30000)
+        page.wait_for_selector("#agent-thread .agent-running >> nth=1", timeout=30000)
+        page.wait_for_timeout(1000)
+        box = page.input_value("#agent-request")
+        kept = _unsent(page)
+        close()
+    finally:
+        session.server.shutdown()
+    # Typed, all or the first part, while the page showed the study left.
+    assert seen == ([] if moment == "after it" else [left]), seen
+    assert box == words
+    assert kept.get(run) == words, kept
+    assert not kept.get(left), kept
     assert errors == []

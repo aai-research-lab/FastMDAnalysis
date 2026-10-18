@@ -1288,6 +1288,10 @@
   var UNSENT_WORDS = "fmx.agentUnsent:";
   var unsentKey = "";
   var unsentTitle = "";
+  /* Until when a switch of study is the one a run this page started makes
+   * (the GUI goes to the run's folder as it starts; the page may see it
+   * after the launch answers). */
+  var launchSwitchUntil = 0;
   var unsentKept = false;
   /* Per study, what this page holds that no storage kept. */
   var heldInPage = {};
@@ -1439,6 +1443,20 @@
     var area = el("agent-request");
     var typed = boxNow();
     var begunElsewhere = validStudyKey(unsentKey);
+    /* The study a run this page started went to: the thread went there
+     * with it, and so do the words being typed into it, whole (CI-774
+     * review K2: the part typed before the page saw the switch was kept
+     * for the study left). */
+    var runsThere = launching || Date.now() < launchSwitchUntil;
+    if (begunElsewhere && runsThere) {
+      if (!launching) launchSwitchUntil = 0;
+      delete heldInPage[unsentKey];
+      try { sessionStorage.removeItem(UNSENT_WORDS + unsentKey); } catch (e) { /* none kept */ }
+      unsentKey = key;
+      unsentTitle = title;
+      putBack(key, typed);
+      return;
+    }
     if (begunElsewhere && (typed.trim() || pendingFiles.length || attaching)) {
       var was = unsentKey;
       var forTitle = unsentTitle || "the study before";
@@ -3830,6 +3848,7 @@
       entry.version = made.number;
       entry.eid = entry.eid || newEid();
       launching += 1;
+      launchSwitchUntil = Date.now() + 60000;
       if (window.FastMDXDashboard && window.FastMDXDashboard.studyChangeComing) {
         window.FastMDXDashboard.studyChangeComing();
       }
@@ -3897,6 +3916,7 @@
           }
         } else {
           /* Not started: no run in the thread, and why. */
+          if (!launching) launchSwitchUntil = 0;
           var placed = sent.indexOf(entry);
           if (placed >= 0) sent.splice(placed, 1);
           runBtn.disabled = false;
