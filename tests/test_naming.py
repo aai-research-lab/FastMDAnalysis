@@ -38,6 +38,31 @@ def test_system_of_reads_the_first_system_preferring_its_id():
     assert system_of(None) is None
 
 
+def test_the_id_given_by_default_is_not_the_folder_s_name():
+    # The command line gives `-s 1L2Y` the id s1, the default; a folder
+    # called fastmdxplora_s1_study_... says nothing of what it holds.
+    assert system_of({"systems": [{"id": "s1", "system": "1L2Y"}]}) == "1L2Y"
+    assert system_of({"systems": [{"id": "s1", "system": "/data/trp cage.pdb"}]}) \
+        == "/data/trp cage.pdb"
+    assert system_of({"systems": [{"id": "s2", "system": "1L2Y"}]}) == "s2"
+    assert default_output_name(system_of(
+        {"systems": [{"id": "s1", "system": "/data/trp cage.pdb"}]}), when=WHEN) \
+        == "fastmdxplora_trp-cage_study_20260919022007"
+
+
+def test_a_dashboard_run_from_the_command_line_is_named_by_its_system():
+    # `fastmdx explore -s 1L2Y --dashboard` with no --output names the
+    # folder before the run starts; it was fastmdxplora_s1_study_...
+    import importlib
+    from types import SimpleNamespace
+
+    cli = importlib.import_module("fastmdxplora.cli.main")
+
+    named = cli._resolve_dashboard_output_dir(
+        SimpleNamespace(output_dir=None), {"systems": [{"id": "s1", "system": "1L2Y"}]})
+    assert re.fullmatch(r"fastmdxplora_1L2Y_study_\d{14}", named.name)
+
+
 def test_the_timestamp_is_utc_and_sortable():
     name = default_output_name("x")
     assert re.fullmatch(r"fastmdxplora_x_study_\d{14}", name)

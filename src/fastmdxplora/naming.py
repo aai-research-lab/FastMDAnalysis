@@ -16,7 +16,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-__all__ = ["default_output_name", "system_slug"]
+__all__ = ["default_output_name", "default_system_id", "system_slug"]
 
 _PREFIX = "fastmdxplora"
 
@@ -49,14 +49,27 @@ def default_output_name(system: Any = None, *, when: datetime | None = None) -> 
     return f"{_PREFIX}{middle}_study_{stamp}"
 
 
+def default_system_id(index: int) -> str:
+    """The id a study's system at ``index`` (from 0) is given when it names
+    none: s1, s2, ... in order."""
+    return f"s{index + 1}"
+
+
 def system_of(config: Any) -> Any:
-    """The first system a config names, for naming its folder."""
+    """The first system a config names, for naming its folder: its id where
+    the study gave one, else the system itself. The id given by default
+    (`s1`) says nothing of the system, and the command line gives it to
+    every system it is passed (`fastmdx explore -s 1L2Y`), so the folder is
+    named by the system there."""
     if not isinstance(config, dict):
         return None
     systems = config.get("systems")
     if isinstance(systems, list) and systems:
         first = systems[0]
         if isinstance(first, dict):
-            return first.get("id") or first.get("system")
+            given = first.get("id")
+            if given and str(given) != default_system_id(0):
+                return given
+            return first.get("system") or given
         return first
     return config.get("system")

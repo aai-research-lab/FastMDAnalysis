@@ -243,6 +243,12 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   gone, instead of failing; a folder above the study need only be
   searchable.
 
+- A study given on the command line with `--dashboard` and no `--output`
+  (`fastmdx explore -s 1L2Y --dashboard`) is written to
+  `fastmdxplora_1L2Y_study_<time>`, named by its system, not
+  `fastmdxplora_s1_study_<time>`. `s1` is the id a system is given when it
+  names none, so it does not name the folder even when written in a config;
+  any other `id` does. Runs and records still carry `s1`.
 - `FastMDXplora(system=...)` with no `output_dir` runs again, in a folder
   named by its system. From 2.5.7 it stopped with an AttributeError on
   `config`.

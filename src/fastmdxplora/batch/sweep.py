@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from fastmdxplora.config.schema import PHASE_KEYS
+from fastmdxplora.naming import default_system_id
 from fastmdxplora.refusals import CodedError
 
 
@@ -202,7 +203,7 @@ def normalize_systems(raw: Any) -> list[dict[str, Any]]:
         if "system" not in entry or not entry["system"]:
             raise SweepError(f"`systems[{i}]` is missing a `system` input.")
 
-        sid = str(entry.get("id") or f"s{i + 1}")
+        sid = str(entry.get("id") or default_system_id(i))
         if sid in seen_ids:
             raise SweepError(f"Duplicate system id '{sid}' in `systems`.")
         seen_ids.add(sid)
