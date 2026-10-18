@@ -238,7 +238,8 @@ FastMDXplora/
 │       │   │                      #   move and save on every plot, and the page's time range),
 │       │   │                      #   analysis-cells.js and analysis-cells.css (each analysis a cell),
 │       │   │                      #   report-outline.js and report-outline.css (the report's outline,
-│       │   │                      #   and its numbers traced),
+│       │   │                      #   and its numbers traced), builder-cost.css (New study's
+│       │   │                      #   steps before a start, its quiet Run and what it costs),
 │       │   │                      #   run-notice.js
 │       │   │                      #   (progress in the tab's title, a notice at the end);
 │       │   │                      #   remote.js and remote.css (Run on one of your machines,

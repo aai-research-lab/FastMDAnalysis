@@ -99,6 +99,12 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   opens the record it was traced to (file, place, value, converted to the
   report's units), or says no record holds it, with the nearest and the
   records written again since the report.
+- New study shows all five steps from the start, steps 2 to 5 to read
+  until a starting point is chosen, with Run on this machine quiet until
+  there is a study to run. Beside the summary, What it costs here: the
+  ns/day a run makes on this machine's timing, the time, the trajectories'
+  disk against what is free, and the GPU memory a run needs against what
+  is free, each a note, a warning or an error.
 
 - A strip of open studies keeps each study's last page in this browser
   window. Studies can be selected or closed individually; closing never
