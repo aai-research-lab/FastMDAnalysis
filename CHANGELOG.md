@@ -289,6 +289,17 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   through, refuses every send until it is smaller. See `docs/remote.md`,
   What travels.
 
+- The means, series, captions and frame times the Overview, the Analysis
+  page, the Results data and the Files page give are read from the study's
+  own records only, on this computer and on a public bind (`--host
+  0.0.0.0`). A record linked out of the study (a study downloaded from a
+  deposit can hold such a link), or to a hidden file in it, is not read: its
+  mean reads "record unavailable" with the record named, its series and
+  convergence say it was not read, and the answer lists it in
+  `unavailable`. `/api/overview`, `/api/results`, `/api/series` and
+  `/api/convergence`, and the analysis manifest and run record the time of
+  each frame is read from, read through such a link before.
+
 ## [2.6.0] - 2026-10-11
 
 This release gives every mean one verdict on every page, records the rules
