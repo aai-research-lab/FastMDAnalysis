@@ -58,13 +58,13 @@ def _elsewhere(session, folder):
 #: Each thing the page's notice says, in order, as it is shown.
 _HEARD = """() => {
     window.__said = [];
-    const toast = document.getElementById('dashboard-toast');
     const note = () => {
-        const said = toast.querySelector('.dashboard-toast-said');
-        const text = toast.classList.contains('show') && said ? said.textContent : '';
+        const toast = document.getElementById('dashboard-toast');
+        const said = toast && toast.querySelector('.dashboard-toast-said');
+        const text = toast && toast.classList.contains('show') && said ? said.textContent : '';
         if (text && window.__said[window.__said.length - 1] !== text) window.__said.push(text);
     };
-    new MutationObserver(note).observe(toast, {subtree: true, childList: true,
+    new MutationObserver(note).observe(document.body, {subtree: true, childList: true,
         characterData: true, attributes: true});
 }"""
 
@@ -136,4 +136,29 @@ def test_only_the_latest_study_opened_elsewhere_is_said(browser, session) -> Non
     elsewhere = [s for s in said if "opened elsewhere" in s]
     assert elsewhere == [f"{title} was opened elsewhere, in another window or by an AI app: "
                          "this window now shows it."], said
+    assert errors == []
+
+
+def test_a_study_opened_elsewhere_is_said_by_its_own_name(browser, session) -> None:
+    """Said as the page saw the switch, the notice named the study read
+    before it (its name comes with the study's results, read after)."""
+    page = browser.new_context(viewport={"width": 1400, "height": 1000}).new_page()
+    page.set_default_timeout(60000)
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    try:
+        page.goto(session.url + "#overview", wait_until="domcontentloaded")
+        _seen(page, session.first)
+        page.evaluate(_HEARD)
+        _elsewhere(session, session.workspace / "hairpin")
+        page.wait_for_function("() => window.__said.some((s) => /opened elsewhere/.test(s))",
+                               timeout=15000)
+        said = page.evaluate("() => window.__said")
+        title = page.text_content("#topbar-run-title")
+    finally:
+        _elsewhere(session, session.first)
+        page.context.close()
+    assert [s for s in said if "opened elsewhere" in s] == [
+        f"{title} was opened elsewhere, in another window or by an AI app: this window now shows it."]
+    assert title != "wild_type"
     assert errors == []

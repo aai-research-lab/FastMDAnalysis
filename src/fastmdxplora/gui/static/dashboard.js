@@ -1072,11 +1072,13 @@
       } else {
         const title = byId("topbar-run-title")?.textContent || "Another study";
         emit("study-changed-elsewhere", {from: was, to: key, title});
-        // Named as the page names the study when it is said: one that waits
-        // is said once the page has read the study's name.
-        showNotice(() => `${byId("topbar-run-title")?.textContent || "Another study"} was opened elsewhere, ` +
-                   "in another window or by an AI app: this window now shows it.",
-                   "warning", {kind: "study-changed-elsewhere", study: key});
+        // Named as the page names the study when it is said: once the rest
+        // of this read is applied (the study's name is in its results), and
+        // for one that waits, when it is said.
+        window.setTimeout(() => showNotice(
+          () => `${byId("topbar-run-title")?.textContent || "Another study"} was opened elsewhere, ` +
+            "in another window or by an AI app: this window now shows it.",
+          "warning", {kind: "study-changed-elsewhere", study: key}), 0);
       }
     }
     if (!state.addressKnown) {
@@ -2594,6 +2596,7 @@
    * while that study is the one shown. The message, or what makes it as it
    * is said. */
   function showNotice(message, kind, about) {
+    if (about && about.study && about.study !== state.studyShown) return;
     const toast = byId("dashboard-toast");
     const showing = Boolean(toast && toast.classList.contains("show"));
     const waiting = showToast.waiting || [];
