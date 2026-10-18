@@ -253,7 +253,7 @@ def test_the_routes(workspace) -> None:
     from fastmdxplora.gui.server import GETS_ANSWERED_BEYOND_LOOPBACK, start_dashboard_session
 
     # Folders are listed only where browsing is: never beyond loopback.
-    assert not {"/api/studies", "/api/studies-compared",
+    assert not {"/api/studies", "/api/compared",
                 "/api/study-thumbnail"} & GETS_ANSWERED_BEYOND_LOOPBACK
     session = start_dashboard_session(output=str(workspace / "ubiquitin"), host="127.0.0.1",
                                       port=0)
@@ -262,9 +262,18 @@ def test_the_routes(workspace) -> None:
         listed = json.loads(urllib.request.urlopen(
             base + "/api/studies?" + urlencode({"path": str(workspace)}), timeout=30).read())
         compared = json.loads(urllib.request.urlopen(
-            base + "/api/studies-compared?" + urlencode(
+            base + "/api/compared?" + urlencode(
                 {"a": str(workspace / "ubiquitin"), "b": str(workspace / "stopped")}),
             timeout=30).read())
+        # Retired: it read the two unheld, through a link out of either, and
+        # no page asked it (Compare reads `/api/compared`, each held).
+        try:
+            urllib.request.urlopen(base + "/api/studies-compared?" + urlencode(
+                {"a": str(workspace / "ubiquitin"), "b": str(workspace / "stopped")}),
+                timeout=30)
+            retired = 200
+        except urllib.error.HTTPError as exc:
+            retired = exc.code
         with urllib.request.urlopen(base + "/api/study-thumbnail?" + urlencode(
                 {"path": str(workspace / "ubiquitin")}), timeout=30) as answer:
             figure = (answer.headers["Content-Type"], answer.read())
@@ -278,6 +287,7 @@ def test_the_routes(workspace) -> None:
         session.server.shutdown()
     assert len(listed["studies"]) == 4
     assert compared["ok"] and compared["settings"][0]["setting"] == "systems[0].system"
+    assert retired == 404
     assert figure == ("image/png", PIXEL)
     assert missing == 404
 
