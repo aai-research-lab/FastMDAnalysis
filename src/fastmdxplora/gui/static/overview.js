@@ -291,6 +291,41 @@
     line.appendChild(unreadNode(names, why));
   }
 
+  /* The production's means not read (`thermodynamics.not_read`): a record
+   * of the run's state or of its pieces was refused, so the charts' card
+   * says so rather than give the means of the part that was read. */
+  function renderThermoUnread() {
+    var card = byId("overview-charts");
+    if (!card) return;
+    var line = byId("overview-charts-not-read");
+    var thermo = data && data.thermodynamics;
+    var names = ((thermo && thermo.not_read) || []).slice().sort();
+    if (!names.length) {
+      if (line) line.remove();
+      return;
+    }
+    if (!line) {
+      line = make("p", "chart-note overview-charts-not-read");
+      line.id = "overview-charts-not-read";
+      var head = card.querySelector(".card-header");
+      card.insertBefore(line, head ? head.nextSibling : card.firstChild);
+    }
+    var why = (data && data.unavailable_why) || {};
+    var keys = [];
+    names.forEach(function (name) {
+      var key = reasonOf(why, name);
+      if (keys.indexOf(key) < 0) keys.push(key);
+    });
+    var key = keys.length === 1 ? keys[0] : "";
+    var listed = names.length === 1 ? names[0]
+      : names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
+    line.textContent = "";
+    line.appendChild(make("b", "", "Production means not read. "));
+    line.appendChild(document.createTextNode(listed + " " +
+      BECAUSE[key][names.length === 1 ? 0 : 1] + ", so the means over the production " +
+      "are not shown."));
+  }
+
   /* Why a record was not read (`unavailable_why`, `series.NOT_READ_BECAUSE`),
    * said of one record and of several. */
   var BECAUSE = {
@@ -496,6 +531,7 @@
     renderTiles();
     renderPhases();
     renderUnread();
+    renderThermoUnread();
     renderFacts(null);
     window.dispatchEvent(new CustomEvent("fmx:overview", { detail: data }));
   }

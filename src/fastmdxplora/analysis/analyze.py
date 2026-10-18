@@ -48,31 +48,44 @@ def study_trajectory(project_root: Path) -> tuple[Path | None, Path | None]:
     into the study's resolved config, which then carried it to any study run
     from that file: a new study would simulate and analyse the old one's
     trajectory. The study's own folder says it instead.
+
+    In a read held to the study (`record_access`), a record of the join, the
+    first piece's trajectory or the topology the join names that the read
+    refuses raises `OutsideWorkspace`: not read is not a study of one run.
     """
     import json
 
     from fastmdxplora import record_access as _records
-    from fastmdxplora.simulation.pipeline import _may_look
+    from fastmdxplora.refusals import OutsideWorkspace
+    from fastmdxplora.simulation.pipeline import _may_look, _refuse
 
     root = Path(project_root)
     joined = root / "joined" / "production.dcd"
     record = root / "joined" / "joined.json"
     own = root / "simulation" / "production.dcd"
     try:
+        # A record of the join a held read refused (`pipeline._refused`) was
+        # not read: the study is not thereby a study of one run.
+        _refuse(joined, record)
         if not (_records.is_file(joined) and _records.is_file(record)
                 and _records.stat(joined).st_size > 0):
             return None, None
         # A study simulated again in place after it was joined has a first
         # piece newer than the join, and the join is not its trajectory.
+        _refuse(own)
         if (_records.is_file(own)
                 and _records.stat(own).st_mtime > _records.stat(joined).st_mtime):
             return None, None
         named = json.loads(_records.read_text(record, encoding="utf-8")).get("topology")
+    except OutsideWorkspace:
+        raise
     except (OSError, ValueError, AttributeError):
         return None, None
     # The topology the join names is looked at only where a held read may
     # look (`pipeline._may_look`).
     topology = Path(str(named)) if named else None
+    if topology is not None:
+        _refuse(topology)
     return joined, (topology if topology is not None and _may_look(topology)
                     and _records.is_file(topology) else None)
 

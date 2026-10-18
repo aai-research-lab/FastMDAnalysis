@@ -294,6 +294,11 @@ def _thermodynamics(root: Path) -> dict[str, Any]:
     # so a mean the analysis did not record is the report's, not one taken
     # from the live record's coarser samples, which gave another number.
     energies = _production_energies(root)
+    # Records of the study's pieces this read refused: the means over its
+    # production were not read, which is not the means of the piece read.
+    not_read: list[str] = []
+    if isinstance(energies, NotRead):
+        not_read, energies = energies.names, None
     # A study carried on in pieces with a piece's record missing has no
     # means of its energy (the thermodynamics analysis refuses it), not the
     # live record's.
@@ -307,6 +312,9 @@ def _thermodynamics(root: Path) -> dict[str, Any]:
         if isinstance(entry, dict) and ("mean" in entry or "not_a_measurement" in entry):
             means[key] = _said(entry, unit, _count(recorded.get("samples")))
             continue
+        if not_read:
+            means[key] = None
+            continue
         values = [v for v in (_number(row.get(key)) for row in averaged) if v is not None]
         if key == "density" and held and len(values) > 1:
             means[key] = _said({"value": sum(values) / len(values),
@@ -314,9 +322,13 @@ def _thermodynamics(root: Path) -> dict[str, Any]:
             continue
         means[key] = _mean_of(values, unit, interval)
     target = _number(status.get("target_temperature_K"))
-    return {"production_start_ns": start, "target_temperature_K": target,
+    said = {"production_start_ns": start, "target_temperature_K": target,
             "npt_from_ns": _npt_from_ns(times, start),
             "means": means, "samples": len(production)}
+    if not_read and any(value is None for value in means.values()):
+        # Named for the card to say its means were not read, and why.
+        said["not_read"] = not_read
+    return said
 
 
 def _npt_from_ns(times: dict[str, Any], start: float | None) -> float | None:
@@ -338,22 +350,49 @@ def _metric_rows(root: Path) -> list[dict[str, Any]]:
         return []
 
 
-def _production_energies(root: Path) -> list[dict[str, Any]] | None:
+class NotRead:
+    """Records a held read refused (`record_access`), named from the study:
+    what they would have given was not read, not found missing."""
+
+    def __init__(self, names: list[str]) -> None:
+        self.names = names
+
+
+def _refused_names(root: Path, refusal: OSError) -> list[str]:
+    """The record a refusal names, from the study ``root``."""
+    named = getattr(refusal, "filename", None)
+    if named:
+        try:
+            return [Path(named).absolute().relative_to(root.absolute()).as_posix()]
+        except ValueError:
+            pass
+    return ["joined/joined.json"]
+
+
+def _production_energies(root: Path) -> list[dict[str, Any]] | NotRead | None:
     """The production's samples from OpenMM's ``energy.csv``, by the live
     record's names (`telemetry._read_energy_rows`); None where a study
-    carried on in pieces lacks a piece's record."""
+    carried on in pieces lacks a piece's record, and `NotRead` where a
+    record of its join or its pieces was refused (a joined study whose
+    record of the join is not read is not one run)."""
     from fastmdxplora.analysis.thermodynamics import state_record_pieces
     from fastmdxplora.gui.telemetry import _read_energy_rows
-    from fastmdxplora.refusals import MissingResultError
+    from fastmdxplora.refusals import MissingResultError, OutsideWorkspace
+    from fastmdxplora.simulation.pipeline import _refuse
 
     try:
         pieces = state_record_pieces(root)
+    except OutsideWorkspace as refusal:
+        return NotRead(_refused_names(root, refusal))
     except MissingResultError:
         return None
     except Exception:  # noqa: BLE001 - an unreadable piece: no means
         return None
     try:
         if not pieces:
+            # Refused, it is not read, and the live record's coarser samples
+            # do not stand in for it.
+            _refuse(root / "simulation" / "energy.csv")
             return _read_energy_rows(root / "simulation" / "energy.csv")
         # A study carried on in pieces: every piece, as the thermodynamics
         # analysis reads them, not the first piece alone.
@@ -371,6 +410,8 @@ def _production_energies(root: Path) -> list[dict[str, Any]] | None:
                     row["simulation_time_ns"] = str(time_ns + piece["ps_before"] / 1000.0)
                 rows.append(row)
         return rows
+    except OutsideWorkspace as refusal:
+        return NotRead(_refused_names(root, refusal))
     except Exception:  # noqa: BLE001 - the live record stands in for one run
         return None if pieces else []
 

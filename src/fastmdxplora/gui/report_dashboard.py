@@ -469,7 +469,21 @@ def _summary_cards(
             if isinstance(planned, (int, float)) and not isinstance(planned, bool):
                 cards.append(DashboardCard("Production", say_length(planned),
                                            "planned; the run recorded none"))
-        temperature = _average_temperature(project_root / "simulation" / "energy.csv")
+        from fastmdxplora.refusals import OutsideWorkspace
+
+        try:
+            temperature = _average_temperature(project_root / "simulation" / "energy.csv")
+        except OutsideWorkspace as refusal:
+            # A record of the run's state, or of its pieces, a held read
+            # refused: the average was not read, not found missing.
+            from fastmdxplora.gui.series import refused_said
+
+            temperature = None
+            named = getattr(refusal, "filename", None)
+            cards.append(DashboardCard(
+                "Temperature", "Not read",
+                (refused_said(project_root, Path(named)) + ".") if named
+                else "A record of the run's state was not read."))
         if temperature is not None:
             cards.append(
                 DashboardCard(
@@ -720,15 +734,23 @@ def _format_metric_value(value: float) -> str:
 
 
 def _average_temperature(path: Path) -> float | None:
+    """The temperature averaged over the run's state record; a record of it
+    a held read refused raises `OutsideWorkspace` (not read, not missing)."""
     # A study carried on in pieces: the mean over every piece, not the
     # first one's.
     from fastmdxplora.analysis.thermodynamics import (
         read_pieces_state_table, state_record_pieces)
+    from fastmdxplora.refusals import OutsideWorkspace
+    from fastmdxplora.simulation.pipeline import _refuse
 
     try:
         pieces = state_record_pieces(path.parent.parent)
+    except OutsideWorkspace:
+        raise
     except Exception:  # noqa: BLE001 - a piece without its record: no mean
         return None
+    if not pieces:
+        _refuse(path)
     if pieces:
         try:
             joined = read_pieces_state_table(pieces).get("Temperature (K)")

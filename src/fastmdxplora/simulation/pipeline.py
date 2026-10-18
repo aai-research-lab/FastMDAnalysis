@@ -110,6 +110,55 @@ def _may_look(path: Path) -> bool:
     return any(_records.can_read(folder) for folder in (place, *place.parents))
 
 
+def _refused(path: Path) -> bool:
+    """Whether a held read refuses ``path``, a record that is there in the
+    folder the read is held to (`_may_look`): a link out of it, or to a
+    file of it that is not one of its results. Such a record was not read,
+    which is not the same as not there, so a reader that falls back where
+    a record is missing must not fall back for this one. The refusal is
+    named with the read's others. Never, outside a held read.
+
+    Each step to the record is only asked whether it is there, without
+    following a link.
+    """
+    import os
+
+    place = Path(os.path.abspath(path))
+    if _records.can_read(place) or not _may_look(place):
+        return False
+    ancestors = [folder for folder in (*reversed(place.parents), place)]
+    first = next(index for index, folder in enumerate(ancestors)
+                 if _records.can_read(folder))
+    for step in ancestors[first + 1:]:
+        try:
+            if os.path.islink(step):
+                break
+            os.lstat(step)
+        except OSError:
+            return False
+    try:
+        # Named as the read's other refusals are (`record_access.stat`).
+        _records.stat(place)
+    except OSError:
+        pass
+    return True
+
+
+def _refuse(*paths: Path) -> None:
+    """Raise `OutsideWorkspace` for the first of ``paths`` a held read
+    refuses (`_refused`); nothing for a record read, or not there."""
+    from fastmdxplora.refusals import OutsideWorkspace
+
+    for path in paths:
+        if _refused(path):
+            refusal = OutsideWorkspace(
+                f"{Path(path).name} was not read: it leads out of the study, or to a "
+                "file of it that is not one of its results.")
+            # Which record, for a page to name it.
+            refusal.filename = str(path)
+            raise refusal
+
+
 def _a_prepared_system_sits_in(directory: Path) -> bool:
     """Whether this directory holds a system a run could start from.
 
