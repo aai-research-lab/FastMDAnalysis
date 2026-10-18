@@ -231,6 +231,58 @@ def _public_records(root: Path) -> Callable[[Path], bool]:
 _RECORDS_UNREADABLE = {"ok": False, "reason": "The study's records could not be read."}
 
 
+def _a_run_in_its_study(inside: Path) -> tuple[Path, Callable[[Path], bool]] | None:
+    """For a run of a study of several (``<study>/runs/<run>``, the layout
+    such a study writes): the study, and admission for a confined read
+    rooted there. A run waiting for its study's next round is known so only
+    from the study's own records (`telemetry.between_rounds`): its
+    `stopping.json` and process record, and its runs' own records. Each run
+    is admitted as Problems admits a study (`admitted_for_problems`), and
+    only where it is: a record of one run linked to another's, or to the
+    study's, is a link out of it and refused. Nothing else of the study is
+    admitted. None for a study of its own."""
+    if inside.parent.name != "runs":
+        return None
+    from fastmdxplora.gui.problems_view import admitted_for_problems
+    from fastmdxplora.orchestrator import RUN_PROCESS_FILE
+    from fastmdxplora.simulation.stopping import RECORD
+
+    study, runs = inside.parent.parent, inside.parent
+
+    def admitted(path: Path) -> bool:
+        try:
+            parts = path.relative_to(study).parts
+            if len(parts) == 1:
+                return (parts[0] in (RECORD, RUN_PROCESS_FILE, runs.name)
+                        and path.resolve() == study / parts[0])
+            if len(parts) < 2 or parts[0] != runs.name or _private(parts[1:2]):
+                return False
+            run = runs / parts[1]
+            path.resolve().relative_to(run)
+        except (OSError, RuntimeError, ValueError):
+            return False
+        return admitted_for_problems(run)(path)
+
+    return study, admitted
+
+
+#: The names `record_access` gives a refused record that is not in the
+#: folder it was held to, which no path is relative to.
+_UNNAMED_REFUSALS = ("an unavailable record", "a non-regular record")
+
+
+def _named_from(inside: Path, held: Path, name: str) -> str:
+    """A refused record named relative to the open folder ``inside``, where
+    the read was held to ``held``, the study a run of it belongs to."""
+    if held == inside or name in _UNNAMED_REFUSALS:
+        return name
+    place = held / name
+    try:
+        return place.relative_to(inside).as_posix()
+    except ValueError:
+        return Path(os.path.relpath(place, inside)).as_posix()
+
+
 def _confined(root: Path, read: Callable[..., Any], *, keeps: bool = False) -> Any:
     """``read(study)`` with each of its record reads held to the study's own
     results (`record_access`): a record linked out of the study, or to a
@@ -238,21 +290,44 @@ def _confined(root: Path, read: Callable[..., Any], *, keeps: bool = False) -> A
     named in the answer's ``unavailable``, so a page can say it was not read
     rather than show it as absent. A reader that ``keeps`` its answer for
     its next call is also given the set the refusals are named in, to name
-    again those of the read it kept."""
+    again those of the read it kept.
+
+    What Problems admits is admitted here too (`admitted_for_problems`):
+    the run's own process record, without which a run whose process is gone
+    reads as running. A run of a study of several also reads what its study
+    records of its rounds (`_a_run_in_its_study`); where the study's folder
+    cannot be opened, the run is read alone."""
+    from contextlib import ExitStack
+
+    from fastmdxplora.gui.problems_view import admitted_for_problems
     from fastmdxplora.record_access import confined_records
 
     if not root.is_dir():
         # No study open, or its folder gone: there is nothing to read.
         return read(root, set()) if keeps else read(root)
     inside = root.resolve()
-    try:
-        with confined_records(inside, _public_records(inside)) as scope:
+    holds = [(inside, admitted_for_problems(inside))]
+    in_its_study = _a_run_in_its_study(inside)
+    if in_its_study is not None:
+        holds.insert(0, in_its_study)
+    with ExitStack() as stack:
+        scope = held = None
+        for held, admitted in holds:
+            try:
+                scope = stack.enter_context(confined_records(held, admitted))
+                break
+            except OSError:
+                continue
+        if scope is None:
+            return dict(_RECORDS_UNREADABLE)
+        try:
             answer = read(inside, scope.denied) if keeps else read(inside)
-    except OSError:
-        return dict(_RECORDS_UNREADABLE)
+        except OSError:
+            return dict(_RECORDS_UNREADABLE)
     if isinstance(answer, dict):
         named = answer.get("unavailable")
-        refused = set(scope.denied) | set(named if isinstance(named, list) else ())
+        refused = ({_named_from(inside, held, name) for name in scope.denied}
+                   | set(named if isinstance(named, list) else ()))
         if refused:
             # A copy: the answer may be one a reader keeps for its next call.
             answer = {**answer, "unavailable": sorted(refused)}
