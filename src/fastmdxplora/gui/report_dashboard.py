@@ -829,8 +829,9 @@ def _dashboard_summaries(project_root: Path) -> dict[str, DashboardAsset]:
             # and said so rather than captioned from what else is there.
             from fastmdxplora.gui.series import refused_said
 
-            summaries[title] = DashboardAsset(rel_path=rel_data,
-                                              summary=refused_said(project_root, refused))
+            summaries[title] = DashboardAsset(
+                rel_path=rel_data,
+                summary=refused_said(project_root, refused) + ", so what it says is not shown.")
             continue
         if not _records.is_file(data_path):
             continue

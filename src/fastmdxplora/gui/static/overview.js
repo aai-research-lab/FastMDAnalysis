@@ -101,9 +101,15 @@
         counted.push(data.not_read + (data.means ? " not read"
           : " analys" + (data.not_read === 1 ? "is" : "es") + " not read"));
       }
-      if (data.more) counted.push(data.more + " more not shown");
-      if (counted.length) {
-        said.appendChild(document.createTextNode(counted.join(", ") + " · "));
+      // The tiles not shown are of those counted, not more of them: "13
+      // analyses not read, 4 more not shown" read as 17.
+      var here = tiles.filter(function (tile) { return tile.kind === "mean"; }).length;
+      var total = (data.means || 0) + (data.not_read || 0);
+      var line = counted.join(", ");
+      if (data.more && line) line += "; " + here + " of the " + total + " shown here";
+      else if (data.more) line = here + " shown here, " + data.more + " more on the Analysis page";
+      if (line) {
+        said.appendChild(document.createTextNode(line + " · "));
       }
       if (data.judged_earlier && data.judged_earlier.length) {
         // Verdicts an earlier version gave, by rules that did not yet

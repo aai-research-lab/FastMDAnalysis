@@ -174,3 +174,84 @@ def test_a_long_list_not_read_is_counted_and_listed_in_full(browser, tmp_path):
     assert all(item.endswith(" (a link to a file outside the study)") for item in said["all"])
     assert "simulation/simulation_parameters.json (a link to a file outside the study)" \
         in said["all"]
+
+
+def _said_on_the_overview(browser, root: Path, ready: str, script: str) -> dict:
+    """What the Overview says of the study, once ``ready`` shows."""
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    session = start_dashboard_session(output=str(root), host="127.0.0.1", port=0)
+    page = browser.new_page(viewport={"width": 1440, "height": 900})
+    page.set_default_timeout(60000)
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    try:
+        page.goto(session.url + "#overview", wait_until="domcontentloaded")
+        page.wait_for_function(ready)
+        said = page.evaluate(script)
+    finally:
+        page.close()
+        session.stop()
+    assert not errors, errors
+    return said
+
+
+def test_the_overview_says_its_means_not_read_where_the_join_was_not(browser, tmp_path):
+    """A carried-on study whose record of the join was refused: the
+    Thermodynamics card says its means were not read, naming the record."""
+    from tests.test_a_record_refused_is_not_read_as_missing import _joined, _linked_out
+
+    root = _joined(tmp_path)
+    _linked_out(root, tmp_path, "joined/joined.json")
+    line = _said_on_the_overview(
+        browser, root, "() => document.getElementById('overview-charts-not-read')",
+        "() => document.getElementById('overview-charts-not-read').textContent")
+    assert line == ("Production means not read. joined/joined.json is a link to a file "
+                    "outside the study, so the means over the production are not shown.")
+
+
+def test_the_run_card_says_its_live_record_not_read(browser, tmp_path):
+    """The run's live record linked out: the run card says it was not read
+    and why, and the run's word is Not read, not a reason it kept none."""
+    from tests.test_every_study_page_reads_only_the_study import _a_run_finished
+
+    root = _a_run_finished(_study(tmp_path))
+    live = root / "simulation" / "live_status.json"
+    target = tmp_path / "elsewhere" / "live_status.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    live.rename(target)
+    _link(live, target)
+    said = _said_on_the_overview(
+        browser, root,
+        "() => (document.getElementById('live-absent-title') || {}).textContent"
+        " === 'Live record not read'",
+        """() => ({body: document.getElementById('live-absent-body').textContent,
+                   word: document.getElementById('topbar-status-text').textContent,
+                   pill: document.getElementById('health-pill').textContent})""")
+    assert said["body"] == ("simulation/live_status.json was not read: it is a link to a "
+                            "file outside the study.")
+    assert said["word"] == "Not read"
+    assert said["pill"] == "not read"
+
+
+def test_the_tiles_not_shown_are_counted_of_those_not_read(browser, tmp_path):
+    """Twelve analyses not read, nine tiles shown: said as nine of twelve,
+    not as twelve and three more."""
+    from tests.test_the_study_pages_read_only_the_study import N
+
+    root = _study(tmp_path)
+    names = ["rmsd", "rg", "sasa", "hbonds", "contacts", "end_to_end", "dihedrals", "rmsf",
+             "ss", "pca", "moments_of_inertia", "native_contacts"]
+    _write(root, "analysis/analysis_manifest.json", {
+        "phase": "analysis", "n_frames": N, "load_kwargs": {"saving_interval_ps": 10.0},
+        "results": {name: {"status": "ok"} for name in names}})
+    for name in names:
+        outside = _write(tmp_path, f"elsewhere/{name}.json", OUTSIDE["determined"])
+        record = root / "analysis" / name / "options.json"
+        if record.exists():
+            record.unlink()
+        _link(record, outside)
+    counted = _said_on_the_overview(
+        browser, root, "() => document.querySelector('#overview-tiles .overview-tile')",
+        "() => document.getElementById('overview-results-said').textContent")
+    assert counted.startswith("12 analyses not read; 9 of the 12 shown here · ")
