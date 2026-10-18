@@ -238,9 +238,12 @@ def _archive_frame(
 
 
 def read_live_frame_history(output_dir: str | Path) -> dict[str, Any]:
+    # Through `record_access`: held to its study where the read is.
+    from fastmdxplora import record_access
+
     path = Path(output_dir) / LIVE_FRAME_HISTORY_FILE
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(record_access.read_text(path, encoding="utf-8"))
         return data if isinstance(data, dict) else {"frames": [], "count": 0}
     except (OSError, json.JSONDecodeError):
         return {"frames": [], "count": 0}

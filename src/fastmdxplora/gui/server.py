@@ -316,6 +316,32 @@ def _a_run_in_its_study(inside: Path) -> tuple[Path, Callable[[Path], bool]] | N
     return study, admitted
 
 
+def _with_its_runs_process_records(study: Path,
+                                   admitted: Callable[[Path], bool]) -> Callable[[Path], bool]:
+    """``admitted``, and for a study of several runs (``<study>/runs/<run>``)
+    each run's own process record, in the run or one of its pieces, as
+    Problems admits a study's (`admitted_for_problems`): its runs are read
+    as they stand (`exploration.runs_of_a_study`), and a run whose record
+    says it is going cannot be told from one whose process is gone without
+    it. Only by its own name, and only where it is."""
+    from fastmdxplora.gui.problems_view import admitted_for_problems
+    from fastmdxplora.orchestrator import RUN_PROCESS_FILE
+
+    def admitted_here(path: Path) -> bool:
+        if admitted(path):
+            return True
+        try:
+            parts = path.relative_to(study).parts
+        except ValueError:
+            return False
+        if not (3 <= len(parts) <= 4 and parts[0] == "runs" and parts[-1] == RUN_PROCESS_FILE
+                and not _private(parts[1:-1])):
+            return False
+        return admitted_for_problems(study / "runs" / parts[1])(path)
+
+    return admitted_here
+
+
 #: The names `record_access` gives a refused record that is not in the
 #: folder it was held to, which no path is relative to.
 _UNNAMED_REFUSALS = ("an unavailable record", "a non-regular record")
@@ -356,7 +382,7 @@ def _confined(root: Path, read: Callable[..., Any], *, keeps: bool = False) -> A
         # No study open, or its folder gone: there is nothing to read.
         return read(root, set()) if keeps else read(root)
     inside = root.resolve()
-    holds = [(inside, admitted_for_problems(inside))]
+    holds = [(inside, _with_its_runs_process_records(inside, admitted_for_problems(inside)))]
     in_its_study = _a_run_in_its_study(inside)
     if in_its_study is not None:
         holds.insert(0, in_its_study)
@@ -387,6 +413,55 @@ def _confined(root: Path, read: Callable[..., Any], *, keeps: bool = False) -> A
     return answer
 
 
+def _as_opened(value: Any, inside: str, opened: str) -> Any:
+    """``value`` with the study's resolved folder ``inside`` said as it was
+    opened, ``opened``, in every string."""
+    if isinstance(value, str):
+        return value.replace(inside, opened)
+    if isinstance(value, list):
+        return [_as_opened(item, inside, opened) for item in value]
+    if isinstance(value, dict):
+        return {key: _as_opened(item, inside, opened) for key, item in value.items()}
+    return value
+
+
+def _fixes_held(root: Path) -> dict[str, Any]:
+    """What would fix the study ``root`` (`fixes_payload`), read in
+    `_confined` held to the study it fixes: a remedy is not priced from a
+    record linked out of it (a stopped run's linked-out config priced its
+    resume beside a line saying the config was not read). Its paths said as
+    the study was opened."""
+    from fastmdxplora.gui.fixes_view import fixes_payload, study_of
+
+    study = study_of(root)
+    if study is None or not study.is_dir():
+        return fixes_payload(root)
+    answer = _confined(study, fixes_payload)
+    inside, opened = str(study.resolve()), str(study)
+    return answer if inside == opened else _as_opened(answer, inside, opened)
+
+
+def _the_fix_shown(root: Path, index: Any, run_in: Path | None = None) -> bool:
+    """Whether the fix at ``index`` that `run_a_fix` would run (read
+    without a held read, in the study open there, ``run_in``) is the one the
+    page showed of the study ``root`` (`_fixes_held`): the same refusal,
+    place and command. A fix read through a link may not be."""
+    from fastmdxplora.gui.fixes_view import fixes_payload
+
+    try:
+        index = int(index)
+    except (TypeError, ValueError):
+        return True
+    shown, run = _fixes_held(root), fixes_payload(root if run_in is None else run_in)
+    keys = ("code", "where", "command", "argv")
+    try:
+        return ([shown["fixes"][index].get(key) for key in keys]
+                == [run["fixes"][index].get(key) for key in keys])
+    except (KeyError, IndexError, TypeError):
+        # No such fix in one of them: `run_a_fix` says so, or the page did.
+        return len((shown.get("fixes") or [])) == len((run.get("fixes") or []))
+
+
 def _status_records(root: Path) -> dict[str, Any]:
     """What `/api/status` reads of the study ``root``: its run's record as
     it stands, how it is going, how long it simulated, and its stages and
@@ -395,16 +470,16 @@ def _status_records(root: Path) -> dict[str, Any]:
     from fastmdxplora.gui.simulated_time import simulated_times
 
     from fastmdxplora.gui.series import refused_said
-    from fastmdxplora.gui.telemetry import not_read_health
-    from fastmdxplora.simulation.pipeline import _refused
+    from fastmdxplora.gui.telemetry import live_records_refused, not_read_health
 
     # A run that ended without saying so is said to have.
     status = status_as_it_stands(root)
     metrics = read_metrics(root)
-    live = root / "simulation" / "live_status.json"
-    # Its live record refused is not read: not a run that kept none.
-    health = (not_read_health(refused_said(root, live) + ".")
-              if not status and _refused(live) else analyze_health(status, metrics, root=root))
+    # Its live record refused, or a piece's it was carried on in, is not
+    # read: not a run that kept none, nor the run its first piece was.
+    refused = live_records_refused(root) if not status else []
+    health = (not_read_health("; ".join(refused_said(root, live) for live in refused) + ".")
+              if refused else analyze_health(status, metrics, root=root))
     return {
         "status": status,
         # Production first, equilibration beside it: the live record's own
@@ -446,6 +521,25 @@ def _refusals_said(answer: dict[str, Any]) -> str:
         "one of its results") for name in names)
     return said + (", so what it says is not shown." if len(names) == 1
                    else ", so what they say is not shown.")
+
+
+def _said_not_read(answer: Any) -> Any:
+    """A `_confined` answer with its refused records said as not read, in
+    its ``not_read`` sentence, for a page to show (`_refusals_said`)."""
+    said = _refusals_said(answer)
+    if said:
+        answer["not_read"] = said
+    return answer
+
+
+def _withheld_where_not_read(answer: dict[str, Any], key: str) -> dict[str, Any]:
+    """A `_confined` answer whose ``key`` is a list read across the study's
+    records (its pieces' too): where one was not read, none of it, since
+    the rest is part of the study said as the whole; and why."""
+    said = _refusals_said(answer)
+    if said:
+        answer = {**answer, key: [], "not_read": said}
+    return answer
 
 
 def _why_not_read(inside: Path, name: str) -> str:
@@ -1162,8 +1256,11 @@ def make_handler(
                 except ValueError:
                     most = MOST_CHART_SAMPLES
                 most = max(60, min(most, 5000))
-                self._send_json({"metrics": thinned_metrics(
-                    read_metrics(root, limit=None), most)})
+                # Read from the study's own records only (`_confined`).
+                # A record of it not read gives no chart of the rest.
+                self._send_json(_withheld_where_not_read(_confined(
+                    root, lambda inside: {"metrics": thinned_metrics(
+                        read_metrics(inside, limit=None), most)}), "metrics"))
                 return
             if path == "/api/figure-data":
                 # The numbers behind an analysis's other figures, to plot
@@ -1191,12 +1288,16 @@ def make_handler(
                     keeps=True))
                 return
             if path == "/api/events":
-                self._send_json({"events": read_events(root)})
+                # Read from the study's own records only (`_confined`).
+                self._send_json(_withheld_where_not_read(_confined(
+                    root, lambda inside: {"events": read_events(inside)}), "events"))
                 return
             if path == "/api/report":
                 from fastmdxplora.gui.report_page import report_payload
 
-                self._send_json(report_payload(root))
+                # Read from the study's own records only (`_confined`), the
+                # page saying which were not read.
+                self._send_json(_said_not_read(_confined(root, report_payload)))
                 return
             if path == "/api/timeline":
                 # What the Viewer's timeline marks on the frames it plays.
@@ -1219,9 +1320,18 @@ def make_handler(
             if path == "/api/methods":
                 from fastmdxplora.gui.report_page import methods_payload
 
-                self._send_json(methods_payload(
-                    root, may_read=(None if hosting is None
-                                    else lambda path: hosting.inside(str(path)) is not None)))
+                may_read = (None if hosting is None
+                            else lambda path: hosting.inside(str(path)) is not None)
+                # Read from the study's own records only (`_confined`). A
+                # methods text written without a record it reads would say
+                # that record's part was not recorded: not given at all.
+                answer = _confined(root, lambda inside: methods_payload(inside, may_read=may_read))
+                said = _refusals_said(answer)
+                if said:
+                    answer = {"ok": False, "reason": said,
+                              "unavailable": answer["unavailable"],
+                              "unavailable_why": answer["unavailable_why"]}
+                self._send_json(answer)
                 return
             if path == "/api/files-page":
                 # The Files page, rendered (`gui/files_page.py`).
@@ -1349,7 +1459,8 @@ def make_handler(
                 # The per-residue results the viewer colours the structure by.
                 from fastmdxplora.gui.by_residue import values_by_residue
 
-                self._send_json(values_by_residue(root))
+                # Read from the study's own records only (`_confined`).
+                self._send_json(_said_not_read(_confined(root, values_by_residue)))
                 return
             if path == "/api/secondary-structure":
                 # DSSP for the structure, live frame or frames the viewer was
@@ -1376,9 +1487,9 @@ def make_handler(
                 # What would fix the study on screen, its command and its
                 # price. Not answered beyond loopback: it names the
                 # commands the POST below runs.
-                from fastmdxplora.gui.fixes_view import fixes_payload
-
-                self._send_json(fixes_payload(root))
+                # Read from the study's own records only (`_fixes_held`): a
+                # remedy is not priced from a record linked out of it.
+                self._send_json(_fixes_held(root))
                 return
             if path == "/api/runs-compared":
                 from fastmdxplora.gui.runs_compared import runs_compared
@@ -2041,6 +2152,17 @@ def make_handler(
                         asked.get("windows"), force_constant=asked.get("force_constant"),
                         duration_ns=asked.get("duration_ns"),
                         dashboard_url=self.headers.get("Origin")))
+                    return
+                # What the page was given (`/api/fixes`, of the data shown)
+                # against what `run_a_fix` reads (the study open).
+                if not _the_fix_shown(app_runtime.data_root(), asked.get("index"),
+                                      getattr(app_runtime, "active_root", None)):
+                    # The page's fixes were read from the study's own records
+                    # (`_fixes_held`); one read through a link is not run in
+                    # its place.
+                    self._send_json({"ok": False, "error": (
+                        "That fix is not the one the page showed: the study's fixes "
+                        "were read from its own records. Look at them again.")})
                     return
                 self._send_json(app_runtime.run_a_fix(
                     asked.get("index"), dashboard_url=self.headers.get("Origin")))
@@ -3797,6 +3919,7 @@ def _summary_records(
     extended: tuple[float, int] | None = None,
     production_not_read: str | None = None,
 ) -> list[dict[str, str]]:
+    from fastmdxplora.gui.telemetry import live_records_refused
     from fastmdxplora.simulation.pipeline import _refused
 
     phase_statuses = [
@@ -3842,8 +3965,9 @@ def _summary_records(
         _last_metric_value(root, "temperature"),
     )
     latest = _first_present(live_status.get("status"), status)
-    if not live_status and _refused(root / "simulation" / "live_status.json"):
-        # Its live record not read: not the manifest's word in its place.
+    if not live_status and live_records_refused(root):
+        # Its live record not read, or a piece's: not the manifest's word,
+        # nor the first piece's, in its place.
         latest = "not read"
     records = [
         {"label": "Project status", "value": status},

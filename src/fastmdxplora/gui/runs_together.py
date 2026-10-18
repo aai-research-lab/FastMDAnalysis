@@ -53,13 +53,16 @@ def run_shown(root: Path | str) -> Path | None:
     the order the study planned them, with a trajectory to read; while none
     has one, the first that has written snapshots. None for a study of one
     run, or one whose runs have written nothing yet."""
+    from fastmdxplora import record_access
     from fastmdxplora.gui.exploration import runs_of_a_study
     from fastmdxplora.gui.trajectory_frames import _source
 
     running = None
     for run in runs_of_a_study(Path(root)) or []:
         folder = Path(run["path"])
-        source = _source(folder) if folder.is_dir() else None
+        # Through `record_access`: in a read held to the study, a run linked
+        # out of it is refused and named, not looked in.
+        source = _source(folder) if record_access.is_dir(folder) else None
         if source is not None and source["kind"] == "trajectory":
             return folder
         if source is not None and running is None:
@@ -72,6 +75,7 @@ def runs_of_the_same_atoms(root: Path | str) -> list[dict[str, Any]]:
     first, each as the study lists it: the runs whose results can be set
     beside its own. Runs still running have no results, and are not among
     them. Empty where no run has written anything."""
+    from fastmdxplora import record_access
     from fastmdxplora.gui.exploration import runs_of_a_study
     from fastmdxplora.gui.trajectory_frames import _source
 
@@ -87,7 +91,7 @@ def runs_of_the_same_atoms(root: Path | str) -> list[dict[str, Any]]:
         if folder == played:
             same.insert(0, run)
             continue
-        other = _source(folder) if folder.is_dir() else None
+        other = _source(folder) if record_access.is_dir(folder) else None
         if (ours is not None and other is not None and other["kind"] == "trajectory"
                 and _shown_atoms(other["topology"])[0] == ours):
             same.append(run)

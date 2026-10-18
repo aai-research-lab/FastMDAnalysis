@@ -715,8 +715,11 @@ def production_done_ns(study: str | Path) -> float:
         folder = found.directory
         checkpoint = folder / "simulation" / "checkpoint.chk"
         resolved = folder / "resolved_config.yml"
-        _refuse(checkpoint, _sidecar_of(checkpoint), folder / "simulation" / "state_final.xml",
-                resolved)
+        _refuse(checkpoint, _sidecar_of(checkpoint), resolved)
+        # The final state says a piece finished only where its checkpoint's
+        # record does not (`joining._finished`): refused only then.
+        if not isinstance((read_checkpoint_sidecar(checkpoint) or {}).get("finished"), bool):
+            _refuse(folder / "simulation" / "state_final.xml")
         # Stopped before its first checkpoint, a piece kept nothing: what it
         # ran is run again from the checkpoint before it. It was counted at
         # the length it was asked for.

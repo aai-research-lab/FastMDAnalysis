@@ -243,6 +243,39 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   gone, instead of failing; a folder above the study need only be
   searchable.
 
+- A study given on the command line with `--dashboard` and no `--output`
+  (`fastmdx explore -s 1L2Y --dashboard`) is written to
+  `fastmdxplora_1L2Y_study_<time>`, named by its system, not
+  `fastmdxplora_s1_study_<time>`. `s1` is the id a system is given when it
+  names none, so it does not name the folder even when written in a config;
+  any other `id` does. Runs and records still carry `s1`.
+
+- `FastMDXplora(system=...)` with no `output_dir` runs again, in a folder
+  named by its system. From 2.5.7 it stopped with an AttributeError on
+  `config`.
+
+- `fastmdx explore` given no `--output`, and `FastMDXplora(config=...)` or
+  `FastMDXplora(config_data=...)` given a config with no `output`, run
+  again, in a folder named by the first system. From 2.5.7 each stopped
+  before it started with an AttributeError on `config`, whether the study
+  had one run or several.
+
+- A water map and the water sites asked for at once no longer fail. Both
+  read the same frames, kept for one study at a time, and one request could
+  empty them while the other read them, which then failed with a KeyError
+  on `xyz`.
+
+- A movie made with ffmpeg 8 is tagged with its colour primaries and
+  transfer (BT.709) again. ffmpeg 8 reads them from the frames, which did
+  not carry them, so the movie was written with its colour space and range
+  only, and a player could show its colours wrong.
+
+- A structure fetched from RCSB over a connection that goes quiet once made
+  is given up on after 60 s of silence and asked for again, as a dropped
+  connection is. The fetch took no timeout, so a connection that stalled
+  rather than dropped held setup for as long as it stayed open. A file
+  shorter than the length RCSB gave is still refused as cut short.
+
 - A path longer than its column in the Config Builder (a structure, a
   setting for one system, a config file not found) breaks where it must in
   the system's row and its chips, the plan, what setup will build and the
@@ -402,9 +435,29 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   or a run again from the top whose config was not read, says its price is
   not given and names the record, rather than its whole plan read through
   the link, and a thin umbrella window says how much longer is not given;
-  outside such a read, remedies are as before. `/api/overview`,
-  `/api/results`, `/api/series`, `/api/analysis-overview`, `/api/convergence`,
-  `/api/status` and `/api/figure-data` read through such a link before.
+  outside such a read, remedies are as before. The Overview's card of what
+  would fix it (`/api/fixes`) is read so too, its Manifest, batch manifest
+  and free energy record with the rest: one not read is named, and the
+  remedy says it was not read, with nothing from it. A fix (`/api/fix`) is
+  run only where it is the one the page showed; one that differs, or that
+  the page did not show, is refused. A carried-on study whose newest piece's live
+  record (or the piece's folder) was not read is not read as its first
+  piece, stopped with that piece's frames: its status is Not read, naming
+  the record. A piece's final state is not refused where its checkpoint
+  record already says it finished. The Report page (its report, its notices
+  and its figure panel), the methods, the values the Viewer colours residues
+  by, the charts and the run's narration read only the study too, each
+  naming what it did not read; the methods are not given without a record
+  they read, and the charts and the narration are not given in part. The
+  charts, the Viewer's "Coloured by" note and the Report page say such a
+  record was not read, not that none was recorded or no report written. A
+  run's own process record is read in a study of several runs as in a study
+  of one, and a record that is not there is not said not read: only a link,
+  or a hidden file that is there.
+  `/api/overview`, `/api/results`, `/api/series`, `/api/analysis-overview`,
+  `/api/convergence`, `/api/status`, `/api/figure-data`, `/api/fixes`,
+  `/api/report`, `/api/methods`, `/api/residue-values`, `/api/metrics` and
+  `/api/events` read through such a link before.
 
 ## [2.6.0] - 2026-10-11
 

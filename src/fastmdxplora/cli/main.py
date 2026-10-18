@@ -1717,7 +1717,9 @@ def _build_explore_config(args: argparse.Namespace) -> dict[str, Any]:
 
     # -s/--system builds (or replaces) a one-element systems list.
     if args.system:
-        config["systems"] = [{"id": "s1", "system": args.system}]
+        from fastmdxplora.naming import default_system_id
+
+        config["systems"] = [{"id": default_system_id(0), "system": args.system}]
     if getattr(args, "sweep", None):
         config["sweep"] = {**(config.get("sweep") or {}), **_sweep_from_flags(args.sweep)}
 
@@ -1758,7 +1760,9 @@ def _build_explore_config(args: argparse.Namespace) -> dict[str, Any]:
     # is the system; asked for it as well, the command was refused.
     topology = (config.get("analysis") or {}).get("topology")
     if not config.get("systems") and topology:
-        config["systems"] = [{"id": "s1", "system": str(topology)}]
+        from fastmdxplora.naming import default_system_id
+
+        config["systems"] = [{"id": default_system_id(0), "system": str(topology)}]
 
     # Windows run again at a force constant of their own: the config's list
     # of constants with those windows changed, so the study records what
@@ -1851,7 +1855,10 @@ def _the_study_s_config(args: argparse.Namespace) -> dict[str, Any] | None:
             print(f"  From the study's record: {study / RECORDED}")
             return config
     inferred = _infer_system_from_output(output)
-    return {"systems": [{"id": "s1", "system": inferred}]} if inferred else None
+    from fastmdxplora.naming import default_system_id
+
+    return ({"systems": [{"id": default_system_id(0), "system": inferred}]}
+            if inferred else None)
 
 
 def _dashboard_requested(args: argparse.Namespace) -> bool:

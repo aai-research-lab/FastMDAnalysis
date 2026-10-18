@@ -413,7 +413,8 @@ class FastMDXplora:
 
         self.output_dir: Path | None = (
             Path(output_dir) if output_dir
-            else Path(default_output_name(system_of(self.config)))
+            else Path(default_output_name(system_of(
+                {"systems": [{"id": self._system_id, "system": self.system}]})))
         )
         self.output_dir.mkdir(parents=True, exist_ok=True)
         # Which process this study is, so a GUI opened on the folder later

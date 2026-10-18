@@ -223,6 +223,7 @@
     STATE.focusResidue = null;
     STATE.focusIndices = null;
     STATE.residueValues = null;
+    STATE.residueNotRead = "";
     STATE.residueValuesAsked = 0;
     STATE.residueLookups = null;
     STATE.secondaryStructure = null;
@@ -853,6 +854,9 @@
       // With what the page has added (two states compared, viewer-states.js).
       STATE.residueValues = (Array.isArray(said?.properties) ? said.properties : [])
         .concat(Object.values(STATE.extraResults || {}));
+      // Per-residue results not read (a link out of the study): said under
+      // "Coloured by", not left to go missing from it.
+      STATE.residueNotRead = typeof said?.not_read === "string" ? said.not_read : "";
     } catch (error) {
       console.debug("per-residue results unavailable", error);
       return;
@@ -967,9 +971,11 @@
     const legend = document.getElementById("viewer-legend");
     const said = document.getElementById("viewer-colour-said");
     const property = activeResult();
+    const notRead = STATE.residueNotRead
+      ? `Per-residue results not read: ${STATE.residueNotRead}` : "";
     if (!property || !STATE.model) {
       if (legend) legend.hidden = true;
-      if (said) { said.hidden = true; said.textContent = ""; }
+      if (said) { said.hidden = !notRead; said.textContent = notRead; }
       return;
     }
     const lookup = lookupFor(property);
@@ -992,7 +998,8 @@
       said.hidden = false;
       const of = lookup.named + lookup.unnamed;
       said.textContent = `${property.about} From ${property.source}; `
-        + `${lookup.named} of the ${of} residues shown have a value.`;
+        + `${lookup.named} of the ${of} residues shown have a value.`
+        + (notRead ? ` ${notRead}` : "");
     }
   }
 

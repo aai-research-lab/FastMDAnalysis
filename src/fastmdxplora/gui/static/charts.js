@@ -105,6 +105,7 @@
     return value.toFixed(4);
   }
   let lastMetrics = [];
+  let refused = "";
   let resizeObserver = null;
   /* The production's clock: where production began on the simulation's
    * clock (ns), so every plot reads time from it, equilibration before 0;
@@ -151,7 +152,8 @@
       clock.nptFrom = thermo && Number.isFinite(thermo.npt_from_ns) ? thermo.npt_from_ns : null;
       const speed = event.detail && Number(event.detail.speed_ns_per_day);
       clock.speed = Number.isFinite(speed) && speed > 0 ? speed : null;
-      update(lastMetrics);
+      // Redrawn on the overview's clock: a record not read stays said so.
+      update(lastMetrics, refused);
     });
     window.addEventListener("fmx:crosshair", (event) => {
       crosshair = event.detail ? event.detail.t_ns : null;
@@ -194,8 +196,11 @@
     });
   }
 
-  function update(metrics) {
+  function update(metrics, notRead) {
     lastMetrics = Array.isArray(metrics) ? metrics : [];
+    // Why the record was not read (a link out of the study), where it was
+    // not: said in place of a chart, never drawn as one with no samples.
+    refused = typeof notRead === "string" ? notRead : "";
     // On the production's clock where the record has the simulation's time
     // and the production's start is known; by step otherwise, as before.
     const times = lastMetrics.map((row) => numberOrNaN(row.simulation_time_ns));
@@ -257,7 +262,7 @@
       // A run that has ended will sample nothing more: said "will appear"
       // of one stopped in minimisation.
       const over = window.FastMDXOverview && window.FastMDXOverview.ended();
-      empty.textContent = lastMetrics.length
+      empty.textContent = refused ? refused : lastMetrics.length
         ? "Telemetry samples exist, but none contain chartable values."
         : over ? "The run recorded no sample before it ended."
           : "Live telemetry will appear after the first sample.";
@@ -297,6 +302,15 @@
     drawBackground(ctx, rect);
 
     const points = entry.points;
+    if (!points.length && refused) {
+      ctx.fillStyle = color("axis");
+      ctx.font = `12px ${monoFont()}`;
+      ctx.textAlign = "center";
+      ctx.fillText("not read", rect.width / 2, rect.height / 2);
+      entry.bounds = {said: "not read"};
+      entry.needsDraw = false;
+      return;
+    }
     if (!points.length) {
       drawGrid(ctx, rect);
       ctx.fillStyle = color("axis");

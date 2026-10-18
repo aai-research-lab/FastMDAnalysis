@@ -31,14 +31,24 @@ class ReadScope:
         """Check both the requested address and its current destination."""
         path = path.absolute()
         relative: Path | None = None
+        missing: FileNotFoundError | None = None
         try:
             relative = path.relative_to(self.root)
             resolved = path.resolve()
             resolved.relative_to(self.root)
             if self.admitted(path) and self.admitted(resolved):
                 return resolved
+            # Not there, where it would be is in the study: nothing is
+            # refused, so it is not named as not read; the system's own
+            # word that it is not there is given instead.
+            try:
+                os.lstat(path)
+            except FileNotFoundError as exc:
+                missing = exc
         except (OSError, RuntimeError, ValueError):
             pass
+        if missing is not None:
+            raise missing
         if remember:
             # A link out of the study is named by its own place in it; only
             # an address that is not in the study at all goes unnamed.
@@ -178,7 +188,7 @@ def can_read(path: Path) -> bool:
     try:
         scope.checked(Path(path), remember=False)
         return True
-    except OutsideWorkspace:
+    except (OutsideWorkspace, FileNotFoundError):
         return False
 
 

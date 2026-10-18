@@ -124,13 +124,12 @@ def _command(ffmpeg: str, encoder: Encoder, fps: int, width: int, height: int,
              out: Path, metadata: dict[str, str] | None = None) -> list[str]:
     command = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
                "-f", "image2pipe", "-framerate", str(fps), "-c:v", "png", "-i", "-",
-               # RGB as BT.709 YUV at video range, and the movie tagged so.
-               # FFmpeg 8 negotiates colour properties per frame. Tag the
-               # converted frames too, or it drops primaries/transfer from
-               # the encoded stream despite the output options below.
-               "-vf", ("scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,"
-                       "setparams=range=tv:color_primaries=bt709:"
-                       "color_trc=bt709:colorspace=bt709"),
+               # RGB as BT.709 YUV at video range, and the movie tagged so. The
+               # frames carry the tags too: ffmpeg 8 takes the primaries and
+               # transfer from the frames, which the PNGs leave unsaid, over
+               # the -color_* options, and wrote the movie without them.
+               "-vf", "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,"
+                      "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv",
                *encoder.options(width, height, fps),
                "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
                "-color_range", "tv", "-r", str(fps), "-g", str(2 * fps)]

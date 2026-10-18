@@ -310,19 +310,25 @@ def _source(out: Path) -> dict[str, Any] | None:
     without saying so) is played from its production trajectory where it
     wrote one: a finished run whose record still said "running" was played
     as its 190 snapshots of every stage."""
+    from fastmdxplora import record_access
     from fastmdxplora.gui.live_frames import read_live_frame_history
 
+    # Through `record_access`: in a read held to the study, a record linked
+    # out of it is refused and named, never opened where it leads. Outside
+    # a held read, as pathlib.
     simulation = out / "simulation"
     saved = simulation / "trajectory_topology.pdb"
-    topology = saved if saved.is_file() else simulation / "topology.pdb"
+    topology = saved if record_access.is_file(saved) else simulation / "topology.pdb"
     trajectory = simulation / "production.dcd"
     finished = not _simulation_going(out)
     joined = _load_json(out / "joined" / "joined.json")
     joined_dcd = out / "joined" / "production.dcd"
-    if joined and joined_dcd.is_file() and joined_dcd.stat().st_size > 0:
+    if joined and record_access.is_file(joined_dcd) and record_access.stat(joined_dcd).st_size > 0:
         trajectory = joined_dcd
         named = Path(str(joined.get("topology") or ""))
-        if named.is_file():
+        # The topology the join names, where it is a record of the study
+        # (it is named by the folder the study was in when it was joined).
+        if record_access.can_read(named) and named.is_file():
             topology = named
         finished = True
     history = [record for record in read_live_frame_history(simulation).get("frames", [])
@@ -331,7 +337,8 @@ def _source(out: Path) -> dict[str, Any] | None:
         return {"kind": "live-history", "records": history, "simulation": simulation,
                 "signature": f"history:{len(history)}:{history[-1].get('sequence')}:"
                              f"{history[-1].get('mtime_ns')}"}
-    if topology.is_file() and trajectory.is_file() and trajectory.stat().st_size > 0:
+    if (record_access.is_file(topology) and record_access.is_file(trajectory)
+            and record_access.stat(trajectory).st_size > 0):
         return {"kind": "trajectory", "trajectory": trajectory, "topology": topology,
                 "records": history, "simulation": simulation,
                 "signature": f"{trajectory.parent.name}/{trajectory.name}:"
@@ -1081,8 +1088,11 @@ def _stamp(path: Path) -> str:
 
 
 def _load_json(path: Path) -> dict[str, Any]:
+    # Through `record_access`: held to its study where the read is.
+    from fastmdxplora import record_access
+
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(record_access.read_text(path, encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     return value if isinstance(value, dict) else {}

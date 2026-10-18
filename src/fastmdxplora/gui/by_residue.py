@@ -34,6 +34,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from fastmdxplora import record_access as _records
+
 __all__ = ["values_by_residue", "secondary_structure", "residue_runs"]
 
 #: A label the analyses write for one residue: ``ASP189``, ``GLY184A`` with
@@ -69,9 +71,9 @@ def values_by_residue(root: str | Path) -> dict[str, Any]:
 
 def _properties(base: Path, frames: int | None) -> list[dict[str, Any]]:
     found: list[dict[str, Any]] = []
-    for options in sorted((base / "analysis").glob("*/options.json")):
+    for options in sorted(_records.glob(base / "analysis", "*/options.json")):
         try:
-            record = json.loads(options.read_text(encoding="utf-8"))
+            record = json.loads(_records.read_text(options, encoding="utf-8"))
         except (OSError, ValueError):
             continue
         if not isinstance(record, dict):
@@ -194,8 +196,8 @@ def _mean_of(key: str, entries: list[tuple[dict[str, Any], dict[str, Any]]],
 
 def _frames_analysed(base: Path) -> int | None:
     try:
-        manifest = json.loads((base / "analysis" / "analysis_manifest.json")
-                              .read_text(encoding="utf-8"))
+        manifest = json.loads(_records.read_text(base / "analysis" / "analysis_manifest.json",
+                                                 encoding="utf-8"))
         count = int(manifest.get("n_frames"))
     except (OSError, ValueError, TypeError):
         return None
@@ -222,15 +224,18 @@ def _one_scale_for_fluctuations(found: list[dict[str, Any]]) -> None:
 def _table(path: Path) -> Any:
     """A table an analysis wrote, read the way it was written: numbers under
     a ``#`` line, or comma-separated under a header row."""
+    import io
+
     import numpy as np
     import pandas as pd
 
-    with path.open(encoding="utf-8", errors="replace") as handle:
-        first = handle.readline()
-    if first.startswith("#"):
-        numbers = np.loadtxt(path, ndmin=2)
+    # Through `record_access`: in a read held to the study, a table linked
+    # out of it is refused, not read.
+    text = _records.read_text(path, encoding="utf-8", errors="replace")
+    if text.startswith("#"):
+        numbers = np.loadtxt(io.StringIO(text), ndmin=2)
         return pd.DataFrame(numbers)
-    return pd.read_csv(path)
+    return pd.read_csv(io.StringIO(text))
 
 
 def _rows(table: Any, value: Any) -> list[list[Any]]:
@@ -327,7 +332,7 @@ def _pl_contacts(folder: Path, record: dict[str, Any], frames: int | None) -> di
     options = record.get("options") or {}
     ligand = str(options.get("ligand_resname") or "the ligand")
     path = folder / "pl_contacts_per_residue.csv"
-    if not path.is_file():
+    if not _records.is_file(path):
         return None
     table = _table(path)
     rows: list[list[Any]] = []
@@ -390,7 +395,7 @@ def _bfactor_comparison(folder: Path, record: dict[str, Any],
 
 def _has_header(path: Path) -> bool:
     try:
-        with path.open(encoding="utf-8", errors="replace") as handle:
+        with _records.open_text(path, encoding="utf-8", errors="replace") as handle:
             return not handle.readline().startswith("#")
     except OSError:
         return False

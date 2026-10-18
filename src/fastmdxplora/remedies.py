@@ -348,6 +348,27 @@ def remedies_of(study: str | Path) -> list[Remedy]:
             return []
     except Exception:  # noqa: BLE001 - a record, not a verdict
         pass
+    try:
+        return _from_its_records(root)
+    except OutsideWorkspace as refusal:
+        # A record that says what stopped the study, refused by a held read
+        # (`record_access`): not read, and nothing of it said. Not a study
+        # with no such record either, which reads as stopped another way.
+        return [_unread(refusal, root, "the study")]
+
+
+def _unread(refusal: OSError, root: Path, where: str) -> Remedy:
+    """For a record a held read refused (`record_access`) that says what
+    stopped ``where``: that it was not read, and no fix from it."""
+    return Remedy(code=OutsideWorkspace.default_code, where=where,
+                  why=_not_read(refusal, root),
+                  fix=f"What would fix it is not given: what stopped {where} is said "
+                      "in that record.")
+
+
+def _from_its_records(root: Path) -> list[Remedy]:
+    """`remedies_of` the resolved study ``root`` not running, from its
+    batch manifest, its record of how it stands and its Manifest."""
     batch = _read(root / "batch_manifest.json")
     if isinstance(batch, dict):
         return _of_a_batch(root, batch)
@@ -486,7 +507,12 @@ def _of_a_batch(root: Path, batch: dict[str, Any]) -> list[Remedy]:
         remedies.insert(0, _covering(remedy, names))
     if any(refusal is not None for _, _, refusal in windows.values()):
         remedies.append(_failed_windows(root, batch, windows))
-    remedies.extend(_umbrella(root, batch, planned, skip=set(windows)))
+    try:
+        remedies.extend(_umbrella(root, batch, planned, skip=set(windows)))
+    except OutsideWorkspace as refusal:
+        # Its `pmf.json` refused by a held read: the free energy's refusal
+        # is not read, and the runs' remedies above still stand.
+        remedies.append(_unread(refusal, root, "the free energy"))
     return remedies
 
 
@@ -920,8 +946,15 @@ def _windows_named(indices: list[int]) -> str:
 # Records and arithmetic
 # ---------------------------------------------------------------------------
 def _read(path: Path) -> Any:
+    """A JSON record, or None where it is not there or not JSON. Through
+    `record_access`: in a read held to the study, a record linked out of it
+    is refused (`OutsideWorkspace`), not read as none."""
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(record_access.read_text(path, encoding="utf-8"))
+    except OutsideWorkspace as refusal:
+        # Named by its place, for the remedy to say which (`_not_read`).
+        refusal.filename = refusal.filename or str(path)
+        raise
     except (OSError, ValueError):
         return None
 
