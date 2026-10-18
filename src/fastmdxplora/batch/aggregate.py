@@ -124,6 +124,14 @@ def _members_are_replicas(manifest: dict[str, Any]) -> tuple[bool, str]:
     )
 
 
+def _finite_or_none(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if np.isfinite(number) else None
+
+
 def _share_the_start(root: Path, runs: list[dict[str, Any]]) -> None:
     """Replicas' means from the start they share, as the stopping rule takes
     them (:func:`fastmdxplora.simulation.stopping.share_the_start`): each
@@ -178,9 +186,9 @@ def aggregate_members(batch_dir: str | Path) -> dict[str, Any]:
                 "member": run.get("run_id"),
                 "sweep_values": run.get("sweep_values") or {},
                 "mean": float(mean["mean"]),
-                "standard_error": (
-                    None if mean.get("standard_error") is None
-                    else float(mean["standard_error"])),
+                # NaN where the run could not estimate one: None, as for a
+                # run that recorded none (NaN is not JSON a page can read).
+                "standard_error": _finite_or_none(mean.get("standard_error")),
                 "effective_samples": mean.get("effective_samples"),
                 # Carried through rather than summarised away: a member that
                 # said its own number was not a measurement must not be
@@ -202,22 +210,40 @@ def aggregate_members(batch_dir: str | Path) -> dict[str, Any]:
                 else "the difference between the studies compared"),
         }
 
+        # Only an error a run could estimate is a prediction: a run too short
+        # to give one records NaN (read as None above), and NaN compared
+        # with anything is false, so the spread was said to be "within the
+        # factor" of "nan" and the error "supported by repeating it".
         errors = [r["standard_error"] for r in rows
-                  if r["standard_error"] is not None]
-        if replicas and errors:
+                  if r["standard_error"] is not None and r["standard_error"] > 0]
+        if replicas and not errors:
+            observed = float(np.std(means, ddof=1))
+            entry["predicted_standard_error"] = None
+            entry["observed_standard_error"] = observed
+            entry["ratio_observed_to_predicted"] = None
+            entry["calibration"] = (
+                f"The replicas spread {observed:.3g}. No run gave an error "
+                "of its own for this observable, so there is nothing to "
+                "check the spread against: the spread is the only error "
+                "there is."
+            )
+        elif replicas and errors:
             predicted = float(np.mean(errors))
             observed = float(np.std(means, ddof=1))
             entry["predicted_standard_error"] = predicted
             entry["observed_standard_error"] = observed
-            entry["ratio_observed_to_predicted"] = (
-                float(observed / predicted) if predicted > 0 else None)
+            entry["ratio_observed_to_predicted"] = float(observed / predicted)
             qualified = [r["member"] for r in rows if r["not_a_measurement"]]
             if qualified:
                 entry["qualified_by_their_own_runs"] = qualified
-            if predicted > 0 and observed > CALIBRATION_FACTOR * predicted:
+            # A prediction from some of the runs is said as such.
+            some = ("" if len(errors) == len(rows) else
+                    f" (from the {len(errors)} of {len(rows)} runs that "
+                    "gave an error of their own)")
+            if observed > CALIBRATION_FACTOR * predicted:
                 entry["calibration"] = (
                     f"The replicas spread {observed:.3g} where a single run "
-                    f"predicted {predicted:.3g}, more than the factor of "
+                    f"predicted {predicted:.3g}{some}, more than the factor of "
                     f"{CALIBRATION_FACTOR:g} that ten replicas can resolve. "
                     "The single-run estimate reads the correlation time off "
                     "a trajectory too short to contain it, so the error bars "
@@ -229,7 +255,7 @@ def aggregate_members(batch_dir: str | Path) -> dict[str, Any]:
             else:
                 entry["calibration"] = (
                     f"The replicas spread {observed:.3g} against a predicted "
-                    f"{predicted:.3g}, within the factor of "
+                    f"{predicted:.3g}{some}, within the factor of "
                     f"{CALIBRATION_FACTOR:g} that this many replicas can "
                     "resolve: the error this observable reports for itself "
                     "is supported by repeating it."
