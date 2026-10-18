@@ -233,10 +233,26 @@
     if (name && !name.value) name.placeholder = freeName();
   }
 
+  /* The study this page shows, by its key: named with each write, which
+   * the server refuses for another study open since (a window that has not
+   * yet seen another one open a study), as for views (viewer-views.js). */
+  function pageStudy() {
+    var board = window.FastMDXDashboard;
+    var key = board && board.state ? board.state.studyShown : "";
+    return /^[0-9a-f]{16}$/.test(key || "") ? key : "";
+  }
+
+  /* Why a write was not made, as the person is told it. */
+  function notMade(answer, what) {
+    if (answer && answer.study_changed) return what + ": another study is open now.";
+    return (answer && answer.reason) || what + ".";
+  }
+
   function post(body) {
+    var page = pageStudy();
     return fetch("/api/viewer-selections", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(page ? Object.assign({ page_study: page }, body) : body),
     }).then(function (r) {
       return r.json().catch(function () { return { ok: false, reason: "HTTP " + r.status }; });
     }).catch(function () { return { ok: false, reason: "The server did not answer." }; });
@@ -263,7 +279,7 @@
     selection.representation = existing ? existing.representation : "sticks";
     selection.labelled = existing ? existing.labelled : false;
     post({ name: name, selection: selection }).then(function (answer) {
-      if (!answer || !answer.ok) { said((answer && answer.reason) || "Not saved."); return; }
+      if (!answer || !answer.ok) { said(notMade(answer, "The selection was not kept")); return; }
       state.named = answer.selections;
       if (input) input.value = "";
       said("Named " + name + ".");
@@ -284,13 +300,13 @@
     var body = Object.assign({}, one);
     delete body.name;
     post({ name: name, selection: body }).then(function (answer) {
-      if (!answer || !answer.ok) said((answer && answer.reason) || "Not saved.");
+      if (!answer || !answer.ok) said(notMade(answer, "The change was not kept"));
     });
   }
 
   function forget(name) {
     post({ action: "delete", name: name }).then(function (answer) {
-      if (!answer || !answer.ok) { said((answer && answer.reason) || "Not forgotten."); return; }
+      if (!answer || !answer.ok) { said(notMade(answer, "The selection was not forgotten")); return; }
       var shown = state.named.some(function (one) { return one.name === name && shows(one); });
       state.named = answer.selections;
       state.atoms.delete(name);

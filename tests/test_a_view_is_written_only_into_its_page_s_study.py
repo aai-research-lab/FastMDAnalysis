@@ -127,3 +127,45 @@ def test_undo_before_the_window_sees_another_study_is_refused(session) -> None:
     assert views_of(session.first)["views"] == []
     assert "The view was not put back: another study is open now." in said, said
     assert errors == []
+
+
+def test_a_selection_changed_before_the_window_sees_another_study_is_refused(session) -> None:
+    """Found by review K3 (third round): the page's selection writes named
+    no study, so a window that had not yet seen another one open a study
+    wrote its selection into that study."""
+    from playwright.sync_api import sync_playwright
+
+    from fastmdxplora.gui.viewer_selections import save_selection, selections_of
+
+    mutant = session.workspace / "mutant"
+    assert save_selection(session.first, "kept", {"kind": "expression", "expression": "protein"})["ok"]
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
+        try:
+            page = browser.new_context(viewport={"width": 1400, "height": 1000}).new_page()
+            page.set_default_timeout(60000)
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(session.url + "#viewer", wait_until="domcontentloaded")
+            hooks.tool(page, "side-selections")
+            page.wait_for_selector('.sel-item[data-name="kept"]')
+            # Another study opened (as by another window), and the change
+            # made at once, before this window can have seen the switch.
+            with page.expect_response(lambda r: r.url.endswith("/api/viewer-selections")
+                                      and r.request.method == "POST"):
+                shown = page.evaluate("""async (folder) => {
+                    const shown = window.FastMDXDashboard.state.studyShown;
+                    await fetch('/api/explore/switch', {method: 'POST',
+                        headers: {'content-type': 'application/json'}, body: JSON.stringify({folder})});
+                    document.querySelector('.sel-item[data-name="kept"] .sel-eye').click();
+                    return shown;
+                }""", str(mutant))
+            page.wait_for_timeout(300)
+            said = page.text_content("#sel-said")
+        finally:
+            browser.close()
+            _post(session, "/api/explore/switch", {"folder": str(session.first)})
+    assert shown == study_key(session.first)
+    assert selections_of(mutant)["selections"] == [], "written into the other study"
+    assert said == "The change was not kept: another study is open now.", said
+    assert errors == []
