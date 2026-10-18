@@ -24,7 +24,7 @@ from typing import Any
 from fastmdxplora.system_id import system_id
 
 __all__ = ["studies_in", "card_of", "head_of", "studies_compared", "compared_side", "sides_compared",
-           "tags_used", "thumbnail_of", "thumbnail_series", "study_key", "study_keyed",
+           "means_of", "tags_used", "thumbnail_of", "thumbnail_series", "study_key", "study_keyed",
            "study_state"]
 
 #: A difference is marked past this many combined standard errors.
@@ -200,9 +200,18 @@ def tags_used(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def head_of(folder: Path | str) -> dict[str, Any]:
     """What a study is, from its records: its folder, its system, what kind
     of study it is and where it stands. Read through `record_access`, held
-    to the study where the read is (the Compare page)."""
+    to the study where the read is (the Compare page): where the record its
+    state is said from was not read, the state is not known, never one
+    taken from that record's absence."""
+    from fastmdxplora import record_access
+
     base = Path(folder)
-    return _head(base, *_records_of(base))
+    head = _head(base, *_records_of(base))
+    for name in ("batch_manifest.json", "manifest.json"):
+        if os.path.lexists(base / name) and not record_access.can_read(base / name):
+            head["state"] = f"not known: {name} was not read"
+            break
+    return head
 
 
 def _head(base: Path, config: Any, batch: Any, manifest: Any) -> dict[str, Any]:
@@ -374,13 +383,46 @@ def compared_side(base: Path) -> dict[str, Any]:
         if os.path.lexists(options) and not record_access.can_read(options):
             not_read.append(folder.name)
     return {"config": config, "ran": _phases_ran(base), "analysed": _analysed(base),
-            "ran_analyses": _ran_analyses(base), "means": dict(_means(base)),
+            "ran_analyses": _ran_analyses(base), "means": means_of(base),
             "not_read": sorted(not_read)}
 
 
-def sides_compared(one: dict[str, Any], other: dict[str, Any]) -> dict[str, Any]:
+def means_of(base: Path) -> dict[str, dict[str, Any]]:
+    """Every mean a comparison sets beside another's: each analysis's own,
+    then the thermodynamic means as the run's Overview reads them (from the
+    thermodynamics analysis where it recorded them, from production's
+    energy file otherwise), each with its error only where it is
+    determined. A thermodynamic mean whose record was not read is said so."""
+    means = dict(_means(base))
+    try:
+        from fastmdxplora.gui.overview_view import THERMODYNAMICS, _thermodynamics
+
+        found = _thermodynamics(base)
+    except Exception:  # noqa: BLE001 - compared without them
+        return means
+    shown = found.get("means") if isinstance(found.get("means"), dict) else {}
+    for key, label, unit in THERMODYNAMICS:
+        said = shown.get(key)
+        if isinstance(said, dict) and _finite(said.get("mean")) is not None:
+            determined = bool(said.get("determined"))
+            means[key] = {"label": label, "mean": _finite(said.get("mean")),
+                          "error": _finite(said.get("error")) if determined else None,
+                          "unit": unit,
+                          "withheld": None if determined else (str(said.get("why") or "")
+                                                               or "not determined")}
+        elif key in shown and found.get("not_read"):
+            means[key] = {"label": label, "mean": None, "error": None, "unit": unit,
+                          "withheld": None, "not_read": True}
+    return means
+
+
+def sides_compared(one: dict[str, Any], other: dict[str, Any],
+                   errors: dict[str, tuple[float, float]] | None = None) -> dict[str, Any]:
     """The settings in which two studies differ and the means each recorded,
-    from what `compared_side` read of each."""
+    from what `compared_side` read of each. ``errors`` gives, by quantity,
+    the error of each one's mean to compare them with in place of the
+    error each run estimated for itself: two replicas' (the Compare page,
+    `batch.aggregate.replica_error`)."""
     from fastmdxplora.config.diff import differences
 
     found = [d for d in differences(one["config"], other["config"],
@@ -420,8 +462,13 @@ def sides_compared(one: dict[str, Any], other: dict[str, Any]) -> dict[str, Any]
         for name in side.get("not_read") or ():
             means.setdefault(name, {"label": _label_of(name), "mean": None, "error": None,
                                     "unit": "", "withheld": None, "not_read": True})
+    from fastmdxplora.gui.overview_view import THERMODYNAMICS
+
+    thermodynamic = [key for key, _, _ in THERMODYNAMICS]
+    names = set(mine) | set(theirs)
     measures = []
-    for name in _in_order(set(mine) | set(theirs)):
+    for name in (_in_order(names - set(thermodynamic))
+                 + [key for key in thermodynamic if key in names]):
         first, second = mine.get(name), theirs.get(name)
         row: dict[str, Any] = {"analysis": name, "first": first, "second": second,
                                "label": (first or second or {}).get("label", name),
@@ -430,9 +477,13 @@ def sides_compared(one: dict[str, Any], other: dict[str, Any]) -> dict[str, Any]
                   if side and side.get("mean") is not None and side.get("error") is not None]
         if len(usable) == 2:
             difference = second["mean"] - first["mean"]
-            error = math.hypot(first["error"], second["error"])
+            given = (errors or {}).get(name)
+            error = math.hypot(*(given or (first["error"], second["error"])))
             row["versus"] = {"difference": difference, "error": error,
                              "resolved": error > 0 and abs(difference) > RESOLVED_AT * error}
+            if given:
+                row["versus"]["errors"] = list(given)
+                row["versus"]["error_of"] = "replicas"
         measures.append(row)
     return {"settings": settings, "unrecorded": unrecorded, "measures": measures,
             "resolved_at": RESOLVED_AT}

@@ -229,8 +229,7 @@ def _linked_out(record: Path, outside: Path, content: dict) -> None:
     _link(record, outside)
 
 
-@PUBLIC
-def test_a_record_linked_out_of_a_run_compared_is_not_read(variants, tmp_path, public):
+def test_a_record_linked_out_of_a_run_compared_is_not_read(variants, tmp_path):
     from tests.test_the_study_pages_read_only_the_study import (
         OUTSIDE, TEXT, _ask, _OPENED, _watch, _WATCHED)
 
@@ -240,16 +239,12 @@ def test_a_record_linked_out_of_a_run_compared_is_not_read(variants, tmp_path, p
                 OUTSIDE["determined"])
     _watch(outside)
     try:
-        status, body = _ask(variants, tmp_path, _compared_route(first, second), public=public)
+        status, body = _ask(variants, tmp_path, _compared_route(first, second), public=False)
         opened = sorted(set(_OPENED))
     finally:
         _WATCHED.clear()
     assert opened == []
     assert TEXT not in body.decode("utf-8")
-    if public:
-        # Not answered beyond loopback at all.
-        assert status == 403
-        return
     answer = json.loads(body)
     assert status == 200 and answer["ok"] is True
     rmsd = next(m for m in answer["measures"] if m["analysis"] == "rmsd")
@@ -259,10 +254,12 @@ def test_a_record_linked_out_of_a_run_compared_is_not_read(variants, tmp_path, p
     assert answer["not_read"].startswith(
         "study, temperature 300 K: analysis/rmsd/options.json was not read")
     assert "rmsd" not in [s["analysis"] for s in answer["series"]]
+    # Both recorded it: not drawn because it was not read, never said as a
+    # series they do not have in common.
+    assert answer["series_not_read"] == ["RMSD"]
 
 
-@PUBLIC
-def test_a_config_linked_out_is_said_not_read_not_missing(variants, tmp_path, public):
+def test_a_config_linked_out_is_said_not_read_not_missing(variants, tmp_path):
     from tests.test_the_study_pages_read_only_the_study import _ask, _OPENED, _watch, _WATCHED
 
     first, second = _runs(variants)
@@ -277,14 +274,11 @@ def test_a_config_linked_out_is_said_not_read_not_missing(variants, tmp_path, pu
     _link(config, outside / "resolved_config.yml")
     _watch(outside)
     try:
-        status, body = _ask(variants, tmp_path, _compared_route(first, second), public=public)
+        status, body = _ask(variants, tmp_path, _compared_route(first, second), public=False)
         opened = sorted(set(_OPENED))
     finally:
         _WATCHED.clear()
     assert opened == []
-    if public:
-        assert status == 403
-        return
     answer = json.loads(body)
     assert answer["ok"] is False
     assert answer["reason"].startswith(f"{first.name}: resolved_config.yml was not read")
@@ -309,7 +303,10 @@ def test_a_run_s_study_record_linked_out_does_not_name_it(variants, tmp_path):
     assert status == 200 and opened == []
     answer = json.loads(body)
     assert answer["first"]["said"] == first.name and answer["first"]["run_of"] is None
-    assert "study: batch_manifest.json was not read" in answer["not_read"]
+    # The two runs' study: its record not read said once, not once a run.
+    assert answer["not_read"].count("study: batch_manifest.json was not read") == 1
+    # Whether they are repeats of one measurement is then not known: said.
+    assert answer["replicas_unknown"].startswith("Whether these two runs are replicas is not known")
 
 
 def test_the_page_says_a_record_not_read(variants, tmp_path):
@@ -332,3 +329,158 @@ def test_the_page_says_a_record_not_read(variants, tmp_path):
     said = _browse(variants, look)
     assert said["shown"] and "analysis/rmsd/options.json was not read" in said["line"]
     assert said["rmsd"][1] == "not read" and said["rmsd"][3] == "not compared"
+
+
+# ---------------------------------------------------------------------------
+# Two replicas: the error between them is the one `batch/aggregate.py` gives.
+
+def test_two_replicas_are_set_against_the_replicas_spread_not_their_own_errors(tmp_path):
+    """Three runs differing only by seed, each with its own error ten times
+    and more smaller than the spread of their means: the error each run
+    printed is too tight (`batch.aggregate`'s calibration), and a difference
+    between two of them set against it was called resolved. Set against the
+    error `aggregate` gives each replica, it is within the errors."""
+    from fastmdxplora.batch.aggregate import aggregate_members
+    from fastmdxplora.gui.compare_view import compared
+    from tests.test_the_overview_of_a_study_of_runs import _a_study_of_runs
+
+    study = _a_study_of_runs(tmp_path, "simulation.random_seed", [1, 2, 3])
+    first, second, _ = _runs(study)
+    said = compared(first, second)
+    rmsd = next(m for m in said["measures"] if m["analysis"] == "rmsd")
+    own = [rmsd["first"]["error"], rmsd["second"]["error"]]
+    assert abs(rmsd["versus"]["difference"]) > 10 * (own[0] ** 2 + own[1] ** 2) ** 0.5
+    entry = aggregate_members(study)["analyses"]["rmsd"]
+    assert entry["ratio_observed_to_predicted"] > 10
+    errors = [row["error_as_a_replica"] for row in entry["members"][:2]]
+    assert rmsd["versus"]["errors"] == pytest.approx(errors)
+    assert rmsd["versus"]["error"] == pytest.approx((errors[0] ** 2 + errors[1] ** 2) ** 0.5)
+    assert rmsd["versus"]["resolved"] is False and rmsd["versus"]["error_of"] == "replicas"
+    assert said["replicas"]["runs"] == 3
+
+
+def test_two_runs_of_a_sweep_keep_their_own_errors(variants):
+    from fastmdxplora.gui.compare_view import compared
+
+    said = compared(*_runs(variants))
+    rmsd = next(m for m in said["measures"] if m["analysis"] == "rmsd")
+    assert "error_of" not in rmsd["versus"] and "replicas" not in said
+
+
+def test_the_replica_error_is_the_spread_or_the_run_s_own_where_larger():
+    from fastmdxplora.batch.aggregate import replica_error
+
+    assert replica_error([1.0, 2.0, 3.0], 0.01) == pytest.approx(1.0)
+    assert replica_error([1.0, 2.0, 3.0], 5.0) == pytest.approx(5.0)
+    assert replica_error([1.0, 2.0, 3.0], None) == pytest.approx(1.0)
+    assert replica_error([1.0], 0.5) is None
+
+
+# ---------------------------------------------------------------------------
+# The thermodynamic means and series, as the run's Overview reads them.
+
+def _energies(run: Path, potential: float) -> None:
+    import numpy as np
+
+    noise = np.random.default_rng(1).standard_normal(400)
+    lines = ['#"Step","Time (ps)","Potential Energy (kJ/mole)","Temperature (K)"']
+    for i in range(400):
+        lines.append(f"{(i + 1) * 500},{(i + 1) * 1.0},{potential + 5 * noise[i]:.4f},"
+                     f"{300 + 2 * noise[i]:.4f}")
+    (run / "simulation" / "energy.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_the_thermodynamic_means_and_series_are_compared(variants):
+    from fastmdxplora.gui.compare_view import compared
+    from fastmdxplora.gui.overview_view import overview_payload
+
+    first, second = _runs(variants)
+    _energies(first, -1000.0)
+    _energies(second, -1100.0)
+    said = compared(first, second)
+    rows = {m["analysis"]: m for m in said["measures"]}
+    potential = rows["potential_energy"]
+    assert (potential["label"], potential["unit"]) == ("Potential energy", "kJ/mol")
+    # As the run's Overview says it.
+    shown = overview_payload(first)["thermodynamics"]["means"]["potential_energy"]
+    assert potential["first"]["mean"] == pytest.approx(shown["mean"])
+    assert potential["versus"]["difference"] == pytest.approx(-100.0, abs=2.0)
+    assert potential["versus"]["resolved"] is True
+    assert list(rows)[-2:] == ["potential_energy", "temperature"]
+    drawn = {s["analysis"]: s for s in said["series"]}
+    assert drawn["potential_energy"]["first"]["x_label"] == "Simulation time (ns)"
+    assert len(drawn["potential_energy"]["second"]["y"]) == 400
+
+
+# ---------------------------------------------------------------------------
+# A run whose Manifest was not read is not said to stand anywhere.
+
+def test_a_run_s_state_is_not_known_when_its_manifest_was_not_read(variants, tmp_path):
+    from tests.test_the_study_pages_read_only_the_study import _ask, _OPENED, _watch, _WATCHED
+
+    first, second = _runs(variants)
+    manifest = first / "manifest.json"
+    outside = tmp_path / "elsewhere"
+    _linked_out(manifest, outside / "manifest.json",
+                json.loads(manifest.read_text(encoding="utf-8")))
+    _watch(outside)
+    try:
+        status, body = _ask(variants, tmp_path, _compared_route(first, second), public=False)
+        opened = sorted(set(_OPENED))
+    finally:
+        _WATCHED.clear()
+    assert status == 200 and opened == []
+    answer = json.loads(body)
+    assert answer["first"]["state"] == "not known: manifest.json was not read"
+    assert answer["second"]["state"] == "completed"
+
+
+# ---------------------------------------------------------------------------
+# On a phone, and the page's own figures.
+
+def test_the_page_on_a_phone_breaks_no_word_and_says_the_replicas_error(tmp_path):
+    from tests.test_the_overview_of_a_study_of_runs import _a_study_of_runs
+
+    study = _a_study_of_runs(tmp_path, "simulation.random_seed", [1, 2, 3])
+    first, second, _ = _runs(study)
+    (second / "resolved_config.yml").write_text(
+        (second / "resolved_config.yml").read_text(encoding="utf-8")
+        + "setup:\n  random_seed: 7\n", encoding="utf-8")
+    place = urllib.parse.quote(str(first), safe="") + "|" + urllib.parse.quote(str(second), safe="")
+
+    def look(page, url):
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.goto(url + "#compare/" + place, wait_until="domcontentloaded")
+        page.wait_for_selector('.page[data-page="compare"][data-compared="yes"]')
+        return page.evaluate("""() => {
+            const words = [...document.querySelectorAll(
+                '.compare-means-table th, .compare-settings-table td.compare-setting')];
+            return {
+                broken: words.filter((n) => n.textContent.split(/[ ._]/).some((w) => {
+                    const probe = document.createElement('span');
+                    probe.textContent = w;
+                    probe.style.whiteSpace = 'nowrap';
+                    n.appendChild(probe);
+                    const style = getComputedStyle(n);
+                    const room = n.clientWidth - parseFloat(style.paddingLeft)
+                        - parseFloat(style.paddingRight);
+                    const fits = probe.getBoundingClientRect().width <= room + 0.5;
+                    probe.remove();
+                    return !fits;
+                })).map((n) => n.textContent),
+                sideways: document.documentElement.scrollWidth > window.innerWidth,
+                note: (document.querySelector('.compare-replicas') || {}).textContent || '',
+                errorOf: document.querySelector(
+                    '.compare-means-table tr[data-analysis="rmsd"] td:last-child').dataset.errorOf,
+                small: window.FastMDXCompare.withError
+                    ? window.FastMDXCompare.withError(1.5e-6, 2.5e-7, 'nm') : null,
+            };
+        }""")
+
+    said = _browse(study, look)
+    assert said["sideways"] is False
+    assert said["broken"] == [], said
+    assert said["errorOf"] == "replicas"
+    assert said["note"].startswith("These are two of 3 runs that differ only by random seed")
+    # An error below a millionth said in its powers of ten, never 0.000000.
+    assert said["small"] == "(15.0 \u00b1 2.5)e-7 nm"

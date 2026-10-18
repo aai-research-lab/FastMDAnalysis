@@ -30,8 +30,17 @@
     if (mean === null || mean === undefined) return "not recorded";
     var said;
     if (error !== null && error !== undefined && error > 0) {
-      var places = Math.max(0, Math.min(6, 1 - Math.floor(Math.log10(error))));
-      said = mean.toFixed(places) + " \u00b1 " + error.toFixed(places);
+      var places = Math.max(0, 1 - Math.floor(Math.log10(error)));
+      if (places > 6) {
+        // Past six places a fixed figure reads 0.000000: the two in the
+        // error's own powers of ten instead.
+        var power = Math.floor(Math.log10(error));
+        var scale = Math.pow(10, power);
+        said = "(" + (mean / scale).toFixed(1) + " \u00b1 " + (error / scale).toFixed(1) +
+          ")e" + power;
+      } else {
+        said = mean.toFixed(places) + " \u00b1 " + error.toFixed(places);
+      }
     } else {
       said = Number(mean.toPrecision(4)).toString();
     }
@@ -45,6 +54,18 @@
     if (record.not_read) return "not read";
     if (record.withheld) return withError(record.mean, null, record.unit) + ", not determined";
     return withError(record.mean, record.error, record.unit);
+  }
+
+  /* A setting's name, a line allowed to break after each dot and
+   * underscore ("setup.random_seed"), never inside a word. */
+  function settingName(name) {
+    var cell = make("td", "mono compare-setting");
+    String(name).split(/([._])/).forEach(function (part, i) {
+      if (!part) return;
+      cell.appendChild(document.createTextNode(part));
+      if (i % 2) cell.appendChild(document.createElement("wbr"));
+    });
+    return cell;
   }
 
   function settingSaid(value) {
@@ -205,7 +226,7 @@
       found.forEach(function (d, i) {
         var row = make("tr");
         if (i >= SHOWN_FIRST) row.hidden = true;
-        row.appendChild(make("td", "mono", d.setting));
+        row.appendChild(settingName(d.setting));
         row.appendChild(make("td", "mono", settingSaid(d.first)));
         row.appendChild(make("td", "mono", settingSaid(d.second)));
         table.appendChild(row);
@@ -255,7 +276,9 @@
       var cell = make("td", "mono");
       if (m.versus) {
         cell.textContent = withError(m.versus.difference, m.versus.error, m.unit) +
-          (m.versus.resolved ? ", resolved" : ", within the errors");
+          (m.versus.resolved ? ", resolved" : ", within the errors") +
+          (m.versus.error_of === "replicas" ? " (replicas' spread)" : "");
+        if (m.versus.error_of) cell.dataset.errorOf = m.versus.error_of;
         if (m.versus.resolved) row.classList.add("is-resolved");
       } else {
         cell.textContent = "not compared";
@@ -268,6 +291,17 @@
       "The difference is the second's mean less the first's. It is resolved past " +
       data.resolved_at + " times the two's combined standard error. A mean an analysis " +
       "did not stand behind is not compared."));
+    if (data.replicas) {
+      // Two repeats of one measurement (batch/aggregate.py): their spread
+      // is its error, and each run's own estimate can understate it.
+      host.appendChild(make("p", "muted small compare-replicas",
+        "These are two of " + data.replicas.runs + " runs that differ only by random seed: " +
+        "repeats of one measurement. Each mean's error is the spread of the " +
+        data.replicas.runs + " runs' means, or the run's own where that is larger, as the " +
+        "study's replicas are aggregated; marked \u201creplicas' spread\u201d."));
+    } else if (data.replicas_unknown) {
+      host.appendChild(make("p", "muted small compare-replicas", data.replicas_unknown));
+    }
   }
 
   function colourOf(i) {
@@ -281,8 +315,16 @@
     host.hidden = false;
     host.appendChild(make("h2", "card-title", "Over time"));
     var found = data.series || [];
+    var unread = data.series_not_read || [];
+    if (unread.length) {
+      // Both recorded it, a record of one was not read (named above).
+      host.appendChild(make("p", "muted small compare-series-unread",
+        "Not drawn: " + unread.join(", ") + ". A record of one of the two was not read."));
+    }
     if (!found.length) {
-      host.appendChild(make("p", "muted small", "They recorded no series over time in common."));
+      if (!unread.length) {
+        host.appendChild(make("p", "muted small", "They recorded no series over time in common."));
+      }
       return;
     }
     var runs = window.FastMDXRunsCompared;
@@ -367,5 +409,5 @@
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", wire);
   else wire();
 
-  window.FastMDXCompare = { open: open, load: load, pairOf: pairOf };
+  window.FastMDXCompare = { open: open, load: load, pairOf: pairOf, withError: withError };
 }());

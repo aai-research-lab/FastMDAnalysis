@@ -24,7 +24,13 @@
 .compare-series-block { margin: 8px 0 16px; }
 .compare-series-chart svg { display: block; width: 100%; height: auto; max-height: 300px; }
 
-/* A phone: one above the other. */
+/* A phone: one above the other. The tables size their columns to what
+ * they hold, a word broken only where it cannot fit whole (a setting's name
+ * at its dots and underscores, compare.js); values may break anywhere. */
 @media (max-width: 640px) {
     .compare-heads { grid-template-columns: minmax(0, 1fr); }
+    .compare-section table { table-layout: auto; }
+    .compare-section td, .compare-section th { overflow-wrap: break-word; }
+    .compare-section td.mono:not(.compare-setting) { overflow-wrap: anywhere; }
+    .compare-settings-table td:first-child, .compare-settings-table th:first-child { width: auto; }
 }
