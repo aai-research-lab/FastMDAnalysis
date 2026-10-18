@@ -22,7 +22,7 @@ from xml.sax.saxutils import escape
 
 import numpy as np
 
-__all__ = ["backbone_svg", "structure_for_picture"]
+__all__ = ["backbone_points", "backbone_svg", "molecule_structure", "structure_for_picture"]
 
 WIDTH, HEIGHT, MARGIN = 480, 200, 14
 #: Consecutive Cα atoms are 3.8 Å apart; phosphorus atoms about 6 to 7.
@@ -194,3 +194,112 @@ def backbone_svg(folder: str | Path, scheme: str = "light") -> str | None:
         while len(_KEPT) > MOST_KEPT:
             _KEPT.popitem(last=False)
     return picture
+
+
+# ---------------------------------------------------------------------------
+# The molecule on All studies' rows and cards
+# ---------------------------------------------------------------------------
+
+#: The points a row's or a card's picture is sent: enough for a protein's
+#: shape at 260 px, few enough that two hundred studies list quickly.
+LIST_POINTS = 360
+#: A structure larger than this is not read for the list (a solvated
+#: system written whole): the saved frames leave the water out.
+LIST_BYTES = 40 * 1024 * 1024
+_POINTS_KEPT: OrderedDict[tuple[str, int, int], dict | None] = OrderedDict()
+
+
+def molecule_structure(folder: str | Path) -> tuple[Path, str] | None:
+    """The structure a study's molecule is drawn from on All studies, and
+    what it is: the latest frame its run wrote (`simulation/live_frame.pdb`,
+    the run's last where it has ended), else the structure the Viewer draws
+    first, else the file it is to start from where nothing ran yet. For a
+    study of several runs, that of its first run with one."""
+    base = Path(folder)
+    for where in [base] + (sorted(p for p in (base / "runs").iterdir() if p.is_dir())
+                           if (base / "runs").is_dir() else []):
+        latest = where / "simulation" / "live_frame.pdb"
+        if latest.is_file():
+            return latest, "latest frame"
+    found = structure_for_picture(base)
+    if found is not None:
+        return found, "structure"
+    from fastmdxplora.gui.workspace import _read_yaml
+
+    config = _read_yaml(base / "resolved_config.yml") or _read_yaml(base / "exploration.yml")
+    systems = config.get("systems") if isinstance(config, dict) else None
+    first = (systems[0] if isinstance(systems, list) and systems
+             and isinstance(systems[0], dict) else {})
+    named = str(first.get("system") or "")
+    if named.lower().endswith(".pdb"):
+        path = Path(named).expanduser()
+        path = path if path.is_absolute() else base / path
+        if path.is_file():
+            return path, "start"
+    return None
+
+
+def backbone_points(folder: str | Path) -> dict | None:
+    """The study's backbone as the page draws it at any size: each piece's
+    points in the plane of the molecule's two widest axes (``x`` from 0 to
+    ``aspect``, ``y`` from 0 to 1, N terminus on the left), each with its
+    depth from 0 (far) to 1 (near) and its place along the chain from 0 (N)
+    to 1 (C). ``from`` says which structure (`molecule_structure`). Kept in
+    memory by the file's size and time; None where there is none to draw."""
+    found = molecule_structure(folder)
+    if found is None:
+        return None
+    path, source = found
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    if stat.st_size > LIST_BYTES:
+        return None
+    key = (str(path.resolve()), stat.st_size, stat.st_mtime_ns)
+    with _LOCK:
+        if key in _POINTS_KEPT:
+            _POINTS_KEPT.move_to_end(key)
+            kept = _POINTS_KEPT[key]
+            return None if kept is None else {**kept, "from": source}
+    try:
+        drawn = _points(path)
+    except (OSError, ValueError, np.linalg.LinAlgError):
+        drawn = None
+    with _LOCK:
+        _POINTS_KEPT[key] = drawn
+        while len(_POINTS_KEPT) > MOST_KEPT:
+            _POINTS_KEPT.popitem(last=False)
+    return None if drawn is None else {**drawn, "from": source}
+
+
+def _points(path: Path) -> dict | None:
+    pieces, kind = _pieces(path)
+    count = sum(len(piece) for piece in pieces)
+    if count < 3:
+        return None
+    step = max(1, -(-count // LIST_POINTS))
+    pieces = [piece[::step] if len(piece) > step else piece for piece in pieces]
+    every = np.concatenate(pieces)
+    centre = every.mean(axis=0)
+    _, _, axes = np.linalg.svd(every - centre, full_matrices=False)
+    across, up = axes[0], axes[1]
+    if (every[0] - centre) @ across > (every[-1] - centre) @ across:
+        across = -across
+    toward = np.cross(across, up)
+    flat = [np.stack([(piece - centre) @ across, -((piece - centre) @ up),
+                      (piece - centre) @ toward], axis=1) for piece in pieces]
+    allflat = np.concatenate(flat)
+    low, high = allflat.min(axis=0), allflat.max(axis=0)
+    span = np.maximum(high - low, 1e-6)
+    total = max(len(allflat) - 1, 1)
+    out, done = [], 0
+    for piece in flat:
+        scaled = (piece - low) / span[1]
+        depth = (piece[:, 2] - low[2]) / span[2]
+        out.append([[round(float(x), 3), round(float(y), 3), round(float(d), 2),
+                     round((done + k) / total, 3)]
+                    for k, ((x, y, _), d) in enumerate(zip(scaled, depth))])
+        done += len(piece)
+    return {"pieces": out, "aspect": round(float(span[0] / span[1]), 3), "residues": count,
+            "atom": "CA" if kind == "CA" else "P"}

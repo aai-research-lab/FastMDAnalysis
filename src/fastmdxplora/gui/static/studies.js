@@ -41,15 +41,12 @@
       var places = Math.max(0, Math.min(6, 1 - Math.floor(Math.log10(error))));
       said = mean.toFixed(places) + " ± " + error.toFixed(places);
     } else {
-      said = Number(mean.toPrecision(4)).toString();
+      // Four figures kept as figures: 1.000 nm, not 1 nm, which said less
+      // than the record holds.
+      said = Math.abs(mean) >= 1e4 ? Math.round(mean).toLocaleString("en-US") : mean.toPrecision(4);
+      if (/e/.test(said)) said = Number(said).toString();
     }
     return said + (unit ? " " + unit : "");
-  }
-
-  function meanSaid(record) {
-    if (!record) return "not recorded";
-    if (record.withheld) return withError(record.mean, null, record.unit) + ", not determined";
-    return withError(record.mean, record.error, record.unit);
   }
 
   /* A time within the day said as how long ago; earlier, its date. */
@@ -289,37 +286,9 @@
     }));
   }
 
-  /* A figure the study plotted, else its backbone rendered from its
-   * structure, in the page's scheme; its name where neither can be had. */
-  function picture(frame, study, named) {
-    var img = make("img");
-    img.loading = "lazy";
-    img.alt = "";
-    var asked = { path: study.path };
-    if (study.thumbnail === "backbone") asked.scheme = scheme();
-    img.src = "/api/study-thumbnail?" + new URLSearchParams(asked);
-    img.addEventListener("error", named);
-    frame.dataset.picture = study.thumbnail;
-    if (study.thumbnail === "backbone") frame.title = backboneSaid();
-    frame.replaceChildren(img);
-  }
-
-  function backboneSaid() {
-    return "No figure yet: the protein's backbone, coloured from its N terminus " +
-      "(purple) to its C terminus (" + (scheme() === "light" ? "green" : "yellow") + ")";
-  }
-
-  /* The page's scheme, for a picture made for it. */
+  /* The page's scheme, for a picture drawn in it. */
   function scheme() {
     return document.documentElement.dataset.theme === "light" ? "light" : "dark";
-  }
-
-  function token(name, fallback) {
-    var value = "";
-    try {
-      value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    } catch (e) { /* no styles yet */ }
-    return value || fallback;
   }
 
   var SVG = "http://www.w3.org/2000/svg";
@@ -330,118 +299,294 @@
     return node;
   }
 
-  /* A card's series in the page's colours: the line, the part its mean is
-   * taken over shaded, the mean dashed, and what it is in a corner. Its
-   * figure was the analysis's, white on any scheme. */
-  var seriesOf = {};
-  function plotSeries(frame, data) {
-    var width = 480, height = 180, pad = { left: 10, right: 10, top: 26, bottom: 12 };
-    var xs = data.x, ys = data.y;
-    // A frame an analysis could not measure is a gap, not a zero.
-    var known = ys.filter(function (y) { return y != null && isFinite(y); });
-    if (known.length < 2) return false;
-    var lo = Math.min.apply(null, known), hi = Math.max.apply(null, known);
-    if (data.mean != null) { lo = Math.min(lo, data.mean); hi = Math.max(hi, data.mean); }
-    var room = (hi - lo) * 0.08 || Math.abs(hi) * 0.05 || 1;
-    lo -= room; hi += room;
-    var x0 = xs[0], x1 = xs[xs.length - 1] > x0 ? xs[xs.length - 1] : x0 + 1;
-    var px = function (x) { return pad.left + (x - x0) / (x1 - x0) * (width - pad.left - pad.right); };
-    var py = function (y) { return pad.top + (1 - (y - lo) / (hi - lo)) * (height - pad.top - pad.bottom); };
-    var line = token("--hue-cyan", "#00aed8");
-    var muted = token("--text-muted", "#9a9ca1");
-    var plot = svg("svg", { viewBox: "0 0 " + width + " " + height, class: "study-series",
-                            role: "img", "aria-label": data.label + " over the run" }, null);
-    if (data.from_x != null && data.kind === "time") {
-      svg("rect", { x: px(data.from_x), y: pad.top, width: Math.max(0, px(x1) - px(data.from_x)),
-                    height: height - pad.top - pad.bottom, fill: line, "fill-opacity": 0.08 }, plot);
+  /* ---- The molecule ------------------------------------------------- */
+  /* The study's backbone (workspace.py `molecule`, backbone_picture.py
+   * `backbone_points`) drawn at the size asked: each piece's points in
+   * the plane of its two widest axes, coloured from the N terminus to the
+   * C terminus in viridis (its lightest fifth left out on paper, its
+   * darkest on the dark scheme), the nearer part wider and stronger. */
+  var VIRIDIS = [[0, [0x44, 0x01, 0x54]], [0.2, [0x41, 0x44, 0x87]], [0.4, [0x2a, 0x78, 0x8e]],
+                 [0.6, [0x22, 0xa8, 0x84]], [0.8, [0x7a, 0xd1, 0x51]], [1, [0xfd, 0xe7, 0x25]]];
+
+  function viridis(t) {
+    var range = scheme() === "light" ? [0, 0.8] : [0.2, 1];
+    t = range[0] + Math.min(1, Math.max(0, t)) * (range[1] - range[0]);
+    for (var i = 1; i < VIRIDIS.length; i += 1) {
+      if (t <= VIRIDIS[i][0]) {
+        var a = VIRIDIS[i - 1], b = VIRIDIS[i], f = (t - a[0]) / (b[0] - a[0]);
+        return "rgb(" + a[1].map(function (lo, k) { return Math.round(lo + f * (b[1][k] - lo)); }).join(",") + ")";
+      }
     }
-    var d = "", gap = true;
-    xs.forEach(function (x, i) {
-      if (ys[i] == null || !isFinite(ys[i])) { gap = true; return; }
-      d += (gap ? "M" : "L") + px(x).toFixed(1) + " " + py(ys[i]).toFixed(1);
-      gap = false;
-    });
-    svg("path", { d: d, fill: "none", stroke: line, "stroke-width": 1.6,
-                  "stroke-linejoin": "round" }, plot);
-    if (data.mean != null) {
-      svg("line", { x1: px(data.from_x != null ? data.from_x : x0), x2: px(x1),
-                    y1: py(data.mean), y2: py(data.mean), stroke: token("--accent-orange", "#ffb86b"),
-                    "stroke-width": 1.2, "stroke-dasharray": "5 4" }, plot);
-    }
-    var said = svg("text", { x: pad.left, y: 16, fill: muted, "font-size": 12 }, plot);
-    said.textContent = data.label + (data.unit ? " (" + data.unit + ")" : "") +
-      (data.kind === "residue" ? " by residue" : "");
-    frame.replaceChildren(plot);
-    return true;
+    return "rgb(253,231,37)";
   }
 
-  function cardSeries(frame, study, named) {
-    var key = study.path;
-    if (!seriesOf[key]) {
-      seriesOf[key] = fetch("/api/study-thumbnail?" + new URLSearchParams({ path: study.path, series: "1" }))
-        .then(function (r) { return r.json(); })
-        .catch(function () { return null; });
-    }
-    seriesOf[key].then(function (data) {
-      if (data && data.ok && data.y && data.y.length > 1 && plotSeries(frame, data)) {
-        frame.dataset.picture = "series";
-      } else {
-        named();
-      }
-    });
+  var FROM_SAID = { "latest frame": "the latest frame its run wrote",
+                    structure: "the structure it was set up from",
+                    start: "the structure it is to start from" };
+
+  function moleculeSaid(m) {
+    return "Its backbone (" + (m.residues || 0) + " residues, " + (FROM_SAID[m.from] || "its structure") +
+      "), coloured from the N terminus (purple) to the C terminus (" +
+      (scheme() === "light" ? "green" : "yellow") + "), the nearer part stronger";
   }
 
-  /* Plotted again, and the backbone fetched again, in the new scheme. */
-  document.addEventListener("fmx:theme", function () {
-    Array.prototype.forEach.call(document.querySelectorAll(".study-thumb"), function (frame) {
-      var card = frame.closest(".study-card");
-      var path = card && card.dataset.path;
-      if (!path) return;
-      if (frame.dataset.picture === "series" && seriesOf[path]) {
-        seriesOf[path].then(function (data) { if (data && data.ok) plotSeries(frame, data); });
-      } else if (frame.dataset.picture === "backbone") {
-        var img = frame.querySelector("img");
-        if (img) img.src = "/api/study-thumbnail?" + new URLSearchParams({ path: path, scheme: scheme() });
-        frame.title = backboneSaid();
+  function moleculeSvg(m, width, height, pad) {
+    var plot = svg("svg", { viewBox: "0 0 " + width + " " + height, width: width, height: height,
+                            class: "study-molecule", role: "img", "aria-label": moleculeSaid(m) }, null);
+    var aspect = m.aspect > 0 ? m.aspect : 1;
+    var scale = Math.min((width - 2 * pad) / aspect, height - 2 * pad);
+    var ox = (width - scale * aspect) / 2, oy = (height - scale) / 2;
+    var thick = Math.max(0.9, Math.min(3.2, Math.min(width, height) / 13 *
+      Math.sqrt(40 / Math.max(40, m.residues || 40))));
+    var segments = [];
+    (m.pieces || []).forEach(function (piece) {
+      for (var k = 0; k + 1 < piece.length; k += 1) {
+        segments.push([(piece[k][2] + piece[k + 1][2]) / 2, piece[k], piece[k + 1]]);
       }
     });
+    segments.sort(function (a, b) { return a[0] - b[0]; });
+    segments.forEach(function (s) {
+      svg("line", { x1: (ox + s[1][0] * scale).toFixed(1), y1: (oy + s[1][1] * scale).toFixed(1),
+                    x2: (ox + s[2][0] * scale).toFixed(1), y2: (oy + s[2][1] * scale).toFixed(1),
+                    stroke: viridis((s[1][3] + s[2][3]) / 2), "stroke-opacity": (0.35 + 0.65 * s[0]).toFixed(2),
+                    "stroke-width": (thick * (0.7 + 0.6 * s[0])).toFixed(2), "stroke-linecap": "round" }, plot);
+    });
+    return plot;
+  }
+
+  /* The molecule's frame: the picture, else the study's ID or name. */
+  function moleculeFrame(study, cls, width, height, pad) {
+    var frame = make("div", cls);
+    if (study.molecule && (study.molecule.pieces || []).length) {
+      frame.appendChild(moleculeSvg(study.molecule, width, height, pad));
+      frame.title = moleculeSaid(study.molecule);
+      frame.dataset.picture = "molecule";
+    } else {
+      frame.appendChild(make("span", "study-thumb-none", shownId(study) || study.name));
+      frame.dataset.picture = "none";
+      frame.title = "Nothing to draw yet: no structure of it is here";
+    }
+    return frame;
+  }
+
+  /* Drawn again in the new scheme's colours. */
+  document.addEventListener("fmx:theme", function () { if (studies.length) draw(); });
+
+  /* ---- What a row and a card say ------------------------------------ */
+  /* A length of simulation in the unit it reads in: under a nanosecond in
+   * picoseconds, as every plot of the page reads it. */
+  function lengthSaid(ns) {
+    if (ns == null || !isFinite(ns)) return "";
+    if (ns === 0) return "0 ns";
+    if (Math.abs(ns) < 1) return Number((ns * 1000).toPrecision(3)) + " ps";
+    return Number(ns.toPrecision(4)) + " ns";
+  }
+
+  function durationSaid(seconds) {
+    if (seconds == null || !isFinite(seconds)) return "";
+    if (seconds < 90) return Math.max(1, Math.round(seconds)) + " s";
+    if (seconds < 5400) return Math.round(seconds / 60) + " min";
+    if (seconds < 129600) return (seconds / 3600).toFixed(1) + " h";
+    return (seconds / 86400).toFixed(1) + " days";
+  }
+
+  /* A mean as a row says it: with its error where determined; a study of
+   * replicas, the mean of their means and their spread. */
+  function meanShort(m) {
+    if (!m) return "";
+    if (m.mean == null) return "not recorded";
+    if (m.withheld && m.spread != null && m.spread > 0) {
+      // To the spread's second figure, as a mean is to its error's: no
+      // more figures than the replicas agree to.
+      var places = Math.max(0, Math.min(6, 1 - Math.floor(Math.log10(m.spread))));
+      return m.mean.toFixed(places) + (m.unit ? " " + m.unit : "") + ", spread " + m.spread.toFixed(places);
+    }
+    return withError(m.mean, m.withheld ? null : m.error, m.unit);
+  }
+
+  function meanItem(m) {
+    var item = make("span", "studies-mean-item");
+    item.dataset.determined = String(!m.withheld && m.error != null);
+    var dot = make("span", "studies-mean-dot");
+    dot.setAttribute("aria-hidden", "true");
+    var said = meanShort(m);
+    var value = make("span", "studies-mean-v mono");
+    // The value and its unit kept together; a replicas' spread may go on
+    // the next line where the column is narrow.
+    var at = said.indexOf(", spread ");
+    if (at < 0) {
+      value.appendChild(make("span", "studies-mean-n", said));
+    } else {
+      value.append(make("span", "studies-mean-n", said.slice(0, at + 1)), " ",
+                   make("span", "studies-mean-n", said.slice(at + 2)));
+    }
+    item.append(dot, make("span", "studies-mean-k", m.label || m.analysis), value);
+    item.title = m.withheld ? "Not determined: " + firstSentence(m.withheld) + " (M for why)"
+      : m.error != null ? "Determined, with its standard error" : "Recorded without an error";
+    return item;
+  }
+
+  /* Every mean a study recorded, each with why it is not determined where
+   * it is not: opened from +N, or with M on a row. */
+  var popover = null;
+  function closeMeans() {
+    if (popover) { popover.remove(); popover = null; }
+  }
+
+  /* Why a mean is not yet determined: its first sentence, the rest
+   * opened on request, so ten reasons do not fill the screen. */
+  function sentenceEnd(text) { return text.search(/[.)]\s+(?=[A-Z])/); }
+  function firstSentence(text) {
+    var cut = sentenceEnd(text);
+    return cut < 0 ? text : text.slice(0, cut + 1);
+  }
+  function whySaid(text) {
+    var dd = make("dd", "studies-means-pop-why");
+    var cut = sentenceEnd(text);
+    if (cut < 0) { dd.textContent = text; return dd; }
+    var details = make("details");
+    details.appendChild(make("summary", "", text.slice(0, cut + 1)));
+    details.appendChild(make("p", "studies-means-pop-rest", text.slice(cut + 1).trim()));
+    dd.appendChild(details);
+    return dd;
+  }
+
+  function openMeans(study, anchor) {
+    var wasFor = popover && popover.dataset.path === study.path;
+    closeMeans();
+    if (wasFor) return;
+    var box = make("div", "studies-means-pop");
+    box.dataset.path = study.path;
+    box.setAttribute("role", "dialog");
+    box.setAttribute("aria-label", "Every mean " + study.name + " recorded");
+    box.appendChild(make("div", "studies-means-pop-head", study.name + ": every mean recorded"));
+    var list = make("dl", "studies-means-pop-list");
+    (study.means || []).forEach(function (m) {
+      var k = make("dt");
+      k.appendChild(meanItem(m));
+      list.appendChild(k);
+      if (m.withheld) list.appendChild(whySaid(m.withheld));
+    });
+    box.appendChild(list);
+    box.appendChild(make("div", "muted small", "A filled dot is a mean determined with its error; a ring, one not yet."));
+    document.body.appendChild(box);
+    var r = anchor.getBoundingClientRect();
+    var w = box.offsetWidth, h = box.offsetHeight;
+    var left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+    var top = r.bottom + 6 + h > window.innerHeight ? Math.max(8, r.top - h - 6) : r.bottom + 6;
+    box.style.left = left + "px";
+    box.style.top = top + "px";
+    popover = box;
+  }
+
+  document.addEventListener("click", function (event) {
+    if (popover && !popover.contains(event.target) && !event.target.closest(".studies-means-more")) closeMeans();
   });
+  document.addEventListener("scroll", function () { closeMeans(); }, true);
+
+  function meansShown(study, most) {
+    var host = make("div", "studies-means");
+    var means = study.means || [];
+    means.slice(0, most).forEach(function (m) { host.appendChild(meanItem(m)); });
+    if (means.length > most) {
+      var more = make("button", "studies-means-more", "+" + (means.length - most));
+      more.type = "button";
+      more.title = "Every mean " + study.name + " recorded (M)";
+      more.setAttribute("aria-label", "Every mean recorded, " + means.length + " in all");
+      more.addEventListener("click", function () { openMeans(study, more); });
+      host.appendChild(more);
+    }
+    return host;
+  }
+
+  /* Where it stands: its light and word, and for a run going how far. */
+  function stateShown(study) {
+    var host = make("div", "studies-state-said");
+    var line = make("span", "studies-state-line");
+    var light = make("span", "recent-light");
+    light.dataset.state = String(study.state || "").toLowerCase();
+    light.setAttribute("aria-hidden", "true");
+    var word = study.state || "";
+    if (study.state === "running" && study.progress != null) word += ", " + Math.round(study.progress * 100) + "%";
+    line.append(light, document.createTextNode(" " + word));
+    host.appendChild(line);
+    if (study.state === "running" && study.progress != null) {
+      var bar = make("span", "studies-progress");
+      var fill = make("i");
+      fill.style.width = Math.round(study.progress * 100) + "%";
+      bar.appendChild(fill);
+      bar.setAttribute("role", "progressbar");
+      bar.setAttribute("aria-valuenow", String(Math.round(study.progress * 100)));
+      bar.setAttribute("aria-valuemin", "0");
+      bar.setAttribute("aria-valuemax", "100");
+      host.appendChild(bar);
+      var said = [];
+      if (study.planned_ns) said.push(lengthSaid(study.simulated_ns || 0) + " of " + lengthSaid(study.planned_ns));
+      if (study.seconds_left != null) said.push(durationSaid(study.seconds_left) + " left");
+      if (said.length) host.appendChild(make("span", "studies-state-more muted small", said.join(" · ")));
+    }
+    return host;
+  }
+
+  /* How long it simulated, and for runs side by side, each one's. */
+  function lengthShown(study) {
+    var host = make("div", "studies-length");
+    if (study.simulated_ns == null) {
+      host.textContent = "none";
+      host.title = study.state === "analysed" ? "A trajectory analysed: its length is its frames'"
+        : "Nothing simulated yet";
+      return host;
+    }
+    host.appendChild(make("span", "mono", lengthSaid(study.simulated_ns)));
+    if (study.runs > 1 && study.planned_ns) {
+      host.appendChild(make("span", "studies-length-each muted small",
+        study.runs + " × " + lengthSaid(study.planned_ns / study.runs)));
+    }
+    return host;
+  }
+
+  /* Its folder, from where the studies were looked for: what tells two of
+   * one name apart. */
+  function folderSaid(study) {
+    var path = String(study.path || "");
+    if (lookedIn && path.indexOf(lookedIn) === 0) path = path.slice(lookedIn.length).replace(/^[\\/]/, "");
+    return path || study.path;
+  }
+
+  function clashes(study) {
+    return studies.filter(function (s) { return s.name === study.name; }).length > 1;
+  }
+
+  function openButton(study, page) {
+    var button = ICONS.button(page === "files" ? "files" : "open",
+      page === "files" ? "Its files" : "Open", page === "files" ? "study-files" : "study-open");
+    button.addEventListener("click", function () { openStudy(study.path, button, page); });
+    return button;
+  }
 
   function card(study) {
     var item = make("article", "study-card");
     item.setAttribute("role", "listitem");
     item.dataset.path = study.path;
     item.dataset.state = study.state;
-    var frame = make("div", "study-thumb");
-    var named = function () {
-      frame.replaceChildren(make("span", "study-thumb-none", shownId(study) || study.name));
-    };
-    if (study.series) {
-      // Its first measure's series, plotted in the page's colours.
-      cardSeries(frame, study, study.thumbnail ? function () { picture(frame, study, named); } : named);
-    } else if (study.thumbnail) {
-      picture(frame, study, named);
-    } else {
-      named();
-    }
-    item.appendChild(frame);
+    item.appendChild(moleculeFrame(study, "study-thumb", 260, 130, 12));
     var body = make("div", "study-body");
     var head = make("div", "study-head");
     head.appendChild(make("span", "study-name", study.name));
-    head.appendChild(make("span", "study-state", study.state));
+    head.appendChild(make("span", "study-state", study.state === "running" && study.progress != null
+      ? "running, " + Math.round(study.progress * 100) + "%" : study.state));
     body.appendChild(head);
-    body.appendChild(make("div", "study-what",
-      [shownId(study), study.kind, study.forcefield].filter(Boolean).join(" · ")));
-    var when = dateSaid(study.when);
-    if (when) body.appendChild(make("div", "study-when muted", when));
-    if ((study.means || []).length) {
-      var list = make("dl", "study-means");
-      study.means.forEach(function (m) {
-        list.appendChild(make("dt", "", m.label || m.analysis));
-        list.appendChild(make("dd", "mono", meanSaid(m)));
-      });
-      body.appendChild(list);
+    var what = [shownId(study), study.kind, lengthSaid(study.simulated_ns), timeSaid(study.last_active || study.when)];
+    body.appendChild(make("div", "study-what", what.filter(Boolean).join(" · ")));
+    if (clashes(study)) body.appendChild(make("div", "study-folder-said muted small mono", folderSaid(study)));
+    if (study.state === "running" && study.progress != null) {
+      var bar = make("span", "studies-progress");
+      var fill = make("i");
+      fill.style.width = Math.round(study.progress * 100) + "%";
+      bar.appendChild(fill);
+      body.appendChild(bar);
     }
+    if ((study.means || []).length) body.appendChild(meansShown(study, 2));
     if (study.free_energy) {
       body.appendChild(make("div", "study-free-energy",
         study.free_energy.refused ? "Free energy refused: " + study.free_energy.refused
@@ -454,8 +599,6 @@
       if (study.note) body.appendChild(make("div", "study-note", study.note));
     }
     var actions = make("div", "study-actions");
-    var open = ICONS.button("open", "Open", "study-open");
-    open.addEventListener("click", function () { openStudy(study.path, open); });
     var pick = make("label", "study-pick");
     var box = make("input");
     box.type = "checkbox";
@@ -463,26 +606,64 @@
     box.dataset.path = study.path;
     box.addEventListener("change", function () { choose(study.path, box.checked, box); });
     pick.append(box, document.createTextNode(" Compare"));
-    actions.append(open, tagButton(study), pick);
+    actions.append(openButton(study), tagButton(study), openButton(study, "files"), pick);
     body.appendChild(actions);
     item.appendChild(body);
     return item;
   }
 
-  /* ---- As a table --------------------------------------------------- */
+  /* ---- As a list ---------------------------------------------------- */
+  /* The studies as rows first (user, 10-18: the table first), each with
+   * its molecule, where it stands, how long it ran, every mean and when
+   * it was last active; cards as a gallery where chosen. Kept per person
+   * in this browser, as the views saved, the grouping, the density and the
+   * columns shown. */
   var VIEW_KEPT = "fmx.studiesView";
-  var view = "cards";
-  var sortBy = { key: "when", down: true };
+  var LAYOUT_KEPT = "fmx.studiesLayout";
+  var VIEWS_KEPT = "fmx.studiesViews";
+  var view = "table";
+  var sortBy = { key: "active", down: true };
+  var meanSort = "";
   var STATE_ORDER = { running: 0, failed: 1, stopped: 2, interrupted: 3, incomplete: 4,
-                      completed: 5, "not started": 6 };
+                      completed: 5, analysed: 6, "not started": 7 };
+  var layout = { group: "study", density: "comfortable", hidden: [] };
+  var filters = { states: [], systems: [] };
+  var savedViews = [];
+  var activeView = "all";
+  var expanded = {};
+  var runsOf = {};
+  var COLUMNS = [["molecule", "Molecule"], ["system", "System"], ["length", "Simulated"],
+                 ["means", "Means"], ["active", "Active"]];
+  var BUILT_IN = [
+    { id: "all", name: "All", test: function () { return true; } },
+    { id: "running", name: "Running", test: function (s) { return s.state === "running"; } },
+    { id: "sampling", name: "Needs more sampling",
+      test: function (s) { return (s.means || []).some(function (m) { return !!m.withheld; }); } },
+    { id: "not-started", name: "Not started", test: function (s) { return s.state === "not started"; } },
+  ];
+
+  function readKept(key, fallback) {
+    try {
+      var kept = JSON.parse(localStorage.getItem(key) || "null");
+      return kept == null ? fallback : kept;
+    } catch (e) { return fallback; }
+  }
+
+  function keep(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* not kept */ }
+  }
 
   function keptView() {
-    try { return localStorage.getItem(VIEW_KEPT) === "table" ? "table" : "cards"; }
-    catch (e) { return "cards"; }
+    // A choice kept as words before this page kept JSON.
+    try {
+      var raw = localStorage.getItem(VIEW_KEPT);
+      if (raw === "cards" || raw === "\"cards\"") return "cards";
+    } catch (e) { /* not kept */ }
+    return "table";
   }
 
   function showAs(chosenView, remember) {
-    view = chosenView === "table" ? "table" : "cards";
+    view = chosenView === "cards" ? "cards" : "table";
     Array.prototype.forEach.call(document.querySelectorAll("[data-studies-view]"), function (b) {
       var on = b.getAttribute("data-studies-view") === view;
       b.classList.toggle("active", on);
@@ -494,44 +675,44 @@
     draw();
   }
 
-  /* The means the table has columns for: the first three named among the
-   * studies shown, in the order the cards give them. */
-  function meanColumns(shown) {
-    var columns = [];
-    shown.forEach(function (study) {
-      (study.means || []).forEach(function (m) {
-        var key = m.analysis + ":" + (m.label || m.analysis);
-        if (columns.length < 3 && !columns.some(function (c) { return c.key === key; })) {
-          columns.push({ key: key, label: m.label || m.analysis, analysis: m.analysis });
-        }
-      });
-    });
-    return columns;
-  }
+  function shownColumn(key) { return layout.hidden.indexOf(key) < 0; }
 
-  function meanOf(study, column) {
-    return (study.means || []).find(function (m) {
-      return m.analysis + ":" + (m.label || m.analysis) === column.key;
-    }) || null;
-  }
-
-  function sortValue(study, key, columns) {
+  function sortValue(study, key) {
     if (key === "name") return String(study.name || "").toLowerCase();
     if (key === "system") return String(shownId(study) || "").toLowerCase();
     if (key === "state") return STATE_ORDER[String(study.state || "").toLowerCase()];
+    if (key === "length") return study.simulated_ns == null ? null : study.simulated_ns;
+    if (key.indexOf("mean:") === 0) {
+      var m = (study.means || []).find(function (x) { return meanName(x) === key.slice(5); });
+      return m && typeof m.mean === "number" && isFinite(m.mean) ? m.mean : null;
+    }
     if (key === "when" || key === "active") {
       var t = new Date(key === "when" ? study.when : study.last_active || study.when).getTime();
       return isNaN(t) ? null : t;
     }
-    var column = columns.find(function (c) { return c.key === key; });
-    var m = column ? meanOf(study, column) : null;
-    return m && m.mean != null ? m.mean : null;
+    return null;
   }
 
-  function sorted(shown, columns) {
+  /* The observables the shown studies have a mean of, the one most of
+   * them have first: what the Means column is sorted by. */
+  function meanName(m) { return m.label || m.analysis; }
+  function meanNames(shown) {
+    var count = {};
+    var order = [];
+    shown.forEach(function (study) {
+      (study.means || []).forEach(function (m) {
+        var name = meanName(m);
+        if (!(name in count)) { count[name] = 0; order.push(name); }
+        count[name] += 1;
+      });
+    });
+    return order.sort(function (a, b) { return count[b] - count[a]; });
+  }
+
+  function sorted(shown) {
     var key = sortBy.key;
     return shown.slice().sort(function (a, b) {
-      var x = sortValue(a, key, columns), y = sortValue(b, key, columns);
+      var x = sortValue(a, key), y = sortValue(b, key);
       // What has no value goes last, either way.
       if (x == null && y == null) return 0;
       if (x == null) return 1;
@@ -548,17 +729,175 @@
     if (found) found.focus();
   }
 
+  /* The groups the rows fall in, as Group by asks: none (one group), the
+   * system, a tag, the state or the folder they sit in. By study, replicas
+   * fold under their study and nothing else is grouped, but the studies
+   * where nothing ran yet, gathered at the foot. */
+  function grouped(shown) {
+    var by = layout.group;
+    if (by === "none") return [{ name: "", rows: shown }];
+    if (by === "study") {
+      var begun = shown.filter(function (s) { return s.state !== "not started"; });
+      var waiting = shown.filter(function (s) { return s.state === "not started"; });
+      var out = [{ name: "", rows: begun }];
+      if (waiting.length) out.push({ name: "Not started", said: "folders a study was begun in and nothing ran", rows: waiting });
+      return out;
+    }
+    var keyed = {};
+    var order = [];
+    shown.forEach(function (s) {
+      var keys = by === "system" ? [shownId(s) || "No system"]
+        : by === "state" ? [s.state || "unknown"]
+        : by === "folder" ? [folderSaid(s).split(/[\\/]/).slice(0, -1).join("/") || "Here"]
+        : (s.tags || []).length ? s.tags : ["No tag"];
+      keys.forEach(function (k) {
+        if (!keyed[k]) { keyed[k] = []; order.push(k); }
+        keyed[k].push(s);
+      });
+    });
+    if (by === "state") order.sort(function (a, b) { return (STATE_ORDER[a] || 9) - (STATE_ORDER[b] || 9); });
+    else order.sort(function (a, b) { return a.localeCompare(b); });
+    return order.map(function (k) { return { name: k, rows: keyed[k] }; });
+  }
+
+  function cell(cls, child) {
+    var td = make("td", cls);
+    if (child) td.appendChild(child);
+    return td;
+  }
+
+  /* One study as a row; a run of a study of several, under it, as one. */
+  function row(study, child) {
+    var tr = make("tr", "studies-row" + (child ? " studies-child" : ""));
+    tr.dataset.path = study.path;
+    tr.dataset.state = String(study.state || "").toLowerCase();
+    var pick = make("td", "studies-pick");
+    var box = make("input");
+    box.type = "checkbox";
+    box.checked = chosen.indexOf(study.path) >= 0;
+    box.setAttribute("aria-label", "Compare " + study.name);
+    box.dataset.path = study.path;
+    box.addEventListener("change", function () { choose(study.path, box.checked, box); });
+    pick.appendChild(box);
+    tr.appendChild(pick);
+    if (shownColumn("molecule")) tr.appendChild(cell("studies-mol", moleculeFrame(study, "studies-mol-frame", 64, 34, 3)));
+    var name = make("td", "studies-name");
+    var line = make("div", "studies-name-line");
+    if (!child && study.runs > 1) {
+      var fold = make("button", "studies-fold");
+      fold.type = "button";
+      var open = !!expanded[study.path];
+      fold.setAttribute("aria-expanded", String(open));
+      fold.setAttribute("aria-label", (open ? "Fold " : "Show ") + "its " + study.runs + " runs");
+      fold.title = (open ? "Fold" : "Show") + " its " + study.runs + " runs";
+      fold.textContent = open ? "▾" : "▸";
+      fold.addEventListener("click", function () { toggleRuns(study); });
+      line.appendChild(fold);
+    }
+    // The name opens the study, as Open does at the row's end.
+    var named = make("button", "studies-name-text", child ? runName(study) : study.name);
+    named.type = "button";
+    named.title = "Open " + study.path;
+    named.addEventListener("click", function () { openStudy(study.path, named); });
+    line.appendChild(named);
+    (study.tags || []).forEach(function (t) { line.appendChild(make("span", "study-tag studies-row-tag", t)); });
+    name.appendChild(line);
+    var sub = [];
+    if (!child && clashes(study)) sub.push(folderSaid(study));
+    if (!child) sub.push([study.kind, study.forcefield].filter(Boolean).join(" · "));
+    if (study.note) sub.push(study.note);
+    sub = sub.filter(Boolean);
+    if (sub.length) name.appendChild(make("span", "studies-kind muted small", sub.join(" · ")));
+    tr.appendChild(name);
+    tr.appendChild(cell("studies-state", stateShown(study)));
+    if (shownColumn("system")) {
+      var system = make("td", "studies-system mono", shownId(study));
+      if (study.structure && study.structure !== system.textContent) system.title = study.structure;
+      tr.appendChild(system);
+    }
+    if (shownColumn("length")) tr.appendChild(cell("studies-len", lengthShown(study)));
+    if (shownColumn("means")) {
+      tr.appendChild(cell("studies-means-cell", (study.means || []).length ? meansShown(study, 2)
+        : make("span", "muted small", study.state === "not started" ? "none yet" : "no mean recorded")));
+    }
+    if (shownColumn("active")) {
+      var active = make("td", "studies-active muted", timeSaid(study.last_active || study.when));
+      if (study.last_active) active.title = "Last active " + new Date(study.last_active).toLocaleString() +
+        (study.when ? "; begun " + new Date(study.when).toLocaleString() : "");
+      tr.appendChild(active);
+    }
+    var acts = make("div", "studies-actions");
+    acts.append(openButton(study), tagButton(study), openButton(study, "files"));
+    tr.appendChild(cell("studies-acts", acts));
+    return tr;
+  }
+
+  function runName(run) {
+    var name = String(run.name || "");
+    var seed = /random[-_]seed[-_](\d+)/i.exec(name);
+    return seed ? "seed " + seed[1] : name;
+  }
+
+  /* A study of several runs unfolded: its runs, listed as All studies
+   * lists studies (each run is one), the first time from the server. */
+  function toggleRuns(study) {
+    expanded[study.path] = !expanded[study.path];
+    if (expanded[study.path] && !runsOf[study.path]) {
+      runsOf[study.path] = "loading";
+      var folder = study.path.replace(/[\\/]+$/, "") + "/runs";
+      fetch("/api/studies?" + new URLSearchParams({ path: folder }))
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          runsOf[study.path] = d && d.ok ? (d.studies || []).sort(function (a, b) {
+            return String(a.name).localeCompare(String(b.name), undefined, { numeric: true });
+          }) : [];
+          draw();
+        })
+        .catch(function () { runsOf[study.path] = []; draw(); });
+    }
+    draw();
+    refocus(".studies-row .studies-name-text", "path", study.path);
+  }
+
+  /* Which mean the Means column is sorted by: chosen beside its head,
+   * smallest first. */
+  function meanSortChooser(names, now) {
+    var pick = make("select", "studies-means-sort");
+    pick.setAttribute("aria-label", "The mean the Means column is sorted by");
+    names.forEach(function (name) {
+      var option = make("option", "", name);
+      option.value = name;
+      option.selected = name === now;
+      pick.appendChild(option);
+    });
+    pick.addEventListener("change", function () {
+      meanSort = pick.value;
+      sortBy = { key: "mean:" + pick.value, down: false };
+      draw();
+      var again = document.querySelector("#studies-table .studies-means-sort");
+      if (again) again.focus();
+    });
+    return pick;
+  }
+
   function table(shown) {
     var host = el("studies-table");
-    var columns = meanColumns(shown);
-    var heads = [["", null], ["Study", "name"], ["System", "system"], ["State", "state"],
-                 ["Started", "when"], ["Last activity", "active"]]
-                 .concat(columns.map(function (c) { return [c.label, c.key]; }))
-                 .concat([["Tags", null], ["", null]]);
+    host.classList.toggle("is-compact", layout.density === "compact");
+    var heads = [["", null, "pick"]];
+    if (shownColumn("molecule")) heads.push(["", null, "mol"]);
+    heads.push(["Study", "name"], ["State", "state"]);
+    if (shownColumn("system")) heads.push(["System", "system", "system"]);
+    if (shownColumn("length")) heads.push(["Simulated", "length", "length"]);
+    var names = meanNames(shown);
+    if (meanSort && names.indexOf(meanSort) < 0) meanSort = "";
+    var meanKey = "mean:" + (meanSort || names[0] || "");
+    if (shownColumn("means")) heads.push(["Means", names.length ? meanKey : null, "means"]);
+    if (shownColumn("active")) heads.push(["Active", "active", "active"]);
+    heads.push(["", null, "acts"]);
     var head = make("thead");
-    var row = make("tr");
+    var tr = make("tr");
     heads.forEach(function (h) {
-      var th = make("th");
+      var th = make("th", h[2] ? "studies-th-" + h[2] : "");
       th.scope = "col";
       if (h[1]) {
         var button = make("button", "studies-sort", h[0]);
@@ -568,94 +907,398 @@
         th.setAttribute("aria-sort", on ? (sortBy.down ? "descending" : "ascending") : "none");
         if (on) button.dataset.dir = sortBy.down ? "down" : "up";
         button.addEventListener("click", function () {
-          // A date is sorted newest first to begin with.
-          var dated = h[1] === "when" || h[1] === "active";
-          sortBy = { key: h[1], down: sortBy.key === h[1] ? !sortBy.down : dated };
+          // A date, and a length, is sorted largest first to begin with.
+          var first = h[1] === "when" || h[1] === "active" || h[1] === "length";
+          sortBy = { key: h[1], down: sortBy.key === h[1] ? !sortBy.down : first };
           draw();
           // The table is built again: the keyboard stays where it was.
           refocus(".studies-sort", "key", h[1]);
         });
-        th.appendChild(button);
+        if (h[2] === "means") {
+          button.title = "Sort by the mean of " + meanKey.slice(5);
+          th.appendChild(button);
+          th.appendChild(meanSortChooser(names, meanKey.slice(5)));
+        } else {
+          th.appendChild(button);
+        }
+        if (h[2] === "means") th.title = "A filled dot is a mean determined with its error; a ring, one not yet";
+      } else if (h[2] === "means") {
+        th.textContent = h[0];
+        th.title = "A filled dot is a mean determined with its error; a ring, one not yet";
       } else if (h[0]) {
         th.textContent = h[0];
       } else {
-        th.appendChild(make("span", "sr-only", heads.indexOf(h) === 0 ? "Compare" : "Open"));
+        th.appendChild(make("span", "sr-only", h[2] === "pick" ? "Compare" : h[2] === "mol" ? "Molecule" : "Open"));
       }
-      row.appendChild(th);
+      tr.appendChild(th);
     });
-    head.appendChild(row);
+    head.appendChild(tr);
     var body = make("tbody");
-    sorted(shown, columns).forEach(function (study) {
-      var tr = make("tr", "studies-row");
-      tr.dataset.path = study.path;
-      tr.dataset.state = String(study.state || "").toLowerCase();
-      var pick = make("td");
-      var box = make("input");
-      box.type = "checkbox";
-      box.checked = chosen.indexOf(study.path) >= 0;
-      box.setAttribute("aria-label", "Compare " + study.name);
-      box.dataset.path = study.path;
-      box.addEventListener("change", function () {
-        choose(study.path, box.checked, box);
-      });
-      pick.appendChild(box);
-      var name = make("td", "studies-name");
-      // The name opens the study, as Open does at the row's end.
-      var named = make("button", "studies-name-text", study.name);
-      named.type = "button";
-      named.title = "Open " + study.path;
-      named.addEventListener("click", function () { openStudy(study.path, named); });
-      name.appendChild(named);
-      var kind = [study.kind, study.forcefield].filter(Boolean).join(" · ");
-      if (kind) name.appendChild(make("span", "studies-kind muted small", kind));
-      var state = make("td", "studies-state");
-      var light = make("span", "recent-light");
-      light.dataset.state = String(study.state || "").toLowerCase();
-      light.setAttribute("aria-hidden", "true");
-      state.append(light, document.createTextNode(" " + (study.state || "")));
-      var active = make("td", "muted", timeSaid(study.last_active || study.when));
-      if (study.last_active) active.title = new Date(study.last_active).toLocaleString();
-      var system = make("td", "", shownId(study));
-      if (study.structure && study.structure !== system.textContent) system.title = study.structure;
-      tr.append(pick, name, system, state,
-                make("td", "muted", dateSaid(study.when)), active);
-      columns.forEach(function (column) {
-        var m = meanOf(study, column);
-        var cell = make("td", "mono studies-mean", "");
-        if (m && m.withheld) {
-          // The mean, and under it that it is not determined: on one line
-          // the cell ran under the pinned Open and Tag, its words cut.
-          cell.appendChild(make("span", "studies-mean-value", withError(m.mean, null, m.unit)));
-          cell.appendChild(make("span", "studies-mean-nd", "not determined"));
-          if (typeof m.withheld === "string") cell.title = m.withheld;
-        } else if (m) {
-          cell.textContent = meanSaid(m);
-        }
-        tr.appendChild(cell);
-      });
-      var tags = make("td", "studies-tags");
-      (study.tags || []).forEach(function (t) { tags.appendChild(make("span", "study-tag", t)); });
-      if (study.note) tags.title = study.note;
-      var open = make("td");
-      var acts = make("div", "studies-actions");
-      var button = ICONS.button("open", "Open", "study-open");
-      button.addEventListener("click", function () { openStudy(study.path, button); });
-      acts.append(button, tagButton(study));
-      open.appendChild(acts);
-      tr.append(tags, open);
-      body.appendChild(tr);
-      // Its tags and note changed under its row, as on its card.
-      if (editing === study.path) {
-        var under = make("tr", "studies-editing");
-        var cell = make("td");
-        cell.colSpan = heads.length;
-        cell.appendChild(tagEditor(study));
-        under.appendChild(cell);
-        body.appendChild(under);
+    grouped(sorted(shown)).forEach(function (group) {
+      if (group.name) {
+        var g = make("tr", "studies-group");
+        var gc = make("td");
+        gc.colSpan = heads.length;
+        gc.appendChild(make("b", "", group.name));
+        gc.appendChild(document.createTextNode(" " + group.rows.length + (group.said ? " · " + group.said : "")));
+        g.appendChild(gc);
+        body.appendChild(g);
       }
+      group.rows.forEach(function (study) {
+        body.appendChild(row(study));
+        if (editing === study.path) body.appendChild(editingRow(study, heads.length));
+        if (expanded[study.path]) {
+          var runs = runsOf[study.path];
+          if (runs === "loading" || (runs && !runs.length)) {
+            var wait = make("tr", "studies-child-wait");
+            var wc = make("td", "muted small", runs === "loading" ? "Reading its runs…"
+              : "None of its runs is here to read: its runs folder holds no study.");
+            wc.colSpan = heads.length;
+            wait.appendChild(wc);
+            body.appendChild(wait);
+          } else {
+            (runs || []).forEach(function (run) {
+              body.appendChild(row(run, true));
+              if (editing === run.path) body.appendChild(editingRow(run, heads.length));
+            });
+          }
+        }
+      });
     });
     host.replaceChildren(head, body);
   }
+
+  function editingRow(study, span) {
+    var under = make("tr", "studies-editing");
+    var c = make("td");
+    c.colSpan = span;
+    c.appendChild(tagEditor(study));
+    under.appendChild(c);
+    return under;
+  }
+
+  /* ---- Views, filters and how the list is laid out ------------------- */
+  function viewNamed(id) {
+    return BUILT_IN.find(function (v) { return v.id === id; }) ||
+      savedViews.find(function (v) { return "saved:" + v.name === id; }) || null;
+  }
+
+  function inView(study, v) {
+    if (!v || v.id === "all") return true;
+    if (v.test) return v.test(study);
+    return true;
+  }
+
+  function filtered() {
+    var wanted = (el("studies-search").value || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+    var v = viewNamed(activeView);
+    return studies.filter(function (study) {
+      var text = searchText(study);
+      return inView(study, v)
+        && (!tagged || hasTag(study, tagged))
+        && (!filters.states.length || filters.states.indexOf(study.state) >= 0)
+        && (!filters.systems.length || filters.systems.indexOf(shownId(study) || "") >= 0)
+        && wanted.every(function (word) { return text.indexOf(word) >= 0; });
+    });
+  }
+
+  function drawViews() {
+    var host = el("studies-views");
+    if (!host) return;
+    host.replaceChildren();
+    var all = BUILT_IN.map(function (v) { return { id: v.id, name: v.name, test: v.test }; })
+      .concat(savedViews.map(function (v) { return { id: "saved:" + v.name, name: v.name, saved: v }; }));
+    all.forEach(function (v) {
+      var b = make("button", "studies-view-tab" + (v.saved ? " is-saved" : ""));
+      b.type = "button";
+      b.setAttribute("role", "tab");
+      b.dataset.view = v.id;
+      b.setAttribute("aria-selected", String(activeView === v.id));
+      b.appendChild(make("span", "", v.name));
+      var n = v.saved ? studies.filter(function (s) { return matchesSaved(s, v.saved); }).length
+        : studies.filter(function (s) { return v.test(s); }).length;
+      b.appendChild(make("span", "studies-view-n", String(n)));
+      b.addEventListener("click", function () { chooseView(v.id); });
+      if (v.saved) {
+        b.title = "A view of your own; right-click or Delete to remove it";
+        b.addEventListener("contextmenu", function (event) { event.preventDefault(); dropView(v.saved.name); });
+        b.addEventListener("keydown", function (event) {
+          if (event.key === "Delete" || event.key === "Backspace") { event.preventDefault(); dropView(v.saved.name); }
+        });
+      }
+      host.appendChild(b);
+    });
+    if (naming) {
+      var input = make("input", "studies-view-name");
+      input.type = "text";
+      input.maxLength = 40;
+      input.placeholder = "A name for this view";
+      input.setAttribute("aria-label", "A name for this view: its search, filters and grouping");
+      input.addEventListener("keydown", function (event) {
+        if (event.key === "Enter") { event.preventDefault(); keepView(input.value); }
+        else if (event.key === "Escape") { event.preventDefault(); naming = false; drawViews(); }
+      });
+      input.addEventListener("blur", function () { if (naming) { naming = false; drawViews(); } });
+      host.appendChild(input);
+      return;
+    }
+    var save = make("button", "studies-view-save", "+ Save this view");
+    save.type = "button";
+    save.title = "Keep the search, the filters and the grouping under a name, in this browser";
+    save.addEventListener("click", saveView);
+    host.appendChild(save);
+  }
+
+  function matchesSaved(study, saved) {
+    var text = searchText(study);
+    var words = String(saved.search || "").toLowerCase().split(/\s+/).filter(Boolean);
+    return (!saved.tag || hasTag(study, saved.tag))
+      && (!(saved.states || []).length || saved.states.indexOf(study.state) >= 0)
+      && (!(saved.systems || []).length || saved.systems.indexOf(shownId(study) || "") >= 0)
+      && words.every(function (w) { return text.indexOf(w) >= 0; });
+  }
+
+  function chooseView(id) {
+    activeView = id;
+    var v = viewNamed(id);
+    if (v && v.search !== undefined) {
+      // A view of one's own puts back what it was saved with.
+      el("studies-search").value = v.search || "";
+      tagged = v.tag || null;
+      filters = { states: (v.states || []).slice(), systems: (v.systems || []).slice() };
+      if (v.group) layout.group = v.group;
+      keep(LAYOUT_KEPT, layout);
+    } else {
+      filters = { states: [], systems: [] };
+      tagged = null;
+      el("studies-search").value = "";
+    }
+    draw();
+    refocus(".studies-view-tab", "view", id);
+  }
+
+  /* Saved under a name typed in place of the button: Enter keeps it,
+   * Escape lets it go. */
+  var naming = false;
+  function saveView() {
+    naming = true;
+    drawViews();
+    var input = document.querySelector(".studies-view-name");
+    if (input) input.focus();
+  }
+
+  function keepView(name) {
+    naming = false;
+    name = (name || "").replace(/\s+/g, " ").trim().slice(0, 40);
+    if (!name || BUILT_IN.some(function (v) { return v.name.toLowerCase() === name.toLowerCase(); })) {
+      drawViews();
+      return;
+    }
+    savedViews = savedViews.filter(function (v) { return v.name !== name; });
+    savedViews.push({ name: name, search: el("studies-search").value || "", tag: tagged || "",
+                      states: filters.states.slice(), systems: filters.systems.slice(), group: layout.group });
+    keep(VIEWS_KEPT, savedViews);
+    activeView = "saved:" + name;
+    draw();
+    refocus(".studies-view-tab", "view", activeView);
+  }
+
+  function dropView(name) {
+    savedViews = savedViews.filter(function (v) { return v.name !== name; });
+    keep(VIEWS_KEPT, savedViews);
+    if (activeView === "saved:" + name) activeView = "all";
+    draw();
+  }
+
+  /* A filter as a chip that opens on its choices, each ticked to keep. */
+  function chooser(label, key, values) {
+    var box = make("details", "studies-chip");
+    var chosenNow = filters[key];
+    box.classList.toggle("is-on", chosenNow.length > 0);
+    var summary = make("summary", "", chosenNow.length ? label + ": " + chosenNow.join(", ") : label);
+    box.appendChild(summary);
+    var list = make("div", "studies-chip-list");
+    values.forEach(function (value) {
+      var item = make("label", "studies-chip-item");
+      var input = make("input");
+      input.type = "checkbox";
+      input.checked = chosenNow.indexOf(value) >= 0;
+      input.addEventListener("change", function () {
+        filters[key] = filters[key].filter(function (v) { return v !== value; });
+        if (input.checked) filters[key].push(value);
+        draw();
+        var again = document.querySelector('.studies-chip[data-key="' + key + '"]');
+        if (again) { again.open = true; var first = again.querySelector("input"); if (first) first.focus(); }
+      });
+      item.append(input, document.createTextNode(" " + (value || "none")));
+      list.appendChild(item);
+    });
+    if (!values.length) list.appendChild(make("span", "muted small", "None here"));
+    box.dataset.key = key;
+    box.appendChild(list);
+    return box;
+  }
+
+  function seg(label, options, chosenNow, onChoose) {
+    var host = make("div", "seg studies-seg");
+    host.setAttribute("role", "group");
+    host.setAttribute("aria-label", label);
+    options.forEach(function (o) {
+      var b = make("button", "seg-btn" + (o[0] === chosenNow ? " active" : ""), o[1]);
+      b.type = "button";
+      b.setAttribute("aria-pressed", String(o[0] === chosenNow));
+      b.addEventListener("click", function () { onChoose(o[0]); });
+      host.appendChild(b);
+    });
+    return host;
+  }
+
+  function drawFilters() {
+    var host = el("studies-filters");
+    if (!host) return;
+    host.replaceChildren();
+    var states = [], systems = [];
+    studies.forEach(function (s) {
+      if (s.state && states.indexOf(s.state) < 0) states.push(s.state);
+      var id = shownId(s) || "";
+      if (systems.indexOf(id) < 0) systems.push(id);
+    });
+    states.sort(function (a, b) { return (STATE_ORDER[a] || 9) - (STATE_ORDER[b] || 9); });
+    systems.sort();
+    host.appendChild(chooser("State", "states", states));
+    host.appendChild(chooser("System", "systems", systems));
+    if (tagsUsed.length) {
+      var tags = make("details", "studies-chip" + (tagged ? " is-on" : ""));
+      tags.dataset.key = "tags";
+      tags.appendChild(make("summary", "", tagged ? "Tag: " + tagged : "Tags"));
+      var tl = make("div", "studies-chip-list");
+      tagsUsed.forEach(function (used) {
+        var b = make("button", "studies-chip-item studies-chip-pick", used.tag + " (" + used.studies + ")");
+        b.type = "button";
+        b.addEventListener("click", function () { narrowTo(tagged === used.tag ? null : used.tag); });
+        tl.appendChild(b);
+      });
+      tags.appendChild(tl);
+      host.appendChild(tags);
+    }
+    host.appendChild(make("span", "studies-filters-gap"));
+    if (view === "table") {
+      var g = make("label", "studies-group-by muted small", "Group by ");
+      var select = make("select", "studies-group-select");
+      [["study", "Study"], ["system", "System"], ["tag", "Tag"], ["state", "State"], ["folder", "Folder"],
+       ["none", "Nothing"]].forEach(function (o) {
+        var option = make("option", "", o[1]);
+        option.value = o[0];
+        option.selected = layout.group === o[0];
+        select.appendChild(option);
+      });
+      select.addEventListener("change", function () {
+        layout.group = select.value;
+        keep(LAYOUT_KEPT, layout);
+        draw();
+        var again = document.querySelector(".studies-group-select");
+        if (again) again.focus();
+      });
+      g.appendChild(select);
+      host.appendChild(g);
+      host.appendChild(seg("Density", [["comfortable", "Comfortable"], ["compact", "Compact"]], layout.density,
+        function (d) { layout.density = d; keep(LAYOUT_KEPT, layout); draw(); }));
+      var cols = make("details", "studies-chip studies-columns");
+      cols.dataset.key = "columns";
+      cols.appendChild(make("summary", "", "Columns"));
+      var cl = make("div", "studies-chip-list");
+      COLUMNS.forEach(function (c) {
+        var item = make("label", "studies-chip-item");
+        var input = make("input");
+        input.type = "checkbox";
+        input.checked = shownColumn(c[0]);
+        input.addEventListener("change", function () {
+          layout.hidden = layout.hidden.filter(function (k) { return k !== c[0]; });
+          if (!input.checked) layout.hidden.push(c[0]);
+          keep(LAYOUT_KEPT, layout);
+          draw();
+          var again = document.querySelector('.studies-chip[data-key="columns"]');
+          if (again) again.open = true;
+        });
+        item.append(input, document.createTextNode(" " + c[1]));
+        cl.appendChild(item);
+      });
+      cols.appendChild(cl);
+      host.appendChild(cols);
+    }
+  }
+
+  /* ---- Keys on the list --------------------------------------------- */
+  /* / to search, J and K from row to row, Enter to open, X to choose for
+   * Compare, C to compare the two chosen, M for every mean of the row. */
+  function onStudiesPage() {
+    var page = document.querySelector('.page[data-page="studies"]');
+    return page && !page.hidden;
+  }
+
+  function rowsShown() {
+    return Array.prototype.slice.call(document.querySelectorAll(
+      view === "table" ? "#studies-table .studies-row" : "#studies-grid .study-card"));
+  }
+
+  function rowOf(node) {
+    return node && node.closest ? node.closest(view === "table" ? ".studies-row" : ".study-card") : null;
+  }
+
+  function focusRow(r) {
+    if (!r) return;
+    var target = r.querySelector(".studies-name-text, .study-open");
+    if (target) { target.focus(); r.scrollIntoView({ block: "nearest" }); }
+  }
+
+  document.addEventListener("keydown", function (event) {
+    if (!onStudiesPage() || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
+    var target = event.target;
+    var typing = target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) &&
+      !(target.type === "checkbox");
+    if (event.key === "Escape" && popover) { closeMeans(); return; }
+    if (typing) {
+      if (event.key === "Escape" && target === el("studies-search") && target.value) {
+        target.value = "";
+        draw();
+      }
+      return;
+    }
+    if (document.querySelector(".agent-dialog:not([hidden])")) return;
+    var rows = rowsShown();
+    var here = rowOf(document.activeElement);
+    var at = here ? rows.indexOf(here) : -1;
+    if (event.key === "/") {
+      event.preventDefault();
+      el("studies-search").focus();
+    } else if (event.key === "j" || event.key === "k") {
+      if (!rows.length) return;
+      event.preventDefault();
+      var next = at < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, at + (event.key === "j" ? 1 : -1)));
+      focusRow(rows[next]);
+    } else if (event.key === "x" && here) {
+      var box = here.querySelector('input[type="checkbox"]');
+      if (box) {
+        event.preventDefault();
+        box.checked = !box.checked;
+        choose(box.dataset.path, box.checked, box);
+        focusRow(here);
+      }
+    } else if (event.key === "c" && chosen.length === 2) {
+      event.preventDefault();
+      compare();
+    } else if (event.key === "m" && here) {
+      var path = here.dataset.path;
+      var study = studies.find(function (s) { return s.path === path; }) ||
+        Object.keys(runsOf).reduce(function (found, k) {
+          return found || (Array.isArray(runsOf[k]) ? runsOf[k].find(function (s) { return s.path === path; }) : null);
+        }, null);
+      if (study && (study.means || []).length) {
+        event.preventDefault();
+        openMeans(study, here.querySelector(".studies-means") || here);
+      }
+    }
+  });
 
   /* Whether the table runs on under its pinned last column, so its edge
    * can say so: columns scrolled beneath Open and Tag were cut with nothing
@@ -677,18 +1320,15 @@
     var grid = el("studies-grid");
     var empty = el("studies-empty");
     if (!grid) return;
-    var wanted = (el("studies-search").value || "").trim().toLowerCase().split(/\s+/)
-      .filter(Boolean);
-    var shown = studies.filter(function (study) {
-      var text = searchText(study);
-      return (!tagged || hasTag(study, tagged))
-        && wanted.every(function (word) { return text.indexOf(word) >= 0; });
-    });
+    closeMeans();
+    var shown = filtered();
     var filter = el("studies-tag-filter");
     if (filter) {
       filter.hidden = !tagged;
       el("studies-tag-filter-said").textContent = tagged ? "Tagged " + tagged : "";
     }
+    drawViews();
+    drawFilters();
     var wrap = el("studies-table-wrap");
     var asTable = view === "table" && !!wrap;
     grid.hidden = asTable;
@@ -700,6 +1340,8 @@
     } else {
       grid.replaceChildren.apply(grid, shown.map(card));
     }
+    var keysSaid = el("studies-keys");
+    if (keysSaid) keysSaid.hidden = !shown.length;
     empty.hidden = shown.length > 0;
     empty.textContent = studies.length
       ? "No study matches that."
@@ -936,7 +1578,7 @@
     window.FastMDXCompare.open(chosen[0], chosen[1]);
   }
 
-  function openStudy(path, button) {
+  function openStudy(path, button, page) {
     button.disabled = true;
     fetch("/api/explore/switch", {
       method: "POST",
@@ -945,7 +1587,7 @@
     }).then(function (r) { return r.json(); }).then(function (d) {
       button.disabled = false;
       if (d && d.ok) {
-        window.FastMDXDashboard.studyOpened(d);
+        window.FastMDXDashboard.studyOpened(d, page);
       } else {
         notOpened(button, (d && d.error) || "Could not open it.");
       }
@@ -984,8 +1626,8 @@
         }
         lookedIn = data.root;
         studies = data.studies || [];
-        // Listed again: a study may have new numbers since.
-        seriesOf = {};
+        // Listed again: a study's runs may have new numbers since.
+        runsOf = {};
         if (!where) counted(data);
         tagsUsed = data.tags_used || [];
         offerTags();
@@ -1009,6 +1651,11 @@
     if (!el("studies-grid")) return;
     el("studies-search").addEventListener("input", draw);
     view = keptView();
+    var kept = readKept(LAYOUT_KEPT, {});
+    layout = { group: ["study", "system", "tag", "state", "folder", "none"].indexOf(kept.group) >= 0 ? kept.group : "study",
+               density: kept.density === "compact" ? "compact" : "comfortable",
+               hidden: Array.isArray(kept.hidden) ? kept.hidden.filter(function (k) { return typeof k === "string"; }) : [] };
+    savedViews = (readKept(VIEWS_KEPT, []) || []).filter(function (v) { return v && typeof v.name === "string"; });
     Array.prototype.forEach.call(document.querySelectorAll("[data-studies-view]"), function (b) {
       var on = b.getAttribute("data-studies-view") === view;
       b.classList.toggle("active", on);

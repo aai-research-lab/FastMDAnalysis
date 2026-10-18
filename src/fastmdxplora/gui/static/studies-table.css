@@ -1,0 +1,186 @@
+/* All studies (studies.js): views as tabs, filters as chips, the list
+ * first with each study's molecule, where it stands, how long it ran and
+ * every mean, cards as a gallery, and on a phone a list of short items. */
+
+/* A list wants the width a table needs, as New study's form does. */
+html[data-page="studies"] .page-shell { max-width: 1280px; }
+
+/* Views. */
+.studies-views { display: flex; align-items: flex-end; gap: 2px; margin: 4px 0 10px; overflow-x: auto;
+    border-bottom: 1px solid var(--border-subtle); scrollbar-width: none; }
+.studies-view-tab { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px;
+    border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-muted);
+    font: inherit; font-size: var(--text-sm); cursor: pointer; white-space: nowrap; }
+.studies-view-tab:hover { color: var(--text-primary); }
+.studies-view-tab[aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--accent); }
+.studies-view-tab.is-saved::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.studies-view-n { font-family: var(--font-mono); font-size: var(--text-2xs); padding: 0 6px; border-radius: 9px;
+    background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-muted); }
+.studies-view-save { flex: none; border: 0; background: transparent; color: var(--accent-text, var(--accent));
+    padding: 7px 10px; font: inherit; font-size: var(--text-sm); cursor: pointer; white-space: nowrap; }
+.studies-view-name { flex: none; width: 200px; margin: 2px 6px 4px; padding: 4px 8px; font: inherit; font-size: var(--text-sm);
+    border: 1px solid var(--accent); border-radius: 6px; background: var(--background-elevated); color: var(--text-primary); }
+
+/* Filters and the layout of the list. */
+.studies-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; }
+.studies-filters-gap { flex: 1; }
+.studies-chip { position: relative; }
+.studies-chip > summary { list-style: none; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px;
+    border: 1px dashed var(--border-primary); border-radius: 14px; color: var(--text-muted); font-size: var(--text-xs);
+    cursor: pointer; white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.studies-chip > summary::-webkit-details-marker { display: none; }
+.studies-chip > summary::after { content: "\25be"; font-size: 10px; }
+.studies-chip.is-on > summary { border-style: solid; border-color: var(--accent); color: var(--text-primary);
+    background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.studies-chip-list { position: absolute; z-index: 20; top: 32px; left: 0; min-width: 180px; max-height: 300px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 2px; padding: 6px; border: 1px solid var(--border-strong, var(--border-primary));
+    border-radius: 10px; background: var(--background-elevated); box-shadow: 0 10px 28px rgba(0, 0, 0, .3); }
+.studies-columns .studies-chip-list { left: auto; right: 0; }
+.studies-chip-item { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 6px; font-size: var(--text-xs);
+    color: var(--text-secondary); cursor: pointer; white-space: nowrap; }
+.studies-chip-item:hover { background: color-mix(in srgb, var(--text-primary) 6%, transparent); }
+.studies-chip-pick { border: 0; background: transparent; font: inherit; text-align: left; }
+.studies-group-by { display: inline-flex; align-items: center; gap: 6px; }
+.studies-group-select { height: 28px; border-radius: 8px; border: 1px solid var(--border-primary); background: var(--panel-glass);
+    color: var(--text-primary); font: inherit; font-size: var(--text-xs); padding: 0 6px; }
+.studies-seg .seg-btn { font-size: var(--text-xs); }
+
+/* The list. */
+.studies-table td { vertical-align: middle; }
+.studies-table .studies-th-pick, .studies-table .studies-pick { width: 30px; padding-right: 2px; }
+.studies-table .studies-th-mol, .studies-table .studies-mol { width: 74px; padding-left: 2px; padding-right: 4px; }
+.studies-mol-frame { width: 64px; height: 34px; display: grid; place-items: center; border-radius: 6px;
+    background: color-mix(in srgb, var(--text-primary) 4%, transparent); overflow: hidden; }
+.studies-mol-frame .study-thumb-none { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-muted);
+    max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.study-molecule { display: block; }
+.studies-name { min-width: 200px; max-width: 360px; }
+.studies-name-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.studies-name-line .studies-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studies-kind { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studies-row-tag { font-size: var(--text-2xs); padding: 0 6px; }
+.studies-fold { flex: none; width: 18px; height: 18px; border: 0; padding: 0; background: transparent; color: var(--text-muted);
+    cursor: pointer; font-size: 11px; line-height: 18px; border-radius: 4px; }
+.studies-fold:hover { color: var(--text-primary); background: color-mix(in srgb, var(--text-primary) 8%, transparent); }
+.studies-state-said { display: flex; flex-direction: column; gap: 4px; }
+.studies-state-line { white-space: nowrap; }
+.studies-progress { display: block; width: 120px; height: 4px; border-radius: 2px; overflow: hidden;
+    background: color-mix(in srgb, var(--text-primary) 10%, transparent); }
+.studies-progress i { display: block; height: 100%; background: var(--status-live); }
+.studies-state-more { white-space: nowrap; }
+.studies-table td.studies-len { text-align: right; white-space: nowrap; }
+.studies-length { display: inline-flex; flex-direction: column; align-items: flex-end; }
+.studies-len-each, .studies-length-each { white-space: nowrap; }
+.studies-means { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; min-width: 200px; white-space: normal; }
+.studies-mean-item { display: inline-flex; align-items: baseline; gap: 5px; white-space: nowrap; font-size: var(--text-xs); }
+.studies-mean-k { color: var(--text-muted); }
+.studies-mean-v { color: var(--text-primary); font-size: var(--text-xs); }
+.studies-mean-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; transform: translateY(-1px);
+    border: 1.5px solid var(--accent-orange); }
+.studies-mean-item[data-determined="true"] .studies-mean-dot { background: var(--status-completed); border-color: var(--status-completed); }
+.studies-means-more { border: 0; padding: 0 2px; background: transparent; color: var(--accent-text, var(--accent));
+    font: inherit; font-size: var(--text-xs); cursor: pointer; }
+.studies-active { white-space: nowrap; }
+/* The row's actions at its end, shown on hover or with the keyboard on
+   the row: not pinned over the means as the old table's were. */
+.studies-table td.studies-acts, .studies-table th.studies-th-acts {
+    position: static; box-shadow: none; background: transparent; width: 1%; }
+.studies-table td.studies-acts::before, .studies-table th.studies-th-acts::before { content: none; }
+.studies-row .studies-acts .studies-actions { opacity: 0; transition: opacity .12s; }
+.studies-row:hover .studies-actions, .studies-row:focus-within .studies-actions { opacity: 1; }
+@media (hover: none) { .studies-row .studies-acts .studies-actions { opacity: 1; } }
+.studies-table tbody tr.studies-row:has(input:checked) { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.studies-child .studies-name { padding-left: 34px; position: relative; }
+.studies-child .studies-name::before { content: ""; position: absolute; left: 16px; top: 0; height: 50%; width: 10px;
+    border-left: 1px solid var(--border-primary); border-bottom: 1px solid var(--border-primary); border-bottom-left-radius: 6px; }
+.studies-child .studies-mol-frame { transform: scale(.85); }
+.studies-group td { padding: 7px 12px; font-size: var(--text-xs); color: var(--text-muted);
+    background: color-mix(in srgb, var(--text-primary) 3%, transparent); }
+.studies-group b { color: var(--text-secondary); font-weight: 600; }
+.studies-table.is-compact td { padding-top: 4px; padding-bottom: 4px; }
+
+/* A column narrower than the table wants (the side panel open on a
+   laptop): Active, said again in the card, left out, and the means and
+   the time left wrapped rather than pushed past the edge. */
+.studies-table-wrap { container: studies-list / inline-size; }
+@container studies-list (width < 1000px) {
+    .studies-table .studies-th-active, .studies-table td.studies-active { display: none; }
+    .studies-name { min-width: 120px; max-width: 160px; }
+    .studies-table td.studies-acts { padding-left: 4px; padding-right: 6px; }
+    .studies-table .studies-actions { gap: 0; }
+    .studies-means { min-width: 0; }
+    .studies-mean-item { display: block; white-space: normal; }
+    .studies-mean-item .studies-mean-dot { margin-right: 5px; }
+    .studies-mean-item .studies-mean-k { margin-right: 5px; }
+    .studies-mean-n { white-space: nowrap; }
+    .studies-means-sort { max-width: 6.5em; }
+    .studies-state-more { white-space: normal; }
+    .studies-progress { width: 100%; max-width: 120px; }
+}
+.studies-table.is-compact .studies-kind, .studies-table.is-compact .studies-state-more,
+.studies-table.is-compact .studies-length-each { display: none; }
+.studies-table.is-compact .studies-mol-frame { height: 26px; }
+.studies-table.is-compact .studies-mol-frame svg { height: 26px; width: auto; }
+.studies-keys { margin: 14px 0 0; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+.studies-keys kbd { font-family: var(--font-mono); font-size: var(--text-2xs); padding: 0 5px; border-radius: 4px;
+    border: 1px solid var(--border-primary); }
+
+/* Every mean, opened from +N or M. */
+.studies-means-pop { position: fixed; z-index: 30; width: min(400px, calc(100vw - 16px)); max-height: 60vh; overflow-y: auto;
+    padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border-strong, var(--border-primary));
+    background: var(--background-elevated); box-shadow: 0 12px 30px rgba(0, 0, 0, .35); font-size: var(--text-xs); }
+.studies-means-pop-head { color: var(--text-primary); font-weight: 600; margin-bottom: 8px; }
+.studies-means-pop-list { margin: 0 0 8px; }
+.studies-means-pop-list dt { margin: 6px 0 0; }
+.studies-means-pop-list dd { margin: 2px 0 0 12px; }
+.studies-means-pop-why { color: var(--accent-orange); }
+.studies-means-sort { margin-left: 6px; max-width: 9em; padding: 1px 4px; font: inherit; font-size: var(--text-2xs);
+    text-transform: none; letter-spacing: 0; border: 1px solid var(--border-subtle); border-radius: 6px;
+    background: var(--background-primary); color: var(--text-secondary); }
+.studies-means-pop-why summary { cursor: pointer; }
+.studies-means-pop-rest { margin: 4px 0 0; color: var(--text-secondary); }
+
+/* Cards: the molecule as the picture, as many as fit. */
+.studies-grid { grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); align-items: start; }
+.study-card .study-thumb { height: 130px; }
+.study-thumb[data-picture="molecule"] { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent); }
+.study-thumb[data-picture="none"] { height: 56px; }
+.study-card .studies-progress { width: 100%; }
+.study-folder-said { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.study-card .studies-means { min-width: 0; }
+.study-card .studies-mean-item { white-space: normal; }
+
+/* A trajectory analysed: its light. */
+.recent-light[data-state="analysed"] { background: var(--accent); }
+
+/* On a phone, and in a column as narrow: each study two or three lines,
+   no table to scroll sideways. */
+@media (max-width: 640px) {
+    .studies-table-wrap { overflow-x: visible; border-radius: 10px; }
+    .studies-table thead { display: none; }
+    .studies-table, .studies-table tbody { display: block; }
+    .studies-table tr.studies-row { display: grid; grid-template-columns: 26px 64px minmax(0, 1fr) auto;
+        grid-template-areas: "pick mol name state" "pick mol sys len" "pick mol means means";
+        align-items: center; column-gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border-subtle); }
+    .studies-table tr.studies-row td { display: block; padding: 0; border: 0; white-space: normal; position: static;
+        box-shadow: none; background: transparent; }
+    .studies-table tr.studies-row td.studies-pick { grid-area: pick; }
+    .studies-table tr.studies-row td.studies-mol { grid-area: mol; width: auto; align-self: start; }
+    .studies-table tr.studies-row td.studies-name { grid-area: name; min-width: 0; max-width: none; }
+    .studies-table tr.studies-row td.studies-state { grid-area: state; }
+    .studies-table tr.studies-row td.studies-system { grid-area: sys; min-width: 0; overflow: hidden;
+        text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); }
+    .studies-table tr.studies-row td.studies-len { grid-area: len; justify-self: end; font-size: var(--text-xs); }
+    .studies-table tr.studies-row td.studies-means-cell { grid-area: means; min-width: 0; margin-top: 2px; }
+    .studies-table tr.studies-row .studies-means { flex-direction: column; gap: 2px; }
+    .studies-table tr.studies-row .studies-means > * { overflow-wrap: anywhere; }
+    .studies-table tr.studies-row td.studies-active, .studies-table tr.studies-row td.studies-acts { display: none; }
+    .studies-table tr.studies-row .studies-progress { width: 80px; }
+    .studies-table tr.studies-row .studies-state-more { display: none; }
+    .studies-means { min-width: 0; }
+    .studies-table tr.studies-group, .studies-table tr.studies-editing,
+    .studies-table tr.studies-child-wait { display: block; }
+    .studies-table tr.studies-group td, .studies-table tr.studies-editing td,
+    .studies-table tr.studies-child-wait td { display: block; }
+    .studies-keys { display: none; }
+}

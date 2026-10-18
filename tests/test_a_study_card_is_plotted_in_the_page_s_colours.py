@@ -87,7 +87,10 @@ def test_the_route_sends_both(tmp_path):
     assert b'fill="#ffffff"' not in dark
 
 
-def test_the_card_plots_it_and_follows_the_scheme(tmp_path):
+def test_the_card_draws_its_molecule_and_follows_the_scheme(tmp_path):
+    """Since 10-18 the card's picture is the molecule, not a plot (the
+    user: "why not just show the molecule?"); drawn in the scheme's viridis
+    range, and again when the scheme changes."""
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
 
@@ -102,30 +105,31 @@ def test_the_card_plots_it_and_follows_the_scheme(tmp_path):
             browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
             page = browser.new_page(viewport={"width": 1400, "height": 1000})
             page.set_default_timeout(60000)
+            page.add_init_script(
+                "try { localStorage.setItem('fmx.studiesView', 'cards'); } catch (e) {}")
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(session.url + "#studies", wait_until="domcontentloaded")
             page.evaluate(f"() => window.FastMDXStudies.load({str(tmp_path)!r})")
-            plotted = '.study-card[data-path$="plotted"] .study-thumb'
-            page.wait_for_selector(plotted + " svg.study-series path")
-            label = page.text_content(plotted + " svg.study-series text")
-            bare_img = '.study-card[data-path$="bare"] .study-thumb img'
-            page.wait_for_selector(bare_img)
-            line = page.get_attribute(plotted + " svg.study-series path", "stroke")
-            src = page.get_attribute(bare_img, "src")
+            drawn = '.study-card[data-path$="bare"] .study-thumb svg.study-molecule line'
+            page.wait_for_selector(drawn)
+            strokes = (f"() => [...document.querySelectorAll('{drawn}')]"
+                       ".map((l) => l.getAttribute('stroke'))")
+            before = page.evaluate(strokes)
+            plotted = page.locator('.study-card[data-path$="plotted"] svg.study-series').count()
             page.evaluate("""() => {
                 const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
                 document.documentElement.dataset.theme = next;
                 document.body.dataset.theme = next;
                 document.dispatchEvent(new CustomEvent('fmx:theme'));
             }""")
-            page.wait_for_function(
-                f"(was) => document.querySelector('{plotted} svg.study-series path')"
-                ".getAttribute('stroke') !== was", arg=line)
-            again = page.get_attribute(bare_img, "src")
+            page.wait_for_function(f"(was) => ({strokes})()[0] !== was", arg=before[0])
+            after = page.evaluate(strokes)
             browser.close()
     finally:
         session.server.shutdown()
     assert errors == []
-    assert label == "RMSD (nm)"
-    assert "scheme=" in src and src != again
+    assert plotted == 0
+    # 11 bonds between 12 alpha carbons, each its own colour along the chain.
+    assert len(before) == len(after) == 11 and len(set(before)) > 5
+    assert before != after

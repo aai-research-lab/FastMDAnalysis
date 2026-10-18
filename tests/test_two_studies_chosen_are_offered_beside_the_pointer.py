@@ -56,6 +56,9 @@ def _page(pw, session, many, width=1400, height=800):
     browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
     page = browser.new_page(viewport={"width": width, "height": height})
     page.set_default_timeout(60000)
+    # All studies opens on its list; the cards are chosen, as a person
+    # would, and the table where a test asks for it.
+    page.add_init_script("try { localStorage.setItem('fmx.studiesView', 'cards'); } catch (e) {}")
     errors: list[str] = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     asked: set = set()
@@ -217,7 +220,9 @@ def test_it_stays_beside_the_second_as_the_page_changes_around_it(many) -> None:
     session = _open(many)
     try:
         with sync_playwright() as pw:
-            browser, page, errors = _page(pw, session, many)
+            # 900 high: the views and chips (10-18) above the cards would
+            # otherwise push study06 under the window's foot.
+            browser, page, errors = _page(pw, session, many, height=900)
             _box(page, "study07").click()
             _box(page, "study06").click()
             page.wait_for_selector("#studies-compare-bar:not([hidden])")
@@ -441,13 +446,14 @@ def test_reached_down_the_page_tab_keeps_the_page_s_order(many) -> None:
             page.wait_for_selector("#studies-compare-bar:not([hidden])")
             page.focus("#studies-search")
             forward = []
-            for _ in range(14):
+            # The views and the chips are reached before the cards since 10-18.
+            for _ in range(30):
                 page.keyboard.press("Tab")
                 forward.append(page.evaluate(act))
             first = page.evaluate("() => document.querySelector('.study-card').dataset.path")
             page.locator(f'.study-card[data-path="{first}"] .study-pick input').focus()
             backward = []
-            for _ in range(14):
+            for _ in range(30):
                 page.keyboard.press("Shift+Tab")
                 backward.append(page.evaluate(act))
             browser.close()

@@ -296,6 +296,8 @@ def test_the_page(workspace) -> None:
             browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
             page = browser.new_page(viewport={"width": 1400, "height": 1000})
             page.set_default_timeout(60000)
+            # All studies opens on its list; the cards chosen, as a person would.
+            page.add_init_script("try { localStorage.setItem('fmx.studiesView', 'cards'); } catch (e) {}")
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
 
@@ -308,7 +310,7 @@ def test_the_page(workspace) -> None:
             page.wait_for_selector(".study-card")
             cards = page.locator(".study-card").count()
             first = page.text_content(".study-card .study-name")
-            means = page.text_content('.study-card[data-path$="ubiquitin"] .study-means')
+            means = page.text_content('.study-card[data-path$="ubiquitin"] .studies-means')
             page.fill("#studies-search", "1l2y")
             searched = page.locator(".study-card").count()
             page.fill("#studies-search", "")
