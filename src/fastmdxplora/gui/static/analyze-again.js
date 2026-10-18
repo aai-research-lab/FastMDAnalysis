@@ -91,7 +91,10 @@
     return label;
   }
 
-  function ask() {
+  /* `only`: the analyses to tick, all the others left unticked (an
+   * analysis's cell asks for itself alone); every one it ran last where
+   * none are named. */
+  function ask(only) {
     var box = panel();
     var analysis = offered && offered.analysis;
     if (!box || !analysis) return;
@@ -107,14 +110,18 @@
     var fields = node("fieldset", "again-choices");
     fields.appendChild(node("legend", "", recorded.length ? "Analyses it ran last" : "Analyses"));
     var first = node("div", "again-list");
-    recorded.forEach(function (name) { first.appendChild(choice(known[name] || { name: name }, true)); });
+    recorded.forEach(function (name) {
+      first.appendChild(choice(known[name] || { name: name }, !only || only.indexOf(name) >= 0));
+    });
     fields.appendChild(first);
     var others = catalogue.filter(function (item) { return recorded.indexOf(item.name) < 0; });
     if (others.length) {
       var more = node("details", "again-more");
       more.appendChild(node("summary", "", "More analyses (" + others.length + ")"));
       var rest = node("div", "again-list");
-      others.forEach(function (item) { rest.appendChild(choice(item, !recorded.length)); });
+      others.forEach(function (item) {
+        rest.appendChild(choice(item, only ? only.indexOf(item.name) >= 0 : !recorded.length));
+      });
       more.appendChild(rest);
       if (!recorded.length) more.open = true;
       fields.appendChild(more);
@@ -146,7 +153,8 @@
     box.hidden = false;
     var button = el("analysis-again");
     if (button) button.setAttribute("aria-expanded", "true");
-    yes.focus();
+    if (only) box.scrollIntoView({ block: "nearest" });
+    yes.focus({ preventScroll: !!only });
   }
 
   function start(analyses) {
@@ -166,12 +174,13 @@
     }).catch(function () { say("Could not reach the server to start it."); });
   }
 
-  function open() {
+  function open(only) {
     var box = panel();
-    if (box && !box.hidden && box.querySelector(".again-choices")) { close(); return; }
+    var named = Array.isArray(only) && only.length ? only : null;
+    if (!named && box && !box.hidden && box.querySelector(".again-choices")) { close(); return; }
     load().then(function (data) {
       if (!data || !data.available) { say((data && data.why) || "Nothing is open to analyze."); return; }
-      ask();
+      ask(named);
     });
   }
 
@@ -200,9 +209,11 @@
   document.addEventListener("DOMContentLoaded", function () {
     var button = el("analysis-again");
     if (!button) return;
-    button.addEventListener("click", open);
+    button.addEventListener("click", function () { open(); });
     var board = window.FastMDXDashboard;
     if (board) offer((board.state || {}).appState);
     if (board && board.on) board.on("app-state", offer);
   });
+
+  window.FastMDXAgain = { open: open };
 }());
