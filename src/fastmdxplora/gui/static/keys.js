@@ -95,6 +95,10 @@
         if (typing(event.target) || document.documentElement.dataset.page === "viewer") continue;
       } else if (!matches(key.keys, event) && !(key.also && matches(key.also, event))) {
         continue;
+      } else if (typing(event.target) && !(MAC ? event.metaKey : event.ctrlKey)) {
+        // Without Ctrl (Cmd on a Mac) a key typed in a field is the field's:
+        // Option and a digit types a character there (#, [, £).
+        continue;
       }
       if (!key.bare && event.target && event.target.isContentEditable) continue;
       event.preventDefault();
