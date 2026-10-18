@@ -504,8 +504,18 @@ def test_a_newer_draft_hold_is_said_in_the_header_and_released_by_download(brows
         }""")
         _link(page, site["keys"][0]).click()
         expect(page.locator("#study-tabs-note")).to_contain_text("another window saved a newer Config draft")
-        # The header says the same, not "Saved".
+        # The header says the same, not "Saved", whole and clear of Find a
+        # setting, with the Agent beside at 1440.
         expect(page.locator("#run-draft")).to_have_text("Not saved: another window saved a newer draft")
+        page.click("#agent-beside-open")
+        page.wait_for_function("document.body.classList.contains('agent-beside') || !!document.querySelector('.agent-beside, [data-agent-beside]')")
+        fit = page.evaluate("""() => {
+            const said = document.getElementById('run-draft'), find = document.getElementById('run-find');
+            const a = said.getBoundingClientRect(), b = find.getBoundingClientRect();
+            return {cut: said.scrollWidth > said.clientWidth + 1,
+                    overlaps: a.right > b.left + 1 && a.left < b.right && a.bottom > b.top && a.top < b.bottom};
+        }""")
+        assert fit == {"cut": False, "overlaps": False}, fit
         _active(page, site["keys"][1])
         with page.expect_download() as got:
             page.click("#run-download")
@@ -571,7 +581,8 @@ def test_scrolled_down_the_strip_and_its_note_stay_in_view_above_the_page_bars(b
         page.mouse.move(width // 2, 600)
         page.mouse.wheel(0, 1500)
         page.wait_for_function("Math.max(document.querySelector('.main').scrollTop, document.scrollingElement.scrollTop, document.body.scrollTop) > 400")
-        page.wait_for_timeout(200)
+        # The page bars placed under the strip once its height is measured.
+        page.wait_for_function("parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--study-tabs-height')) > 0")
         facts = page.evaluate(SCROLLED)
         assert facts["noteSeen"] and facts["tabSeen"], facts
         if facts["bar"][2] >= width - 1:
@@ -1061,7 +1072,7 @@ def test_a_switch_asked_another_way_marks_the_strip_busy(browser, site):
         page.locator('.sidebar-recent-item:not([aria-current])').first.click()
         expect(page.locator("#study-tabs")).to_have_attribute("aria-busy", "true")
         _link(page, site["keys"][0]).dispatch_event("click", {"button": 0})
-        page.wait_for_timeout(300)
+        expect(page.locator("#study-tabs-note")).to_contain_text("A study is already opening.")
         assert len(held) == 1
         held[0].fulfill(status=500, content_type="application/json",
                         body=json.dumps({"ok": False, "error": "Try later."}))
@@ -1162,7 +1173,8 @@ def test_closing_the_last_tab_leaves_no_closed_study_named(browser, site):
         page.locator(".study-tab-close").click()
         page.wait_for_function("location.hash === '#studies'")
         assert "study=" not in page.url
-        page.wait_for_timeout(500)
+        with page.expect_response("**/api/status"):
+            pass
         page.evaluate("() => window.FastMDXDashboard.applyStatus({status: {system_id: 'Alpha', status: 'completed'}, study: window.FastMDXDashboard.state.studyShown})")
         assert "study=" not in page.url
         page.reload(wait_until="domcontentloaded")
@@ -1183,6 +1195,283 @@ def test_a_hold_note_goes_once_another_page_is_shown(browser, site):
         expect(note).to_contain_text("unsent Agent message")
         page.evaluate("window.FastMDXDashboard.navigate('overview')")
         expect(note).to_be_hidden()
+        assert page.errors == []
+    finally:
+        page.context.close()
+
+
+def _kept_words(page):
+    return page.evaluate("""() => Object.keys(sessionStorage).filter(k => k.startsWith('fmx.agentUnsent:'))
+        .map(k => [k.slice(16), JSON.parse(sessionStorage.getItem(k))])""")
+
+
+def _attach(page, path):
+    page.locator("#agent-attach-path").evaluate("""(input, path) => {
+        input.value = path; input.dispatchEvent(new Event('change'));
+    }""", str(path))
+    page.locator("#agent-attachments .agent-chip").filter(has_text=path.name).wait_for()
+
+
+def test_back_to_another_study_shows_and_writes_its_own_conversation(browser, site):
+    page = _open(browser, site)
+    try:
+        # The second study has a conversation with a change to review.
+        _outside_open(page, site, 1, "agent")
+        _agent_versions(page).first.wait_for()
+        # Back to the first, a load of its own: its Agent is its own.
+        page.go_back(wait_until="domcontentloaded")
+        _active(page, site["keys"][0])
+        page.evaluate("window.FastMDXDashboard.navigate('agent')")
+        page.wait_for_function("window.FastMDXAgentPanel && !document.body.classList.contains('study-switching')")
+        page.wait_for_function("""() => fetch('/api/agent/conversation').then(r => r.json())
+            .then(d => d.study_key === new URL(location.href).searchParams.get('study'))""")
+        expect(page.locator(".agent-study")).to_have_count(0)
+        assert page.evaluate("window.FastMDXAgentPanel.current.study") in (None, str(site["studies"][0]))
+        # The attach picker opens in this study's folder.
+        page.click("#agent-attach")
+        expect(page.locator("#fastmdx-picker-path")).to_have_text(str(site["studies"][0].resolve()))
+        page.click("#fastmdx-picker-cancel")
+        # The other study is not held by a review that is not on this page.
+        _link(page, site["keys"][1]).click()
+        _active(page, site["keys"][1])
+        assert page.errors == []
+    finally:
+        page.context.close()
+
+
+def test_a_page_for_another_study_is_given_and_writes_no_conversation(browser, site):
+    page = _open(browser, site)
+    try:
+        _a_conversation_of_the_first_study(page)
+        written = {p: p.read_text() for p in site["studies"][0].rglob("*.json")}
+        # Another window opens the second study; this page is still for the first.
+        page.evaluate("""async path => {
+            await fetch('/api/explore/switch', {method: 'POST', headers: {'content-type': 'application/json'},
+                body: JSON.stringify({folder: path})});
+        }""", str(site["studies"][1]))
+        answer = page.evaluate("""async ({key, other}) => {
+            const read = await (await fetch('/api/agent/conversation?study=' + key)).json();
+            const write = await fetch('/api/agent/conversation', {method: 'POST',
+                headers: {'content-type': 'application/json'},
+                body: JSON.stringify({entries: [{role: 'user', text: 'From a stale page.'}],
+                                      seen: [], key: 'k1', page_study: key})});
+            const named = await fetch('/api/agent/conversation', {method: 'POST',
+                headers: {'content-type': 'application/json'},
+                body: JSON.stringify({entries: [{role: 'user', text: 'Into another study.'}], seen: [],
+                                      id: 'conv-x', study: other, page_study: key})});
+            return {read, write: [write.status, await write.json()], named: named.status};
+        }""", {"key": site["keys"][0], "other": str(site["studies"][1])})
+        assert answer["read"]["ok"] is False and answer["read"]["entries"] == []
+        assert answer["read"]["study_changed"] is True
+        assert answer["write"][0] == 409 and answer["write"][1]["study_changed"] is True
+        assert answer["named"] == 409
+        assert not any("From a stale page." in p.read_text() or "Into another study." in p.read_text()
+                       for p in site["root"].rglob("*.json"))
+        assert {p: p.read_text() for p in site["studies"][0].rglob("*.json")} == written
+    finally:
+        page.context.close()
+
+
+def test_back_and_forward_keep_an_attachment_with_the_unsent_words(browser, site):
+    page = _open(browser, site)
+    try:
+        _typed(page, site)
+        _attach(page, site["studies"][1] / "manifest.json")
+        page.go_back(wait_until="domcontentloaded")
+        _active(page, site["keys"][0])
+        page.go_forward(wait_until="domcontentloaded")
+        _active(page, site["keys"][1])
+        expect(page.locator("#agent-request")).to_have_value("Unsent words.")
+        expect(page.locator("#agent-attachments .agent-chip")).to_contain_text("manifest.json")
+        kept = dict(_kept_words(page))[site["keys"][1]]
+        assert [f["name"] for f in kept["files"]] == ["manifest.json"]
+        # Only what finds the file again is kept, not its text.
+        assert set(kept["files"][0]) <= {"path", "name", "size", "sha256", "truncated"}
+        page.reload(wait_until="domcontentloaded")
+        _active(page, site["keys"][1])
+        expect(page.locator("#agent-attachments .agent-chip")).to_contain_text("manifest.json")
+        assert page.errors == []
+    finally:
+        page.context.close()
+
+
+def test_an_attachment_that_cannot_be_read_again_is_said_by_name(browser, site):
+    page = _open(browser, site)
+    try:
+        extra = site["studies"][1] / "notes.txt"
+        extra.write_text("A note to attach.\n")
+        _typed(page, site)
+        _attach(page, extra)
+        _link(page, site["keys"][0]).click()
+        expect(page.locator("#study-tabs-note")).to_contain_text("unsent Agent message")
+        page.go_back(wait_until="domcontentloaded")
+        _active(page, site["keys"][0])
+        extra.unlink()
+        _link(page, site["keys"][1]).click()
+        _active(page, site["keys"][1])
+        page.evaluate("window.FastMDXDashboard.navigate('agent')")
+        expect(page.locator("#agent-request")).to_have_value("Unsent words.")
+        expect(page.locator("#agent-unsent-note")).to_contain_text("Could not attach again: notes.txt")
+        expect(page.locator("#agent-attachments .agent-chip")).to_have_count(0)
+        assert page.errors == []
+    finally:
+        page.context.close()
+
+
+def _no_unsent_storage(context):
+    context.add_init_script("""(() => {
+        const original = Storage.prototype.setItem;
+        Storage.prototype.setItem = function (k, v) {
+            if (String(k).startsWith('fmx.agentUnsent:')) throw new DOMException('full', 'QuotaExceededError');
+            return original.call(this, k, v);
+        };
+    })();""")
+
+
+def test_with_storage_full_the_unsent_message_is_said_not_kept_and_leaving_is_asked(browser, site):
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    _no_unsent_storage(context)
+    page = _open(browser, site, context=context)
+    try:
+        _typed(page, site)
+        _attach(page, site["studies"][1] / "manifest.json")
+        expect(page.locator("#agent-unsent-note")).to_contain_text(
+            "could not keep this message and its attachments")
+        _asked_before_leaving(page, "history.back()")
+        assert page.input_value("#agent-request") == "Unsent words."
+        _active(page, site["keys"][1])
+        _asked_before_leaving(page, "location.reload()")
+        assert page.input_value("#agent-request") == "Unsent words."
+        assert page.errors == []
+    finally:
+        context.close()
+
+
+def _asked_before_leaving(page, how):
+    # The browser asks before the page goes; told to stay, it stays.
+    with page.expect_event("dialog") as asked:
+        page.evaluate(f"setTimeout(() => {how}, 0)")
+    assert asked.value.type == "beforeunload"
+    asked.value.dismiss()
+
+
+def test_an_unsaved_config_draft_this_browser_cannot_keep_asks_before_back(browser, site):
+    page = _open(browser, site)
+    try:
+        _outside_open(page, site, 1)
+        _builder(page, site)
+        _no_draft_storage(page)
+        _ph(page).fill("6.6")
+        page.evaluate("document.activeElement.blur()")
+        # An address typed naming the other study, and a reload.
+        _asked_before_leaving(page, "location.assign('/?study=" + site["keys"][0] + "#overview')")
+        _active(page, site["keys"][1])
+        _asked_before_leaving(page, "location.reload()")
+        expect(_ph(page)).to_have_value("6.6")
+        assert page.errors == []
+    finally:
+        page.context.close()
+
+
+def test_a_window_whose_study_changed_under_it_says_so_and_keeps_its_words_for_their_study(browser, site):
+    first = _open(browser, site)
+    second = _open(browser, site)
+    try:
+        _outside_open(second, site, 1, "agent")
+        second.fill("#agent-request", "A question about the second study.")
+        # The first window opens the third study; the server watches one.
+        _outside_open(first, site, 2)
+        second.wait_for_function("key => window.FastMDXDashboard.state.studyShown === key", arg=site["keys"][2])
+        expect(second.locator("#dashboard-toast")).to_contain_text("was opened elsewhere")
+        expect(second.locator("#agent-request")).to_have_value("")
+        expect(second.locator("#agent-unsent-note")).to_contain_text("is kept for it")
+        assert dict(_kept_words(second))[site["keys"][1]]["words"] == "A question about the second study."
+        assert site["keys"][2] not in dict(_kept_words(second))
+        # Back in the second study, the words are there again.
+        _link(second, site["keys"][1]).click()
+        _active(second, site["keys"][1])
+        second.evaluate("window.FastMDXDashboard.navigate('agent')")
+        expect(second.locator("#agent-request")).to_have_value("A question about the second study.")
+        assert first.errors == [] and second.errors == []
+    finally:
+        first.context.close()
+        second.context.close()
+
+
+def test_words_typed_before_the_study_is_known_go_after_the_kept_words(browser, site):
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    key = site["keys"][0]
+    context.add_init_script("sessionStorage.setItem('fmx.agentUnsent:" + key + "', "
+                            + json.dumps(json.dumps({"words": "Kept for it.", "files": []})) + ");")
+    held, freed = [], []
+    context.route("**/api/status", lambda route: route.continue_() if freed else held.append(route))
+    page = context.new_page()
+    page.set_default_timeout(20000)
+    page.errors = []
+    page.on("pageerror", lambda error: page.errors.append(str(error)))
+    try:
+        page.goto(site["session"].url + "#agent", wait_until="domcontentloaded")
+        page.wait_for_function("window.FastMDXAgent")
+        page.fill("#agent-request", "Typed early.")
+        assert held and page.evaluate("!window.FastMDXDashboard.state.studyShown")
+        freed.append(True)
+        for route in held:
+            route.continue_()
+        expect(page.locator("#agent-request")).to_have_value("Kept for it.\n\nTyped early.")
+        assert dict(_kept_words(page))[key]["words"] == "Kept for it.\n\nTyped early."
+        assert page.errors == []
+    finally:
+        context.close()
+
+
+def test_open_it_on_an_address_from_another_site_goes_through_the_hold(browser, site):
+    page = _open(browser, site)
+    try:
+        _typed(page, site)
+        page.goto(site["session"].url + "?study=" + site["keys"][0] + "#agent",
+                  referer="https://elsewhere.example/", wait_until="domcontentloaded")
+        _active(page, site["keys"][1])
+        page.fill("#agent-request", "Unsent words.")
+        asked = _switches(page)
+        page.get_by_role("button", name="Open it").click()
+        expect(page.locator("#study-tabs-note")).to_contain_text("unsent Agent message")
+        assert asked == []
+        _active(page, site["keys"][1])
+        assert page.errors == []
+    finally:
+        page.context.close()
+
+
+def test_kept_words_are_forgotten_when_their_tab_is_closed(browser, site):
+    page = _open(browser, site)
+    try:
+        _typed(page, site)
+        page.go_back(wait_until="domcontentloaded")
+        _active(page, site["keys"][0])
+        assert site["keys"][1] in dict(_kept_words(page))
+        _link(page, site["keys"][1]).locator("xpath=..").locator(".study-tab-close").click()
+        page.wait_for_function("key => !sessionStorage.getItem('fmx.agentUnsent:' + key)", arg=site["keys"][1])
+        assert page.errors == []
+    finally:
+        page.context.close()
+
+
+def test_opening_another_studys_conversation_is_a_step_of_its_own(browser, site):
+    page = _open(browser, site)
+    try:
+        _a_conversation_of_the_first_study(page)
+        _outside_open(page, site, 1, "agent")
+        steps = page.evaluate("history.length")
+        page.click("#agent-conversations")
+        row = page.locator('.agent-conv-row .title[title*="opens this study"]').first
+        row.evaluate("button => { const fold = button.closest('details'); if (fold) fold.open = true; }")
+        row.click()
+        _active(page, site["keys"][0])
+        assert page.url.endswith("#agent")
+        assert page.evaluate("history.length") == steps + 1
+        page.go_back(wait_until="domcontentloaded")
+        _active(page, site["keys"][1])
+        assert page.url.endswith("#agent")
         assert page.errors == []
     finally:
         page.context.close()
