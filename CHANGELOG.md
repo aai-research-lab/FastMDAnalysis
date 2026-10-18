@@ -87,6 +87,13 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   first, from its records (each phase as it last ran, one run again and
   what it replaced, each piece it was carried on in), with when, how long,
   the version and computer, and the means an analysis run again moved.
+- The Analysis page as cells: each analysis says under its heading what it
+  determined, what it was run with and Analyze again for it alone. Every
+  plot zooms by a drag, moves with Shift, shows all again on a double
+  click and saves what it shows as SVG, PNG or CSV. A time range dragged on
+  one plot on the simulation's clock is every such plot's and is marked on
+  the Viewer's timeline. Maps are drawn as their cells, and a run shorter
+  than a nanosecond is read in picoseconds.
 
 - A strip of open studies keeps each study's last page in this browser
   window. Studies can be selected or closed individually; closing never
