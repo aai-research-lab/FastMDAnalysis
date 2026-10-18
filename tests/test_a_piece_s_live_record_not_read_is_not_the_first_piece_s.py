@@ -99,3 +99,42 @@ def test_a_piece_s_live_record_not_read_is_not_its_first_piece_s(tmp_path, linke
     assert results["simulation"]["n_production_frames"] != 16
     assert "checkpoint.chk" not in results["system"]["checkpoint"]
     assert "Ctrl+C" not in json.dumps(results)
+
+
+def _with_final_states(tmp_path: Path, *, said: bool) -> Path:
+    """A study carried on, each piece with its final state; its
+    checkpoint's record saying it finished where ``said``, else silent
+    (as one written before the record said so)."""
+    root = _a_study_carried_on(tmp_path)
+    for piece in ("", "segment-001/"):
+        _write(root, f"{piece}simulation/state_final.xml", "<State/>\n")
+        if not said:
+            _write(root, f"{piece}simulation/checkpoint.chk.json", {
+                "stage": "production", "step": 10000, "trajectory_interval_steps": 100})
+    return root
+
+
+@PUBLIC
+def test_a_final_state_not_needed_is_not_refused(tmp_path, public):
+    """A piece's checkpoint record says it finished: its final state is not
+    what says so, and its link out does not leave the production not read."""
+    root = _with_final_states(tmp_path, said=True)
+    before = json.loads(_ask(root, tmp_path, "/api/status", public=public)[1])["times"]
+    assert before["production_ns"] is not None
+    outside = _linked_out(root, tmp_path, "segment-001/simulation/state_final.xml")
+
+    times = _asked(root, tmp_path, outside, "/api/status", public)["times"]
+    assert times["production_ns"] == before["production_ns"]
+    assert not times.get("production_not_read")
+
+
+@PUBLIC
+def test_a_final_state_that_says_the_piece_finished_is_still_refused(tmp_path, public):
+    """Its checkpoint record silent, the final state is what says a piece
+    finished: linked out, the production is not read, and it is named."""
+    root = _with_final_states(tmp_path, said=False)
+    outside = _linked_out(root, tmp_path, "segment-001/simulation/state_final.xml")
+
+    answer = _asked(root, tmp_path, outside, "/api/status", public)
+    assert answer["times"]["production_ns"] is None
+    assert "segment-001/simulation/state_final.xml" in answer["times"]["production_not_read"]
