@@ -81,3 +81,8 @@ body:not(.has-study) .sb-live { display: none; }
     .status-bar, .sb-stop-ask { display: none; }
     .app-shell, .sidebar, .main { height: auto; }
 }
+
+@media print {
+    .app-shell, .main { height: auto; }
+    .status-bar, .sb-stop-ask { display: none !important; }
+}
