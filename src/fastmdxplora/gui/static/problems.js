@@ -1,5 +1,11 @@
 /* Recorded problems in the study on screen. This panel only reads; the
- * existing Overview keeps the confirmed actions for running a remedy. */
+ * existing Overview keeps the confirmed actions for running a remedy.
+ *
+ * Read when the study opens, when the tab is shown, with Refresh, and again
+ * only when the run writes something new: its live record's update time or
+ * its events log changed, as the page learns them from its status poll or
+ * event stream (user, 10-18). No timer reads it in the background; the
+ * status bar's count is this read's. Refresh reads it at once. */
 (function () {
   "use strict";
 
@@ -7,11 +13,11 @@
   var study = "";
   var generation = 0;
   var pending = null;
-  var lastRead = 0;
   var rendered = "";
-  var RECHECK_MS = 15000;
-  // Read for the status bar's count while the tab is not shown, less often.
-  var COUNTED_MS = 60000;
+  // What the run had written when last read: its live record's update
+  // time, and its events log's newest line. null until first seen.
+  var liveSeen = null;
+  var eventsSeen = null;
 
   function byId(id) { return document.getElementById(id); }
   function element(tag, cls, text) {
@@ -36,9 +42,11 @@
     generation += 1;
     if (pending) pending.abort();
     pending = null;
+    again = false;
     byId("problems-refresh").disabled = false;
     study = "";
-    lastRead = 0;
+    liveSeen = null;
+    eventsSeen = null;
     message(active ? "Reading the study's records..." : "Open a study to read its problems.");
   }
   function render(data) {
@@ -93,15 +101,21 @@
       body.appendChild(element("p", "problems-note problems-read", "Records read: " + read.join(", ") + "."));
     }
   }
-  function load(force) {
-    if (!active || !study || pending) return;
-    if (!force && Date.now() - lastRead < (visible() ? RECHECK_MS : COUNTED_MS)) return;
+  // Asked while a read was under way: read once more after it, since the
+  // read under way may have begun before what is new was written.
+  var again = false;
+  function load() {
+    if (!active || !study) return;
+    if (pending) {
+      again = true;
+      return;
+    }
+    again = false;
     var at = generation;
     var wanted = study;
     var root = active;
     var controller = new AbortController();
     pending = controller;
-    lastRead = Date.now();
     byId("problems-refresh").disabled = true;
     fetch("/api/problems?study=" + encodeURIComponent(wanted), {
       cache: "no-store", signal: controller.signal
@@ -135,6 +149,7 @@
       if (pending !== controller) return;
       pending = null;
       byId("problems-refresh").disabled = false;
+      if (again && at === generation) load();
     });
   }
   function boot() {
@@ -149,7 +164,7 @@
       dialog.showModal();
       window.FastMDXFrame.showTab("problems");
       byId("problems-tab").focus();
-      load(true);
+      load();
     });
     dialog.addEventListener("close", function () {
       home.insertBefore(panel, next);
@@ -158,8 +173,16 @@
     window.matchMedia("(max-width: 800px)").addEventListener("change", function (event) {
       if (!event.matches && dialog.open) dialog.close();
     });
-    byId("problems-tab").addEventListener("click", function () { load(true); });
-    byId("problems-refresh").addEventListener("click", function () { load(true); });
+    byId("problems-refresh").addEventListener("click", load);
+    /* Shown, however it was (its tab clicked or chosen by the keys, the
+     * status bar's count, a phone's button): read again. */
+    var pane = byId("problems-pane");
+    var wasShown = visible();
+    new MutationObserver(function () {
+      var shown = visible();
+      if (shown && !wasShown) load();
+      wasShown = shown;
+    }).observe(pane, { attributes: true, attributeFilter: ["hidden"] });
     window.FastMDXDashboard.on("app-state", function (state) {
       var next = state.active_run || null;
       if (next === active) return;
@@ -172,7 +195,21 @@
         clear();
         study = update.study || "";
       }
-      load(false);
+      var status = (update && update.status) || {};
+      var live = String(status.last_update_timestamp || "") + "|" + String(status.status || "");
+      if (live === liveSeen) return;
+      liveSeen = live;
+      load();
+    });
+    window.FastMDXDashboard.on("events-read", function (detail) {
+      if (!active || !study) return;
+      var events = (detail && detail.events) || [];
+      var last = events.length ? events[events.length - 1] : {};
+      var key = events.length + "|" + String(last.timestamp || "") + "|" + String(last.message || "");
+      // The first seen of a study is read with it; only a change after reads again.
+      var changed = eventsSeen !== null && key !== eventsSeen;
+      eventsSeen = key;
+      if (changed) load();
     });
   }
   document.addEventListener("DOMContentLoaded", boot);

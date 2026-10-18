@@ -592,7 +592,12 @@
       if (name === "app") safeApply(name, () => applyAppState(payload));
       if (name === "status") safeApply(name, () => applyStatus(payload));
       if (name === "metrics") safeApply(name, () => applyMetrics(payload.metrics || []));
-      if (name === "events") safeApply(name, () => renderEvents(payload.events || []));
+      if (name === "events") {
+        safeApply(name, () => renderEvents(payload.events || []));
+        // The run's narration as read, for what is read again only when
+        // the run writes something new (problems.js).
+        emit("events-read", {events: Array.isArray(payload.events) ? payload.events : []});
+      }
       if (name === "results") safeApply(name, () => applyResults(payload));
       if (name === "structure") safeApply(name, () => applyStructure(payload));
       if (name === "playback") safeApply(name, () => applyPlayback(payload));
