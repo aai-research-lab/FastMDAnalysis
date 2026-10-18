@@ -2022,9 +2022,14 @@
           ? `, ${fromReport} of them the report's` : fromReport ? ", the report's" : "");
     }
     const count = analyses.length || plots.length;
+    // A study of several runs keeps its analyses in its runs, compared on
+    // this page below: "no analyses yet" sat above runs of 14 each.
+    const runs = Array.isArray(state.appState?.runs) ? state.appState.runs : null;
     setText(
       "analysis-meta",
-      count ? `${count} analysis output${count === 1 ? "" : "s"}` : "no analyses yet"
+      count ? `${count} analysis output${count === 1 ? "" : "s"}`
+        : runs && runs.length ? `the analyses of ${runs.length} run${runs.length === 1 ? "" : "s"}, compared below`
+        : "no analyses yet"
     );
     if (cards.length) empty.setAttribute("hidden", "");
     else empty.removeAttribute("hidden");
