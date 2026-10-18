@@ -200,24 +200,51 @@
       if (window.FastMDXIcons) {
         run.insertAdjacentHTML("beforeend", window.FastMDXIcons.svg("chevron", "place-chevron"));
       }
+      // The runs as they stand when it opens: their states move on
+      // without the place being drawn again (render).
       run.addEventListener("click", function () {
         if (menu && menuFor === run) closeMenu(true);
-        else openMenu(run, where);
+        else openMenu(run, place() || where);
       });
       run.addEventListener("keydown", function (e) {
-        if (e.key === "ArrowDown") { e.preventDefault(); openMenu(run, where); }
+        if (e.key === "ArrowDown") { e.preventDefault(); openMenu(run, place() || where); }
       });
       nav.appendChild(run);
       nav.appendChild(sep());
     }
   }
 
+  /* The open menu's rows said again where only the runs' states moved:
+   * the menu stays open under the pointer and the keyboard's place in it. */
+  function sayAgain(where) {
+    if (!menu) return;
+    var runs = where.runs || [];
+    var rows = menu.querySelectorAll(".place-menu-item");
+    var done = runs.filter(function (r) { return r.state === "completed"; }).length;
+    if (rows[0]) rows[0].querySelector(".place-menu-said").textContent = done + " of " + runs.length + " completed";
+    runs.forEach(function (run, i) {
+      var row = rows[i + 1];
+      if (!row) return;
+      row.querySelector(".place-menu-said").textContent = stateSaid(run);
+      var dot = row.querySelector(".status-dot");
+      if (dot) dot.className = "status-dot " + (DOT[run.state] || "status-dot-stale");
+      row.title = (run.label || run.run_id) + ", " + stateSaid(run) + "\n" + run.run_id;
+    });
+  }
+
+  var shownSaid = "";
+
   function render() {
     var where = place();
     var key = JSON.stringify([page(), where && [where.study, where.run, where.current,
-      (where.runs || []).map(function (r) { return [r.run_id, r.label, r.state, r.fraction]; })]]);
-    if (key === shownKey) return;
+      (where.runs || []).map(function (r) { return [r.run_id, r.label]; })]]);
+    var said = JSON.stringify(where && (where.runs || []).map(function (r) { return [r.state, r.fraction]; }));
+    if (key === shownKey) {
+      if (said !== shownSaid) { shownSaid = said; sayAgain(where); }
+      return;
+    }
     shownKey = key;
+    shownSaid = said;
     Array.prototype.forEach.call(document.querySelectorAll(".page[data-page] .page-header"), function (head) {
       var lead = head.firstElementChild;
       if (!lead) return;
@@ -234,9 +261,14 @@
       }
       nav.hidden = false;
       // The menu belongs to the place it was opened from; a new place
-      // closes it, as the list it showed has changed.
+      // closes it, as the list it showed has changed. The keyboard stays
+      // on the crumb it was on.
+      var focused = nav.contains(document.activeElement) || (menu && nav.contains(menuFor))
+        ? (nav.contains(document.activeElement) ? document.activeElement : menuFor).classList[1] : "";
       if (menu && nav.contains(menuFor)) closeMenu(false);
       fill(nav, where);
+      var again = focused && nav.querySelector("." + focused);
+      if (again) again.focus();
     });
   }
 
