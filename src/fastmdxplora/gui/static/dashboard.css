@@ -5069,6 +5069,9 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
 .overview-runs-open .status-dot { width: 7px; height: 7px; margin: 0; }
 .overview-runs-pick { margin: 0 8px 0 0; vertical-align: middle; accent-color: var(--accent); }
 .overview-runs-compare[hidden] { display: none; }
+/* Offered without making the heading's line taller: ticking the second
+ * run moved the table down under the pointer. */
+.overview-runs-compare { margin-block: -6px; }
 .overview-runs-state { white-space: nowrap; color: var(--text-secondary); }
 .overview-runs-bar {
     display: inline-block; width: 64px; height: 5px; margin-right: 8px; vertical-align: middle;

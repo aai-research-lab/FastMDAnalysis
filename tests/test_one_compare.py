@@ -484,3 +484,18 @@ def test_the_page_on_a_phone_breaks_no_word_and_says_the_replicas_error(tmp_path
     assert said["note"].startswith("These are two of 3 runs that differ only by random seed")
     # An error below a millionth said in its powers of ten, never 0.000000.
     assert said["small"] == "(15.0 \u00b1 2.5)e-7 nm"
+
+
+def test_ticking_the_second_run_does_not_move_the_table(variants):
+    def look(page, url):
+        page.goto(url + "#overview", wait_until="domcontentloaded")
+        page.wait_for_selector("#overview-runs-table tbody tr")
+        top = "() => document.getElementById('overview-runs-table').getBoundingClientRect().top"
+        before = page.evaluate(top)
+        page.locator(".overview-runs-pick").nth(0).check()
+        page.locator(".overview-runs-pick").nth(1).check()
+        page.wait_for_selector("#overview-runs-compare:not([hidden])")
+        return before, page.evaluate(top)
+
+    before, after = _browse(variants, look)
+    assert abs(after - before) < 1, (before, after)
