@@ -4572,20 +4572,19 @@
     /* The workspace, from the app state, so the picker can open there
      * for a thread about no study. */
     var workspaceRoot = "";
-    var openFolder = "";
     if (window.FastMDXDashboard && window.FastMDXDashboard.on) {
       window.FastMDXDashboard.on("app-state", function (s) {
         workspaceRoot = (s && s.exploration_root) || workspaceRoot;
-        openFolder = (s && s.active_run) || "";
       });
     }
     if (plus && attachPath && window.FastMDXPicker) {
       plus.addEventListener("click", function () {
-        /* Open in the folder of the study this page is for (as the GUI
-         * has it open, not as another window last left the picker), or of
-         * the conversation, or the workspace. */
+        /* Open where this conversation lives: the study's own folder for
+         * a thread about a study, the workspace for a general one. The
+         * thread is the page's study's (read once that study is open), so
+         * this is the folder of the study the page is for. */
         window.FastMDXPicker.open({ into: "agent-attach-path", mode: "file",
-                                    start: openFolder || conv.study || workspaceRoot || "" });
+                                    start: conv.study || workspaceRoot || "" });
       });
       attachPath.addEventListener("change", function () {
         var p = attachPath.value.trim();
