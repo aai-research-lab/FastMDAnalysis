@@ -32,6 +32,8 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   place in it. A chain numbered from 70 was drawn all red.
 - New study opens the Config Builder alone; the Agent beside it opens when
   asked.
+- Choosing a study far down All studies no longer throws the page back to
+  its top: the boxes are said again, not every card drawn again.
 
 - The phone-to-desktop browser check waits for the side panel to return
   after its dialog closes, avoiding a timing-sensitive assertion.
@@ -77,6 +79,23 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   until it is determined and the averaging's start marked, and the study's
   series as tracks moving with the frame, each a way to its frames. The
   tool beside the molecule is a panel as tall as its rail.
+- Compare: two studies, or two runs, on one page, with their settings,
+  their means (a difference marked only where it is resolved) and their
+  series overlaid, and the Viewer playing the second beside the first.
+  Opened from All studies, from two runs ticked on a study's Overview and
+  from ⌘K (Compare with...); its address keeps the two. Each is read
+  from its own records only, and a record of either not read is said so.
+- A run's Overview leads with one sentence: how many of its means are
+  determined and, for the rest, how much more production the analyses
+  asked for and what it takes at the run's own speed. A tile says Not
+  determined quietly, with its reason in a line; on a wide window the
+  means sit beside the run. A record it is read from that was not read is
+  named, never taken for one the run does not have.
+- A Timeline tab in the side panel: what happened to the study, newest
+  first, from its records (each phase as it last ran, one run again and
+  what it replaced, each piece it was carried on in), with when, how long,
+  the version and computer, and the means an analysis run again moved.
+  Read from the study's own records only; one not read is said so.
 
 - A strip of open studies keeps each study's last page in this browser
   window. Studies can be selected or closed individually; closing never
