@@ -476,7 +476,10 @@ def setup_records_of(run_dir: str | Path) -> Path | None:
                       for named in _setup_from_recorded(run))
     for candidate in candidates:
         record = candidate / "setup_parameters.json"
-        if _may_look(record) and _records.is_file(record):
+        # A record a held read refuses (`_refused`) is not a candidate
+        # without one: the next may be another system's. Its folder is
+        # given, so a read of the record is refused and named, not moved past.
+        if _refused(record) or (_may_look(record) and _records.is_file(record)):
             return candidate
     return None
 

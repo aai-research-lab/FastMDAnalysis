@@ -384,3 +384,23 @@ def test_a_join_record_and_trajectory_not_read_name_the_record(tmp_path, public)
     _linked_out(root, tmp_path, "joined/production.dcd", "joined/joined.json")
     thermo = _overview(root, tmp_path, public=public)["thermodynamics"]
     assert thermo["not_read"] == ["joined/joined.json"]
+
+
+@PUBLIC
+def test_a_setup_record_not_read_is_not_another_system_s(tmp_path, public):
+    """A run simulated from a system prepared elsewhere in its folder, an
+    older `setup/` of its own beside it: with the record of the system it
+    simulated not read, no setup is given, not the older system's."""
+    root = _study(tmp_path)
+    _write(root, "manifest.json", {"phases": [
+        {"name": "setup", "status": "skipped", "taken_from": str(root / "prepared")},
+        {"name": "analysis", "status": "ok"}]})
+    _write(root, "prepared/setup_parameters.json", {"phase": "setup", "parameters": {"ph": 6.5}})
+    _write(root, "setup/setup_parameters.json", {"phase": "setup", "parameters": {"ph": 8.1}})
+    read = json.loads(_ask(root, tmp_path, "/api/results", public=public)[1])
+    assert read["setup"]["ph"] == 6.5
+
+    _linked_out(root, tmp_path, "prepared/setup_parameters.json")
+    answer = json.loads(_ask(root, tmp_path, "/api/results", public=public)[1])
+    assert answer["setup"]["ph"] is None
+    assert "prepared/setup_parameters.json" in answer["unavailable"]
