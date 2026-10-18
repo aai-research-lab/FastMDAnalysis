@@ -130,6 +130,7 @@
     });
     table.appendChild(body);
 
+    markMore(table.parentElement);
     var said = document.getElementById("runs-compared-said");
     said.innerHTML = "";
     data.measures.forEach(function (m) {
@@ -192,6 +193,11 @@
     var W = 720, H = 280, L = 64, R = 16, T = 12, B = 40;
     var xs = [], ys = [];
     drawn.forEach(function (d) { xs = xs.concat(d.series.x); ys = ys.concat(d.series.y); });
+    // In picoseconds under a nanosecond, as every chart of a series says it.
+    var clock = window.FastMDXSeries && window.FastMDXSeries.timeScale
+      ? window.FastMDXSeries.timeScale(xs, drawn[0].series.x_label)
+      : { factor: 1, label: drawn[0].series.x_label };
+    if (clock.factor !== 1) xs = xs.map(function (x) { return x * clock.factor; });
     var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
     var y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
     if (y0 >= 0 && y0 < 0.5 * y1) y0 = 0;
@@ -207,7 +213,7 @@
     svg.setAttribute("role", "img");
     var unit = measure && measure.unit ? " (" + measure.unit + ")" : "";
     svg.setAttribute("aria-label", (measure ? measure.label : "") + " of " + drawn.length +
-                     " runs overlaid, against " + drawn[0].series.x_label.toLowerCase());
+                     " runs overlaid, against " + clock.label.toLowerCase());
     var line = function (x1_, y1_, x2_, y2_, cls) {
       var l = document.createElementNS(SVG, "line");
       l.setAttribute("x1", x1_); l.setAttribute("y1", y1_);
@@ -232,7 +238,7 @@
     });
     line(L, H - B, W - R, H - B, "runs-overlay-axis");
     line(L, T, L, H - B, "runs-overlay-axis");
-    text((L + W - R) / 2, H - 6, drawn[0].series.x_label, "middle", "runs-overlay-label");
+    text((L + W - R) / 2, H - 6, clock.label, "middle", "runs-overlay-label");
     var ylabel = document.createElementNS(SVG, "text");
     ylabel.setAttribute("transform", "translate(14," + ((T + H - B) / 2) + ") rotate(-90)");
     ylabel.setAttribute("text-anchor", "middle");
@@ -243,7 +249,7 @@
     drawn.forEach(function (d) {
       var path = document.createElementNS(SVG, "polyline");
       path.setAttribute("points", d.series.x.map(function (x, k) {
-        return px(x).toFixed(1) + "," + py(d.series.y[k]).toFixed(1);
+        return px(x * clock.factor).toFixed(1) + "," + py(d.series.y[k]).toFixed(1);
       }).join(" "));
       path.setAttribute("class", "runs-overlay-line");
       path.setAttribute("data-run", d.r.run.run_id);
@@ -263,6 +269,23 @@
     if (missing) {
       legend.appendChild(el("span", "muted small",
         missing + " finished run" + (missing === 1 ? " has" : "s have") + " no such series"));
+    }
+  }
+
+  /* Which edge of the table has columns past it, for the shading there. */
+  function markMore(scroll) {
+    if (!scroll) return;
+    var left = scroll.scrollLeft > 1;
+    var right = scroll.scrollLeft + scroll.clientWidth < scroll.scrollWidth - 1;
+    if (left || right) scroll.dataset.more = left && right ? "both" : left ? "left" : "right";
+    else delete scroll.dataset.more;
+    if (!scroll.dataset.watched) {
+      scroll.dataset.watched = "1";
+      scroll.addEventListener("scroll", function () { markMore(scroll); }, { passive: true });
+      // Shown, or the window or the panels beside it changed its width.
+      if (typeof ResizeObserver === "function") {
+        new ResizeObserver(function () { markMore(scroll); }).observe(scroll);
+      }
     }
   }
 

@@ -74,6 +74,17 @@
     return function (v) { return v.toFixed(places); };
   }
 
+  /* A series on the simulation's clock in the unit its span reads in:
+   * picoseconds under a nanosecond, as the Overview's charts say it
+   * (charts.js), so a 20 ps run is not plotted from 0.005 to 0.02 ns. */
+  function timeScale(xs, label) {
+    if (label !== "Time (ns)") return { factor: 1, label: label, unit: "" };
+    var most = 0;
+    (xs || []).forEach(function (x) { if (isFinite(x)) most = Math.max(most, Math.abs(x)); });
+    return most < 1 ? { factor: 1000, label: "Time (ps)", unit: "ps" }
+      : { factor: 1, label: label, unit: "ns" };
+  }
+
   function format(value) {
     if (value == null || !isFinite(value)) return "—";
     var magnitude = Math.abs(value);
@@ -117,7 +128,9 @@
       left: MARGIN.left, top: MARGIN.top,
       right: width - MARGIN.right, bottom: HEIGHT - MARGIN.bottom,
     };
-    var xs = data.x;
+    var clock = data.kind === "residue" ? { factor: 1, label: data.x_label, unit: "" }
+      : timeScale(data.x, data.x_label);
+    var xs = clock.factor === 1 ? data.x : data.x.map(function (x) { return x * clock.factor; });
     var ys = data.y;
     var xLow = xs[0];
     var xHigh = xs[xs.length - 1];
@@ -148,7 +161,7 @@
 
     // What the analysis left out, first, so the line is drawn over it.
     if (mean && mean.from_x != null && mean.discard > 0) {
-      var cut = px(mean.from_x);
+      var cut = px(mean.from_x * clock.factor);
       el("rect", {
         x: plot.left, y: plot.top, width: Math.max(0, cut - plot.left),
         height: plot.bottom - plot.top, fill: c.axis, "fill-opacity": 0.12,
@@ -187,7 +200,7 @@
       x: (plot.left + plot.right) / 2, y: HEIGHT - 6, fill: c.text, "font-size": 11,
       "text-anchor": "middle",
     }, svg);
-    xTitle.textContent = data.x_label;
+    xTitle.textContent = clock.label;
     var yTitle = el("text", {
       x: 11, y: (plot.top + plot.bottom) / 2, fill: c.text, "font-size": 11,
       "text-anchor": "middle",
@@ -210,7 +223,7 @@
 
     // The mean over the frames kept, with its error where there is one.
     if (mean && mean.value != null) {
-      var from = px(mean.from_x != null ? mean.from_x : xLow);
+      var from = px(mean.from_x != null ? mean.from_x * clock.factor : xLow);
       if (mean.error != null) {
         el("rect", {
           x: from, y: py(mean.value + mean.error), width: plot.right - from,
@@ -248,7 +261,7 @@
       var where = data.kind === "residue"
         ? "residue " + data.labels[index]
         : (data.x_label === "Frame" ? "frame " + data.frames[index]
-          : format(xs[index]) + " ns · frame " + data.frames[index]);
+          : format(xs[index]) + " " + (clock.unit || "ns") + " · frame " + data.frames[index]);
       var action = data.kind === "residue" ? "show it in the structure"
         : (data.linked ? "open this frame" : "");
       tip.innerHTML = "";
@@ -407,7 +420,7 @@
   window.addEventListener("dashboard:run-changed", function () { cache = {}; playback = null; });
 
   window.FastMDXSeries = {
-    hydrate: hydrate, ticks: ticks,
+    hydrate: hydrate, ticks: ticks, timeScale: timeScale,
     forget: function () { cache = {}; playback = null; },
     /* A frame of the trajectory opened in the viewer (figure-chart.js). */
     openFrame: function (frame) { open({ linked: true, frames: [frame] }, 0); },

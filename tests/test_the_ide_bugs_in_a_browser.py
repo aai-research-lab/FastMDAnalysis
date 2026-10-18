@@ -87,3 +87,27 @@ def test_a_finished_study_of_runs_is_completed_everywhere(finished_sweep, width,
     assert all(row[1].startswith("s") and "temperature" in row[1] for row in said["runs"])
     assert all("status-dot-completed" in row[2] for row in said["runs"])
     assert all(row[3][0] <= row[3][1] for row in said["runs"]), said["runs"]
+
+
+def test_the_runs_table_keeps_its_runs_in_view_and_short_runs_in_ps(finished_sweep):
+    def look(page, url):
+        page.goto(url + "#analysis", wait_until="domcontentloaded")
+        page.wait_for_selector("#runs-compared:not([hidden]) #runs-compared-table tr")
+        page.wait_for_timeout(500)
+        sticky = page.eval_on_selector(
+            "#runs-compared-table tbody tr > :first-child", "c => getComputedStyle(c).position")
+        page.set_viewport_size({"width": 700, "height": 900})
+        page.wait_for_timeout(400)
+        more = page.eval_on_selector("#runs-compared .runs-compared-scroll",
+                                     "s => [s.scrollWidth > s.clientWidth, s.dataset.more || '']")
+        return {"sticky": sticky, "more": more,
+                "ps": page.evaluate(
+                    "() => window.FastMDXSeries.timeScale([0, 0.005, 0.02], 'Time (ns)')"),
+                "ns": page.evaluate(
+                    "() => window.FastMDXSeries.timeScale([0, 1.5, 20], 'Time (ns)')")}
+
+    said = _serve(finished_sweep, look)
+    assert said["sticky"] == "sticky"
+    assert said["more"] == [True, "right"]
+    assert said["ps"] == {"factor": 1000, "label": "Time (ps)", "unit": "ps"}
+    assert said["ns"]["factor"] == 1 and said["ns"]["label"] == "Time (ns)"
