@@ -7,7 +7,8 @@
  *   mean to the place its error allows, the frames and independent samples
  *   it rests on, and whether it was determined or why not. The numbers are
  *   the analyses' own records (/api/analysis-overview), the ones the report
- *   gives; nothing is computed here.
+ *   gives; nothing is computed here. A record the read refused (linked out
+ *   of the study) is Not read, counted apart, and named under the table.
  * - **An index** of the sections by what they study, with a filter, so a
  *   page of thirty analyses is found by name rather than by scrolling.
  * - **Convergence**, under any time series: the running mean of the
@@ -188,6 +189,8 @@
   /* ------------------------------------------------------------------ */
 
   function statusOf(quantity) {
+    // Its record not read: whether it was determined is not known.
+    if (quantity.unavailable) return { key: "unread", said: "Not read" };
     if (quantity.determined) return { key: "determined", said: "Determined" };
     return { key: "undetermined", said: "Not determined" };
   }
@@ -289,6 +292,7 @@
     if (!rows.length) { host.hidden = true; return; }
     var determined = 0;
     var undetermined = 0;
+    var unread = 0;
     // One body per theme, headed by it.
     var theme = null;
     var html = "";
@@ -299,7 +303,11 @@
           escapeHTML(row.theme) + "</th></tr>";
         theme = row.theme;
       }
-      (row.quantities || []).forEach(function (q) { if (q.determined) determined += 1; else undetermined += 1; });
+      (row.quantities || []).forEach(function (q) {
+        if (q.unavailable) unread += 1;
+        else if (q.determined) determined += 1;
+        else undetermined += 1;
+      });
       html += rowsOf(row);
     });
     if (theme !== null) html += "</tbody>";
@@ -309,13 +317,17 @@
     var said = [];
     said.push(determined + " determined");
     if (undetermined) said.push(undetermined + " not determined");
+    if (unread) said.push(unread + " not read");
     if (failed) said.push(failed + " failed");
     var summary = byId("analysis-results-summary");
     if (summary) {
+      var names = Array.isArray(data.unavailable) ? data.unavailable : [];
+      var notRead = names.length && window.FastMDXOverview && window.FastMDXOverview.unreadSaid
+        ? " " + window.FastMDXOverview.unreadSaid(names) : "";
       summary.textContent = said.join(", ") + (data.biased
         ? ". The run was biased: means are the reweighted equilibrium values where they were recovered."
         : ". A mean is determined where the frames hold enough independent samples for its error.") +
-        judgedEarlier(data.judged_earlier);
+        judgedEarlier(data.judged_earlier) + notRead;
     }
     host.hidden = false;
     linkData(rows);
@@ -353,7 +365,7 @@
           q.value == null ? "" : String(q.value), q.error == null ? "" : String(q.error),
           q.unit || "", q.of_frames == null ? "" : String(q.of_frames - (q.from_frame || 0)),
           q.from_ns == null ? "" : String(q.from_ns), q.samples == null ? "" : String(q.samples),
-          q.determined ? "yes" : "no", q.why || ""]);
+          q.unavailable ? "not read" : q.determined ? "yes" : "no", q.why || ""]);
       });
     });
     return rows;

@@ -649,7 +649,8 @@ def _metric_rows(project_root: Path, analysis_manifest: dict[str, Any]) -> list[
             metric=label + suffix,
             average=str(quantity.get("said") or "—"),
             samples="< 1" if samples == 0 else (f"{samples:,}" if isinstance(samples, int) else "—"),
-            status="Determined" if quantity.get("determined") else "Not determined",
+            status=("Not read" if quantity.get("unavailable")
+                    else "Determined" if quantity.get("determined") else "Not determined"),
             why=str(quantity.get("why") or ""),
         ))
 

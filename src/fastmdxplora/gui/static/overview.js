@@ -3,7 +3,9 @@
  * A study that has ended opens on what its analyses determined: each mean
  * with its error, the independent samples behind it and where its
  * equilibrated part began, Determined or Not determined with the reason on
- * hover, and its series on the production's clock. Then the run in one card
+ * hover (Not read where its record was refused: linked out of the study),
+ * and its series on the production's clock. Each record the page's reads
+ * refused is named in a line under the study's. Then the run in one card
  * (its phases and how long each took, what it ran) and its thermodynamics
  * (charts.js). A running study keeps its health and charts first. The study,
  * its word and its facts lead, in a line.
@@ -41,6 +43,9 @@
    * again, so a tile keeps its focus and its hint while a run writes. */
   var shown = "";
   var tileCount = 0;
+  /* The records the results' read refused (/api/results `unavailable`),
+   * named with the Overview's own. */
+  var resultsUnread = [];
 
   function byId(id) { return document.getElementById(id); }
 
@@ -84,10 +89,20 @@
     var said = byId("overview-results-said");
     if (said) said.replaceChildren();
     if (said && data) {
+      // A mean whose record was not read is counted apart: whether it was
+      // determined is not known.
+      var counted = [];
       if (data.means) {
-        said.appendChild(document.createTextNode(
-          data.determined + " of " + data.means + " mean" + (data.means === 1 ? "" : "s") +
-          " determined" + (data.more ? ", " + data.more + " more not shown" : "") + " · "));
+        counted.push(data.determined + " of " + data.means + " mean" +
+          (data.means === 1 ? "" : "s") + " determined");
+      }
+      if (data.not_read) {
+        counted.push(data.not_read + (data.means ? " not read"
+          : " analys" + (data.not_read === 1 ? "is" : "es") + " not read"));
+      }
+      if (data.more) counted.push(data.more + " more not shown");
+      if (counted.length) {
+        said.appendChild(document.createTextNode(counted.join(", ") + " · "));
       }
       if (data.judged_earlier && data.judged_earlier.length) {
         // Verdicts an earlier version gave, by rules that did not yet
@@ -114,12 +129,15 @@
     link.href = "#analysis";
     link.dataset.tileAnalysis = tile.analysis;
     var perResidue = tile.kind === "per_residue";
-    link.dataset.determined = perResidue ? "" : String(!!tile.determined);
+    // Its record not read: neither Determined nor Not determined.
+    var unread = !perResidue && !!tile.unavailable;
+    link.dataset.determined = perResidue || unread ? "" : String(!!tile.determined);
     var head = make("div", "tile-head");
     head.appendChild(make("span", "tile-label", tile.label));
     var badge = make("span", "tile-badge",
-      perResidue ? "per " + tile.each : tile.determined ? "Determined" : "Not determined");
-    badge.dataset.kind = perResidue ? "per" : tile.determined ? "yes" : "no";
+      perResidue ? "per " + tile.each : unread ? "Not read"
+        : tile.determined ? "Determined" : "Not determined");
+    badge.dataset.kind = perResidue ? "per" : unread ? "unread" : tile.determined ? "yes" : "no";
     head.appendChild(badge);
     link.appendChild(head);
     link.appendChild(make("div", "tile-value mono", tile.said));
@@ -145,7 +163,7 @@
       tileCount += 1;
       var why = make("div", "tile-why");
       why.id = "tile-why-" + tileCount;
-      why.appendChild(make("b", "", "Not determined. "));
+      why.appendChild(make("b", "", unread ? "Not read. " : "Not determined. "));
       why.appendChild(document.createTextNode(tile.why));
       link.appendChild(why);
       link.setAttribute("aria-describedby", why.id);
@@ -241,6 +259,45 @@
     });
   });
 
+  /* The records the page's reads refused, named once under the study's
+   * line: a refused record is not shown as absent, and a clock not read
+   * is why the analyses' frames are numbered rather than timed. */
+  function renderUnread() {
+    var host = byId("overview-body");
+    if (!host) return;
+    var line = byId("overview-not-read");
+    var names = [];
+    ((data && data.unavailable) || []).concat(resultsUnread).forEach(function (name) {
+      if (names.indexOf(name) < 0) names.push(name);
+    });
+    if (!names.length) {
+      if (line) line.remove();
+      return;
+    }
+    if (!line) {
+      line = make("p", "overview-verdict-facts overview-not-read");
+      line.id = "overview-not-read";
+      var verdict = byId("overview-verdict");
+      host.insertBefore(line, verdict ? verdict.nextSibling : host.firstChild);
+    }
+    line.textContent = unreadSaid(names);
+  }
+
+  /* Records not read, said as such, for this page and the Analysis page. */
+  function unreadSaid(names) {
+    names = names.slice().sort();
+    var listed = names.length === 1 ? names[0]
+      : names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
+    var said = "Not read: " + listed + ". " + (names.length === 1 ? "It leads" : "Each leads") +
+      " outside the study, or to a file of the study that is not one of its results, " +
+      "so what " + (names.length === 1 ? "it says is" : "they say is") + " not shown.";
+    if (names.indexOf("analysis/analysis_manifest.json") >= 0) {
+      said += " The analyses' clock is in analysis/analysis_manifest.json: without it, " +
+        "their frames are numbered, not timed.";
+    }
+    return said;
+  }
+
   /* ------------------------------------------------------------------ */
   /* The run                                                             */
   /* ------------------------------------------------------------------ */
@@ -275,6 +332,13 @@
 
   /* Atoms and platform, from what the page already has. */
   function renderFacts(results) {
+    if (results) {
+      var unread = Array.isArray(results.unavailable) ? results.unavailable : [];
+      if (JSON.stringify(unread) !== JSON.stringify(resultsUnread)) {
+        resultsUnread = unread;
+        renderUnread();
+      }
+    }
     var cards = results && Array.isArray(results.summary_cards) ? results.summary_cards : null;
     if (cards) {
       var atoms = cards.find(function (card) { return card.label === "Atom count"; });
@@ -360,6 +424,7 @@
     data = found;
     renderTiles();
     renderPhases();
+    renderUnread();
     renderFacts(null);
     window.dispatchEvent(new CustomEvent("fmx:overview", { detail: data }));
   }
@@ -429,6 +494,7 @@
     });
     window.addEventListener("dashboard:metrics-updated", function () { renderFacts(null); });
     window.addEventListener("dashboard:run-changed", function () {
+      resultsUnread = [];
       use(null);
       load(true);
     });
@@ -459,5 +525,6 @@
     get data() { return data; },
     ended: ended,
     sayTime: sayTime,
+    unreadSaid: unreadSaid,
   };
 })();

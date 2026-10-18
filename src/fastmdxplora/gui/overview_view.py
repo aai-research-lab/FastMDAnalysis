@@ -159,11 +159,13 @@ def _tiles(root: Path) -> dict[str, Any]:
     try:
         overview = overview_of(root)
     except Exception:  # noqa: BLE001 - a panel must never break the page
-        return {"tiles": [], "more": 0, "means": 0, "determined": 0, "analyses": 0,
-                "judged_earlier": []}
+        return {"tiles": [], "more": 0, "means": 0, "determined": 0, "not_read": 0,
+                "analyses": 0, "judged_earlier": []}
     rows = overview.get("rows") or []
     tiles: list[dict[str, Any]] = []
-    means = determined = 0
+    # A mean whose record was not read is neither determined nor not: it
+    # is counted apart, as not read.
+    means = determined = not_read = 0
     for row in rows:
         name = row.get("analysis")
         if name == "rmsf":
@@ -175,6 +177,7 @@ def _tiles(root: Path) -> dict[str, Any]:
 
                 refused = [{"why": refused_said(root, data) + "."}]
             if refused:
+                not_read += 1
                 tiles.append(_not_read(row, refused[0]))
                 continue
             rmsf = _rmsf(root)
@@ -185,7 +188,7 @@ def _tiles(root: Path) -> dict[str, Any]:
             if isinstance(quantity, dict) and quantity.get("unavailable"):
                 # Its record was refused (linked out of the study): said
                 # so, not left out as though the analysis recorded none.
-                means += 1
+                not_read += 1
                 tiles.append(_not_read(row, quantity))
                 continue
             if not isinstance(quantity, dict) or quantity.get("value") is None:
@@ -212,17 +215,18 @@ def _tiles(root: Path) -> dict[str, Any]:
     # not one, and "11 more not shown" was said of ten.
     more = sum(1 for tile in tiles[MOST_TILES:] if tile.get("kind") == "mean")
     return {"tiles": shown, "more": more, "means": means,
-            "determined": determined, "analyses": len(rows),
+            "determined": determined, "not_read": not_read, "analyses": len(rows),
             "biased": bool(overview.get("biased")),
             "judged_earlier": list(overview.get("judged_earlier") or [])}
 
 
 def _not_read(row: dict[str, Any], quantity: dict[str, Any]) -> dict[str, Any]:
-    """The tile of a mean whose record a confined read refused."""
+    """The tile of a mean whose record a confined read refused: whether it
+    was determined is not known (``determined`` None)."""
     name = row.get("analysis")
     return {"kind": "mean", "analysis": name, "anchor": row.get("anchor") or name,
             "label": quantity.get("label") or row.get("title") or name,
-            "said": "record unavailable", "unit": "", "determined": False,
+            "said": "record unavailable", "unit": "", "determined": None,
             "why": quantity.get("why") or "", "samples": None, "from_ns": None,
             "reweighted": False, "series": None, "unavailable": True}
 
