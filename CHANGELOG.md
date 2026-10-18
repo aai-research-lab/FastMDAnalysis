@@ -435,9 +435,21 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   or a run again from the top whose config was not read, says its price is
   not given and names the record, rather than its whole plan read through
   the link, and a thin umbrella window says how much longer is not given;
-  outside such a read, remedies are as before. `/api/overview`,
-  `/api/results`, `/api/series`, `/api/analysis-overview`, `/api/convergence`,
-  `/api/status` and `/api/figure-data` read through such a link before.
+  outside such a read, remedies are as before. The Overview's card of what
+  would fix it (`/api/fixes`) is read so too, and a fix is run only where it
+  is the one the page showed. A carried-on study whose newest piece's live
+  record (or the piece's folder) was not read is not read as its first
+  piece, stopped with that piece's frames: its status is Not read, naming
+  the record. A piece's final state is not refused where its checkpoint
+  record already says it finished. The Report page (its report, its notices
+  and its figure panel), the methods, the values the Viewer colours residues
+  by, the charts and the run's narration read only the study too, each
+  naming what it did not read; the methods are not given without a record
+  they read, and the charts and the narration are not given in part.
+  `/api/overview`, `/api/results`, `/api/series`, `/api/analysis-overview`,
+  `/api/convergence`, `/api/status`, `/api/figure-data`, `/api/fixes`,
+  `/api/report`, `/api/methods`, `/api/residue-values`, `/api/metrics` and
+  `/api/events` read through such a link before.
 
 ## [2.6.0] - 2026-10-11
 
