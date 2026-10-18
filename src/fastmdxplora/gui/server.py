@@ -3131,10 +3131,15 @@ def _artifact_records(root: Path) -> list[dict[str, str]]:
         return records
     from fastmdxplora.gui.report_dashboard import files_under
 
-    # Each folder listed through `record_access`, as `rglob` lists it: in a
-    # read held to the study, opened from the study. A folder removed while
-    # it was walked: what was reached is listed.
-    found = files_under(root)
+    found: list[Path] = []
+    try:
+        # In a read held to the study, each folder is listed through
+        # `record_access`, opened from the study.
+        for path in files_under(root):
+            found.append(path)
+    except OSError:
+        # A folder removed while it was walked: list what was reached.
+        pass
     real_root = Path(os.path.realpath(root))
     for path in sorted(found):
         if path.suffix == ".tmp" or "__pycache__" in path.parts:

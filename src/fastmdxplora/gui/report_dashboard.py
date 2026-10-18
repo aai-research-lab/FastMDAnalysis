@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterator
 from urllib.parse import quote
 
 from fastmdxplora import record_access as _records
@@ -1173,21 +1173,18 @@ def _group_sparse_sections(
     return {section: list(panels) for section, panels in grouped.items()}
 
 
-def files_under(folder: Path) -> list[Path]:
-    """What ``folder.rglob("*")`` lists, each folder listed through
-    `record_access`: a read held to the study lists only what it admits,
-    opened from the study it is held to. As `rglob`, a linked folder is
-    listed but not gone into."""
-    try:
-        children = list(_records.iterdir(folder))
-    except OSError:
-        return []
-    found: list[Path] = []
-    for child in children:
-        found.append(child)
+def files_under(folder: Path) -> Iterator[Path]:
+    """What ``folder.rglob("*")`` lists. In a read held to the study
+    (`record_access`), each folder is listed through it: only what it
+    admits, opened from the study it is held to; as `rglob`, a linked
+    folder is listed but not gone into. Outside one, `rglob` itself."""
+    if _records.can_read(Path(os.path.abspath(os.sep))):
+        yield from folder.rglob("*")
+        return
+    for child in list(_records.iterdir(folder)):
+        yield child
         if not os.path.islink(child) and _records.is_dir(child):
-            found.extend(files_under(child))
-    return found
+            yield from files_under(child)
 
 
 def _discover_analysis_images(project_root: Path) -> list[Path]:
