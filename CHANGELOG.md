@@ -62,6 +62,11 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- An analysis chart can be limited to a range of times, frames or
+  residues, chosen by their names on a residue chart, and reset. A point
+  in the range opens the same frame or residue as before. The mean line is
+  labelled as the mean of the whole analysis.
+
 - Agent Config versions offer **Review each change**, with Accept and
   Reject for each setting. **Use reviewed version** checks the selected
   combination and creates a new version, preserving the earlier Configs
