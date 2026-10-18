@@ -718,16 +718,24 @@ class TestTheInterfaceIsCalledTheGUI:
 
     def test_the_docs_name_the_interface_consistently(self) -> None:
         import pathlib
+        import re
 
+        # Storage, windows, reserved keys and browser refusals name the
+        # rendering surface literally, rather than using it for the GUI.
+        literal_browser = re.compile(
+            r"browser (?:tab|session storage|windows)|--no-browser"
+            r"|(?:kept|opened|saved) in this browser"
+            r"|(?:a|the|this) browser (?:keeps|does not (?:allow|keep)|asks|could not save|loads)",
+            re.I,
+        )
         root = pathlib.Path(__file__).resolve().parents[1]
         for page in ("docs/gui.md", "docs/studies.md", "README.md"):
             text = (root / page).read_text(encoding="utf-8")
             for line in text.splitlines():
                 if "browser" not in line:
                     continue
-                # A browser tab, and the flag that suppresses it, are the
-                # literal thing and keep the word.
-                assert ("browser tab" in line or "--no-browser" in line), (
+                # Each use must name the literal surface, not the product.
+                assert "browser" not in literal_browser.sub("", line).casefold(), (
                     f"{page}: {line.strip()[:80]}")
 
 

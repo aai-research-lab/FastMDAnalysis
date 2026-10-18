@@ -399,8 +399,42 @@ def refused(exc: BaseException) -> dict[str, Any]:
     return {"refusal": found.as_dict(), "remedy": remedy}
 
 
+def export_config(config: dict[str, Any], *, full: bool = False) -> dict[str, Any]:
+    """Export an existing Config without losing choices in inactive phases.
+
+    The Builder's form describes only the phases currently running. An
+    Agent version is a whole Config: its other phase settings and decision
+    records must survive a download too. Full exports use the Builder's
+    default filling, with every original choice laid back over it.
+    """
+    from copy import deepcopy
+
+    chosen = deepcopy(config)
+    try:
+        validate_config(deepcopy(chosen))
+    except ConfigError as exc:
+        return {"ok": False, "error": str(exc), **refused(exc)}
+    filled = {}
+    if full:
+        running = phases_it_runs(chosen)
+        defaults = build_config({**chosen, "include_phase": running,
+                                 "exclude_phase": []}, full=True)
+        filled = {phase: defaults[phase] for phase in running if phase in defaults}
+
+    def overlay(target: dict, given: dict) -> None:
+        for key, value in given.items():
+            if isinstance(value, dict) and isinstance(target.get(key), dict):
+                overlay(target[key], value)
+            else:
+                target[key] = deepcopy(value)
+
+    overlay(filled, chosen)
+    return render_config(filled, full=full, short=chosen, keep_choices=True)
+
+
 def render_config(config: dict[str, Any], *, full: bool = False,
-                  short: dict[str, Any] | None = None) -> dict[str, Any]:
+                  short: dict[str, Any] | None = None,
+                  keep_choices: bool = False) -> dict[str, Any]:
     """The config as text, validated, from a config -- the one source.
 
     Everything that renders a config to YAML goes through here: the form,
@@ -443,6 +477,11 @@ def render_config(config: dict[str, Any], *, full: bool = False,
             "# defaults included, so this file says what the run did without\n"
             "# depending on which version of the software was current.\n"
             if full
+            else
+            "# The settings chosen in this Config are kept, including\n"
+            "# those for phases not currently selected. Ask for the full\n"
+            "# config to record every value the run will use.\n"
+            if keep_choices
             else
             "# Only settings that differ from the defaults appear here, so\n"
             "# what this file says is what was decided. Ask for the full\n"

@@ -6,6 +6,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from fastmdxplora import record_access as _records
+
 
 @dataclass(frozen=True)
 class PhaseContext:
@@ -35,7 +37,7 @@ def load_phase_context(project_root: Path) -> PhaseContext:
     phases: set[str] = set()
     manifest_path = project_root / "manifest.json"
     try:
-        with manifest_path.open(encoding="utf-8") as fh:
+        with _records.open_text(manifest_path, encoding="utf-8") as fh:
             manifest = json.load(fh)
         raw_phases = manifest.get("phases", [])
         if isinstance(raw_phases, list):
@@ -48,14 +50,9 @@ def load_phase_context(project_root: Path) -> PhaseContext:
         phases = set()
 
     if not phases:
-        if (project_root / "setup").is_dir():
-            phases.add("setup")
-        if (project_root / "simulation").is_dir():
-            phases.add("simulation")
-        if (project_root / "analysis").is_dir():
-            phases.add("analysis")
-        if (project_root / "report").is_dir():
-            phases.add("report")
+        for phase in ("setup", "simulation", "analysis", "report"):
+            if _records.is_dir(project_root / phase):
+                phases.add(phase)
 
     return PhaseContext(
         setup_present="setup" in phases,

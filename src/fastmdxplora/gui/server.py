@@ -197,6 +197,7 @@ GETS_ANSWERED_BEYOND_LOOPBACK = frozenset(
         "/api/viewer-selections",
         "/api/scenes",
         "/api/stopping",
+        "/api/problems",
         "/api/stream",
         "/analysis-figures-svg.zip",
         "/structure/topology.pdb",
@@ -224,6 +225,7 @@ _READ_FROM_THE_RUN_SHOWN = frozenset({
     "/api/frames-pieces", "/structure/frames-piece.xtc", "/api/exact-frame",
     "/structure/exact-frame.xtc", "/api/backbone-angles",
     "/api/contact-map", "/api/contact-pair", "/api/pocket-volume", "/structure/pocket.dx",
+    "/api/timeline",
 })
 
 
@@ -259,6 +261,203 @@ def _private(parts: tuple[str, ...]) -> bool:
         return True
     store = CONVERSATIONS_SUBDIR.parts
     return any(parts[i:i + len(store)] == store for i in range(len(parts)))
+
+
+def _public_records(root: Path) -> Callable[[Path], bool]:
+    """Admission for a confined record read (`record_access`): inside the
+    resolved study ``root`` and one of its results, not `_private`."""
+
+    def admitted(path: Path) -> bool:
+        try:
+            return not _private(path.relative_to(root).parts)
+        except ValueError:
+            return False
+
+    return admitted
+
+
+#: What a confined read answers where the study's folder itself could not
+#: be opened to confine it.
+_RECORDS_UNREADABLE = {"ok": False, "reason": "The study's records could not be read."}
+
+
+def _a_run_in_its_study(inside: Path) -> tuple[Path, Callable[[Path], bool]] | None:
+    """For a run of a study of several (``<study>/runs/<run>``, the layout
+    such a study writes): the study, and admission for a confined read
+    rooted there. A run waiting for its study's next round is known so only
+    from the study's own records (`telemetry.between_rounds`): its
+    `stopping.json` and process record, and its runs' own records. Each run
+    is admitted as Problems admits a study (`admitted_for_problems`), and
+    only where it is: a record of one run linked to another's, or to the
+    study's, is a link out of it and refused. Nothing else of the study is
+    admitted. None for a study of its own."""
+    if inside.parent.name != "runs":
+        return None
+    from fastmdxplora.gui.problems_view import admitted_for_problems
+    from fastmdxplora.orchestrator import RUN_PROCESS_FILE
+    from fastmdxplora.simulation.stopping import RECORD
+
+    study, runs = inside.parent.parent, inside.parent
+
+    def admitted(path: Path) -> bool:
+        try:
+            parts = path.relative_to(study).parts
+            if len(parts) == 1:
+                return (parts[0] in (RECORD, RUN_PROCESS_FILE, runs.name)
+                        and path.resolve() == study / parts[0])
+            if len(parts) < 2 or parts[0] != runs.name or _private(parts[1:2]):
+                return False
+            run = runs / parts[1]
+            path.resolve().relative_to(run)
+        except (OSError, RuntimeError, ValueError):
+            return False
+        return admitted_for_problems(run)(path)
+
+    return study, admitted
+
+
+#: The names `record_access` gives a refused record that is not in the
+#: folder it was held to, which no path is relative to.
+_UNNAMED_REFUSALS = ("an unavailable record", "a non-regular record")
+
+
+def _named_from(inside: Path, held: Path, name: str) -> str:
+    """A refused record named relative to the open folder ``inside``, where
+    the read was held to ``held``, the study a run of it belongs to."""
+    if held == inside or name in _UNNAMED_REFUSALS:
+        return name
+    place = held / name
+    try:
+        return place.relative_to(inside).as_posix()
+    except ValueError:
+        return Path(os.path.relpath(place, inside)).as_posix()
+
+
+def _confined(root: Path, read: Callable[..., Any], *, keeps: bool = False) -> Any:
+    """``read(study)`` with each of its record reads held to the study's own
+    results (`record_access`): a record linked out of the study, or to a
+    hidden file in it, is refused rather than followed. A refused record is
+    named in the answer's ``unavailable``, so a page can say it was not read
+    rather than show it as absent. A reader that ``keeps`` its answer for
+    its next call is also given the set the refusals are named in, to name
+    again those of the read it kept.
+
+    What Problems admits is admitted here too (`admitted_for_problems`):
+    the run's own process record, without which a run whose process is gone
+    reads as running. A run of a study of several also reads what its study
+    records of its rounds (`_a_run_in_its_study`); where the study's folder
+    cannot be opened, the run is read alone."""
+    from contextlib import ExitStack
+
+    from fastmdxplora.gui.problems_view import admitted_for_problems
+    from fastmdxplora.record_access import confined_records
+
+    if not root.is_dir():
+        # No study open, or its folder gone: there is nothing to read.
+        return read(root, set()) if keeps else read(root)
+    inside = root.resolve()
+    holds = [(inside, admitted_for_problems(inside))]
+    in_its_study = _a_run_in_its_study(inside)
+    if in_its_study is not None:
+        holds.insert(0, in_its_study)
+    with ExitStack() as stack:
+        scope = held = None
+        for held, admitted in holds:
+            try:
+                scope = stack.enter_context(confined_records(held, admitted))
+                break
+            except OSError:
+                continue
+        if scope is None:
+            return dict(_RECORDS_UNREADABLE)
+        try:
+            answer = read(inside, scope.denied) if keeps else read(inside)
+        except OSError:
+            return dict(_RECORDS_UNREADABLE)
+    if isinstance(answer, dict):
+        named = answer.get("unavailable")
+        refused = ({_named_from(inside, held, name) for name in scope.denied}
+                   | set(named if isinstance(named, list) else ()))
+        if refused:
+            # A copy: the answer may be one a reader keeps for its next call.
+            # Each named with why it was not read, for the page to say so.
+            answer = {**answer, "unavailable": sorted(refused),
+                      "unavailable_why": {name: _why_not_read(inside, name)
+                                          for name in sorted(refused)}}
+    return answer
+
+
+def _status_records(root: Path) -> dict[str, Any]:
+    """What `/api/status` reads of the study ``root``: its run's record as
+    it stands, how it is going, how long it simulated, and its stages and
+    phases. Read in `_confined`, so a record linked out of the study is not
+    read for it (`simulated_times` would say an outside record's production)."""
+    from fastmdxplora.gui.simulated_time import simulated_times
+
+    from fastmdxplora.gui.series import refused_said
+    from fastmdxplora.gui.telemetry import not_read_health
+    from fastmdxplora.simulation.pipeline import _refused
+
+    # A run that ended without saying so is said to have.
+    status = status_as_it_stands(root)
+    metrics = read_metrics(root)
+    live = root / "simulation" / "live_status.json"
+    # Its live record refused is not read: not a run that kept none.
+    health = (not_read_health(refused_said(root, live) + ".")
+              if not status and _refused(live) else analyze_health(status, metrics, root=root))
+    return {
+        "status": status,
+        # Production first, equilibration beside it: the live record's own
+        # time has every stage in it.
+        "times": simulated_times(root, status),
+        "health": health,
+        # Which stages this run can actually reach. An analysis-only run has
+        # no minimization to wait for, and a stage greyed out forever reads
+        # as a run that stalled.
+        "stages": run_stages(root),
+        "phases": run_phases(root),
+        # Status can arrive before results; keep this record read confined too.
+        "run_title": "" if _no_study(root) else _run_title(
+            root, _load_json(root / "manifest.json")),
+    }
+
+
+def _status_unread() -> dict[str, Any]:
+    """`/api/status` where the study's folder could not be opened to hold its
+    reads to it: as a folder with no record, saying its records were not read."""
+    from fastmdxplora.gui.telemetry import PHASE_STAGES
+
+    return {"status": {}, "times": {}, "health": analyze_health({}, []),
+            "stages": [stage for stages in PHASE_STAGES.values() for stage in stages],
+            "phases": [], "run_title": "", "reason": _RECORDS_UNREADABLE["reason"]}
+
+
+def _refusals_said(answer: dict[str, Any]) -> str:
+    """The records a `_confined` answer names as not read, each with why,
+    in a sentence: "" where every record was read."""
+    from fastmdxplora.gui.series import NOT_READ_BECAUSE
+
+    names = answer.get("unavailable") if isinstance(answer, dict) else None
+    if not names:
+        return ""
+    why = answer.get("unavailable_why") or {}
+    said = "; ".join(f"{name} was not read: " + NOT_READ_BECAUSE.get(
+        why.get(name), "it leads outside the study, or to a file of the study that is not "
+        "one of its results") for name in names)
+    return said + (", so what it says is not shown." if len(names) == 1
+                   else ", so what they say is not shown.")
+
+
+def _why_not_read(inside: Path, name: str) -> str:
+    """Why the confined read of the open folder ``inside`` refused the
+    record it names ``name`` (a key of `series.NOT_READ_BECAUSE`)."""
+    from fastmdxplora.gui.series import why_not_read
+
+    if name == "a non-regular record":
+        return "not a file"
+    if name in _UNNAMED_REFUSALS:
+        return "outside"
+    return why_not_read(inside, inside / name)
 
 
 def _served_beyond_loopback(root: Path, target: Path) -> bool:
@@ -726,7 +925,10 @@ def make_handler(
             if path == "/api/agent/conversation":
                 from fastmdxplora.gui.agent_panel import read_conversation
 
-                self._send_json(read_conversation(app_runtime))
+                # The study the page is for, by its key: another study's
+                # conversation is not given to it.
+                self._send_json(read_conversation(
+                    app_runtime, page_study=(parse_qs(parsed.query).get("study") or [""])[0]))
                 return
             if path == "/api/agent/receipt":
                 # What the AI model was sent for one reply, kept beside the
@@ -902,24 +1104,41 @@ def make_handler(
                 payload["workspace"] = str(app_runtime.exploration_root)
                 self._send_json(payload)
                 return
-            if path == "/api/status":
-                # A run that ended without saying so is said to have.
-                status = status_as_it_stands(root)
-                metrics = read_metrics(root)
-                from fastmdxplora.gui.simulated_time import simulated_times
+            if path == "/api/problems":
+                # A read-only list of the records already shown by status
+                # and analysis. Commands and proposed Configs stay on the
+                # private fixes route. The key prevents a late request
+                # from reading a different study after a switch.
+                from fastmdxplora.gui.problems_view import problems_payload
                 from fastmdxplora.gui.workspace import study_key
 
-                payload = {
-                    "status": status,
-                    # Production first, equilibration beside it: the live
-                    # record's own time has every stage in it.
-                    "times": simulated_times(root, status),
-                    "health": analyze_health(status, metrics, root=root),
-                    # Which stages this run can actually reach. An
-                    # analysis-only run has no minimization to wait for, and a
-                    # stage greyed out forever reads as a run that stalled.
-                    "stages": run_stages(root),
-                    "phases": run_phases(root),
+                if _no_study(root):
+                    # No study open: said as that, not read as a folder.
+                    self._send_json({"ok": True, "study": "", "active_run": None,
+                                     "items": [], "notes": [], "read": [],
+                                     "unavailable": [], "available": False})
+                    return
+                wanted = (parse_qs(parsed.query).get("study") or [""])[0]
+                if wanted and wanted != study_key(root):
+                    self._send_json({"ok": False, "study": study_key(root),
+                                     "reason": "The open study changed."})
+                    return
+                answer = problems_payload(root, admit_evidence=True)
+                # A study whose folder has gone is still the one open.
+                answer["active_run"] = (str(root) if answer.get("state") == "gone"
+                                        or is_study(root) else None)
+                self._send_json(answer)
+                return
+            if path == "/api/status":
+                from fastmdxplora.gui.workspace import study_key
+
+                # Read from the study's own records only (`_confined`).
+                payload = _confined(root, _status_records)
+                if "status" not in payload:
+                    # The study's folder could not be opened to hold the
+                    # reads to it: nothing of it is read or said.
+                    payload = _status_unread()
+                payload.update({
                     # Which study this is, as a key (no path said beyond
                     # this computer): a page told of a run ending tells it
                     # from another study's status, read as a study was
@@ -928,10 +1147,7 @@ def make_handler(
                     # A folder that is not yet a study is not named in the
                     # address: it cannot be opened again as one.
                     "study_named": is_study(root),
-                    # Status can arrive before the study's results.
-                    "run_title": "" if _no_study(root) else _run_title(
-                        root, _load_json(root / "manifest.json")),
-                }
+                })
                 self._send_json(payload)
                 return
             if path == "/api/metrics":
@@ -955,13 +1171,24 @@ def make_handler(
                 from fastmdxplora.gui.figure_data import figure_payload
 
                 wanted = (parse_qs(parsed.query).get("figure") or [""])[0]
-                self._send_json(figure_payload(root, wanted))
+                # Read from the study's own results only (`_confined`), the
+                # figure saying which of its records were not read.
+                answer = _confined(root, lambda inside: figure_payload(inside, wanted))
+                said = _refusals_said(answer)
+                if said and answer.get("ok"):
+                    answer["note"] = " ".join(filter(None, [answer.get("note"), said]))
+                elif said:
+                    answer["reason"] = said
+                self._send_json(answer)
                 return
             if path == "/api/overview":
                 # What the Overview leads with (overview_view.py).
+                # Read from the study's own results only (`_confined`).
                 from fastmdxplora.gui.overview_view import overview_payload
 
-                self._send_json(overview_payload(root))
+                self._send_json(_confined(
+                    root, lambda inside, refused: overview_payload(inside, refused=refused),
+                    keeps=True))
                 return
             if path == "/api/events":
                 self._send_json({"events": read_events(root)})
@@ -970,6 +1197,24 @@ def make_handler(
                 from fastmdxplora.gui.report_page import report_payload
 
                 self._send_json(report_payload(root))
+                return
+            if path == "/api/timeline":
+                # What the Viewer's timeline marks on the frames it plays.
+                # Read from the study's own records only (`_confined`).
+                from fastmdxplora.gui.timeline_view import timeline_payload
+
+                self._send_json(_confined(root, timeline_payload))
+                return
+            if path == "/api/status-bar":
+                # This computer and its GPUs, for the strip under every
+                # page. Not for a service's guests: the computer is the
+                # service's, not theirs.
+                if hosting is not None:
+                    self._send_json({"ok": False, "reason": "Not said when the GUI is served."})
+                    return
+                from fastmdxplora.gui.status_bar import status_bar
+
+                self._send_json(status_bar())
                 return
             if path == "/api/methods":
                 from fastmdxplora.gui.report_page import methods_payload
@@ -1022,8 +1267,13 @@ def make_handler(
                 self._send_json({"artifacts": self._where_each_is(root, _artifact_records(root))})
                 return
             if path == "/api/results" or path == "/api/analyses":
-                payload = _results_payload(root)
-                self._where_each_is(root, payload.get("artifacts") or [])
+                # Read from the study's own results only (`_confined`).
+                payload = _confined(root, _results_payload)
+                if payload.get("ok", True):
+                    if payload.get("output_dir"):
+                        # The folder as it was opened, not where its links lead.
+                        payload["output_dir"] = str(root)
+                    self._where_each_is(root, payload.get("artifacts") or [])
                 self._send_json(payload)
                 return
             if path == "/api/series":
@@ -1032,32 +1282,39 @@ def make_handler(
                 query = parse_qs(parsed.query)
                 name = (query.get("analysis") or [""])[0]
                 run = (query.get("run") or [""])[0]
+                # Read from the study's own results only (`_confined`).
                 if not name and not run:
                     # Which series there are, for the Viewer's.
-                    self._send_json(series_over_time(root))
+                    self._send_json(_confined(root, series_over_time))
                     return
                 if run:
                     # One run of a study of several, named by its id: only
                     # a run the study records, never a path.
                     from fastmdxplora.gui.runs_compared import run_folder
 
-                    folder = run_folder(root, run)
-                    self._send_json(series_payload(folder, name) if folder is not None
-                                    else {"ok": False, "reason": "no such run in this study"})
+                    def of_the_run(inside: Path) -> dict[str, Any]:
+                        folder = run_folder(inside, run)
+                        return (series_payload(folder, name) if folder is not None
+                                else {"ok": False, "reason": "no such run in this study"})
+
+                    self._send_json(_confined(root, of_the_run))
                     return
-                self._send_json(series_payload(root, name))
+                self._send_json(_confined(root, lambda inside: series_payload(inside, name)))
                 return
             if path == "/api/analysis-overview":
-                # What every analysis recorded, read together.
+                # What every analysis recorded, read together, from the
+                # study's own results only: a record linked out of the study,
+                # or to a hidden file in it, is not read (`record_access`).
                 from fastmdxplora.gui.analysis_overview import overview_of
 
-                self._send_json(overview_of(root))
+                self._send_json(_confined(root, overview_of))
                 return
             if path == "/api/convergence":
                 from fastmdxplora.gui.analysis_overview import convergence_payload
 
                 name = (parse_qs(parsed.query).get("analysis") or [""])[0]
-                self._send_json(convergence_payload(root, name))
+                # Read from the study's own results only (`_confined`).
+                self._send_json(_confined(root, lambda inside: convergence_payload(inside, name)))
                 return
             if path == "/api/selection":
                 from fastmdxplora.gui.selection import selection_for
@@ -1645,6 +1902,13 @@ def make_handler(
                     payload or {}, app_runtime,
                     path_for=hosting.inside if hosting is not None else None))
                 return
+            if path == "/api/agent/review-config":
+                # Choosing among actual Config values, never applying paths
+                # supplied by the browser. This checks; it does not launch.
+                from fastmdxplora.gui.config_review import review_config
+
+                self._send_json(review_config(payload or {}))
+                return
             if path == "/api/agent/propose":
                 # A sentence in, a config out -- through the same
                 # `propose_config` the CLI uses and the same validator a
@@ -1753,9 +2017,12 @@ def make_handler(
                 # through the command line's own validator first, so a
                 # configuration that would fail there fails here, while the
                 # form that produced it is still on the screen.
-                from fastmdxplora.gui.config_builder import config_yaml
+                from fastmdxplora.gui.config_builder import config_yaml, export_config
 
                 request = payload or {}
+                if isinstance(request.get("config"), dict):
+                    self._send_json(export_config(request["config"], full=bool(request.get("full"))))
+                    return
                 self._send_json(
                     config_yaml(request, full=bool(request.get("full")))
                 )
@@ -1797,7 +2064,7 @@ def make_handler(
                     dashboard_url=self.headers.get("Origin")))
                 return
             if path == "/api/agent/conversation":
-                from fastmdxplora.gui.agent_panel import write_conversation
+                from fastmdxplora.gui.agent_panel import page_study_refused, write_conversation
 
                 asked = payload or {}
                 # Named, the conversation is written where it lives, a chat
@@ -1812,6 +2079,10 @@ def make_handler(
                         study = self._optional_path_for(asked.get("study"))
                         if study is False:
                             return
+                    refused = page_study_refused(app_runtime, study, asked.get("page_study"))
+                    if refused:
+                        self._send_json(refused, status=409)
+                        return
                     self._send_json(merge_conversation(
                         app_runtime, asked.get("entries"), asked.get("seen"),
                         asked.get("id") or None, study, key=asked.get("key"),
@@ -1825,8 +2096,19 @@ def make_handler(
                     study = self._optional_path_for(asked.get("study"))
                     if study is False:
                         return
+                    refused = page_study_refused(app_runtime, study, asked.get("page_study"))
+                    if refused:
+                        self._send_json(refused, status=409)
+                        return
                     self._send_json(write_conversation(
                         app_runtime, asked.get("entries"), asked.get("id"), study))
+                    return
+                from fastmdxplora.gui.agent_panel import _HERE
+
+                refused = page_study_refused(app_runtime, _HERE,
+                                             asked.get("page_study"))
+                if refused:
+                    self._send_json(refused, status=409)
                     return
                 self._send_json(write_conversation(app_runtime, asked.get("entries")))
                 return
@@ -2959,24 +3241,32 @@ def start_test_server(
     return server, f"http://127.0.0.1:{server.server_address[1]}"
 
 
-def _determined_values(root: Path, records: list[dict[str, str]]) -> dict[str, str]:
+def _determined_values(root: Path, records: list[dict[str, str]]) -> dict[str, Any]:
     """Each analysis's recorded mean, where its error was determined, as the
     Analysis page's table says it: beside the analysis on the Files page.
-    None for a study with no analysis, and none where it cannot be read."""
+    None for a study with no analysis, and none where it cannot be read.
+    A mean whose record a confined read refused is ``{"said": "Not read",
+    "why": ...}``: said not read, as the Overview says it, not left out."""
     if not any(record["path"].startswith("analysis/") for record in records):
         return {}
     try:
         from fastmdxplora.gui.analysis_overview import overview_of
 
-        rows = overview_of(root).get("rows") or []
+        # From the study's own records only, as the Analysis page reads them.
+        rows = _confined(root, overview_of).get("rows") or []
     except Exception:  # noqa: BLE001 - a value beside a file is not load-bearing
         logger.debug("the analyses' values could not be read for the Files page", exc_info=True)
         return {}
     said = {}
     for row in rows:
         mean = row.get("mean") if isinstance(row, dict) else None
+        quantities = (row.get("quantities") if isinstance(row, dict) else None) or []
         if isinstance(mean, dict) and mean.get("determined") and mean.get("said"):
             said[str(row.get("analysis"))] = str(mean["said"])
+        elif (quantities and isinstance(quantities[0], dict)
+              and quantities[0].get("key") == "mean" and quantities[0].get("unavailable")):
+            said[str(row.get("analysis"))] = {"said": "Not read",
+                                              "why": str(quantities[0].get("why") or "")}
     return said
 
 
@@ -2999,9 +3289,13 @@ def _artifact_records(root: Path) -> list[dict[str, str]]:
     records: list[dict[str, str]] = []
     if not root.exists():
         return records
+    from fastmdxplora.gui.report_dashboard import files_under
+
     found: list[Path] = []
     try:
-        for path in root.rglob("*"):
+        # In a read held to the study, each folder is listed through
+        # `record_access`, opened from the study.
+        for path in files_under(root):
             found.append(path)
     except OSError:
         # A folder removed while it was walked: list what was reached.
@@ -3012,8 +3306,10 @@ def _artifact_records(root: Path) -> list[dict[str, str]]:
             continue
         try:
             relative = path.relative_to(root)
-            info = path.stat()
+            # Where it leads before anything of it is asked: a link out of
+            # the run is not looked at.
             inside = Path(os.path.realpath(path)).relative_to(real_root)
+            info = path.stat()
         except (OSError, ValueError):
             continue
         # Nothing offered that `/artifacts/` would refuse: a link that
@@ -3200,10 +3496,21 @@ def _results_payload(root: Path) -> dict[str, Any]:
     dashboard = by_path.get("report/dashboard.html")
     from fastmdxplora.simulation.resume import extended_production
 
+    from fastmdxplora.refusals import OutsideWorkspace
+
     # An extended study's length is its pieces', not its first piece's.
-    extended = extended_production(root)
+    production_not_read = None
+    try:
+        extended = extended_production(root)
+    except OutsideWorkspace as refusal:
+        # A record of its pieces a held read refused: its production was not
+        # read, which is neither the first piece's nor a part of it.
+        from fastmdxplora.gui.series import refused_said
+
+        extended = None
+        production_not_read = refused_said(root, Path(refusal.filename or root))
     summary = _summary_records(root, manifest, analysis_manifest, sim_manifest,
-                               extended=extended)
+                               extended=extended, production_not_read=production_not_read)
     setup_manifest = _load_json(_setup_of(root) / "setup_parameters.json")
     system = _system_info(root, manifest, analysis_manifest, sim_manifest)
     return {
@@ -3218,7 +3525,8 @@ def _results_payload(root: Path) -> dict[str, Any]:
         "system": system,
         "setup": _setup_details(setup_manifest),
         "simulation": _simulation_details(sim_manifest, read_study_status(root),
-                                          extended=extended),
+                                          extended=extended,
+                                          production_not_read=production_not_read),
         "phases": _phase_records(manifest),
         "analyses": _analysis_records(analysis_manifest, artifacts, plots),
         "dashboard": dashboard,
@@ -3471,8 +3779,10 @@ def _live_coordinates_payload(root: Path) -> dict[str, Any]:
 
 
 def _load_json(path: Path) -> dict[str, Any]:
+    from fastmdxplora import record_access
+
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(record_access.read_text(path, encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
@@ -3485,13 +3795,19 @@ def _summary_records(
     sim_manifest: dict[str, Any],
     *,
     extended: tuple[float, int] | None = None,
+    production_not_read: str | None = None,
 ) -> list[dict[str, str]]:
+    from fastmdxplora.simulation.pipeline import _refused
+
     phase_statuses = [
         str(item.get("status") or "unknown").lower()
         for item in manifest.get("phases", [])
         if isinstance(item, dict)
     ]
-    if phase_statuses and all(value in {"ok", "completed", "skipped"} for value in phase_statuses):
+    if not manifest and _refused(root / "manifest.json"):
+        # The run's manifest not read is not a run that wrote none.
+        status = "not read"
+    elif phase_statuses and all(value in {"ok", "completed", "skipped"} for value in phase_statuses):
         status = "completed"
     elif any(value in {"error", "failed"} for value in phase_statuses):
         # A phase asked to stop is said as stopped, as the study's card says.
@@ -3526,6 +3842,9 @@ def _summary_records(
         _last_metric_value(root, "temperature"),
     )
     latest = _first_present(live_status.get("status"), status)
+    if not live_status and _refused(root / "simulation" / "live_status.json"):
+        # Its live record not read: not the manifest's word in its place.
+        latest = "not read"
     records = [
         {"label": "Project status", "value": status},
         {"label": "Latest status", "value": str(latest or "—")},
@@ -3544,6 +3863,8 @@ def _summary_records(
     ]
     if extended:
         records[4]["value"] += f" in {extended[1]} pieces"
+    elif production_not_read:
+        records[4]["value"] = "not read"
     return records
 
 
@@ -3890,11 +4211,12 @@ def _simulation_details(
     live_status: dict[str, Any],
     *,
     extended: tuple[float, int] | None = None,
+    production_not_read: str | None = None,
 ) -> dict[str, Any]:
     params = sim_manifest.get("parameters")
     if not isinstance(params, dict):
         params = sim_manifest
-    return {
+    details = {
         "platform": _first_present(
             live_status.get("platform"),
             sim_manifest.get("platform_used"),
@@ -3928,6 +4250,12 @@ def _simulation_details(
             live_status.get("current_frame_count"),
         ),
     }
+    if production_not_read:
+        # Its production and the pieces it ran in were not read: neither the
+        # first piece's record nor one piece.
+        details.update(duration_ns_actual=None, pieces=None,
+                       production_not_read=production_not_read)
+    return details
 
 
 def _analysis_records(
@@ -4126,12 +4454,19 @@ def _category_order(category: str) -> int:
 
 def _svg_figure_paths(root: Path) -> list[Path]:
     """Return generated SVG figures, excluding branding/static assets."""
+    import fnmatch
+
+    from fastmdxplora import record_access
+    from fastmdxplora.gui.report_dashboard import files_under
+
     paths: list[Path] = []
     for base in (root / "analysis", root / "report" / "dashboard_assets", root / "report"):
-        if not base.is_dir():
+        if not record_access.is_dir(base):
             continue
-        for path in base.rglob("*.svg"):
-            if path.is_file() and path not in paths:
+        for path in files_under(base):
+            if not fnmatch.fnmatchcase(path.name, "*.svg"):
+                continue
+            if path not in paths and record_access.is_file(path):
                 paths.append(path)
     return sorted(paths)
 

@@ -1084,13 +1084,19 @@
     trigger.setAttribute("aria-expanded", String(open));
   }
 
+  /* Whose AI the Agent asks, by the provider's name, or none. Never the AI
+   * model: it is said only in the Agent's own settings (user, 10-18). */
   function loadAgentStatus() {
     fetch("/api/agent/model", {
       method: "POST", headers: {"content-type": "application/json"}, body: "{}"
     }).then(function (r) { return r.json(); }).then(function (d) {
       var cur = d && d.current;
       var engine = el("settings-engine");
-      if (engine) engine.textContent = cur ? cur.provider + " \u00b7 " + cur.model : "none";
+      if (!engine) return;
+      var spec = cur ? (d.providers || []).filter(function (p) {
+        return p.id === cur.provider;
+      })[0] : null;
+      engine.textContent = cur ? (spec ? spec.label : cur.provider) : "none";
     }).catch(function () { /* fine */ });
   }
 
@@ -1292,6 +1298,36 @@
       });
     });
 
+    /* Every way to another study asks first whether a switch would lose
+     * work here; the dashboard says why it is held. One that goes on is
+     * marked as in flight (the strip is busy) until it is answered. */
+    function switchHeld() {
+      var dashboard = window.FastMDXDashboard;
+      return Boolean(dashboard && dashboard.beginStudySwitch && dashboard.beginStudySwitch());
+    }
+    function switchEnded() {
+      var dashboard = window.FastMDXDashboard;
+      if (dashboard && dashboard.endStudySwitch) dashboard.endStudySwitch();
+    }
+    /* Asked of the server by folder; opened as a step of its own. */
+    function switchToFolder(folder, page, refused) {
+      if (switchHeld()) return false;
+      fetch("/api/explore/switch", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ folder: folder })
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        if (d && d.ok) { window.FastMDXDashboard.studyOpened(d, page); return; }
+        switchEnded();
+        if (refused) refused((d && d.error) || "Could not open that study.");
+        else window.FastMDXDashboard.toast((d && d.error) || "Could not open that study.", "warning");
+      }).catch(function () {
+        switchEnded();
+        if (refused) refused("Could not reach the server.");
+        else window.FastMDXDashboard.toast("Could not reach the server.", "warning");
+      });
+      return true;
+    }
+
     var loadStudy = el("load-study");
     var loadPath = el("load-study-path");
     if (loadStudy && loadPath && window.FastMDXPicker) {
@@ -1303,175 +1339,18 @@
       loadPath.addEventListener("change", function () {
         var folder = loadPath.value.trim();
         if (!folder) return;
+        loadPath.value = "";
+        // Work a switch would lose holds it, with the reason said. The new
+        // study is read at once, on its overview, as a step of its own.
+        var asked = switchToFolder(folder, undefined, function (why) {
+          loadStudy.disabled = false;
+          loadStudy.textContent = "Load study";
+          window.alert(why === "Could not open that study." ? "Could not load that folder." : why);
+        });
+        if (!asked) return;
         loadStudy.disabled = true;
         loadStudy.textContent = "Loading\u2026";
-        fetch("/api/explore/switch", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ folder: folder })
-        }).then(function (r) { return r.json(); }).then(function (d) {
-          loadStudy.disabled = false;
-          loadStudy.textContent = "Load study";
-          loadPath.value = "";
-          if (d && d.ok) {
-            // Read the new study at once, on its overview, as a step of
-            // its own.
-            window.FastMDXDashboard.studyOpened(d);
-          } else {
-            window.alert((d && d.error) || "Could not load that folder.");
-          }
-        }).catch(function () {
-          loadStudy.disabled = false;
-          loadStudy.textContent = "Load study";
-          window.alert("Could not reach the server.");
-        });
       });
-    }
-
-    /* A run in another folder: say so, offer the way back. */
-    var elsewhere = el("study-elsewhere");
-    var elsewhereName = el("study-elsewhere-name");
-    var elsewhereView = el("study-elsewhere-view");
-    if (elsewhere && window.FastMDXDashboard) {
-      var elsewherePath = "";
-      window.FastMDXDashboard.on("app-state", function (s) {
-        elsewherePath = (s && s.running_elsewhere) || "";
-        elsewhere.hidden = !elsewherePath;
-        if (elsewherePath && elsewhereName) {
-          /* The system's name, as the folder now carries it:
-           * fastmdxplora_<system>_study_<stamp>. Older folders show
-           * their whole name. */
-          var folder = elsewherePath.split("/").pop();
-          var m = /^fastmdxplora_(.+)_study_\d+$/.exec(folder);
-          elsewhereName.textContent = m ? m[1] : folder;
-          elsewhereName.title = elsewherePath;
-          var pct = el("study-elsewhere-pct");
-          var prog = s.running_elsewhere_progress || {};
-          if (pct) {
-            pct.textContent = typeof prog.percent === "number" ? prog.percent.toFixed(1) + "%"
-              : (prog.stage ? String(prog.stage) : "");
-          }
-        }
-      });
-      if (elsewhereView) {
-        elsewhereView.addEventListener("click", function () {
-          if (!elsewherePath) return;
-          fetch("/api/explore/switch", {
-            method: "POST", headers: { "content-type": "application/json" },
-            body: JSON.stringify({ folder: elsewherePath })
-          }).then(function (r) { return r.json(); }).then(function (d) {
-            window.FastMDXDashboard.studyOpened(d, currentPage());
-          });
-        });
-      }
-    }
-
-    /* A study of several runs lists them; a run inside one names it. */
-    var runsBlock = el("study-runs");
-    var runOfBlock = el("study-run-of");
-    function switchTo(folder) {
-      fetch("/api/explore/switch", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ folder: folder })
-      }).then(function (r) { return r.json(); }).then(function (d) {
-        window.FastMDXDashboard.studyOpened(d, currentPage());
-      });
-    }
-    function shortAxis(axis) { return String(axis).split(".").pop(); }
-    function valuesText(values) {
-      return Object.keys(values || {}).map(function (axis) {
-        return shortAxis(axis) + " = " + values[axis];
-      }).join(", ");
-    }
-    if (runsBlock && runOfBlock && window.FastMDXDashboard) {
-      var lastState = null;
-      var showRuns = function (s) {
-        lastState = s;
-        var runs = (s && s.runs) || null;
-        runsBlock.hidden = !runs;
-        if (runs) {
-          var done = runs.filter(function (r) { return r.state === "completed"; }).length;
-          el("study-runs-label").textContent = "Runs, " + done + " of " + runs.length + " completed";
-          var list = el("study-runs-list");
-          list.innerHTML = "";
-          /* Seven at first, then three more per click of More until all are
-           * shown, and Less folds back to seven: a sweep of forty runs would
-           * otherwise push everything below it off the sidebar. The running
-           * ones come first, so what is happening is always in view; how
-           * many are shown is remembered across polls. */
-          var FIRST = 7, STEP = 3;
-          var ordered = runs.slice().sort(function (a, b) {
-            var rank = { running: 0, waiting: 1, failed: 2, stopped: 2, interrupted: 2, completed: 3 };
-            return (rank[a.state] - rank[b.state]) || (runs.indexOf(a) - runs.indexOf(b));
-          });
-          var shown = Math.min(ordered.length, parseInt(runsBlock.dataset.shown, 10) || FIRST);
-          ordered.slice(0, shown).forEach(function (r) {
-            var row = document.createElement("div");
-            row.className = "study-running-row study-run-row";
-            row.dataset.state = r.state;
-            var dot = document.createElement("span");
-            dot.className = "status-dot" + (r.state === "running" ? " status-dot-live" : "");
-            dot.setAttribute("aria-hidden", "true");
-            var name = document.createElement("span");
-            name.className = "study-running-name mono";
-            name.textContent = valuesText(r.values) || r.run_id;
-            name.title = r.path;
-            var pct = document.createElement("span");
-            pct.className = "study-running-pct mono";
-            // A run between its study's rounds: how far towards the round's
-            // length, not "waiting" as a run not yet begun says.
-            pct.textContent = r.state === "running" && typeof r.fraction === "number"
-              ? (100 * r.fraction).toFixed(0) + "%"
-              : r.state === "waiting" && r.so_far
-                ? "next round" + (typeof r.fraction === "number"
-                  ? ", " + (100 * r.fraction).toFixed(0) + "%" : "")
-                : r.state;
-            var view = window.FastMDXIcons.button("eye", "View this run");
-            view.addEventListener("click", function () { switchTo(r.path); });
-            row.appendChild(dot); row.appendChild(name); row.appendChild(pct); row.appendChild(view);
-            list.appendChild(row);
-          });
-          if (ordered.length > FIRST) {
-            var controls = document.createElement("div");
-            controls.className = "study-runs-more";
-            if (shown < ordered.length) {
-              var more = document.createElement("button");
-              more.className = "ghost-btn";
-              more.type = "button";
-              more.id = "study-runs-more";
-              var next = Math.min(STEP, ordered.length - shown);
-              more.textContent = "More (" + next + " of " + (ordered.length - shown) + ")";
-              more.addEventListener("click", function () {
-                runsBlock.dataset.shown = String(shown + STEP);
-                showRuns(lastState);
-              });
-              controls.appendChild(more);
-            }
-            if (shown > FIRST) {
-              var less = document.createElement("button");
-              less.className = "ghost-btn";
-              less.type = "button";
-              less.id = "study-runs-less";
-              less.textContent = "Less";
-              less.addEventListener("click", function () {
-                runsBlock.dataset.shown = String(FIRST);
-                showRuns(lastState);
-              });
-              controls.appendChild(less);
-            }
-            list.appendChild(controls);
-          }
-        }
-        var of = (s && s.run_of) || null;
-        runOfBlock.hidden = !of;
-        if (of) {
-          el("study-run-of-name").textContent = of.study;
-          el("study-run-of-name").title = of.path;
-          el("study-run-of-values").textContent = valuesText(of.values);
-          el("study-run-of-back").onclick = function () { switchTo(of.path); };
-        }
-      };
-      window.FastMDXDashboard.on("app-state", showRuns);
     }
 
     /* The seam between the file list and the preview. Drag it; either

@@ -24,7 +24,7 @@ from typing import Any
 from fastmdxplora.system_id import system_id
 
 __all__ = ["studies_in", "card_of", "studies_compared", "tags_used", "thumbnail_of",
-           "thumbnail_series", "study_key", "study_keyed"]
+           "thumbnail_series", "study_key", "study_keyed", "study_state"]
 
 #: A difference is marked past this many combined standard errors.
 RESOLVED_AT = 2.0
@@ -514,6 +514,15 @@ def _kind_of(config: Any, batch: Any, *, simulated: bool = False) -> str:
     return "one run"
 
 
+def study_state(folder: Path | str) -> str:
+    """A study's state, from its records: the one derivation every page
+    reads (All studies' cards, the sidebar, the Overview). For a study of
+    several runs, from its runs' states (`exploration.runs_of_a_study`)."""
+    base = Path(folder)
+    return _state_of(base, _read_json(base / "batch_manifest.json"),
+                     _read_json(base / "manifest.json"))
+
+
 def _state_of(base: Path, batch: Any, manifest: Any) -> str:
     try:
         from fastmdxplora.simulation.resume import _still_running
@@ -559,6 +568,10 @@ def _state_of(base: Path, batch: Any, manifest: Any) -> str:
         # A run stopped or killed in a later piece (its study's rounds).
         if any(state == "stopped" for state in states):
             return "stopped"
+        # A run going on, as its record and its process say
+        # (`runs_of_a_study` calls one whose process is gone interrupted).
+        if any(state == "running" for state in states):
+            return "running"
         return "incomplete"
     phases = manifest.get("phases") if isinstance(manifest, dict) else None
     if not isinstance(phases, list) or not phases:
@@ -628,8 +641,12 @@ def _lifted(config: Any) -> Any:
 
 
 def _read_json(path: Path) -> Any:
+    # Through `record_access`: held to its study where the read is (a study
+    # of runs' state said on `/api/status`), as pathlib elsewhere.
+    from fastmdxplora import record_access
+
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(record_access.read_text(path, encoding="utf-8"))
     except (OSError, ValueError):
         return None
 

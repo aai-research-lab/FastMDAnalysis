@@ -49,6 +49,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from fastmdxplora import record_access as _records
 from fastmdxplora.dependencies import (
     MissingBackendError, dependency_error_message, missing_dependencies)
 from fastmdxplora.config.schema import SIMULATION
@@ -92,6 +93,72 @@ def _setup_outputs_present(setup_dir: Path) -> tuple[Path | None, Path | None, P
     return system_xml, state_xml, topology
 
 
+def _may_look(path: Path) -> bool:
+    """Whether ``path`` may be looked at here: always, except during a read
+    held to a study (`record_access.confined_records`, the GUI's study
+    pages), and then only in the folder it is held to.
+
+    A run's records name other places: where its system was prepared, the
+    study a segment continues, where a fetched study was sent from. A held
+    read does not look there, rather than naming each as a record it
+    refused. A record of the study itself that is linked out of it is still
+    looked at, and refused and named when it is read.
+    """
+    import os
+
+    place = Path(os.path.abspath(path))
+    return any(_records.can_read(folder) for folder in (place, *place.parents))
+
+
+def _refused(path: Path) -> bool:
+    """Whether a held read refuses ``path``, a record that is there in the
+    folder the read is held to (`_may_look`): a link out of it, or to a
+    file of it that is not one of its results. Such a record was not read,
+    which is not the same as not there, so a reader that falls back where
+    a record is missing must not fall back for this one. The refusal is
+    named with the read's others. Never, outside a held read.
+
+    Each step to the record is only asked whether it is there, without
+    following a link.
+    """
+    import os
+
+    place = Path(os.path.abspath(path))
+    if _records.can_read(place) or not _may_look(place):
+        return False
+    ancestors = [folder for folder in (*reversed(place.parents), place)]
+    first = next(index for index, folder in enumerate(ancestors)
+                 if _records.can_read(folder))
+    for step in ancestors[first + 1:]:
+        try:
+            if os.path.islink(step):
+                break
+            os.lstat(step)
+        except OSError:
+            return False
+    try:
+        # Named as the read's other refusals are (`record_access.stat`).
+        _records.stat(place)
+    except OSError:
+        pass
+    return True
+
+
+def _refuse(*paths: Path) -> None:
+    """Raise `OutsideWorkspace` for the first of ``paths`` a held read
+    refuses (`_refused`); nothing for a record read, or not there."""
+    from fastmdxplora.refusals import OutsideWorkspace
+
+    for path in paths:
+        if _refused(path):
+            refusal = OutsideWorkspace(
+                f"{Path(path).name} was not read: it leads out of the study, or to a "
+                "file of it that is not one of its results.")
+            # Which record, for a page to name it.
+            refusal.filename = str(path)
+            raise refusal
+
+
 def _a_prepared_system_sits_in(directory: Path) -> bool:
     """Whether this directory holds a system a run could start from.
 
@@ -99,8 +166,9 @@ def _a_prepared_system_sits_in(directory: Path) -> bool:
     did not finish, and starting from it fails later and less clearly than
     saying so here.
     """
-    return all((directory / name).is_file()
-               for name in ("system.xml", "state.xml", "topology.pdb"))
+    return _may_look(directory) and all(
+        _records.is_file(directory / name)
+        for name in ("system.xml", "state.xml", "topology.pdb"))
 
 
 #: The places a study keeps a prepared system, in the order they are tried.
@@ -407,7 +475,11 @@ def setup_records_of(run_dir: str | Path) -> Path | None:
     candidates.extend(where_a_prepared_system_sits(_as_named(named))
                       for named in _setup_from_recorded(run))
     for candidate in candidates:
-        if (candidate / "setup_parameters.json").is_file():
+        record = candidate / "setup_parameters.json"
+        # A record a held read refuses (`_refused`) is not a candidate
+        # without one: the next may be another system's. Its folder is
+        # given, so a read of the record is refused and named, not moved past.
+        if _refused(record) or (_may_look(record) and _records.is_file(record)):
             return candidate
     return None
 
@@ -418,10 +490,12 @@ def _the_records_of(prepared: Path) -> Path | None:
     found as a run's reference is and checked by content the same way."""
     from fastmdxplora.simulation.seeding import SEEDED_FROM
 
-    if (prepared / "setup_parameters.json").is_file():
+    if not _may_look(prepared):
+        return prepared
+    if _records.is_file(prepared / "setup_parameters.json"):
         return prepared
     try:
-        reference = json.loads((prepared / SEEDED_FROM).read_text(encoding="utf-8"))
+        reference = json.loads(_records.read_text(prepared / SEEDED_FROM, encoding="utf-8"))
     except (OSError, ValueError):
         return prepared
     if not isinstance(reference, dict) or not reference.get("system_xml_sha256"):
@@ -435,10 +509,18 @@ def system_digest(setup_dir: Path) -> str | None:
     unless they share their settings and `setup.random_seed`."""
     import hashlib
 
+    path = Path(setup_dir) / "system.xml"
+    if not _may_look(path):
+        return None
+    digest = hashlib.sha256()
     try:
-        return hashlib.sha256((Path(setup_dir) / "system.xml").read_bytes()).hexdigest()
+        # Its bytes, read under the stream `record_access` opens.
+        with _records.open_text(path) as stream:
+            for chunk in iter(lambda: stream.buffer.read(1 << 20), b""):
+                digest.update(chunk)
     except OSError:
         return None
+    return digest.hexdigest()
 
 
 def prepared_system_reference(setup_dir: Path, run_dir: Path,
@@ -460,8 +542,8 @@ def prepared_system_reference(setup_dir: Path, run_dir: Path,
 
 def _prepared_system_recorded(run: Path) -> dict[str, Any] | None:
     try:
-        record = json.loads((run / "simulation" / "simulation_parameters.json")
-                            .read_text(encoding="utf-8"))
+        record = json.loads(_records.read_text(
+            run / "simulation" / "simulation_parameters.json", encoding="utf-8"))
     except (OSError, ValueError):
         return None
     reference = record.get("prepared_system") if isinstance(record, dict) else None
@@ -545,8 +627,10 @@ def _sent_from(run: Path, given: Any) -> list[Path]:
     except OSError:
         return []
     for folder in folders:
+        if not _may_look(folder / FETCHED_RECORD):
+            continue
         try:
-            record = json.loads((folder / FETCHED_RECORD).read_text(encoding="utf-8"))
+            record = json.loads(_records.read_text(folder / FETCHED_RECORD, encoding="utf-8"))
         except (OSError, ValueError):
             continue
         inputs = record.get("inputs") if isinstance(record, dict) else None
@@ -563,7 +647,7 @@ def _sent_from(run: Path, given: Any) -> list[Path]:
 def _setup_taken_from(run: Path) -> Path | None:
     """Where the run's manifest says its setup was taken from."""
     try:
-        manifest = json.loads((run / "manifest.json").read_text(encoding="utf-8"))
+        manifest = json.loads(_records.read_text(run / "manifest.json", encoding="utf-8"))
         phases = manifest.get("phases") or []
     except (OSError, ValueError, AttributeError):
         return None
@@ -580,13 +664,14 @@ def _setup_from_recorded(run: Path) -> list[str]:
 
     blocks: list[Any] = []
     try:
-        record = json.loads((run / "simulation" / "simulation_parameters.json")
-                            .read_text(encoding="utf-8"))
+        record = json.loads(_records.read_text(
+            run / "simulation" / "simulation_parameters.json", encoding="utf-8"))
         blocks.append(record.get("parameters"))
     except (OSError, ValueError, AttributeError):
         pass
     try:
-        config = yaml.safe_load((run / "resolved_config.yml").read_text(encoding="utf-8"))
+        config = yaml.safe_load(_records.read_text(run / "resolved_config.yml",
+                                                   encoding="utf-8"))
         blocks.append(config.get("simulation"))
     except (OSError, yaml.YAMLError, AttributeError):
         pass

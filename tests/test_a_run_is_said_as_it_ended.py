@@ -96,7 +96,7 @@ def test_a_stopped_or_failed_study_s_fix_link_leads_to_its_fix(browser, tmp_path
     with _sidebar_of(browser, study) as (facts, page):
         assert facts["fix"], facts
         page.click('.nav-link[data-view-link="analysis"]')
-        page.click("#sidebar-fix")
+        page.click("#status-fix")
         page.wait_for_function("() => document.documentElement.dataset.page === 'overview'")
         page.wait_for_function("() => !document.getElementById('fixes-card').hidden")
         shown = page.evaluate("() => { const r = document.getElementById('fixes-card')"
@@ -105,10 +105,10 @@ def test_a_stopped_or_failed_study_s_fix_link_leads_to_its_fix(browser, tmp_path
     assert shown
 
 
-def test_the_fix_link_is_above_the_foot_however_the_sidebar_scrolls(browser, tmp_path):  # noqa: F811
-    """In a window short enough for the sidebar to scroll, the card was in
-    flow and the pinned foot covered its link: a click there opened the
-    settings."""
+def test_the_fix_link_is_in_view_however_short_the_window(browser, tmp_path):  # noqa: F811
+    """In a window short enough for the sidebar to scroll, the link was in a
+    card in the sidebar's flow and the pinned foot covered it; it is in the
+    status bar now, in view at any scroll of the sidebar."""
     study = _study(tmp_path / "study", failed="simulation.unstable")
     _live(study, status="failed", stage="production", current_step=100,
           total_planned_steps=1000, latest_error="It blew up.")
@@ -118,9 +118,9 @@ def test_the_fix_link_is_above_the_foot_however_the_sidebar_scrolls(browser, tmp
           const side = document.querySelector('.sidebar'), hits = [];
           for (const top of [0, side.scrollHeight]) {
             side.scrollTop = top;
-            const r = document.getElementById('sidebar-fix').getBoundingClientRect();
+            const r = document.getElementById('status-fix').getBoundingClientRect();
             const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
             hits.push(at && at.id);
           }
-          return [side.scrollHeight > side.clientHeight, ...hits]; }""")
-    assert hits == [True, "sidebar-fix", "sidebar-fix"]
+          return hits; }""")
+    assert hits == ["status-fix", "status-fix"]

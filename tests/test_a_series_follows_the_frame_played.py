@@ -1,10 +1,10 @@
-"""A series is plotted under the Viewer's transport and follows the frame.
+"""The series are tracks under the Viewer's transport and follow the frame.
 
 The trajectory was played with a slider that gave a frame number and a time,
 and where the RMSD rose had to be found on the Analysis page and carried
-back. One of the study's series over time is now plotted under the
-transport: a line marks the frame shown and moves as the frames play, its
-value is given beside it, and a click along the series shows that frame.
+back. The study's series over time are now tracks under the transport: on
+each a line marks the frame shown and moves as the frames play, its value is
+given on it, and a click along it shows that frame.
 """
 
 from __future__ import annotations
@@ -71,7 +71,7 @@ def study(tmp_path_factory) -> Path:
     return root
 
 
-def test_the_series_is_plotted_under_the_frames_and_follows_them(study) -> None:
+def test_the_series_are_tracks_under_the_frames_and_follow_them(study) -> None:
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
 
@@ -88,8 +88,6 @@ def test_the_series_is_plotted_under_the_frames_and_follows_them(study) -> None:
         with sync_playwright() as pw:
             browser = pw.chromium.launch(args=["--enable-unsafe-swiftshader"])
             page = browser.new_page(viewport={"width": 1400, "height": 900})
-            # The Playback starts closed; these drive what is in it.
-            page.add_init_script("try { localStorage.setItem('fmx.viewerPlaybackOpen', '1'); } catch (e) {}")
             page.set_default_timeout(60000)
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
@@ -100,9 +98,10 @@ def test_the_series_is_plotted_under_the_frames_and_follows_them(study) -> None:
                                    " && window.FastMDXMoleculeViewer.STATE.model")
             page.evaluate("async () => window.FastMDXMoleculeViewer.loadPlayback("
                           "await (await fetch('/api/frames-info')).json())")
-            page.wait_for_selector("#frame-series:not([hidden]) .frame-series-line")
-            options = page.eval_on_selector_all("#frame-series-pick option",
-                                                "(all) => all.map((o) => o.textContent)")
+            page.wait_for_function(
+                "() => document.querySelectorAll('#frame-series .frame-series-line').length === 2")
+            labels = page.eval_on_selector_all(".frame-track-label",
+                                               "(all) => all.map((o) => o.textContent)")
             seen = {}
             for frame in (0, 3, 5):
                 page.evaluate(f"() => window.dispatchEvent(new CustomEvent("
@@ -111,18 +110,17 @@ def test_the_series_is_plotted_under_the_frames_and_follows_them(study) -> None:
                     f"() => document.getElementById('frame-series-chart')"
                     f".getAttribute('data-frame') === '{frame}'")
                 seen[frame] = {
-                    "said": page.text_content("#frame-series-value"),
-                    "x": float(page.get_attribute(".frame-series-here", "x1")),
+                    "said": page.text_content('.frame-track[data-analysis="rmsd"] .frame-track-value'),
+                    "x": float(page.get_attribute(
+                        '.frame-track[data-analysis="rmsd"] .frame-series-here', "x1")),
                 }
-            # A click along the series, near its start, shows the first frame.
-            page.locator(".frame-series-svg").click(position={"x": 50, "y": 38})
+            # A click along a track, near its start, shows the first frame.
+            page.locator('.frame-track[data-analysis="rmsd"] .frame-series-svg').click(
+                position={"x": 50, "y": 25})
             page.wait_for_function("() => document.getElementById('traj-slider').value === '0'")
-            # Another series is chosen and plotted.
-            page.select_option("#frame-series-pick", "rg")
-            page.wait_for_function("() => window.FastMDXFrameSeries.state.data"
-                                   " && window.FastMDXFrameSeries.state.data.analysis === 'rg'")
-            rg_said = page.text_content("#frame-series-value")
-
+            page.wait_for_function(
+                "() => document.getElementById('frame-series-chart').getAttribute('data-frame') === '0'")
+            rg_said = page.text_content('.frame-track[data-analysis="rg"] .frame-track-value')
             # Temporary Analysis-page ranges filter plotted points while
             # retaining each point's original trajectory frame identity.
             page.evaluate("() => window.FastMDXDashboard.navigate('analysis')")
@@ -187,11 +185,12 @@ def test_the_series_is_plotted_under_the_frames_and_follows_them(study) -> None:
     finally:
         session.server.shutdown()
     assert [s["analysis"] for s in listed["series"]] == ["rmsd", "rg"]
-    assert options == ["RMSD (nm)", "Radius of gyration (nm)"]
+    assert labels == ["RMSD (nm)", "Radius of gyration (nm)"]
     assert rmsd["linked"] and rmsd["frames"] == list(range(6))
+    # The unit once, in the track's name ("RMSD (nm)"), not again after its value.
     for frame, shown in seen.items():
-        assert shown["said"] == f"{_as_said(rmsd['y'][frame])} nm"
+        assert shown["said"] == _as_said(rmsd['y'][frame])
     # The line moves along with the frames.
     assert seen[0]["x"] < seen[3]["x"] < seen[5]["x"]
-    assert rg_said == f"{_as_said(rg['y'][0])} nm"
+    assert rg_said == _as_said(rg['y'][0])
     assert errors == []

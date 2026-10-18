@@ -21,6 +21,8 @@ import math
 from pathlib import Path
 from typing import Any
 
+from fastmdxplora import record_access as _records
+
 __all__ = ["stopping_payload"]
 
 
@@ -34,7 +36,8 @@ def _record_of(root: Path) -> dict[str, Any] | None:
         places.append(root.parent.parent)
     for place in places:
         try:
-            record = json.loads((place / RECORD).read_text(encoding="utf-8"))
+            # Through `record_access`, held to the study where the read is.
+            record = json.loads(_records.read_text(place / RECORD, encoding="utf-8"))
         except (OSError, ValueError):
             continue
         if isinstance(record, dict) and isinstance(record.get("targets"), list):

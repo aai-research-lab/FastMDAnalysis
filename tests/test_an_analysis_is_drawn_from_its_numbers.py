@@ -377,7 +377,7 @@ class TestTheChart:
         tip = page.locator('.series-chart[data-analysis="rmsd"] .series-tip')
         assert tip.is_visible()
         # Frame 0 was written after one 2 ps interval.
-        assert tip.text_content().startswith("0.100 nm · 0.00200 ns · frame 0")
+        assert tip.text_content().startswith("0.100 nm · 2.000 ps · frame 0")
         assert "Click to open this frame" in tip.text_content()
 
     def test_the_keyboard_moves_along_it(self, page) -> None:

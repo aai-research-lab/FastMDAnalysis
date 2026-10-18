@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from fastmdxplora import record_access as _records
 from fastmdxplora.refusals import MissingResultError, StudyError
 
 __all__ = ["SegmentPiece", "survey_segments", "join_segments",
@@ -63,6 +64,7 @@ def _study_it_reused(directory: Path) -> Path | None:
     path its config names is relative to wherever the command ran, so for a
     moved study it named nothing and the identity fell back to settings."""
     from fastmdxplora.simulation.pipeline import (
+        _may_look,
         _prepared_system_recorded,
         _the_system_recorded,
     )
@@ -79,7 +81,8 @@ def _study_it_reused(directory: Path) -> Path | None:
     # The folder holding the study's resolved config: `<study>/setup`, or
     # `<study>/shared_setup/setup` for umbrella windows.
     for folder in (setup, *list(setup.parents)[:2]):
-        if (folder / "resolved_config.yml").is_file():
+        config = folder / "resolved_config.yml"
+        if _may_look(config) and _records.is_file(config):
             return folder
     return None
 
@@ -100,9 +103,11 @@ def _config_digest(directory: Path, *, _depth: int = 0) -> str:
     """
     import hashlib
 
+    from fastmdxplora.simulation.pipeline import _may_look
+
     for candidate in (directory / "resolved_config.yml",
                       directory / "simulation" / "resolved_config.yml"):
-        if candidate.is_file():
+        if _records.is_file(candidate):
             resolved = candidate
             break
     else:
@@ -110,7 +115,7 @@ def _config_digest(directory: Path, *, _depth: int = 0) -> str:
     try:
         import yaml
 
-        data = yaml.safe_load(resolved.read_text(encoding="utf-8")) or {}
+        data = yaml.safe_load(_records.read_text(resolved, encoding="utf-8")) or {}
     except Exception:  # noqa: BLE001 - an unreadable config is not a study
         return ""
 
@@ -124,7 +129,7 @@ def _config_digest(directory: Path, *, _depth: int = 0) -> str:
     reuses = simulation.get("prepared_from") or simulation.get("setup_from")
     if reuses and _depth < 4:
         for parent in (_study_it_reused(directory), Path(str(reuses))):
-            if (parent is not None and parent.is_dir()
+            if (parent is not None and _may_look(parent) and _records.is_dir(parent)
                     and parent.resolve() != directory.resolve()):
                 inherited = _config_digest(parent, _depth=_depth + 1)
                 if inherited:
@@ -171,7 +176,7 @@ def _finished(simulation_dir: Path) -> bool:
     side = read_checkpoint_sidecar(simulation_dir / "checkpoint.chk") or {}
     if isinstance(side.get("finished"), bool):
         return side["finished"]
-    return (simulation_dir / "state_final.xml").is_file()
+    return _records.is_file(simulation_dir / "state_final.xml")
 
 
 def survey_segments(root: Path | str, *,
@@ -191,14 +196,14 @@ def survey_segments(root: Path | str, *,
     # segment-001 onward, so nothing a run wrote is moved to make the
     # numbering tidy. A campaign that has its own segment-000 is untouched.
     own = base / "simulation"
-    if own.is_dir() and not (base / "segment-000").is_dir():
+    if _records.is_dir(own) and not _records.is_dir(base / "segment-000"):
         own_trajectory = own / trajectory_name
-        if own_trajectory.is_file():
+        if _records.is_file(own_trajectory):
             pieces.append(SegmentPiece(
                 index=0, directory=base, trajectory=own_trajectory,
                 finished=_finished(own), config_digest=_config_digest(base)))
-    for directory in sorted(base.glob("segment-*")):
-        if not directory.is_dir():
+    for directory in sorted(_records.glob(base, "segment-*")):
+        if not _records.is_dir(directory):
             continue
         try:
             index = int(directory.name.split("-", 1)[1])
@@ -209,7 +214,7 @@ def survey_segments(root: Path | str, *,
         pieces.append(SegmentPiece(
             index=index,
             directory=directory,
-            trajectory=trajectory if trajectory.is_file() else None,
+            trajectory=trajectory if _records.is_file(trajectory) else None,
             finished=_finished(simulation_dir),
             config_digest=_config_digest(directory),
         ))

@@ -40,7 +40,7 @@ def test_the_settings_that_changed_nothing_are_gone():
                  "setting-pocket-cutoff", "setting-time-format", "setting-chart-history"):
         assert f'id="{kept}"' in dialog, kept
     # The study's own words are in its card's menu.
-    menu = page[page.index('id="study-menu"'):page.index('id="study-elsewhere"')]
+    menu = page[page.index('id="study-menu"'):page.index('class="sidebar-nav sidebar-pages"')]
     assert 'data-study-field="name"' in menu and 'data-study-field="ligand"' in menu
 
 
@@ -253,3 +253,65 @@ def test_the_standalone_dashboard_has_the_citation_s_dialog(tmp_path, browser):
     page.close()
     assert errors == []
     assert shown and closed == (True, "settings-open") and by_link
+
+
+def test_the_menu_says_the_agent_s_provider_and_mode_and_its_model_only_in_its_settings(
+        tmp_path, browser):
+    """The AI model is said only in the Agent's own settings (user, 10-18):
+    the gear's menu says whose AI the Agent asks and its mode, never the
+    model, and its link opens the settings where the model is."""
+    from fastmdxplora.agent.models import ModelChoice, save_choice
+    from fastmdxplora.gui.server import start_dashboard_session
+
+    save_choice(ModelChoice(provider="anthropic", model="claude-test-model"))
+    study = _study(tmp_path / "ubiquitin", system="1UBQ")
+    started = start_dashboard_session(output=str(study), host="127.0.0.1", port=0)
+    try:
+        page = _open(browser, started.url)
+        page.click("#settings-open")
+        page.wait_for_function(
+            "() => document.getElementById('settings-engine').textContent !== 'none'")
+        # Nowhere on the page but in the Agent's settings: its words, its
+        # tooltips and its labels, shown or not, on the Agent's page too.
+        page.goto(started.url + "#agent", wait_until="domcontentloaded")
+        page.wait_for_function(
+            "() => document.getElementById('settings-engine').textContent !== 'none'")
+        elsewhere = page.evaluate("""() => {
+            const settings = document.getElementById('agent-settings');
+            const all = [...document.body.querySelectorAll('*')]
+                .filter((e) => !settings.contains(e) && e.tagName !== 'SCRIPT');
+            return all.map((e) => [...e.childNodes].filter((n) => n.nodeType === 3)
+                    .map((n) => n.textContent).join(' ') + ' ' + (e.title || '') + ' '
+                    + (e.getAttribute('aria-label') || '') + ' ' + (e.value || '')).join(' ');
+        }""")
+        page.click("#settings-open")
+        menu = page.eval_on_selector("#settings-popup", """p => p.innerText + ' '
+            + [...p.querySelectorAll('[title],[aria-label]')]
+                .map((e) => (e.title || '') + ' ' + (e.getAttribute('aria-label') || '')).join(' ')""")
+        engine = page.text_content("#settings-engine").strip()
+        mode = page.text_content("#settings-mode").strip()
+        page.click("#settings-agent-link")
+        page.wait_for_selector("#agent-settings:not([hidden])")
+        page.wait_for_function(
+            "() => document.getElementById('agent-model-current').textContent.trim()")
+        settings = page.text_content("#agent-model-current").strip()
+        errors = page.errors
+        page.context.close()
+    finally:
+        started.server.shutdown()
+    assert errors == []
+    assert engine == "Anthropic"
+    assert mode == "Seeker: built-in, assisted"
+    assert "claude-test-model" not in menu
+    assert "claude-test-model" not in elsewhere
+    assert settings == "claude-test-model"
+
+
+def test_the_docs_say_the_menu_names_the_provider_and_mode_not_the_model():
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parent.parent / "docs" / "gui.md").read_text(encoding="utf-8")
+    said = text[text.index("**The settings**"):text.index("**Preferences** are how")]
+    assert "the Agent's AI model and its mode" not in said
+    assert "whose AI the Agent asks (its provider) and its mode" in said
+    assert "where alone its AI model is said" in said

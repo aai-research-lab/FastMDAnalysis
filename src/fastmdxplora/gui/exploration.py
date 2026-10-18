@@ -244,6 +244,7 @@ def runs_of_a_study(root: Path) -> list[dict[str, Any]] | None:
     pieces so far are there to read. From the
     plan the batch manifest records before any run starts, and each run's own
     telemetry. None where the folder is a study of one run."""
+    from fastmdxplora import record_access
     from fastmdxplora.gui.telemetry import (
         _GOING_STATUSES,
         between_rounds,
@@ -267,7 +268,8 @@ def runs_of_a_study(root: Path) -> list[dict[str, Any]] | None:
     for entry in entries:
         run_id = str(entry["run_id"])
         folder = Path(root) / "runs" / run_id
-        record = read_study_status(folder) if (folder / "simulation").is_dir() else {}
+        record = (read_study_status(folder)
+                  if record_access.is_dir(folder / "simulation") else {})
         records[run_id] = record
         if str(record.get("status") or "").lower() in _GOING_STATUSES:
             if how_the_run_ended(folder, record) is None:
@@ -343,7 +345,61 @@ def runs_of_a_study(root: Path) -> list[dict[str, Any]] | None:
                     "fraction": fraction, "so_far": so_far,
                     "stage": ("production" if waiting is not None
                               else live.get("stage") if live else None)})
+    # Each run by what sets it apart, said one way wherever a run is named
+    # (the sidebar, Runs compared and its overlay).
+    axes = axes_that_differ(out)
+    for run in out:
+        run["label"] = run_label(run["values"], axes) or run["run_id"]
     return out
+
+
+def axes_that_differ(runs: list[dict[str, Any]]) -> list[str]:
+    """The swept settings whose values differ between the runs, in the
+    order they first appear."""
+    every: list[str] = []
+    for run in runs:
+        for axis in run.get("values") or {}:
+            if axis not in every:
+                every.append(axis)
+    return [axis for axis in every
+            if len({json.dumps((run.get("values") or {}).get(axis), sort_keys=True, default=str)
+                    for run in runs}) > 1]
+
+
+#: A setting's unit, as its name ends: `simulation.temperature_K` reads
+#: "temperature 310 K".
+_UNIT_ENDINGS = ("K", "ns", "ps", "fs", "nm", "M", "bar", "atm")
+
+
+def _setting_and_unit(axis: str) -> tuple[str, str]:
+    name = str(axis).split(".")[-1]
+    if name.startswith("random_"):
+        name = name[len("random_"):]
+    unit = next((u for u in _UNIT_ENDINGS if name.endswith("_" + u)), "")
+    if unit:
+        name = name[: -len(unit) - 1]
+    return name.replace("_", " "), unit
+
+
+def setting_said(axis: str) -> str:
+    """A swept setting as a column names it, in the words `run_label` says
+    a run by: "seed", "temperature (K)"."""
+    name, unit = _setting_and_unit(axis)
+    return f"{name} ({unit})" if unit else name
+
+
+def run_label(values: dict[str, Any], axes: list[str] | None = None) -> str:
+    """A run in a few words, by the values that set it apart: "seed 1",
+    "temperature 310 K", several joined by commas; "" with none. The setting
+    by its last part, `random_` left off and its unit after the value
+    ("random_seed = 1" was cut to "random_see…" in the sidebar)."""
+    said = []
+    for axis in (axes if axes is not None else list(values or {})):
+        if axis not in (values or {}):
+            continue
+        name, unit = _setting_and_unit(axis)
+        said.append(f"{name} {values[axis]}" + (f" {unit}" if unit else ""))
+    return ", ".join(said)
 
 
 def study_a_run_belongs_to(root: Path) -> dict[str, Any] | None:
@@ -354,8 +410,17 @@ def study_a_run_belongs_to(root: Path) -> dict[str, Any] | None:
     member = run_of(Path(root))
     if not member:
         return None
-    return {"path": str(Path(root).parent.parent), "study": member["study"],
-            "values": member.get("values") or {}}
+    study = Path(root).parent.parent
+    # Its study's runs, so the place can offer the others (place.js), and
+    # this run by what sets it apart among them.
+    runs = runs_of_a_study(study) or []
+    this = next((run for run in runs if run["run_id"] == Path(root).name), None)
+    return {"path": str(study), "study": member["study"],
+            "values": member.get("values") or {},
+            "run_id": Path(root).name,
+            "label": (this or {}).get("label") or run_label(member.get("values") or {})
+            or Path(root).name,
+            "runs": runs}
 
 
 def _identify_run(pid: int, root: Path, argv: Any = None) -> bool | None:
@@ -537,8 +602,11 @@ def _json_mapping_or_yaml(path: Path) -> dict[str, Any]:
 
 
 def _json_mapping(path: Path) -> dict[str, Any]:
+    # Through `record_access`: held to its study where the read is.
+    from fastmdxplora import record_access
+
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(record_access.read_text(path, encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
     return value if isinstance(value, dict) else {}

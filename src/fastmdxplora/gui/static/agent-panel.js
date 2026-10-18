@@ -1490,8 +1490,11 @@
    * `eid`), how many of its saves are waiting, and whether it was deleted
    * elsewhere. */
   function threadOf(id, study, entries) {
+    /* `page`: the study the page was for as the thread was put on it, by
+     * key. Its saves name it, and the server writes none into another
+     * study's conversations. */
     var t = { id: id || null, study: study || null, known: {}, confirmed: {}, waiting: 0,
-              gone: false, key: newEid(), entries: null };
+              gone: false, key: newEid(), entries: null, page: pageStudy() };
     (entries || []).forEach(function (e) {
       if (e && e.eid) { t.known[e.eid] = true; t.confirmed[e.eid] = JSON.stringify(e); }
     });
@@ -1508,6 +1511,7 @@
   }
   /* Files attached to the next message: what read_attachment returned. */
   var pendingFiles = [];
+  var attaching = 0;
   var fromStarter = null;
 
   function fmtSize(n) {
@@ -1531,10 +1535,216 @@
       chip.appendChild(name); chip.appendChild(size); chip.appendChild(rm);
       host.appendChild(chip);
     });
+    keepUnsent();
   }
 
+  /* ---- Words not sent yet, kept per study in this browser window ------ */
+  /* What is typed in the box and the files attached to it belong to the
+   * study open as they were begun. They are kept in session storage under
+   * that study's key (the words, and of each file only its path, name,
+   * size and digest: the file is read again when they are put back), so a
+   * Back, a page put away by the browser, or any other way out of the study
+   * and back again finds them there; sending or clearing them forgets them.
+   * Where this browser keeps nothing, they are kept in the page while it is
+   * open, a switch of study is held for them (beforeStudySwitch), and the
+   * browser asks before the page is left (beforeunload). */
+  var UNSENT_WORDS = "fmx.agentUnsent:";
+  var unsentKey = "";
+  var unsentTitle = "";
+  var unsentKept = false;
+  /* Per study, what this page holds that no storage kept. */
+  var heldInPage = {};
+  /* Files kept with the words being read again: nothing is written over
+   * the kept entry meanwhile. */
+  var restoring = 0;
+  var NOT_KEPT = "This browser window could not keep ";
+  function validStudyKey(key) { return typeof key === "string" && /^[0-9a-f]{16}$/.test(key); }
+  function boxNow() {
+    var area = el("agent-request");
+    return area ? area.value : "";
+  }
+  function fileKept(f) {
+    return { path: f.path, name: f.name, size: f.size, sha256: f.sha256 || "", truncated: !!f.truncated };
+  }
+  /* What the note beside the box says: "kept" (could not be kept), "lost"
+   * (files not attached again) or "moved" (words kept for another study). */
+  var noteKind = "";
+  function unsentSaid(text, kind) {
+    noteKind = text ? kind || "" : "";
+    var area = el("agent-request");
+    var host = el("agent-unsent-note");
+    if (!host && area) {
+      var composer = area.closest(".agent-composer");
+      if (!composer) return;
+      host = document.createElement("p");
+      host.className = "agent-unsent-note muted small";
+      host.id = "agent-unsent-note";
+      host.setAttribute("role", "status");
+      composer.insertBefore(host, composer.firstChild);
+    }
+    if (!host) return;
+    host.textContent = text || "";
+    host.hidden = !text;
+  }
+  function keepUnsent() {
+    var words = boxNow();
+    var empty = !words.trim() && !pendingFiles.length;
+    if (restoring) return;
+    if (empty) {
+      if (validStudyKey(unsentKey)) {
+        delete heldInPage[unsentKey];
+        try { sessionStorage.removeItem(UNSENT_WORDS + unsentKey); } catch (e) { /* none kept */ }
+      }
+      unsentKept = true;
+      if (noteKind === "kept" || noteKind === "lost") unsentSaid("");
+      return;
+    }
+    if (!validStudyKey(unsentKey)) {
+      /* Not yet known which study they are for: kept once it is
+       * (restoreUnsent), never written over what was kept for it. */
+      unsentKept = false;
+      return;
+    }
+    unsentKept = false;
+    try {
+      sessionStorage.setItem(UNSENT_WORDS + unsentKey,
+                             JSON.stringify({ words: words, files: pendingFiles.map(fileKept) }));
+      unsentKept = true;
+      delete heldInPage[unsentKey];
+      if (noteKind === "kept") unsentSaid("");
+    } catch (e) {
+      heldInPage[unsentKey] = { words: words, files: pendingFiles.slice(), title: unsentTitle };
+      unsentSaid(pendingFiles.length
+        ? NOT_KEPT + "this message and its attachments: they are lost if the page is left before it is sent."
+        : NOT_KEPT + "this message: it is lost if the page is left before it is sent.", "kept");
+    }
+  }
+  function storedUnsent(key) {
+    var kept = null;
+    try { kept = JSON.parse(sessionStorage.getItem(UNSENT_WORDS + key) || "null"); } catch (e) { kept = null; }
+    if (!kept && heldInPage[key]) kept = heldInPage[key];
+    if (!kept || typeof kept !== "object") return null;
+    var files = Array.isArray(kept.files) ? kept.files.filter(function (f) {
+      return f && typeof f === "object" && typeof f.path === "string" && typeof f.name === "string"
+        && typeof f.size === "number";
+    }).slice(0, 6) : [];
+    return { words: typeof kept.words === "string" ? kept.words.slice(0, 100000) : "", files: files };
+  }
+  /* Unsent work this page holds that nothing outside it keeps: what the
+   * browser is asked to leave the page over. */
+  function unsentUnkept() {
+    var here = boxNow().trim() || pendingFiles.length;
+    return Boolean((here && !unsentKept) || Object.keys(heldInPage).length);
+  }
+  /* Kept files read again: those that cannot be, or that changed since,
+   * are said by name. */
+  function readFilesAgain(files, key) {
+    if (!files.length) return;
+    var lost = [];
+    var left = files.length;
+    restoring += 1;
+    files.forEach(function (f) {
+      attaching += 1;
+      post("/api/agent/attachment", { path: f.path }).then(function (d) {
+        if (!d || !d.ok) { lost.push(f.name); return; }
+        if (f.sha256 && d.sha256 && d.sha256 !== f.sha256) { lost.push(f.name + " (changed since)"); }
+        if (unsentKey !== key) return;
+        if (pendingFiles.some(function (p) { return p.path === d.path; }) || pendingFiles.length >= 6) return;
+        if (f.sha256 && d.sha256 && d.sha256 !== f.sha256) return;
+        pendingFiles.push(d);
+      }).catch(function () { lost.push(f.name); }).then(function () {
+        attaching -= 1;
+        left -= 1;
+        if (left) return;
+        restoring -= 1;
+        if (unsentKey !== key) return;
+        renderChips();
+        if (lost.length) {
+          unsentSaid("Could not attach again: " + lost.join(", ") + ". Attach " +
+                     (lost.length === 1 ? "it" : "them") + " again to send " +
+                     (lost.length === 1 ? "it." : "them."), "lost");
+        }
+      });
+    });
+  }
+  /* Forgotten: a study's tab closed, or its folder gone (study-tabs.js). The
+   * words on screen stay, with the study they were typed for. */
+  function forgetUnsent(key) {
+    if (!validStudyKey(key)) return;
+    if (key === unsentKey && (boxNow().trim() || pendingFiles.length)) return;
+    delete heldInPage[key];
+    try { sessionStorage.removeItem(UNSENT_WORDS + key); } catch (e) { /* none kept */ }
+  }
+  function shownStudy() {
+    var dashboard = window.FastMDXDashboard;
+    var key = dashboard && dashboard.state ? dashboard.state.studyShown : "";
+    return validStudyKey(key) ? key : "";
+  }
+  /* The study this page is for: the one it shows, or before that is known,
+   * the one its address names. */
+  function pageStudy() {
+    var key = shownStudy();
+    if (key) return key;
+    try { key = new URL(location.href).searchParams.get("study") || ""; } catch (e) { key = ""; }
+    return validStudyKey(key) ? key : "";
+  }
+  /* The study shown is known: what was left unsent in it is put back.
+   * Typed here before it was known (a Back's page, its box filled again by
+   * the browser, or words typed before the first answer): put after what
+   * was kept, never over it. Typed for another study shown before (the
+   * study changed under this window): kept for that one, where it was
+   * begun, and taken out of this study's box. */
+  function restoreUnsent(study) {
+    var key = study && study.key;
+    if (!validStudyKey(key)) return;
+    var title = (study && study.title) || "";
+    if (key === unsentKey) { unsentTitle = title || unsentTitle; return; }
+    var area = el("agent-request");
+    var typed = boxNow();
+    var begunElsewhere = validStudyKey(unsentKey);
+    if (begunElsewhere && (typed.trim() || pendingFiles.length || attaching)) {
+      var was = unsentKey;
+      var forTitle = unsentTitle || "the study before";
+      keepUnsent();
+      var onlyHere = Boolean(heldInPage[was]);
+      unsentKey = key;
+      unsentTitle = title;
+      if (area) { area.value = ""; area.dispatchEvent(new Event("input")); }
+      pendingFiles = [];
+      renderChips();
+      unsentSaid("The unsent message typed for " + forTitle + " is kept for it, not put here: "
+                 + "it is in the box again when " + forTitle + " is open"
+                 + (onlyHere ? " in this page, which this browser cannot keep it past." : "."), "moved");
+      putBack(key, "");
+      return;
+    }
+    unsentKey = key;
+    unsentTitle = title;
+    putBack(key, begunElsewhere ? "" : typed);
+  }
+  function putBack(key, typed) {
+    var area = el("agent-request");
+    var kept = storedUnsent(key);
+    var files = kept ? kept.files : [];
+    var words = kept ? kept.words : "";
+    if (typed.trim() && words.trim() && typed.trim() !== words.trim()) {
+      words = words + "\n\n" + typed;
+    } else if (typed.trim()) {
+      words = typed;
+    }
+    var mine = pendingFiles.map(function (f) { return f.path; });
+    restoring += 1;
+    if (area && words !== boxNow()) {
+      area.value = words;
+      area.dispatchEvent(new Event("input"));
+    }
+    readFilesAgain(files.filter(function (f) { return mine.indexOf(f.path) < 0; }), key);
+    restoring -= 1;
+    keepUnsent();
+  }
   function attachFile(path) {
     if (!path) return;
+    attaching += 1;
     post("/api/agent/attachment", { path: path }).then(function (d) {
       if (!d || !d.ok) { window.alert((d && d.error) || "Could not attach that file."); return; }
       if (pendingFiles.some(function (f) { return f.path === d.path; })) return;
@@ -1542,7 +1752,8 @@
       pendingFiles.push(d);
       renderChips();
       el("agent-request").focus();
-    }).catch(function () { window.alert("Could not reach the server."); });
+    }).catch(function () { window.alert("Could not reach the server."); })
+      .finally(function () { attaching -= 1; });
   }
 
   /* ---- What is named with @, the page, and the plan ------------------- */
@@ -1695,6 +1906,7 @@
     /* Current only for the thread on screen: a save of another made it
      * the one a reload opened (sixteenth review, 10-08). */
     var body = { entries: entries, seen: Object.keys(c.known), current: c === conv };
+    if (c.page) body.page_study = c.page;
     if (c.id) {
       body.id = c.id; body.study = c.study || null;
     } else {
@@ -1730,9 +1942,17 @@
       return post("/api/agent/conversation", body).then(function (d) {
         if (d && d.ok) {
           c.id = d.id || c.id;
+          /* Moved by the server (a run took it with it): where it is now is
+           * the server's word. */
+          if (d.study !== undefined && (d.study || null) !== (c.study || null)) c.page = "";
           if (d.study !== undefined) c.study = d.study;
           takeIn(c, entries, d.entries || [], sent, as, d.cut || []);
           window.dispatchEvent(new CustomEvent("fmx:conversation-saved"));
+        } else if (d && d.study_changed) {
+          /* Refused as written from a page for another study than the one
+           * the GUI has open: said, and kept unsaved here. */
+          var dashboard = window.FastMDXDashboard;
+          if (dashboard && dashboard.toast) dashboard.toast(d.error || "Not saved.", "warning");
         } else if (d && d.gone) {
           /* Deleted elsewhere: not written again, unless the person has
            * said something since. What the deleted conversation held went
@@ -1894,7 +2114,16 @@
    * reload as a run started saved "I could not read the software's
    * answer"). */
   var askedToGo = false;
-  window.addEventListener("beforeunload", function () { askedToGo = true; });
+  window.addEventListener("beforeunload", function (event) {
+    /* Unsent words this browser could not keep: it asks before the page
+     * is left (a Back across studies, a reload, an address typed). */
+    if (unsentUnkept()) {
+      event.preventDefault();
+      event.returnValue = "";
+      return;
+    }
+    askedToGo = true;
+  });
   window.addEventListener("pageshow", function (event) {
     if (!event.persisted) return;
     leaving = false;
@@ -2194,6 +2423,7 @@
     var area = el("agent-request");
     var typed = area.value.trim();
     if (!typed || writing) return;
+    if (heldByReview("sending another message")) return;
     /* Not before the thread has been read: sent first, it went into a
      * second conversation (seventeenth review, 10-08). Sent once it has. */
     if (!threadRead) { firstRead.then(draft); return; }
@@ -2217,6 +2447,7 @@
       : { role: "user", text: typed };
     transcript.push(said);
     area.value = "";
+    keepUnsent();
     autosize(area);
     renderMentions();
     /* The thread this was said in. Another shown before the answer came
@@ -2441,6 +2672,7 @@
    * end, the same as `/api/agent/propose` gives. The send button stops it
    * while it is written. A browser without streams asks for it whole. */
   var writing = null;
+  var pendingReplies = 0;
   /* The question whose answer is being written. */
   var answering = null;
 
@@ -2522,9 +2754,13 @@
 
   function propose(body, box) {
     var steps = stepsIn(box);
+    pendingReplies += 1;
     if (!window.ReadableStream || !window.AbortController || !window.TextDecoder) {
       writingState(true);
-      return post("/api/agent/propose", body).finally(function () { writingState(false); });
+      return post("/api/agent/propose", body).finally(function () {
+        pendingReplies -= 1;
+        writingState(false);
+      });
     }
     var mine = writing = new AbortController();
     writingState(true);
@@ -2581,6 +2817,7 @@
       }
       return pump();
     }).finally(function () {
+      pendingReplies -= 1;
       /* Not another reply's: one sent after this was stopped is writing. */
       if (writing === mine) {
         writing = null;
@@ -3248,6 +3485,8 @@
     replaced.hidden = false;
     r.part("count").hidden = true;
     r.part("change").hidden = true;
+    r.part("review").hidden = true;
+    v.review = null;
     r.part("whole").hidden = true;
     r.part("actions").hidden = true;
     var unfold = r.part("unfold");
@@ -3268,12 +3507,18 @@
     r.part("whole").hidden = false;
     r.part("actions").hidden = false;
     if (v.changes) showChanges(r, v.changes, v.number - 1);
+    if (v.review && v.review.rows) drawReview(v, v.review);
+    else offerReview(v);
   }
 
   function newVersion(r, data, number) {
     var v = { r: r, data: data, number: number || versions.length + 1,
               changes: data.changes || null };
     var previous = versions[versions.length - 1];
+    v.previous = previous || null;
+    /* Proposed by the Agent: not a version the person made from choices
+     * or from an earlier version. */
+    v.proposed = !!previous && !data.review && data.again == null;
     if (previous) fold(previous, v.number);
     versions.push(v);
     r.part("version").textContent = "Study, version " + v.number;
@@ -3287,14 +3532,380 @@
       r.part("unfold").textContent = opening ? "Hide" : "Show";
     };
     r.part("use").onclick = function () { useVersion(v); };
+    /* After the thread in hand is drawn: on a restore only the newest is
+     * read. */
+    Promise.resolve().then(function () { offerReview(v); });
     return v;
+  }
+
+  /* Each change of a version the Agent proposed, old value to new, with
+   * Accept and Reject beside Use this version. Use this version takes the
+   * proposal as it is; once a change is rejected, Use reviewed version
+   * makes a new version from the choices, and only through the validator.
+   * The two Configs compared are never edited in place. Choices not yet
+   * applied are kept in this browser by conversation, version and the
+   * changes themselves, so a reload keeps them and another proposal given
+   * the same version number never takes them; a draft is never written as
+   * a Config. */
+  var REVIEW_KEY = "fmx.reviewChoices.";
+
+  /* A short digest of a text (53-bit, cyrb53), to name a draft by what it
+   * is about. */
+  function digest(text) {
+    var h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+    for (var i = 0; i < text.length; i++) {
+      var c = text.charCodeAt(i);
+      h1 = Math.imul(h1 ^ c, 2654435761);
+      h2 = Math.imul(h2 ^ c, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+  }
+
+  /* Each change shown, old and new values and reasons, is part of the key:
+   * a version number used again in the same conversation is another
+   * proposal (round 2 review). */
+  function reviewKey(review, v) {
+    var c = review.conv;
+    if (!c.id || !review.rows) return null;
+    return REVIEW_KEY + JSON.stringify([c.study || null, c.id, v.number,
+                                        digest(JSON.stringify(review.rows))]);
+  }
+
+  function keptChoices(review, v) {
+    var key = reviewKey(review, v);
+    if (!key) return null;
+    try { return JSON.parse(localStorage.getItem(key) || "null"); } catch (e) { return null; }
+  }
+
+  function keepChoices(review, v, kept) {
+    var key = reviewKey(review, v);
+    if (!key) return;
+    try {
+      if (kept) localStorage.setItem(key, JSON.stringify(kept));
+      else localStorage.removeItem(key);
+    } catch (e) { /* not kept: the review still works */ }
+  }
+
+  function rejectedIn(review) {
+    return (review.rows || []).filter(function (c) { return review.choices[c.setting] === "reject"; });
+  }
+
+  /* A rejected change not yet applied holds Run and the next message: either
+   * would act on the proposal, not on what was chosen. */
+  function reviewPending() {
+    var v = newest();
+    return !!(v && v.review && v.review.rows && rejectedIn(v.review).length);
+  }
+
+  function heldByReview(doing) {
+    if (!reviewPending()) return false;
+    var v = newest();
+    v.review.note.textContent = "Use reviewed version, or Use this version to keep version "
+      + v.number + " as proposed, before " + doing + ".";
+    v.review.note.scrollIntoView({ block: "nearest" });
+    return true;
+  }
+
+  function counted(n, word) { return n + " " + word + (n === 1 ? "" : "s"); }
+
+  function eitherOf(names) {
+    return names.length < 2 ? names.join("")
+      : names.slice(0, -1).join(", ") + " or " + names[names.length - 1];
+  }
+
+  /* Read the changes one by one from the server, for the newest proposal. */
+  function offerReview(v) {
+    if (!v.proposed || v.review || v !== newest()) return;
+    var mine = conv;
+    var review = v.review = { conv: mine, rows: null, choices: Object.create(null),
+                              refusal: null, busy: false };
+    review.stands = function () {
+      return !leaving && conv === mine && v === newest() && v.review === review
+        && v.r.node.isConnected;
+    };
+    var compared = review.compared = { before: v.previous.data.config, after: v.data.config };
+    function unavailable(why) {
+      if (!review.stands()) return;
+      var said = document.createElement("div");
+      said.className = "agent-change-rest";
+      said.textContent = "Accept and Reject are not available here: "
+        + (why || "the changes could not be read one by one.");
+      v.r.part("change").appendChild(said);
+    }
+    post("/api/agent/review-config", compared).then(function (answer) {
+      if (!review.stands()) return;
+      if (!answer || !answer.ok || !Array.isArray(answer.changes)) {
+        unavailable(answer && answer.error);
+        return;
+      }
+      /* Nothing to choose: the version's summary says so on its own. */
+      if (!answer.changes.length) return;
+      review.rows = answer.changes;
+      drawReview(v, review);
+    }).catch(function () { unavailable(""); });
+  }
+
+  /* The version's change list, each row with Accept and Reject, in place of
+   * its summary; below it Accept all, Reject all, Use this version and Use
+   * reviewed version. */
+  function drawReview(v, review) {
+    var r = v.r;
+    var compared = review.compared;
+    var host = r.part("review");
+    var kept = keptChoices(review, v);
+    if (kept && kept.choices) {
+      var all = true;
+      Object.keys(kept.choices).forEach(function (setting) {
+        var k = kept.choices[setting];
+        var row = review.rows.filter(function (c) { return c.setting === setting; })[0];
+        /* Only a choice about the very change shown, should two drafts
+         * ever share a key. */
+        if (row && k && k.before === row.before && k.after === row.after
+            && (k.choice === "accept" || k.choice === "reject")) {
+          review.choices[setting] = k.choice;
+        } else {
+          all = false;
+        }
+      });
+      if (all && kept.refusal) review.refusal = kept.refusal;
+    }
+    var controls = [];
+    var list = document.createElement("div");
+    list.className = "agent-review-list";
+    var rowsBy = Object.create(null);
+    function line(into, label, before, after) {
+      var part = document.createElement("div");
+      part.className = "agent-change-row";
+      part.appendChild(document.createTextNode(label + " "));
+      var was = document.createElement("span");
+      was.className = "was";
+      was.textContent = before;
+      var arrow = document.createElement("span");
+      arrow.className = "arrow";
+      arrow.textContent = "→";
+      var now = document.createElement("span");
+      now.className = "now";
+      now.textContent = after;
+      part.append(was, arrow, now);
+      into.appendChild(part);
+    }
+    review.rows.forEach(function (change) {
+      var row = document.createElement("div");
+      row.className = "agent-review-row";
+      row.setAttribute("role", "group");
+      row.setAttribute("aria-label", change.label);
+      row.dataset.reviewSetting = change.setting;
+      var what = document.createElement("div");
+      what.className = "agent-review-what";
+      if (change.same_value) {
+        var same = document.createElement("div");
+        same.className = "agent-change-row";
+        same.textContent = change.label + " " + change.after + ", the same; its reason changed.";
+        what.appendChild(same);
+      } else if (Array.isArray(change.parts)) {
+        var whole = document.createElement("div");
+        whole.className = "agent-review-label";
+        whole.textContent = change.label;
+        what.appendChild(whole);
+        change.parts.forEach(function (p) { line(what, p.label, p.before, p.after); });
+      } else {
+        line(what, change.label, change.before, change.after);
+      }
+      if (Array.isArray(change.alias_labels)) {
+        var aliases = document.createElement("div");
+        aliases.className = "agent-review-reasons";
+        aliases.textContent = change.alias_labels.join(" and ")
+          + " are two names for one setting, reviewed together.";
+        what.appendChild(aliases);
+      }
+      if (Object.prototype.hasOwnProperty.call(change, "after_reason")) {
+        var reasons = document.createElement("div");
+        reasons.className = "agent-review-reasons";
+        reasons.textContent = "Reason: " + change.before_reason + " → " + change.after_reason;
+        what.appendChild(reasons);
+      }
+      var choose = document.createElement("div");
+      choose.className = "agent-review-choice";
+      ["accept", "reject"].forEach(function (choice) {
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "ctl-btn";
+        button.textContent = choice === "accept" ? "Accept" : "Reject";
+        button.setAttribute("aria-label", button.textContent + " " + change.label);
+        button.dataset.changeId = change.id;
+        button.dataset.choice = choice;
+        button.onclick = function () { chose(function () { review.choices[change.setting] = choice; }); };
+        controls.push(button);
+        choose.appendChild(button);
+      });
+      row.append(what, choose);
+      rowsBy[change.setting] = row;
+      list.appendChild(row);
+    });
+    var rest = document.createElement("div");
+    rest.className = "agent-change-rest";
+    rest.textContent = "Everything else as version " + v.previous.number + ".";
+    var refusal = document.createElement("div");
+    refusal.className = "agent-review-refusal";
+    refusal.setAttribute("role", "alert");
+    var note = review.note = document.createElement("p");
+    note.className = "agent-review-note";
+    note.setAttribute("role", "status");
+    var bar = document.createElement("div");
+    bar.className = "agent-review-actions";
+    ["accept", "reject"].forEach(function (choice) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "ctl-btn";
+      button.textContent = choice === "accept" ? "Accept all" : "Reject all";
+      button.onclick = function () {
+        chose(function () { review.rows.forEach(function (c) { review.choices[c.setting] = choice; }); });
+      };
+      controls.push(button);
+      bar.appendChild(button);
+    });
+    var keep = document.createElement("button");
+    keep.type = "button";
+    keep.className = "ctl-btn";
+    keep.textContent = "Use this version";
+    keep.title = "Use version " + v.number + " as proposed, every change accepted";
+    var apply = document.createElement("button");
+    apply.type = "button";
+    apply.className = "primary-btn";
+    apply.textContent = "Use reviewed version";
+    apply.title = "Make a new version from your choices, checked first";
+    var uses = document.createElement("div");
+    uses.className = "agent-review-uses";
+    uses.append(keep, apply);
+    bar.appendChild(uses);
+    var change = r.part("change");
+    change.replaceChildren(list, rest);
+    change.hidden = false;
+    host.replaceChildren(refusal, bar, note);
+    host.hidden = false;
+
+    function save() {
+      var settings = Object.keys(review.choices);
+      if (!settings.length) { keepChoices(review, v, null); return; }
+      var choices = {};
+      settings.forEach(function (setting) {
+        var row = review.rows.filter(function (c) { return c.setting === setting; })[0];
+        choices[setting] = { choice: review.choices[setting], before: row.before, after: row.after };
+      });
+      keepChoices(review, v, { choices: choices, refusal: review.refusal });
+    }
+    function update() {
+      var rejected = rejectedIn(review).length;
+      apply.disabled = review.busy || !rejected;
+      keep.disabled = review.busy;
+      controls.forEach(function (b) {
+        b.disabled = review.busy;
+        if (b.dataset.choice) {
+          var setting = review.rows[Number(b.dataset.changeId)].setting;
+          b.setAttribute("aria-pressed", String(review.choices[setting] === b.dataset.choice));
+        }
+      });
+      var involved = (review.refusal && review.refusal.involved) || [];
+      Object.keys(rowsBy).forEach(function (setting) {
+        rowsBy[setting].classList.toggle("is-refused", involved.indexOf(setting) >= 0);
+      });
+      refusal.hidden = !review.refusal;
+      if (review.refusal) {
+        var labels = involved.map(function (s) {
+          return review.rows.filter(function (c) { return c.setting === s; })[0].label;
+        });
+        refusal.textContent = "These choices cannot be used together. " + review.refusal.error
+          + (labels.length ? " Change your choice for " + eitherOf(labels) + "." : "");
+      }
+      if (review.busy) return;
+      note.textContent = rejected
+        ? counted(rejected, "change") + " rejected. Use reviewed version makes a new version without "
+          + (rejected === 1 ? "it" : "them") + "; the other changes stay as proposed."
+        : "Version " + v.number + " as proposed is the one in use. Reject a change to make a version without it.";
+    }
+    function chose(how) {
+      if (!review.stands() || review.busy) return;
+      how();
+      review.refusal = null;
+      save();
+      update();
+    }
+    /* As Use this version on an older version: said in the conversation
+     * and made the newest version, here with every change accepted. */
+    keep.onclick = function () {
+      if (!review.stands() || review.busy || writing) return;
+      keepChoices(review, v, null);
+      useVersion(v, review);
+    };
+    apply.onclick = function () {
+      if (!review.stands() || writing || apply.disabled) return;
+      review.busy = true;
+      update();
+      note.textContent = "Checking the selected Config...";
+      var accepted = review.rows.filter(function (c) { return review.choices[c.setting] !== "reject"; })
+        .map(function (c) { return c.id; });
+      function free(words) {
+        review.busy = false;
+        update();
+        if (words) note.textContent = words;
+      }
+      post("/api/agent/review-config", Object.assign({}, compared, { accepted: accepted })).then(function (checked) {
+        if (!review.stands()) return;
+        if (!checked.ok) {
+          var ids = checked.involved || [];
+          review.refusal = { error: checked.error || "These choices cannot be used together.",
+                             involved: review.rows.filter(function (c) { return ids.indexOf(c.id) >= 0; })
+                               .map(function (c) { return c.setting; }) };
+          save();
+          free("No new version was made. Your choices are kept.");
+          refusal.scrollIntoView({ block: "nearest" });
+          return;
+        }
+        review.choices = Object.create(null);
+        review.refusal = null;
+        keepChoices(review, v, null);
+        stopPending = null; runPending = null; fixPending = null;
+        spendChoices();
+        var receipt = checked.review;
+        var asked = "Reviewed version " + v.number + ". " + receipt.said;
+        say(asked, []);
+        history.push({ role: "user", text: asked });
+        transcript.push({ role: "user", text: asked });
+        checked.note = "Your choices from version " + v.number + ", checked as a new Config.";
+        var r2 = reply();
+        whoIs(r2, "done");
+        saidBeside(r2.part("attempts"), checked.note);
+        currentConfig = checked.yaml;
+        history.push({ role: "agent", text: checked.note + "\n\nWrote a config:\n" + checked.yaml });
+        var made = wireActions(r2, checked, r2.part("attempts"));
+        transcript.push({ role: "agent", kind: "config", yaml: checked.yaml, config: checked.config,
+          plan: checked.plan, changes: checked.changes, note: checked.note, version: made.number,
+          review: { base: v.previous.number, proposal: v.number, accepted: receipt.accepted,
+                    rejected: receipt.rejected }, cycles: 1, attempts: [] });
+        persist();
+        scrollToEnd();
+      }).catch(function () {
+        if (review.stands()) free("Could not check the choices. Try again.");
+      });
+    };
+    update();
+    if (review.refusal) note.textContent = "No new version was made. Your choices are kept.";
   }
 
   /* An older version made the newest again: written into the conversation
    * as the person's choice and as a new version of the same config, so the
    * next "make it 5 ns" changes it, and Run runs it. Nothing is asked of
-   * the Agent's AI model. */
-  function useVersion(v) {
+   * the Agent's AI model. From a review, the proposal as it is: its note
+   * and record say every change was accepted. */
+  function acceptedAll(rows) {
+    return "Accepted: " + rows.map(function (c) {
+      return c.same_value ? c.label + " (its reason)" : c.label + " " + c.before + " \u2192 " + c.after;
+    }).join("; ") + ".";
+  }
+
+  function useVersion(v, review) {
     if (writing) return;
     /* A new choice, so nothing still waiting for a yes takes it. */
     stopPending = null; runPending = null; fixPending = null;
@@ -3305,15 +3916,23 @@
     transcript.push({ role: "user", text: asked });
     var r = reply();
     whoIs(r, "done");
+    var asProposed = review && review.rows
+      ? { base: v.previous.number, proposal: v.number,
+          accepted: review.rows.map(function (c) { return c.setting; }), rejected: [] }
+      : null;
     var again = { yaml: v.data.yaml, config: v.data.config, plan: v.data.plan,
-                  note: "Version " + v.number + ", again.", changes: null };
+                  note: asProposed ? "Version " + v.number + " as proposed, again. " + acceptedAll(review.rows)
+                                   : "Version " + v.number + ", again.",
+                  changes: null, again: v.number, review: asProposed };
     saidBeside(r.part("attempts"), again.note);
     history.push({ role: "agent", text: again.note + "\n\nWrote a config:\n" + again.yaml });
     currentConfig = again.yaml;
     var made = wireActions(r, again, r.part("attempts"));
-    transcript.push({ role: "agent", kind: "config", yaml: again.yaml, config: again.config,
-                      note: again.note, plan: again.plan || [], cycles: 1, attempts: [],
-                      version: made.number, again: v.number });
+    var entry = { role: "agent", kind: "config", yaml: again.yaml, config: again.config,
+                  note: again.note, plan: again.plan || [], cycles: 1, attempts: [],
+                  version: made.number, again: v.number };
+    if (asProposed) entry.review = asProposed;
+    transcript.push(entry);
     persist();
     scrollToEnd();
   }
@@ -3364,6 +3983,7 @@
     });
     function onItsConfig() {
       return window.FastMDXRun.forLoaded(loadedState, {
+        config: data.config,
         full: function () { return fullBox.checked; },
         say: function (words) { noteEl.textContent = words || ""; }
       });
@@ -3441,6 +4061,7 @@
      * said in `here`, the reply to that message, or the card's own. The
      * conversation records it with the version and when it started. */
     made.launch = function (here, entry) {
+      if (made !== newest() || heldByReview("running it")) return;
       here = here || box;
       runBtn.disabled = true;
       /* The thread is saved before the launch, and the launch is told
@@ -3463,6 +4084,9 @@
       entry.version = made.number;
       entry.eid = entry.eid || newEid();
       launching += 1;
+      if (window.FastMDXDashboard && window.FastMDXDashboard.studyChangeComing) {
+        window.FastMDXDashboard.studyChangeComing();
+      }
       startingRuns.push(entry);
       function answered() {
         launching -= 1;
@@ -3493,6 +4117,12 @@
         if (moved && moved.ok && moved.id) {
           c.id = moved.id;
           c.study = moved.study || started.output;
+          if (c === conv) {
+            // The launch already moved this conversation. Its old page's
+            // key must not schedule a replacement read over newer messages.
+            convFor = "";
+            readAgain = false;
+          }
         }
         if (started.ok) {
           /* Started once. A second press started it again into the same
@@ -3656,6 +4286,11 @@
    * the first time; a config gets its actions back, wired to the stored
    * config, so Run on this machine on a restored thread runs what was written. */
   var threadRead = false;
+  /* The study whose conversation was read, by key; and whether a read was
+   * refused as for another study than the GUI has open. */
+  var convFor = "";
+  var readAgain = false;
+  var reading = 0;
   var readFirst;
   var firstRead = new Promise(function (done) { readFirst = done; });
   function restore(swap) {
@@ -3665,18 +4300,34 @@
      * come, so what is typed meanwhile is said in the one it was typed in
      * (fifteenth review, 10-08). */
     var was = conv;
-    return inTurn(function () {
-      return fetch("/api/agent/conversation").then(function (r) { return r.json(); });
+    reading += 1;
+    var dashboard = window.FastMDXDashboard;
+    var settled = dashboard && dashboard.studySettled ? dashboard.studySettled : Promise.resolve();
+    return settled.then(function () {
+      return inTurn(function () {
+        var key = pageStudy();
+        return fetch("/api/agent/conversation" + (key ? "?study=" + key : ""))
+          .then(function (r) { return r.json(); });
+      });
     }).then(function (d) {
+      /* The GUI has another study open than this page is for: nothing of
+       * another study's is drawn here; read again once the page knows its
+       * study. */
+      if (d && d.study_changed) { readAgain = true; return; }
+      readAgain = false;
       var entries = (d && d.entries) || [];
       /* Another thread put on screen while this was read (New pressed
        * as the page opened) stays (nineteenth review, 10-08: the old one
        * was drawn over it). */
       if (!swap && conv !== was) return;
       if (swap) clearThread();
-      if (d && d.ok) conv = threadOf(d.id, d.study, entries);
+      if (d && d.ok) {
+        conv = threadOf(d.id, d.study, entries);
+        convFor = d.study_key || "";
+        if (!conv.page) conv.page = convFor;
+      }
       replay(entries);
-    }).catch(function () {}).then(function () { threadRead = true; readFirst(); });
+    }).catch(function () {}).then(function () { reading -= 1; threadRead = true; readFirst(); });
   }
 
   function replay(entries) {
@@ -3710,7 +4361,8 @@
                          + "Wrote a config:\n" + e.yaml });
           currentConfig = e.yaml;
           wireActions(r, { yaml: e.yaml, config: e.config, cycles: e.cycles,
-                           plan: e.plan || [], changes: e.changes || null }, box, e.version);
+                           plan: e.plan || [], changes: e.changes || null,
+                           review: e.review || null, again: e.again }, box, e.version);
           if (e.again == null) meta(r, e);
         } else if (e.kind === "answer") {
           var p = document.createElement("div");
@@ -3848,27 +4500,62 @@
       location.reload();
     }
 
+    /* Another study's conversation opened: that study opened as a step of
+     * its own, on the Agent page, so Back returns to the page before. */
+    function openStudyOfConversation(waited) {
+      waited = waited || 0;
+      if (launching && waited < 60000) {
+        setTimeout(function () { openStudyOfConversation(waited + 100); }, 100);
+        return;
+      }
+      var dashboard = window.FastMDXDashboard;
+      if (!dashboard || !dashboard.studyOpened) { reloadOnceLaunched(); return; }
+      fetch("/api/status", { cache: "no-store" }).then(function (r) { return r.json(); })
+        .then(function (status) {
+          if (status && status.study) dashboard.studyOpened({ study_key: status.study }, "agent");
+          else reloadOnceLaunched();
+        }).catch(function () { reloadOnceLaunched(); });
+    }
+
     function openConversation(id, study, loaded) {
+      /* Another study's opens that study: held as every other way to
+       * another study is, with the reason said beside the list too. */
+      var dashboard = window.FastMDXDashboard;
+      var another = Boolean(study) && !loaded && dashboard && dashboard.beginStudySwitch;
+      if (another) {
+        var held = dashboard.beginStudySwitch();
+        if (held) {
+          if (list && !list.hidden) {
+            var said = list.querySelector(".agent-conv-held") || node("p", "agent-conv-held muted small");
+            said.setAttribute("role", "status");
+            said.textContent = held;
+            list.insertBefore(said, list.firstChild);
+          }
+          return Promise.resolve({ ok: false, error: held });
+        }
+      }
+      function ended() { if (another) dashboard.endStudySwitch(); }
       /* After the saves still waiting, so a reload keeps them and the
        * thread opened says all they said (thirteenth and fourteenth
        * reviews, 10-08). */
       return inTurn(function () {
         return post("/api/agent/conversation/open", { id: id, study: study });
       }).then(function (o) {
-        if (!o || !o.ok) { window.alert((o && o.error) || "Could not open it."); return o; }
+        if (!o || !o.ok) { ended(); window.alert((o && o.error) || "Could not open it."); return o; }
         /* Loaded elsewhere than the list said (a run took it with it):
          * the page reads that study too. */
         if (o.loaded_study && (!loaded || (o.study || null) !== (study || null))) {
-          reloadOnceLaunched();
+          openStudyOfConversation();
           return o;
         }
+        ended();
         resetThread();
         conv = threadOf(o.id, o.study, o.entries || []);
         hideList();
         replay(o.entries || []);
         told();
         return o;
-      });
+      }, function (error) { ended(); throw error; });
     }
 
     /* The list of conversations: this study's, the chats of no study, and
@@ -4091,6 +4778,21 @@
     }
     window.addEventListener("fmx:conversation-saved", told);
 
+    /* The study shown is known: a conversation read for another study than
+     * the page's (or refused as one) is read again, for the page's. A chat
+     * of no study goes on as it is. */
+    if (window.FastMDXDashboard && window.FastMDXDashboard.on) {
+      window.FastMDXDashboard.on("study-addressed", function (study) {
+        var key = study && study.key;
+        if (!validStudyKey(key) || launching || reading) return;
+        if (readAgain || (conv.study && convFor && convFor !== key)) {
+          readAgain = false;
+          hideList();
+          restore(true).then(told);
+        }
+      });
+    }
+
     /* Another study opened: its own conversation is shown, as the page
      * opened on it would show it. A chat of no study goes on as it is. */
     window.addEventListener("dashboard:run-changed", function (event) {
@@ -4157,7 +4859,9 @@
     if (plus && attachPath && window.FastMDXPicker) {
       plus.addEventListener("click", function () {
         /* Open where this conversation lives: the study's own folder for
-         * a thread about a study, the workspace for a general one. */
+         * a thread about a study, the workspace for a general one. The
+         * thread is the page's study's (read once that study is open), so
+         * this is the folder of the study the page is for. */
         window.FastMDXPicker.open({ into: "agent-attach-path", mode: "file",
                                     start: conv.study || workspaceRoot || "" });
       });
@@ -4170,6 +4874,18 @@
     var area = el("agent-request");
     area.addEventListener("input", function () { autosize(area); renderMentions(); });
     area.addEventListener("input", sendReady);
+    area.addEventListener("input", keepUnsent);
+    /* Said that words went with their study: said until the person types. */
+    area.addEventListener("input", function (event) {
+      if (event.isTrusted && noteKind === "moved") unsentSaid("");
+    });
+    window.addEventListener("pagehide", keepUnsent);
+    if (window.FastMDXDashboard) {
+      window.FastMDXDashboard.on("study-addressed", restoreUnsent);
+    }
+    // Beside a page or on the Agent page, the box asks in that column's words.
+    // Moved beside a page or back to the Agent page, the box is sized for
+    // the prompt it asks, or for what was written in it, in its new column.
     function sizedWhereItIs() {
       placeholder();
       if (area.value && area.offsetParent !== null) autosize(area);
@@ -4201,8 +4917,16 @@
     function modeChanged() {
       var mode = el("agent-mode").value;
       el("agent-mode-note").textContent = MODE_NOTES[mode] || "";
-      var footer = el("agent-footer-mode");
-      if (footer) footer.textContent = mode.charAt(0).toUpperCase() + mode.slice(1);
+      /* The mode by its name and its two words ("Seeker: built-in,
+       * assisted"), as the choice says it, wherever it is shown: under the
+       * composer, in the settings menu and in the status bar (statusbar.js
+       * reads the same choice). */
+      var select = el("agent-mode");
+      var said = select.selectedIndex >= 0 ? select.options[select.selectedIndex].text : mode;
+      ["agent-footer-mode", "settings-mode"].forEach(function (id) {
+        var node = el(id);
+        if (node) node.textContent = said;
+      });
       el("agent-budget-note").textContent = mode === "autonomous"
         ? "Required in this mode. Checked after setup, where the cost is "
           + "first known."
@@ -4287,5 +5011,26 @@
 
   /* For the settings popup: "Agent settings…" should open this dialog,
    * not merely land on the Agent page. */
-  window.FastMDXAgent = { openSettings: openSettings, closeSettings: closeSettings };
+  window.FastMDXAgent = { openSettings: openSettings, closeSettings: closeSettings,
+    /* A study's kept unsent words forgotten: its tab closed, its folder gone. */
+    forgetUnsent: forgetUnsent,
+    beforeStudySwitch: function (how) {
+      if (launching) return "Wait for the study launch to finish before switching studies.";
+      if (attaching) return "Wait for the Agent attachment to finish loading before switching studies.";
+      if (writing || pendingReplies) return "Finish or stop the Agent reply before switching studies.";
+      /* Said with the review's own buttons, beside the review too. */
+      if (heldByReview("switching studies")) {
+        return "Use reviewed version, or Use this version to keep version " + newest().number
+          + " as proposed, before switching studies.";
+      }
+      if (pendingFiles.length || (el("agent-request")?.value || "").trim()) {
+        /* Back is not held for words kept for this study: they are there
+         * again when it is. */
+        keepUnsent();
+        if (how && how.back && unsentKept) return "";
+        return "Send or clear the unsent Agent message and attachments before switching studies.";
+      }
+      return "";
+    }
+  };
 })();

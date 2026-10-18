@@ -36,6 +36,7 @@ FastMDXplora/
 │       ├── cost.py                # How long a study will take, on this machine
 │       ├── naming.py              # One rule for the name of a study's output folder
 │       ├── refusals.py            # What a refusal is, in a word a program can read
+│       ├── record_access.py       # Request-local admission of actual record reads
 │       ├── remedies.py            # What would fix a refusal, and what the fix costs here
 │       ├── marking.py             # Marking what nothing checked, where the mark has to survive
 │       ├── uncertainty.py         # An error bar on a quantity that is not a mean
@@ -178,13 +179,17 @@ FastMDXplora/
 │       │   ├── series.py          # An analysis's numbers, tied to the trajectory's frames
 │       │   ├── figure_data.py     # The numbers behind an analysis's other figures, to plot in the page's colours
 │       │   ├── stopping_view.py   # A study run until it is determined, for the Overview
+│       │   ├── status_bar.py      # The status bar's computer and its GPUs
+│       │   ├── timeline_view.py   # What the Viewer's timeline marks on the frames it plays
 │       │   ├── fixes_view.py      # What would fix the study on screen
+│       │   ├── problems_view.py   # The study's recorded problems, read and never acted on
 │       │   ├── figure_provenance.py  # What made each figure, and the command that makes it again
 │       │   ├── report_page.py     # The report as a document, in the page
 │       │   ├── browse.py          # Walking the filesystem from the page; what is a study
 │       │   ├── again_view.py      # What the GUI offers to run again on the study on screen
 │       │   ├── directory_inspect.py  # What is in a folder, and what can be done with it
 │       │   ├── config_builder.py  # What the page holds as a config file, checked
+│       │   ├── config_review.py   # Individually selected Config changes, validated as a new version
 │       │   ├── run_from_config.py # Run what the page describes, from the file it would give
 │       │   ├── schema_payload.py  # The settings, described for the browser to lay out
 │       │   ├── starters.py        # Studies to start from, in the builder
@@ -199,7 +204,10 @@ FastMDXplora/
 │       │   ├── report_dashboard.py  # Static dashboard written into a report
 │       │   ├── static/            # theme.css (shared tokens), dashboard.css, dashboard.js,
 │       │   │                      #   frame.js (columns, side panel, theme), theme-first.js
-│       │   │                      #   (the scheme before the first paint), fonts/ (Inter and
+│       │   │                      #   (the scheme before the first paint), problems.js and
+│       │   │                      #   problems.css (the read-only Problems tab), study-tabs.js
+│       │   │                      #   and study-tabs.css (open studies and their last pages),
+│       │   │                      #   fonts/ (Inter and
 │       │   │                      #   JetBrains Mono, SIL OFL 1.1), studies.js,
 │       │   │                      #   preferences.js (the dialogs, preferences kept),
 │       │   │                      #   run-builder.js, file-picker.js, report-page.js, analyze-again.js,
@@ -218,7 +226,12 @@ FastMDXplora/
 │       │   │                      #   viewer-states.js, viewer-ramachandran.js,
 │       │   │                      #   viewer-contact-map.js, viewer-pocket.js,
 │       │   │                      #   viewer-beside.js, viewer-rail.js (one tool at a time);
-│       │   │                      #   palette.js (go to anything, Cmd+K), stop-run.js (Stop the
+│       │   │                      #   palette.js (go to anything, Cmd+K; Cmd+P a file), keys.js
+│       │   │                      #   (every key, and its sheet), place.js and place.css (where you
+│       │   │                      #   are, at the head of every page), statusbar.js and statusbar.css
+│       │   │                      #   (the strip under every page), overview-runs.js (the Overview of
+│       │   │                      #   a study of several runs), viewer-timeline.js (the timeline's
+│       │   │                      #   ruler; frame-series.js its tracks), stop-run.js (Stop the
 │       │   │                      #   run, asked first, wherever it is offered), run-notice.js
 │       │   │                      #   (progress in the tab's title, a notice at the end);
 │       │   │                      #   remote.js and remote.css (Run on one of your machines,

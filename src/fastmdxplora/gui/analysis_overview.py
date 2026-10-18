@@ -27,6 +27,7 @@ import math
 from pathlib import Path
 from typing import Any
 
+from fastmdxplora import record_access
 from fastmdxplora.gui.report_dashboard import (
     ANALYSIS_SECTION_BY_FOLDER,
     SECTION_ANCHORS,
@@ -34,14 +35,22 @@ from fastmdxplora.gui.report_dashboard import (
     SECTION_THEME,
     unit_of,
 )
-from fastmdxplora.gui.series import NAME, analysed_axis, series_column
+from fastmdxplora.gui.series import (
+    NAME,
+    NOT_READ_BECAUSE,
+    analysed_axis,
+    refused_said,
+    series_column,
+    why_not_read,
+)
 
 #: The manifest's status words, as the page says them.
 _STATUS_SAID = {"ok": "done", "completed": "done", "complete": "done",
                 "failed": "failed", "error": "failed", "skipped": "skipped"}
 
 
-def overview_of(root: str | Path) -> dict[str, Any]:
+def overview_of(root: str | Path, *, include_time: bool = True,
+                include_data: bool = True) -> dict[str, Any]:
     """Every analysis of the study, in the page's order, with what it
     determined: ``{"ok", "rows", "biased", "complete"}``, ``complete`` once
     the analysis phase has recorded every analysis it ran.
@@ -61,16 +70,27 @@ def overview_of(root: str | Path) -> dict[str, Any]:
     version's rules); and ``data``, its data files with their addresses.
     ``judged_earlier`` beside the rows names the analyses holding such a
     mean.
+
+    ``include_time=False`` omits the trajectory clock lookup, and
+    ``include_data=False`` omits discovery of downloadable data files.
+    Both leave the recorded means and their scientific verdicts unchanged.
     """
     root = Path(root)
     folder = root / "analysis"
     manifest = _json(folder / "analysis_manifest.json")
+    # A manifest a confined read refused (`record_access`) says nothing of
+    # which analyses are still running.
+    refused = not record_access.can_read(folder / "analysis_manifest.json")
     results = manifest.get("results") if isinstance(manifest.get("results"), dict) else {}
     names = [str(name) for name in results]
     try:
-        names += sorted(p.name for p in folder.iterdir()
-                        if p.is_dir() and NAME.match(p.name) and p.name not in results
-                        and (p / "options.json").is_file())
+        # An analysis's folder, or its record, that a confined read refused
+        # is listed too, to say its record was not read.
+        names += sorted(p.name for p in record_access.iterdir(folder)
+                        if NAME.match(p.name) and p.name not in results
+                        and (not record_access.can_read(p / "options.json")
+                             or (record_access.is_dir(p)
+                                 and record_access.is_file(p / "options.json"))))
     except OSError:
         pass
 
@@ -85,8 +105,18 @@ def overview_of(root: str | Path) -> dict[str, Any]:
     # (analysis/orchestrator.py); until then a folder holds an analysis
     # still computing or one finished, told apart by what it recorded.
     complete = bool(results)
-    rows = [_row(root, name, results.get(name), corrected, biased is not None, complete)
+    rows = [_row(root, name, results.get(name), corrected, biased is not None,
+                 complete or refused, include_time=include_time, include_data=include_data)
             for name in names]
+    if refused:
+        # Its status is in the manifest, which was not read: an analysis
+        # with no result read is said not read, not done (nor failed).
+        why = NOT_READ_BECAUSE[why_not_read(root, folder / "analysis_manifest.json")]
+        for row in rows:
+            if not row["quantities"]:
+                row["status"] = "not read"
+                row["message"] = ("Its status is in analysis/analysis_manifest.json, which "
+                                  f"was not read: {why}.")
     order = {title: index for index, title in enumerate(SECTION_ORDER)}
     rows.sort(key=lambda row: (order.get(row["title"], len(order)), row["analysis"]))
     # The analyses a mean of which an earlier version called determined: a
@@ -101,7 +131,8 @@ def overview_of(root: str | Path) -> dict[str, Any]:
 
 
 def _row(root: Path, name: str, result: Any, corrected: dict[Any, Any],
-         biased: bool, complete: bool = True) -> dict[str, Any]:
+         biased: bool, complete: bool = True, *, include_time: bool = True,
+         include_data: bool = True) -> dict[str, Any]:
     title = ANALYSIS_SECTION_BY_FOLDER.get(name) or name.replace("_", " ").capitalize()
     entry = result if isinstance(result, dict) else {}
     status = str(entry.get("status") or "done").lower()
@@ -119,23 +150,32 @@ def _row(root: Path, name: str, result: Any, corrected: dict[Any, Any],
         "kind": "result",
         "mean": None,
         "quantities": [],
-        "data": _data_files(root, name),
+        "data": _data_files(root, name) if include_data else [],
     }
-    record = _json(root / "analysis" / name / "options.json")
+    record_path = root / "analysis" / name / "options.json"
+    record = _json(record_path)
+    if not record_access.can_read(record_path):
+        # Its record leads out of the study, or to a hidden file in it: not
+        # read (the confined read refused it), and said so, rather than read
+        # as an analysis that recorded no mean (a profile, map or table).
+        row["quantities"].append({"key": "mean", "label": title, **_not_read(root, record_path)})
+        row["kind"] = "mean"
+        return row
     findings = record.get("findings") if isinstance(record.get("findings"), dict) else {}
     found = findings.get("mean") if isinstance(findings.get("mean"), dict) else None
     main = None
     if biased and name in corrected:
         main = _reweighted(name, corrected[name], found)
     elif found is not None:
-        main = _recorded(root, name, found, biased)
+        main = _recorded(root, name, found, biased, include_time=include_time)
     if main is not None:
         row["mean"] = main
         row["quantities"].append({"key": "mean", "label": title, **main})
     for key, other in findings.items():
         if key != "mean" and _is_a_mean_record(other):
             row["quantities"].append({"key": key, "label": _label(key),
-                                      **_recorded(root, name, other, biased)})
+                                      **_recorded(root, name, other, biased,
+                                                  include_time=include_time)})
         elif key != "mean" and isinstance(other, dict):
             # A group of quantities read from another record than the
             # trajectory (thermodynamics: the run's energy file), each with
@@ -176,8 +216,8 @@ def _data_files(root: Path, name: str) -> list[dict[str, str]]:
     """The analysis's data files, its own first, each with its address."""
     folder = root / "analysis" / name
     try:
-        files = sorted((p for p in folder.iterdir()
-                        if p.is_file() and p.suffix.lower() in _DATA_SUFFIXES),
+        files = sorted((p for p in record_access.iterdir(folder)
+                        if record_access.is_file(p) and p.suffix.lower() in _DATA_SUFFIXES),
                        key=lambda p: (p.stem != name, p.name))
     except OSError:
         return []
@@ -187,7 +227,8 @@ def _data_files(root: Path, name: str) -> list[dict[str, str]]:
 
 def _has_its_figure(root: Path, name: str) -> bool:
     folder = root / "analysis" / name
-    return any((folder / f"{name}{suffix}").is_file() for suffix in (".png", ".svg"))
+    return any(record_access.is_file(folder / f"{name}{suffix}")
+               for suffix in (".png", ".svg"))
 
 
 def _said(name: str, message: Any) -> str:
@@ -206,7 +247,7 @@ def _is_a_mean_record(value: Any) -> bool:
 
 
 def _recorded(root: Path, name: str, found: dict[str, Any], biased: bool,
-              timed: bool = True) -> dict[str, Any]:
+              timed: bool = True, *, include_time: bool = True) -> dict[str, Any]:
     from fastmdxplora.statistics import (
         RESOLVED_SAMPLES,
         four_figures,
@@ -257,7 +298,7 @@ def _recorded(root: Path, name: str, found: dict[str, Any], biased: bool,
         # The same in every frame: no start to say ("0 in every frame \u00b7
         # from 67 ps").
         discard = None
-    if n and timed and discard is not None:
+    if include_time and n and timed and discard is not None:
         _, x, label = analysed_axis(root, n)
         if label == "Time (ns)" and discard < len(x):
             from_ns = x[discard]
@@ -266,10 +307,21 @@ def _recorded(root: Path, name: str, found: dict[str, Any], biased: bool,
         "determined": determined, "why": why,
         "samples": int(round(samples)) if samples is not None else None,
         "from_frame": discard, "of_frames": n, "from_ns": from_ns,
-        "reweighted": False,
+        "reweighted": False, "constant": constant,
         # Determined by the rules of the version that analysed it, which
         # may have called a mean still drifting determined.
         "judged_earlier": determined and judged_by_earlier_rules(found),
+    }
+
+
+def _not_read(root: Path, path: Path) -> dict[str, Any]:
+    """A mean whose record a confined read refused: no value, said so."""
+    return {
+        "value": None, "error": None, "unit": "", "said": "record unavailable",
+        "determined": False, "why": refused_said(root, path) + ".",
+        "samples": None, "from_frame": None, "of_frames": None, "from_ns": None,
+        "reweighted": False, "constant": False, "judged_earlier": False,
+        "unavailable": True,
     }
 
 
@@ -295,7 +347,7 @@ def _reweighted(name: str, item: dict[str, Any], found: dict[str, Any] | None) -
         "determined": determined, "why": why,
         "samples": int(round(samples)) if samples is not None else None,
         "from_frame": None, "of_frames": None, "from_ns": None, "reweighted": True,
-        "judged_earlier": False,
+        "constant": False, "judged_earlier": False,
     }
 
 
@@ -321,7 +373,11 @@ def convergence_payload(root: str | Path, analysis: str) -> dict[str, Any]:
     data = folder / f"{analysis}.dat"
     # Said by the name the page gives it, not its folder's.
     named = ANALYSIS_SECTION_BY_FOLDER.get(analysis, analysis)
-    if not data.is_file():
+    for path in (data, folder / "options.json"):
+        if not record_access.can_read(path):
+            return {"ok": False, "unavailable": [path.relative_to(root).as_posix()],
+                    "reason": f"{refused_said(root, path)}, so {named} is not shown"}
+    if not record_access.is_file(data):
         return {"ok": False, "reason": f"{named} wrote no data file"}
     record = _json(folder / "options.json")
     findings = record.get("findings") if isinstance(record.get("findings"), dict) else {}
@@ -390,7 +446,7 @@ def _columns(path: Path) -> int:
 
 def _json(path: Path) -> dict[str, Any]:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(record_access.read_text(path, encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}

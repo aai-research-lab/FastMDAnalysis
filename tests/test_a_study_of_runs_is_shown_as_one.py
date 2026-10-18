@@ -120,6 +120,8 @@ class TestTheBrowserTellsThemApart(unittest.TestCase):
 @unittest.skipUnless(_HAVE_PLAYWRIGHT, "playwright not installed")
 class TestTheDashboardShowsTheRuns(unittest.TestCase):
     def test_the_root_lists_its_runs_and_a_run_names_its_study(self):
+        """At the head of the page (place.js): the study, its runs in a menu
+        with where each stands, and in a run, the study it belongs to."""
         import sys
         import tempfile
 
@@ -130,35 +132,34 @@ class TestTheDashboardShowsTheRuns(unittest.TestCase):
 
         root = _a_sweep_study(Path(tempfile.mkdtemp()))
         session = start_dashboard_session(output=str(root), host="127.0.0.1", port=0)
+        run = ".page[data-page=overview] .place-run"
         try:
             with sync_playwright() as pw:
                 browser = pw.chromium.launch()
                 page = browser.new_page(viewport={"width": 1400, "height": 900})
-                page.goto(session.url, wait_until="domcontentloaded")
-                page.wait_for_selector("#study-runs:not([hidden]) .study-run-row", timeout=20000)
+                page.goto(session.url + "#overview", wait_until="domcontentloaded")
+                page.wait_for_selector(run, timeout=20000)
+                self.assertEqual(page.text_content(run), "All runs")
+                page.click(run)
+                page.wait_for_selector("#place-menu")
                 rows = page.eval_on_selector_all(
-                    "#study-runs .study-run-row",
-                    "rs => rs.map(r => [r.querySelector('.study-running-name').textContent,"
-                    " r.dataset.state, r.querySelector('.study-running-pct').textContent])")
-                # The running run first, so what is happening is in view.
-                self.assertEqual(rows, [["temperature_K = 310", "running", "40%"],
-                                        ["temperature_K = 300", "completed", "completed"]])
-                self.assertIn("1 of 2 completed", page.text_content("#study-runs-label"))
-                self.assertTrue(page.eval_on_selector("#study-run-of", "e => e.hidden"))
-                # Into the running run, by its icon, and back.
-                view = page.eval_on_selector(
-                    "#study-runs .study-run-row:nth-child(1) button",
-                    "b => [b.getAttribute('aria-label'), b.title, !!b.querySelector('svg.line-icon'),"
-                    " b.textContent.trim()]")
-                self.assertEqual(view, ["View this run", "View this run", True, ""])
-                page.click("#study-runs .study-run-row:nth-child(1) button")
-                page.wait_for_selector("#study-run-of:not([hidden])", timeout=20000)
-                self.assertEqual(page.text_content("#study-run-of-name"), "sweep")
-                self.assertEqual(page.text_content("#study-run-of-values"), "temperature_K = 310")
-                self.assertTrue(page.eval_on_selector("#study-runs", "e => e.hidden"))
-                page.click("#study-run-of-back")
-                page.wait_for_selector("#study-runs:not([hidden]) .study-run-row", timeout=20000)
-                self.assertTrue(page.eval_on_selector("#study-run-of", "e => e.hidden"))
+                    "#place-menu .place-menu-item",
+                    "rs => rs.map(r => [r.querySelector('.place-menu-label').textContent,"
+                    " r.querySelector('.place-menu-said').textContent])")
+                self.assertEqual(rows, [["All runs", "1 of 2 completed"],
+                                        ["temperature 300 K", "completed"],
+                                        ["temperature 310 K", "40%"]])
+                # Into the running run, and back by the study's name.
+                page.click("#place-menu .place-menu-item:nth-child(3)")
+                page.wait_for_function(
+                    f"() => (document.querySelector('{run}') || {{}}).textContent"
+                    " === 'temperature 310 K'", timeout=20000)
+                self.assertEqual(page.text_content(".page[data-page=overview] .place-study"),
+                                 "sweep")
+                page.click(".page[data-page=overview] .place-study")
+                page.wait_for_function(
+                    f"() => (document.querySelector('{run}') || {{}}).textContent === 'All runs'",
+                    timeout=20000)
                 browser.close()
         finally:
             session.server.shutdown()
@@ -294,8 +295,12 @@ class TestTheComparisonRendersOnTheReportPage(unittest.TestCase):
 
 
 @unittest.skipUnless(_HAVE_PLAYWRIGHT, "playwright not installed")
-class TestTheSidebarShowsSevenThenThreeMoreAtATime(unittest.TestCase):
-    def test_seven_then_more_by_three_then_less(self):
+class TestEveryRunIsInTheMenu(unittest.TestCase):
+    def test_twelve_runs_are_listed_and_the_menu_scrolls_not_the_page(self):
+        """The sidebar showed seven, then three more at a time, so a sweep
+        did not push the rest of it away. The runs are a menu at the head of
+        the page now: every one listed, in the order planned, the menu
+        scrolling within the window."""
         import sys
         import tempfile
 
@@ -306,37 +311,28 @@ class TestTheSidebarShowsSevenThenThreeMoreAtATime(unittest.TestCase):
 
         root = _a_sweep_study(Path(tempfile.mkdtemp()), temperatures=tuple(range(300, 420, 10)))
         session = start_dashboard_session(output=str(root), host="127.0.0.1", port=0)
-        rows = "#study-runs .study-run-row"
-
-        def shown(page, n):
-            page.wait_for_function(
-                f"document.querySelectorAll('{rows}').length === {n}", timeout=5000)
-
         try:
             with sync_playwright() as pw:
                 browser = pw.chromium.launch()
-                page = browser.new_page(viewport={"width": 1400, "height": 900})
-                page.goto(session.url, wait_until="domcontentloaded")
-                page.wait_for_selector("#study-runs-more", timeout=20000)
-                shown(page, 7)
-                self.assertEqual(page.text_content("#study-runs-more"), "More (3 of 5)")
-                self.assertEqual(page.query_selector("#study-runs-less"), None)
-                # The completed run is last, so it is among those out of view.
-                self.assertEqual(page.eval_on_selector_all(rows, "rs => rs.map(r => r.dataset.state)"),
-                                 ["running"] * 7)
-                page.click("#study-runs-more")
-                shown(page, 10)
-                self.assertEqual(page.text_content("#study-runs-more"), "More (2 of 2)")
-                self.assertEqual(page.text_content("#study-runs-less"), "Less")
-                page.click("#study-runs-more")
-                shown(page, 12)
-                self.assertEqual(page.query_selector("#study-runs-more"), None)
-                page.click("#study-runs-less")
-                shown(page, 7)
-                self.assertEqual(page.query_selector("#study-runs-less"), None)
+                page = browser.new_page(viewport={"width": 1400, "height": 500})
+                page.goto(session.url + "#overview", wait_until="domcontentloaded")
+                page.wait_for_selector(".page[data-page=overview] .place-run", timeout=20000)
+                page.click(".page[data-page=overview] .place-run")
+                page.wait_for_selector("#place-menu")
+                said = page.evaluate("""() => {
+                    const menu = document.getElementById('place-menu');
+                    const box = menu.getBoundingClientRect();
+                    return {labels: [...menu.querySelectorAll('.place-menu-label')]
+                                .map((l) => l.textContent),
+                            inside: box.bottom <= innerHeight,
+                            scrolls: menu.scrollHeight > menu.clientHeight}; }""")
                 browser.close()
         finally:
             session.server.shutdown()
+        self.assertEqual(said["labels"], ["All runs"] + [f"temperature {t} K"
+                                                          for t in range(300, 420, 10)])
+        self.assertTrue(said["inside"])
+        self.assertTrue(said["scrolls"])
 
 
 def test_a_study_of_several_runs_records_its_process_at_its_top(tmp_path, monkeypatch):

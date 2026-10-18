@@ -2155,17 +2155,57 @@ def _study_label(study: Path) -> str:
 
 # ---- the API the endpoints call, all scoped by the runtime's view ---------
 
+#: Said to a page whose study is not the one the GUI has open, or not the
+#: one its conversation's write names (a page left behind by a Back, or by
+#: another window opening another study).
+STUDY_CHANGED = ("This page is for another study than the one the GUI has open. "
+                 "Nothing was written; open the study again to go on.")
+
+
+def _open_key(runtime: Any) -> str:
+    from fastmdxplora.gui.workspace import study_key
+
+    root = getattr(runtime, "active_root", None)
+    return study_key(root) if root else ""
+
+
+def page_study_refused(runtime: Any, study: Any, page_study: Any) -> dict[str, Any] | None:
+    """A conversation write from a page for one study (``page_study``, the
+    key its address names) into another study's conversations: refused.
+    ``study`` is the folder the write names, ``_HERE`` for the study open,
+    or None for a chat of no study, which any page may write. None when the
+    write may go on, and when the page names no study."""
+    import re
+
+    from fastmdxplora.gui.workspace import study_key
+
+    if not isinstance(page_study, str) or not re.fullmatch(r"[0-9a-f]{16}", page_study):
+        return None
+    if study is None:
+        return None
+    target = _open_key(runtime) if study is _HERE else study_key(study)
+    if target == page_study:
+        return None
+    return {"ok": False, "study_changed": True, "study_key": _open_key(runtime),
+            "error": STUDY_CHANGED}
+
+
 @_one_writer
-def read_conversation(runtime: Any) -> dict[str, Any]:
+def read_conversation(runtime: Any, page_study: Any = "") -> dict[str, Any]:
     """The current conversation in the current scope, or an empty one. Read
     under the writers' lock, so never in the middle of a run's move
-    (sixteenth review, 10-08)."""
+    (sixteenth review, 10-08). A page naming another study than the one
+    open (``page_study``) is given none: it is told the study changed."""
     workspace, study = _scope(runtime)
+    if page_study_refused(runtime, _HERE, page_study):
+        return {"ok": False, "study_changed": True, "study_key": _open_key(runtime),
+                "id": None, "entries": [], "error": STUDY_CHANGED}
     _migrate_single_file(workspace)
     store = _store_for(workspace, study)
     cid = _current_in(store)
     scope = {"study": str(study) if study else None,
-             "study_label": _study_label(study) if study else None}
+             "study_label": _study_label(study) if study else None,
+             "study_key": _open_key(runtime)}
     if cid is None:
         return {"ok": True, "id": None, "entries": [], **scope}
     return {"ok": True, "id": cid, "entries": _with_eids(cid, _read_one(store, cid)), **scope}

@@ -219,10 +219,10 @@ def test_the_page_says_it(tmp_path):
             said = page.evaluate("""() => ({
                 stage: document.getElementById('topbar-stage').textContent,
                 dot: document.getElementById('topbar-status-dot').className,
-                card: document.getElementById('sidebar-progress').getAttribute('data-run'),
+                card: document.getElementById('status-run').getAttribute('data-run'),
                 eta: document.getElementById('topbar-eta').textContent,
                 pause: document.getElementById('pause-toggle').hidden,
-                fix: getComputedStyle(document.getElementById('sidebar-fix')).display,
+                fix: getComputedStyle(document.getElementById('status-fix')).display,
             })""")
             browser.close()
     finally:
@@ -231,4 +231,4 @@ def test_the_page_says_it(tmp_path):
     assert said["dot"] == "status-dot status-dot-waiting"
     # What would fix it is offered: `fastmdx resume` carries it on.
     assert (said["card"], said["eta"], said["pause"], said["fix"]) == \
-        ("interrupted", "—", True, "block")
+        ("interrupted", "\u2014", True, "flex")

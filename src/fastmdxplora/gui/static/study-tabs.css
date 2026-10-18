@@ -1,0 +1,51 @@
+/* Study document navigation stays within the main column at every width. */
+/* Above the page's sticky header, which stays below it (dashboard.css,
+   --study-tabs-height), so neither covers the other when scrolled. */
+.study-tabs { position: sticky; top: var(--study-tabs-top, 0px); z-index: 6; flex: 0 0 auto; min-width: 0;
+    background: var(--background-primary); border-bottom: 1px solid var(--border-primary);
+    padding: 6px 10px; }
+.study-tabs[hidden] { display: none; }
+.study-tabs-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* A thin scrollbar and a fade at an edge with more tabs past it. */
+.study-tabs-list { display: flex; list-style: none; gap: 4px; margin: 0; padding: 2px;
+    flex: 1 1 auto; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain;
+    scrollbar-width: thin; scrollbar-color: var(--border-strong, var(--border-primary)) transparent;
+    --fade-start: 0px; --fade-end: 0px;
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent 100%); }
+.study-tabs.more-before .study-tabs-list { --fade-start: 28px; }
+.study-tabs.more-after .study-tabs-list { --fade-end: 28px; }
+.study-tab { display: flex; align-items: center; flex: 0 0 auto; max-width: 240px;
+    min-width: 80px; border: 1px solid var(--border-primary); border-radius: 6px;
+    background: var(--background-secondary); }
+/* The open study: filled, with a bar beneath. Focus is the outline alone. */
+.study-tab.is-current { background: var(--accent-soft, var(--background-primary));
+    box-shadow: inset 0 -3px 0 var(--accent); }
+.study-tab-link { display: flex; align-items: baseline; gap: 4px; min-width: 0; padding: 8px;
+    overflow: hidden; white-space: nowrap; color: var(--text-secondary);
+    text-decoration: none; font-size: var(--text-sm); }
+.study-tab-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.study-tab-link[aria-current="page"] { color: var(--text-primary); font-weight: 600; }
+.study-tab.is-gone .study-tab-name { text-decoration: line-through; color: var(--text-muted, var(--text-secondary)); }
+.study-tab-gone { flex: 0 0 auto; font-size: var(--text-xs); font-weight: 400;
+    color: var(--status-error, var(--text-secondary)); }
+.study-tab-close { flex: 0 0 30px; width: 30px; height: 30px; padding: 6px;
+    background: transparent; border: 0; color: var(--text-secondary); border-radius: 4px; }
+.study-tab-close svg { width: 14px; height: 14px; }
+.study-tab-link:focus-visible, .study-tab-close:focus-visible { outline: 2px solid var(--text-primary); outline-offset: -2px; border-radius: 6px; }
+.study-tab-link[aria-disabled="true"] { opacity: 0.65; cursor: wait; }
+.study-tabs-open { flex: 0 0 auto; }
+.study-tabs-note { margin: 4px 0 0; color: var(--text-secondary); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.study-tabs-note[hidden] { display: none; }
+/* The open study's folder is gone: said in place of its pages. */
+.study-gone { padding: 24px 28px; max-width: 720px; }
+.study-gone[hidden] { display: none; }
+.study-gone p { color: var(--text-secondary); overflow-wrap: anywhere; }
+.study-gone-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+body.study-gone-shown .page-shell { display: none; }
+/* Awaiting a switch, no independent page reader may reveal the new run
+   beneath the old run's title. The strip keeps its opening message. */
+body.study-switching .page-shell,
+body.study-switching .side-panel,
+body.study-switching .agent-drawer { visibility: hidden; }
+@media print { .study-tabs { display: none; } }

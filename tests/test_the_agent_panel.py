@@ -701,6 +701,19 @@ class TestTheOtherTwoModesRunHere(unittest.TestCase):
         self.assertIn('mode === "autonomous"', script)
 
 
+def _agent_section(page):
+    """Read the entire Agent section, including nested Config review sections."""
+    import re
+
+    start = page.index('<section class="page" data-page="agent"')
+    depth = 0
+    for tag in re.finditer(r"<(/?)section\b[^>]*>", page[start:]):
+        depth += -1 if tag.group(1) else 1
+        if depth == 0:
+            return page[start:start + tag.end()]
+    raise AssertionError("The Agent section is not closed")
+
+
 class TestThePageIsATextareaAndButtons(unittest.TestCase):
     """What the page says and what it does not.
 
@@ -720,8 +733,7 @@ class TestThePageIsATextareaAndButtons(unittest.TestCase):
 
     def panel(self):
         page = self.page()
-        return page[page.index('data-page="agent"'):
-                    page.index("</section>", page.index('data-page="agent"'))]
+        return _agent_section(page)
 
     def dialog(self):
         # At body level, not inside the Agent section: a fixed overlay
@@ -949,8 +961,7 @@ class TestWhatBelongsInSettings(unittest.TestCase):
 
         page = (pathlib.Path(gui.__file__).parent / "templates"
                 / "dashboard.html").read_text(encoding="utf-8")
-        return page[page.index('data-page="agent"'):
-                    page.index("</section>", page.index('data-page="agent"'))]
+        return _agent_section(page)
 
     def dialog(self):
         import pathlib
@@ -2789,7 +2800,7 @@ class TestTheWordsAndTheRows(unittest.TestCase):
 
     def test_study_overview_title_and_overview_tab(self):
         page = self.page()
-        self.assertIn('<h1 class="page-title">Study Overview</h1>', page)
+        self.assertIn('<h1 class="page-title">Overview</h1>', page)
         self.assertIn("<span>Overview</span>", page)
 
     def test_the_agent_header_is_a_title_row_and_the_controls_are_under_the_composer(self):
@@ -2808,13 +2819,21 @@ class TestTheWordsAndTheRows(unittest.TestCase):
         self.assertLess(agent.index('<div class="agent-composer-box">'), agent.index('<div class="agent-footer">'))
 
     def test_the_footer_shows_the_mode(self):
+        """By its name and its two words, as its choice says it (user,
+        10-18: "Seeker: built-in, assisted"), under the composer and in the
+        settings menu."""
         import pathlib
 
         import fastmdxplora.gui as gui
 
         script = (pathlib.Path(gui.__file__).parent / "static"
                   / "agent-panel.js").read_text(encoding="utf-8")
-        self.assertIn('var footer = el("agent-footer-mode");', script)
+        self.assertIn('["agent-footer-mode", "settings-mode"]', script)
+        page = self.page()
+        self.assertIn('<span id="agent-footer-mode">Seeker: built-in, assisted</span>', page)
+        self.assertIn('id="settings-mode">Seeker: built-in, assisted</span>', page)
+        self.assertIn('<option value="autonomous">Ranger: built-in, autonomous</option>', page)
+        self.assertNotIn("Assisted</span> mode", page)
 
     def test_page_headers_are_one_row(self):
         import pathlib

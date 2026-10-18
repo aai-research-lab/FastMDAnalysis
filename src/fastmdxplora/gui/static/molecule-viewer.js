@@ -3079,8 +3079,11 @@
     const time = STATE.playbackFrameTimes[index];
     const step = STATE.playbackFrameSteps[index];
     window.FastMDXDashboard?.setPlaybackPosition?.(index, STATE.playbackFrames, time, step);
+    const simtimeSaid = STATE.playbackPayload?.source_kind === "production-dcd"
+      && window.FastMDXSeries?.frameTimeSaid
+      ? window.FastMDXSeries.frameTimeSaid(time, STATE.playbackFrameTimes) : null;
     setOverlay(false, {stage: "playback", frame: index + 1,
-      total: STATE.playbackFrames, step, simtime: time});
+      total: STATE.playbackFrames, step, simtime: time, simtimeSaid});
     try {
       if (STATE.miniEngine && STATE.miniModel?.of === "frames") {
         const base = STATE.framesPieces?.baseIndices || STATE.playbackPayload?.frame_indices || [];
@@ -3728,7 +3731,7 @@
         ? `step ${Number(info.step).toLocaleString()}` : "");
       setText("overlay-age", info?.age != null && !ended ? `age ${info.age}` : "");
       setText("overlay-simtime", info?.simtime != null && Number.isFinite(Number(info.simtime))
-        ? `${info.simtimeOf ? info.simtimeOf + " " : "sim time "}${Number(info.simtime).toFixed(3)} ns`
+        ? info.simtimeSaid || `${info.simtimeOf ? info.simtimeOf + " " : "sim time "}${Number(info.simtime).toFixed(3)} ns`
         : "");
     }
     tidyOverlay();
@@ -3753,7 +3756,10 @@
     const page = layout.closest(".page");
     const header = page ? page.querySelector(".page-header") : null;
     const top = header ? header.getBoundingClientRect().bottom : layout.getBoundingClientRect().top;
-    const room = Math.max(520, Math.floor(window.innerHeight - Math.max(0, top) - 20));
+    // To the foot of the page's column, which ends above the status bar.
+    const column = layout.closest(".main");
+    const foot = column ? column.getBoundingClientRect().bottom : window.innerHeight;
+    const room = Math.max(520, Math.floor(foot - Math.max(0, top) - 20));
     layout.style.setProperty("--viewer-height", `${room}px`);
     // Twice: the playback's rows wrap by the width the first pass gives.
     for (let pass = 0; pass < 2; pass += 1) {
@@ -3815,11 +3821,12 @@
     return head.getBoundingClientRect().height - below + above + edges;
   }
 
-  /* The sequence and the playback fold as the settings' sections do, and
-   * stay as they were left; the molecule is sized again when either
-   * appears or its head wraps, and keeps its size as either opens. */
+  /* The sequence folds as the settings' sections do, and stays as it was
+   * left; the molecule is sized again when it or the timeline under the
+   * molecule appears or its head wraps, and keeps its size as either
+   * changes. */
   function wireFolds() {
-    [["sequence-strip", "viewerSequenceOpen"], ["viewer-under-fold", "viewerPlaybackOpen"]]
+    [["sequence-strip", "viewerSequenceOpen"]]
       .forEach(([id, key]) => {
         const fold = document.getElementById(id);
         if (!fold) return;
@@ -3840,7 +3847,7 @@
       requestAnimationFrame(() => { asked = false; resizeViewers(); });
     };
     const watched = new ResizeObserver(again);
-    ["sequence-strip", "viewer-under-fold"].forEach((id) => {
+    ["sequence-strip", "viewer-timeline"].forEach((id) => {
       const node = document.getElementById(id);
       if (node) watched.observe(node);
     });

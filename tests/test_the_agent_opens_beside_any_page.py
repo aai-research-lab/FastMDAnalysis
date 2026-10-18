@@ -182,14 +182,18 @@ def test_in_autonomous_mode_a_suggestion_waits_to_be_read(browser, session) -> N
     assert "1UBQ" in said[0] and said[1] == 0
 
 
-def test_new_study_opens_the_builder_with_the_agent_beside_it(browser, session) -> None:
-    """A study can be described to the Agent or set field by field: New
-    study opens both, the builder keeping the keyboard."""
+def test_new_study_opens_the_builder_and_the_agent_only_when_asked(browser, session) -> None:
+    """New study opens the builder alone; the Agent beside it opens when
+    the person asks for it, the builder keeping the keyboard. It opened on
+    its own, also to say it was not set up yet."""
     tab = _open(browser, session, "#overview")
     tab.click('.sidebar-start a[data-view-link="run"]')
+    tab.wait_for_function("() => location.hash.startsWith('#run')")
+    tab.wait_for_timeout(300)
+    unasked = not tab.evaluate("() => document.getElementById('agent-drawer').hidden")
+    tab.keyboard.press("Control+j")
     tab.wait_for_function("() => !document.getElementById('agent-drawer').hidden")
     opened = _where(tab)
-    focused = tab.evaluate("() => document.activeElement.id")
     placeholder = tab.get_attribute("#agent-request", "placeholder")
     tab.click('.sidebar-start a[data-view-link="run"]')
     tab.wait_for_timeout(100)
@@ -197,8 +201,9 @@ def test_new_study_opens_the_builder_with_the_agent_beside_it(browser, session) 
     tab.keyboard.press("Control+j")
     closed = tab.get_attribute("#agent-request", "placeholder")
     tab.context.close()
+    assert unasked is False
     assert opened["page"] == "run" and opened["beside"] and opened["thread"]
-    assert opened["overlap"] is False and focused != "agent-request"
+    assert opened["overlap"] is False
     # Pressed again, it stays open, and the page's own prompt is put back
     # once it closes.
     assert again["beside"] and placeholder == "Ask, or describe a study"

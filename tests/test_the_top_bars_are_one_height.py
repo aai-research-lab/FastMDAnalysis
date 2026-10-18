@@ -24,9 +24,11 @@ _BARS = """() => {
     const title = box('.page:not([hidden]) .page-title');
     const tabs = box('.side-panel-tabs');
     const brand = box('.sidebar-brand');
+    const strip = box('#study-tabs');
     return {
         header: [header.top, header.bottom], tabs: [tabs.top, tabs.bottom],
         brand: [brand.top, brand.bottom],
+        strip: [strip.top, strip.bottom],
         offCentre: (title.top + title.bottom) / 2 - (header.top + header.bottom) / 2,
     };
 }"""
@@ -72,8 +74,10 @@ def test_the_three_bars_are_one_height_on_every_page(tmp_path):
     finally:
         session.server.shutdown()
     for name, bars in found.items():
-        assert bars["header"] == bars["tabs"] == bars["brand"], (name, bars)
+        assert bars["tabs"] == bars["brand"], (name, bars)
+        assert bars["header"][0] == bars["strip"][1], (name, bars)
         assert bars["header"][1] - bars["header"][0] == 52, (name, bars)
+        assert bars["tabs"][1] - bars["tabs"][0] == 52, (name, bars)
         assert abs(bars["offCentre"]) <= 1, (name, bars)
     # Folded by a button like the side panel's, a line icon, the name alone
     # above it.

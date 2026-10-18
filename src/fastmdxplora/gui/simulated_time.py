@@ -20,6 +20,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from fastmdxplora import record_access as _records
+
 #: Stages before production.
 EQUILIBRATING = ("loading", "minimization", "nvt", "npt")
 
@@ -41,8 +43,8 @@ def say_length(ns: float | None) -> str:
 
 def _record(root: Path) -> dict[str, Any]:
     try:
-        data = json.loads((root / "simulation" / "simulation_parameters.json").read_text(
-            encoding="utf-8"))
+        data = json.loads(_records.read_text(
+            root / "simulation" / "simulation_parameters.json", encoding="utf-8"))
         return data if isinstance(data, dict) else {}
     except (OSError, json.JSONDecodeError):
         return {}
@@ -93,18 +95,29 @@ def simulated_times(root: str | Path, status: dict[str, Any]) -> dict[str, Any]:
     # A study carried on in pieces ran its production across them; its own
     # record is the first piece's.
     pieces = 1
+    not_read = None
     if not running:
+        from fastmdxplora.refusals import OutsideWorkspace
         from fastmdxplora.simulation.resume import extended_production
 
-        extended = extended_production(root)
+        try:
+            extended = extended_production(root)
+        except OutsideWorkspace as refusal:
+            # A record of its pieces a held read refused: the production was
+            # not read, which is neither the first piece's nor a part of it.
+            from fastmdxplora.gui.series import refused_said
+
+            extended, production_ns = None, None
+            not_read = refused_said(root, Path(refusal.filename or root))
         if extended:
             production_ns, pieces = extended
     equilibrating = running and stage in EQUILIBRATING and not production_ns
     # Ended before its production began: its equilibration was not all done,
     # and saying "0 ps production after 10 ps of equilibration" said it was.
     ended_in = (stage if not running and stage in EQUILIBRATING + ("setup",)
-                and not production_ns and pieces == 1 else None)
-    if not running and ended_in is None and not production_ns and pieces == 1:
+                and not production_ns and pieces == 1 and not not_read else None)
+    if (not running and ended_in is None and not production_ns and pieces == 1
+            and not not_read):
         # A failure in NVT was recorded at the stage "production", every
         # stage after it marked failed too: the first stage that did not
         # complete is where it ended, and "after 4 ps of equilibration (2 ps
@@ -117,7 +130,7 @@ def simulated_times(root: str | Path, status: dict[str, Any]) -> dict[str, Any]:
                 break
             if state not in ("completed", "skipped"):
                 break
-    return {
+    said = {
         "ended_in": ended_in,
         "production_ns": production_ns,
         "production_planned_ns": steps_to_ns(production_planned),
@@ -134,6 +147,10 @@ def simulated_times(root: str | Path, status: dict[str, Any]) -> dict[str, Any]:
         # that recorded nothing else.
         "simulated_ns": _number(status.get("simulation_time_completed_ns")),
     }
+    if not_read:
+        # Why the production is not given, for a page to say so.
+        said["production_not_read"] = not_read
+    return said
 
 
 def equilibration_said(times: dict[str, Any]) -> str:
@@ -175,7 +192,7 @@ def _when(value: Any) -> datetime:
 
 def _phases_of(manifest: Path) -> list[Any]:
     try:
-        record = json.loads(manifest.read_text(encoding="utf-8"))
+        record = json.loads(_records.read_text(manifest, encoding="utf-8"))
     except (OSError, ValueError):
         return []
     phases = record.get("phases") if isinstance(record, dict) else None
@@ -205,7 +222,19 @@ def phases_wall_seconds(root: str | Path, phases: list[Any] | None = None) -> in
     of 18 minutes analysed again that evening. ``phases`` are the study's
     own, where the caller holds them; else its Manifest's.
     """
+    from fastmdxplora.simulation.pipeline import _refused
+
     root = Path(root)
+    # A manifest, or a piece, a held read refused (`pipeline._refused`) was
+    # not read: the others' times added are not the study's, so none is.
+    if phases is None and _refused(root / "manifest.json"):
+        return None
+    try:
+        if any(_refused(entry) or _refused(entry / "manifest.json")
+               for entry in _records.iterdir(root) if entry.name.startswith("segment-")):
+            return None
+    except OSError:
+        pass
     found = [_phase_seconds(_phases_of(root / "manifest.json") if phases is None else phases)]
     try:
         from fastmdxplora.analysis.joining import survey_segments

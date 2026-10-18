@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from fastmdxplora import record_access as _records
 
 STATUS_FILE = "live_status.json"
 METRICS_FILE = "live_metrics.csv"
@@ -55,10 +56,13 @@ ENERGY_EXPLANATION = (
     "Energy increased sharply. This can indicate steric clashes, unstable timestep, "
     "bad contacts, or pressure/temperature coupling issues."
 )
-TEMPERATURE_EXPLANATION = (
-    "Temperature is outside the expected range. Consider a smaller timestep, stronger "
-    "friction, gentler heating, or checking the input structure."
+#: What would bring a temperature back into range, said apart so a list of
+#: problems can give it as a remedy and the rest as a description.
+TEMPERATURE_REMEDY = (
+    "Consider a smaller timestep, stronger friction, gentler heating, or checking "
+    "the input structure."
 )
+TEMPERATURE_EXPLANATION = "Temperature is outside the expected range. " + TEMPERATURE_REMEDY
 INTERRUPTED_EXPLANATION = (
     "Its last update said it was still going, and the process that ran it is "
     "gone: the machine restarted, or its job was ended by a scheduler or by "
@@ -348,7 +352,7 @@ _PHASES_AFTER = ("analysis", "report")
 
 def _read_status_path(path: Path) -> dict[str, Any]:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(_records.read_text(path, encoding="utf-8"))
         return data if isinstance(data, dict) else {}
     except (OSError, json.JSONDecodeError):
         return {}
@@ -369,7 +373,7 @@ def _parse_iso_datetime(value: Any) -> datetime | None:
 def read_status(project_root: str | Path) -> dict[str, Any]:
     path = _simulation_dir(project_root) / STATUS_FILE
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(_records.read_text(path, encoding="utf-8"))
         return data if isinstance(data, dict) else {}
     except (OSError, json.JSONDecodeError):
         return {}
@@ -392,12 +396,12 @@ def read_status(project_root: str | Path) -> dict[str, Any]:
 def _pieces_of(root: Path) -> list[Path]:
     """The study's segments that kept a live record, in the order run."""
     found: list[tuple[int, Path]] = []
-    for folder in root.glob("segment-*"):
+    for folder in _records.glob(root, "segment-*"):
         try:
             index = int(folder.name.split("-", 1)[1])
         except (IndexError, ValueError):
             continue
-        if index > 0 and (folder / "simulation" / STATUS_FILE).is_file():
+        if index > 0 and _records.is_file(folder / "simulation" / STATUS_FILE):
             found.append((index, folder))
     return [folder for _, folder in sorted(found)]
 
@@ -456,9 +460,9 @@ def _phases_since(root: Path, record: dict[str, Any]) -> dict[str, str]:
     written = _parse_iso_datetime(str(record.get("last_update_timestamp") or ""))
     manifest = root / "manifest.json"
     try:
-        if written is not None and manifest.stat().st_mtime < written.timestamp():
+        if written is not None and _records.stat(manifest).st_mtime < written.timestamp():
             return {}
-        phases = json.loads(manifest.read_text(encoding="utf-8")).get("phases") or []
+        phases = json.loads(_records.read_text(manifest, encoding="utf-8")).get("phases") or []
     except (OSError, ValueError, AttributeError):
         return {}
     said = {"ok": "completed", "error": "failed", "skipped": "skipped"}
@@ -726,7 +730,7 @@ def _checkpoint_here(root: Path, status: dict[str, Any]) -> str | None:
             found = candidate.resolve()
         except OSError:
             continue
-        if found.is_file() and (found == root_resolved or root_resolved in found.parents):
+        if (found == root_resolved or root_resolved in found.parents) and _records.is_file(found):
             return str(found)
     return None
 
@@ -851,11 +855,11 @@ def how_the_run_ended(project_root: str | Path,
     piece = status.get("piece")
     if (isinstance(piece, str) and piece.startswith("segment-")
             and str(status.get("stage") or "") == "production"
-            and (root / piece).is_dir()):
+            and _records.is_dir(root / piece)):
         # The piece being run keeps the record of its process.
         root = root / piece
     try:
-        record = json.loads((root / RUN_PROCESS_FILE).read_text(encoding="utf-8"))
+        record = json.loads(_records.read_text(root / RUN_PROCESS_FILE, encoding="utf-8"))
     except (OSError, ValueError):
         record = None
     said = _what_its_process_says(root, record) if isinstance(record, dict) else None
@@ -873,7 +877,8 @@ def run_ended_unsaid(project_root: str | Path, status: dict[str, Any] | None = N
     return how_the_run_ended(project_root, status) is not None
 
 
-def status_as_it_stands(project_root: str | Path) -> dict[str, Any]:
+def status_as_it_stands(project_root: str | Path, *,
+                       include_campaign: bool = True) -> dict[str, Any]:
     """The run's record as the GUI shows it: as written, except for a run
     that ended without saying so, and a run of a study of several waiting
     for its study's next round (`between_rounds`, said `waiting`). One that had taken every step it planned
@@ -881,11 +886,12 @@ def status_as_it_stands(project_root: str | Path) -> dict[str, Any]:
     writes no end of its own); any other is `interrupted`, with how that is
     known as `ended_by`. What the record said is kept as `recorded_status`.
     For the GUI's own process only; a run reads its record with
-    `read_status`."""
+    `read_status`. Set ``include_campaign=False`` to read only this run,
+    without consulting its parent campaign or sibling runs."""
     status = read_study_status(project_root)
     ended = how_the_run_ended(project_root, status) if status else None
     if ended is None:
-        waiting = between_rounds(project_root, status) if status else None
+        waiting = between_rounds(project_root, status) if status and include_campaign else None
         if waiting is None:
             return status
         return _waiting_for_the_round(status, waiting)
@@ -912,7 +918,7 @@ def _rounds_record(study: Path) -> dict[str, Any] | None:
     from fastmdxplora.simulation.stopping import RECORD
 
     try:
-        record = json.loads((study / RECORD).read_text(encoding="utf-8"))
+        record = json.loads(_records.read_text(study / RECORD, encoding="utf-8"))
     except (OSError, ValueError):
         return None
     return record if isinstance(record, dict) else None
@@ -937,7 +943,7 @@ def _pieces_as_they_stand(root: Path) -> tuple[Any, ...]:
     written: a piece that finishes in place keeps its name."""
     stood = []
     try:
-        pieces = sorted(root.glob("segment-*"))
+        pieces = sorted(_records.glob(root, "segment-*"))
     except OSError:
         return ()
     for piece in pieces:
@@ -945,7 +951,7 @@ def _pieces_as_they_stand(root: Path) -> tuple[Any, ...]:
         for name in ("simulation", "simulation/checkpoint.chk.json",
                      "simulation/live_status.json", "manifest.json"):
             try:
-                times.append((piece / name).stat().st_mtime_ns)
+                times.append(_records.stat(piece / name).st_mtime_ns)
             except OSError:
                 times.append(None)
         stood.append((piece.name, *times))
@@ -955,7 +961,10 @@ def _pieces_as_they_stand(root: Path) -> tuple[Any, ...]:
 def _production_done(root: Path) -> float | None:
     from fastmdxplora.simulation.resume import production_done_ns
 
-    key = (str(root), _pieces_as_they_stand(root))
+    # Kept apart for a read held to the study (`record_access`), which
+    # refuses what an open read follows: one is never answered from the other.
+    held = not _records.can_read(Path(os.path.abspath(os.sep)))
+    key = (str(root), held, _pieces_as_they_stand(root))
     if key not in _DONE:
         if len(_DONE) > 512:
             _DONE.clear()
@@ -990,12 +999,12 @@ def rounds_of_a_study(study: Path) -> dict[str, Any] | None:
     named = [str(name) for name in record.get("runs") or []]
     if not named:
         try:
-            named = [folder.name for folder in sorted((study / "runs").iterdir())
-                     if folder.is_dir()]
+            named = [folder.name for folder in sorted(_records.iterdir(study / "runs"))
+                     if _records.is_dir(folder)]
         except OSError:
             named = []
     try:
-        process = json.loads((study / RUN_PROCESS_FILE).read_text(encoding="utf-8"))
+        process = json.loads(_records.read_text(study / RUN_PROCESS_FILE, encoding="utf-8"))
     except (OSError, ValueError):
         process = None
     said = _what_its_process_says(study, process) if isinstance(process, dict) else None
@@ -1039,7 +1048,7 @@ def between_rounds(project_root: str | Path, status: dict[str, Any] | None = Non
         return None
     if going is None:
         going = [name for name in rounds["runs"] if name != root.name
-                 and (study / "runs" / name / "simulation").is_dir()
+                 and _records.is_dir(study / "runs" / name / "simulation")
                  and _going(study / "runs" / name)]
     going = [name for name in going if name != root.name]
     # The study's own process says whether its rounds go on; where it cannot
@@ -1126,7 +1135,7 @@ def run_phases(project_root: str | Path) -> list[str]:
     # What ran, where that is recorded, beats any inference about what was
     # meant to run.
     try:
-        manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+        manifest = json.loads(_records.read_text(root / "manifest.json", encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         manifest = {}
     if isinstance(manifest, dict):
@@ -1148,10 +1157,10 @@ def phases_asked(project_root: str | Path) -> list[str]:
     root = Path(project_root)
     for name in _CONFIG_NAMES:
         path = root / name
-        if not path.is_file():
+        if not _records.is_file(path):
             continue
         try:
-            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            data = yaml.safe_load(_records.read_text(path, encoding="utf-8"))
         except (OSError, yaml.YAMLError):
             continue
         if not isinstance(data, dict):
@@ -1311,7 +1320,7 @@ def _metrics_of(simulation_dir: Path) -> list[dict[str, Any]]:
 
 def _read_csv_rows(path: Path) -> list[dict[str, Any]]:
     try:
-        with path.open(newline="", encoding="utf-8") as fh:
+        with _records.open_text(path, newline="", encoding="utf-8") as fh:
             return list(csv.DictReader(fh))
     except OSError:
         return []
@@ -1369,7 +1378,7 @@ def read_events(project_root: str | Path, *, limit: int = 100) -> list[dict[str,
     lines: list[str] = []
     for path in paths:
         try:
-            lines += path.read_text(encoding="utf-8").splitlines()
+            lines += _records.read_text(path, encoding="utf-8").splitlines()
         except OSError:
             continue
     if len(paths) > 1:
@@ -1588,6 +1597,9 @@ def analyze_health(
 
     if status:
         return {"state": "ok", "message": "Normal progress", "explanation": NORMAL_EXPLANATION}
+    of_runs = _a_study_of_runs(root) if root is not None else None
+    if of_runs is not None:
+        return of_runs
     not_a_run = _not_a_run(root) if root is not None else None
     if not_a_run is not None:
         return not_a_run
@@ -1603,6 +1615,87 @@ def analyze_health(
     }
 
 
+def not_read_health(said: str) -> dict[str, str]:
+    """The health of a run whose live record a held read refused
+    (`record_access`): not read, ``said`` naming it and why, and no reason
+    given for its absence, since it is not absent."""
+    return {
+        "state": "not read",
+        "headline": "Not read",
+        "message": said,
+        "explanation": ("The run's live record is how this page knows how the run went, "
+                        "so how it went is not shown."),
+    }
+
+
+#: A study of several runs, said in the words its state is said in
+#: everywhere else (`workspace.study_state`, read by All studies' cards).
+_STUDY_OF_RUNS_SAID = {
+    "completed": ("Completed", "Every run of this study completed."),
+    "running": ("Running", "Runs of this study are still going."),
+    "failed": ("Stopped with an error", "A run of this study ended with an error."),
+    "stopped": ("Stopped", "A run of this study was stopped."),
+    "interrupted": ("Interrupted", "A run of this study ended without recording why."),
+    "incomplete": ("Incomplete", "Not every run of this study has finished."),
+}
+
+
+def _a_study_of_runs(root: str | Path) -> dict[str, str] | None:
+    """A study of several runs, said from its runs' states as All studies
+    says it. It keeps no live record of its own, so it was said "unknown"
+    here (orange) while its card said "completed": two derivations of one
+    state. Now one: `workspace.study_state`."""
+    root = Path(root)
+    batch = root / "batch_manifest.json"
+    from fastmdxplora.simulation.pipeline import _refused
+
+    if _refused(batch):
+        # Its record of runs refused by a held read is not read: not a
+        # folder that keeps none (`_not_a_run`).
+        from fastmdxplora.gui.series import refused_said
+
+        return _study_of_runs_not_read(refused_said(root, batch) + ".")
+    before = _records.refused()
+    try:
+        if not _records.is_file(batch):
+            return None
+        from fastmdxplora.gui.workspace import study_state
+
+        state = study_state(root)
+    except Exception:  # noqa: BLE001 - a record that cannot be read is said as before
+        return None
+    # A record of a run the held read refused leaves the study's state
+    # unknown: said not read, not derived from the records that were.
+    refused = sorted(_records.refused() - before)
+    if refused:
+        return _study_of_runs_not_read(
+            ", ".join(refused) + (" was" if len(refused) == 1 else " were") + " not read.")
+    headline, message = _STUDY_OF_RUNS_SAID.get(state, (None, None))
+    if headline is None:
+        return None
+    return {
+        "state": state,
+        "headline": headline,
+        "message": message,
+        "explanation": ("Each run keeps its own record of its simulation; "
+                        "open one from Runs in the sidebar to see it."),
+        "of_runs": True,
+    }
+
+
+def _study_of_runs_not_read(said: str) -> dict[str, Any]:
+    """A study of several runs whose state a held read could not derive,
+    since a record it is derived from was refused (`record_access`)."""
+    return {
+        "state": "not read",
+        "headline": "Not read",
+        "message": said,
+        "explanation": ("The study's state is derived from its record of runs and each "
+                        "run's own record, so how it went is not shown."),
+        "of_runs": True,
+    }
+
+
 def _not_a_run(root: str | Path) -> dict[str, str] | None:
     """What a folder with no telemetry is, when it is not a run at all.
 
@@ -1611,11 +1704,11 @@ def _not_a_run(root: str | Path) -> dict[str, str] | None:
     both were told about a setting when the answer was where they were.
     """
     root = Path(root)
-    if (root / "manifest.json").is_file() or (root / "simulation").is_dir():
+    if _records.is_file(root / "manifest.json") or _records.is_dir(root / "simulation"):
         return None
     try:
-        runs = sorted(child.name for child in root.iterdir()
-                      if child.is_dir() and (child / "manifest.json").is_file())
+        runs = sorted(child.name for child in _records.iterdir(root)
+                      if _records.is_dir(child) and _records.is_file(child / "manifest.json"))
     except OSError:
         return None
     if runs:

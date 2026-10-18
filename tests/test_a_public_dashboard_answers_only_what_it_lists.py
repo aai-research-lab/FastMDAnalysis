@@ -263,6 +263,8 @@ class TestEveryGetRouteIsRefusedUnlessListed:
             # What the Overview leads with, read from the same records as
             # the Analysis page and the live record.
             "/api/overview",
+            # Recorded problems, with no commands, Configs or actions.
+            "/api/problems",
             # The numbers an analysis's other figures were plotted from, to
             # plot them in the page's colours.
             "/api/figure-data",

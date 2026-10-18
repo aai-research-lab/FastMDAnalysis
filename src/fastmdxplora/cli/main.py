@@ -1387,8 +1387,9 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_const",
         const="assisted",
         help=(
-            "Draft the study and stop, so you see it before it runs. The "
-            "default, and the only one that needs no further decision."
+            "Seeker (built-in, assisted): draft the study and stop, so you "
+            "see it before it runs. The default, and the only one that needs "
+            "no further decision."
         ),
     )
     mode.add_argument(
@@ -1397,9 +1398,10 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_const",
         const="autonomous",
         help=(
-            "Draft the study and run it without showing it to you first. "
-            "Refused without a cost estimate: approving five days is a "
-            "decision, approving an unknown duration is not."
+            "Ranger (built-in, autonomous): draft the study and run it "
+            "without showing it to you first. Refused without a cost "
+            "estimate: approving five days is a decision, approving an "
+            "unknown duration is not."
         ),
     )
     mode.add_argument(
@@ -1408,8 +1410,9 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_const",
         const="unvalidated",
         help=(
-            "Work outside this schema, so nothing checks the result and "
-            "every file says so. Specified and not yet built."
+            "Outside the schema, not one of the modes: work outside this "
+            "schema, so nothing checks the result and every file says so. "
+            "Specified and not yet built."
         ),
     )
     ag.set_defaults(agent_mode="assisted")

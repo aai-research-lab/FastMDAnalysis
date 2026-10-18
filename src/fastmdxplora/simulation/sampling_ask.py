@@ -200,6 +200,7 @@ def _time_here(root: Path, more_ns: float) -> tuple[float | None, str]:
     seconds include minimisation and equilibration, so the figure errs
     long.
     """
+    from fastmdxplora import record_access
     from fastmdxplora.simulation.resume import last_segment
 
     try:
@@ -208,7 +209,8 @@ def _time_here(root: Path, more_ns: float) -> tuple[float | None, str]:
         where = root
     for folder in dict.fromkeys((Path(where), root)):
         try:
-            cost = json.loads((folder / "simulation" / "cost.json").read_text(encoding="utf-8"))
+            cost = json.loads(record_access.read_text(folder / "simulation" / "cost.json",
+                                                      encoding="utf-8"))
         except (OSError, ValueError):
             continue
         try:

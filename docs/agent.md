@@ -178,20 +178,28 @@ else.
 ## The three modes
 
 ```bash
-fastmdx agent "..." --assisted        # the default
-fastmdx agent "..." --autonomous --budget-hours 40
-fastmdx agent "..." --unvalidated
+fastmdx agent "..." --assisted        # Seeker, the default
+fastmdx agent "..." --autonomous --budget-hours 40   # Ranger
+fastmdx agent "..." --unvalidated     # outside the schema, not one of the modes
 ```
 
-They are mutually exclusive, and each writes itself into the Config as
-`agent: <mode>`. The budget writes itself in too, as `budget_hours`, a
-top-level key with a floor of zero. It is read by `explore` whichever door
-the Config came through: a budgeted Config runs in stages, setup first, then
-a price, then the rest only if it fits. Required for `autonomous`, which runs
-without being shown to anybody; optional in every other mode, and never wrong
-to set on a study that will run for days.
+The Agent's setting is its mode. The modes are
+Seeker, Ranger, Pathfinder and Pioneer. Two are built in: **Seeker** (built-in,
+assisted), chosen by `--assisted`, and **Ranger** (built-in, autonomous), chosen
+by `--autonomous`; Pathfinder and Pioneer are not in this release.
+`--unvalidated` is outside the schema, not one of the modes. The GUI says each
+by the same words.
 
-### `assisted` — draft it and stop
+The three flags are mutually exclusive, and each writes itself into the Config
+as `agent: <value>`: `assisted` for Seeker, `autonomous` for Ranger,
+`unvalidated` for work outside the schema. The budget writes itself in too, as
+`budget_hours`, a top-level key with a floor of zero. It is read by `explore`
+whichever door the Config came through: a budgeted Config runs in stages, setup
+first, then a price, then the rest only if it fits. Required for Ranger
+(`autonomous`), which runs without being shown to anybody; optional otherwise,
+and never wrong to set on a study that will run for days.
+
+### Seeker (`assisted`): draft it and stop
 
 The default. The Config prints, the repair attempts print with it, and `-o`
 also writes it to a file. Nothing runs. You are there to read it.
@@ -201,7 +209,7 @@ fastmdx agent "simulate ubiquitin at pH 6.5 for 50 ns" -o ubiquitin.yml
 fastmdx explore --config ubiquitin.yml
 ```
 
-### `autonomous` — draft it and run it
+### Ranger (`autonomous`): draft it and run it
 
 Nobody is there to read it, so something else has to stop it, and that is a
 budget.
@@ -215,7 +223,7 @@ nobody chose deciding how much of somebody's card to spend.
 
 The budget needs a figure, and the figure does not exist when the Agent
 finishes writing. Cost scales with the *solvated* particle count, which depends
-on box shape, padding and ion concentration — decisions setup makes. A protein
+on box shape, padding and ion concentration, decisions setup makes. A protein
 of 2,000 atoms is 60,000 solvated, and guessing from the residue count would be
 inventing the water.
 
@@ -238,33 +246,33 @@ each with its own equilibration, and on the pull that seeds them where it asks
 for one.
 
 **When it refuses, setup's output is kept.** It cost minutes and it is worth
-having — a shorter study reuses it through `simulation.setup_from`, and the
+having: a shorter study reuses it through `simulation.setup_from`, and the
 particle count is what made the refusal possible. The message names the
 estimate and the budget, because "too expensive" is usually answered by a
 shorter run rather than a larger allowance, and you cannot choose without the
 number.
 
 Two other ways it stops: a setup that records no particle count, because
-running on would spend an unknown amount — the one thing an unattended run must
+running on would spend an unknown amount, the one thing an unattended run must
 not do; and a machine that cannot be measured, because no calibration means no
 ceiling. A machine never measured is measured on the study's own prepared system
 first; see
 [Production runs and GPUs](production.md#knowing-how-long-before-committing-the-card).
 
-### `unvalidated` — mark the work as unchecked
+### `unvalidated`: outside the schema, not one of the modes
 
-`unvalidated` is a **marking on the work**, not a bypass of the validator. It
-says that a phase went outside the schema and nothing checked *the method*. The
-study is still recorded, still reproducible, and still has a Config — what it
-does not have is anything that checked the science.
+`unvalidated` is a **marking on the work**, not a mode and not a bypass of the
+validator. It says that a phase went outside the schema and nothing checked
+*the method*. The study is still recorded, still reproducible, and still has a
+Config; what it does not have is anything that checked the science.
 
-The Config is validated exactly as in any other mode. A study asking for a
+The Config is validated exactly as in Seeker or Ranger. A study asking for a
 setting that does not exist is refused here too.
 
-> **What it does today.** The mode is recorded in the Config, travels into the
-> run's records, and stamps every figure the marked phase plots. The behaviour
-> it is meant to unlock — the Agent writing code of its own, outside the schema
-> — is **specified and not yet built**, and `fastmdx agent --unvalidated` says
+> **What it does today.** The marking is recorded in the Config, travels into
+> the run's records, and stamps every figure the marked phase plots. The
+> behaviour it is meant to unlock, the Agent writing code of its own outside the
+> schema, is **specified and not yet built**, and `fastmdx agent --unvalidated` says
 > so when you run it. So the marking works; what it currently marks is a study
 > that stayed inside the schema anyway.
 
@@ -481,7 +489,8 @@ it is about, and sees that study's context. It lives inside the study
 folder, at `<study>/agent/conversations/`, so copying a
 study carries the conversations that made it — the record stays with the
 data. A conversation about no study lives at the workspace level. Under the
-composer, at the right: the mode, which
+composer, at the right: the mode by its name and its two words (**Seeker:
+built-in, assisted** or **Ranger: built-in, autonomous**), which
 opens the Agent's settings; *Conversations*, a list grouped by study with
 the loaded one first, where opening a conversation from another study loads
 that study; and *New conversation*, which starts a fresh thread and keeps
@@ -587,11 +596,13 @@ builder's refusals do: the setting to change, or the install command where a
 package is missing. Where the fix is a setting of the study, **Ask the Agent
 to fix it** sends the refusal into the thread as your next message and the
 Agent rewrites its Config. A budget, an install and a choice only you can
-make are said and not handed to the AI model. An `autonomous` Config that
+make are said and not handed to the AI model. A Ranger (`autonomous`) Config that
 carries its own `budget_hours` runs with it when the Settings field is empty.
 
-The engine, the mode and the GPU-hour ceiling are in Settings, at the foot of
-the sidebar. They are set once.
+Whose AI the Agent asks (its provider) and its mode are in the settings menu,
+from the gear at the foot of the sidebar; they are set, with the GPU-hour
+ceiling, in **Agent settings**, the one place its AI model is said. They are
+set once.
 
 Nothing in the GUI layer decides whether a Config is acceptable. The validator
 does that, as it does for a Config written by hand.
@@ -890,7 +901,7 @@ does not allow drops the proposal and keeps the answer.
 
 **Your instruction is the click.** "Run it" typed into the thread does what
 pressing *Run on this machine* does, through the same door, so the mode's
-gates apply to a word as they do to a press: an `autonomous` run still needs
+gates apply to a word as they do to a press: a Ranger (`autonomous`) run still needs
 its budget. The run is said under the message that started it, "Running
 version 2, started 13:41", with **Watch on the Overview** and **Stop** (which
 asks first); read again later, "Started version 2 at 13:41". Nothing happens
@@ -935,7 +946,7 @@ stopped*.
 
 **A change and a run in one message** writes the Config and says *say run
 when you have read it*. One step of seeing what is about to run is what
-`assisted` promises.
+Seeker (`assisted`) promises.
 
 ### Continuing a study that stopped
 

@@ -52,9 +52,21 @@
     runId: "",
     runTitle: "FastMDXplora Live",
     apiErrors: {},
+    /* Per study key: "asking", "gone" (its folder is no longer there) or
+     * "no", for an open study the status says is not a study. */
+    goneChecks: {},
+    /* The open study whose tab was closed with no other open: not named. */
+    studyClosed: "",
+    /* Until when a change of study is one a run started here makes. */
+    ownChangeUntil: 0,
   };
 
   let chartHistorySamples = 600;
+
+  /* Settled once the study the address names is open, or refused: what is
+   * read for the page's study (the Agent's conversation) is read after. */
+  let studySettledNow;
+  const studySettled = new Promise((done) => { studySettledNow = done; });
 
   document.addEventListener("DOMContentLoaded", boot);
 
@@ -70,6 +82,7 @@
     navigate(location.hash.replace(/^#/, "") || "overview", {updateHash: false});
     // The study the address names, opened before the page reads one.
     openAskedFirst().finally(() => {
+      studySettledNow();
       startLoadingChecklist();
       schedulePoll(0);
       openChangeStream();
@@ -88,6 +101,7 @@
     const demoButton = byId("open-demo");
     if (demoButton) {
       demoButton.addEventListener("click", async () => {
+        if (beginStudySwitch()) return;
         demoButton.disabled = true;
         if (Number(state.appState?.demo_to_fetch || 0)) demoButton.textContent = "Fetching the demo study\u2026";
         try {
@@ -103,6 +117,7 @@
         } catch (error) {
           demoButton.textContent = "The server did not answer.";
         }
+        endStudySwitch();
         demoButton.disabled = false;
       });
     }
@@ -130,6 +145,13 @@
         return;
       }
       if (asked && state.addressKnown && asked !== studyNamed() && !state.addressAsking) {
+        // Work the switch would lose holds it, and the reason is said. A
+        // step naming the study still open is added after the one asked,
+        // which stays for a Back once the work is done.
+        if (holdStudySwitch("back")) {
+          history.pushState(history.state, "", addressFor(studyNamed(), `#${routeShown()}`));
+          return;
+        }
         openAsked(asked);
         return;
       }
@@ -145,6 +167,8 @@
     // A page kept by the browser and shown again on Back is read afresh.
     window.addEventListener("pageshow", (event) => {
       if (event.persisted) {
+        state.addressAsking = false;
+        document.body.classList.remove("study-switching");
         state.addressKnown = false;
         state.addressRecheck = true;
         schedulePoll(0);
@@ -570,7 +594,12 @@
       if (name === "app") safeApply(name, () => applyAppState(payload));
       if (name === "status") safeApply(name, () => applyStatus(payload));
       if (name === "metrics") safeApply(name, () => applyMetrics(payload.metrics || []));
-      if (name === "events") safeApply(name, () => renderEvents(payload.events || []));
+      if (name === "events") {
+        safeApply(name, () => renderEvents(payload.events || []));
+        // The run's narration as read, for what is read again only when
+        // the run writes something new (problems.js).
+        emit("events-read", {events: Array.isArray(payload.events) ? payload.events : []});
+      }
       if (name === "results") safeApply(name, () => applyResults(payload));
       if (name === "structure") safeApply(name, () => applyStructure(payload));
       if (name === "playback") safeApply(name, () => applyPlayback(payload));
@@ -578,7 +607,9 @@
 
     // Establish the study before its panels, but do not hold results behind
     // an unrelated trajectory/topology request that is still being read.
-    applyResponse(await responses[0], 0);
+    const first = await responses[0];
+    if (state.addressAsking) return;
+    applyResponse(first, 0);
     await Promise.all(responses.slice(1).map(async (response, index) => {
       applyResponse(await response, index + 1);
     }));
@@ -831,7 +862,6 @@
       renderTopBar({}, {});
       renderHero({});
       renderHealth({});
-      renderStageTimeline({});
       renderLiveProgress({});
       emit("status-updated", {status: {}, health: {}, study: ""});
       return;
@@ -851,13 +881,40 @@
     renderTopBar(status, health);
     renderHero(status);
     renderHealth(health);
-    renderStageTimeline(status);
     renderLiveProgress(status);
     // The folder read, so a listener can tell one study's status from
     // another's (a study opened elsewhere between two polls).
     emit("status-updated", {status, health, times: state.times, study: payload.study || ""});
     state.studyIsOne = payload.study_named !== false;
+    if (state.studyIsOne) state.goneChecks = {};
+    else if (payload.study) askIfGone(payload.study);
     addressTheStudy(payload.study || "");
+    studyAddressed();
+  }
+
+  function studyAddressed() {
+    const key = studyNamed();
+    emit("study-addressed", {
+      key, title: byId("topbar-run-title")?.textContent || "Study",
+      folder: byId("study-folder")?.dataset.name || "",
+      gone: Boolean(key) && state.goneChecks[key] === "gone",
+    });
+  }
+
+  /* An open study that is not a study: a folder not yet one, or a study
+   * whose folder has gone. The Problems record says which, by the key; a
+   * gone one stays named, as the study open, and is said to be gone. */
+  async function askIfGone(key) {
+    if (state.goneChecks[key]) return;
+    state.goneChecks[key] = "asking";
+    let answer = null;
+    try { answer = await fetchJSON(`/api/problems?study=${encodeURIComponent(key)}`); } catch (error) { answer = null; }
+    if (state.goneChecks[key] !== "asking") return;
+    state.goneChecks[key] = answer && answer.study === key && answer.state === "gone" ? "gone" : "no";
+    if (state.studyShown === key) {
+      addressTheStudy(key);
+      studyAddressed();
+    }
   }
 
   /* ---- The study in the address ------------------------------------ */
@@ -871,7 +928,14 @@
   // The open study as the address names it: a folder not yet a study,
   // which cannot be opened again as one, is not named.
   function studyNamed() {
-    return state.studyIsOne === false ? "" : (state.studyShown || "");
+    const key = state.studyShown || "";
+    if (key && key === state.studyClosed) return "";
+    if (state.studyIsOne === false) return state.goneChecks[key] === "gone" ? key : "";
+    return key;
+  }
+
+  function routeShown() {
+    return state.activePage + (state.activePage === "analysis" && state.activePlace ? `/${state.activePlace}` : "");
   }
 
   function addressFor(key, hash) {
@@ -900,19 +964,92 @@
    * before. A switch's answer names it; an answer that does not (the demo,
    * a shared study) leaves the address to name what the page then finds. */
   function studyOpened(answer, page) {
+    emit("study-opening", {key: (answer && answer.study_key) || ""});
     goTo(addressFor((answer && answer.study_key) || "", `#${page || "overview"}`), false);
   }
 
+  /* A switch by key. A study the server cannot find, or whose folder has
+   * gone, is said so without the server's path for it (`gone`). */
   async function switchToKeyed(asked) {
     try {
       const response = await fetch("/api/explore/switch", {
         method: "POST", headers: {"content-type": "application/json"},
         body: JSON.stringify({study: asked}),
       });
-      return await response.json();
+      const answer = await response.json();
+      if (answer && !answer.ok && /^No such folder\b/.test(String(answer.error || ""))) {
+        return {...answer, gone: "folder", error: "This study's folder is no longer there."};
+      }
+      if (answer && !answer.ok && response.status === 404) {
+        return {...answer, gone: "missing", error: "This study is not among the studies here."};
+      }
+      return answer;
     } catch (error) {
       return null;
     }
+  }
+
+  /* What a switch of study would lose here (unsent Agent words, a Config
+   * draft not saved, a rejected change not applied, a launch or reply
+   * under way): the reason, or "". Back ("back") is not held by Agent
+   * words kept for the study in this window. */
+  function switchHeld(how) {
+    const back = how === "back";
+    return window.FastMDXAgent?.beforeStudySwitch?.({back}) || window.FastMDXRun?.beforeStudySwitch?.() || "";
+  }
+
+  /* Asked by every way to another study before the server is asked: a
+   * held switch is said, by the strip and as a notice, and the current
+   * study stays open. */
+  function holdStudySwitch(how) {
+    const held = state.addressAsking ? "A study is already opening." : switchHeld(how);
+    if (held) {
+      emit("study-switch-held", held);
+      showToast(held, "warning");
+    }
+    return held;
+  }
+
+  /* One switch in flight at a time, whichever way asked it: the strip is
+   * busy and no poll paints the new study's records under the old one.
+   * The strip's own switch hides the pages until the new one loads; other
+   * ways keep their page, which says how the switch is going. */
+  function switching(on, hide) {
+    state.addressAsking = on;
+    document.body.classList.toggle("study-switching", Boolean(on && hide));
+    emit("study-switching", on);
+  }
+
+  /* The hold asked, then the switch marked as in flight: "" when it may
+   * go on, or the reason said. A switch not made is ended with
+   * endStudySwitch; one made loads the page again. */
+  function beginStudySwitch(how) {
+    const held = holdStudySwitch(how);
+    if (!held) switching(true);
+    return held;
+  }
+
+  function endStudySwitch() {
+    if (state.addressAsking) switching(false);
+  }
+
+  /* Internal workspace tabs switch through the same admitted key as Back.
+   * A pending switch has one owner; unsaved work is checked before the
+   * server changes its active study. */
+  async function openStudyTab(key, page, beforeOpen) {
+    if (state.addressAsking) return {ok: false, error: "A study is already opening."};
+    const held = switchHeld();
+    if (held) return {ok: false, error: held};
+    switching(true, true);
+    const answer = await switchToKeyed(key);
+    if (answer && answer.ok) {
+      if (beforeOpen) beforeOpen(answer);
+      studyOpened(answer, page);
+      return answer;
+    }
+    switching(false);
+    if (!answer) schedulePoll(0);
+    return answer || {ok: false, error: "The server did not answer. Refresh to check which study is open."};
   }
 
   /* Opened as the page starts, so what it reads first is that study. */
@@ -948,7 +1085,21 @@
 
   function addressTheStudy(key) {
     const asked = studyInAddress();
+    const was = state.studyShown;
     state.studyShown = key;
+    // The study changed under this window, not by a way of its own (each
+    // of those loads the page again) nor by a run it started: said, with
+    // the study now shown.
+    if (state.addressKnown && was && key && was !== key && !state.addressAsking) {
+      if (Date.now() < state.ownChangeUntil) {
+        state.ownChangeUntil = 0;
+      } else {
+        const title = byId("topbar-run-title")?.textContent || "Another study";
+        emit("study-changed-elsewhere", {from: was, to: key, title});
+        showToast(`${title} was opened elsewhere, in another window or by an AI app: this window now shows it.`,
+                  "warning");
+      }
+    }
     if (!state.addressKnown) {
       state.addressKnown = true;
       if (state.addressRefused) showToast(state.addressRefused, "warning");
@@ -957,7 +1108,7 @@
       state.addressOffered = "";
       if (offered && offered !== key) {
         showToast("This address, from another site, names another study.", "warning",
-                  {label: "Open it", run: () => openAsked(offered)});
+                  {label: "Open it", run: () => { if (!holdStudySwitch()) openAsked(offered); }});
       }
       // Shown again by the browser on Back, with another study open since.
       if (state.addressRecheck && asked && asked !== key) {
@@ -966,7 +1117,8 @@
         return;
       }
     }
-    if (asked !== studyNamed() && !state.addressAsking) {
+    // Whether its folder has gone is not known yet: the address waits.
+    if (asked !== studyNamed() && !state.addressAsking && state.goneChecks[key] !== "asking") {
       history.replaceState(history.state, "", addressFor(studyNamed()));
     }
   }
@@ -974,7 +1126,7 @@
   /* Opened once the page is shown (Back or Forward to a step naming
    * another study): read again from the start. */
   async function openAsked(asked) {
-    state.addressAsking = true;
+    switching(true);
     const answer = await switchToKeyed(asked);
     if (answer && answer.ok) {
       goTo(addressFor(answer.study_key || asked), true);
@@ -982,7 +1134,7 @@
     }
     showToast((answer && answer.error) || "The study this address names could not be opened.",
               "warning");
-    state.addressAsking = false;
+    switching(false);
     history.replaceState(history.state, "", addressFor(studyNamed()));
     // The page the step names, with the study open: address and page agree.
     followAddress();
@@ -1012,7 +1164,7 @@
     if (!state.appState?.active_run) {
       setClassName("topbar-status-dot", "status-dot status-dot-waiting");
       setText("topbar-status-text", "Ready");
-      byId("sidebar-progress")?.setAttribute("data-run", "");
+      byId("status-run")?.setAttribute("data-run", "");
       setText("topbar-stage", "configure a simulation");
       setText("topbar-step", "—");
       setText("topbar-total", "—");
@@ -1066,7 +1218,7 @@
       : run === "failed" ? "status-dot-error"
       : run === "stopped" || run === "interrupted" ? "status-dot-waiting"
       : finished ? "status-dot-completed" : stateDotClass(statusName)}`);
-    byId("sidebar-progress")?.setAttribute("data-run", run);
+    byId("status-run")?.setAttribute("data-run", run);
     // The Overview leads with what it determined once the run has ended
     // well, and with its health and charts while it runs or once it has
     // stopped short: what happened first (overview.js, the CSS).
@@ -1087,6 +1239,7 @@
       : run === "interrupted" ? (status.last_update_timestamp
         ? `${stage}, last update ${formatWhen(status.last_update_timestamp)}` : stage)
       : stage);
+    setText("status-stage-count", stageCount(status));
     setText("topbar-step", valueOrDash(status.current_step));
     setText("topbar-total", valueOrDash(status.total_planned_steps));
     const pct = progressPercent(status);
@@ -1107,7 +1260,9 @@
     byId("open-output")?.setAttribute(
       "title", state.outputDir ? `Open ${state.outputDir}` : "Open output folder"
     );
-    setTextWithTooltip("sidebar-run-name", state.runTitle);
+    // A run of a study of several by what sets it apart, as its place says.
+    const runOf = state.appState?.run_of;
+    setTextWithTooltip("sidebar-run-name", runOf ? (runOf.label || runOf.run_id) : state.runTitle);
 
     state.runId = status.system_id || state.results?.system?.system || state.runId;
     setTextWithTooltip("topbar-run-id", state.runId || "system");
@@ -1204,9 +1359,14 @@
     // Said of a run that is writing, and of one that has ended as it is.
     const writing = ["running", "starting"].includes(String(status.status || "").toLowerCase())
       || !!state.appState?.process_running;
-    setText("overview-subtitle", writing
-      ? "What the run is doing, and whether it is doing it well."
-      : "What the run did, and how it went.");
+    // A study of several runs is its runs, not a run.
+    const ofRuns = Array.isArray(state.appState?.runs);
+    setText("overview-subtitle", ofRuns
+      ? (writing ? "What the study's runs are doing, and how far each has got."
+        : "What the study's runs did, and how they went.")
+      : writing
+        ? "What the run is doing, and whether it is doing it well."
+        : "What the run did, and how it went.");
     setText("overview-charts-title", writing ? "Live charts" : "Thermodynamics");
   }
 
@@ -1269,7 +1429,11 @@
     });
   }
 
-  function renderStageTimeline(status) {
+  /* "Stage 5 of 7": the stage reached among those this run can reach,
+   * said beside where the run stands in the status bar. Each stage's state
+   * from the live record's map, else from the phases the run recorded; a
+   * run waiting for its study's next round is at no stage now. */
+  function stageCount(status) {
     const order = ["setup", "minimization", "nvt", "npt", "production", "analysis", "report"];
     const phaseMap = {};
     (state.results.phases || []).forEach((phase) => {
@@ -1280,28 +1444,12 @@
     const current = normaliseStage(status.stage);
     const currentIndex = order.indexOf(current);
     const simulationDone = isPhaseDone(phaseMap.simulation);
-
-    /* Only the stages this run can reach. An analysis of a trajectory that
-     * already exists has no minimization to wait for, and a stage greyed out
-     * forever reads exactly like a run that stalled. Where the server cannot
-     * tell -- an older run, or one started outside the GUI -- every stage is
-     * listed, because hiding one that turns out to run is the worse mistake. */
-    const reachable = Array.isArray(state.stages) && state.stages.length
-      ? state.stages : null;
-
-    $$('.stage-step').forEach((element) => {
-      const stage = element.getAttribute("data-stage");
-      if (reachable && !reachable.includes(stage)) {
-        element.hidden = true;
-        return;
-      }
-      element.hidden = false;
+    /* Only the stages this run can reach: where the server cannot tell (an
+     * older run, one started outside the GUI) every stage is counted. */
+    const reachable = Array.isArray(state.stages) && state.stages.length ? state.stages : null;
+    const shown = order.filter((stage) => !reachable || reachable.includes(stage));
+    const states = shown.map((stage) => {
       let stageState = phaseVisualState(liveStates[stage]);
-
-      // Older/completed runs may not have the new live stage map, so retain
-      // manifest-based fallback without overwriting a real current/failed state.
-      // Not for a run waiting for its study's next round: its phases so far
-      // are recorded done, and its production, analyses and report are not.
       if (stageState === "waiting" && !status?.between_rounds) {
         if (stage === "setup") stageState = phaseVisualState(phaseMap.setup);
         if (["minimization", "nvt", "npt", "production"].includes(stage) && simulationDone) {
@@ -1310,28 +1458,30 @@
         if (stage === "analysis") stageState = phaseVisualState(phaseMap.analysis);
         if (stage === "report") stageState = phaseVisualState(phaseMap.report);
       }
-
-      // A run waiting for its study's next round is at no stage now.
       if (currentIndex >= 0 && stageState === "waiting" && !status?.between_rounds) {
         const index = order.indexOf(stage);
         if (index < currentIndex) stageState = "completed";
         if (index === currentIndex) stageState = "current";
       }
-      if (stage === current && phaseVisualState(liveStates[stage]) === "current") {
-        stageState = "current";
-      }
-      element.setAttribute("data-state", stageState);
+      if (stage === current && phaseVisualState(liveStates[stage]) === "current") stageState = "current";
+      return stageState;
     });
-    // "Stage 5 of 7" in the progress card: the stage reached among those
-    // this run can reach.
-    const shown = $$('.sidebar-stages .stage-step').filter((element) => !element.hidden);
-    const stateOf = (element) => element.getAttribute("data-state");
-    let at = shown.findIndex((element) => ["current", "failed"].includes(stateOf(element)));
-    if (at < 0) {
-      shown.forEach((element, index) => { if (stateOf(element) === "completed") at = index; });
-    }
-    setText("sidebar-stage-count", at >= 0 && shown.length
-      ? `Stage ${at + 1} of ${shown.length}` : "");
+    let at = states.findIndex((s) => s === "current" || s === "failed");
+    if (at < 0) states.forEach((s, index) => { if (s === "completed") at = index; });
+    return at >= 0 && shown.length ? `Stage ${at + 1} of ${shown.length}` : "";
+  }
+
+  function phaseVisualState(value) {
+    const status = String(value || "").toLowerCase();
+    if (["ok", "complete", "completed", "success", "succeeded"].includes(status)) return "completed";
+    if (["error", "failed"].includes(status)) return "failed";
+    if (["skipped", "not run"].includes(status)) return "skipped";
+    if (["running", "active", "current"].includes(status)) return "current";
+    return "waiting";
+  }
+
+  function isPhaseDone(value) {
+    return ["ok", "complete", "completed", "success"].includes(String(value || "").toLowerCase());
   }
 
   /* Why a study open here has no live record, said as what it is. Several
@@ -1342,6 +1492,12 @@
    * and offer to start one. */
   function liveAbsence(app) {
     app = app || {};
+    // Its live record there but not read (a link out of the study, say):
+    // named, and no reason given for an absence it is not.
+    const health = state.health || {};
+    if (String(health.state || "") === "not read") {
+      return {title: "Live record not read", body: health.message || "", offerToStart: false};
+    }
     if (app.no_study_in) {
       const name = String(app.no_study_in).split(/[\\/]/).filter(Boolean).pop() || app.no_study_in;
       return {
@@ -1401,7 +1557,9 @@
     const absent = document.getElementById("live-absent");
     if (panels) panels.hidden = nothing;
     if (absent) {
-      absent.hidden = !nothing;
+      // A study of several runs has its runs on the Overview instead
+      // (overview-runs.js).
+      absent.hidden = !nothing || Array.isArray(state.appState?.runs);
       const said = liveAbsence(state.appState);
       const title = document.getElementById("live-absent-title");
       const body = document.getElementById("live-absent-body");
@@ -1533,7 +1691,6 @@
     state.runId = payload.system?.system || state.runId;
 
     renderTopBar(state.status, state.health);
-    renderStageTimeline(state.status);
     renderMethods(payload);
     renderAnalysisSections(payload);
     renderAnalysis(payload);
@@ -1716,9 +1873,12 @@
       rows.push(`<dt>${escapeHTML(label)}</dt><dd>${value}</dd>`);
     };
     const code = (value) => `<code>${escapeHTML(value)}</code>`;
+    const notRead = Array.isArray(made.not_read) ? made.not_read : [];
+    // Who made it not read (the run's manifest) is not a release that did
+    // not record itself.
     row("Made by", made.version
       ? `FastMDXplora ${code(made.version)}` + (made.host ? ` on ${escapeHTML(made.host)}` : "")
-      : "a release that did not record itself");
+      : notRead.includes("manifest.json") ? "Not read" : "a release that did not record itself");
     const packages = Object.entries(made.packages || {});
     if (packages.length) {
       row("With", packages.map(([name, version]) => `${escapeHTML(name)} ${code(version)}`).join(", "));
@@ -1757,7 +1917,11 @@
         widths.map(([width]) => `<button type="button" class="file-action" data-width="${escapeAttr(width)}">` +
           `${escapeHTML(WIDTH_SAID[width] || width)}</button>`).join("") + "</div>"
       : "";
-    return `<dl class="figure-provenance-rows">${rows.join("")}</dl>` +
+    // A record not read, named with why; where it held the options, no
+    // command is written, and the panel says so.
+    const said = notRead.length && made.not_read_said
+      ? `<p class="figure-provenance-note">${escapeHTML(made.not_read_said)}</p>` : "";
+    return `<dl class="figure-provenance-rows">${rows.join("")}</dl>` + said +
       (again
         ? `<p class="figure-provenance-how">${escapeHTML(how)}</p>` + choose +
           `<pre class="figure-provenance-command">${escapeHTML(again)}</pre>` +
@@ -1886,9 +2050,14 @@
           ? `, ${fromReport} of them the report's` : fromReport ? ", the report's" : "");
     }
     const count = analyses.length || plots.length;
+    // A study of several runs keeps its analyses in its runs, compared on
+    // this page below: "no analyses yet" sat above runs of 14 each.
+    const runs = Array.isArray(state.appState?.runs) ? state.appState.runs : null;
     setText(
       "analysis-meta",
-      count ? `${count} analysis output${count === 1 ? "" : "s"}` : "no analyses yet"
+      count ? `${count} analysis output${count === 1 ? "" : "s"}`
+        : runs && runs.length ? `the analyses of ${runs.length} run${runs.length === 1 ? "" : "s"}, compared below`
+        : "no analyses yet"
     );
     if (cards.length) empty.setAttribute("hidden", "");
     else empty.removeAttribute("hidden");
@@ -2163,8 +2332,12 @@
     setText("traj-total", String(frameCount));
     setText("traj-step", step == null || !Number.isFinite(Number(step))
       ? "—" : `step ${Number(step).toLocaleString()}`);
+    const timeSaid = state.playbackData?.source_kind === "production-dcd"
+      && window.FastMDXSeries?.frameTimeSaid
+      ? window.FastMDXSeries.frameTimeSaid(time, state.playbackFrameTimes)
+      : `${formatNumber(time, 3)} ns`;
     setText("traj-simtime", time == null || !Number.isFinite(Number(time))
-      ? "—" : `time ${formatNumber(time, 3)} ns`);
+      ? "—" : `time ${timeSaid}`);
     return true;
   }
 
@@ -2235,19 +2408,6 @@
     if (stage.includes("report")) return "report";
     if (stage.includes("setup") || stage.includes("loading")) return "setup";
     return stage;
-  }
-
-  function phaseVisualState(value) {
-    const status = String(value || "").toLowerCase();
-    if (["ok", "complete", "completed", "success", "succeeded"].includes(status)) return "completed";
-    if (["error", "failed"].includes(status)) return "failed";
-    if (["skipped", "not run"].includes(status)) return "skipped";
-    if (["running", "active", "current"].includes(status)) return "current";
-    return "waiting";
-  }
-
-  function isPhaseDone(value) {
-    return ["ok", "complete", "completed", "success"].includes(String(value || "").toLowerCase());
   }
 
   /* A path inside the open study, from the study; any other as it is. The
@@ -2327,6 +2487,11 @@
     const running = ["running", "starting", "paused"].includes(String(status.status || "").toLowerCase());
     const planned = times.production_planned_ns;
     const done = times.production_ns;
+    if (times.production_not_read) {
+      // A record of its pieces not read: the production is not given, and
+      // the live record's total does not stand in for it.
+      return {label: "Production", value: "Not read", note: times.production_not_read};
+    }
     if (done == null && !times.equilibrating) {
       const total = times.simulated_ns ?? status.simulation_time_completed_ns;
       return {label: "Simulated", value: sayLength(total),
@@ -2635,6 +2800,22 @@
     toast: (message, kind, action) => showToast(message, kind, action),
     /* A study opened from the page, by the switch's answer. */
     studyOpened: (answer, page) => studyOpened(answer, page),
+    openStudyTab,
+    /* Settled once the address's study is open, or refused. */
+    studySettled,
+    /* A run started here: the study it opens is this window's own change. */
+    studyChangeComing: () => { state.ownChangeUntil = Date.now() + 60000; },
+    studyChangeNotComing: () => { state.ownChangeUntil = 0; },
+    /* Asked before any other way opens another study: "" or the reason. */
+    holdStudySwitch,
+    /* The same, and the switch marked as in flight where it may go on. */
+    beginStudySwitch,
+    endStudySwitch,
+    /* The open study's tab closed with none left: not named until shown again. */
+    studyClosed: (key) => {
+      state.studyClosed = key || "";
+      if (state.addressKnown) history.replaceState(history.state, "", addressFor(studyNamed()));
+    },
     figureChip: (name, made) => provenanceChip(name, made),
     listenForFigureChips: (host, lookup) => listenForProvenance(host, lookup),
     /* A name shortened in its middle to the width given (studies.js). */

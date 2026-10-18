@@ -173,16 +173,14 @@ def test_the_card_says_waiting_not_completed(browser, tmp_path, done_so_far):
         page.wait_for_function("() => document.body.classList.contains('state-ready')"
                                " && document.getElementById('health-headline').textContent"
                                " !== '\\u2014'")
-        said = page.evaluate("""() => ['topbar-status-text', 'health-headline', 'topbar-progress',
-            'sidebar-stage-count'].map((id) => document.getElementById(id).textContent.trim())""")
+        said = page.evaluate("""() => ['topbar-status-text', 'health-headline', 'topbar-progress']
+            .map((id) => document.getElementById(id).textContent.trim())""")
     finally:
         page.context.close()
         session.server.shutdown()
     assert said[0] == "Waiting", said
     assert said[1] == "Waiting for the study's next round", said
     assert said[2].startswith("81.4"), said
-    # Its equilibration done; production, analyses and report to come again.
-    assert said[3] == "Stage 4 of 7", said
     assert errors == []
     assert json.loads((study / "stopping.json").read_text())["outcome"] == "running"
 

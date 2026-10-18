@@ -1,0 +1,83 @@
+/* The status bar (statusbar.js): a strip of 24px under everything, not a
+ * panel. The columns above it end where it begins. */
+:root { --status-bar-height: 24px; }
+
+.app-shell { height: calc(100vh - var(--status-bar-height)); }
+.sidebar, .main, .side-panel { height: calc(100vh - var(--status-bar-height)); min-height: 0; }
+/* The Agent beside the page ends above it too: its mode line was cut under it. */
+.agent-drawer { bottom: var(--status-bar-height); }
+.page[data-page="agent"] {
+    height: calc(100vh - var(--status-bar-height) - var(--shell-pad-top, 24px) - var(--agent-foot));
+}
+body.sidebar-collapsed.sidebar-peek .sidebar,
+body.panel-collapsed.panel-peek .side-panel {
+    height: auto; bottom: var(--status-bar-height);
+}
+
+.status-bar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 55;
+    height: var(--status-bar-height); box-sizing: border-box;
+    display: flex; align-items: stretch; gap: 0; padding: 0 6px;
+    background: var(--background-secondary); border-top: 1px solid var(--border-subtle);
+    font-family: var(--font-stack); font-size: var(--text-2xs); line-height: 1;
+    color: var(--text-secondary); white-space: nowrap; overflow: hidden;
+}
+.sb-item {
+    appearance: none; border: 0; background: transparent; color: inherit; font: inherit;
+    display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; margin: 0;
+    min-width: 0; max-width: 32ch; overflow: hidden; text-decoration: none; cursor: pointer;
+    border-radius: 0;
+}
+.sb-item:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); }
+.sb-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.sb-item[hidden] { display: none; }
+.sb-text, .sb-item > span { overflow: hidden; text-overflow: ellipsis; }
+.sb-icon { width: 13px; height: 13px; flex: none; }
+.sb-spacer { flex: 1 1 auto; }
+.sb-remote { display: inline-flex; min-width: 0; }
+
+/* The run here: shown while it runs, or where it stopped. */
+.sb-run { max-width: 48ch; color: var(--text-primary); }
+.sb-run[data-run=""] { display: none; }
+.sb-run .status-dot { width: 7px; height: 7px; margin: 0; }
+.sb-run-name { font-weight: 600; }
+.sb-run .progress-stage { color: var(--text-secondary); }
+.sb-run-count { color: var(--text-muted); }
+.sb-run-count:empty { display: none; }
+.sb-run[data-run="failed"] .progress-stage { color: var(--status-error, var(--accent-red)); }
+.sb-run[data-run="stopped"] .progress-stage,
+.sb-run[data-run="interrupted"] .progress-stage { color: var(--status-stale); }
+.sb-run:not([data-run="running"]) .sb-run-eta,
+.sb-run:not([data-run="running"]) .sb-run-pct { display: none; }
+.sb-fix { display: none; color: var(--accent-text, var(--accent)); }
+html[data-fixes="some"] .sb-run:is([data-run="failed"], [data-run="stopped"], [data-run="interrupted"]) + .sb-fix {
+    display: inline-flex;
+}
+
+/* Stop the run, beside it while it runs; asked first in a card above the
+ * strip (stop-run.js), as the Overview's health card asks. */
+.sb-stop { color: var(--status-error, var(--accent-red)); font-weight: 600; }
+.sb-stop-ask {
+    position: fixed; left: 8px; bottom: calc(var(--status-bar-height) + 6px); z-index: 56;
+    box-sizing: border-box; max-width: min(420px, calc(100vw - 16px)); padding: 10px 12px;
+    background: var(--panel-glass); color: var(--text-primary);
+    border: 1px solid var(--border-primary); border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .28);
+    white-space: normal; overflow-wrap: anywhere;
+}
+
+.sb-problems[data-count]:not([data-count="0"]) { color: var(--accent-orange); }
+
+/* The page's own updates, while a study is open. */
+.sb-live { display: inline-flex; align-items: center; gap: 2px; padding-left: 6px; }
+body:not(.has-study) .sb-live { display: none; }
+.sb-live .sidebar-refreshed { margin-right: 4px; }
+.sb-tool { width: 22px; height: 22px; }
+.sb-tool .sidebar-icon { width: 13px; height: 13px; }
+
+/* A phone: no strip; the page keeps the whole height. */
+@media (max-width: 800px) {
+    :root { --status-bar-height: 0px; }
+    .status-bar, .sb-stop-ask { display: none; }
+    .app-shell, .sidebar, .main { height: auto; }
+}

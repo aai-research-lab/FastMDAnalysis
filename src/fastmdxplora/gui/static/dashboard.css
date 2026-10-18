@@ -402,9 +402,10 @@ button {
     min-height: var(--top-bar-height);
     /* Fixed while the page scrolls under it. The centre column is the
        scroll container, so sticky at its top is fixed to the eye; the
-       background stops the content showing through. */
+       background stops the content showing through. Below the strip of
+       open studies and its note (study-tabs.js sets their height). */
     position: sticky;
-    top: 0;
+    top: var(--study-tabs-height, 0px);
     z-index: 5;
     background: var(--background-primary);
     /* One band across the whole column, its rule under it: the page is a
@@ -1147,18 +1148,9 @@ button {
    screen reader; the transport under the canvas, its scrubber taking the
    width. */
 .control-row.transport, .control-row.view-tools, .control-row.display-tools { align-items: center; }
-/* The series under the transport: its chart takes the width, the frame
-   shown marked on it, its value beside it. */
-.control-row.frame-series { align-items: center; gap: 8px; }
-.frame-series-pick {
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: var(--text-2xs); color: var(--text-muted);
-}
-.frame-series-pick select { max-width: 12rem; }
-.frame-series-chart { flex: 1 1 100%; min-width: 200px; height: 76px; }
-.frame-series-svg { display: block; cursor: col-resize; touch-action: none; }
-.frame-series-value { font-size: var(--text-2xs); color: var(--text-secondary); }
-.frame-series-note { flex-basis: 100%; margin: 0; }
+/* The series under the transport, as tracks taking the width
+   (frame-series.js; the rest of them with the timeline's). */
+.frame-series-chart { min-width: 200px; }
 .control-row.frame-interactions { align-items: center; gap: 8px; }
 .frame-interactions-title { font-size: var(--text-2xs); color: var(--text-muted); }
 .frame-interactions-now { font-size: var(--text-2xs); color: var(--text-secondary); }
@@ -3875,7 +3867,6 @@ body.sidebar-collapsed .sidebar-expand { display: inline-flex; }
     font-size: var(--text-2xs); letter-spacing: .1em; text-transform: uppercase;
     color: var(--text-muted); margin-bottom: 4px;
 }
-.study-runs-more { display: flex; gap: 8px; padding: 4px 0; }
 .study-running-row {
     display: flex; align-items: center; gap: 6px;
     padding: 5px 8px; border-radius: 6px;
@@ -4295,14 +4286,43 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
    (--viewer-canvas-width) where the settings are beside it. */
 .viewer-canvas-frame { width: 100%; height: auto; aspect-ratio: 4 / 3; }
 
-/* The playback folds as the settings' sections do: its rows sit in the
-   section's box, not in a box of their own, and it is not shown at all
-   while there is nothing to play. */
-.viewer-under-fold { min-width: 0; }
-.viewer-under-fold > .viewer-controls {
-    border: none; background: none; padding: 0 0 12px; border-radius: 0;
+/* The timeline under the molecule (viewer-timeline.js, frame-series.js):
+   always there while there are frames to play, its rows in the section's
+   box, not in boxes of their own; not shown at all while there is nothing
+   to play. */
+.viewer-timeline { min-width: 0; padding-top: 8px; }
+.viewer-timeline > .viewer-controls {
+    border: none; background: none; padding: 0 0 10px; border-radius: 0;
 }
-.viewer-under-fold:not(:has(.control-row:not([hidden]))) { display: none; }
+.viewer-timeline:not(:has(.control-row:not([hidden]))) { display: none; }
+.timeline-ruler { margin-top: 6px; }
+.timeline-ruler svg { display: block; width: 100%; cursor: pointer; touch-action: none; }
+.timeline-note { margin: 2px 0 0; font-size: 11px; color: var(--text-muted); }
+.timeline-mark { cursor: pointer; }
+.frame-series { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.frame-series[hidden] { display: none; }
+/* A track: its name and its value at the frame shown over its top edge,
+   so each takes 40px. */
+.frame-track { position: relative; }
+.frame-track-head {
+    position: absolute; top: 0; left: 52px; right: 4px; z-index: 1;
+    display: flex; align-items: baseline; gap: 8px; pointer-events: none;
+    font-size: var(--text-2xs); line-height: 1.2; color: var(--text-muted);
+}
+.frame-track-drop { pointer-events: auto; }
+.frame-track-label { color: var(--text-secondary); }
+.frame-track-value { color: var(--text-primary); }
+.frame-track-drop {
+    margin-left: auto; appearance: none; border: 0; background: transparent; color: var(--text-muted);
+    cursor: pointer; font-size: var(--text-xs); line-height: 1; padding: 0 4px;
+}
+.frame-track-drop:hover { color: var(--text-primary); }
+.frame-track-note:empty { display: none; }
+.frame-track-note { margin: 0 0 0 48px; }
+/* A track with no chart: its note under its name, not over it. */
+.frame-track-chart:empty + .frame-track-note { padding-top: 18px; }
+.frame-series-svg { display: block; width: 100%; cursor: pointer; touch-action: none; }
+.frame-series-pick { align-self: flex-start; margin-left: 48px; font-size: var(--text-2xs); }
 /* The sequence's head keeps the marker every section's summary has, the
    browser's own at the sections' size: its row sits inside the summary,
    which stays a list item. A marker drawn as a character of the text
@@ -4885,12 +4905,33 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
 .agent-badge { font-size: var(--text-2xs); padding: 2px 8px; border-radius: 999px;
     background: var(--background-elevated); color: var(--text-muted); }
 .agent-badge.is-ok { color: var(--status-completed); }
-.agent-study-change { padding: 10px 14px 0; font-size: var(--text-md); }
+.agent-study-change { padding: 10px 14px 0; font-size: var(--text-md); min-width: 0; overflow-wrap: anywhere; }
 .agent-study-change[hidden] { display: none; }
 .agent-change-row .was { color: var(--text-muted); text-decoration: line-through; }
 .agent-change-row .arrow { color: var(--text-muted); margin: 0 6px; }
 .agent-change-row .now { font-weight: 600; }
 .agent-change-rest { color: var(--text-muted); font-size: var(--text-sm); margin-top: 4px; }
+/* Each change of a proposed version with Accept and Reject, beside Use this
+   version (agent-panel.js `drawReview`). A long value (a path) wraps inside
+   the card at any width. */
+.agent-config-review { padding: 0 14px 10px; min-width: 0; overflow-wrap: anywhere; }
+.agent-config-review[hidden] { display: none; }
+.agent-review-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 12px;
+    padding: 6px 0; min-width: 0; border-bottom: 1px solid var(--border-subtle); }
+.agent-review-row.is-refused { margin-left: -11px; padding-left: 8px;
+    border-left: 3px solid var(--status-waiting); }
+.agent-review-what { flex: 1 1 14em; min-width: 0; }
+.agent-review-label { font-weight: 600; }
+.agent-review-reasons { margin-top: 2px; color: var(--text-secondary); font-size: var(--text-sm); }
+.agent-review-choice { display: flex; flex-wrap: wrap; gap: 6px; flex: 0 0 auto; }
+.agent-review-choice button[aria-pressed="true"] { border-color: var(--accent);
+    background: var(--background-soft); color: var(--accent-text); }
+.agent-review-refusal { margin-top: 8px; padding: 6px 10px; font-size: var(--text-sm);
+    border-left: 3px solid var(--status-waiting); }
+.agent-review-refusal[hidden] { display: none; }
+.agent-review-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.agent-review-uses { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.agent-review-note { margin: 8px 0 0; color: var(--text-secondary); font-size: var(--text-sm); }
 /* Where each value came from, at the end of its line, and the Agent's
    reason under it. */
 .agent-study .agent-plan dd { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
@@ -5034,7 +5075,26 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
 }
 .runs-compared[hidden], .runs-overlay[hidden] { display: none; }
 .runs-compared-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
-.runs-compared-scroll { overflow-x: auto; }
+/* Wider than the page with many measures: its scroll bar always shown (an
+ * overlay scroll bar is hidden until scrolled, so the cut columns had no
+ * way to them), the run's name kept in view, and an edge shaded where more
+ * columns lie (runs-compared.js sets data-more). */
+.runs-compared-scroll {
+    overflow-x: auto; position: relative; padding-bottom: 4px;
+    scrollbar-width: thin; scrollbar-color: var(--border-strong, var(--text-muted)) transparent;
+}
+.runs-compared-scroll::-webkit-scrollbar { height: 8px; }
+.runs-compared-scroll::-webkit-scrollbar-thumb {
+    background: var(--border-strong, var(--text-muted)); border-radius: 4px;
+}
+.runs-compared-scroll::-webkit-scrollbar-track { background: transparent; }
+.runs-compared-scroll[data-more="right"], .runs-compared-scroll[data-more="both"] {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+}
+.runs-compared-table tr > :first-child {
+    position: sticky; left: 0; z-index: 1; background: var(--panel-glass);
+}
 .runs-compared-table { border-collapse: collapse; font-size: var(--text-sm); min-width: 100%; }
 .runs-compared-table th, .runs-compared-table td {
     padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border-primary);
@@ -5065,6 +5125,32 @@ html[data-fixes="some"] .sidebar-progress[data-run="failed"] .sidebar-fix { disp
 .runs-overlay-pick { font-size: var(--text-xs); color: var(--text-muted); display: inline-flex; gap: 8px; align-items: center; }
 .runs-overlay-pick select { font: inherit; color: var(--text-primary); background: var(--background-elevated); border: 1px solid var(--border-primary); border-radius: 6px; padding: 3px 6px; }
 .runs-overlay-chart { margin-top: 8px; }
+
+/* The Overview of a study of several runs (overview-runs.js): the runs as
+   the Analysis page's table has them, each opening from its row. */
+.overview-runs { display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; }
+.overview-runs[hidden] { display: none; }
+.overview-runs-card, .overview-runs-undetermined, .overview-runs-overlay { padding: 14px 16px; }
+.overview-runs-table .is-number { text-align: right; }
+.overview-runs-open {
+    appearance: none; border: 0; background: transparent; padding: 0; font: inherit;
+    color: var(--text-primary); cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
+}
+.overview-runs-open:hover span:last-child { text-decoration: underline; }
+.overview-runs-open .status-dot { width: 7px; height: 7px; margin: 0; }
+.overview-runs-state { white-space: nowrap; color: var(--text-secondary); }
+.overview-runs-bar {
+    display: inline-block; width: 64px; height: 5px; margin-right: 8px; vertical-align: middle;
+    border-radius: 3px; background: var(--background-soft); overflow: hidden;
+}
+.overview-runs-fill { display: block; height: 100%; background: var(--status-live); }
+.overview-runs-together th, .overview-runs-together td {
+    border-top: 1px solid var(--border-strong, var(--border-primary)); font-weight: 600;
+    color: var(--text-primary);
+}
+.overview-runs-note:empty { display: none; }
+.overview-runs-undetermined-list { margin: 6px 0; padding-left: 18px; color: var(--text-secondary); }
+.overview-runs-undetermined-list li { margin: 4px 0; }
 .runs-overlay-svg { width: 100%; height: auto; max-height: 340px; display: block; }
 .runs-overlay-line { fill: none; stroke-width: 1.4; stroke-linejoin: round; }
 .runs-overlay-grid { stroke: var(--border-primary); stroke-width: 1; }
@@ -5899,7 +5985,10 @@ body.agent-beside .nav-beside { color: var(--accent-text); }
     border-radius: 12px;
     background: var(--panel-glass);
 }
-.viewer-side.has-rail > .side-section { grid-column: 2; }
+/* The tool shown, a panel of its own as tall as the rail's column: it
+   floated in empty space, as short as what it held. */
+.viewer-side.has-rail > .side-section { grid-column: 2; grid-row: 1 / span 40; align-self: stretch; }
+.viewer-side.has-rail > .side-section.is-chosen { min-height: 100%; overflow-y: auto; }
 .viewer-side.has-rail > .side-section:not(.is-chosen) { display: none; }
 .viewer-side.has-rail > .side-section.is-chosen > summary { cursor: default; pointer-events: none; list-style: none; }
 .viewer-side.has-rail > .side-section.is-chosen > summary::-webkit-details-marker { display: none; }
@@ -5925,10 +6014,15 @@ body.agent-beside .nav-beside { color: var(--accent-text); }
         grid-row: auto; position: static; flex-direction: row; overflow-x: auto;
         margin-bottom: 10px;
     }
-    .viewer-side.has-rail > .side-section { grid-column: 1; }
+    .viewer-side.has-rail > .side-section { grid-column: 1; grid-row: auto; }
+    .viewer-side.has-rail > .side-section.is-chosen { min-height: 0; }
 }
 
-/* The Viewer's keys (viewer-help). */
+/* Every key (viewer-help, keys.js): the GUI's, then the Viewer's. */
+.keys-group-title {
+    margin: 4px 0 8px; color: var(--text-muted); font-size: var(--text-2xs);
+    text-transform: uppercase; letter-spacing: 0.08em;
+}
 .keys-list { display: grid; gap: 8px; margin: 0 0 12px; }
 .keys-list > div { display: grid; grid-template-columns: 120px 1fr; gap: 12px; align-items: baseline; }
 .keys-list dt { margin: 0; white-space: nowrap; }
@@ -5952,7 +6046,16 @@ body.agent-beside .nav-beside { color: var(--accent-text); }
     padding: 8px 10px 4px; color: var(--text-muted); font-size: var(--text-2xs);
     text-transform: uppercase; letter-spacing: 0.08em;
 }
-.palette-item { padding: 8px 10px; border-radius: 8px; cursor: pointer; color: var(--text-secondary); }
+.palette-item {
+    padding: 8px 10px; border-radius: 8px; cursor: pointer; color: var(--text-secondary);
+    display: flex; align-items: baseline; gap: 10px;
+}
+.palette-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-hint { flex: 0 1 auto; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis;
+                white-space: nowrap; color: var(--text-muted); font-size: var(--text-2xs); }
+.palette-keys { flex: none; display: inline-flex; gap: 3px; }
+.palette-keys kbd { font-family: var(--font-mono); font-size: var(--text-2xs); padding: 0 5px;
+                    border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-muted); }
 .palette-item[aria-selected="true"] {
     background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--text-primary);
 }
@@ -6292,6 +6395,11 @@ html[data-page="run"] .page-shell { max-width: 1340px; }
     content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--status-completed);
 }
 .page[data-page="run"] .builder-draft[hidden] { display: none; }
+/* Not saved, and why: wraps within its width rather than running under
+   Find a setting (1440 with the Agent beside). */
+.page[data-page="run"] .builder-draft.is-unsaved {
+    white-space: normal; max-width: 220px; line-height: 1.3; text-align: right;
+}
 @media (prefers-reduced-motion: no-preference) {
     .page[data-page="run"] .builder-draft.just-saved { animation: builder-saved 900ms var(--ease); }
     .page[data-page="run"] .builder-draft.just-saved::before { animation: builder-saved-dot 900ms var(--ease); }
@@ -6309,7 +6417,7 @@ html[data-page="run"] .page-shell { max-width: 1340px; }
 
 /* The steps, in a bar that stays under the page's header. */
 .page[data-page="run"] .builder-steps {
-    position: sticky; top: var(--top-bar-height); z-index: 4;
+    position: sticky; top: calc(var(--top-bar-height) + var(--study-tabs-height, 0px)); z-index: 4;
     display: flex; gap: 4px; padding: 8px 0; margin-bottom: 4px;
     background: var(--background-primary);
     border-bottom: 1px solid var(--border-subtle);
@@ -6332,7 +6440,7 @@ html[data-page="run"] .page-shell { max-width: 1340px; }
 }
 .page[data-page="run"] .builder-find-said { margin: 8px 0 0; }
 
-.page[data-page="run"] .builder-step { padding: 22px 0 6px; scroll-margin-top: calc(var(--top-bar-height) + 52px); }
+.page[data-page="run"] .builder-step { padding: 22px 0 6px; scroll-margin-top: calc(var(--top-bar-height) + var(--study-tabs-height, 0px) + 52px); }
 .page[data-page="run"] .builder-step[hidden],
 .page[data-page="run"] .is-empty-here { display: none; }
 .page[data-page="run"] .builder-step-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -6628,8 +6736,8 @@ html[data-page="run"] .page-shell { max-width: 1340px; }
 
 /* The summary beside the steps. */
 .page[data-page="run"] .builder-summary {
-    position: sticky; top: calc(var(--top-bar-height) + 8px);
-    max-height: calc(100vh - var(--top-bar-height) - 16px); overflow-y: auto; overscroll-behavior: contain;
+    position: sticky; top: calc(var(--top-bar-height) + var(--study-tabs-height, 0px) + 8px);
+    max-height: calc(100vh - var(--top-bar-height) - var(--study-tabs-height, 0px) - 16px); overflow-y: auto; overscroll-behavior: contain;
     display: flex; flex-direction: column; gap: 12px; padding: 4px 2px 16px;
     scrollbar-width: thin;
 }

@@ -30,6 +30,7 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 
+from fastmdxplora import record_access as _records
 from fastmdxplora.analysis.base import Analysis
 from fastmdxplora.analysis.orchestrator import register_analysis
 from fastmdxplora.statistics import summarise
@@ -104,7 +105,8 @@ def _rows_of(path: Path) -> tuple[list[str], list[list[float | None]]]:
     :func:`read_state_table` keeps it."""
     rows: list[list[str]] = []
     # A damaged byte makes its cell unreadable, not the record.
-    with Path(path).open(encoding="utf-8", errors="replace", newline="") as handle:
+    with _records.open_text(Path(path), encoding="utf-8", errors="replace",
+                            newline="") as handle:
         for row in csv.reader(handle):
             if row:
                 rows.append(row)
@@ -145,21 +147,35 @@ def state_record_pieces(root: str | Path) -> list[dict[str, Any]] | None:
     Each entry gives the file (``path``), the last step it keeps
     (``last_step``, None for all), and the steps and picoseconds before it
     (``steps_before``, ``ps_before``).
+
+    In a read held to the study (`record_access`), a record of the join or
+    of a piece that the read refuses raises `OutsideWorkspace`: it was not
+    read, and the study is not thereby one run, nor a piece without its
+    record.
     """
     import json
 
     from fastmdxplora.analysis.analyze import study_trajectory
     from fastmdxplora.analysis.joining import survey_segments
-    from fastmdxplora.simulation.runner import chose_its_own_step, read_checkpoint_sidecar
+    from fastmdxplora.refusals import OutsideWorkspace
+    from fastmdxplora.simulation.pipeline import _refuse
+    from fastmdxplora.simulation.runner import (
+        CHECKPOINT_SIDECAR_SUFFIX,
+        chose_its_own_step,
+        read_checkpoint_sidecar,
+    )
 
     base = Path(root)
     joined, _topology = study_trajectory(base)
     if joined is None:
         return None
     try:
-        record = json.loads((base / "joined" / "joined.json").read_text(encoding="utf-8"))
+        record = json.loads(_records.read_text(base / "joined" / "joined.json",
+                                               encoding="utf-8"))
         segments = [int(index) for index in record.get("segments") or []]
         folders = {piece.index: piece.directory for piece in survey_segments(base)}
+    except OutsideWorkspace:
+        raise
     except (OSError, ValueError, TypeError, AttributeError, StudyError):
         return None
     if len(segments) < 2:
@@ -173,14 +189,26 @@ def state_record_pieces(root: str | Path) -> list[dict[str, Any]] | None:
         folder = folders.get(index)
         name = "the study's own run" if index == 0 else f"segment {index}"
         path = (folder / "simulation" / "energy.csv") if folder is not None else None
-        if path is None or not path.is_file():
+        if folder is None:
+            # A piece's folder or trajectory the read refused is not a
+            # piece that is not there.
+            _refuse(*((base / "simulation", base / "simulation" / "production.dcd")
+                      if index == 0 else (base / f"segment-{index:03d}",
+                                          base / f"segment-{index:03d}" / "simulation",
+                                          base / f"segment-{index:03d}" / "simulation"
+                                          / "production.dcd")))
+        else:
+            _refuse(path)
+        if path is None or not _records.is_file(path):
             raise MissingResultError(
                 f"The study was carried on in {len(segments)} pieces and {name} has no "
                 "state record (`simulation/energy.csv`), so its energy, temperature "
                 "and density over the whole run cannot be read: the pieces that "
                 "have one would be averaged as if they were all of it.",
                 code="analysis.data.absent")
-        side = read_checkpoint_sidecar(folder / "simulation" / "checkpoint.chk") or {}
+        checkpoint = folder / "simulation" / "checkpoint.chk"
+        _refuse(checkpoint.with_suffix(checkpoint.suffix + CHECKPOINT_SIDECAR_SUFFIX))
+        side = read_checkpoint_sidecar(checkpoint) or {}
         last = side.get("step")
         last_step = (float(last) if isinstance(last, (int, float)) and last >= 0
                      else None)
@@ -200,6 +228,9 @@ def state_record_pieces(root: str | Path) -> list[dict[str, Any]] | None:
         # from, in this piece's steps and time; its rows read only where the
         # sidecar does not say it.
         timestep = side.get("timestep_fs")
+        if isinstance(timestep, (int, float)) and timestep > 0:
+            # What `chose_its_own_step` reads first.
+            _refuse(folder / "simulation" / "simulation_parameters.json")
         fixed_step = (isinstance(timestep, (int, float)) and timestep > 0
                       and not chose_its_own_step(folder / "simulation"))
         if keeps is not None and fixed_step:

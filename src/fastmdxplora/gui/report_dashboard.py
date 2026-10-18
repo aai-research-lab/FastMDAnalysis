@@ -11,9 +11,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterator
 from urllib.parse import quote
 
+from fastmdxplora import record_access as _records
 from fastmdxplora.utils.logging import get_logger
 from fastmdxplora.refusals import StudyError
 
@@ -319,7 +320,7 @@ def build_dashboard(
 
 def _load_json(path: Path) -> dict[str, Any]:
     try:
-        with path.open(encoding="utf-8") as fh:
+        with _records.open_text(path, encoding="utf-8") as fh:
             data = json.load(fh)
         return data if isinstance(data, dict) else {}
     except (FileNotFoundError, OSError, json.JSONDecodeError):
@@ -454,13 +455,18 @@ def _summary_cards(
         # run recorded it ran, else how far its live record says it got,
         # else what it was asked to run, said as planned.
         try:
-            live = json.loads((project_root / "simulation" / "live_status.json").read_text(
-                encoding="utf-8"))
+            live = json.loads(_records.read_text(
+                project_root / "simulation" / "live_status.json", encoding="utf-8"))
         except (OSError, ValueError):
             live = {}
         times = simulated_times(project_root, live if isinstance(live, dict) else {})
         before = equilibration_said(times)
-        if times["production_ns"] is not None:
+        if times.get("production_not_read"):
+            # A record of its pieces not read: not the first piece's record,
+            # nor the length it was asked to run.
+            cards.append(DashboardCard("Production", "Not read",
+                                       times["production_not_read"] + "."))
+        elif times["production_ns"] is not None:
             cards.append(DashboardCard("Production", say_length(times["production_ns"]),
                                        before or "as the run recorded it"))
         else:
@@ -468,7 +474,21 @@ def _summary_cards(
             if isinstance(planned, (int, float)) and not isinstance(planned, bool):
                 cards.append(DashboardCard("Production", say_length(planned),
                                            "planned; the run recorded none"))
-        temperature = _average_temperature(project_root / "simulation" / "energy.csv")
+        from fastmdxplora.refusals import OutsideWorkspace
+
+        try:
+            temperature = _average_temperature(project_root / "simulation" / "energy.csv")
+        except OutsideWorkspace as refusal:
+            # A record of the run's state, or of its pieces, a held read
+            # refused: the average was not read, not found missing.
+            from fastmdxplora.gui.series import refused_said
+
+            temperature = None
+            named = getattr(refusal, "filename", None)
+            cards.append(DashboardCard(
+                "Temperature", "Not read",
+                (refused_said(project_root, Path(named)) + ".") if named
+                else "A record of the run's state was not read."))
         if temperature is not None:
             cards.append(
                 DashboardCard(
@@ -603,8 +623,8 @@ def _metric_rows(project_root: Path, analysis_manifest: dict[str, Any]) -> list[
             # One value a residue, or one an atom where the analysis was
             # asked for atoms.
             try:
-                options = json.loads((project_root / "analysis" / "rmsf" / "options.json")
-                                     .read_text(encoding="utf-8"))
+                options = json.loads(_records.read_text(
+                    project_root / "analysis" / "rmsf" / "options.json", encoding="utf-8"))
             except (OSError, ValueError):
                 options = {}
             asked = (options.get("options") if isinstance(options, dict) else None) or {}
@@ -648,7 +668,8 @@ def _metric_rows(project_root: Path, analysis_manifest: dict[str, Any]) -> list[
             metric=label + suffix,
             average=str(quantity.get("said") or "—"),
             samples="< 1" if samples == 0 else (f"{samples:,}" if isinstance(samples, int) else "—"),
-            status="Determined" if quantity.get("determined") else "Not determined",
+            status=("Not read" if quantity.get("unavailable")
+                    else "Determined" if quantity.get("determined") else "Not determined"),
             why=str(quantity.get("why") or ""),
         ))
 
@@ -669,16 +690,16 @@ def _metric_rows(project_root: Path, analysis_manifest: dict[str, Any]) -> list[
 
 def _load_json_file(path: Path) -> Any:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(_records.read_text(path, encoding="utf-8"))
     except (OSError, ValueError):
         return None
 
 
 def _numeric_series(path: Path) -> list[float]:
-    if not path.is_file():
+    if not _records.is_file(path):
         return []
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = _records.read_text(path, encoding="utf-8").splitlines()
     except OSError:
         return []
     rows: list[list[float]] = []
@@ -718,26 +739,34 @@ def _format_metric_value(value: float) -> str:
 
 
 def _average_temperature(path: Path) -> float | None:
+    """The temperature averaged over the run's state record; a record of it
+    a held read refused raises `OutsideWorkspace` (not read, not missing)."""
     # A study carried on in pieces: the mean over every piece, not the
     # first one's.
     from fastmdxplora.analysis.thermodynamics import (
         read_pieces_state_table, state_record_pieces)
+    from fastmdxplora.refusals import OutsideWorkspace
+    from fastmdxplora.simulation.pipeline import _refuse
 
     try:
         pieces = state_record_pieces(path.parent.parent)
+    except OutsideWorkspace:
+        raise
     except Exception:  # noqa: BLE001 - a piece without its record: no mean
         return None
+    if not pieces:
+        _refuse(path)
     if pieces:
         try:
             joined = read_pieces_state_table(pieces).get("Temperature (K)")
         except (OSError, ValueError):
             return None
         return float(joined.mean()) if joined is not None and joined.size else None
-    if not path.is_file():
+    if not _records.is_file(path):
         return None
     values: list[float] = []
     try:
-        with path.open(newline="", encoding="utf-8") as fh:
+        with _records.open_text(path, newline="", encoding="utf-8") as fh:
             reader = csv.DictReader(_strip_comment_prefix(fh))
             for row in reader:
                 raw = row.get("Temperature (K)")
@@ -798,7 +827,18 @@ def _dashboard_summaries(project_root: Path) -> dict[str, DashboardAsset]:
     summaries: dict[str, DashboardAsset] = {}
     for title, rel_data, kind in DASHBOARD_SUMMARY_SPECS:
         data_path = project_root / rel_data
-        if not data_path.is_file():
+        refused = next((path for path in (data_path, data_path.parent / "options.json")
+                        if not _records.can_read(path)), None)
+        if refused is not None:
+            # Linked out of the study, or to a hidden file in it: not read,
+            # and said so rather than captioned from what else is there.
+            from fastmdxplora.gui.series import refused_said
+
+            summaries[title] = DashboardAsset(
+                rel_path=rel_data,
+                summary=refused_said(project_root, refused) + ", so what it says is not shown.")
+            continue
+        if not _records.is_file(data_path):
             continue
         try:
             summary = (_biased_caption(data_path, corrected) if biased else None) \
@@ -854,7 +894,8 @@ def _what_the_analysis_found(data_path: Path) -> str | None:
     what is said here, and a series too short to measure says so.
     """
     try:
-        record = json.loads((data_path.parent / "options.json").read_text(encoding="utf-8"))
+        record = json.loads(_records.read_text(data_path.parent / "options.json",
+                                               encoding="utf-8"))
     except (OSError, ValueError):
         return None
     found = (record.get("findings") or {}).get("mean") if isinstance(record, dict) else None
@@ -903,8 +944,8 @@ def _recorded_mean(project_root: Path, name: str) -> dict[str, Any] | None:
     """What an analysis recorded about its mean: the value after
     equilibration, or why the series cannot give one."""
     try:
-        record = json.loads((project_root / "analysis" / name / "options.json")
-                            .read_text(encoding="utf-8"))
+        record = json.loads(_records.read_text(project_root / "analysis" / name / "options.json",
+                                               encoding="utf-8"))
     except (OSError, ValueError):
         return None
     found = (record.get("findings") or {}).get("mean") if isinstance(record, dict) else None
@@ -940,7 +981,13 @@ def _summarise_data_file(data_path: Path, kind: str) -> str:
     if kind == "dendrogram":
         import numpy as np
 
-        linkage_matrix = np.load(data_path)
+        import io
+
+        # Read as Latin-1 text, which maps each byte to one character and
+        # back, so a confined read (`record_access`) gives the file's bytes.
+        with _records.open_text(data_path, encoding="latin-1", newline="") as fh:
+            raw = fh.read().encode("latin-1")
+        linkage_matrix = np.load(io.BytesIO(raw), allow_pickle=False)
         if linkage_matrix.ndim != 2 or linkage_matrix.shape[1] != 4:
             raise StudyError("hierarchical linkage data must be an n x 4 matrix", code="analysis.data.absent")
         return f"{linkage_matrix.shape[0] + 1} frames"
@@ -983,7 +1030,7 @@ def _summarise_data_file(data_path: Path, kind: str) -> str:
 
 def _numeric_rows(path: Path) -> list[list[float]]:
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = _records.read_text(path, encoding="utf-8").splitlines()
     except OSError:
         return []
     rows: list[list[float]] = []
@@ -1016,7 +1063,7 @@ def _numbers_in(text: str) -> list[float]:
 def _secondary_structure_matrix(path: Path) -> tuple[list[list[int]], list[str], list[str]]:
     code_map = {"C": 0, "H": 1, "E": 2, "B": 2, "G": 1, "I": 1, "T": 3, "S": 3}
     try:
-        with path.open(newline="", encoding="utf-8") as fh:
+        with _records.open_text(path, newline="", encoding="utf-8") as fh:
             reader = csv.reader(fh)
             header = next(reader)
             residues = header[1:]
@@ -1126,15 +1173,29 @@ def _group_sparse_sections(
     return {section: list(panels) for section, panels in grouped.items()}
 
 
+def files_under(folder: Path) -> Iterator[Path]:
+    """What ``folder.rglob("*")`` lists. In a read held to the study
+    (`record_access`), each folder is listed through it: only what it
+    admits, opened from the study it is held to; as `rglob`, a linked
+    folder is listed but not gone into. Outside one, `rglob` itself."""
+    if _records.can_read(Path(os.path.abspath(os.sep))):
+        yield from folder.rglob("*")
+        return
+    for child in list(_records.iterdir(folder)):
+        yield child
+        if not os.path.islink(child) and _records.is_dir(child):
+            yield from files_under(child)
+
+
 def _discover_analysis_images(project_root: Path) -> list[Path]:
     analysis_dir = project_root / "analysis"
-    if not analysis_dir.is_dir():
+    if not _records.is_dir(analysis_dir):
         return []
     suffixes = {".png", ".jpg", ".jpeg", ".svg"}
     found = [
         path
-        for path in analysis_dir.rglob("*")
-        if path.is_file() and path.suffix.lower() in suffixes
+        for path in files_under(analysis_dir)
+        if path.suffix.lower() in suffixes and _records.is_file(path)
     ]
     # Analyses write the same figure as both PNG and SVG. They carry the same
     # title, so listing both would show every figure twice; prefer the raster
@@ -1153,14 +1214,14 @@ def _discover_analysis_images(project_root: Path) -> list[Path]:
 
 def _discover_report_images(project_root: Path) -> list[Path]:
     report_dir = project_root / "report"
-    if not report_dir.is_dir():
+    if not _records.is_dir(report_dir):
         return []
     names = {
         "region_highlight_summary.png",
         "structure_region_highlights.png",
         "apo_holo_comparison.png",
     }
-    return sorted(path for path in report_dir.iterdir() if path.name in names)
+    return sorted(path for path in _records.iterdir(report_dir) if path.name in names)
 
 
 def _asset_for_title(
@@ -1307,7 +1368,7 @@ def _artifact_links(
         future_current_run_artifact = rel == "report/dashboard.html" or (
             include_bundle_link and rel == "report/project_bundle.zip"
         )
-        if not path.is_file() and not future_current_run_artifact:
+        if not _records.is_file(path) and not future_current_run_artifact:
             continue
         seen.add(rel)
         links.append(DashboardLink(label, _href(path, output_dir), detail))

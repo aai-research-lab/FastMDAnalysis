@@ -115,7 +115,6 @@ def _together(base: Path, runs: list[dict[str, Any]], *, most_frames: int,
               force: bool) -> dict[str, Any]:
     import hashlib
 
-    from fastmdxplora.gui.runs_compared import _axes_that_differ, _label
     from fastmdxplora.gui.trajectory_frames import _source, _unavailable, _write_text, frames_info
 
     main = run_shown(base)
@@ -123,8 +122,7 @@ def _together(base: Path, runs: list[dict[str, Any]], *, most_frames: int,
         said = _unavailable("No run of this study has a trajectory yet.")
         said["runs_together"] = {"runs": [], "excluded": []}
         return said
-    axes = _axes_that_differ(runs)
-    labels = {run["run_id"]: _label(run, axes) for run in runs}
+    labels = {run["run_id"]: run.get("label") or run["run_id"] for run in runs}
     order = {run["run_id"]: i for i, run in enumerate(runs)}
     main_id = main.name
     parameters = _load_json(main / "simulation" / "simulation_parameters.json")

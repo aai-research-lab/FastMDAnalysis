@@ -67,7 +67,7 @@ def test_the_counter_announces_only_a_frame_the_renderer_committed(tmp_path, rej
             page = browser.new_page(viewport={"width": 1400, "height": 900})
             try:
                 page.goto(session.url + "#viewer", wait_until="domcontentloaded")
-                page.locator("#viewer-under-fold").evaluate("e => { e.open = true; }")
+                page.locator("#viewer-timeline").wait_for(state="visible")
                 page.evaluate("async () => window.FastMDXMoleculeViewer.loadPlayback("
                               "await (await fetch('/api/frames-info')).json())")
                 page.wait_for_function("() => window.FastMDXMoleculeViewer.STATE.playbackLoaded")
@@ -155,7 +155,7 @@ def test_live_dashboard_counter_and_transport_use_the_same_loaded_frame(tmp_path
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(session.url + "#viewer", wait_until="domcontentloaded")
-            page.locator("#viewer-under-fold").evaluate("element => { element.open = true; }")
+            page.locator("#viewer-timeline").wait_for(state="visible")
             page.wait_for_function(
                 "() => window.FastMDXDashboard?.state.playbackAvailable"
                 " && document.getElementById('traj-total').textContent === '200'",
@@ -295,7 +295,7 @@ def test_single_frame_playback_is_available_but_does_not_start_a_timer(tmp_path)
             browser = playwright.chromium.launch(args=["--enable-unsafe-swiftshader"])
             page = browser.new_page(viewport={"width": 1400, "height": 900})
             page.goto(session.url + "#viewer", wait_until="domcontentloaded")
-            page.locator("#viewer-under-fold").evaluate("element => { element.open = true; }")
+            page.locator("#viewer-timeline").wait_for(state="visible")
             page.wait_for_function(
                 "() => window.FastMDXDashboard?.state.playbackAvailable"
                 " && document.getElementById('traj-total').textContent === '1'",
@@ -361,7 +361,7 @@ def test_switching_studies_reconciles_playback_counts_and_position(tmp_path):
             errors = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(session.url + "#viewer", wait_until="domcontentloaded")
-            page.locator("#viewer-under-fold").evaluate("e => {e.open = true;}")
+            page.locator("#viewer-timeline").wait_for(state="visible")
             page.wait_for_function(
                 "() => document.getElementById('traj-total').textContent === '200'"
             )
@@ -386,7 +386,7 @@ def test_switching_studies_reconciles_playback_counts_and_position(tmp_path):
                 assert page.locator("#traj-step").inner_text() == "—"
                 assert page.locator("#traj-simtime").inner_text() == "—"
                 if count:
-                    page.locator("#viewer-under-fold").evaluate("e => {e.open = true;}")
+                    page.locator("#viewer-timeline").wait_for(state="visible")
                     page.locator('#trajectory-row [data-traj="last"]').click()
                     page.wait_for_function(
                         "n => document.getElementById('traj-current').textContent === String(n)",

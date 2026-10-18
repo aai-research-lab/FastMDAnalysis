@@ -75,10 +75,10 @@ class TestTheTable:
     def test_the_runs_and_what_differs_between_them(self, sweep):
         page = runs_compared(sweep)
         assert page["ok"] and page["completed"] == 3 and not page["replicas"]
-        assert page["axes"] == [{"axis": "simulation.temperature_K", "label": "temperature_K"}]
+        assert page["axes"] == [{"axis": "simulation.temperature_K", "label": "temperature (K)"}]
         assert [(r["run_id"], r["label"], r["state"]) for r in page["runs"]] == [
-            ("t300", "temperature_K 300", "completed"), ("t310", "temperature_K 310", "completed"),
-            ("t320", "temperature_K 320", "completed"), ("t330", "temperature_K 330", "waiting")]
+            ("t300", "temperature 300 K", "completed"), ("t310", "temperature 310 K", "completed"),
+            ("t320", "temperature 320 K", "completed"), ("t330", "temperature 330 K", "waiting")]
         assert [m["analysis"] for m in page["measures"]] == ["rmsd", "rg"]
         assert page["measures"][0]["unit"] == "nm"
 
@@ -91,7 +91,7 @@ class TestTheTable:
         assert cells["t310"]["versus"]["difference"] == pytest.approx(0.004)
         assert cells["t310"]["versus"]["error"] == pytest.approx(0.001 * 2 ** 0.5)
         assert cells["t320"]["versus"]["resolved"] is False
-        assert rmsd["said"] == (f"1 of 2 differ from temperature_K 300 by more than "
+        assert rmsd["said"] == (f"1 of 2 differ from temperature 300 K by more than "
                                 f"{RESOLVED_AT:g} times their combined error. 1 not yet recorded.")
 
     def test_a_mean_that_is_not_a_measurement_is_not_compared(self, sweep):
@@ -177,13 +177,43 @@ def test_the_page_draws_them(sweep) -> None:
             browser.close()
     finally:
         session.server.shutdown()
-    assert head == ["Run", "temperature_K", "RMSD (nm)", "Radius of gyration (nm)"]
-    assert varied == ["temperature_K"]
+    assert head == ["Run", "temperature (K)", "RMSD (nm)", "Radius of gyration (nm)"]
+    assert varied == ["temperature (K)"]
     assert marked == 1
     assert differs_text == "differs"
-    assert differs_title.startswith("Differs from temperature_K 300 by +0.0040 ± 0.0014 nm")
+    assert differs_title.startswith("Differs from temperature 300 K by +0.0040 ± 0.0014 nm")
     assert withheld_text == "1.500 *"
     assert lines == 3
-    assert legend == ["temperature_K 300", "temperature_K 310", "temperature_K 320"]
+    assert legend == ["temperature 300 K", "temperature 310 K", "temperature 320 K"]
     assert not empty
     assert errors == []
+
+
+def test_a_replica_has_one_mean_on_the_first_reading(tmp_path):
+    """The replicas' shared start rewrites a run's record; each run's mean is
+    read after it, so the row and the runs together say one mean for it on
+    the page's first reading, not one before and one after."""
+    from tests.test_replicas_share_their_start import _campaign, _read
+
+    members = _campaign(tmp_path)
+    before = [_read(m)["mean"] for m in members]
+    page = runs_compared(tmp_path)
+    after = [_read(m)["mean"] for m in members]
+    assert before != after, "the shared start moved a run's mean"
+    rmsd = next(m for m in page["measures"] if m["analysis"] == "rmsd")
+    assert [c["mean"] for c in rmsd["cells"]] == pytest.approx(after)
+    assert rmsd["ensemble"]["mean"] == pytest.approx(sum(after) / len(after))
+
+
+def test_settings_and_measures_are_named_in_words(tmp_path):
+    """A column of seeds says "seed", not "random_seed"; an analysis with no
+    series label its Analysis page heading, not its folder."""
+    from fastmdxplora.gui.runs_compared import _named
+
+    page = runs_compared(_study(tmp_path / "seeds", {
+        "s1": {"value": 1, "end_to_end": (1.0, 0.1, None)},
+        "s2": {"value": 2, "end_to_end": (1.1, 0.1, None)}}, axis="simulation.random_seed"))
+    assert page["axes"] == [{"axis": "simulation.random_seed", "label": "seed"}]
+    assert [run["label"] for run in page["runs"]] == ["seed 1", "seed 2"]
+    assert [m["label"] for m in page["measures"]] == ["End-to-end distance"]
+    assert _named("hbonds") == "Hydrogen bonds" and _named("some_new_one") == "Some new one"

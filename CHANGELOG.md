@@ -7,7 +7,123 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+
+- A study of several runs reads the same state in the sidebar, on its
+  Overview and in All studies, from one derivation of its runs' states
+  (it read "Unknown" in two places and "completed" in the third). Its runs'
+  dots are coloured by their state, and each run is named by what sets it
+  apart ("seed 1", "temperature 310 K") in the sidebar, Runs compared and
+  the runs played together, its folder on hover.
+- The replicas' comparison no longer says the spread is "within the factor
+  of 2" of "a predicted nan" and "supported by repeating it" when no run
+  could estimate its own error: it says there is nothing to check the
+  spread against. A prediction from some of the runs says how many.
+- The report's Methods name the structure file, not the folder it was read
+  from on one computer.
+- Runs compared keeps each run's name in view as the table scrolls, and
+  shades the edge where more columns lie. A run shorter than a nanosecond
+  is plotted in picoseconds there and in each analysis's chart.
+- The Analysis page of a study of several runs says its runs' analyses are
+  compared below, not "no analyses yet".
+- The Overview's charts button is named for what it does, "Show every
+  chart"; it was "Reset zoom", and the charts have no zoom.
+- The Viewer's Spectrum colours each chain from blue to red by a residue's
+  place in it. A chain numbered from 70 was drawn all red.
+- New study opens the Config Builder alone; the Agent beside it opens when
+  asked.
+
+- The phone-to-desktop browser check waits for the side panel to return
+  after its dialog closes, avoiding a timing-sensitive assertion.
+
+- Problems confines actual record reads and helper reads to the open run's
+  public files. It checks evidence candidates without recursively listing
+  artifacts, so unrelated trajectory links and scratch trees do not block
+  the list. Unused axis and remedy-price work is skipped; unexpected reader
+  failures retain a public note and a private debug traceback.
+
 ### Added
+
+- Every page of a study says where it is at its head: the study, the run
+  of a study of several (a menu of its runs and the study as a whole, each
+  with its state, opening on the page shown), then the page. The sidebar's
+  list of runs and its "Run of" card are gone; each page is named by the
+  sidebar's word for it (New study, Overview, Viewer, All studies).
+- A status bar under every page: this computer and its GPUs, the run going
+  here with its stage, how far it is and the time left (or where it
+  stopped and what would fix it), a run going in another study (opening it
+  on the page shown), the jobs on your machines as last recorded, the open
+  study's problems and the Agent's mode, each opening its page. The AI
+  model is not said in it; it is in the Agent's settings. The sidebar's
+  progress card went into it, and the sidebar's and the builder's Stop: a
+  running study is stopped beside it in the strip or on its Overview, asked
+  first in both. The Problems tab is read again only when the run writes
+  something new, and when the tab is shown, not on a timer.
+- The Agent's modes are named Seeker (built-in, assisted) and Ranger
+  (built-in, autonomous) in its settings, under its composer and in the
+  status bar.
+- ⌘K finds every study of the workspace (opening it on the page shown), a
+  file of the open study and a setting, with each page's key; ⌘P a file alone. `@TRP23` selects a
+  residue in the Viewer, `:120` shows a frame. The study's pages are on ⌘1
+  to ⌘5 (⌥1 to ⌥5 in a browser's tab), the sidebar on ⌘B, the side panel on
+  ⌘⌥B, and ? lists every key.
+- The Overview of a study of several runs has its runs as a table (state,
+  production so far, ns/day and each one's means), for replicas the mean of
+  their means with the error their spread gives it, what is not determined
+  and in which run, and one measure of every run overlaid; a run opens
+  from its row.
+- The Viewer's playback is a timeline always under the molecule: a ruler
+  of the frames with each cluster's medoid, each judgement of a study run
+  until it is determined and the averaging's start marked, and the study's
+  series as tracks moving with the frame, each a way to its frames. The
+  tool beside the molecule is a panel as tall as its rail.
+
+- A strip of open studies keeps each study's last page in this browser
+  window. Studies can be selected or closed individually; closing never
+  stops a run or removes files, and closing the open one goes past a
+  neighbour whose folder is gone. The list survives reload. A refused
+  switch keeps the current study, and a Config draft not saved, a rejected
+  change not applied, a reply or launch under way, or unsent Agent words
+  hold the switch with a reason on every way the page offers, the Agent's
+  list of conversations included; one switch goes at a time. Unsent Agent
+  words and attachments are kept per study in this window, so Back loses
+  none of them; of each attachment only its path, name, size and digest
+  are kept, and it is read again on return, a file that cannot be is named.
+  Where the browser keeps neither unsent words nor a Config draft, it asks
+  before the page is left. The Agent reads and writes only the
+  conversation of the study the page is for, and the server refuses one
+  for another study; a window whose study was changed elsewhere says so
+  and keeps its unsent words with the study they were typed for. A draft this browser cannot save is released by Download
+  config or Reset. Tabs are named by their folders too where the workspace
+  has studies of one system, as Recent names them. A study whose folder is
+  gone is said so on its tab, is asked for again when chosen, and is not
+  shown as an empty study. The open tab is kept in view, a fade shows more
+  tabs past an edge, a mouse wheel scrolls the strip, and the page's
+  header stays below the strip when scrolled.
+
+- An Agent Config version shows each changed setting, old value to new
+  value, with **Accept** and **Reject** beside **Use this version**. Use
+  this version keeps the proposal as it is and says so in the
+  conversation, as it does on an earlier version; once a change is rejected,
+  **Use reviewed version** checks the chosen combination and creates a new
+  version, preserving the earlier Configs and each chosen value's decision
+  record. Compound settings are reviewed whole and said as the change list
+  says them; equivalent setting names share one choice. A refused
+  combination names the changes to choose again. Choices not yet applied
+  are kept in the browser through a reload, and the conversation records
+  the choices with the labels and values reviewed. Agent exports keep
+  chosen values and decisions for inactive phases as well as the phases
+  running now.
+
+- A Problems tab beside Log and Files lists the open study's recorded
+  refusals (its phases' and the report formats it could not produce), a
+  run interrupted or stopped as the Overview says it, the report's verdict
+  that an observable has not equilibrated, the warnings of the run and of
+  its log, and undetermined analysis means, with their reasons and
+  available remedies. Its evidence controls open the record
+  in Files. Missing records are said, and changing studies clears the old
+  list before another is read. The panel only reads; fixes are run through
+  the existing confirmed actions on the Overview.
 
 - The Agent's evaluation has its first run with an AI model
   (`anthropic/claude-opus-5-5`, the 72 cases three times each). The safety,
@@ -82,6 +198,50 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   why. See `docs/agent.md`, Looking before it answers, and `docs/mcp.md`.
 
 ### Fixed
+
+- A long value in an Agent Config version's change list (a "Prepared
+  from" path) wraps inside the card instead of running past its edge.
+
+- The phone-to-desktop browser check waits for the side panel to return
+  after its dialog closes, avoiding a timing-sensitive assertion.
+
+- Problems confines actual record reads and helper reads to the open run's
+  public files. It checks evidence candidates without recursively listing
+  artifacts, so unrelated trajectory links and scratch trees do not block
+  the list. Unused axis and remedy-price work is skipped; unexpected reader
+  failures retain a public note and a private debug traceback. A record
+  linked out of the study is named by its place in it.
+
+- Problems reads the run's own process record, so a running study is read
+  (and is not a problem), and a run the Overview calls Interrupted is listed.
+  A stop or interruption is listed only while the Overview says so: a study
+  being carried on, or carried on to the end, lists neither the stop nor the
+  stop's own warnings. Each warning in `simulation/live_events.log`, a
+  piece's own narration or `fastmdxplora.log` is listed once, with the
+  record it came from, and without the runner's "warning:" before it. A
+  warning the log keeps from a phase a later run did again, as a run with
+  `--force-overwrite` or Analyze again does, is not listed. A run that
+  stopped or was interrupted in the piece carrying it on opens that piece's
+  record as its evidence. A phase is titled as the Overview says it ("Setup
+  failed").
+
+- Problems names the records it read, and names each record missing or
+  unreadable, `manifest.json`, the analysis manifest, the narration and the
+  log included; the headline then never says there are no problems. A
+  running study's `manifest.json`, written when the run ends, is said as
+  that, and a folder with no records yet says so rather than asking for a
+  study to be opened.
+
+- Under What would fix it, Problems gives a withheld mean's recorded
+  shortfall in its record's own words (where the count is a floor, at
+  least so much more and then a new estimate) and a retryable refusal's
+  registry remedy; where none is recorded, it says so, and what the
+  telemetry says of a warning is given as its reason, not as a fix. A quantity the same in every frame is named as the Overview
+  names it.
+
+- `/api/problems` answers with no study open, or with the study's folder
+  gone, instead of failing; a folder above the study need only be
+  searchable.
 
 - A path longer than its column in the Config Builder (a structure, a
   setting for one system, a config file not found) breaks where it must in
@@ -194,6 +354,57 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   settings with more than 100,000 entries, whose links cannot be looked
   through, refuses every send until it is smaller. See `docs/remote.md`,
   What travels.
+
+- The Overview, the Analysis page, the Results data and the Files page read
+  the study's own records, on this computer and on a public bind (`--host
+  0.0.0.0`): the analyses' means, series, captions and frame times, and the
+  run's cost, resolved configs, manifests, run records and prepared system,
+  and a carried-on study's record of its join and its pieces' state records. A
+  record linked out of the study (a study downloaded from a deposit can hold
+  such a link), or to a hidden file in it, is not read: its mean is Not read,
+  counted neither determined nor not, with the record named; its series and
+  convergence say it was not read; the Overview and the Analysis page name
+  each record they did not read, and say so when it held the analyses' clock,
+  whose frames are then numbered rather than timed; and the answer lists them
+  in `unavailable`. The run's own process record is still read, so a run whose
+  process is gone reads interrupted, and a run of a study of several still
+  reads its study's `stopping.json` and its runs' records, so a run waiting
+  for the study's next round reads waiting. The run's status, its production
+  and equilibration times and its phases, and the numbers behind the
+  Analysis page's figures, are read the same way: a figure whose record was
+  not read is drawn from the analysis's own table and says the record was not
+  read. The process record is read only by its own name, never as a result
+  linked to it. The Files page says Not read where a value's record was not
+  read. With its analysis manifest not read, an analysis with no result read
+  is Not read rather than done. Each record not read is said with why: a link
+  to a file outside the study, or to a file of the study that is not one of
+  its results (`unavailable_why`); a long list names the first eight and
+  counts the rest, all of them listed under it. A record not read is never
+  taken as missing: a carried-on study whose record of its join, a piece's
+  trajectory, state record or checkpoint record was not read gives no
+  production means (the Thermodynamics card and the Results temperature say
+  Not read, naming it), not its first piece's means called not determined; a
+  run's `energy.csv` not read is not stood in for by its live record; and a
+  live record not read is said so on `/api/status` and the run card, not as a
+  run that kept none. A carried-on study's production is read the same way
+  (each piece's config and checkpoint): with a piece, its config or its
+  trajectory not read, the run card and the Results Production card say Not
+  read, naming it, rather than a length from an outside config or from the
+  pieces read. A run's status in the Results summary, a speed whose cost
+  record was not read, a setup record not read, and a figure whose
+  `options.json` was not read are said not read, with no other record's
+  value in their place; such a figure is given no command to make it again,
+  since one without its options makes another figure, and its panel says
+  which record was not read and why (who made it, with the run's manifest
+  not read, is Not read, not a release that did not record itself). A remedy
+  priced in a read held to the study is not priced from a record it did not
+  read: a stopped run whose config, checkpoint record or piece was not read,
+  or a run again from the top whose config was not read, says its price is
+  not given and names the record, rather than its whole plan read through
+  the link, and a thin umbrella window says how much longer is not given;
+  outside such a read, remedies are as before. `/api/overview`,
+  `/api/results`, `/api/series`, `/api/analysis-overview`, `/api/convergence`,
+  `/api/status` and `/api/figure-data` read through such a link before.
 
 ## [2.6.0] - 2026-10-11
 

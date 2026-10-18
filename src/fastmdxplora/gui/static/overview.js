@@ -3,7 +3,9 @@
  * A study that has ended opens on what its analyses determined: each mean
  * with its error, the independent samples behind it and where its
  * equilibrated part began, Determined or Not determined with the reason on
- * hover, and its series on the production's clock. Then the run in one card
+ * hover (Not read where its record was refused: linked out of the study),
+ * and its series on the production's clock. Each record the page's reads
+ * refused is named in a line under the study's. Then the run in one card
  * (its phases and how long each took, what it ran) and its thermodynamics
  * (charts.js). A running study keeps its health and charts first. The study,
  * its word and its facts lead, in a line.
@@ -41,6 +43,10 @@
    * again, so a tile keeps its focus and its hint while a run writes. */
   var shown = "";
   var tileCount = 0;
+  /* The records the results' read refused (/api/results `unavailable`),
+   * named with the Overview's own. */
+  var resultsUnread = [];
+  var resultsWhy = {};
 
   function byId(id) { return document.getElementById(id); }
 
@@ -84,10 +90,26 @@
     var said = byId("overview-results-said");
     if (said) said.replaceChildren();
     if (said && data) {
+      // A mean whose record was not read is counted apart: whether it was
+      // determined is not known.
+      var counted = [];
       if (data.means) {
-        said.appendChild(document.createTextNode(
-          data.determined + " of " + data.means + " mean" + (data.means === 1 ? "" : "s") +
-          " determined" + (data.more ? ", " + data.more + " more not shown" : "") + " · "));
+        counted.push(data.determined + " of " + data.means + " mean" +
+          (data.means === 1 ? "" : "s") + " determined");
+      }
+      if (data.not_read) {
+        counted.push(data.not_read + (data.means ? " not read"
+          : " analys" + (data.not_read === 1 ? "is" : "es") + " not read"));
+      }
+      // The tiles not shown are of those counted, not more of them: "13
+      // analyses not read, 4 more not shown" read as 17.
+      var here = tiles.filter(function (tile) { return tile.kind === "mean"; }).length;
+      var total = (data.means || 0) + (data.not_read || 0);
+      var line = counted.join(", ");
+      if (data.more && line) line += "; " + here + " of the " + total + " shown here";
+      else if (data.more) line = here + " shown here, " + data.more + " more on the Analysis page";
+      if (line) {
+        said.appendChild(document.createTextNode(line + " · "));
       }
       if (data.judged_earlier && data.judged_earlier.length) {
         // Verdicts an earlier version gave, by rules that did not yet
@@ -114,15 +136,19 @@
     link.href = "#analysis";
     link.dataset.tileAnalysis = tile.analysis;
     var perResidue = tile.kind === "per_residue";
-    link.dataset.determined = perResidue ? "" : String(!!tile.determined);
+    // Its record not read: neither Determined nor Not determined.
+    var unread = !perResidue && !!tile.unavailable;
+    link.dataset.determined = perResidue || unread ? "" : String(!!tile.determined);
     var head = make("div", "tile-head");
     head.appendChild(make("span", "tile-label", tile.label));
     var badge = make("span", "tile-badge",
-      perResidue ? "per " + tile.each : tile.determined ? "Determined" : "Not determined");
-    badge.dataset.kind = perResidue ? "per" : tile.determined ? "yes" : "no";
+      perResidue ? "per " + tile.each : unread ? "Not read"
+        : tile.determined ? "Determined" : "Not determined");
+    badge.dataset.kind = perResidue ? "per" : unread ? "unread" : tile.determined ? "yes" : "no";
     head.appendChild(badge);
     link.appendChild(head);
-    link.appendChild(make("div", "tile-value mono", tile.said));
+    // Not read: the badge says so; no value is set in the value's place.
+    link.appendChild(make("div", "tile-value mono", unread ? "" : tile.said));
     var note = perResidue
       ? "over " + tile.count.toLocaleString() + " " + tile.each + "s, mean " + tile.mean_said
       : [tile.samples != null ? samplesSaid(tile.samples) : "",
@@ -145,7 +171,7 @@
       tileCount += 1;
       var why = make("div", "tile-why");
       why.id = "tile-why-" + tileCount;
-      why.appendChild(make("b", "", "Not determined. "));
+      why.appendChild(make("b", "", unread ? "Not read. " : "Not determined. "));
       why.appendChild(document.createTextNode(tile.why));
       link.appendChild(why);
       link.setAttribute("aria-describedby", why.id);
@@ -241,6 +267,146 @@
     });
   });
 
+  /* The records the page's reads refused, named once under the study's
+   * line: a refused record is not shown as absent, and a clock not read
+   * is why the analyses' frames are numbered rather than timed. */
+  function renderUnread() {
+    var host = byId("overview-body");
+    if (!host) return;
+    var line = byId("overview-not-read");
+    var names = [];
+    ((data && data.unavailable) || []).concat(resultsUnread).forEach(function (name) {
+      if (names.indexOf(name) < 0) names.push(name);
+    });
+    if (!names.length) {
+      if (line) line.remove();
+      return;
+    }
+    if (!line) {
+      // A div, not a paragraph: a long list's details element is in it.
+      line = make("div", "overview-verdict-facts overview-not-read");
+      line.id = "overview-not-read";
+      var verdict = byId("overview-verdict");
+      host.insertBefore(line, verdict ? verdict.nextSibling : host.firstChild);
+    }
+    var why = {};
+    [resultsWhy, (data && data.unavailable_why) || {}].forEach(function (given) {
+      Object.keys(given).forEach(function (name) { why[name] = given[name]; });
+    });
+    line.textContent = "";
+    line.appendChild(unreadNode(names, why));
+  }
+
+  /* The production's means not read (`thermodynamics.not_read`): a record
+   * of the run's state or of its pieces was refused, so the charts' card
+   * says so rather than give the means of the part that was read. */
+  function renderThermoUnread() {
+    var card = byId("overview-charts");
+    if (!card) return;
+    var line = byId("overview-charts-not-read");
+    var thermo = data && data.thermodynamics;
+    var names = ((thermo && thermo.not_read) || []).slice().sort();
+    if (!names.length) {
+      if (line) line.remove();
+      return;
+    }
+    if (!line) {
+      line = make("p", "chart-note overview-charts-not-read");
+      line.id = "overview-charts-not-read";
+      var head = card.querySelector(".card-header");
+      card.insertBefore(line, head ? head.nextSibling : card.firstChild);
+    }
+    var why = (data && data.unavailable_why) || {};
+    var keys = [];
+    names.forEach(function (name) {
+      var key = reasonOf(why, name);
+      if (keys.indexOf(key) < 0) keys.push(key);
+    });
+    var key = keys.length === 1 ? keys[0] : "";
+    var listed = names.length === 1 ? names[0]
+      : names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
+    line.textContent = "";
+    line.appendChild(make("b", "", "Production means not read. "));
+    line.appendChild(document.createTextNode(listed + " " +
+      BECAUSE[key][names.length === 1 ? 0 : 1] + ", so the means over the production " +
+      "are not shown."));
+  }
+
+  /* Why a record was not read (`unavailable_why`, `series.NOT_READ_BECAUSE`),
+   * said of one record and of several. */
+  var BECAUSE = {
+    "outside": ["is a link to a file outside the study",
+                "are links to files outside the study",
+                "a link to a file outside the study"],
+    "leads to": ["leads to a file of the study that is not one of its results",
+                 "lead to files of the study that are not among its results",
+                 "a link to a file of the study that is not one of its results"],
+    "not a result": ["is a file of the study that is not one of its results",
+                     "are files of the study that are not among its results",
+                     "a file of the study that is not one of its results"],
+    "not a file": ["is not a regular file", "are not regular files", "not a regular file"],
+    "": ["leads outside the study, or to a file of the study that is not one of its results",
+         "each lead outside the study, or to a file of the study that is not one of its results",
+         "outside the study, or not one of its results"],
+  };
+  var BECAUSE_ORDER = ["outside", "leads to", "not a result", "not a file", ""];
+  /* More names than a line reads easily: the rest are counted, and listed
+   * in full under it. */
+  var MOST_NAMED = 8;
+
+  function reasonOf(why, name) {
+    var key = why && why[name];
+    return Object.prototype.hasOwnProperty.call(BECAUSE, key) ? key : "";
+  }
+
+  /* Records not read, said as such, each with why, for this page and the
+   * Analysis page: the first MOST_NAMED named, the rest counted. */
+  function unreadSaid(names, why) {
+    names = names.slice().sort();
+    var groups = {};
+    names.forEach(function (name) {
+      var key = reasonOf(why, name);
+      (groups[key] = groups[key] || []).push(name);
+    });
+    var room = MOST_NAMED;
+    var parts = BECAUSE_ORDER.filter(function (key) { return groups[key]; }).map(function (key) {
+      var group = groups[key];
+      var shown = group.slice(0, Math.max(room, 0));
+      room -= shown.length;
+      var more = group.length - shown.length;
+      var listed = !shown.length ? more + " more"
+        : more ? shown.join(", ") + " and " + more + " more"
+          : shown.length === 1 ? shown[0]
+            : shown.slice(0, -1).join(", ") + " and " + shown[shown.length - 1];
+      return listed + " " + BECAUSE[key][group.length === 1 ? 0 : 1];
+    });
+    var said = "Not read: " + parts.join("; ") + ", so what " +
+      (names.length === 1 ? "it says is" : "they say is") + " not shown.";
+    if (names.indexOf("analysis/analysis_manifest.json") >= 0) {
+      said += " The analyses' clock is in analysis/analysis_manifest.json: without it, " +
+        "their frames are numbered, not timed.";
+    }
+    return said;
+  }
+
+  /* The same, with every record and why listed in a details element
+   * where more were not read than the sentence names. */
+  function unreadNode(names, why) {
+    var node = document.createDocumentFragment();
+    node.appendChild(document.createTextNode(unreadSaid(names, why)));
+    if (names.length > MOST_NAMED) {
+      var details = make("details", "overview-not-read-all");
+      details.appendChild(make("summary", "", "All " + names.length + " records not read"));
+      var list = make("ul", "");
+      names.slice().sort().forEach(function (name) {
+        list.appendChild(make("li", "", name + " (" + BECAUSE[reasonOf(why, name)][2] + ")"));
+      });
+      details.appendChild(list);
+      node.appendChild(details);
+    }
+    return node;
+  }
+
   /* ------------------------------------------------------------------ */
   /* The run                                                             */
   /* ------------------------------------------------------------------ */
@@ -275,6 +441,16 @@
 
   /* Atoms and platform, from what the page already has. */
   function renderFacts(results) {
+    if (results) {
+      var unread = Array.isArray(results.unavailable) ? results.unavailable : [];
+      var unreadWhy = results.unavailable_why || {};
+      if (JSON.stringify(unread) !== JSON.stringify(resultsUnread) ||
+          JSON.stringify(unreadWhy) !== JSON.stringify(resultsWhy)) {
+        resultsUnread = unread;
+        resultsWhy = unreadWhy;
+        renderUnread();
+      }
+    }
     var cards = results && Array.isArray(results.summary_cards) ? results.summary_cards : null;
     if (cards) {
       var atoms = cards.find(function (card) { return card.label === "Atom count"; });
@@ -360,6 +536,8 @@
     data = found;
     renderTiles();
     renderPhases();
+    renderUnread();
+    renderThermoUnread();
     renderFacts(null);
     window.dispatchEvent(new CustomEvent("fmx:overview", { detail: data }));
   }
@@ -429,6 +607,8 @@
     });
     window.addEventListener("dashboard:metrics-updated", function () { renderFacts(null); });
     window.addEventListener("dashboard:run-changed", function () {
+      resultsUnread = [];
+      resultsWhy = {};
       use(null);
       load(true);
     });
@@ -459,5 +639,7 @@
     get data() { return data; },
     ended: ended,
     sayTime: sayTime,
+    unreadSaid: unreadSaid,
+    unreadNode: unreadNode,
   };
 })();

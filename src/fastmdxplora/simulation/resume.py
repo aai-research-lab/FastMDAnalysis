@@ -49,6 +49,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from fastmdxplora import record_access as _records
 from fastmdxplora.refusals import CodedError, Refusal, StudyError
 from fastmdxplora.simulation.ensembles import NPT, resolve_ensemble
 
@@ -439,10 +440,14 @@ def continuation_of(parent: str | Path, *, total_ns: float | None = None,
     empty = dict(parent=str(root), checkpoint="", production_done_ns=0.0,
                  production_planned_ns=0.0, config={})
     resolved = root / "resolved_config.yml"
-    if not resolved.is_file():
+    # Read through `record_access`. In a read held to the study (the study
+    # pages), a config or checkpoint the read refuses raises: not read is
+    # not a study with none.
+    _refuse(resolved)
+    if not _records.is_file(resolved):
         return Continuation(**empty, refusal="the study has no resolved_config.yml")
     try:
-        config = yaml.safe_load(resolved.read_text(encoding="utf-8")) or {}
+        config = yaml.safe_load(_records.read_text(resolved, encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError) as exc:
         return Continuation(**empty, refusal=f"the study's config could not be read: {exc}")
     verdict = segmentability(config)
@@ -451,7 +456,8 @@ def continuation_of(parent: str | Path, *, total_ns: float | None = None,
 
     checkpoint = source / "simulation" / "checkpoint.chk"
     empty["checkpoint"] = str(checkpoint)
-    if not checkpoint.is_file():
+    _refuse(checkpoint, _sidecar_of(checkpoint))
+    if not _records.is_file(checkpoint):
         where = "the study" if source == root else source.name
         return Continuation(**empty,
                             refusal=f"{where} has no checkpoint; checkpoints are written "
@@ -643,14 +649,49 @@ def extended_production(study: str | Path) -> tuple[float, int] | None:
     methods while its analyses averaged 40.
     """
     from fastmdxplora.analysis.joining import survey_segments
+    from fastmdxplora.refusals import OutsideWorkspace
 
     try:
+        # A piece a held read refuses is not a piece that is not there.
+        _refuse_pieces(Path(study))
         ran = [piece for piece in survey_segments(study) if piece.trajectory is not None]
+    except OutsideWorkspace:
+        raise
     except OSError:
         return None
     if len(ran) < 2:
         return None
     return production_done_ns(study), len(ran)
+
+
+def _refuse(*paths: Path) -> None:
+    """`pipeline._refuse`: raise `OutsideWorkspace` for the first of
+    ``paths`` a held read refuses; nothing outside one."""
+    from fastmdxplora.simulation.pipeline import _refuse as refuse
+
+    refuse(*paths)
+
+
+def _sidecar_of(checkpoint: Path) -> Path:
+    from fastmdxplora.simulation.runner import CHECKPOINT_SIDECAR_SUFFIX
+
+    return checkpoint.with_suffix(checkpoint.suffix + CHECKPOINT_SIDECAR_SUFFIX)
+
+
+def _refuse_pieces(root: Path) -> None:
+    """In a read held to the study (`record_access`), raise
+    `OutsideWorkspace` for a piece's folder or trajectory the read refuses:
+    the pieces are found by these (`survey_segments`), and one refused was
+    passed over as not there. Nothing outside a held read."""
+    import os
+    import re
+
+    if _records.can_read(Path(os.path.abspath(os.sep))):
+        return
+    folders = [root] + sorted(folder for folder in _records.glob(root, "segment-*")
+                              if re.fullmatch(r"segment-\d+", folder.name))
+    for folder in folders:
+        _refuse(folder, folder / "simulation", folder / "simulation" / "production.dcd")
 
 
 def production_done_ns(study: str | Path) -> float:
@@ -664,15 +705,22 @@ def production_done_ns(study: str | Path) -> float:
 
     root = Path(study)
     total = 0.0
+    # In a read held to the study, a piece, or a record of one, that the
+    # read refuses raises rather than being passed over: a piece left out
+    # understates the production.
+    _refuse_pieces(root)
     # Each piece's own folder, as found. Rebuilt from its number as
     # segment-NNN, a folder named segment-1 was never read.
     for found in survey_segments(root):
         folder = found.directory
+        checkpoint = folder / "simulation" / "checkpoint.chk"
+        resolved = folder / "resolved_config.yml"
+        _refuse(checkpoint, _sidecar_of(checkpoint), folder / "simulation" / "state_final.xml",
+                resolved)
         # Stopped before its first checkpoint, a piece kept nothing: what it
         # ran is run again from the checkpoint before it. It was counted at
         # the length it was asked for.
-        checkpoint = folder / "simulation" / "checkpoint.chk"
-        if not found.finished and not checkpoint.is_file():
+        if not found.finished and not _records.is_file(checkpoint):
             continue
         # Killed between writing the checkpoint and its record of itself:
         # nothing says how far it got, so it counts nothing, as one killed
@@ -680,9 +728,8 @@ def production_done_ns(study: str | Path) -> float:
         if not found.finished and str((read_checkpoint_sidecar(checkpoint) or {})
                                       .get("stage") or "") != "production":
             continue
-        resolved = folder / "resolved_config.yml"
         try:
-            config = yaml.safe_load(resolved.read_text(encoding="utf-8")) or {}
+            config = yaml.safe_load(_records.read_text(resolved, encoding="utf-8")) or {}
         except (OSError, yaml.YAMLError):
             continue
         piece = continuation_of(folder)
@@ -1064,14 +1111,16 @@ def trajectory_interval_of(segment: str | Path) -> int | None:
     if whole(side.get("trajectory_interval_steps")):
         return whole(side["trajectory_interval_steps"])
     try:
-        record = json.loads((simulation / "simulation_parameters.json").read_text(encoding="utf-8"))
+        record = json.loads(_records.read_text(
+            simulation / "simulation_parameters.json", encoding="utf-8"))
         found = whole((record.get("resolved") or {}).get("trajectory_interval_steps"))
         if found:
             return found
     except (OSError, ValueError, AttributeError):
         pass
     try:
-        config = yaml.safe_load((folder / "resolved_config.yml").read_text(encoding="utf-8")) or {}
+        config = yaml.safe_load(_records.read_text(
+            folder / "resolved_config.yml", encoding="utf-8")) or {}
         found = whole((config.get("simulation") or {}).get("trajectory_interval_steps"))
         if found:
             return found
@@ -1094,12 +1143,12 @@ def _interval_from_telemetry(simulation: Path) -> int | None:
     import json
 
     try:
-        with (simulation / "live_metrics.csv").open(encoding="utf-8") as handle:
+        with _records.open_text(simulation / "live_metrics.csv", encoding="utf-8") as handle:
             rows = [(int(float(r["step"])), int(float(r["current_frame_count"])))
                     for r in csv.DictReader(handle)
                     if str(r.get("stage", "")).lower().startswith("production")
                     and r.get("step") and r.get("current_frame_count")]
-        status = json.loads((simulation / "live_status.json").read_text(encoding="utf-8"))
+        status = json.loads(_records.read_text(simulation / "live_status.json", encoding="utf-8"))
     except (OSError, ValueError, KeyError):
         return None
     if len(rows) < 2 or rows[-1][1] <= rows[0][1]:
@@ -1416,10 +1465,11 @@ def _still_running(root: Path) -> bool:
     running by the very command sent to carry it on."""
     import json
 
+    from fastmdxplora import record_access
     from fastmdxplora.orchestrator import RUN_PROCESS_FILE, record_is_from_elsewhere
 
     try:
-        record = json.loads((root / RUN_PROCESS_FILE).read_text(encoding="utf-8"))
+        record = json.loads(record_access.read_text(root / RUN_PROCESS_FILE, encoding="utf-8"))
     except (OSError, ValueError):
         return False
     pid = record.get("pid") if isinstance(record, dict) else None

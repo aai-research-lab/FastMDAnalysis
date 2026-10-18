@@ -485,7 +485,7 @@ the first piece's `simulation/production.dcd`.
 For an unattended campaign — many candidates, one card, a fixed allowance —
 `fastmdxplora.agent` carries a queue. It has nothing to do with an AI
 model; it lives there because
-[`--autonomous`](agent.md#autonomous--draft-it-and-run-it) needs something that
+[`--autonomous`](agent.md#ranger-autonomous-draft-it-and-run-it) needs something that
 can stop a run.
 
 ```python

@@ -3172,6 +3172,15 @@
     if (draftReady) commitTyping();
     madeNow();
   });
+  // Another window saved its draft: taken here too where this window has
+  // changed nothing since its own last save, so neither loses the other's.
+  window.addEventListener("storage", (event) => {
+    if (!draftReady || event.key !== draftKey() || !event.newValue) return;
+    if (event.newValue === draftSeen || draftNow() !== draftSeen) return;
+    const typing = document.activeElement;
+    if (typing && typing.closest && typing.closest(".page[data-page='run']")) return;
+    if (restoreDraft()) renderAll();
+  });
   // A phone may close a page switched away from without its pagehide.
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") madeNow();
@@ -3183,15 +3192,13 @@
     writeDraft(true);
   }
 
-  function writeDraft(leaving) {
-    draftTimer = null;
-    if (leaving) {
-      let stored = null;
-      try { stored = window.localStorage.getItem(draftKey()); } catch (error) { stored = null; }
-      // Another tab saved its draft since this one: the newer is kept.
-      if (stored !== draftSeen) return;
-    }
-    const draft = {
+  /* The form as it would be saved, or null with nothing begun. */
+  function draftNow() {
+    return state.start ? JSON.stringify(draftOfTheForm()) : null;
+  }
+
+  function draftOfTheForm() {
+    return {
       start: state.start, phases: Array.from(state.phases), values: state.values,
       analyses: Array.from(state.analyses), analysisOptions: state.analysisOptions,
       sweep: state.sweep, decisions: state.decisions, full: Boolean(state.full),
@@ -3202,12 +3209,52 @@
       topology: (el("run-topology") && el("run-topology").value) || "",
       configPath: (el("run-config-path") && el("run-config-path").value) || "",
     };
+  }
+
+  /* The form as last downloaded or reset: kept outside this browser's
+   * storage, or nothing to keep. */
+  let draftKept = null;
+  /* Why the form is not saved in this browser, said in the header where
+   * "Saved" would be: "" when it is. */
+  let draftUnsaved = "";
+  function sayDraftState(unsaved) {
+    if (unsaved !== undefined) draftUnsaved = unsaved;
+    const said = el("run-draft");
+    if (!said) return;
+    const kept = draftKept !== null && draftKept === draftNow();
+    if (draftUnsaved && !kept) {
+      said.hidden = false;
+      said.classList.remove("just-saved");
+      said.classList.add("is-unsaved");
+      said.textContent = draftUnsaved;
+      said.title = draftUnsaved;
+    } else if (said.classList.contains("is-unsaved")) {
+      // Saved again, or kept in a download: not said as unsaved.
+      said.classList.remove("is-unsaved");
+      said.title = "Saved in this browser";
+      said.replaceChildren("Saved", Object.assign(document.createElement("span"),
+        { className: "sr-only", textContent: " in this browser" }));
+      said.hidden = Boolean(draftUnsaved);
+    }
+  }
+
+  /* "saved"; "newer" where another window saved its draft since this one
+   * (the newer is kept); "failed" where this browser could not store it. */
+  function writeDraft(leaving) {
+    draftTimer = null;
+    if (leaving) {
+      let stored = null;
+      try { stored = window.localStorage.getItem(draftKey()); } catch (error) { stored = null; }
+      if (stored !== draftSeen) return "newer";
+    }
+    const draft = draftOfTheForm();
     try {
       const written = JSON.stringify(draft);
       const before = window.localStorage.getItem(draftKey());
       if (!draft.start) window.localStorage.removeItem(draftKey());
       else window.localStorage.setItem(draftKey(), written);
       draftSeen = draft.start ? written : null;
+      sayDraftState("");
       const said = el("run-draft");
       if (said) {
         said.hidden = !draft.start;
@@ -3240,6 +3287,7 @@
           said.classList.remove("just-saved");
         }
       }
+      return "saved";
     } catch (error) {
       // No storage here: the form works without it, and says no save.
       const said = el("run-draft");
@@ -3247,6 +3295,7 @@
         said.hidden = true;
         said.classList.remove("just-saved");
       }
+      return "failed";
     }
   }
 
@@ -3331,6 +3380,7 @@
   }
 
   async function download(body, say = sayOnTheForm) {
+    const form = body ? null : draftNow();
     const built = await fetchConfig(body);
     if (!built.ok) {
       say(built.error);
@@ -3338,6 +3388,12 @@
     }
     const saved = await saveAs(built.yaml, "fastmdxplora_config.yml", "text/yaml");
     say(saved ? `${built.settings_changed} setting(s) written.` : "Not saved.");
+    // The form as downloaded is kept in that file: a draft this browser
+    // could not store no longer holds a switch while the form is unchanged.
+    if (saved && form !== null && form === draftNow()) {
+      draftKept = form;
+      sayDraftState();
+    }
   }
 
   /* The same study in its other two languages, derived on the server from
@@ -3463,13 +3519,14 @@
    * by the form's own derivation, with somebody's draft left as it is. */
   function forLoaded(from, options = {}) {
     const body = () => Object.assign(bodyOf(snapshotOfLoaded(from)), { full: Boolean(options.full && options.full()) });
+    const exporting = () => options.config ? Object.assign({}, body(), { config: options.config }) : body();
     const say = options.say || (() => {});
     return {
-      fetchConfig: () => fetchConfig(body(), false),
-      download: () => download(body(), say),
+      fetchConfig: () => fetchConfig(exporting(), false),
+      download: () => download(exporting(), say),
       // The Agent card's button, to tick, when it is given.
-      copyCommand: (button) => copyCommand(body(), say, button || null),
-      downloadScript: () => downloadScript(body(), say),
+      copyCommand: (button) => copyCommand(exporting(), say, button || null),
+      downloadScript: () => downloadScript(exporting(), say),
       previewCost: () => previewCost(body()),
     };
   }
@@ -3525,17 +3582,22 @@
     text(note, `Started from "${starter.title}". Change first: ${String(starter.change || "").replace(/`/g, "")}`);
   }
 
+  let launchesPending = 0;
   async function runAsItStands() {
     const path = el("run-config-path").value.trim();
     if (!path) return;
     const button = el("run-as-is");
     button.disabled = true;
     text(el("run-note"), "Starting…");
-    const response = await fetch("/api/run-config", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path, output: el("run-output").value.trim() }),
-    });
-    const started = await response.json();
+    launchesPending += 1;
+    let started;
+    try {
+      const response = await fetch("/api/run-config", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, output: el("run-output").value.trim() }),
+      });
+      started = await response.json();
+    } finally { launchesPending -= 1; }
     if (!started.ok) {
       text(el("run-note"), started.error || "Could not start.");
       button.disabled = false;
@@ -3626,6 +3688,9 @@
     if (phone) phone.disabled = true;
     text(el("run-note"), "Starting…");
     let started;
+    launchesPending += 1;
+    // The study the run opens is this window's own change, not another's.
+    window.FastMDXDashboard?.studyChangeComing?.();
     try {
       const response = await fetch("/api/run", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -3633,6 +3698,7 @@
       });
       started = await response.json();
     } catch (error) {
+      window.FastMDXDashboard?.studyChangeNotComing?.();
       text(el("run-note"), "Could not reach the server.");
       // Kept when the summary's check comes back.
       el("run-note").dataset.ok = "false";
@@ -3640,8 +3706,9 @@
       if (phone) phone.disabled = false;
       backToTyping();
       return;
-    }
+    } finally { launchesPending -= 1; }
     if (!started.ok) {
+      window.FastMDXDashboard?.studyChangeNotComing?.();
       text(el("run-note"), started.error || "Could not start.");
       el("run-note").dataset.ok = "false";
       sayRefusal(started);
@@ -3675,6 +3742,7 @@
     button.disabled = true;
     text(el("run-note"), "Saving the config…");
     let saved;
+    launchesPending += 1;
     try {
       const response = await fetch("/api/save-config", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -3685,7 +3753,7 @@
       text(el("run-note"), "Could not reach the server.");
       button.disabled = false;
       return;
-    }
+    } finally { launchesPending -= 1; }
     if (!saved.ok) {
       text(el("run-note"), saved.error || "Could not save the config.");
       button.disabled = false;
@@ -3726,6 +3794,9 @@
     if (output) output.value = "";
     renderAll();
     text(el("run-note"), "Every setting is back to its default.");
+    // Nothing typed is left to keep: a draft this browser could not store
+    // no longer holds a switch.
+    draftKept = draftNow();
     // The draft written over, not discarded first: the note stays, and
     // plays only where Reset changed what was saved.
     saveDraft();
@@ -4049,5 +4120,37 @@
     fetchConfig, download, copyCommand, downloadScript,
     renderPreview, describeCost, previewCost, boxVectors, periodicCell, pickResidue,
     sayRefusal, renderSettings, showSetting, forLoaded, bodyOf, snapshotOfLoaded,
+    beforeStudySwitch: () => draftHeld(),
   };
+
+  /* A Config draft this browser could not keep, or changed here since
+   * another window saved a newer one: the browser asks before the page is
+   * left (a Back across studies, a reload, an address typed), which no
+   * hold of the page's own can stop. */
+  window.addEventListener("beforeunload", (event) => {
+    if (launchesPending || !draftHeld()) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
+
+  function draftHeld() {
+    if (launchesPending) return "Wait for the Config launch to finish before switching studies.";
+    if (!draftReady || !state.start) return "";
+    commitTyping();
+    clearTimeout(draftTimer);
+    const saved = writeDraft(true);
+    if (saved === "saved") return "";
+    // Downloaded or reset as it is now: nothing here is lost.
+    const kept = draftKept !== null && draftKept === draftNow();
+    // Another window saved a newer draft: nothing is lost here unless
+    // this window changed the form since its own last save.
+    if (saved === "newer") {
+      if (draftNow() === draftSeen || kept) return "";
+      sayDraftState("Not saved: another window saved a newer draft");
+      return "This window's Config changes are not saved: another window saved a newer Config draft for this workspace. Download it (Download config) before switching studies, or reload to take the newer one.";
+    }
+    if (kept) return "";
+    sayDraftState("Not saved in this browser");
+    return "The Config draft could not be saved in this browser. Download it (Download config) or Reset the form before switching studies.";
+  }
 })();

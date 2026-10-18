@@ -98,7 +98,20 @@ def _with_a_run(page, stopped: list) -> None:
     page.route("**/api/explore/stop", stop)
 
 
-@pytest.mark.parametrize("where", ["sidebar-stop", "health-stop", "run-stop"])
+def test_stop_beside_the_run_in_the_status_bar_and_on_its_overview():
+    """The sidebar's Stop and the builder's went; Stop is beside the run in
+    the status bar (user, 10-18) and on the Overview beside its health."""
+    from fastmdxplora.gui.server import _load_template
+
+    page = _load_template()
+    assert page.count("data-stop-run=") == 2
+    assert 'data-stop-run="health-stop-ask"' in page and 'data-stop-run="sb-stop-ask"' in page
+    bar = page[page.index('id="status-bar"'):page.index("</footer>")]
+    assert 'id="sb-stop"' in bar
+    assert 'id="sidebar-stop"' not in page and 'id="run-stop"' not in page
+
+
+@pytest.mark.parametrize("where", ["health-stop", "sb-stop"])
 def test_stop_asks_first_and_says_it_stopped(browser, tmp_path, where):  # noqa: F811
     from fastmdxplora.gui.server import start_dashboard_session
 
@@ -111,8 +124,9 @@ def test_stop_asks_first_and_says_it_stopped(browser, tmp_path, where):  # noqa:
         page.set_default_timeout(60000)
         page.on("pageerror", lambda error: errors.append(str(error)))
         _with_a_run(page, stopped)
-        page.goto(session.url + ("#run" if where == "run-stop" else "#overview"),
-                  wait_until="domcontentloaded")
+        # The status bar's Stop from another page than the Overview.
+        shown = "#analysis" if where == "sb-stop" else "#overview"
+        page.goto(session.url + shown, wait_until="domcontentloaded")
         page.wait_for_selector(f"#{where}:not([hidden])")
         page.click(f"#{where}")
         ask = f"#{where}-ask"
@@ -147,7 +161,7 @@ def test_stop_is_offered_by_cmd_k_while_a_run_goes(browser, tmp_path):  # noqa: 
         page.set_default_timeout(60000)
         _with_a_run(page, stopped)
         page.goto(session.url + "#analysis", wait_until="domcontentloaded")
-        page.wait_for_selector("#sidebar-stop:not([hidden])")
+        page.wait_for_function("() => window.FastMDXStop && window.FastMDXStop.running()")
         page.keyboard.press("Control+k")
         page.fill("#palette-input", "stop")
         page.keyboard.press("Enter")
