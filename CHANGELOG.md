@@ -243,6 +243,11 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
   gone, instead of failing; a folder above the study need only be
   searchable.
 
+- A structure fetched from RCSB over a connection that goes quiet once made
+  is given up on after 60 s of silence and asked for again, as a dropped
+  connection is. The fetch took no timeout, so a connection that stalled
+  rather than dropped held setup for as long as it stayed open. A file
+  shorter than the length RCSB gave is still refused as cut short.
 - A path longer than its column in the Config Builder (a structure, a
   setting for one system, a config file not found) breaks where it must in
   the system's row and its chips, the plan, what setup will build and the
