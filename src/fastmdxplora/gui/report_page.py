@@ -16,6 +16,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from fastmdxplora import record_access as _records
+
 __all__ = ["methods_payload", "report_payload"]
 
 
@@ -23,15 +25,22 @@ def report_payload(root: Path | str) -> dict[str, Any]:
     """What the Report page needs, or why there is nothing to show. For a
     study of several runs, the comparison across them."""
     base = Path(root)
-    if (base / "batch_manifest.json").is_file():
+    from fastmdxplora.simulation.pipeline import _refused
+
+    if _records.is_file(base / "batch_manifest.json"):
         return _study_of_runs_payload(base)
     report_dir = base / "report"
     source = report_dir / "report.md"
-    if not source.is_file():
+    if _refused(source):
+        # Not read, in a read held to the study (`record_access`): which is
+        # not a study with no report yet. Named in the answer's unavailable.
+        return {"ok": False, "reason": "not read",
+                "html": "", "not_produced": [], "downloads": {}}
+    if not _records.is_file(source):
         return {"ok": False, "reason": "no report yet",
                 "html": "", "not_produced": [], "downloads": {}}
 
-    text = _links_from_the_report(source.read_text(encoding="utf-8", errors="replace"),
+    text = _links_from_the_report(_records.read_text(source, encoding="utf-8", errors="replace"),
                                   report_dir, base)
     # The markdown library lives in the `pdf` extra, not the base
     # install, and a base install still has a report to show. With it,
@@ -43,9 +52,9 @@ def report_payload(root: Path | str) -> dict[str, Any]:
 
     not_produced: list[dict[str, str]] = []
     record = report_dir / "not_produced.json"
-    if record.is_file():
+    if _records.is_file(record):
         try:
-            rows = json.loads(record.read_text(encoding="utf-8"))
+            rows = json.loads(_records.read_text(record, encoding="utf-8"))
             for row in rows if isinstance(rows, list) else []:
                 if isinstance(row, dict) and row.get("artifact"):
                     not_produced.append({
@@ -61,7 +70,7 @@ def report_payload(root: Path | str) -> dict[str, Any]:
     for key, name in (("pdf", "report.pdf"), ("slides", "slides.pptx"),
                       ("bundle", "project_bundle.zip"),
                       ("markdown", "report.md"), ("summary", "analysis_summary.png")):
-        if (report_dir / name).is_file():
+        if _records.is_file(report_dir / name):
             downloads[key] = f"/artifacts/report/{name}?download=1"
 
     # What made each analysis's figures, for a chip under each figure the
@@ -96,10 +105,10 @@ def methods_payload(root: Path | str, *, may_read: Any = None) -> dict[str, Any]
     import re
 
     base = Path(root)
-    if (base / "batch_manifest.json").is_file():
+    if _records.is_file(base / "batch_manifest.json"):
         return {"ok": False, "reason": "a study of several runs: each run's report "
                                        "gives its own methods"}
-    if not any((base / name).exists() for name in ("manifest.json", "simulation", "setup")):
+    if not any(_records.exists(base / name) for name in ("manifest.json", "simulation", "setup")):
         return {"ok": False, "reason": "nothing has run yet"}
     from fastmdxplora.report.document import methods_prose
 
@@ -132,7 +141,7 @@ def _links_from_the_report(text: str, report_dir: Path, base: Path) -> str:
     from urllib.parse import unquote
 
     def held(path: str) -> bool:
-        return (report_dir / path).exists() or (base / path).exists()
+        return _records.exists(report_dir / path) or _records.exists(base / path)
 
     def resolved(found: "re.Match[str]") -> str:
         image, words, target = found.group(1), found.group(2), found.group(3)
@@ -140,11 +149,11 @@ def _links_from_the_report(text: str, report_dir: Path, base: Path) -> str:
         if re.match(r"^([a-z][a-z0-9+.-]*:|/|#|\.\./)", target, re.IGNORECASE):
             return found.group(0)
         path = unquote(target.split("#")[0].split("?")[0])
-        if not path or (report_dir / path).exists():
+        if not path or _records.exists(report_dir / path):
             return found.group(0)
-        if (base / path).is_file():
+        if _records.is_file(base / path):
             return f"{image}[{words}]({'../' + target}{rest})"
-        return found.group(0) if image or (base / path).exists() else words
+        return found.group(0) if image or _records.exists(base / path) else words
 
     lines = []
     for line in text.splitlines(keepends=True):
@@ -199,13 +208,13 @@ def _study_of_runs_payload(base: Path) -> dict[str, Any]:
     completed = [r for r in runs if r["state"] == "completed" or r.get("so_far")]
     pending = sum(1 for r in runs if r["state"] != "completed")
     comparison = base / "comparison" / "comparison_report.md"
-    if comparison.is_file():
-        text = comparison.read_text(encoding="utf-8", errors="replace")
+    if _records.is_file(comparison):
+        text = _records.read_text(comparison, encoding="utf-8", errors="replace")
         html, rendered = render_markdown(text)
         downloads = {}
         for key, name in (("markdown", "comparison_report.md"),
                           ("summary", "comparison_summary.csv")):
-            if (comparison.parent / name).is_file():
+            if _records.is_file(comparison.parent / name):
                 downloads[key] = f"/artifacts/comparison/{name}?download=1"
         return {"ok": True, "html": html, "not_produced": [], "downloads": downloads,
                 "generated": _generated_line(text), "rendered": rendered,
@@ -229,7 +238,7 @@ def _comparison_provenance(folder: Path) -> dict[str, dict[str, Any]]:
     from fastmdxplora import __version__
 
     try:
-        record = json.loads((folder / "figures.json").read_text(encoding="utf-8"))
+        record = json.loads(_records.read_text(folder / "figures.json", encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     figures = record.get("figures") if isinstance(record, dict) else None

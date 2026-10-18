@@ -84,8 +84,12 @@ def _caption_of(analysis: str, stem: str) -> str:
 
 
 def _load_json_safely(path: Path) -> dict | None:
+    from fastmdxplora import record_access
+
+    # Through `record_access`: in a read held to the study (the GUI's), a
+    # record linked out of it is refused, not read; elsewhere, as before.
     try:
-        with path.open(encoding="utf-8") as fh:
+        with record_access.open_text(path, encoding="utf-8") as fh:
             return json.load(fh)
     except FileNotFoundError:
         return None
@@ -267,8 +271,10 @@ def _summary_section(phase_context: PhaseContext, project_root: Path) -> str:
 
 def _recorded_means(project_root: Path) -> dict[str, dict[str, Any]]:
     """Each analysis's mean record, by name, as the analysis wrote it."""
+    from fastmdxplora import record_access
+
     means: dict[str, dict[str, Any]] = {}
-    for path in sorted((project_root / "analysis").glob("*/options.json")):
+    for path in sorted(record_access.glob(project_root / "analysis", "*/options.json")):
         document = _load_json_safely(path)
         found = document.get("findings") if isinstance(document, dict) else None
         record = found.get("mean") if isinstance(found, dict) else None
@@ -281,11 +287,29 @@ def _conversations_kept(project_root: Path) -> int:
     """How many of the Agent's conversations about this study it keeps, of
     those that say anything: a conversation opened and left empty is not
     one in which the study was written."""
+    from fastmdxplora import record_access
     from fastmdxplora.gui.agent_panel import CONVERSATIONS_SUBDIR
 
+    held = not record_access.can_read(Path(os.path.abspath(os.sep)))
+    inside = os.path.realpath(project_root)
+    store = project_root / CONVERSATIONS_SUBDIR
+    if held and not os.path.realpath(store).startswith(inside + os.sep):
+        return 0
     kept = 0
-    for path in sorted((project_root / CONVERSATIONS_SUBDIR).glob("conv-*.json")):
-        document = _load_json_safely(path)
+    for path in sorted(store.glob("conv-*.json")):
+        if held:
+            # In a read held to the study the conversations are not one of
+            # its results, so not read through it; only counted, and only
+            # those in the study itself, never through a link.
+            if path.is_symlink() or not os.path.realpath(path).startswith(inside + os.sep):
+                continue
+            try:
+                with path.open(encoding="utf-8") as fh:
+                    document = json.load(fh)
+            except (OSError, ValueError):
+                continue
+        else:
+            document = _load_json_safely(path)
         if isinstance(document, dict) and document.get("entries"):
             kept += 1
     return kept

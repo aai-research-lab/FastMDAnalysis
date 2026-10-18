@@ -444,6 +444,25 @@ def _refusals_said(answer: dict[str, Any]) -> str:
                    else ", so what they say is not shown.")
 
 
+def _said_not_read(answer: Any) -> Any:
+    """A `_confined` answer with its refused records said as not read, in
+    its ``not_read`` sentence, for a page to show (`_refusals_said`)."""
+    said = _refusals_said(answer)
+    if said:
+        answer["not_read"] = said
+    return answer
+
+
+def _withheld_where_not_read(answer: dict[str, Any], key: str) -> dict[str, Any]:
+    """A `_confined` answer whose ``key`` is a list read across the study's
+    records (its pieces' too): where one was not read, none of it, since
+    the rest is part of the study said as the whole; and why."""
+    said = _refusals_said(answer)
+    if said:
+        answer = {**answer, key: [], "not_read": said}
+    return answer
+
+
 def _why_not_read(inside: Path, name: str) -> str:
     """Why the confined read of the open folder ``inside`` refused the
     record it names ``name`` (a key of `series.NOT_READ_BECAUSE`)."""
@@ -1147,8 +1166,11 @@ def make_handler(
                 except ValueError:
                     most = MOST_CHART_SAMPLES
                 most = max(60, min(most, 5000))
-                self._send_json({"metrics": thinned_metrics(
-                    read_metrics(root, limit=None), most)})
+                # Read from the study's own records only (`_confined`).
+                # A record of it not read gives no chart of the rest.
+                self._send_json(_withheld_where_not_read(_confined(
+                    root, lambda inside: {"metrics": thinned_metrics(
+                        read_metrics(inside, limit=None), most)}), "metrics"))
                 return
             if path == "/api/figure-data":
                 # The numbers behind an analysis's other figures, to plot
@@ -1176,12 +1198,16 @@ def make_handler(
                     keeps=True))
                 return
             if path == "/api/events":
-                self._send_json({"events": read_events(root)})
+                # Read from the study's own records only (`_confined`).
+                self._send_json(_withheld_where_not_read(_confined(
+                    root, lambda inside: {"events": read_events(inside)}), "events"))
                 return
             if path == "/api/report":
                 from fastmdxplora.gui.report_page import report_payload
 
-                self._send_json(report_payload(root))
+                # Read from the study's own records only (`_confined`), the
+                # page saying which were not read.
+                self._send_json(_said_not_read(_confined(root, report_payload)))
                 return
             if path == "/api/timeline":
                 # What the Viewer's timeline marks on the frames it plays.
@@ -1204,9 +1230,18 @@ def make_handler(
             if path == "/api/methods":
                 from fastmdxplora.gui.report_page import methods_payload
 
-                self._send_json(methods_payload(
-                    root, may_read=(None if hosting is None
-                                    else lambda path: hosting.inside(str(path)) is not None)))
+                may_read = (None if hosting is None
+                            else lambda path: hosting.inside(str(path)) is not None)
+                # Read from the study's own records only (`_confined`). A
+                # methods text written without a record it reads would say
+                # that record's part was not recorded: not given at all.
+                answer = _confined(root, lambda inside: methods_payload(inside, may_read=may_read))
+                said = _refusals_said(answer)
+                if said:
+                    answer = {"ok": False, "reason": said,
+                              "unavailable": answer["unavailable"],
+                              "unavailable_why": answer["unavailable_why"]}
+                self._send_json(answer)
                 return
             if path == "/api/files-page":
                 # The Files page, rendered (`gui/files_page.py`).
@@ -1334,7 +1369,8 @@ def make_handler(
                 # The per-residue results the viewer colours the structure by.
                 from fastmdxplora.gui.by_residue import values_by_residue
 
-                self._send_json(values_by_residue(root))
+                # Read from the study's own records only (`_confined`).
+                self._send_json(_said_not_read(_confined(root, values_by_residue)))
                 return
             if path == "/api/secondary-structure":
                 # DSSP for the structure, live frame or frames the viewer was

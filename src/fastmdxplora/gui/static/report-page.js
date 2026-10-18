@@ -119,7 +119,8 @@
       downloads.innerHTML = "";
       /* A study of runs says which of them are still to come. */
       var why = el("report-empty-reason");
-      if (why) why.textContent = data && data.reason && data.pending ? data.reason : "";
+      if (why) why.textContent = data && data.not_read ? data.not_read
+        : data && data.reason && data.pending ? data.reason : "";
       return;
     }
 
@@ -141,14 +142,16 @@
     downloads.appendChild(downloadMenu(data.downloads || {}));
 
     notices.innerHTML = "";
-    var rows = data.not_produced || [];
+    var rows = (data.not_produced || []).slice();
+    /* A record of the study not read (a link out of it): said with them. */
+    if (data.not_read) rows.push({ artifact: "", reason: data.not_read, kind: "not read" });
     notices.hidden = !rows.length;
     rows.forEach(function (row) {
       var block = document.createElement("div");
       block.className = "report-notice";
       var head = document.createElement("span");
       head.className = "report-notice-kind";
-      head.textContent = "not produced · " + row.artifact;
+      head.textContent = row.kind ? row.kind : "not produced · " + row.artifact;
       block.appendChild(head);
       block.appendChild(document.createTextNode(row.reason || ""));
       notices.appendChild(block);

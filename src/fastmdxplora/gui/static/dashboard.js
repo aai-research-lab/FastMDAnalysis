@@ -1973,7 +1973,11 @@
     // Rendered on the server by the report's own renderer, which keeps
     // raw markup as text.
     host.innerHTML = methodsPlain ? String(said.html || "") : "";
-    card.hidden = !methodsPlain;
+    // A record the methods read was not read (a link out of the study):
+    // said, in place of methods written without it.
+    const notRead = said && !said.ok && (said.unavailable || []).length ? String(said.reason || "") : "";
+    if (notRead) host.textContent = notRead;
+    card.hidden = !methodsPlain && !notRead;
   }
 
   function renderAnalysis(payload) {
