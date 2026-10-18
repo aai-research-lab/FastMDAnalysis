@@ -813,7 +813,6 @@
       renderTopBar({}, {});
       renderHero({});
       renderHealth({});
-      renderStageTimeline({});
       renderLiveProgress({});
       emit("status-updated", {status: {}, health: {}, study: ""});
       return;
@@ -829,7 +828,6 @@
     renderTopBar(status, health);
     renderHero(status);
     renderHealth(health);
-    renderStageTimeline(status);
     renderLiveProgress(status);
     // The folder read, so a listener can tell one study's status from
     // another's (a study opened elsewhere between two polls).
@@ -1014,7 +1012,7 @@
     if (!state.appState?.active_run) {
       setClassName("topbar-status-dot", "status-dot status-dot-waiting");
       setText("topbar-status-text", "Ready");
-      byId("sidebar-progress")?.setAttribute("data-run", "");
+      byId("status-run")?.setAttribute("data-run", "");
       setText("topbar-stage", "configure a simulation");
       setText("topbar-step", "—");
       setText("topbar-total", "—");
@@ -1068,7 +1066,7 @@
       : run === "failed" ? "status-dot-error"
       : run === "stopped" || run === "interrupted" ? "status-dot-waiting"
       : finished ? "status-dot-completed" : stateDotClass(statusName)}`);
-    byId("sidebar-progress")?.setAttribute("data-run", run);
+    byId("status-run")?.setAttribute("data-run", run);
     // The Overview leads with what it determined once the run has ended
     // well, and with its health and charts while it runs or once it has
     // stopped short: what happened first (overview.js, the CSS).
@@ -1089,6 +1087,7 @@
       : run === "interrupted" ? (status.last_update_timestamp
         ? `${stage}, last update ${formatWhen(status.last_update_timestamp)}` : stage)
       : stage);
+    setText("status-stage-count", stageCount(status));
     setText("topbar-step", valueOrDash(status.current_step));
     setText("topbar-total", valueOrDash(status.total_planned_steps));
     const pct = progressPercent(status);
@@ -1271,7 +1270,11 @@
     });
   }
 
-  function renderStageTimeline(status) {
+  /* "Stage 5 of 7": the stage reached among those this run can reach,
+   * said beside where the run stands in the status bar. Each stage's state
+   * from the live record's map, else from the phases the run recorded; a
+   * run waiting for its study's next round is at no stage now. */
+  function stageCount(status) {
     const order = ["setup", "minimization", "nvt", "npt", "production", "analysis", "report"];
     const phaseMap = {};
     (state.results.phases || []).forEach((phase) => {
@@ -1282,28 +1285,12 @@
     const current = normaliseStage(status.stage);
     const currentIndex = order.indexOf(current);
     const simulationDone = isPhaseDone(phaseMap.simulation);
-
-    /* Only the stages this run can reach. An analysis of a trajectory that
-     * already exists has no minimization to wait for, and a stage greyed out
-     * forever reads exactly like a run that stalled. Where the server cannot
-     * tell -- an older run, or one started outside the GUI -- every stage is
-     * listed, because hiding one that turns out to run is the worse mistake. */
-    const reachable = Array.isArray(state.stages) && state.stages.length
-      ? state.stages : null;
-
-    $$('.stage-step').forEach((element) => {
-      const stage = element.getAttribute("data-stage");
-      if (reachable && !reachable.includes(stage)) {
-        element.hidden = true;
-        return;
-      }
-      element.hidden = false;
+    /* Only the stages this run can reach: where the server cannot tell (an
+     * older run, one started outside the GUI) every stage is counted. */
+    const reachable = Array.isArray(state.stages) && state.stages.length ? state.stages : null;
+    const shown = order.filter((stage) => !reachable || reachable.includes(stage));
+    const states = shown.map((stage) => {
       let stageState = phaseVisualState(liveStates[stage]);
-
-      // Older/completed runs may not have the new live stage map, so retain
-      // manifest-based fallback without overwriting a real current/failed state.
-      // Not for a run waiting for its study's next round: its phases so far
-      // are recorded done, and its production, analyses and report are not.
       if (stageState === "waiting" && !status?.between_rounds) {
         if (stage === "setup") stageState = phaseVisualState(phaseMap.setup);
         if (["minimization", "nvt", "npt", "production"].includes(stage) && simulationDone) {
@@ -1312,28 +1299,30 @@
         if (stage === "analysis") stageState = phaseVisualState(phaseMap.analysis);
         if (stage === "report") stageState = phaseVisualState(phaseMap.report);
       }
-
-      // A run waiting for its study's next round is at no stage now.
       if (currentIndex >= 0 && stageState === "waiting" && !status?.between_rounds) {
         const index = order.indexOf(stage);
         if (index < currentIndex) stageState = "completed";
         if (index === currentIndex) stageState = "current";
       }
-      if (stage === current && phaseVisualState(liveStates[stage]) === "current") {
-        stageState = "current";
-      }
-      element.setAttribute("data-state", stageState);
+      if (stage === current && phaseVisualState(liveStates[stage]) === "current") stageState = "current";
+      return stageState;
     });
-    // "Stage 5 of 7" in the progress card: the stage reached among those
-    // this run can reach.
-    const shown = $$('.sidebar-stages .stage-step').filter((element) => !element.hidden);
-    const stateOf = (element) => element.getAttribute("data-state");
-    let at = shown.findIndex((element) => ["current", "failed"].includes(stateOf(element)));
-    if (at < 0) {
-      shown.forEach((element, index) => { if (stateOf(element) === "completed") at = index; });
-    }
-    setText("sidebar-stage-count", at >= 0 && shown.length
-      ? `Stage ${at + 1} of ${shown.length}` : "");
+    let at = states.findIndex((s) => s === "current" || s === "failed");
+    if (at < 0) states.forEach((s, index) => { if (s === "completed") at = index; });
+    return at >= 0 && shown.length ? `Stage ${at + 1} of ${shown.length}` : "";
+  }
+
+  function phaseVisualState(value) {
+    const status = String(value || "").toLowerCase();
+    if (["ok", "complete", "completed", "success", "succeeded"].includes(status)) return "completed";
+    if (["error", "failed"].includes(status)) return "failed";
+    if (["skipped", "not run"].includes(status)) return "skipped";
+    if (["running", "active", "current"].includes(status)) return "current";
+    return "waiting";
+  }
+
+  function isPhaseDone(value) {
+    return ["ok", "complete", "completed", "success"].includes(String(value || "").toLowerCase());
   }
 
   /* Why a study open here has no live record, said as what it is. Several
@@ -1535,7 +1524,6 @@
     state.runId = payload.system?.system || state.runId;
 
     renderTopBar(state.status, state.health);
-    renderStageTimeline(state.status);
     renderMethods(payload);
     renderAnalysisSections(payload);
     renderAnalysis(payload);
@@ -2180,19 +2168,6 @@
     if (stage.includes("report")) return "report";
     if (stage.includes("setup") || stage.includes("loading")) return "setup";
     return stage;
-  }
-
-  function phaseVisualState(value) {
-    const status = String(value || "").toLowerCase();
-    if (["ok", "complete", "completed", "success", "succeeded"].includes(status)) return "completed";
-    if (["error", "failed"].includes(status)) return "failed";
-    if (["skipped", "not run"].includes(status)) return "skipped";
-    if (["running", "active", "current"].includes(status)) return "current";
-    return "waiting";
-  }
-
-  function isPhaseDone(value) {
-    return ["ok", "complete", "completed", "success"].includes(String(value || "").toLowerCase());
   }
 
   /* A path inside the open study, from the study; any other as it is. The

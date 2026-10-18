@@ -1,12 +1,12 @@
-"""The sidebar, top to bottom, as a person reads it.
+"""The sidebar, top to bottom, as a person reads it, and where a run stands.
 
 The product on one line; the study on screen as a card saying where it
 stands, which opens the studies to switch to; its pages and the two ways to
-start another, each with a line icon; while a run goes on, or after it
-stopped short, a card of where it stands (and, stopped or failed, what
-would fix it); and the person with the settings. Nothing of it is cut off
-in a window 900 pixels high: the progress card is there only while it says
-something.
+start another, each with a line icon; and the person with the settings.
+Nothing of it is cut off in a window 900 pixels high. While a run goes on,
+or after it stopped short, where it stands (and, stopped or failed, what
+would fix it) is in the status bar under every page: the sidebar's
+progress card went there, said only while it says something.
 """
 
 from __future__ import annotations
@@ -89,7 +89,7 @@ def _sidebar_of(browser, study: Path, height: int = 900):
 
 _FACTS = """() => {
     const $ = (id) => document.getElementById(id);
-    const card = $('sidebar-progress');
+    const card = $('status-run');
     const shown = (el) => !!el && getComputedStyle(el).display !== 'none'
         && el.offsetParent !== null;
     const side = document.querySelector('aside.sidebar');
@@ -106,8 +106,8 @@ _FACTS = """() => {
         run: card.getAttribute('data-run'),
         card: shown(card),
         stage: $('topbar-stage').textContent,
-        count: $('sidebar-stage-count').textContent,
-        fix: shown($('sidebar-fix')),
+        count: $('status-stage-count').textContent,
+        fix: shown($('status-fix')),
         pause: shown($('pause-toggle')),
         links: side.querySelectorAll('.sidebar-nav .nav-link').length,
         icons: side.querySelectorAll('.sidebar-nav .nav-link svg.nav-icon').length,
@@ -158,7 +158,7 @@ def test_a_running_study_says_where_it_is(browser, workspace):
 def test_a_stopped_study_says_where_and_what_would_fix_it(browser, workspace):
     with _sidebar_of(browser, workspace / "stopped") as (facts, page):
         page.click('.nav-link[data-view-link="analysis"]')
-        page.click("#sidebar-fix")
+        page.click("#status-fix")
         page.wait_for_function("() => document.documentElement.dataset.page === 'overview'")
     assert facts["errors"] == []
     assert facts["word"] == "Stopped" and "status-dot-waiting" in facts["dot"]

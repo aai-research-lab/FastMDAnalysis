@@ -55,7 +55,7 @@ def finished_sweep(tmp_path_factory) -> Path:
 def test_a_finished_study_of_runs_is_completed_everywhere(finished_sweep, width, scheme):
     def look(page, url):
         page.goto(url + "#overview", wait_until="domcontentloaded")
-        page.wait_for_selector("#study-runs:not([hidden]) .study-run-row")
+        page.wait_for_selector(".page[data-page=overview] .place-run")
         page.wait_for_function(
             "() => document.getElementById('topbar-status-text').textContent !== 'Ready'")
         page.wait_for_timeout(500)
@@ -63,14 +63,18 @@ def test_a_finished_study_of_runs_is_completed_everywhere(finished_sweep, width,
             "word": page.text_content("#topbar-status-text"),
             "dot": page.get_attribute("#topbar-status-dot", "class"),
             "verdict": page.text_content("#verdict-word"),
-            "runs": page.eval_on_selector_all(
-                "#study-runs .study-run-row",
-                "rs => rs.map(r => [r.querySelector('.study-running-name').textContent,"
-                " r.querySelector('.study-running-name').title.split('\\n')[0],"
-                " r.querySelector('.status-dot').className,"
-                " [r.querySelector('.study-running-name').scrollWidth,"
-                "  r.querySelector('.study-running-name').clientWidth]])"),
         }
+        # The runs, where they are listed now: the menu at the page's head.
+        page.click(".page[data-page=overview] .place-run")
+        page.wait_for_selector("#place-menu")
+        said["runs"] = page.eval_on_selector_all(
+            "#place-menu .place-menu-item:not(:first-child)",
+            "rs => rs.map(r => [r.querySelector('.place-menu-label').textContent,"
+            " r.title.split('\\n')[1] || '',"
+            " r.querySelector('.status-dot').className,"
+            " [r.querySelector('.place-menu-label').scrollWidth,"
+            "  r.querySelector('.place-menu-label').clientWidth]])")
+        page.keyboard.press("Escape")
         page.goto(url + "#studies", wait_until="domcontentloaded")
         page.wait_for_selector(".study-state, .studies-state")
         said["card"] = page.eval_on_selector_all(

@@ -235,7 +235,7 @@ def test_back_puts_the_keyboard_on_the_page_shown(browser, session) -> None:
                            " && document.activeElement.classList.contains('page-title')")
     heading = page.evaluate("() => document.activeElement.textContent.trim()")
     page.context.close()
-    assert heading == "Study Overview"
+    assert heading == "Overview"
 
 
 def test_a_reload_with_a_dialog_open_opens_it_again(browser, session) -> None:

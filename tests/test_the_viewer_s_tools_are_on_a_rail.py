@@ -105,7 +105,8 @@ def test_the_keys_are_the_rail_s_last_button_and_no_tool(page) -> None:
         const tools = document.getElementById('viewer-rail-tools');
         return {last: keys === document.getElementById('viewer-rail').lastElementChild,
                 tab: tools.contains(keys), role: tools.getAttribute('role'),
-                header: !!document.querySelector('.page[data-page="viewer"] .page-header button')};
+                header: !!document.querySelector(
+                    '.page[data-page="viewer"] .page-header button:not(.place-crumb)')};
     }""")
     page.click("#viewer-keys-open")
     page.wait_for_selector("#viewer-help:not([hidden])")

@@ -35,6 +35,9 @@ ICONS: dict[str, str] = {
     "config": ('<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/>'
                '<circle cx="10" cy="17" r="2"/>'),
     "chevron": '<path d="M8 10l4 4 4-4"/>',
+    # The status bar's: this computer, and a recorded problem.
+    "machine": '<rect x="4" y="5" width="16" height="11" rx="2"/><path d="M9 20h6M12 16v4"/>',
+    "problem": '<path d="M12 4.5 20.5 19h-17z"/><path d="M12 10v4M12 16.5v.5"/>',
     "new": '<path d="M12 5v14M5 12h14"/>',
     "recent": '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',
     "beside": '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M14 4v16"/>',

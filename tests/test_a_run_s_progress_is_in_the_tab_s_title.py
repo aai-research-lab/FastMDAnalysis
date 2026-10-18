@@ -293,7 +293,7 @@ def test_a_study_with_no_record_of_its_own_says_its_end(tmp_path, how, said) -> 
             page.route("**/api/app-state*", app_state)
             page.reload(wait_until="domcontentloaded")
             page.wait_for_function(
-                "() => document.getElementById('sidebar-progress')"
+                "() => document.getElementById('status-run')"
                 ".getAttribute('data-run') === 'running'")
             going[0] = False
             page.wait_for_function("() => window.__notices.length > 0")

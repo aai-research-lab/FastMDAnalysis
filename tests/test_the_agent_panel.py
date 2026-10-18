@@ -2791,7 +2791,7 @@ class TestTheWordsAndTheRows(unittest.TestCase):
 
     def test_study_overview_title_and_overview_tab(self):
         page = self.page()
-        self.assertIn('<h1 class="page-title">Study Overview</h1>', page)
+        self.assertIn('<h1 class="page-title">Overview</h1>', page)
         self.assertIn("<span>Overview</span>", page)
 
     def test_the_agent_header_is_a_title_row_and_the_controls_are_under_the_composer(self):

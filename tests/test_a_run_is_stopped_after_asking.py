@@ -98,7 +98,17 @@ def _with_a_run(page, stopped: list) -> None:
     page.route("**/api/explore/stop", stop)
 
 
-@pytest.mark.parametrize("where", ["sidebar-stop", "health-stop", "run-stop"])
+def test_one_stop_beside_how_the_run_is_going():
+    """The sidebar's Stop and the builder's went (the status bar says where
+    the run stands): one Stop, on the Overview beside its health."""
+    from fastmdxplora.gui.server import _load_template
+
+    page = _load_template()
+    assert page.count("data-stop-run=") == 1 and 'data-stop-run="health-stop-ask"' in page
+    assert 'id="sidebar-stop"' not in page and 'id="run-stop"' not in page
+
+
+@pytest.mark.parametrize("where", ["health-stop"])
 def test_stop_asks_first_and_says_it_stopped(browser, tmp_path, where):  # noqa: F811
     from fastmdxplora.gui.server import start_dashboard_session
 
@@ -111,8 +121,7 @@ def test_stop_asks_first_and_says_it_stopped(browser, tmp_path, where):  # noqa:
         page.set_default_timeout(60000)
         page.on("pageerror", lambda error: errors.append(str(error)))
         _with_a_run(page, stopped)
-        page.goto(session.url + ("#run" if where == "run-stop" else "#overview"),
-                  wait_until="domcontentloaded")
+        page.goto(session.url + "#overview", wait_until="domcontentloaded")
         page.wait_for_selector(f"#{where}:not([hidden])")
         page.click(f"#{where}")
         ask = f"#{where}-ask"
@@ -147,7 +156,7 @@ def test_stop_is_offered_by_cmd_k_while_a_run_goes(browser, tmp_path):  # noqa: 
         page.set_default_timeout(60000)
         _with_a_run(page, stopped)
         page.goto(session.url + "#analysis", wait_until="domcontentloaded")
-        page.wait_for_selector("#sidebar-stop:not([hidden])")
+        page.wait_for_function("() => window.FastMDXStop && window.FastMDXStop.running()")
         page.keyboard.press("Control+k")
         page.fill("#palette-input", "stop")
         page.keyboard.press("Enter")

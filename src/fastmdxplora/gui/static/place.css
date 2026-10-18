@@ -1,0 +1,48 @@
+/* Where you are, at the head of every page (place.js): the study, the run,
+ * then the page's own heading. One line with the heading; a long name is
+ * cut in its crumb, never the page's name. */
+.page-header > div:first-child > .place {
+    display: flex; align-items: baseline; gap: 6px;
+    flex: 0 1 auto; width: auto; min-width: 0; max-width: 55%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.place[hidden] { display: none !important; }
+.place-crumb {
+    appearance: none; border: 0; background: transparent; padding: 1px 4px; margin: 0;
+    border-radius: 5px; font: inherit; font-size: var(--text-md); line-height: 1.4;
+    color: var(--text-secondary); cursor: pointer;
+    min-width: 0; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 2px;
+}
+.place-crumb:hover { color: var(--text-primary); background: var(--background-soft); }
+.place-crumb:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.place-run { color: var(--text-primary); }
+.place-chevron { width: 14px; height: 14px; flex: none; opacity: .7; }
+.place-sep { color: var(--text-muted); flex: none; }
+
+/* The run switcher's menu: the study as a whole, then each run. */
+.place-menu {
+    position: fixed; z-index: 60; min-width: 220px; max-width: min(420px, calc(100vw - 16px));
+    max-height: min(60vh, 520px); overflow-y: auto; padding: 4px;
+    background: var(--panel-glass); border: 1px solid var(--border-primary); border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .28);
+}
+.place-menu-item {
+    appearance: none; border: 0; background: transparent; width: 100%;
+    display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; align-items: center; gap: 8px;
+    padding: 6px 8px; border-radius: 6px; font: inherit; font-size: var(--text-sm);
+    color: var(--text-primary); text-align: left; cursor: pointer;
+}
+.place-menu-item:hover, .place-menu-item:focus-visible {
+    background: var(--background-soft); outline: none;
+}
+.place-menu-item[aria-checked="true"] { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.place-menu-item .status-dot { width: 7px; height: 7px; margin: 0; }
+.place-menu-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.place-menu-said { color: var(--text-muted); font-size: var(--text-2xs); }
+
+/* A phone: the page's name alone, as every heading there (the study and
+   its run are the sidebar's bar). */
+@media (max-width: 640px) {
+    .page-header > div:first-child > .place { display: none; }
+}

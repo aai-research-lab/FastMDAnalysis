@@ -40,7 +40,7 @@ def test_the_settings_that_changed_nothing_are_gone():
                  "setting-pocket-cutoff", "setting-time-format", "setting-chart-history"):
         assert f'id="{kept}"' in dialog, kept
     # The study's own words are in its card's menu.
-    menu = page[page.index('id="study-menu"'):page.index('id="study-elsewhere"')]
+    menu = page[page.index('id="study-menu"'):page.index('class="sidebar-nav sidebar-pages"')]
     assert 'data-study-field="name"' in menu and 'data-study-field="ligand"' in menu
 
 

@@ -10,6 +10,8 @@
   var lastRead = 0;
   var rendered = "";
   var RECHECK_MS = 15000;
+  // Read for the status bar's count while the tab is not shown, less often.
+  var COUNTED_MS = 60000;
 
   function byId(id) { return document.getElementById(id); }
   function element(tag, cls, text) {
@@ -19,7 +21,12 @@
     return node;
   }
   function visible() { return byId("problems-pane") && !byId("problems-pane").hidden; }
+  /* The count, for the status bar (statusbar.js); null where not known. */
+  function counted(count) {
+    window.dispatchEvent(new CustomEvent("dashboard:problems-counted", { detail: { count: count } }));
+  }
   function message(words) {
+    counted(null);
     byId("problems-summary").textContent = words;
     byId("problems-body").replaceChildren();
     rendered = "";
@@ -34,6 +41,7 @@
     message(active ? "Reading the study's records..." : "Open a study to read its problems.");
   }
   function render(data) {
+    counted(data.available === false ? null : (data.items || []).length);
     var key = JSON.stringify(data);
     if (key === rendered) return;
     rendered = key;
@@ -69,8 +77,8 @@
     });
   }
   function load(force) {
-    if (!active || !study || (!visible() && !force) || pending) return;
-    if (!force && Date.now() - lastRead < RECHECK_MS) return;
+    if (!active || !study || pending) return;
+    if (!force && Date.now() - lastRead < (visible() ? RECHECK_MS : COUNTED_MS)) return;
     var at = generation;
     var wanted = study;
     var root = active;
