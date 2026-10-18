@@ -277,7 +277,7 @@ def _recorded(root: Path, name: str, found: dict[str, Any], biased: bool,
         "determined": determined, "why": why,
         "samples": int(round(samples)) if samples is not None else None,
         "from_frame": discard, "of_frames": n, "from_ns": from_ns,
-        "reweighted": False,
+        "reweighted": False, "constant": constant,
         # Determined by the rules of the version that analysed it, which
         # may have called a mean still drifting determined.
         "judged_earlier": determined and judged_by_earlier_rules(found),
@@ -306,7 +306,7 @@ def _reweighted(name: str, item: dict[str, Any], found: dict[str, Any] | None) -
         "determined": determined, "why": why,
         "samples": int(round(samples)) if samples is not None else None,
         "from_frame": None, "of_frames": None, "from_ns": None, "reweighted": True,
-        "judged_earlier": False,
+        "constant": False, "judged_earlier": False,
     }
 
 

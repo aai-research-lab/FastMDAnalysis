@@ -48,10 +48,16 @@ _scope: ContextVar[ReadScope | None] = ContextVar("record_read_scope", default=N
 
 def _root_descriptor(root: Path) -> int:
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-    descriptor = os.open(root.anchor, flags)
+    # A folder above the study need only be searchable (a shared cluster's
+    # home folder is often 0711). Where the system has O_PATH, those are
+    # opened without asking to read them; the study itself is opened to read.
+    above = (os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW) if hasattr(os, "O_PATH") else flags
+    parts = root.parts[1:]
+    descriptor = os.open(root.anchor, above if parts else flags)
     try:
-        for part in root.parts[1:]:
-            opened = os.open(part, flags, dir_fd=descriptor)
+        for index, part in enumerate(parts):
+            final = index == len(parts) - 1
+            opened = os.open(part, flags if final else above, dir_fd=descriptor)
             os.close(descriptor)
             descriptor = opened
         return descriptor

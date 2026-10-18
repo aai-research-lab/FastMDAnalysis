@@ -55,7 +55,8 @@ def test_every_quantity_is_checked_including_after_the_first_nine(tmp_path):
     assert payload["study"] == study_key(tmp_path)
     assert len(payload["items"]) == 12
     assert all(item["reason"] == "Not equilibrated." for item in payload["items"])
-    assert all("longer" not in item["fix"] for item in payload["items"])
+    # Nothing in these records says what would fix them, and nothing is made up.
+    assert all(item["fix"] == "No remedy is recorded." for item in payload["items"])
 
 
 def test_old_rules_are_distinct_from_a_withheld_mean(tmp_path):
@@ -167,6 +168,8 @@ def test_malformed_findings_cannot_be_reported_as_checked(tmp_path):
 
 
 def test_successful_current_records_have_no_problems_and_are_unchanged(tmp_path):
+    _write(tmp_path, "manifest.json", {"phases": [{"name": "simulation", "status": "ok"},
+                                                  {"name": "analysis", "status": "ok"}]})
     _status(tmp_path, "completed")
     _write(tmp_path, "analysis/analysis_manifest.json", {"results": {"rmsd": {"status": "ok"}}})
     _write(tmp_path, "analysis/rmsd/options.json", {"findings": {"mean": _mean()}})
@@ -174,7 +177,10 @@ def test_successful_current_records_have_no_problems_and_are_unchanged(tmp_path)
               if p.is_file()}
     payload = problems_payload(tmp_path)
     assert payload["available"] is True and payload["items"] == []
-    assert payload["notes"] == []
+    # An empty list names the records it read, and none was unavailable.
+    assert payload["read"] == ["manifest.json", "simulation/live_status.json",
+                               "analysis/analysis_manifest.json", "analysis/rmsd/options.json"]
+    assert payload["unavailable"] == []
     assert before == {str(p): (p.read_bytes(), p.stat().st_mtime_ns) for p in tmp_path.rglob("*")
                       if p.is_file()}
 
@@ -239,13 +245,242 @@ def test_a_malformed_mean_is_explicit_even_when_the_run_completed(tmp_path):
     assert any("analysis/rmsd/options.json" in note for note in payload["notes"])
 
 
+def _events(root: Path, *lines: tuple[str, str]) -> None:
+    from fastmdxplora.gui.telemetry import TelemetryWriter
+
+    writer = TelemetryWriter(root / "simulation")
+    for level, message in lines:
+        writer.event(message, level=level)
+
+
 def test_a_recorded_warning_survives_a_completed_health_state(tmp_path):
-    _status(tmp_path, "completed", latest_warning="Recorded warning: pressure unstable.")
+    _status(tmp_path, "completed")
+    _events(tmp_path, ("warning", "warning: could not sample live metrics (NaN in state)"))
     _write(tmp_path, "analysis/analysis_manifest.json", {"results": {"rmsd": {"status": "ok"}}})
     _write(tmp_path, "analysis/rmsd/options.json", {"findings": {"mean": _mean()}})
-    payload = problems_payload(tmp_path)
+    payload = problems_payload(tmp_path, admit_evidence=True)
     assert len(payload["items"]) == 1
-    assert payload["items"][0]["reason"] == "Recorded warning: pressure unstable."
+    assert payload["items"][0]["reason"] == "warning: could not sample live metrics (NaN in state)"
+    assert payload["items"][0]["file"] == "simulation/live_events.log"
+
+
+def test_each_recorded_run_warning_is_listed_once(tmp_path):
+    _status(tmp_path, "completed")
+    _events(tmp_path, ("info", "Production started"),
+            ("warning", "warning: could not sample live metrics (first)"),
+            ("warning", "warning: could not sample live metrics (second)"),
+            ("warning", "warning: could not sample live metrics (first)"),
+            ("info", "FastMDXplora exploration completed"))
+    reasons = [item["reason"] for item in problems_payload(tmp_path)["items"]]
+    assert reasons == ["warning: could not sample live metrics (first)",
+                       "warning: could not sample live metrics (second)"]
+
+
+def test_a_stop_and_its_warnings_are_one_problem(tmp_path):
+    # As runner.py and orchestrator.py record a stop: the stop's words as a
+    # warning, the status stopped with them, and the phase stopped.
+    words = "Stopped as asked during production; carry it on from step 5000."
+    _events(tmp_path, ("warning", words), ("warning", "Simulation phase stopped"))
+    _status(tmp_path, "stopped", latest_error=words)
+    items = problems_payload(tmp_path)["items"]
+    assert [item["id"] for item in items] == ["health:stopped"]
+    assert items[0]["reason"] == words
+
+
+def _running(root: Path, age_seconds: float, **process: object) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    stamp = (datetime.now(timezone.utc) - timedelta(seconds=age_seconds)).isoformat()
+    _status(root, "running", last_update_timestamp=stamp)
+    if process:
+        _write(root, ".fastmdxplora_run.json", {"started_at": stamp, **process})
+
+
+def _this_process() -> dict:
+    import os
+
+    from fastmdxplora.orchestrator import this_machine
+
+    return {"pid": os.getpid(), **this_machine()}
+
+
+def _a_finished_process() -> dict:
+    import subprocess
+    import sys
+
+    from fastmdxplora.orchestrator import this_machine
+
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    child.wait()
+    return {"pid": child.pid, **this_machine()}
+
+
+@pytest.mark.parametrize("process", [False, True])
+def test_a_running_study_is_read_and_is_not_a_problem(tmp_path, process):
+    _running(tmp_path, 5, **(_this_process() if process else {}))
+    payload = problems_payload(tmp_path)
+    assert payload["available"] is True
+    assert payload["items"] == []
+    assert "simulation/live_status.json" in payload["read"]
+    assert not any("confined" in note for note in payload["notes"])
+
+
+@pytest.mark.parametrize("ended", ["silence", "process"])
+def test_a_run_the_overview_calls_interrupted_is_listed(tmp_path, ended):
+    from fastmdxplora.gui.telemetry import analyze_health, status_as_it_stands
+
+    if ended == "silence":
+        _running(tmp_path, 3 * 86400)
+    else:
+        _running(tmp_path, 5, **_a_finished_process())
+    shown = status_as_it_stands(tmp_path)
+    assert shown["status"] == "interrupted" and shown["ended_by"] == ended
+    items = problems_payload(tmp_path)["items"]
+    assert len(items) == 1
+    assert items[0]["id"] == "health:interrupted"
+    assert items[0]["title"] == "Interrupted"
+    assert items[0]["reason"] == analyze_health(shown, [])["message"]
+
+
+def test_only_the_run_process_record_is_admitted_among_hidden_files(tmp_path):
+    _write(tmp_path, ".private/record.json", {"pid": 1, "argv": ["PRIVATE_ARGV"]})
+    _running(tmp_path, 5)
+    _link(tmp_path / ".fastmdxplora_run.json", tmp_path / ".private/record.json")
+    payload = problems_payload(tmp_path)
+    assert payload["available"] is False and payload["items"] == []
+    assert ".fastmdxplora_run.json" in payload["unavailable"]
+    assert "PRIVATE_ARGV" not in json.dumps(payload)
+
+
+@pytest.mark.parametrize("missing", ["manifest.json", "analysis/analysis_manifest.json"])
+def test_a_missing_record_is_said_as_unavailable(tmp_path, missing):
+    _write(tmp_path, "manifest.json", {"phases": [{"name": "simulation", "status": "ok"},
+                                                  {"name": "analysis", "status": "ok"}]})
+    _status(tmp_path, "completed")
+    _write(tmp_path, "analysis/analysis_manifest.json", {"results": {"rmsd": {"status": "ok"}}})
+    _write(tmp_path, "analysis/rmsd/options.json", {"findings": {"mean": _mean()}})
+    (tmp_path / missing).unlink()
+    payload = problems_payload(tmp_path)
+    assert payload["items"] == []
+    assert payload["unavailable"] == [missing]
+    assert missing not in payload["read"]
+    assert any(note.startswith(f"{missing} is not there") for note in payload["notes"])
+
+
+def test_an_undetermined_mean_shows_the_sampling_its_record_asks_for(tmp_path):
+    import numpy as np
+
+    from fastmdxplora.simulation.sampling_ask import length_said
+    from fastmdxplora.statistics import mean_record
+
+    # A slowly wandering series: its mean is withheld for want of
+    # independent samples, and the record says how much more would do.
+    rng = np.random.default_rng(7)
+    series = np.cumsum(rng.normal(size=120)) * 0.01 + 1.0
+    found = mean_record(series, frame_interval_ns=0.01)
+    assert "shortfall" in found and found.get("not_a_measurement")
+    _write(tmp_path, "analysis/rmsd/options.json", {"findings": {"mean": found}})
+    items = problems_payload(tmp_path)["items"]
+    assert len(items) == 1
+    short = found["shortfall"]
+    assert items[0]["reason"] == found["not_a_measurement"]
+    assert length_said(short["more_ns"]) in items[0]["fix"]
+    assert f"{short['more_frames']} further frames" in items[0]["fix"]
+    assert f"{short['target_independent']:g} independent samples" in items[0]["fix"]
+    assert ("floor" in items[0]["fix"]) is bool(short.get("lower_bound"))
+
+
+def test_a_retryable_refusal_keeps_its_registry_remedy(tmp_path):
+    refusal = {"code": "environment.service.unreachable",
+               "message": "The service did not answer."}
+    _write(tmp_path, "manifest.json", {"phases": [
+        {"name": "setup", "status": "error", "refusal": refusal}]})
+    items = problems_payload(tmp_path)["items"]
+    assert len(items) == 1
+    assert items[0]["code"] == "environment.service.unreachable"
+    assert items[0]["fix"] == remedy_for(refusal, study=tmp_path, price=False).fix
+    assert items[0]["fix"] != "No remedy is recorded."
+
+
+def test_where_no_remedy_is_recorded_it_says_so(tmp_path):
+    _write(tmp_path, "manifest.json", {"phases": [
+        {"name": "report", "status": "error", "message": "The report could not be written."}]})
+    _write(tmp_path, "analysis/analysis_manifest.json", {"results": {
+        "rmsd": {"status": "error", "message": "rmsd: Atoms do not match."}}})
+    items = problems_payload(tmp_path)["items"]
+    assert len(items) == 2
+    assert all(item["fix"] == "No remedy is recorded." for item in items)
+
+
+def test_a_quantity_constant_in_every_frame_is_titled_as_the_overview_says(tmp_path):
+    import numpy as np
+
+    from fastmdxplora.gui.analysis_overview import overview_of
+    from fastmdxplora.statistics import mean_record
+
+    _write(tmp_path, "analysis/dssp/options.json", {"findings": {
+        "mean": _mean(), "helix_fraction": mean_record(np.zeros(200))}})
+    said = next(q for q in overview_of(tmp_path)["rows"][0]["quantities"]
+                if q["key"] == "helix_fraction")
+    assert said["said"].endswith("in every frame")
+    items = problems_payload(tmp_path)["items"]
+    assert len(items) == 1
+    assert "not determined" not in items[0]["title"]
+    assert items[0]["title"].endswith(": " + said["said"])
+    assert items[0]["reason"] == said["why"]
+
+
+def test_no_study_and_a_gone_folder_are_answered_without_a_server_error(tmp_path):
+    import shutil
+
+    from fastmdxplora.gui.exploration import DashboardRuntime
+    from tests.test_a_public_dashboard_answers_only_what_it_lists import _ask, _serving
+
+    nothing = DashboardRuntime(workspace_root=tmp_path, exploration_root=tmp_path,
+                               active_root=None)
+    with _serving(nothing, allow_control=True) as url:
+        status, body = _ask(url + "/api/problems")
+    assert status == 200
+    assert json.loads(body)["active_run"] is None
+
+    root = tmp_path / "study"
+    _status(root, "completed")
+    _write(root, "manifest.json", {"phases": [{"name": "simulation", "status": "ok"}]})
+    runtime = DashboardRuntime(workspace_root=root, exploration_root=tmp_path, active_root=root)
+    shutil.rmtree(root)
+    with _serving(runtime, allow_control=True) as url:
+        status, body = _ask(url + "/api/problems")
+    assert status == 200
+    gone = json.loads(body)
+    assert gone["state"] == "gone" and gone["active_run"] == str(root)
+    assert gone["notes"] == ["The study's folder is no longer there, so its records "
+                             "cannot be read."]
+
+
+def test_a_folder_above_the_study_need_only_be_searchable(tmp_path, monkeypatch):
+    import errno
+    import os
+
+    if not hasattr(os, "O_PATH") or os.open not in os.supports_dir_fd:
+        pytest.skip("this checks the POSIX walk to the study")
+    locked = tmp_path / "locked"
+    root = locked / "study"
+    _status(root, "completed")
+    _write(root, "manifest.json", {"phases": [{"name": "simulation", "status": "ok"}]})
+    opened = os.open
+
+    def as_a_0711_folder(path, flags, *args, **kwargs):
+        # What the system says to a process that may search the folder but
+        # not read it, as root here is never told.
+        if os.fspath(path) == "locked" and not flags & os.O_PATH:
+            raise PermissionError(errno.EACCES, "Permission denied", "locked")
+        return opened(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", as_a_0711_folder)
+    monkeypatch.setattr(os, "supports_dir_fd", os.supports_dir_fd | {as_a_0711_folder})
+    payload = problems_payload(root)
+    assert payload["available"] is True
+    assert payload["items"] == []
 
 
 def test_a_stop_without_a_checkpoint_does_not_promise_continuation(tmp_path):

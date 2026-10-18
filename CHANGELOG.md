@@ -21,6 +21,24 @@ Versioning: [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html)
 - `/api/analysis-overview` no longer shows the text of a record linked out
   of the study, or to a hidden file in it.
 
+- Problems reads the run's own process record, so a running study is read
+  (and is not a problem), and a run the Overview calls Interrupted is listed.
+  Each warning the run wrote in `simulation/live_events.log` is listed once.
+
+- Problems names the records it read, and names each record missing or
+  unreadable, `manifest.json` and the analysis manifest included; the
+  headline then never says there are no problems.
+
+- Under What would fix it, Problems gives a withheld mean's recorded
+  shortfall (the more production and the independent samples it should
+  give) and a retryable refusal's registry remedy; where none is recorded,
+  it says so. A quantity the same in every frame is named as the Overview
+  names it.
+
+- `/api/problems` answers with no study open, or with the study's folder
+  gone, instead of failing; a folder above the study need only be
+  searchable.
+
 ### Added
 
 - Agent Config versions offer **Review each change**, with Accept and

@@ -20,9 +20,11 @@ def _write(root, name, value):
 
 
 def _study(root):
-    _write(root, "simulation/live_status.json", {
-        "status": "completed", "stage": "production", "latest_warning": "Recorded warning."})
+    from fastmdxplora.gui.telemetry import TelemetryWriter
+
+    _write(root, "simulation/live_status.json", {"status": "completed", "stage": "production"})
     _write(root, "manifest.json", {"phases": [{"name": "simulation", "status": "ok"}]})
+    TelemetryWriter(root / "simulation").event("Recorded warning.", level="warning")
     return root
 
 
@@ -48,7 +50,7 @@ def test_unrelated_links_and_files_do_not_require_a_tree_scan(tmp_path, monkeypa
     _link(root / "simulation/production.dcd", outside)
     if moved_checkpoint:
         _write(root, "simulation/live_status.json", {
-            "status": "completed", "stage": "production", "latest_warning": "Recorded warning.",
+            "status": "completed", "stage": "production",
             "current_checkpoint_path": str(tmp_path / "old-machine/study/simulation/checkpoint.chk")})
         (root / "simulation/checkpoint.chk").write_bytes(b"checkpoint")
     for index in range(100):
@@ -97,7 +99,7 @@ def test_endpoint_admits_only_candidate_evidence(tmp_path, monkeypatch):
         status, body = _ask(url + "/api/problems")
     assert status == 200
     payload = json.loads(body)
-    assert payload["items"][0]["file"] == "simulation/live_status.json"
+    assert payload["items"][0]["file"] == "simulation/live_events.log"
 
 
 def test_unexpected_reader_failure_is_logged_without_public_exception_details(
@@ -184,7 +186,7 @@ def test_nested_readers_refuse_a_link_installed_after_the_first_record(
     from fastmdxplora.gui.problems_view import problems_payload
 
     root = _study(tmp_path / "study")
-    secret = _write(root, ".private/record.json", {"latest_warning": "PRIVATE_CONTEXT"})
+    secret = _write(root, ".private/record.json", {"latest_error": "PRIVATE_CONTEXT"})
     original = record_access.open_text
     installed = False
 

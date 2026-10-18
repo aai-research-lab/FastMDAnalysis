@@ -9,17 +9,24 @@ import pytest
 
 pytest.importorskip("playwright.sync_api")
 
+from fastmdxplora.statistics import MEAN_RULES  # noqa: E402
 
-def _write_study(root: Path, why: str = "Only four independent samples.") -> Path:
+
+def _write_study(root: Path, why: str | None = "Only four independent samples.") -> Path:
     folder = root / "analysis" / "rmsd"
     folder.mkdir(parents=True)
+    (root / "simulation").mkdir()
     (root / "manifest.json").write_text(json.dumps({"phases": [
         {"name": "analysis", "status": "completed"}]}), encoding="utf-8")
+    (root / "simulation" / "live_status.json").write_text(json.dumps({
+        "status": "completed", "stage": "production"}), encoding="utf-8")
     (root / "analysis" / "analysis_manifest.json").write_text(json.dumps({
         "results": {"rmsd": {"status": "success"}}}), encoding="utf-8")
-    (folder / "options.json").write_text(json.dumps({"findings": {"mean": {
-        "mean": 0.12, "unit": "nm", "effective_samples": 4,
-        "not_a_measurement": why}}}), encoding="utf-8")
+    mean = ({"mean": 0.12, "unit": "nm", "effective_samples": 4, "not_a_measurement": why}
+            if why else {"mean": 0.12, "standard_error": 0.01, "unit": "nm",
+                         "n_frames": 200, "effective_samples": 100, "rules": MEAN_RULES})
+    (folder / "options.json").write_text(json.dumps({"findings": {"mean": mean}}),
+                                         encoding="utf-8")
     return root
 
 
@@ -30,7 +37,11 @@ def sessions(tmp_path_factory):
     base = tmp_path_factory.mktemp("problems")
     studies = {"first": _write_study(base / "first"),
                "second": _write_study(base / "second", "Second study's reason."),
+               "clean": _write_study(base / "clean", None),
+               "no-manifest": _write_study(base / "no-manifest", None),
+               "vanishing": _write_study(base / "vanishing", None),
                "empty": base / "empty"}
+    (studies["no-manifest"] / "manifest.json").unlink()
     studies["empty"].mkdir()
     sessions = {name: start_dashboard_session(output=str(path), host="127.0.0.1", port=0)
                 for name, path in studies.items()}
@@ -212,3 +223,93 @@ def test_the_endpoint_refuses_to_read_a_different_study(sessions):
     assert answer["ok"] is False
     assert answer["reason"] == "The open study changed."
     assert "items" not in answer
+
+
+def test_an_empty_list_says_so_and_names_the_records_it_read(browser, sessions):
+    from playwright.sync_api import expect
+
+    page = _open(browser, sessions[0]["clean"])
+    try:
+        expect(page.locator("#problems-summary")).to_have_text(
+            "No problems listed in the records read.")
+        expect(page.locator("#problems-body .problems-read")).to_have_text(
+            "Records read: manifest.json, simulation/live_status.json, "
+            "analysis/analysis_manifest.json, analysis/rmsd/options.json.")
+        assert page.locator(".problem-item").count() == 0
+    finally:
+        page.context.close()
+
+
+@pytest.mark.parametrize("width", [390, 1440])
+def test_a_missing_record_is_said_and_never_as_no_problems(browser, sessions, width):
+    from playwright.sync_api import expect
+
+    page = _open(browser, sessions[0]["no-manifest"], width=width)
+    try:
+        summary = page.locator("#problems-summary")
+        expect(summary).to_have_text(
+            "Some records are unavailable. The 3 records read list no problems.")
+        expect(page.locator("#problems-body")).to_contain_text("manifest.json is not there")
+        expect(page.locator("#problems-body .problems-read")).to_have_text(
+            "Records read: simulation/live_status.json, analysis/analysis_manifest.json, "
+            "analysis/rmsd/options.json.")
+    finally:
+        page.context.close()
+
+
+def test_a_study_folder_gone_is_said_without_offering_refresh(browser, sessions):
+    from playwright.sync_api import expect
+
+    folder = sessions[1]["vanishing"]
+    page = _open(browser, sessions[0]["vanishing"])
+    try:
+        expect(page.locator("#problems-summary")).to_have_text(
+            "No problems listed in the records read.")
+        folder.rename(folder.with_name("vanished"))
+        page.get_by_role("button", name="Refresh problems", exact=True).click()
+        expect(page.locator("#problems-summary")).to_have_text(
+            "The study's folder is no longer there, so its records cannot be read.")
+        assert page.locator(".problem-item").count() == 0
+    finally:
+        page.context.close()
+        folder.with_name("vanished").rename(folder)
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_the_agent_beside_takes_the_side_panels_place_and_gives_it_back(
+        browser, sessions, theme):
+    """With the Agent beside a page, the Agent stands where the side panel
+    was (the layout's design), so Log, Files and Problems wait behind it.
+    At about 1250px nothing runs past the window, and closing the Agent
+    brings the side panel back with Problems as it was."""
+    from playwright.sync_api import expect
+
+    page = _open(browser, sessions[0]["first"], width=1250, theme=theme)
+    try:
+        expect(page.locator("#problems-summary")).to_have_text("1 recorded problem")
+        page.locator("#agent-beside-open").click()
+        page.wait_for_function("() => !document.getElementById('agent-drawer').hidden")
+        page.wait_for_function("() => document.activeElement.id === 'agent-request'")
+        past = page.evaluate("""() => {
+            const out = [];
+            if (document.documentElement.scrollWidth > innerWidth + 1) out.push('page scrolls sideways');
+            for (const el of document.querySelectorAll('.app-shell *, #agent-drawer *')) {
+                const r = el.getBoundingClientRect();
+                const style = getComputedStyle(el);
+                if (!r.width || !r.height || style.visibility !== 'visible') continue;
+                if (el.closest('[hidden]')) continue;
+                if (r.left < -1 || r.right > innerWidth + 1) out.push(el.id || el.className);
+            }
+            return out;
+        }""")
+        assert past == []
+        page.keyboard.press("Escape")
+        page.wait_for_function("() => document.getElementById('agent-drawer').hidden")
+        expect(page.locator("#side-panel")).to_be_visible()
+        expect(page.locator("#problems-tab")).to_have_attribute("aria-selected", "true")
+        expect(page.locator("#problems-pane")).to_be_visible()
+        expect(page.locator("#problems-summary")).to_have_text("1 recorded problem")
+        box = page.locator("#problems-pane").bounding_box()
+        assert box is not None and box["width"] > 200 and box["x"] + box["width"] <= 1251
+    finally:
+        page.context.close()

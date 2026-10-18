@@ -864,13 +864,21 @@ def make_handler(
                 from fastmdxplora.gui.problems_view import problems_payload
                 from fastmdxplora.gui.workspace import study_key
 
+                if _no_study(root):
+                    # No study open: said as that, not read as a folder.
+                    self._send_json({"ok": True, "study": "", "active_run": None,
+                                     "items": [], "notes": [], "read": [],
+                                     "unavailable": [], "available": False})
+                    return
                 wanted = (parse_qs(parsed.query).get("study") or [""])[0]
                 if wanted and wanted != study_key(root):
                     self._send_json({"ok": False, "study": study_key(root),
                                      "reason": "The open study changed."})
                     return
                 answer = problems_payload(root, admit_evidence=True)
-                answer["active_run"] = str(root) if is_study(root) else None
+                # A study whose folder has gone is still the one open.
+                answer["active_run"] = (str(root) if answer.get("state") == "gone"
+                                        or is_study(root) else None)
                 self._send_json(answer)
                 return
             if path == "/api/status":

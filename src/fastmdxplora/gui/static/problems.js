@@ -40,9 +40,19 @@
     var body = byId("problems-body");
     body.replaceChildren();
     var items = data.items || [];
-    byId("problems-summary").textContent = items.length
-      ? items.length + (items.length === 1 ? " recorded problem" : " recorded problems")
-      : (data.available ? "No problems listed in the available records." : "Records unavailable.");
+    var read = data.read || [];
+    var missing = (data.unavailable || []).length > 0;
+    var counted = items.length + (items.length === 1 ? " recorded problem" : " recorded problems");
+    /* "No problems" is said only of every record read. Where one could
+     * not be, the headline says so, and the notes name it. */
+    byId("problems-summary").textContent = !data.available
+      ? (items.length ? counted + "; other records are unavailable." : "Records unavailable.")
+      : items.length
+        ? counted + (missing ? "; some records are unavailable." : "")
+        : missing
+          ? "Some records are unavailable. The " + read.length +
+            (read.length === 1 ? " record read lists" : " records read list") + " no problems."
+          : "No problems listed in the records read.";
     items.forEach(function (item) {
       var card = element("article", "problem-item");
       card.dataset.problemId = item.id;
@@ -50,7 +60,7 @@
       card.appendChild(element("p", "", item.reason));
       if (item.code) card.appendChild(element("code", "problem-code", item.code));
       card.appendChild(element("h4", "", "What would fix it"));
-      card.appendChild(element("p", "", item.fix || "Review the recorded reason before choosing a change."));
+      card.appendChild(element("p", "", item.fix || "No remedy is recorded."));
       if (item.file) {
         var file = element("div", "problem-file");
         file.appendChild(element("code", "", item.file));
@@ -67,6 +77,9 @@
     (data.notes || []).forEach(function (note) {
       body.appendChild(element("p", "problems-note", note));
     });
+    if (read.length) {
+      body.appendChild(element("p", "problems-note problems-read", "Records read: " + read.join(", ") + "."));
+    }
   }
   function load(force) {
     if (!active || !study || (!visible() && !force) || pending) return;
@@ -94,6 +107,11 @@
         return;
       }
       if (!data.ok) throw new Error(data.reason || "Could not read the study's problems.");
+      if (data.state === "gone" || data.state === "unreadable") {
+        /* Refresh cannot bring a folder back: said once, without it. */
+        message((data.notes || [])[0] || "The study's records cannot be read.");
+        return;
+      }
       render(data);
     }).catch(function (error) {
       if (at !== generation || error.name === "AbortError") return;

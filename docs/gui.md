@@ -72,19 +72,8 @@ person and the settings. The **side panel**:
 a *Log* tab, which is what the command line prints, sorted so a refusal is a
 red-edged block and the explain text a quiet one, with filters and a
 scroll-to-newest toggle; a *Files* tab, which opens any of the run's
-files in place; and a *Problems* tab listing recorded refusals, run
-warnings and undetermined analysis quantities. Each problem keeps its
-recorded reason and the remedy where one is available. The file icon opens
-its evidence in Files. Missing records are said as unavailable, and an
-empty list describes only the available records. For a campaign, open each
-run to read that run's problems. Refresh reads the records again; the panel
-does not start a run. It reads the open run's records, without consulting
-parent campaigns or sibling runs. Admission is checked at each record read,
-including reads by helper functions; an unsafe source or link leaves the
-list unavailable. Unrelated trajectory and scratch files are not scanned.
-Only evidence candidates are checked for the file controls. Unexpected
-reader failures are available in debug logs; the panel keeps a short note. And two **seams** between
-the columns that drag, with a
+files in place; and a *Problems* tab, the study's health in one list
+(below). And two **seams** between the columns that drag, with a
 double-click to reset; the sidebar folds to a strip of its icons under
 FastMDXplora's mark, the side panel to a tab at its edge, and the centre stays
 centred at a reading width whatever is folded. Pointing at the strip's
@@ -116,6 +105,28 @@ header is one band across the centre column, and stays put while the page
 scrolls. The three columns' top bars are one height, their rules on one
 line: the product's name at the top of the sidebar, each page's title,
 centred, and the side panel's tabs.
+
+The **Problems** tab lists, from the open study's own records, each refusal
+(its code, its words and the registry's remedy), a run interrupted (as the
+Overview says it: one whose record says it is going, but whose process is
+gone or which has written nothing for a day), each warning the run recorded
+in `simulation/live_events.log`, and each mean not determined, with the
+quantity and why. Under **What would fix it** is the remedy the records hold:
+for a mean withheld for want of samples, the more production its record
+asks for and the independent samples that should give; where the records
+hold none, it says no remedy is recorded. A quantity the same in every
+frame is named as the Overview names it. The file icon opens a problem's
+record in Files. With no problems it says so and names the records it read;
+a record missing or unreadable is named as unavailable, and the headline
+then never says the study has no problems. A study whose folder has gone is
+said to be gone. The tab only reads: it writes no file, starts no run, and
+reads nothing outside the open run's folder. It reads the open run alone, not
+its campaign or the runs beside it; for a campaign, open each run. A record
+linked out of the study, or to a hidden file in it, is refused, and the list
+is then unavailable and names it; of the hidden files, only the run's own
+process record (`.fastmdxplora_run.json`) is read, to tell a run going from
+one that ended. With the Agent beside a page, the Agent takes the side
+panel's place, so Log, Files and Problems come back when the Agent closes.
 
 **The sidebar** reads top-down:
 

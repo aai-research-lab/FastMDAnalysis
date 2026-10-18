@@ -178,7 +178,7 @@ FastMDXplora/
 │       │   ├── figure_data.py     # The numbers behind an analysis's other figures, to plot in the page's colours
 │       │   ├── stopping_view.py   # A study run until it is determined, for the Overview
 │       │   ├── fixes_view.py      # What would fix the study on screen
-│       │   ├── problems_view.py   # Recorded refusals, health and undetermined means
+│       │   ├── problems_view.py   # The study's recorded problems, read and never acted on
 │       │   ├── figure_provenance.py  # What made each figure, and the command that makes it again
 │       │   ├── report_page.py     # The report as a document, in the page
 │       │   ├── browse.py          # Walking the filesystem from the page; what is a study
@@ -200,8 +200,8 @@ FastMDXplora/
 │       │   ├── report_dashboard.py  # Static dashboard written into a report
 │       │   ├── static/            # theme.css (shared tokens), dashboard.css, dashboard.js,
 │       │   │                      #   frame.js (columns, side panel, theme), theme-first.js
-│       │   │                      #   problems.js and problems.css (the read-only Problems tab)
-│       │   │                      #   (the scheme before the first paint), fonts/ (Inter and
+│       │   │                      #   (the scheme before the first paint), problems.js and
+│       │   │                      #   problems.css (the read-only Problems tab), fonts/ (Inter and
 │       │   │                      #   JetBrains Mono, SIL OFL 1.1), studies.js,
 │       │   │                      #   preferences.js (the dialogs, preferences kept),
 │       │   │                      #   run-builder.js, file-picker.js, report-page.js, analyze-again.js,
