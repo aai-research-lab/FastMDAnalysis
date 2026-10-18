@@ -81,6 +81,13 @@
     sparks = [];
     host.replaceChildren();
     tiles.forEach(function (tile) { host.appendChild(tileFor(tile)); });
+    var lead = byId("overview-lead");
+    if (lead) {
+      var said = data && data.lead ? data.lead.said : "";
+      lead.textContent = said || "";
+      lead.hidden = !said;
+      lead.dataset.undetermined = data && data.lead ? String(data.lead.undetermined) : "";
+    }
     var said = byId("overview-results-said");
     if (said) said.replaceChildren();
     if (said && data) {
@@ -129,6 +136,11 @@
          tile.from_ns != null ? "from " + sayTime(tile.from_ns) : "",
          tile.reweighted ? "reweighted" : ""].filter(Boolean).join(" · ");
     link.appendChild(make("div", "tile-note", note));
+    if (!perResidue && !tile.determined && tile.reason) {
+      // Why, quietly and in a line, on the tile itself, where an orange
+      // badge said only "Not determined", nineteen times over.
+      link.appendChild(make("div", "tile-reason", tile.reason));
+    }
     if (perResidue) {
       link.appendChild(bars(tile.values));
     } else if (tile.series) {
